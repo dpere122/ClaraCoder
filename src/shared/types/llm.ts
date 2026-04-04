@@ -1,3 +1,18 @@
+/** Optional UI tier for manager/worker agent rows (from Python ``agent_role``). */
+export type LlmAgentRole = 'manager' | 'worker';
+
+/**
+ * Clara streaming/processing tier in the chat UI.
+ * Maps from {@link LlmAgentRole} while a reply is in flight (single-agent uses `CLARA_AGENT`).
+ */
+export type ClaraAgentMode = 'CLARA_AGENT' | 'CLARA_MANAGER' | 'CLARA_WORKER';
+
+export function claraModeFromLlmRole(role: LlmAgentRole | null): ClaraAgentMode {
+  if (role === 'manager') return 'CLARA_MANAGER';
+  if (role === 'worker') return 'CLARA_WORKER';
+  return 'CLARA_AGENT';
+}
+
 /** Streaming status / tool row payload sent renderer → UI over IPC. */
 export interface LlmStatus {
   id: string;
@@ -5,6 +20,8 @@ export interface LlmStatus {
   detail: string;
   state: 'running' | 'complete' | 'error';
   source: 'agent' | 'tool';
+  /** When set, chain row pill shows Manager / Worker instead of generic AGENT. */
+  agentRole?: LlmAgentRole;
 }
 
 /** Same shape as {@link LlmStatus}; used when parsing SSE JSON from the Python backend. */

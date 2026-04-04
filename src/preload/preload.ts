@@ -3,16 +3,26 @@
  * Uses contextBridge only — renderer never gets raw `ipcRenderer` except through these whitelisted calls.
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { TtsStreamPacket } from '../shared';
+import type { FileDiffPayload, TtsStreamPacket } from '../shared';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   onReady: () => ipcRenderer.send('ready'),
   onMessageChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) =>
     ipcRenderer.on('message-chunk', callback),
+  onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) =>
+    ipcRenderer.on('message-tool-read-chunk', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),
-  sendMessage: (conversationId: string, msg: string) => ipcRenderer.send('message', conversationId, msg),
+  onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
+    ipcRenderer.on('message-diff', callback),
+  sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) =>
+    ipcRenderer.send('message', conversationId, msg, applyMode ?? true, autoApplyMode ?? false),
+  agentContinue: (conversationId: string, note: string) => ipcRenderer.invoke('agent-continue', conversationId, note),
+  syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
+    ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
+  writeWorkspaceFile: (workspaceRoot: string, relativePath: string, utf8Content: string) =>
+    ipcRenderer.invoke('write-workspace-file', workspaceRoot, relativePath, utf8Content),
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   getConversations: (workspaceId?: string | null) => ipcRenderer.invoke('get-conversations', workspaceId),
   loadConversation: (id: string, workspaceId?: string | null) => ipcRenderer.invoke('load-conversation', id, workspaceId),

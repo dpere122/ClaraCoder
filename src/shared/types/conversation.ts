@@ -1,3 +1,9 @@
+import type { FileDiffPayload } from './diff';
+import type { LlmAgentRole } from './llm';
+
+/** Lifecycle of a proposed edit card in the chat transcript. */
+export type DiffReviewStatus = 'pending' | 'complete' | 'cancelled';
+
 /** List row / sidebar metadata for a conversation. */
 export interface ConversationMeta {
   id: string;
@@ -17,6 +23,13 @@ export type ConversationMessage =
       state: 'running' | 'complete' | 'error';
       source: 'agent' | 'tool';
       statusId: string;
+      agentRole?: LlmAgentRole;
+    }
+  | {
+      role: 'diff';
+      payload: FileDiffPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
     };
 
 /** Full conversation as used in the renderer. */
@@ -26,8 +39,27 @@ export interface Conversation extends ConversationMeta {
   themeId: string;
 }
 
+/** Serialized chat row in conversation JSON (includes tool/diff metadata). */
+export type ConversationFileMessage =
+  | { role: 'user' | 'assistant'; text: string }
+  | {
+      role: 'chain';
+      label: string;
+      text: string;
+      state: 'running' | 'complete' | 'error';
+      source: 'agent' | 'tool';
+      statusId: string;
+      agentRole?: LlmAgentRole;
+    }
+  | {
+      role: 'diff';
+      payload: FileDiffPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    };
+
 /**
- * On-disk JSON shape used by the main process (simpler message rows than the UI model).
+ * On-disk JSON shape used by the main process.
  * Loaded/saved via IPC; Python history sync uses user/assistant roles only.
  */
 export interface ConversationFile {
@@ -35,7 +67,7 @@ export interface ConversationFile {
   title: string;
   createdAt: string;
   updatedAt: string;
-  messages: { role: string; text: string }[];
+  messages: ConversationFileMessage[];
   workspaceId: string | null;
   themeId: string;
 }

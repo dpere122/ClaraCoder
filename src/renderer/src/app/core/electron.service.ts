@@ -8,6 +8,7 @@ import type {
   AppConfig,
   Conversation,
   ConversationMeta,
+  FileDiffPayload,
   FileEntry,
   LlmStatus,
   TtsStreamPacket,
@@ -20,6 +21,12 @@ export interface ChunkMessage {
   delta: string;
 }
 
+/** Read-tool output mirrored from the backend (not part of the saved assistant reply). */
+export interface ToolReadChunkMessage {
+  conversationId: string;
+  delta: string;
+}
+
 export interface DoneMessage {
   conversationId: string;
 }
@@ -27,6 +34,11 @@ export interface DoneMessage {
 export interface LlmStatusMessage {
   conversationId: string;
   status: LlmStatus;
+}
+
+export interface DiffMessage {
+  conversationId: string;
+  diff: FileDiffPayload;
 }
 
 export interface ScriptOutputMessage {
@@ -50,8 +62,10 @@ export class ElectronService {
   private static ttsPacketListenerWired = false;
 
   private readonly chunkSubject = new Subject<ChunkMessage>();
+  private readonly toolReadChunkSubject = new Subject<ToolReadChunkMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
+  private readonly diffSubject = new Subject<DiffMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
@@ -64,8 +78,10 @@ export class ElectronService {
   private readonly scriptCompleteSubject = new Subject<ScriptCompleteMessage>();
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
   readonly chunk$ = this.chunkSubject.asObservable();
+  readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
+  readonly diff$ = this.diffSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
@@ -91,11 +107,17 @@ export class ElectronService {
     this.api?.onMessageChunk((_event, conversationId, delta) => {
       this.zone.run(() => this.chunkSubject.next({ conversationId, delta }));
     });
+    this.api?.onMessageToolReadChunk((_event, conversationId, delta) => {
+      this.zone.run(() => this.toolReadChunkSubject.next({ conversationId, delta }));
+    });
     this.api?.onMessageDone((_event, conversationId) => {
       this.zone.run(() => this.doneSubject.next({ conversationId }));
     });
     this.api?.onMessageStatus((_event, conversationId, status) => {
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
+    });
+    this.api?.onMessageDiff?.((_event, conversationId, diff) => {
+      this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
     });
     this.api?.onConfigUpdated((_event, config) => {
       this.zone.run(() => this.configSubject.next(config));
@@ -136,8 +158,32 @@ export class ElectronService {
     this.api?.onReady();
   }
 
-  sendMessage(conversationId: string, msg: string): void {
-    this.api?.sendMessage(conversationId, msg);
+  sendMessage(conversationId: string, msg: string, applyMode = true, autoApplyMode = false): void {
+    this.api?.sendMessage(conversationId, msg, applyMode, autoApplyMode);
+  }
+
+  /** Resume the in-flight LangChain stream after diff review (same HTTP stream as the original message). */
+  notifyAgentContinue(conversationId: string, note: string): Promise<{ ok: boolean; error?: string }> {
+    return this.api?.agentContinue(conversationId, note) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  /** Push toolbar auto-apply to Python so mid-stream toggles affect the next tool call. */
+  syncAutoApplyMode(conversationId: string, autoApplyMode: boolean): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.syncAutoApplyMode(conversationId, autoApplyMode) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  writeWorkspaceFile(
+    workspaceRoot: string,
+    relativePath: string,
+    utf8Content: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.writeWorkspaceFile?.(workspaceRoot, relativePath, utf8Content) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
   }
 
   setAlwaysOnTop(pinned: boolean): void {
@@ -249,6 +295,11 @@ export class ElectronService {
         baseUrl: '',
         model: 'gpt-4o-mini-transcribe',
         apiKey: '',
+      },
+      workspaceTools: {
+        editToolsMode: 'standard',
+        maxFileReadLines: 400,
+        maxSearchResults: 40,
       },
     });
   }

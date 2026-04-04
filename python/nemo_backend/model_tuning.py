@@ -1,0 +1,77 @@
+"""Heuristic tuning for specific model families (e.g. Qwen 3.x via LM Studio / vLLM).
+
+The desktop **Optimization template** (``optimization_preset`` on the active connection) can force
+the Qwen profile even when the model id does not contain ``qwen``. For **generic**, enable auto
+heuristics with ``NEMO_QWEN_OPTIMIZE`` (default on) when the model id looks like Qwen.
+
+``max_output_tokens`` on the connection sets API ``max_tokens`` when positive; otherwise preset/env
+defaults apply. Global env ``NEMO_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from nemo_backend.domain import RuntimeConnection
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, '').strip().lower()
+    if not raw:
+        return default
+    return raw in ('1', 'true', 'yes', 'on')
+
+
+def is_qwen_family(model: str) -> bool:
+    """True when the configured model id is likely Qwen (local or API)."""
+    return 'qwen' in (model or '').lower()
+
+
+def qwen_optimize_profile_active(connection: RuntimeConnection) -> bool:
+    """True when the Qwen template is selected or generic + model id looks like Qwen (env-gated)."""
+    preset = (getattr(connection, 'optimization_preset', None) or 'generic').strip().lower()
+    if preset == 'qwen':
+        return True
+    return is_qwen_family(connection.model) and _env_bool('NEMO_QWEN_OPTIMIZE', True)
+
+
+def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
+    """Parallel tool calls: disabled under Qwen optimize profile (more stable on many OpenAI-compatible stacks)."""
+    if qwen_optimize_profile_active(connection):
+        return False
+    return bool(connection.parallel_tool_calls)
+
+
+def llm_optional_kwargs(connection: RuntimeConnection) -> dict[str, Any]:
+    """Extra ``ChatOpenAI`` kwargs (e.g. ``max_tokens``) derived from env, connection, then Qwen profile."""
+    out: dict[str, Any] = {}
+    global_max = os.getenv('NEMO_CHAT_MAX_OUTPUT_TOKENS', '').strip()
+    if global_max.isdigit():
+        v = int(global_max)
+        if v > 0:
+            out['max_tokens'] = v
+        return out
+    conn_max = int(getattr(connection, 'max_output_tokens', 0) or 0)
+    if conn_max > 0:
+        out['max_tokens'] = conn_max
+        return out
+    if not qwen_optimize_profile_active(connection):
+        return out
+    raw = os.getenv('NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', '8192').strip() or '8192'
+    try:
+        default_max = int(raw)
+    except ValueError:
+        default_max = 8192
+    if default_max > 0:
+        out['max_tokens'] = default_max
+    return out
+
+
+def qwen_system_prompt_suffix() -> str:
+    """Short instruction block appended to Clara system prompts when Qwen optimize is active."""
+    return (
+        '\n\nModel note (Qwen): Prefer one tool call per assistant turn when you can; wait for the tool result '
+        'before issuing the next call. Never put tool arguments or <tool_call> XML in plain assistant text—'
+        'only use the API tool channel.\n'
+    )

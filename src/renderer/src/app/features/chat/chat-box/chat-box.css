@@ -286,33 +286,129 @@ app-chat-box .user-bubble {
   background-color: var(--t-bg);
 }
 
-app-chat-box .processing-bubble {
+app-chat-box .streaming-bubble-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+app-chat-box .streaming-author {
+  font-weight: 600;
+  font-size: 0.88em;
+  color: var(--t-primary);
+  letter-spacing: 0.02em;
+}
+
+app-chat-box .streaming-role-pill {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid var(--t-border);
+  color: var(--t-secondary);
+  border-radius: 2px;
+}
+
+app-chat-box .tool-read-stream-block {
+  margin-bottom: 0.55rem;
+  min-height: 0;
+}
+
+app-chat-box .tool-read-stream-label,
+app-chat-box .streaming-block-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+  margin-bottom: 0.3rem;
+}
+
+app-chat-box .tool-read-stream-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.78em;
+  line-height: 1.45;
+  color: var(--t-secondary);
+  background: var(--t-code-inline-bg);
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 4px;
+  padding: 0.45rem 0.55rem;
+  max-height: 14em;
+  overflow-y: auto;
+}
+
+app-chat-box .tool-read-stream-pre::-webkit-scrollbar {
+  width: 4px;
+}
+
+app-chat-box .tool-read-stream-pre::-webkit-scrollbar-thumb {
+  background: var(--t-border);
+}
+
+app-chat-box .streaming-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 0.55rem;
+  min-height: 0;
+}
+
+app-chat-box .streaming-block-inner {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+app-chat-box .processing-bubble {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
   min-height: 1.5em;
+  padding-top: 0.15rem;
+  border-top: 1px solid var(--t-border-subtle);
+  margin-top: 0.15rem;
 }
 
-app-chat-box .processing-spinner {
-  width: 0.85rem;
-  height: 0.85rem;
-  border: 2px solid var(--t-border-subtle);
-  border-radius: 50%;
+app-chat-box .streaming-bubble:not(:has(.streaming-block)):not(:has(.tool-read-stream-block)) .processing-bubble {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Rotating circular ring (accent segment spins around the circle). */
+app-chat-box .processing-spinner-wrap {
+  width: 1.05rem;
+  height: 1.05rem;
   flex-shrink: 0;
-  animation: processingSpin 0.7s linear infinite;
+  animation: processingSpin 0.72s linear infinite;
 }
 
-app-chat-box .processing-spinner--think {
+app-chat-box .processing-spinner-ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
   border-top-color: #e8945c;
+  box-sizing: border-box;
 }
 
-app-chat-box .processing-spinner--tools {
+app-chat-box .processing-spinner-wrap--tools .processing-spinner-ring {
   border-top-color: #5d9cec;
 }
 
-/* Ensure tools accent wins if both modifiers were ever present on the same node. */
-app-chat-box .processing-spinner.processing-spinner--tools {
-  border-top-color: #5d9cec;
+app-chat-box .processing-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
 }
 
 app-chat-box .processing-text {
@@ -320,6 +416,14 @@ app-chat-box .processing-text {
   font-size: 0.82em;
   color: var(--t-secondary);
   text-shadow: 0 0 4px var(--t-glow-soft);
+}
+
+app-chat-box .processing-tool-hint {
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.72em;
+  line-height: 1.35;
+  color: var(--t-text-muted);
+  word-break: break-word;
 }
 
 @keyframes processingSpin {
@@ -333,7 +437,7 @@ app-chat-box .streaming-bubble {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0;
 }
 
 app-chat-box .chain-bubble {
@@ -539,6 +643,20 @@ app-chat-box .pending-patch-hunk-pre {
   padding: 0.45rem;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--t-secondary);
+}
+
+app-chat-box .diff-msg-bubble {
+  border-left: 3px solid var(--bs-info, #0dcaf0);
+}
+
+app-chat-box .diff-msg-title {
+  font-weight: 600;
+  color: var(--t-primary);
+  letter-spacing: 0.02em;
+}
+
+app-chat-box .diff-msg-subtitle {
   color: var(--t-secondary);
 }
 

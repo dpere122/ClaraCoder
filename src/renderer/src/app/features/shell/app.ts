@@ -2,8 +2,8 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { Component, computed, effect, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
-import type { Conversation, ConversationMeta, LlmStatus, Workspace } from '@shared/index';
+import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
+import type { Conversation, ConversationMeta, LlmAgentRole, LlmStatus, Workspace } from '@shared/index';
 import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
 import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
@@ -34,7 +34,16 @@ export class App implements OnInit, OnDestroy {
   protected readonly selectedVoice = signal('en-US-AriaNeural');
   protected readonly talkStatus = signal('');
   protected readonly talkEnabled = signal(false);
+  /**
+   * Editor mode: when true, the backend binds edit/write tools (`apply_mode`). When false, read/search only.
+   * Auto apply is only available in the toolbar when this is on.
+   */
+  protected readonly editorMode = model(true);
+  /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
+  protected readonly autoApplyMode = model(false);
   protected readonly streamingText = signal('');
+  /** Read-tool payloads streamed for the live bubble only (not saved with the assistant message). */
+  protected readonly toolReadStreamText = signal('');
   protected readonly settingsWindowOpen = signal(false);
   /** In-flight tool call ids for the active conversation (drives processing-row spinner color). */
   private readonly toolRunIds = signal<Set<string>>(new Set());
@@ -48,6 +57,8 @@ export class App implements OnInit, OnDestroy {
   );
   /** Short hint while a workspace tool runs (tool name / path from backend status). */
   protected readonly processingToolHint = signal('');
+  /** While the model step runs (no tool yet), show Manager vs Worker in the processing row. */
+  protected readonly processingAgentRole = signal<LlmAgentRole | null>(null);
 
   // Workspace management
   protected readonly workspaces = signal<Workspace[]>([]);
@@ -68,6 +79,7 @@ export class App implements OnInit, OnDestroy {
 
   private activeConversation: Conversation | null = null;
   private backgroundChunks = new Map<string, string>();
+  private backgroundToolReadChunks = new Map<string, string>();
   private resizing: 'workspace' | 'sidebar' | null = null;
   private boundOnResizeMove = this.onResizeMove.bind(this);
   private boundOnResizeEnd = this.onResizeEnd.bind(this);
@@ -85,6 +97,20 @@ export class App implements OnInit, OnDestroy {
 
     effect(() => {
       this.electron.setAlwaysOnTop(this.pinned());
+    });
+
+    effect(() => {
+      const convId = this.activeConversationId();
+      const effectiveAutoApply = this.editorMode() && this.autoApplyMode();
+      if (convId) {
+        void this.electron.syncAutoApplyMode(convId, effectiveAutoApply);
+      }
+    });
+
+    effect(() => {
+      if (!this.editorMode()) {
+        this.autoApplyMode.set(false);
+      }
     });
 
     effect(() => {
@@ -130,6 +156,28 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.toolReadChunk$.subscribe(({ conversationId, delta }) => {
+      if (conversationId === this.activeConversationId()) {
+        this.toolReadStreamText.update((prev) => prev + delta);
+      } else {
+        const prev = this.backgroundToolReadChunks.get(conversationId) ?? '';
+        this.backgroundToolReadChunks.set(conversationId, prev + delta);
+      }
+    });
+
+    this.electron.diff$.subscribe(({ conversationId, diff }) => {
+      if (conversationId !== this.activeConversationId()) return;
+      if (diff.version !== 1 || !Array.isArray(diff.rows)) return;
+      this.messages.update((prev) => [
+        ...prev,
+        { role: 'diff', payload: diff, reviewStatus: 'pending' as const },
+      ]);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...this.messages()];
+        this.pendingSave = true;
+      }
+    });
+
     this.electron.llmStatus$.subscribe(({ conversationId, status }) => {
       if (conversationId !== this.activeConversationId()) return;
       const src = (status.source ?? 'agent').toLowerCase();
@@ -153,6 +201,10 @@ export class App implements OnInit, OnDestroy {
           return next;
         });
       }
+      if (src === 'agent' && status.state === 'running' && status.agentRole) {
+        this.processingAgentRole.set(status.agentRole);
+      }
+      // Keep last manager/worker tier through tool runs until the reply finishes (`done$`).
       this.upsertChainMessage(status);
     });
 
@@ -162,8 +214,10 @@ export class App implements OnInit, OnDestroy {
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.processingToolHint.set('');
+        this.processingAgentRole.set(null);
         const text = this.streamingText();
         this.streamingText.set('');
+        this.toolReadStreamText.set('');
         if (text) {
           this.pushMessage('assistant', text);
           if (this.speechEnabled()) void this.tts.speakText(text, this.selectedVoice());
@@ -172,6 +226,7 @@ export class App implements OnInit, OnDestroy {
       } else {
         const text = this.backgroundChunks.get(conversationId) ?? '';
         this.backgroundChunks.delete(conversationId);
+        this.backgroundToolReadChunks.delete(conversationId);
         if (text) {
           this.saveMessageToConversation(conversationId, text);
         }
@@ -239,8 +294,15 @@ export class App implements OnInit, OnDestroy {
     this.pushMessage('user', normalized);
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
+    this.processingAgentRole.set(null);
     this.streamingText.set('');
-    this.electron.sendMessage(convId, normalized);
+    this.toolReadStreamText.set('');
+    this.electron.sendMessage(
+      convId,
+      normalized,
+      this.editorMode(),
+      this.editorMode() && this.autoApplyMode(),
+    );
     this.autoSave();
   }
 
@@ -254,6 +316,9 @@ export class App implements OnInit, OnDestroy {
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
     this.processingToolHint.set('');
+    this.processingAgentRole.set(null);
+    this.streamingText.set('');
+    this.toolReadStreamText.set('');
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
     let themeToApply = config.noWorkspaceThemeId || 'dark';
@@ -270,6 +335,33 @@ export class App implements OnInit, OnDestroy {
   onSendResponse(text: string): void {
     // Send the output as a new user message
     this.onMessageSent(text);
+  }
+
+  onDiffReviewFinished(event: { relativePath: string; status: 'complete' | 'cancelled'; summary?: string }): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'diff' &&
+          m.payload.relativePath === event.relativePath &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+      this.autoSave();
+    }
   }
 
   async onSelectConversation(id: string): Promise<void> {
@@ -433,8 +525,11 @@ export class App implements OnInit, OnDestroy {
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
     this.processingToolHint.set('');
+    this.processingAgentRole.set(null);
     this.streamingText.set('');
+    this.toolReadStreamText.set('');
     this.backgroundChunks.delete(conv.id);
+    this.backgroundToolReadChunks.delete(conv.id);
 
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
@@ -512,6 +607,7 @@ export class App implements OnInit, OnDestroy {
         state: status.state,
         source: status.source,
         statusId: status.id,
+        ...(status.agentRole ? { agentRole: status.agentRole } : {}),
       };
       for (let i = prev.length - 1; i >= 0; i--) {
         const m = prev[i];

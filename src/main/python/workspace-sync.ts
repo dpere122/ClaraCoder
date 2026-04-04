@@ -15,6 +15,11 @@ export async function syncRuntimeConfigToPython(config: AppConfig): Promise<void
         connections: config.llmConnections,
         audio: config.audioTranscription,
         host: getHostOsInfo(),
+        tools: {
+          editToolsStrict: config.workspaceTools.editToolsMode === 'strict',
+          maxFileReadLines: config.workspaceTools.maxFileReadLines,
+          maxSearchResults: config.workspaceTools.maxSearchResults,
+        },
       }),
     });
 

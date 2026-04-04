@@ -2,6 +2,9 @@ fastapi
 uvicorn
 openai
 langchain
+langgraph
 langchain-openai
 edge-tts
 SpeechRecognition
+diff-match-patch
+pypdf

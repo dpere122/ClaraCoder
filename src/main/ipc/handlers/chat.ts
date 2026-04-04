@@ -1,22 +1,30 @@
 import { ipcMain } from 'electron';
-import type { LlmStatusPayload } from '../../../shared';
+import type { FileDiffPayload, LlmStatusPayload } from '../../../shared';
 import { PYTHON_URL } from '../../python/server';
 import { mainState } from '../../state';
 
 /**
- * Parse NDJSON/SSE-style payloads from Python: either `{ type, delta }` text chunks or `{ type, status }` rows.
+ * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`, `diff`.
  */
 export function parseStreamPayload(
   payload: string,
-): { type: 'chunk'; delta: string } | { type: 'status'; status: LlmStatusPayload } {
+):
+  | { type: 'chunk'; delta: string }
+  | { type: 'tool_read_chunk'; delta: string }
+  | { type: 'status'; status: LlmStatusPayload }
+  | { type: 'diff'; diff: FileDiffPayload } {
   try {
     const parsed = JSON.parse(payload) as {
       type?: string;
       delta?: string;
       text?: string;
-      status?: LlmStatusPayload;
+      status?: LlmStatusPayload & { agent_role?: string };
+      diff?: unknown;
     };
     if (parsed.type === 'status' && parsed.status) {
+      const rawRole = parsed.status.agent_role;
+      const agentRole =
+        rawRole === 'manager' || rawRole === 'worker' ? rawRole : undefined;
       return {
         type: 'status',
         status: {
@@ -25,8 +33,17 @@ export function parseStreamPayload(
           detail: parsed.status.detail ?? '',
           state: parsed.status.state ?? 'running',
           source: parsed.status.source ?? 'agent',
+          ...(agentRole ? { agentRole } : {}),
         },
       };
+    }
+
+    if (parsed.type === 'diff' && parsed.diff && typeof parsed.diff === 'object') {
+      return { type: 'diff', diff: parsed.diff as FileDiffPayload };
+    }
+
+    if (parsed.type === 'tool_read_chunk' && typeof parsed.delta === 'string') {
+      return { type: 'tool_read_chunk', delta: parsed.delta };
     }
 
     if (parsed.type === 'chunk' && typeof parsed.delta === 'string') {
@@ -43,6 +60,10 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
   const parsed = parseStreamPayload(payload);
   if (parsed.type === 'status') {
     event.reply('message-status', conversationId, parsed.status);
+  } else if (parsed.type === 'diff') {
+    event.reply('message-diff', conversationId, parsed.diff);
+  } else if (parsed.type === 'tool_read_chunk') {
+    event.reply('message-tool-read-chunk', conversationId, parsed.delta);
   } else {
     event.reply('message-chunk', conversationId, parsed.delta);
   }
@@ -65,13 +86,26 @@ export function registerChatIpc(): void {
     }
   });
 
-  ipcMain.on('message', async (event, conversationId: string, msg: string, _applyModeArg?: boolean) => {
+  ipcMain.on(
+    'message',
+    async (
+      event,
+      conversationId: string,
+      msg: string,
+      applyMode = true,
+      autoApplyMode = false,
+    ) => {
     console.log('Received message for', conversationId, ':', msg);
     try {
       const res = await fetch(`${PYTHON_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: conversationId, message: msg, apply_mode: true }),
+        body: JSON.stringify({
+          session_id: conversationId,
+          message: msg,
+          apply_mode: applyMode,
+          auto_apply_mode: autoApplyMode,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -121,6 +155,43 @@ export function registerChatIpc(): void {
       } as LlmStatusPayload);
       event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
       event.reply('message-done', conversationId);
+    }
+  },
+  );
+
+  ipcMain.handle('agent-continue', async (_event, conversationId: string, note: string) => {
+    try {
+      const res = await fetch(`${PYTHON_URL}/chat/agent-continue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: conversationId, note: note ?? '' }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return { ok: false, error: text || `HTTP ${res.status}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      console.error('agent-continue failed:', err);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('sync-auto-apply-mode', async (_event, conversationId: string, autoApplyMode: boolean) => {
+    try {
+      const res = await fetch(`${PYTHON_URL}/session/auto-apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: conversationId, auto_apply_mode: !!autoApplyMode }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return { ok: false, error: text || `HTTP ${res.status}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      console.error('sync-auto-apply-mode failed:', err);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 }

@@ -1,12 +1,17 @@
 <div class="chat-box p-3" appRunButton>
   @for (msg of messages(); track $index) {
-    <div class="d-flex mb-2" [class.justify-content-end]="msg.role === 'user'">
+    <div
+      class="d-flex mb-2"
+      [class.justify-content-end]="msg.role === 'user'"
+      [class.w-100]="msg.role === 'diff'"
+    >
       <div
         class="msg-bubble px-3 py-2"
         [class.user-bubble]="msg.role === 'user'"
-        [class.assistant-bubble]="msg.role === 'assistant' || msg.role === 'chain'"
+        [class.assistant-bubble]="msg.role === 'assistant' || msg.role === 'chain' || msg.role === 'diff'"
         [class.chain-bubble]="msg.role === 'chain'"
-        style="max-width: 80%;"
+        [class.diff-msg-bubble]="msg.role === 'diff'"
+        [style.max-width]="msg.role === 'diff' ? '100%' : '80%'"
       >
         @if (msg.role === 'assistant') {
           <span [innerHTML]="msg.text | markdown"></span>
@@ -15,6 +20,18 @@
               <span class="tts-loading-label">Preparing audio</span>
             </div>
           }
+        } @else if (msg.role === 'diff') {
+          <div class="diff-msg-header small text-secondary mb-2">
+            <span class="diff-msg-title">Proposed file edit</span>
+            <span class="diff-msg-subtitle"> — Accept, Skip, accept entire diff once, or Cancel.</span>
+          </div>
+          <app-diff-apply
+            [conversationId]="conversationId()"
+            [payload]="msg.payload"
+            [reviewStatus]="msg.reviewStatus ?? 'pending'"
+            [reviewSummary]="msg.reviewSummary"
+            (diffReviewFinished)="diffReviewFinished.emit($event)"
+          />
         } @else if (msg.role === 'chain') {
           <div
             class="chain-event"
@@ -22,7 +39,7 @@
             [class.chain-event--complete]="msg.state === 'complete'"
             role="status"
           >
-            <span class="chain-pill">{{ msg.source === 'tool' ? 'TOOL' : 'AGENT' }}</span>
+            <span class="chain-pill">{{ chainPillText(msg) }}</span>
             <span class="chain-line">
               <span class="chain-label">{{ msg.label }}</span>
               @if (msg.text) {
@@ -40,23 +57,47 @@
   }
   @if (loading()) {
     <div class="d-flex mb-2">
-      <div class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble">
-        @if (streamingText()) {
-          <pre class="streaming-pre">{{ streamingText() }}</pre>
-          <span class="streaming-cursor"></span>
-        } @else {
-          <div class="processing-bubble" role="status" aria-live="polite">
-            <span
-              [class]="
-                processingToolsActive()
-                  ? 'processing-spinner processing-spinner--tools'
-                  : 'processing-spinner processing-spinner--think'
-              "
-              aria-hidden="true"
-            ></span>
-            <span class="processing-text">{{processingText()}}</span>
+      <div
+        class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble"
+        [attr.data-clara-mode]="claraMode()"
+      >
+        <div class="streaming-bubble-header">
+          <span class="streaming-author">{{ streamAuthorDisplay() }}</span>
+          @if (claraModePill(); as pill) {
+            <span class="streaming-role-pill">{{ pill }}</span>
+          }
+        </div>
+        @if (toolReadStreamText()) {
+          <div class="tool-read-stream-block">
+            <div class="tool-read-stream-label">Workspace read (tool output)</div>
+            <pre class="tool-read-stream-pre">{{ toolReadStreamText() }}</pre>
           </div>
         }
+        @if (streamingText()) {
+          <div class="streaming-block">
+            <div class="streaming-block-label">Reply</div>
+            <div class="streaming-block-inner">
+              <pre class="streaming-pre">{{ streamingText() }}</pre>
+              <span class="streaming-cursor" aria-hidden="true"></span>
+            </div>
+          </div>
+        }
+        <div class="processing-bubble" role="status" aria-live="polite">
+          <div
+            class="processing-spinner-wrap"
+            [class.processing-spinner-wrap--tools]="processingToolsActive()"
+            [class.processing-spinner-wrap--think]="!processingToolsActive()"
+            aria-hidden="true"
+          >
+            <span class="processing-spinner-ring"></span>
+          </div>
+          <div class="processing-text-col">
+            <span class="processing-text">{{ processingPhraseLabel() }}</span>
+            @if (processingToolsActive() && processingToolHint().trim()) {
+              <span class="processing-tool-hint">{{ processingToolHint() }}</span>
+            }
+          </div>
+        </div>
       </div>
     </div>
   }

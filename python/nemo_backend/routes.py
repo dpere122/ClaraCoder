@@ -22,13 +22,16 @@ from nemo_backend.domain import (
     RuntimeConfig,
     RuntimeConnection,
     RuntimeHostConfig,
+    RuntimeToolsConfig,
     SessionState,
 )
 from nemo_backend.schemas import (
+    AgentContinueRequest,
     ChatRequest,
     ClearRequest,
     LoadRequest,
     RuntimeConfigRequest,
+    SessionAutoApplyRequest,
     TtsRequest,
     WorkspaceContextRequest,
 )
@@ -60,6 +63,10 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             model=item.model,
             api_key=item.apiKey,
             reasoning_effort=(item.reasoningEffort or '').strip(),
+            temperature=float(item.temperature),
+            parallel_tool_calls=bool(item.parallelToolCalls),
+            optimization_preset=item.optimizationPreset,
+            max_output_tokens=int(item.maxOutputTokens),
         )
         for item in request.connections
     ]
@@ -69,6 +76,16 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     active_connection_id = request.activeConnectionId
     if not any(connection.id == active_connection_id for connection in connections):
         active_connection_id = connections[0].id
+
+    prev_tools = state.runtime_config.tools
+    if request.tools is not None:
+        tools_cfg = RuntimeToolsConfig(
+            edit_tools_strict=request.tools.editToolsStrict,
+            max_file_read_lines=request.tools.maxFileReadLines,
+            max_search_results=request.tools.maxSearchResults,
+        )
+    else:
+        tools_cfg = prev_tools
 
     state.runtime_config = RuntimeConfig(
         active_connection_id=active_connection_id,
@@ -86,6 +103,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             version=request.host.version if request.host else '',
             label=request.host.label if request.host else '',
         ),
+        tools=tools_cfg,
     )
     return {'ok': True}
 
@@ -122,11 +140,35 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     return {'ok': True}
 
 
+@router.post('/session/auto-apply')
+async def session_auto_apply(request: SessionAutoApplyRequest) -> dict[str, bool]:
+    """Update per-session auto-apply while a stream may be running (toolbar toggle)."""
+    sess = state.get_session(request.session_id)
+    sess.auto_apply_mode = request.auto_apply_mode
+    return {'ok': True}
+
+
 @router.post('/chat/stream')
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     """Stream assistant reply as Server-Sent Events (status + chunk + [DONE])."""
-    generator = stream_agent_reply(request.session_id, request.message, request.apply_mode)
+    generator = stream_agent_reply(
+        request.session_id,
+        request.message,
+        request.apply_mode,
+        request.auto_apply_mode,
+    )
     return StreamingResponse(generator, media_type='text/event-stream')
+
+
+@router.post('/chat/agent-continue')
+async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
+    """Unblock an agent stream that is waiting after a diff (same session, same process)."""
+    sess = state.get_session(request.session_id)
+    sess.agent_pause_note = request.note or ''
+    ev = sess.agent_pause_event
+    if ev is not None:
+        ev.set()
+    return {'ok': True}
 
 
 @router.post('/transcribe')

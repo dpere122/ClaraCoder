@@ -4,6 +4,7 @@ import { registerAudioTtsIpc } from './handlers/audio-tts';
 import { registerConversationsIpc } from './handlers/conversations';
 import { registerFsIpc } from './handlers/fs-handlers';
 import { registerScriptsIpc } from './handlers/scripts';
+import { registerWorkspaceWriteIpc } from './handlers/workspace-write';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -13,4 +14,5 @@ export function registerAllIpc(): void {
   registerConversationsIpc();
   registerFsIpc();
   registerScriptsIpc();
+  registerWorkspaceWriteIpc();
 }

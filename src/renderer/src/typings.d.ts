@@ -2,6 +2,7 @@ import type {
   AppConfig,
   Conversation,
   ConversationMeta,
+  FileDiffPayload,
   FileEntry,
   LlmStatus,
   TtsStreamPacket,
@@ -19,9 +20,18 @@ declare global {
   interface ElectronAPI {
     onReady: () => void;
     onMessageChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
+    onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
-    sendMessage: (conversationId: string, msg: string) => void;
+    onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
+    sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) => void;
+    agentContinue: (conversationId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
+    syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
+    writeWorkspaceFile?: (
+      workspaceRoot: string,
+      relativePath: string,
+      utf8Content: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     loadConversation: (id: string, workspaceId?: string | null) => Promise<Conversation>;

@@ -1,0 +1,32 @@
+{
+  "name": "nemo-wrapper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "init:tsconfig": "npx create-tsconfig @typescript-eslint/parser --project=src/main/index.ts",
+    "setup:python": "python -m pip install -r python/requirements.txt",
+    "build": "tsc -p ./ && npm run build --prefix src/renderer",
+    "start": "electron dist/main/index.js",
+    "dev": "concurrently \"npm start --prefix src/renderer\" \"tsc -p ./ --watch --preserveWatchOutput\" \"wait-on http://localhost:4200 && cross-env DEV_SERVER_URL=http://localhost:4200 electronmon dist/main/index.js\"",
+    "dev:lmstudio": "cross-env NEMO_LLM_PROVIDER=lmstudio NEMO_AUDIO_PROVIDER=openai npm run dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "electron": "^41.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/parser": "^8.57.3-alpha.2",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electronmon": "^2.0.4",
+    "ts-node": "^10.9.2",
+    "typescript": "5.8.3",
+    "wait-on": "^9.0.4"
+  }
+}

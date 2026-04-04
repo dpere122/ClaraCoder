@@ -1,0 +1,160 @@
+app-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+app-workspace .workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--t-bg-deep);
+  border-left: 1px solid var(--t-border-subtle);
+  padding: 0.75rem 0;
+}
+
+app-workspace .workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.6rem 0.6rem;
+  border-bottom: 1px solid var(--t-border-subtle);
+  margin-bottom: 0.5rem;
+}
+
+app-workspace .workspace-select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  background: var(--t-bg);
+  border: 1px solid var(--t-border);
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+}
+
+app-workspace .workspace-select:focus {
+  border-color: var(--t-primary);
+}
+
+app-workspace .workspace-select option {
+  background: var(--t-bg-deep);
+  color: var(--t-primary);
+}
+
+app-workspace .workspace-toolbar {
+  display: flex;
+  align-items: center;
+}
+
+app-workspace .workspace-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--t-border);
+  background: var(--t-bg);
+  color: var(--t-primary);
+  cursor: pointer;
+  transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+
+app-workspace .workspace-icon-btn:hover {
+  background-color: var(--t-hover-bg);
+}
+
+app-workspace .workspace-icon-btn:focus-visible {
+  outline: none;
+  border-color: var(--t-primary);
+}
+
+app-workspace .workspace-icon-btn.is-active {
+  border-color: var(--t-primary);
+  background-color: var(--t-hover-bg);
+}
+
+app-workspace .workspace-icon-btn i {
+  font-size: 0.95rem;
+}
+
+app-workspace .file-tree {
+  flex: 1;
+  overflow-y: auto;
+}
+
+app-workspace .workspace-change-indicator {
+  margin: 0 0.5rem 0.4rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--t-border-subtle);
+  background: var(--t-bg);
+  color: var(--t-text-muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+app-workspace .tree-node {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--t-secondary);
+  cursor: default;
+  user-select: none;
+  transition: background-color 0.1s;
+}
+
+app-workspace .tree-node.is-directory {
+  cursor: pointer;
+}
+
+app-workspace .tree-node:hover {
+  background-color: var(--t-hover-bg);
+}
+
+app-workspace .node-chevron {
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  width: 0.8rem;
+  text-align: center;
+  color: var(--t-text-muted);
+}
+
+app-workspace .node-chevron-spacer {
+  display: inline-block;
+  width: 0.8rem;
+  flex-shrink: 0;
+}
+
+app-workspace .folder-icon {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--t-primary);
+  opacity: 0.7;
+}
+
+app-workspace .file-icon {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--t-text-muted);
+}
+
+app-workspace .node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+app-workspace .empty-hint {
+  color: var(--t-text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 1rem 0.5rem;
+  margin: 0;
+}
+

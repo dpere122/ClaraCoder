@@ -1,0 +1,155 @@
+app-talk-mode .talk-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+app-talk-mode .talk-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+app-talk-mode .talk-toggle {
+  position: relative;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  outline: none;
+}
+
+app-talk-mode .toggle-track {
+  display: block;
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 0.55rem;
+  background-color: var(--t-border);
+  transition: background-color 0.2s;
+  position: relative;
+}
+
+app-talk-mode .talk-toggle.active .toggle-track {
+  background-color: var(--t-primary);
+}
+
+app-talk-mode .toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.1rem - 4px);
+  height: calc(1.1rem - 4px);
+  border-radius: 50%;
+  background-color: var(--t-bg);
+  transition: transform 0.2s;
+}
+
+app-talk-mode .talk-toggle.active .toggle-thumb {
+  transform: translateX(calc(2rem - 1.1rem));
+}
+
+app-talk-mode .talk-toggle:hover .toggle-track {
+  box-shadow: 0 0 4px var(--t-glow);
+}
+
+app-talk-mode .listening-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--t-primary);
+  box-shadow: 0 0 6px var(--t-glow);
+  animation: talk-pulse 1s ease-in-out infinite;
+}
+
+app-talk-mode .talk-status-text {
+  color: var(--t-secondary);
+  font-size: 0.72rem;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes talk-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+app-talk-mode .device-select {
+  background-color: var(--t-bg);
+  color: var(--t-secondary);
+  border: 1px solid var(--t-border);
+  border-radius: 0.35rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  max-width: 10rem;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+}
+
+app-talk-mode .device-select:hover {
+  border-color: var(--t-primary);
+  color: var(--t-fg);
+}
+
+app-talk-mode .device-select:focus {
+  border-color: var(--t-primary);
+  box-shadow: 0 0 4px var(--t-glow);
+  color: var(--t-fg);
+}
+
+app-talk-mode .device-select option {
+  background-color: var(--t-bg);
+  color: var(--t-fg);
+}
+
+app-talk-mode .threshold-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+app-talk-mode .threshold-control button {
+  background: transparent;
+  border: 1px solid var(--t-border);
+  color: var(--t-secondary);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+app-talk-mode .threshold-control button:hover {
+  background-color: var(--t-hover-bg);
+  border-color: var(--t-primary);
+  color: var(--t-primary);
+}
+
+app-talk-mode .threshold-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  min-width: 2.6em;
+  text-align: center;
+  user-select: none;
+  cursor: default;
+}
+
+app-talk-mode .transcript-preview {
+  margin-top: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  background-color: var(--t-hover-bg);
+  border: 1px solid var(--t-border);
+  border-radius: 0.35rem;
+  max-width: 40rem;
+}
+
+app-talk-mode .transcript-text {
+  color: var(--t-primary);
+  font-size: 0.8rem;
+  font-style: italic;
+  opacity: 0.85;
+}

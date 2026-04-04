@@ -1,0 +1,41 @@
+<div class="talk-mode">
+  <label class="talk-label">Talk</label>
+  <button
+    class="talk-toggle"
+    [class.active]="talkEnabled()"
+    (click)="toggle()"
+    [attr.aria-pressed]="talkEnabled()"
+    title="Toggle talk mode"
+  >
+    <span class="toggle-track">
+      <span class="toggle-thumb"></span>
+    </span>
+  </button>
+  @if (listening()) {
+    <span class="listening-dot" title="Listening..."></span>
+  }
+  @if (statusMessage()) {
+    <span class="talk-status-text" title="Talk mode status">{{ statusMessage() }}</span>
+  }
+  <select
+    class="device-select"
+    [value]="selectedDeviceId()"
+    (change)="onDeviceChange($event)"
+    title="Select microphone"
+  >
+    @for (d of audioDevices(); track d.deviceId) {
+      <option [value]="d.deviceId" [selected]="d.deviceId === selectedDeviceId()">{{ d.label }}</option>
+    }
+  </select>
+  <div class="threshold-control">
+    <button (click)="decreaseThreshold()" title="Decrease silence threshold">
+      <i class="bi bi-dash"></i>
+    </button>
+    <span class="threshold-label" title="Silence threshold (seconds)">
+      {{ silenceThreshold() | number:'1.1-1' }}s
+    </span>
+    <button (click)="increaseThreshold()" title="Increase silence threshold">
+      <i class="bi bi-plus"></i>
+    </button>
+  </div>
+</div>

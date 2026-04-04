@@ -1,0 +1,19 @@
+@if (talkStatus()) {
+  <div class="talk-status">
+    <span class="talk-status-dot"></span>
+    <span class="talk-status-text">{{ talkStatus() }}</span>
+  </div>
+}
+<div class="input-group">
+  <input
+    type="text"
+    class="form-control"
+    placeholder="> Enter command..."
+    [ngModel]="userInput()"
+    (ngModelChange)="userInput.set($event)"
+    (keydown.enter)="send()"
+  />
+  <button class="btn" type="button" (click)="send()">
+    SEND >>
+  </button>
+</div>

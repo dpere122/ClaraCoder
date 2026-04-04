@@ -1,0 +1,113 @@
+import { ipcMain } from 'electron';
+import path = require('path');
+import { randomUUID } from 'crypto';
+import type { AppConfig, Workspace } from '../../../shared';
+import { FIRST_THEME_ID } from '../../constants';
+import { mainState } from '../../state';
+import { loadConfig, migrateConfig, saveConfig } from '../../config/load-save';
+import { syncRuntimeConfigToPython, syncWorkspaceContextToPython } from '../../python/workspace-sync';
+import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
+import { getRecentConversations } from '../../menu/recent-conversations';
+import { buildMenu } from '../../menu/application-menu';
+
+function broadcastConfig(config: AppConfig): void {
+  mainState.mainWindow?.webContents.send('config-updated', config);
+  mainState.settingsWindow?.webContents.send('config-updated', config);
+}
+
+/**
+ * Config persistence, workspace CRUD, always-on-top, menu refresh, and workspace context push to Python.
+ */
+export function registerConfigWorkspacesIpc(): void {
+  ipcMain.handle('get-recent-conversations', (_event, limit: number) => getRecentConversations(limit));
+
+  ipcMain.handle('refresh-menu', () => {
+    buildMenu();
+  });
+
+  ipcMain.handle('set-workspace-context', async (_event, sessionId: string, workspacePath: string, workspaceContext: string) => {
+    await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext, '');
+  });
+
+  ipcMain.handle('load-config', async () => loadConfig());
+
+  ipcMain.handle('save-config', async (_event, config: AppConfig) => {
+    const migratedConfig = migrateConfig(config);
+    await saveConfig(migratedConfig);
+    await syncRuntimeConfigToPython(migratedConfig);
+    broadcastConfig(migratedConfig);
+  });
+
+  ipcMain.handle('get-workspaces', async () => {
+    const config = await loadConfig();
+    return config.workspaces;
+  });
+
+  ipcMain.handle('add-workspace', async (_event, name: string, workspacePath: string) => {
+    const config = await loadConfig();
+    const workspace: Workspace = {
+      id: randomUUID(),
+      name: name || path.basename(workspacePath) || 'New Workspace',
+      path: workspacePath,
+      createdAt: new Date().toISOString(),
+      themeId: config.themeId || FIRST_THEME_ID,
+    };
+    config.workspaces.push(workspace);
+    await saveConfig(config);
+    await syncRuntimeConfigToPython(config);
+    await refreshWorkspaceWatcherForCurrentConfig(config);
+    broadcastConfig(config);
+    return workspace;
+  });
+
+  ipcMain.handle('remove-workspace', async (_event, id: string) => {
+    const config = await loadConfig();
+    config.workspaces = config.workspaces.filter((w) => w.id !== id);
+    if (config.currentWorkspaceId === id) {
+      config.currentWorkspaceId = config.workspaces.length > 0 ? config.workspaces[0].id : null;
+    }
+    await saveConfig(config);
+    await syncRuntimeConfigToPython(config);
+    await refreshWorkspaceWatcherForCurrentConfig(config);
+    broadcastConfig(config);
+  });
+
+  ipcMain.handle('set-current-workspace', async (_event, id: string | null) => {
+    const config = await loadConfig();
+    config.currentWorkspaceId = id;
+    await saveConfig(config);
+    await syncRuntimeConfigToPython(config);
+    await refreshWorkspaceWatcherForCurrentConfig(config);
+    mainState.mainWindow?.webContents.send('workspace-changed', id);
+    broadcastConfig(config);
+  });
+
+  ipcMain.handle('set-workspace-theme', async (_event, workspaceId: string, themeId: string) => {
+    const config = await loadConfig();
+    const workspace = config.workspaces.find((w) => w.id === workspaceId);
+    if (workspace) {
+      workspace.themeId = themeId;
+      await saveConfig(config);
+    }
+    await syncRuntimeConfigToPython(config);
+    broadcastConfig(config);
+  });
+
+  ipcMain.handle('set-no-workspace-theme', async (_event, themeId: string) => {
+    const config = await loadConfig();
+    config.noWorkspaceThemeId = themeId;
+    await saveConfig(config);
+    await syncRuntimeConfigToPython(config);
+    broadcastConfig(config);
+  });
+
+  ipcMain.handle('get-current-workspace', async () => {
+    const config = await loadConfig();
+    if (!config.currentWorkspaceId) return null;
+    return config.workspaces.find((w) => w.id === config.currentWorkspaceId) || null;
+  });
+
+  ipcMain.handle('set-always-on-top', (_event, pinned: boolean) => {
+    mainState.mainWindow?.setAlwaysOnTop(pinned);
+  });
+}

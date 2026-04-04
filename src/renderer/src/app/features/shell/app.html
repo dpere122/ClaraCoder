@@ -1,0 +1,67 @@
+<div class='app-layout' [class.app-layout--dimmed]='settingsWindowOpen()'>
+  <div class='app-top-bar px-4 pt-3'>
+    <h1 class='title-glow mb-2'>&gt; Clara AI_</h1>
+    <app-tools-bar
+      class='tools-bar-host'
+      [(fontSize)]='fontSize'
+      [(speechEnabled)]='speechEnabled'
+      [(selectedVoice)]='selectedVoice'
+      [(talkEnabled)]='talkEnabled'
+      [(currentTranscript)]='talkStatus'
+      [(pinned)]='pinned'
+      [activeConversationId]='activeConversationId()'
+      (promptCaptured)='onMessageSent($event)'
+      (recordingBegan)='onTalkRecordingBegan()'
+      (talkCaptureFinished)='onTalkCaptureFinished($event)'
+    />
+  </div>
+
+  <div class='app-content'>
+    <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
+      <app-workspace
+        [workspaces]='workspaces()'
+        [currentWorkspaceId]='currentWorkspaceId()'
+        (workspaceChanged)='onWorkspaceChanged($event)'
+        (addWorkspace)='onAddWorkspace()'
+      />
+    </div>
+
+    <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
+
+    <div class='chat-area d-flex flex-column overflow-hidden py-3 px-4'>
+      <app-chat-box
+        class='chat-box-host flex-grow-1 overflow-hidden mb-1'
+        [messages]='messages()'
+        [loading]='loading()'
+        [processingToolsActive]='processingToolsActive()'
+        [processingToolHint]='processingToolHint()'
+        [ttsLoading]='tts.ttsLoading()'
+        [streamingText]='streamingText()'
+        [fontSize]='fontSize()'
+        (sendResponse)='onSendResponse($event)'
+      />
+
+      <app-message-box
+        class='message-box-host'
+        [talkStatus]='talkStatus()'
+        (messageSent)='onMessageSent($event)'
+      />
+    </div>
+
+    <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
+
+    <div class='sidebar' [style.width.px]='sidebarWidth()'>
+      <app-conversation-manager
+        [conversations]='conversations()'
+        [activeId]='activeConversationId()'
+        [pendingIds]='pendingIds()'
+        (newConversation)='onNewConversation()'
+        (selectConversation)='onSelectConversation($event)'
+        (deleteConversation)='onDeleteConversation($event)'
+        (renameConversation)='onRenameConversation($event)'
+      />
+    </div>
+  </div>
+
+  <div class='app-modal-scrim' aria-hidden='true'></div>
+</div>

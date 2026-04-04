@@ -1,0 +1,38 @@
+app-font-control .font-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+app-font-control .font-size-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  user-select: none;
+  margin-right: 0.4em;
+}
+
+app-font-control .font-control button {
+  background: transparent;
+  border: 1px solid var(--t-border);
+  color: var(--t-secondary);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+app-font-control .font-control button:hover {
+  background-color: var(--t-hover-bg);
+  border-color: var(--t-primary);
+  color: var(--t-primary);
+}
+
+app-font-control .size-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  min-width: 2.2em;
+  text-align: center;
+  user-select: none;
+  cursor: default;
+}

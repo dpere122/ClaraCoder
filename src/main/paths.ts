@@ -1,0 +1,34 @@
+import { app } from 'electron';
+import path = require('path');
+import { DEV_SERVER_URL } from './constants';
+
+/**
+ * Resolves the directory used for config.json, workspaces, and legacy conversations.
+ * In dev, forces a stable folder name under appData regardless of the executable name.
+ */
+export function getAppDataDir(): string {
+  if (DEV_SERVER_URL) {
+    return path.join(app.getPath('appData'), 'nemo-wrapper');
+  }
+  return app.getPath('userData');
+}
+
+export function getConfigPath(): string {
+  return path.join(getAppDataDir(), 'config.json');
+}
+
+export function getWorkspacesDir(): string {
+  return path.join(getAppDataDir(), 'workspaces');
+}
+
+export function getWorkspaceDir(workspaceId: string): string {
+  return path.join(getWorkspacesDir(), workspaceId);
+}
+
+export function getWorkspaceConversationsDir(workspaceId: string): string {
+  return path.join(getWorkspaceDir(workspaceId), 'conversations');
+}
+
+export function getGeneralConversationsDir(): string {
+  return path.join(getAppDataDir(), 'conversations');
+}

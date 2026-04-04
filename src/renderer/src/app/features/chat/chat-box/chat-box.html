@@ -1,0 +1,63 @@
+<div class="chat-box p-3" appRunButton>
+  @for (msg of messages(); track $index) {
+    <div class="d-flex mb-2" [class.justify-content-end]="msg.role === 'user'">
+      <div
+        class="msg-bubble px-3 py-2"
+        [class.user-bubble]="msg.role === 'user'"
+        [class.assistant-bubble]="msg.role === 'assistant' || msg.role === 'chain'"
+        [class.chain-bubble]="msg.role === 'chain'"
+        style="max-width: 80%;"
+      >
+        @if (msg.role === 'assistant') {
+          <span [innerHTML]="msg.text | markdown"></span>
+          @if (ttsLoading() && $last) {
+            <div class="tts-loading" role="status" aria-live="polite">
+              <span class="tts-loading-label">Preparing audio</span>
+            </div>
+          }
+        } @else if (msg.role === 'chain') {
+          <div
+            class="chain-event"
+            [class.chain-event--error]="msg.state === 'error'"
+            [class.chain-event--complete]="msg.state === 'complete'"
+            role="status"
+          >
+            <span class="chain-pill">{{ msg.source === 'tool' ? 'TOOL' : 'AGENT' }}</span>
+            <span class="chain-line">
+              <span class="chain-label">{{ msg.label }}</span>
+              @if (msg.text) {
+                <span class="chain-detail">{{ msg.text }}</span>
+              }
+            </span>
+          </div>
+        } @else {
+          {{ msg.text }}
+        }
+      </div>
+    </div>
+  } @empty {
+    <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
+  }
+  @if (loading()) {
+    <div class="d-flex mb-2">
+      <div class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble">
+        @if (streamingText()) {
+          <pre class="streaming-pre">{{ streamingText() }}</pre>
+          <span class="streaming-cursor"></span>
+        } @else {
+          <div class="processing-bubble" role="status" aria-live="polite">
+            <span
+              [class]="
+                processingToolsActive()
+                  ? 'processing-spinner processing-spinner--tools'
+                  : 'processing-spinner processing-spinner--think'
+              "
+              aria-hidden="true"
+            ></span>
+            <span class="processing-text">{{processingText()}}</span>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

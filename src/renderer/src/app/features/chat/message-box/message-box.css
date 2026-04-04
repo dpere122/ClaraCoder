@@ -1,0 +1,79 @@
+.talk-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.35rem;
+  border-radius: 0.35rem;
+  background-color: rgba(255, 165, 0, 0.08);
+  border: 1px solid rgba(255, 165, 0, 0.25);
+  animation: talk-status-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes talk-status-glow {
+  0%, 100% { border-color: rgba(255, 165, 0, 0.25); background-color: rgba(255, 165, 0, 0.08); }
+  50% { border-color: rgba(255, 165, 0, 0.5); background-color: rgba(255, 165, 0, 0.14); }
+}
+
+.talk-status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: #ff8c00;
+  animation: talk-dot-pulse 1s ease-in-out infinite;
+}
+
+@keyframes talk-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.talk-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+  color: #ffa033;
+  font-style: italic;
+}
+
+.input-group .form-control {
+  background-color: var(--t-input-bg, var(--t-bg));
+  border: 1px solid var(--t-border);
+  color: var(--t-input-fg, var(--t-primary));
+  caret-color: var(--t-input-fg, var(--t-primary));
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.input-group .form-control::placeholder {
+  color: var(--t-text-muted);
+}
+
+.input-group .form-control:focus {
+  background-color: var(--t-input-bg, var(--t-bg));
+  border-color: var(--t-primary);
+  color: var(--t-input-fg, var(--t-primary));
+  box-shadow: 0 0 0 1px var(--t-border);
+}
+
+.input-group .btn {
+  background-color: transparent;
+  border: 1px solid var(--t-border);
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.input-group .btn:hover {
+  background-color: var(--t-active-bg);
+  border-color: var(--t-primary);
+}
+
+.input-group .btn:active {
+  background-color: var(--t-hover-bg);
+}

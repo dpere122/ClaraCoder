@@ -1,0 +1,82 @@
+app-speech-module .speech-module {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+app-speech-module .speech-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+app-speech-module .speech-toggle {
+  position: relative;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  outline: none;
+}
+
+app-speech-module .toggle-track {
+  display: block;
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 0.55rem;
+  background-color: var(--t-border);
+  transition: background-color 0.2s;
+  position: relative;
+}
+
+app-speech-module .speech-toggle.active .toggle-track {
+  background-color: var(--t-primary);
+}
+
+app-speech-module .toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.1rem - 4px);
+  height: calc(1.1rem - 4px);
+  border-radius: 50%;
+  background-color: var(--t-bg);
+  transition: transform 0.2s;
+}
+
+app-speech-module .speech-toggle.active .toggle-thumb {
+  transform: translateX(calc(2rem - 1.1rem));
+}
+
+app-speech-module .speech-toggle:hover .toggle-track {
+  box-shadow: 0 0 4px var(--t-glow);
+}
+
+app-speech-module .voice-select {
+  background-color: var(--t-bg);
+  color: var(--t-secondary);
+  border: 1px solid var(--t-border);
+  border-radius: 0.35rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+}
+
+app-speech-module .voice-select:hover {
+  border-color: var(--t-primary);
+  color: var(--t-fg);
+}
+
+app-speech-module .voice-select:focus {
+  border-color: var(--t-primary);
+  box-shadow: 0 0 4px var(--t-glow);
+  color: var(--t-fg);
+}
+
+app-speech-module .voice-select option {
+  background-color: var(--t-bg);
+  color: var(--t-fg);
+}

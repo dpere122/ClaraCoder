@@ -1,0 +1,53 @@
+<div class='workspace'>
+  <div class='workspace-header'>
+    <select class='workspace-select' (change)='onWorkspaceSelectChange($event)'>
+      <option value=''>No workspace</option>
+      @for (ws of workspaces(); track ws.id) {
+        <option [value]='ws.id' [selected]='ws.id === currentWorkspaceId()'>{{ ws.name }}</option>
+      }
+    </select>
+
+    <div class='workspace-toolbar'>
+      <button
+        class='workspace-icon-btn'
+        type='button'
+        title='Add workspace'
+        aria-label='Add workspace'
+        (click)='onAddWorkspace()'
+      >
+        <i class='bi bi-folder-plus'></i>
+      </button>
+    </div>
+  </div>
+
+  @if (currentWorkspaceId()) {
+    <div class='file-tree'>
+      @if (lastWorkspaceChange()) {
+        <p class='workspace-change-indicator'>Updated: {{ lastWorkspaceChange() }}</p>
+      }
+      @if (loadError()) {
+        <p class='empty-hint'>{{ loadError() }}</p>
+      } @else {
+        @for (node of flatTree(); track node.path) {
+          <div
+            class='tree-node'
+            [style.padding-left.rem]='0.5 + node.depth * 1'
+            [class.is-directory]='node.isDirectory'
+            (click)='onTreeNodeClick(node)'
+          >
+            @if (node.isDirectory) {
+              <i class='bi node-chevron' [class.bi-chevron-right]='!node.expanded' [class.bi-chevron-down]='node.expanded'></i>
+              <i class='bi bi-folder-fill folder-icon'></i>
+            } @else {
+              <span class='node-chevron-spacer'></span>
+              <i class='bi bi-file-earmark file-icon'></i>
+            }
+            <span class='node-name'>{{ node.name }}</span>
+          </div>
+        } @empty {
+          <p class='empty-hint'>// No files found.</p>
+        }
+      }
+    </div>
+  }
+</div>

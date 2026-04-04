@@ -1,0 +1,479 @@
+<div class='settings-shell'>
+  <div class='settings-main'>
+  <aside class='settings-nav'>
+    <div class='settings-nav__header'>
+      <p class='settings-eyebrow'>Configuration</p>
+      <h2>Settings</h2>
+      <p class='settings-copy'>Manage models, audio, themes, and project folders from one focused workspace.</p>
+    </div>
+
+    <hr class='settings-divider settings-divider--nav' />
+
+    <div class='settings-nav__group'>
+      <p class='settings-nav__label'>Categories</p>
+
+      @for (tab of tabs; track tab.id) {
+        <button type='button' class='tab-button' [class.is-active]='selectedSettingsTab() === tab.id' (click)='selectTab(tab.id)'>
+          <span>{{ tab.label }}</span>
+          <small>
+            @if (tab.id === 'models') {
+              {{ connections().length }} configured
+            } @else if (tab.id === 'audio') {
+              {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
+            } @else if (tab.id === 'appearance') {
+              Theme defaults
+            } @else {
+              {{ workspaces().length }} available
+            }
+          </small>
+        </button>
+      }
+    </div>
+
+    <hr class='settings-divider settings-divider--nav' />
+
+    <div class='settings-nav__note'>
+      <strong>Heads up</strong>
+      <p>Changes save immediately, so you can close this window as soon as things look right.</p>
+    </div>
+  </aside>
+
+  <section class='settings-content'>
+    <header class='settings-overview'>
+      <div>
+        <p class='settings-eyebrow'>Current Section</p>
+        <h3>{{ selectedTabMeta().label }}</h3>
+        <p class='panel__copy'>{{ selectedTabMeta().description }}</p>
+      </div>
+
+      <div class='settings-overview__meta'>
+        <span class='pill'>Auto-save</span>
+        <span class='settings-copy'>Saved to your local config as you edit.</span>
+      </div>
+    </header>
+
+    @if (selectedSettingsTab() === 'models') {
+      <div class='panel'>
+        <div class='panel__header'>
+          <div>
+            <p class='settings-eyebrow'>LangChain Routing</p>
+            <h3>Model Connections</h3>
+            <p class='panel__copy'>Pick your active chat provider, keep connection profiles organized, and edit credentials in one place.</p>
+          </div>
+
+          <button type='button' class='action-button action-button--primary' (click)='addConnection()'>
+            <i class='bi bi-plus-lg'></i>
+            Add Connection
+          </button>
+        </div>
+
+        <div class='models-layout'>
+          <div class='stack-column'>
+            <div class='settings-section'>
+              <div class='section-heading'>
+                <div>
+                  <p class='settings-eyebrow'>Saved Profiles</p>
+                  <h4>Connections</h4>
+                </div>
+                <span class='section-count'>{{ connections().length }}</span>
+              </div>
+
+              <div class='connection-list'>
+                @for (connection of connections(); track trackConnection($index, connection)) {
+                  <button
+                    type='button'
+                    class='connection-card'
+                    [class.is-selected]='selectedConnectionId() === connection.id'
+                    (click)='selectConnection(connection.id)'
+                  >
+                    <div class='connection-card__top'>
+                      <div>
+                        <strong>{{ connection.name }}</strong>
+                        <p>{{ connection.provider === 'lmstudio' ? 'LM Studio' : 'OpenAI' }}</p>
+                      </div>
+
+                      @if (isConnectionActive(connection.id)) {
+                        <span class='pill pill--success'>Active</span>
+                      }
+                    </div>
+
+                    <p class='connection-card__model'>{{ connection.model }}</p>
+                    <p class='connection-card__url'>{{ connection.baseUrl || 'Default provider URL' }}</p>
+                  </button>
+                } @empty {
+                  <div class='empty-state'>
+                    <p>No model connections saved yet.</p>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <hr class='settings-divider' />
+
+            <div class='settings-section'>
+              <div class='section-heading'>
+                <div>
+                  <p class='settings-eyebrow'>How It Works</p>
+                  <h4>Connection Tips</h4>
+                </div>
+              </div>
+
+              <div class='info-list'>
+                <div class='info-row'>
+                  <strong>OpenAI</strong>
+                  <p>Best when you want hosted models and straightforward API key setup.</p>
+                </div>
+
+                <div class='info-row'>
+                  <strong>LM Studio</strong>
+                  <p>Great for local models. The default server URL usually stays `http://127.0.0.1:1234/v1`.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class='settings-editor'>
+            @if (selectedConnection(); as connection) {
+              <div class='settings-editor__header'>
+                <div>
+                  <p class='settings-eyebrow'>Connection Details</p>
+                  <h4>{{ connection.name }}</h4>
+                  <p class='panel__copy'>These details are saved in `config.json` and synced to the Python LangChain backend.</p>
+                </div>
+
+                <div class='settings-editor__actions'>
+                  <button type='button' class='action-button' (click)='duplicateConnection(connection)'>
+                    <i class='bi bi-copy'></i>
+                    Duplicate
+                  </button>
+
+                  <button
+                    type='button'
+                    class='action-button action-button--danger'
+                    [disabled]='!canDeleteSelectedConnection()'
+                    (click)='removeConnection(connection.id)'
+                  >
+                    <i class='bi bi-trash3'></i>
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <hr class='settings-divider' />
+
+              <div class='form-section'>
+                <div class='form-section__header'>
+                  <h5>Activation</h5>
+                  <p class='settings-copy'>Choose which saved connection powers chat right now.</p>
+                </div>
+
+                <label class='toggle-row'>
+                  <input
+                    type='radio'
+                    name='activeConnection'
+                    [checked]='isConnectionActive(connection.id)'
+                    (change)='setActiveConnection(connection.id)'
+                  />
+                  <span>Use this connection for chat</span>
+                </label>
+              </div>
+
+              <hr class='settings-divider' />
+
+              <div class='form-section'>
+                <div class='form-section__header'>
+                  <h5>Profile</h5>
+                  <p class='settings-copy'>Name the profile and choose the provider it belongs to.</p>
+                </div>
+
+                <div class='form-grid'>
+                  <label class='field field--full'>
+                    <span>Connection Name</span>
+                    <input type='text' [ngModel]='connection.name' (ngModelChange)='updateSelectedConnection({ name: $event })' />
+                  </label>
+
+                  <label class='field'>
+                    <span>Provider</span>
+                    <select [ngModel]='connection.provider' (ngModelChange)='onProviderChange($event)'>
+                      <option value='openai'>OpenAI</option>
+                      <option value='lmstudio'>LM Studio</option>
+                    </select>
+                  </label>
+
+                  <label class='field'>
+                    <span>Model</span>
+                    <input type='text' [ngModel]='connection.model' (ngModelChange)='updateSelectedConnection({ model: $event })' />
+                  </label>
+
+                  <label class='field field--full'>
+                    <span>Reasoning effort</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      For OpenAI reasoning-style models and compatible APIs (Chat Completions). Leave default if unsupported.
+                    </p>
+                    <select
+                      [ngModel]='connection.reasoningEffort || ""'
+                      (ngModelChange)='updateSelectedConnection({ reasoningEffort: $event })'
+                    >
+                      <option value=''>Default (omit)</option>
+                      <option value='minimal'>minimal</option>
+                      <option value='low'>low</option>
+                      <option value='medium'>medium</option>
+                      <option value='high'>high</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <hr class='settings-divider' />
+
+              <div class='form-section'>
+                <div class='form-section__header'>
+                  <h5>Endpoint</h5>
+                  <p class='settings-copy'>Set the base URL and credentials your provider expects.</p>
+                </div>
+
+                <div class='form-grid'>
+                  <label class='field field--full'>
+                    <span>Base URL</span>
+                    <input type='text' [ngModel]='connection.baseUrl' (ngModelChange)='updateSelectedConnection({ baseUrl: $event })' />
+                  </label>
+
+                  <label class='field field--full'>
+                    <span>API Key</span>
+                    <input type='password' [ngModel]='connection.apiKey' (ngModelChange)='updateSelectedConnection({ apiKey: $event })' />
+                  </label>
+                </div>
+              </div>
+
+              <hr class='settings-divider' />
+
+              <div class='callout'>
+                <p>
+                  @if (connection.provider === 'lmstudio') {
+                    LM Studio works well with `http://127.0.0.1:1234/v1`, and the default key can stay `lm-studio` unless your local server expects something else.
+                  } @else {
+                    OpenAI connections require a valid API key unless you rely on the backend environment fallback.
+                  }
+                </p>
+              </div>
+            } @else {
+              <div class='empty-state'>
+                <p>Select a connection to edit its details.</p>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (selectedSettingsTab() === 'audio') {
+      <div class='panel'>
+        <div class='panel__header'>
+          <div>
+            <p class='settings-eyebrow'>Speech Input</p>
+            <h3>Audio Transcription</h3>
+            <p class='panel__copy'>Control how recorded voice is transcribed before it reaches the chat model.</p>
+          </div>
+        </div>
+
+        <div class='settings-body settings-body--constrained'>
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Provider</h5>
+              <p class='settings-copy'>Enable transcription or turn it off completely.</p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Provider</span>
+                <select [ngModel]='audioProvider()' (ngModelChange)='onAudioProviderChange($event)'>
+                  <option value='openai'>OpenAI (API key)</option>
+                  <option value='google'>Google Web Speech (free, online)</option>
+                  <option value='disabled'>Disabled</option>
+                </select>
+              </label>
+
+              <label class='field'>
+                <span>Model</span>
+                <input
+                  type='text'
+                  [ngModel]='audioModel()'
+                  [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='updateAudioSettings({ model: $event })'
+                />
+              </label>
+            </div>
+
+            @if (audioProvider() === 'google') {
+              <p class='settings-copy audio-provider-note'>
+                No API key needed. Requires an internet connection; clipped audio is sent to Google's speech service (same family of endpoint Chrome uses). For fully offline transcription, run a local Whisper server and point OpenAI mode at it with a compatible base URL, or use another tool.
+              </p>
+            }
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Endpoint</h5>
+              <p class='settings-copy'>Used for OpenAI transcription only (base URL, model name, and API key).</p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field field--full'>
+                <span>Base URL</span>
+                <input
+                  type='text'
+                  [ngModel]='audioBaseUrl()'
+                  [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='updateAudioSettings({ baseUrl: $event })'
+                />
+              </label>
+
+              <label class='field field--full'>
+                <span>API Key</span>
+                <input
+                  type='password'
+                  [ngModel]='audioApiKey()'
+                  [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='updateAudioSettings({ apiKey: $event })'
+                />
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='callout'>
+            <p>
+              @if (audioProvider() === 'disabled') {
+                Voice transcription is currently disabled. Text chat still works normally.
+              } @else {
+                Audio transcription currently supports OpenAI-compatible endpoints. These settings are stored alongside your LLM connections.
+              }
+            </p>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (selectedSettingsTab() === 'appearance') {
+      <div class='panel'>
+        <div class='panel__header'>
+          <div>
+            <p class='settings-eyebrow'>Visual Defaults</p>
+            <h3>Appearance</h3>
+            <p class='panel__copy'>Set the global theme and the fallback look used when no workspace is selected.</p>
+          </div>
+        </div>
+
+        <div class='settings-body settings-body--constrained'>
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Theme Defaults</h5>
+              <p class='settings-copy'>Pick how the app should look globally and when there is no active project.</p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Global Theme</span>
+                <select [ngModel]='themeId()' (ngModelChange)='onGlobalThemeChange($event)'>
+                  @for (theme of themes; track theme.id) {
+                    <option [value]='theme.id'>{{ theme.label }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class='field'>
+                <span>No-Workspace Theme</span>
+                <select [ngModel]='noWorkspaceThemeId()' (ngModelChange)='onNoWorkspaceThemeChange($event)'>
+                  @for (theme of themes; track theme.id) {
+                    <option [value]='theme.id'>{{ theme.label }}</option>
+                  }
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='callout'>
+            <p>The active workspace can still override its own theme. These settings control the defaults the app falls back to.</p>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (selectedSettingsTab() === 'workspaces') {
+      <div class='panel'>
+        <div class='panel__header'>
+          <div>
+            <p class='settings-eyebrow'>Project Context</p>
+            <h3>Workspaces</h3>
+            <p class='panel__copy'>Manage attached folders, choose the active workspace, and set a theme per project.</p>
+          </div>
+
+          <button type='button' class='action-button action-button--primary' (click)='addWorkspace()'>
+            <i class='bi bi-folder-plus'></i>
+            Add Workspace
+          </button>
+        </div>
+
+        <div class='workspace-list'>
+          <div class='workspace-card workspace-card--none' [class.is-selected]='!currentWorkspace()'>
+            <button type='button' class='workspace-card__body' (click)='selectWorkspace(null)'>
+              <div class='workspace-card__header'>
+                <strong>No Workspace</strong>
+                @if (!currentWorkspace()) {
+                  <span class='pill pill--success'>Active</span>
+                }
+              </div>
+              <p>Chat without attaching a local project.</p>
+            </button>
+          </div>
+
+          @for (workspace of workspaces(); track trackWorkspace($index, workspace)) {
+            <div class='workspace-card' [class.is-selected]='workspace.id === currentWorkspace()?.id'>
+              <button type='button' class='workspace-card__body' (click)='selectWorkspace(workspace.id)'>
+                <div class='workspace-card__header'>
+                  <strong>{{ workspace.name }}</strong>
+                  @if (workspace.id === currentWorkspace()?.id) {
+                    <span class='pill pill--success'>Active</span>
+                  }
+                </div>
+                <p>{{ workspace.path }}</p>
+              </button>
+
+              <div class='workspace-card__controls'>
+                <label class='field'>
+                  <span>Theme</span>
+                  <select [ngModel]='workspace.themeId' (ngModelChange)='onWorkspaceThemeChange(workspace.id, $event)'>
+                    @for (theme of themes; track theme.id) {
+                      <option [value]='theme.id'>{{ theme.label }}</option>
+                    }
+                  </select>
+                </label>
+
+                <button type='button' class='action-button action-button--danger' (click)='removeWorkspace(workspace.id)'>
+                  <i class='bi bi-trash3'></i>
+                  Remove
+                </button>
+              </div>
+            </div>
+          } @empty {
+            <div class='empty-state'>
+              <p>No workspaces added yet. Attach a folder to give the agent local project context.</p>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </section>
+  </div>
+
+  <footer class='settings-footer'>
+    <button type='button' class='action-button action-button--primary settings-close-btn' (click)='closeSettings()'>
+      Close
+    </button>
+  </footer>
+</div>

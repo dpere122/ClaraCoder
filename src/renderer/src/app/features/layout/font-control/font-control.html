@@ -1,0 +1,12 @@
+<div class="font-control">
+  <label class="font-size-label">Font Size</label>
+  <button (click)="decrease()" title="Decrease text size">
+    <i class="bi bi-dash"></i>
+  </button>
+  <span class="size-label" (dblclick)="reset()" title="Double-click to reset">
+    {{ fontSize() | number:'1.1-1' }}
+  </span>
+  <button (click)="increase()" title="Increase text size">
+    <i class="bi bi-plus"></i>
+  </button>
+</div>

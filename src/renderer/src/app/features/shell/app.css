@@ -1,0 +1,150 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-top-bar {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--t-border-subtle);
+  padding: 0.75rem 1.5rem 1rem;
+}
+
+.app-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.app-top-bar,
+.app-content {
+  transition: filter 0.18s ease, opacity 0.18s ease;
+}
+
+.app-layout--dimmed .app-top-bar,
+.app-layout--dimmed .app-content {
+  filter: saturate(0.84) brightness(0.72) blur(1.2px);
+}
+
+.app-modal-scrim {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 32%),
+    rgba(7, 11, 20, 0.42);
+  transition: opacity 0.18s ease;
+}
+
+.app-layout--dimmed .app-modal-scrim {
+  opacity: 1;
+}
+
+.workspace-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--t-border-subtle);
+}
+
+.workspace-panel > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background-color: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background-color 0.15s;
+}
+
+.workspace-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+}
+
+.workspace-resize-handle:hover,
+:host-context(body.workspace-resizing) .workspace-resize-handle {
+  background-color: var(--t-primary);
+}
+
+.sidebar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--t-border-subtle);
+}
+
+.sidebar > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background-color: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background-color 0.15s;
+}
+
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+}
+
+.sidebar-resize-handle:hover,
+:host-context(body.sidebar-resizing) .sidebar-resize-handle {
+  background-color: var(--t-primary);
+}
+
+.chat-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.75rem 1.5rem;
+  gap: 0.25rem;
+}
+
+.chat-box-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.message-box-host {
+  flex-shrink: 0;
+}
+
+.tools-bar-host {
+  display: block;
+}
+
+.title-glow {
+  color: var(--t-primary);
+  text-shadow: 0 0 8px var(--t-glow), 0 0 20px var(--t-glow-soft);
+  font-size: 1.4rem;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.5rem;
+}

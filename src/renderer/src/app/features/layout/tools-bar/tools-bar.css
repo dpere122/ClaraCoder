@@ -1,0 +1,112 @@
+app-tools-bar .tools-bar-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+}
+
+app-tools-bar .tools-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+app-tools-bar .tools-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+app-tools-bar .tools-divider {
+  width: 1px;
+  height: 1.1rem;
+  background-color: var(--t-border);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+app-tools-bar .pin-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+app-tools-bar .pin-toggle {
+  position: relative;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  outline: none;
+}
+
+app-tools-bar .pin-toggle .toggle-track {
+  display: block;
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 0.55rem;
+  background-color: var(--t-border);
+  transition: background-color 0.2s;
+  position: relative;
+}
+
+app-tools-bar .pin-toggle.active .toggle-track {
+  background-color: var(--t-primary);
+}
+
+app-tools-bar .pin-toggle .toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.1rem - 4px);
+  height: calc(1.1rem - 4px);
+  border-radius: 50%;
+  background-color: var(--t-bg);
+  transition: transform 0.2s;
+}
+
+app-tools-bar .pin-toggle.active .toggle-thumb {
+  transform: translateX(calc(2rem - 1.1rem));
+}
+
+app-tools-bar .pin-toggle:hover .toggle-track {
+  box-shadow: 0 0 4px var(--t-glow);
+}
+
+app-tools-bar .tools-tabs {
+  display: flex;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+app-tools-bar .tools-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.3rem 0.7rem;
+  background: transparent;
+  border: 1px solid var(--t-border);
+  border-bottom: 2px solid transparent;
+  color: var(--t-text-muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+
+app-tools-bar .tools-tab:first-child {
+  border-right: none;
+}
+
+app-tools-bar .tools-tab:hover {
+  color: var(--t-secondary);
+  background-color: var(--t-hover-bg);
+}
+
+app-tools-bar .tools-tab.active {
+  color: var(--t-primary);
+  border-bottom-color: var(--t-primary);
+  background-color: var(--t-active-bg);
+}

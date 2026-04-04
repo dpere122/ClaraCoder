@@ -1,0 +1,33 @@
+app-theme-selector .theme-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+app-theme-selector .theme-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+app-theme-selector .theme-dropdown {
+  background-color: var(--t-bg);
+  border: 1px solid var(--t-border);
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.35rem;
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+}
+
+app-theme-selector .theme-dropdown:focus {
+  border-color: var(--t-primary);
+  box-shadow: 0 0 0 1px var(--t-border);
+}
+
+app-theme-selector .theme-dropdown option {
+  background-color: var(--t-bg);
+  color: var(--t-primary);
+}

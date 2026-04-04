@@ -1,0 +1,279 @@
+/**
+ * Bridges Angular to `window.electronAPI`: IPC invokes, and RxJS streams for push events from main.
+ * Runs listener setup once in the constructor; all methods no-op or resolve empty when not in Electron.
+ */
+import { Injectable, NgZone } from '@angular/core';
+import { Observable, Subject } from 'rxjs';
+import type {
+  AppConfig,
+  Conversation,
+  ConversationMeta,
+  FileEntry,
+  LlmStatus,
+  TtsStreamPacket,
+  Workspace,
+  WorkspaceFilesChangedMessage,
+} from '@shared/index';
+
+export interface ChunkMessage {
+  conversationId: string;
+  delta: string;
+}
+
+export interface DoneMessage {
+  conversationId: string;
+}
+
+export interface LlmStatusMessage {
+  conversationId: string;
+  status: LlmStatus;
+}
+
+export interface ScriptOutputMessage {
+  processId: string;
+  type: 'stdout' | 'stderr' | 'error';
+  data: string;
+}
+
+export interface ScriptCompleteMessage {
+  processId: string;
+  exitCode: number | null;
+}
+
+export interface ConversationWorkspaceChangedMessage {
+  id: string;
+  workspacePath: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class ElectronService {
+  private static ttsPacketListenerWired = false;
+
+  private readonly chunkSubject = new Subject<ChunkMessage>();
+  private readonly doneSubject = new Subject<DoneMessage>();
+  private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
+  private readonly configSubject = new Subject<AppConfig>();
+  private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
+  private readonly activeConversationChangedSubject = new Subject<string | null>();
+  private readonly conversationWorkspaceChangedSubject = new Subject<ConversationWorkspaceChangedMessage>();
+  private readonly workspaceChangedSubject = new Subject<string | null>();
+  private readonly workspaceFilesChangedSubject = new Subject<WorkspaceFilesChangedMessage>();
+  private readonly openWorkspaceSubject = new Subject<string>();
+  private readonly openConversationSubject = new Subject<string>();
+  private readonly scriptOutputSubject = new Subject<ScriptOutputMessage>();
+  private readonly scriptCompleteSubject = new Subject<ScriptCompleteMessage>();
+  private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
+  readonly chunk$ = this.chunkSubject.asObservable();
+  readonly done$ = this.doneSubject.asObservable();
+  readonly llmStatus$ = this.llmStatusSubject.asObservable();
+  readonly config$ = this.configSubject.asObservable();
+  readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
+  readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
+  readonly conversationWorkspaceChanged$ = this.conversationWorkspaceChangedSubject.asObservable();
+  readonly workspaceChanged$ = this.workspaceChangedSubject.asObservable();
+  readonly workspaceFilesChanged$ = this.workspaceFilesChangedSubject.asObservable();
+  readonly openWorkspace$ = this.openWorkspaceSubject.asObservable();
+  readonly openConversation$ = this.openConversationSubject.asObservable();
+  readonly scriptOutput$ = this.scriptOutputSubject.asObservable();
+  readonly scriptComplete$ = this.scriptCompleteSubject.asObservable();
+  /** TTS MP3 packets from the main process (filter by `seq` in the app). */
+  readonly ttsStream$: Observable<TtsStreamPacket> = this.ttsStreamSubject.asObservable();
+
+  private get api(): ElectronAPI | undefined {
+    return window.electronAPI;
+  }
+
+  get isElectron(): boolean {
+    return !!this.api;
+  }
+
+  constructor(private zone: NgZone) {
+    this.api?.onMessageChunk((_event, conversationId, delta) => {
+      this.zone.run(() => this.chunkSubject.next({ conversationId, delta }));
+    });
+    this.api?.onMessageDone((_event, conversationId) => {
+      this.zone.run(() => this.doneSubject.next({ conversationId }));
+    });
+    this.api?.onMessageStatus((_event, conversationId, status) => {
+      this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
+    });
+    this.api?.onConfigUpdated((_event, config) => {
+      this.zone.run(() => this.configSubject.next(config));
+    });
+    this.api?.onSettingsWindowVisibilityChanged((_event, isOpen) => {
+      this.zone.run(() => this.settingsWindowVisibilitySubject.next(isOpen));
+    });
+    this.api?.onActiveConversationChanged((_event, conversationId) => {
+      this.zone.run(() => this.activeConversationChangedSubject.next(conversationId));
+    });
+    this.api?.onConversationWorkspaceChanged((_event, data) => {
+      this.zone.run(() => this.conversationWorkspaceChangedSubject.next(data));
+    });
+    this.api?.onWorkspaceChanged((_event, workspaceId) => {
+      this.zone.run(() => this.workspaceChangedSubject.next(workspaceId));
+    });
+    this.api?.onWorkspaceFilesChanged((_event, data) => {
+      this.zone.run(() => this.workspaceFilesChangedSubject.next(data));
+    });
+    this.api?.onOpenWorkspace((_event, workspacePath) => {
+      this.zone.run(() => this.openWorkspaceSubject.next(workspacePath));
+    });
+    this.api?.onOpenConversation((_event, conversationId) => {
+      this.zone.run(() => this.openConversationSubject.next(conversationId));
+    });
+    this.api?.onScriptOutput((_event, data) => {
+      this.zone.run(() => this.scriptOutputSubject.next(data));
+    });
+    this.api?.onScriptComplete((_event, data) => {
+      this.zone.run(() => this.scriptCompleteSubject.next(data));
+    });
+    if (!ElectronService.ttsPacketListenerWired && this.api?.onTtsStreamPacket) {
+      ElectronService.ttsPacketListenerWired = true;
+      this.api.onTtsStreamPacket((packet) => {
+        this.zone.run(() => this.ttsStreamSubject.next(packet));
+      });
+    }
+    this.api?.onReady();
+  }
+
+  sendMessage(conversationId: string, msg: string): void {
+    this.api?.sendMessage(conversationId, msg);
+  }
+
+  setAlwaysOnTop(pinned: boolean): void {
+    this.api?.setAlwaysOnTop(pinned);
+  }
+
+  getConversations(workspaceId?: string | null): Promise<ConversationMeta[]> {
+    return this.api?.getConversations(workspaceId) ?? Promise.resolve([]);
+  }
+
+  loadConversation(id: string, workspaceId?: string | null): Promise<Conversation> {
+    return this.api!.loadConversation(id, workspaceId);
+  }
+
+  saveConversation(conv: Conversation): Promise<void> {
+    return this.api?.saveConversation(conv) ?? Promise.resolve();
+  }
+
+  deleteConversation(id: string, workspaceId?: string | null): Promise<void> {
+    return this.api?.deleteConversation(id, workspaceId) ?? Promise.resolve();
+  }
+
+  renameConversation(id: string, title: string, workspaceId?: string | null): Promise<void> {
+    return this.api?.renameConversation(id, title, workspaceId) ?? Promise.resolve();
+  }
+
+  newConversation(workspaceId: string | null): Promise<Conversation> {
+    return this.api!.newConversation(workspaceId);
+  }
+
+  getWorkspaces(): Promise<Workspace[]> {
+    return this.api?.getWorkspaces() ?? Promise.resolve([]);
+  }
+
+  addWorkspace(name: string, path: string): Promise<Workspace> {
+    return this.api!.addWorkspace(name, path);
+  }
+
+  removeWorkspace(id: string): Promise<void> {
+    return this.api?.removeWorkspace(id) ?? Promise.resolve();
+  }
+
+  setCurrentWorkspace(id: string | null): Promise<void> {
+    return this.api?.setCurrentWorkspace(id) ?? Promise.resolve();
+  }
+
+  getCurrentWorkspace(): Promise<Workspace | null> {
+    return this.api?.getCurrentWorkspace() ?? Promise.resolve(null);
+  }
+
+  async startTtsStreamRequest(text: string, voice: string, seq: number): Promise<void> {
+    await (this.api?.startTtsStream(text, voice, seq) ?? Promise.resolve({ ok: true }));
+  }
+
+  registerTtsStreamUrl(text: string, voice: string): Promise<{ url: string }> {
+    return this.api?.registerTtsStreamUrl(text, voice) ?? Promise.resolve({ url: '' });
+  }
+
+  abortTtsStream(): void {
+    void this.api?.abortTtsStream();
+  }
+
+  transcribe(audio: ArrayBuffer): Promise<string> {
+    return this.api!.transcribe(audio);
+  }
+
+  openDirectoryDialog(): Promise<string | null> {
+    return this.api?.openDirectoryDialog() ?? Promise.resolve(null);
+  }
+
+  readDirectory(dirPath: string): Promise<FileEntry[]> {
+    return this.api?.readDirectory(dirPath) ?? Promise.resolve([]);
+  }
+
+  readDirectoryRecursive(dirPath: string): Promise<string> {
+    return this.api?.readDirectoryRecursive(dirPath) ?? Promise.resolve('');
+  }
+
+  async setWorkspaceContext(sessionId: string, workspacePath: string, workspaceContext: string): Promise<void> {
+    await (this.api?.setWorkspaceContext?.(sessionId, workspacePath, workspaceContext) ?? Promise.resolve());
+  }
+
+  setConversationTheme(id: string, themeId: string): Promise<void> {
+    return this.api?.setConversationTheme(id, themeId) ?? Promise.resolve();
+  }
+
+  setWorkspaceTheme(workspaceId: string, themeId: string): Promise<void> {
+    return this.api?.setWorkspaceTheme(workspaceId, themeId) ?? Promise.resolve();
+  }
+
+  setNoWorkspaceTheme(themeId: string): Promise<void> {
+    return this.api?.setNoWorkspaceTheme(themeId) ?? Promise.resolve();
+  }
+
+  getActiveConversationId(): Promise<string | null> {
+    return this.api?.getActiveConversationId() ?? Promise.resolve(null);
+  }
+
+  loadConfig(): Promise<AppConfig> {
+    return this.api?.loadConfig() ?? Promise.resolve({
+      currentWorkspaceId: null,
+      workspaces: [],
+      themeId: 'dark',
+      noWorkspaceThemeId: 'dark',
+      activeLlmConnectionId: 'default-openai',
+      llmConnections: [],
+      audioTranscription: {
+        provider: 'openai',
+        baseUrl: '',
+        model: 'gpt-4o-mini-transcribe',
+        apiKey: '',
+      },
+    });
+  }
+
+  saveConfig(config: AppConfig): Promise<void> {
+    return this.api?.saveConfig(config) ?? Promise.resolve();
+  }
+
+  closeSettingsWindow(): void {
+    this.api?.closeSettingsWindow();
+  }
+
+  runScript(script: string, language: string, workspacePath: string): Promise<{ stdout: string; stderr: string; exitCode?: number }> {
+    return this.api?.runScript(script, language, workspacePath) ?? Promise.resolve({ stdout: '', stderr: 'API not available' });
+  }
+
+  runScriptInteractive(script: string, language: string, workspacePath: string): Promise<{ processId: string | null; success: boolean; error?: string }> {
+    return this.api?.runScriptInteractive(script, language, workspacePath) ?? Promise.resolve({ processId: null, success: false, error: 'API not available' });
+  }
+
+  sendScriptInput(processId: string, input: string): Promise<{ success: boolean; error?: string }> {
+    return this.api?.sendScriptInput(processId, input) ?? Promise.resolve({ success: false, error: 'API not available' });
+  }
+
+  endScript(processId: string): Promise<{ success: boolean; error?: string }> {
+    return this.api?.endScript(processId) ?? Promise.resolve({ success: false, error: 'API not available' });
+  }
+}

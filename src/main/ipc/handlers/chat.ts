@@ -1,25 +1,28 @@
 import { ipcMain } from 'electron';
-import type { FileDiffPayload, LlmStatusPayload } from '../../../shared';
+import type { DeleteConfirmPayload, FileDiffPayload, LlmStatusPayload } from '../../../shared';
 import { PYTHON_URL } from '../../python/server';
 import { mainState } from '../../state';
 
 /**
- * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`, `diff`.
+ * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`, `diff`, `delete_confirm`.
  */
 export function parseStreamPayload(
   payload: string,
 ):
-  | { type: 'chunk'; delta: string }
+  | { type: 'chunk'; delta: string; streamTag?: string }
   | { type: 'tool_read_chunk'; delta: string }
   | { type: 'status'; status: LlmStatusPayload }
-  | { type: 'diff'; diff: FileDiffPayload } {
+  | { type: 'diff'; diff: FileDiffPayload }
+  | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload } {
   try {
     const parsed = JSON.parse(payload) as {
       type?: string;
       delta?: string;
+      stream_tag?: string;
       text?: string;
       status?: LlmStatusPayload & { agent_role?: string };
       diff?: unknown;
+      deleteConfirm?: unknown;
     };
     if (parsed.type === 'status' && parsed.status) {
       const rawRole = parsed.status.agent_role;
@@ -42,12 +45,24 @@ export function parseStreamPayload(
       return { type: 'diff', diff: parsed.diff as FileDiffPayload };
     }
 
+    if (
+      parsed.type === 'delete_confirm' &&
+      parsed.deleteConfirm &&
+      typeof parsed.deleteConfirm === 'object'
+    ) {
+      return {
+        type: 'delete_confirm',
+        deleteConfirm: parsed.deleteConfirm as DeleteConfirmPayload,
+      };
+    }
+
     if (parsed.type === 'tool_read_chunk' && typeof parsed.delta === 'string') {
       return { type: 'tool_read_chunk', delta: parsed.delta };
     }
 
     if (parsed.type === 'chunk' && typeof parsed.delta === 'string') {
-      return { type: 'chunk', delta: parsed.delta };
+      const streamTag = typeof parsed.stream_tag === 'string' && parsed.stream_tag.trim() ? parsed.stream_tag.trim() : undefined;
+      return { type: 'chunk', delta: parsed.delta, streamTag };
     }
   } catch {
     // fall through to plain text chunks
@@ -62,10 +77,12 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-status', conversationId, parsed.status);
   } else if (parsed.type === 'diff') {
     event.reply('message-diff', conversationId, parsed.diff);
+  } else if (parsed.type === 'delete_confirm') {
+    event.reply('message-delete-confirm', conversationId, parsed.deleteConfirm);
   } else if (parsed.type === 'tool_read_chunk') {
     event.reply('message-tool-read-chunk', conversationId, parsed.delta);
-  } else {
-    event.reply('message-chunk', conversationId, parsed.delta);
+  } else if (parsed.type === 'chunk') {
+    event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
   }
 }
 
@@ -156,15 +173,27 @@ export function registerChatIpc(): void {
       event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
       event.reply('message-done', conversationId);
     }
-  },
-  );
+  });
 
-  ipcMain.handle('agent-continue', async (_event, conversationId: string, note: string) => {
+  ipcMain.handle(
+    'agent-continue',
+    async (
+      _event,
+      conversationId: string,
+      note: string,
+      deleteAction?: 'confirm' | 'cancel',
+      deleteRequestId?: string,
+    ) => {
     try {
       const res = await fetch(`${PYTHON_URL}/chat/agent-continue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: conversationId, note: note ?? '' }),
+        body: JSON.stringify({
+          session_id: conversationId,
+          note: note ?? '',
+          delete_action: deleteAction ?? null,
+          delete_request_id: deleteRequestId ?? '',
+        }),
       });
       if (!res.ok) {
         const text = await res.text();

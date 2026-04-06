@@ -206,12 +206,24 @@
   padding: 0;
 }
 
+.diff-hunk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.diff-hunk-chevron {
+  flex-shrink: 0;
+}
+
 .diff-copy-btn {
   flex: 0 0 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   opacity: 0.45;
-  font-size: 0.85rem;
   cursor: pointer;
   padding: 0;
 }

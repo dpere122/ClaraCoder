@@ -54,13 +54,13 @@
         </div>
         @if (selectedSettingsTab() === 'models') {
           <button type='button' class='action-button action-button--primary' (click)='addConnection()'>
-            <i class='bi bi-plus-lg'></i>
+            <lucide-icon name='plus' [size]='17' />
             Add Connection
           </button>
         }
         @if (selectedSettingsTab() === 'workspaces') {
           <button type='button' class='action-button action-button--primary' (click)='addWorkspace()'>
-            <i class='bi bi-folder-plus'></i>
+            <lucide-icon name='folder-plus' [size]='17' />
             Add Workspace
           </button>
         }
@@ -141,7 +141,7 @@
 
                 <div class='settings-editor__actions'>
                   <button type='button' class='action-button' (click)='duplicateConnection(connection)'>
-                    <i class='bi bi-copy'></i>
+                    <lucide-icon name='copy' [size]='16' />
                     Duplicate
                   </button>
 
@@ -151,7 +151,7 @@
                     [disabled]='!canDeleteSelectedConnection()'
                     (click)='removeConnection(connection.id)'
                   >
-                    <i class='bi bi-trash3'></i>
+                    <lucide-icon name='trash' [size]='16' />
                     Delete
                   </button>
                 </div>
@@ -397,6 +397,50 @@
 
           <hr class='settings-divider' />
 
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Default text encoding and newlines</h5>
+              <p class='settings-copy'>
+                Used when the model omits <code>encoding</code> / <code>newline</code> on read, search, and edit tools. Per-call overrides still apply.
+                <code>preserve</code> matches existing file line endings when the file already exists; new files use LF.
+              </p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field field--full'>
+                <span>Default encoding</span>
+                <select
+                  [ngModel]='defaultWorkspaceEncoding()'
+                  (ngModelChange)='onDefaultWorkspaceEncodingChange($event)'
+                >
+                  <option value='utf-8'>utf-8</option>
+                  <option value='utf-8-sig'>utf-8-sig (BOM)</option>
+                  <option value='utf-16'>utf-16 (BOM + LE)</option>
+                  <option value='utf-16-le'>utf-16-le</option>
+                  <option value='utf-16-be'>utf-16-be</option>
+                  <option value='latin-1'>latin-1</option>
+                  <option value='cp1252'>cp1252 (Windows-1252)</option>
+                  <option value='ascii'>ascii</option>
+                  <option value='mac-roman'>mac-roman</option>
+                </select>
+              </label>
+
+              <label class='field field--full'>
+                <span>Default newline for edits</span>
+                <select
+                  [ngModel]='defaultWorkspaceNewline()'
+                  (ngModelChange)='onDefaultWorkspaceNewlineChange($event)'
+                >
+                  <option value='lf'>LF (Unix)</option>
+                  <option value='crlf'>CRLF (Windows)</option>
+                  <option value='preserve'>Preserve existing file</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
           <div class='callout'>
             <p>
               Editor mode in the chat window still controls whether write tools are bound at all. This page only changes how those tools behave
@@ -562,7 +606,7 @@
                 </label>
 
                 <button type='button' class='action-button action-button--danger' (click)='removeWorkspace(workspace.id)'>
-                  <i class='bi bi-trash3'></i>
+                  <lucide-icon name='trash' [size]='16' />
                   Remove
                 </button>
               </div>

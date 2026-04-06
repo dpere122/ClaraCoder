@@ -32,10 +32,13 @@ class SessionAutoApplyRequest(BaseModel):
 
 
 class AgentContinueRequest(BaseModel):
-    """Resume an agent stream that is waiting after a diff was shown (same in-process session)."""
+    """Resume an agent stream that is waiting after a diff or delete confirmation (same in-process session)."""
 
     session_id: str
     note: str = ''
+    #: When set with a pending delete request, perform or cancel the delete before resuming.
+    delete_action: Literal['confirm', 'cancel'] | None = None
+    delete_request_id: str = ''
 
 
 class LoadRequest(BaseModel):
@@ -108,6 +111,8 @@ class RuntimeToolsRequest(BaseModel):
     editToolsStrict: bool = False
     maxFileReadLines: int = Field(default=400, ge=50, le=2000)
     maxSearchResults: int = Field(default=40, ge=1, le=200)
+    defaultWorkspaceEncoding: str = 'utf-8'
+    defaultWorkspaceNewline: Literal['lf', 'crlf', 'preserve'] = 'lf'
 
 
 class RuntimeConfigRequest(BaseModel):
@@ -118,3 +123,18 @@ class RuntimeConfigRequest(BaseModel):
     audio: RuntimeAudioRequest
     host: RuntimeHostRequest | None = None
     tools: RuntimeToolsRequest | None = None
+
+
+class LogLevelRequest(BaseModel):
+    """Body for POST /logs/level — matches UI ``HealthMonitorConfig.logLevel``."""
+
+    level: Literal['debug', 'info', 'warning', 'error']
+
+
+class LogIngestRequest(BaseModel):
+    """Body for POST /logs/ingest (Electron main → unified log)."""
+
+    level: str = 'INFO'
+    logger: str = 'nemo.electron.main'
+    message: str
+    source: str = 'electron'

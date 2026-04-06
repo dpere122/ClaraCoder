@@ -4,6 +4,17 @@ import { mainState, type ScriptProcess } from '../../state';
 import { buildScriptLaunchPlan } from '../../utils/script-launch';
 
 /**
+ * Child processes inherit the parent env; on Windows, piped Python stdio defaults to cp1252 and
+ * breaks `print()` of Unicode (e.g. ✓). Terminals often use UTF-8; match that for script runs.
+ */
+function envForScriptChild(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (!env.PYTHONIOENCODING?.trim()) env.PYTHONIOENCODING = 'utf-8';
+  if (!env.PYTHONUTF8?.trim()) env.PYTHONUTF8 = '1';
+  return env;
+}
+
+/**
  * One-shot script run with timeout, plus interactive PTY-like stdin/stdout streaming.
  */
 export function registerScriptsIpc(): void {
@@ -22,9 +33,15 @@ export function registerScriptsIpc(): void {
           const launchPlan = await buildScriptLaunchPlan(language, script);
           tempFile = launchPlan.tempFile;
 
-          const options: { shell: boolean; stdio: ('ignore' | 'pipe')[]; cwd?: string } = {
+          const options: {
+            shell: boolean;
+            stdio: ('ignore' | 'pipe')[];
+            cwd?: string;
+            env: NodeJS.ProcessEnv;
+          } = {
             shell: false,
             stdio: ['ignore', 'pipe', 'pipe'],
+            env: envForScriptChild(),
           };
           if (workspacePath) {
             options.cwd = workspacePath;
@@ -90,9 +107,15 @@ export function registerScriptsIpc(): void {
       const launchPlan = await buildScriptLaunchPlan(language, script);
       tempFile = launchPlan.tempFile;
 
-      const options: { shell: boolean; stdio: ('pipe' | 'ignore')[]; cwd?: string } = {
+      const options: {
+        shell: boolean;
+        stdio: ('pipe' | 'ignore')[];
+        cwd?: string;
+        env: NodeJS.ProcessEnv;
+      } = {
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: envForScriptChild(),
       };
       if (workspacePath) {
         options.cwd = workspacePath;

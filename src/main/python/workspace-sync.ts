@@ -19,6 +19,8 @@ export async function syncRuntimeConfigToPython(config: AppConfig): Promise<void
           editToolsStrict: config.workspaceTools.editToolsMode === 'strict',
           maxFileReadLines: config.workspaceTools.maxFileReadLines,
           maxSearchResults: config.workspaceTools.maxSearchResults,
+          defaultWorkspaceEncoding: config.workspaceTools.defaultWorkspaceEncoding,
+          defaultWorkspaceNewline: config.workspaceTools.defaultWorkspaceNewline,
         },
       }),
     });

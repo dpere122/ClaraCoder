@@ -1,7 +1,10 @@
 import { spawn } from 'child_process';
+import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
+import { getLogsDir, getWorkspaceStagingDir } from '../paths';
+import { ingestElectronLog } from '../log-ingest';
 
 export { PYTHON_URL, PYTHON_PORT };
 
@@ -12,9 +15,14 @@ export function startPythonServer(): void {
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   // Compiled to dist/main/python/*.js — repo root is three levels up.
   const scriptPath = path.join(__dirname, '..', '..', '..', 'python', 'server.py');
+  const logDir = getLogsDir();
+  const stagingDir = getWorkspaceStagingDir();
+  mkdirSync(logDir, { recursive: true });
+  mkdirSync(stagingDir, { recursive: true });
 
   mainState.pythonProcess = spawn(pythonCmd, [scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, NEMO_LOG_DIR: logDir, NEMO_STAGING_DIR: stagingDir },
   });
 
   mainState.pythonProcess.stdout?.on('data', (data: Buffer) => {
@@ -22,7 +30,9 @@ export function startPythonServer(): void {
   });
 
   mainState.pythonProcess.stderr?.on('data', (data: Buffer) => {
-    console.log(`[Python] ${data.toString().trim()}`);
+    const text = data.toString().trim();
+    console.log(`[Python] ${text}`);
+    void ingestElectronLog('INFO', 'nemo.electron.python.stderr', text, 'electron');
   });
 
   mainState.pythonProcess.on('close', (code) => {

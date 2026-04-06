@@ -18,14 +18,8 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Agent architecture (manager/worker + optional LangGraph worker)
+# Agent architecture (single outer agent + nested router/specialists via modify_workspace)
 # ---------------------------------------------------------------------------
-# When true, the manager agent delegates workspace work via delegate_workspace_task.
-NEMO_MANAGER_WORKER = _env_bool('NEMO_MANAGER_WORKER', True)
-# When true, tool-agent runs use langchain.agents.create_agent (agent_langgraph): manager + nested worker
-# when manager/worker is on, and single-agent mode when manager/worker is off.
-# When false, those paths use the classic bind_tools loop instead.
-NEMO_USE_LANGGRAPH_AGENT = _env_bool('NEMO_USE_LANGGRAPH_AGENT', True)
 # Qwen-oriented defaults (see :mod:`nemo_backend.model_tuning`): ``NEMO_QWEN_OPTIMIZE`` (default on),
 # ``NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS``, ``NEMO_CHAT_MAX_OUTPUT_TOKENS`` (applies to any model when set).
 # Max characters returned from the worker to the manager (truncation with notice).
@@ -46,12 +40,8 @@ try:
 except ValueError:
     MAX_AGENT_STEPS = 400
 
-# When finish_reason is "length", ask the model to continue (do not treat as final).
-MAX_AGENT_LENGTH_CONTINUES = 3
 # When the model returns no visible text, inject a nudge message instead of stopping.
 MAX_AGENT_EMPTY_NUDGES = 2
-# Some models write <tool_call> in plain text; nudge them to use API tool_calls.
-MAX_AGENT_TOOL_FORMAT_NUDGES = 3
 
 # ---------------------------------------------------------------------------
 # Workspace tool limits

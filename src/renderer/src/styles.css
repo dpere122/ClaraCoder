@@ -23,7 +23,7 @@
   --t-code-text: #c8e6c8;
   --t-input-bg: var(--t-bg);
   --t-input-fg: var(--t-primary);
-  --t-font: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-font: 'FiraCode Nerd Font', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #0d1a0d;
   --t-titlebar-end: #003b00;
   --t-titlebar-text: #00ff41;
@@ -50,6 +50,18 @@
   --t-hljs-name: #00ff80;
   --t-hljs-symbol: #55dd99;
   --t-hljs-selector: #66ffbb;
+}
+
+/* Lucide (lucide-angular): align with text and inherit theme color */
+lucide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+lucide-icon svg {
+  display: block;
 }
 
 .theme-pink {
@@ -117,7 +129,7 @@
   --t-code-bg: #ebe5d9;
   --t-code-inline-bg: #e5ddd0;
   --t-code-text: #3d2b1f;
-  --t-font: 'Georgia', 'Palatino Linotype', 'Book Antiqua', 'Palatino', serif;
+  --t-font: 'FiraCode Nerd Font', 'Georgia', 'Palatino Linotype', 'Book Antiqua', 'Palatino', serif;
   --t-titlebar-start: #d8c8b2;
   --t-titlebar-end: #c5b399;
   --t-titlebar-text: #2c1810;
@@ -169,7 +181,7 @@
   --t-code-bg: #16110e;
   --t-code-inline-bg: #2a211c;
   --t-code-text: #f6ead8;
-  --t-font: 'Georgia', 'Palatino Linotype', 'Book Antiqua', 'Palatino', serif;
+  --t-font: 'FiraCode Nerd Font', 'Georgia', 'Palatino Linotype', 'Book Antiqua', 'Palatino', serif;
   --t-titlebar-start: #3a2a20;
   --t-titlebar-end: #241913;
   --t-titlebar-text: #f3e6d0;
@@ -228,7 +240,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #f5e6d1;
   --t-input-bg: rgba(18, 15, 13, 0.92);
   --t-input-fg: #f0dcc0;
-  --t-font: 'Georgia', 'Book Antiqua', 'Palatino Linotype', serif;
+  --t-font: 'FiraCode Nerd Font', 'Georgia', 'Book Antiqua', 'Palatino Linotype', serif;
   --t-titlebar-start: #50311a;
   --t-titlebar-end: #1d1510;
   --t-titlebar-text: #f2ddbe;
@@ -282,7 +294,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #000000;
   --t-input-bg: #ffffff;
   --t-input-fg: #000000;
-  --t-font: 'Tahoma', 'MS Sans Serif', 'Segoe UI', sans-serif;
+  --t-font: 'FiraCode Nerd Font', 'Tahoma', 'MS Sans Serif', 'Segoe UI', sans-serif;
   --t-titlebar-start: #000080;
   --t-titlebar-end: #1084d0;
   --t-titlebar-text: #ffffff;
@@ -309,6 +321,60 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-hljs-name: #000080;
   --t-hljs-symbol: #800000;
   --t-hljs-selector: #800080;
+}
+
+.theme-woodland {
+  --t-bg: #191c17;
+  --t-bg-surface: #22261f;
+  --t-bg-deep: #121410;
+  --t-panel: #1e221b;
+  --t-primary: #a8b89a;
+  --t-secondary: #c9a96e;
+  --t-fg: #d2cdc2;
+  --t-border: #3d4436;
+  --t-border-subtle: #2e3429;
+  --t-glow: transparent;
+  --t-glow-soft: transparent;
+  --t-hover-bg: rgba(168, 184, 154, 0.1);
+  --t-active-bg: rgba(168, 184, 154, 0.14);
+  --t-selection-bg: rgba(168, 184, 154, 0.28);
+  --t-text-muted: #7a8470;
+  --t-muted: #7a8470;
+  --t-user-bg: #252b20;
+  --t-assistant-bg: #1e221b;
+  --t-assistant-border: #8a7a5a;
+  --t-code-bg: #151812;
+  --t-code-inline-bg: #252b20;
+  --t-code-text: #ddd8cc;
+  --t-input-bg: #191c17;
+  --t-input-fg: #d2cdc2;
+  --t-font: 'FiraCode Nerd Font', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --t-titlebar-start: #2a3024;
+  --t-titlebar-end: #1a1e17;
+  --t-titlebar-text: #d2cdc2;
+  --t-edge-light: #4a5442;
+  --t-edge-mid: #343b2e;
+  --t-edge-dark: #1e2319;
+  --t-edge-darkest: #0d0f0b;
+  --t-process-a: #a8b89a;
+  --t-process-b: #c9a96e;
+  --t-process-c: #7eb5a6;
+  --t-hljs-keyword: #a8b89a;
+  --t-hljs-string: #c9a96e;
+  --t-hljs-number: #7eb5a6;
+  --t-hljs-comment: #6b7361;
+  --t-hljs-function: #d4c49a;
+  --t-hljs-class: #b8a88a;
+  --t-hljs-attr: #c4a87a;
+  --t-hljs-params: #d2cdc2;
+  --t-hljs-property: #9bb88e;
+  --t-hljs-punctuation: #7a8470;
+  --t-hljs-operator: #b89a7a;
+  --t-hljs-meta: #8aaa80;
+  --t-hljs-tag: #c49a70;
+  --t-hljs-name: #a8b89a;
+  --t-hljs-symbol: #7eb5a6;
+  --t-hljs-selector: #9bb88e;
 }
 
 [data-bs-theme="dark"] {
@@ -347,6 +413,13 @@ html, body {
   background-color: var(--t-bg);
   color: var(--t-fg);
   font-family: var(--t-font);
+}
+
+/* Routed windows (settings, health) fill the shell like the main app. */
+app-shell > router-outlet + * {
+  display: block;
+  height: 100%;
+  min-height: 0;
 }
 
 ::selection {
@@ -935,7 +1008,8 @@ html.theme-win95 .conv-item.active .conv-pending-icon {
   color: #ffffff;
 }
 
-html.theme-win95 .folder-icon {
+html.theme-win95 .folder-icon,
+html.theme-win95 lucide-icon.folder-icon {
   color: #8c5a00;
   opacity: 1;
 }
@@ -1011,17 +1085,18 @@ html.theme-win95 app-chat-box .streaming-pre {
   animation: none;
 }
 
-html.theme-win95 app-chat-box .processing-spinner {
-  animation: none;
-  border: 2px solid #808080;
+html.theme-win95 app-chat-box .processing-ngx-host .ngx-spinner-overlay,
+html.theme-win95 app-chat-box .tts-ngx-host .ngx-spinner-overlay,
+html.theme-win95 app-chat-box .talk-voice-ngx-host .ngx-spinner-overlay {
+  animation: none !important;
 }
 
-html.theme-win95 app-chat-box .processing-spinner--think {
-  border-top-color: #c06000;
-}
-
-html.theme-win95 app-chat-box .processing-spinner--tools {
-  border-top-color: #000080;
+html.theme-win95 app-chat-box .processing-ngx-host .la-ball-atom > div,
+html.theme-win95 app-chat-box .processing-ngx-host .la-ball-triangle-path > div,
+html.theme-win95 app-chat-box .tts-ngx-host .la-line-scale > div,
+html.theme-win95 app-chat-box .talk-voice-ngx-host .la-ball-clip-rotate-pulse > div,
+html.theme-win95 app-chat-box .talk-voice-ngx-host .la-ball-pulse-sync > div {
+  animation: none !important;
 }
 
 html.theme-win95 app-chat-box .streaming-cursor {
@@ -1310,10 +1385,17 @@ html.theme-steampunk .conv-pending-icon {
 }
 
 html.theme-steampunk .processing-text,
-html.theme-steampunk app-chat-box .processing-spinner,
 html.theme-steampunk .streaming-cursor,
 html.theme-steampunk .listening-dot,
 html.theme-steampunk .talk-status-dot {
+  animation-duration: 2.4s;
+}
+
+html.theme-steampunk app-chat-box .processing-ngx-host .la-ball-atom > div,
+html.theme-steampunk app-chat-box .processing-ngx-host .la-ball-triangle-path > div,
+html.theme-steampunk app-chat-box .tts-ngx-host .la-line-scale > div,
+html.theme-steampunk app-chat-box .talk-voice-ngx-host .la-ball-clip-rotate-pulse > div,
+html.theme-steampunk app-chat-box .talk-voice-ngx-host .la-ball-pulse-sync > div {
   animation-duration: 2.4s;
 }
 
@@ -1361,4 +1443,195 @@ html .terminal-shell .output-pre.terminal-output {
   border: none;
   background: transparent;
   box-shadow: none;
+}
+
+/* ── Woodland: flat divider layout ───────────────────────────────────── */
+
+html.theme-woodland .settings-nav,
+html.theme-woodland .connection-card,
+html.theme-woodland .workspace-card {
+  border: none;
+  box-shadow: none;
+}
+
+html.theme-woodland .settings-nav {
+  border-bottom: 1px solid var(--t-border);
+}
+
+html.theme-woodland .connection-card,
+html.theme-woodland .workspace-card__body,
+html.theme-woodland .workspace-card--none {
+  border: none;
+  box-shadow: none;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .connection-card:last-child,
+html.theme-woodland .workspace-card:last-child .workspace-card__body {
+  border-bottom: none;
+}
+
+html.theme-woodland .tab-button {
+  border: none;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .tab-button:hover,
+html.theme-woodland .tab-button.is-active {
+  border: none;
+  border-bottom: 1px solid var(--t-primary);
+  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
+  transform: none;
+}
+
+html.theme-woodland .settings-overview {
+  border-bottom: 1px solid var(--t-border);
+}
+
+html.theme-woodland .settings-footer {
+  border-top: 1px solid var(--t-border);
+}
+
+html.theme-woodland .form-section + .settings-divider {
+  border-color: var(--t-border-subtle);
+}
+
+html.theme-woodland .chat-box {
+  border: none;
+}
+
+html.theme-woodland .msg-bubble {
+  border: none;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .user-bubble {
+  border: none;
+  border-left: 3px solid var(--t-primary);
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .assistant-bubble {
+  border: none;
+  border-left: 3px solid var(--t-assistant-border);
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .assistant-bubble h1,
+html.theme-woodland .assistant-bubble h2,
+html.theme-woodland .assistant-bubble h3,
+html.theme-woodland .assistant-bubble h4,
+html.theme-woodland .assistant-bubble h5,
+html.theme-woodland .assistant-bubble h6 {
+  text-shadow: none;
+}
+
+html.theme-woodland .assistant-bubble code {
+  border: none;
+}
+
+html.theme-woodland .assistant-bubble pre {
+  border: none;
+  border-top: 1px solid var(--t-border-subtle);
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .assistant-bubble a:hover {
+  text-shadow: none;
+}
+
+html.theme-woodland .assistant-bubble blockquote {
+  border-left: 3px solid var(--t-assistant-border);
+  background: transparent;
+}
+
+html.theme-woodland .streaming-role-pill,
+html.theme-woodland .chain-pill {
+  border: none;
+  background: var(--t-hover-bg);
+}
+
+html.theme-woodland .terminal-shell-badge {
+  border: none;
+  background: var(--t-hover-bg);
+}
+
+html.theme-woodland .tool-read-stream-details {
+  border: none;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .tool-read-stream-pre,
+html.theme-woodland .tool-read-stream-plain {
+  border: none;
+  background: var(--t-code-inline-bg);
+}
+
+html.theme-woodland .streaming-delegated-plain {
+  border: none;
+  background: var(--t-code-inline-bg);
+}
+
+html.theme-woodland .pending-write-preview {
+  border: none;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .pending-patch-hunk-pane {
+  border: none;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .pending-patch-hunk-pane-label {
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .pending-patch-hunk-gutter {
+  border-right: 1px solid var(--t-border-subtle);
+}
+
+html.theme-woodland .section-count {
+  border: none;
+  background: var(--t-hover-bg);
+}
+
+html.theme-woodland .processing-text {
+  text-shadow: none;
+}
+
+html.theme-woodland .streaming-cursor {
+  box-shadow: none;
+}
+
+html.theme-woodland .code-block-run-btn {
+  border: none;
+  background: var(--t-hover-bg);
+}
+
+html.theme-woodland .code-block-run-btn:hover {
+  border: none;
+  background: var(--t-active-bg);
+}
+
+html.theme-woodland .interactive-submit-btn,
+html.theme-woodland .read-more-btn,
+html.theme-woodland .send-output-btn,
+html.theme-woodland .end-script-btn {
+  border: none;
+  background: var(--t-hover-bg);
+}
+
+html.theme-woodland .interactive-submit-btn:hover,
+html.theme-woodland .read-more-btn:hover,
+html.theme-woodland .send-output-btn:hover,
+html.theme-woodland .end-script-btn:hover {
+  border: none;
+  background: var(--t-active-bg);
+}
+
+@media (max-width: 1100px) {
+  html.theme-woodland .settings-nav {
+    border-bottom: 1px solid var(--t-border);
+    border-right: none;
+  }
 }

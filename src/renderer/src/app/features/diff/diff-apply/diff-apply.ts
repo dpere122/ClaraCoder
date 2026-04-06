@@ -20,6 +20,7 @@ import hljs from 'highlight.js';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { ElectronService } from '../../../core/electron.service';
+import { LucideAngularModule } from 'lucide-angular';
 import { changeHunkOrderFromRows, rebuildFileWithAcceptedHunks } from '../diff-rebuild';
 
 type DiffListItem = { t: 'h'; hunkIndex: number } | { t: 'r'; row: DiffRow };
@@ -27,7 +28,7 @@ type DiffListItem = { t: 'h'; hunkIndex: number } | { t: 'r'; row: DiffRow };
 @Component({
   selector: 'app-diff-apply',
   standalone: true,
-  imports: [CommonModule, FormsModule, ScrollingModule],
+  imports: [CommonModule, FormsModule, ScrollingModule, LucideAngularModule],
   templateUrl: './diff-apply.html',
   styleUrl: './diff-apply.css',
   host: {
@@ -380,7 +381,13 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
       this.flashMessage('No workspace open.', 3000);
       return false;
     }
-    const res = await this.electron.writeWorkspaceFile(ws.path, this.payload().relativePath, content);
+    const p = this.payload();
+    const encoding = p.diskEncoding ?? 'utf-8';
+    const newline = p.diskNewline === 'crlf' ? 'crlf' : 'lf';
+    const res = await this.electron.writeWorkspaceFile(ws.path, p.relativePath, content, {
+      encoding,
+      newline,
+    });
     if (!res.ok) {
       this.flashMessage(res.error ?? 'Write failed.', 4000);
       return false;

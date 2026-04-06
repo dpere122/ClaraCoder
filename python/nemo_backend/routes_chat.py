@@ -1,0 +1,45 @@
+"""Chat streaming and agent continuation routes."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
+
+from nemo_backend.agent import stream_agent_reply
+from nemo_backend.schemas import AgentContinueRequest, ChatRequest
+from nemo_backend import state
+
+router = APIRouter()
+
+
+@router.post('/chat/stream')
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Stream assistant reply as Server-Sent Events (status + chunk + [DONE])."""
+    generator = stream_agent_reply(
+        request.session_id,
+        request.message,
+        request.apply_mode,
+        request.auto_apply_mode,
+    )
+    return StreamingResponse(generator, media_type='text/event-stream')
+
+
+@router.post('/chat/agent-continue')
+async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
+    """Unblock an agent stream that is waiting after a diff or delete confirmation."""
+    from nemo_backend.delete_tool import execute_pending_delete_decision
+
+    sess = state.get_session(request.session_id)
+    note = (request.note or '').strip()
+    if request.delete_action:
+        extra = execute_pending_delete_decision(
+            sess,
+            confirm=request.delete_action == 'confirm',
+            request_id=request.delete_request_id or None,
+        )
+        note = extra if extra else note
+    sess.agent_pause_note = note
+    ev = sess.agent_pause_event
+    if ev is not None:
+        ev.set()
+    return {'ok': True}

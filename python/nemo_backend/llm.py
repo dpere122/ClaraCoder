@@ -8,6 +8,7 @@ Optional ``reasoning_effort`` is passed through for models that support it.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -15,8 +16,11 @@ from fastapi import HTTPException
 from langchain_openai import ChatOpenAI
 
 from nemo_backend.config import DEFAULT_LM_STUDIO_BASE_URL
+from nemo_backend.llm_interaction_logging import log_llm_connection_settings
 from nemo_backend.model_tuning import llm_optional_kwargs
 from nemo_backend.state import get_active_connection, require_openai_api_key
+
+logger = logging.getLogger('nemo.llm')
 
 
 def build_llm() -> ChatOpenAI:
@@ -37,6 +41,7 @@ def build_llm() -> ChatOpenAI:
         base_url = connection.base_url or DEFAULT_LM_STUDIO_BASE_URL
         api_key = connection.api_key or os.getenv('LM_STUDIO_API_KEY', 'lm-studio')
     else:
+        logger.error('Unsupported LLM provider: %s', connection.provider)
         raise HTTPException(status_code=500, detail=f'Unsupported LLM provider: {connection.provider}')
 
     kwargs: dict[str, Any] = {
@@ -57,5 +62,21 @@ def build_llm() -> ChatOpenAI:
         kwargs['reasoning_effort'] = effort
 
     kwargs.update(llm_optional_kwargs(connection))
+
+    safe: dict[str, Any] = {
+        'provider': connection.provider,
+        'model': kwargs['model'],
+        'temperature': kwargs['temperature'],
+        'base_url': kwargs.get('base_url'),
+        'api_key_configured': bool(kwargs.get('api_key')),
+        'streaming': kwargs.get('streaming'),
+    }
+    if 'reasoning_effort' in kwargs:
+        safe['reasoning_effort'] = kwargs['reasoning_effort']
+    for k, v in kwargs.items():
+        if k in ('api_key', 'model', 'temperature', 'streaming', 'base_url', 'reasoning_effort'):
+            continue
+        safe[k] = v
+    log_llm_connection_settings(safe)
 
     return ChatOpenAI(**kwargs)

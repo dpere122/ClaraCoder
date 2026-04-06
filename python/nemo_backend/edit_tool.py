@@ -9,33 +9,88 @@ and the diff / pause contract in :mod:`nemo_backend.agent` (see :func:`nemo_back
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
 
+from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.diff_payload import build_file_diff_payload
-from nemo_backend.domain import SessionState
+from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.partial_workspace_edit import merge_partial_edit
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, write_workspace_file_utf8
+from nemo_backend.state import current_session_id, get_session, nested_edit_staging_active, runtime_config
+from nemo_backend.workspace_text_io import (
+    DiskNewline,
+    NewlineMode,
+    decode_for_tools,
+    parse_newline_mode,
+    resolve_newline_for_write,
+    validate_workspace_encoding,
+    write_file_resolved,
+)
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+
+logger = logging.getLogger('nemo.tools.edit')
+_staging_logger = logging.getLogger('nemo.staging')
 
 __all__ = [
     'apply_workspace_full_file',
     'replace_workspace_line_range',
     'replace_workspace_snippet',
     'edit_tools_for_strict',
+    'finalize_staged_edit',
+    'APPROVE_STAGED_WORKSPACE_EDIT_NAME',
 ]
 
 
-def _finalize_workspace_edit(session: SessionState, rel_display: str, old_text: str, merged: str, mode: str) -> str:
-    payload, err = build_file_diff_payload(rel_display, old_text, merged)
+def _tool_encoding_param(encoding: str) -> str:
+    raw = (encoding or '').strip()
+    if not raw:
+        raw = (runtime_config.tools.default_workspace_encoding or 'utf-8').strip()
+    return validate_workspace_encoding(raw)
+
+
+def _tool_newline_param(newline: str) -> NewlineMode:
+    raw = (newline or '').strip()
+    if not raw:
+        raw = (runtime_config.tools.default_workspace_newline or 'lf').strip()
+    return parse_newline_mode(raw)
+
+
+def _finalize_workspace_edit(
+    session: SessionState,
+    rel_display: str,
+    old_text: str,
+    merged: str,
+    mode: str,
+    disk_encoding: str,
+    disk_newline: DiskNewline,
+) -> str:
+    payload, err = build_file_diff_payload(
+        rel_display,
+        old_text,
+        merged,
+        disk_encoding=disk_encoding,
+        disk_newline=disk_newline,
+    )
     if err:
         return f'Tool error: {err}'
 
     if session.auto_apply_mode:
         try:
-            write_workspace_file_utf8(rel_display, merged)
+            root = get_active_workspace_root()
+            target = normalize_relative_path(root, rel_display)
+            write_file_resolved(target, merged, disk_encoding, disk_newline)
+        except UnicodeEncodeError as uexc:
+            logger.warning('auto-apply encode failed path=%s err=%s', rel_display, uexc)
+            session.pending_diff_payload = None
+            return (
+                f'Tool error: content cannot be encoded as {disk_encoding!r} ({uexc}). '
+                'Adjust characters or choose another encoding.'
+            )
         except Exception as wexc:
+            logger.warning('auto-apply write failed path=%s err=%s', rel_display, wexc)
             session.pending_diff_payload = None
             return f'Tool error: auto-apply failed: {wexc}'
         session.pending_diff_payload = None
@@ -60,8 +115,85 @@ def _finalize_workspace_edit(session: SessionState, rel_display: str, old_text: 
     return ' '.join(summary_bits)
 
 
-def _edit_preamble(relative_path: str) -> tuple[str, str, str] | str:
-    """Return (session, rel_display, old_text) or error string."""
+APPROVE_STAGED_WORKSPACE_EDIT_NAME = 'approve_staged_workspace_edit'
+
+
+def finalize_staged_edit(session: SessionState, rel_display: str, entry: EditStagingEntry) -> str:
+    """Apply a staged merged file through the normal diff/auto-apply path (used by code review approve tool)."""
+    nl: DiskNewline = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
+    return _finalize_workspace_edit(
+        session,
+        rel_display,
+        entry.old_text,
+        entry.merged_text,
+        entry.edit_mode,
+        entry.disk_encoding,
+        nl,
+    )
+
+
+def _after_merge_workspace_edit(
+    session: SessionState,
+    rel_display: str,
+    old_text: str,
+    merged: str,
+    mode: str,
+    disk_encoding: str,
+    disk_newline: DiskNewline,
+) -> str:
+    """Nested create/update: stage code files for review; non-code uses temp then immediate finalize."""
+    if not nested_edit_staging_active.get():
+        return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
+
+    session_id = current_session_id.get()
+    if not session_id:
+        return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
+
+    prior = session.pending_edit_stagings.pop(rel_display, None)
+    if prior:
+        _edit_staging.unlink_staging_quiet(Path(prior.temp_path))
+
+    temp_path = _edit_staging.allocate_staging_file(session_id, rel_display)
+    try:
+        _edit_staging.write_staging_text(temp_path, merged, disk_encoding, disk_newline)
+    except OSError as exc:
+        return f'Tool error: could not write staging file ({exc}).'
+
+    if rel_display.lower().endswith('.py'):
+        ok, detail = _edit_staging.run_black_on_file(temp_path, encoding=disk_encoding, disk_newline=disk_newline)
+        _staging_logger.info('black path=%s ok=%s detail=%s', rel_display, ok, detail)
+    try:
+        merged_out = _edit_staging.read_staging_text(temp_path, disk_encoding)
+    except OSError as exc:
+        return f'Tool error: could not read staging file ({exc}).'
+
+    if _edit_staging.is_code_review_extension(rel_display):
+        session.pending_edit_stagings[rel_display] = EditStagingEntry(
+            temp_path=str(temp_path),
+            old_text=old_text,
+            merged_text=merged_out,
+            disk_encoding=disk_encoding,
+            disk_newline=disk_newline,
+            edit_mode=mode,
+        )
+        _staging_logger.info('staged for code review path=%s', rel_display)
+        return (
+            f'Staged `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
+            'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
+        )
+
+    out = _finalize_workspace_edit(session, rel_display, old_text, merged_out, mode, disk_encoding, disk_newline)
+    _edit_staging.unlink_staging_quiet(temp_path)
+    return out
+
+
+def _edit_preamble(
+    relative_path: str,
+    *,
+    disk_encoding: str,
+    newline_mode: NewlineMode,
+) -> tuple[SessionState, str, str, str, DiskNewline] | str:
+    """Return (session, rel_display, old_text, disk_encoding, resolved_disk_newline) or error string."""
     session_id = current_session_id.get()
     if not session_id:
         return 'Tool error: no active session.'
@@ -73,39 +205,81 @@ def _edit_preamble(relative_path: str) -> tuple[str, str, str] | str:
     target = normalize_relative_path(root, relative_path)
     rel_display = target.relative_to(root).as_posix()
 
+    raw_existing: bytes | None = None
     old_text = ''
     if target.is_file():
-        old_text = target.read_text(encoding='utf-8', errors='replace')
+        try:
+            raw_existing = target.read_bytes()
+            old_text = decode_for_tools(raw_existing, disk_encoding)
+        except OSError as exc:
+            return f'Tool error: could not read file ({exc}).'
 
-    return session, rel_display, old_text
+    disk_nl = resolve_newline_for_write(newline_mode, path=target, raw_existing=raw_existing)
+
+    return session, rel_display, old_text, disk_encoding, disk_nl
 
 
-@tool
-def apply_workspace_full_file(relative_path: str, new_content: str) -> str:
-    """Replace the entire UTF-8 workspace file with `new_content`; opens a side-by-side diff in the UI.
+def _run_edit_tool(
+    relative_path: str,
+    encoding: str,
+    newline: str,
+    *,
+    mode: str,
+    new_content: str = '',
+    old_snippet: str = '',
+    new_snippet: str = '',
+    start_line: int = 0,
+    end_line: int = 0,
+) -> str:
+    """Shared body for all three edit tools: validate params, read file, merge, finalize."""
+    try:
+        enc = _tool_encoding_param(encoding)
+        nm = _tool_newline_param(newline)
+    except ValueError as exc:
+        return f'Tool error: {exc}'
 
-    Use for new files or broad rewrites. For small localized changes, prefer `replace_workspace_line_range`.
-
-    Relative paths only (e.g. src/app.ts). The user applies changes in the UI unless auto-apply is enabled."""
-
-    pre = _edit_preamble(relative_path)
+    pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
-    session, rel_display, old_text = pre
+    session, rel_display, old_text, disk_enc, disk_nl = pre
 
     merged, merge_err = merge_partial_edit(
         old_text,
-        new_content=new_content or '',
-        old_snippet='',
-        new_snippet='',
-        start_line=0,
-        end_line=0,
+        new_content=new_content,
+        old_snippet=old_snippet,
+        new_snippet=new_snippet,
+        start_line=start_line,
+        end_line=end_line,
     )
     if merge_err:
         return f'Tool error: {merge_err}'
     assert merged is not None
 
-    return _finalize_workspace_edit(session, rel_display, old_text, merged, 'full-file')
+    return _after_merge_workspace_edit(session, rel_display, old_text, merged, mode, disk_enc, disk_nl)
+
+
+@tool
+def apply_workspace_full_file(
+    relative_path: str,
+    new_content: str,
+    encoding: str = '',
+    newline: str = '',
+) -> str:
+    """Replace the entire workspace file with `new_content`; opens a side-by-side diff in the UI.
+
+    `encoding` is a text codec (default from app Settings → Tools): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
+    latin-1, cp1252, ascii, mac-roman.
+    `newline` is `lf`, `crlf`, or `preserve` (match existing file line endings when the file exists; new files use LF).
+
+    Use for new files or broad rewrites. For small localized changes, prefer `replace_workspace_line_range`.
+
+    Relative paths only (e.g. src/app.ts). The user applies changes in the UI unless auto-apply is enabled."""
+
+    return _run_edit_tool(
+        relative_path, encoding, newline,
+        mode='full-file',
+        new_content=new_content or '',
+    )
 
 
 @tool
@@ -114,61 +288,48 @@ def replace_workspace_line_range(
     start_line: int,
     end_line: int,
     new_snippet: str = '',
+    encoding: str = '',
+    newline: str = '',
 ) -> str:
     """Replace an inclusive block of lines (1-based, same numbering as `read_workspace_file`) with `new_snippet`.
 
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
+    See `apply_workspace_full_file` for `encoding` and `newline`.
 
     Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
 
-    pre = _edit_preamble(relative_path)
-    if isinstance(pre, str):
-        return pre
-    session, rel_display, old_text = pre
-
-    merged, merge_err = merge_partial_edit(
-        old_text,
-        new_content='',
-        old_snippet='',
+    return _run_edit_tool(
+        relative_path, encoding, newline,
+        mode='line-range',
         new_snippet=new_snippet if new_snippet is not None else '',
         start_line=int(start_line) if start_line else 0,
         end_line=int(end_line) if end_line else 0,
     )
-    if merge_err:
-        return f'Tool error: {merge_err}'
-    assert merged is not None
-
-    return _finalize_workspace_edit(session, rel_display, old_text, merged, 'line-range')
 
 
 @tool
-def replace_workspace_snippet(relative_path: str, old_snippet: str, new_snippet: str = '') -> str:
+def replace_workspace_snippet(
+    relative_path: str,
+    old_snippet: str,
+    new_snippet: str = '',
+    encoding: str = '',
+    newline: str = '',
+) -> str:
     """Search-replace: find `old_snippet` once in the file and replace it with `new_snippet` (empty removes it).
 
-    Include enough context that the match is unique. Do not paste `N: ` prefixes from numbered `read_workspace_file`
-    output into `old_snippet`; use `read_workspace_file` with `include_line_numbers` false or use line-range replace.
+    Include enough context that the match is unique. Do not paste line-number gutters from numbered `read_workspace_file`
+    output (lines look like ``<n> │ ...`` or ``<n> | ...`` or legacy ``<n>: ...``) into `old_snippet`; use `read_workspace_file` with `include_line_numbers` false or use line-range replace.
+    See `apply_workspace_full_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
 
     Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
 
-    pre = _edit_preamble(relative_path)
-    if isinstance(pre, str):
-        return pre
-    session, rel_display, old_text = pre
-
-    merged, merge_err = merge_partial_edit(
-        old_text,
-        new_content='',
+    return _run_edit_tool(
+        relative_path, encoding, newline,
+        mode='snippet',
         old_snippet=old_snippet or '',
         new_snippet=new_snippet if new_snippet is not None else '',
-        start_line=0,
-        end_line=0,
     )
-    if merge_err:
-        return f'Tool error: {merge_err}'
-    assert merged is not None
-
-    return _finalize_workspace_edit(session, rel_display, old_text, merged, 'snippet')
 
 
 _BASE_EDIT_TOOLS: list[Any] = [

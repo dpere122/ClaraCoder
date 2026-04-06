@@ -74,4 +74,9 @@ def qwen_system_prompt_suffix() -> str:
         '\n\nModel note (Qwen): Prefer one tool call per assistant turn when you can; wait for the tool result '
         'before issuing the next call. Never put tool arguments or <tool_call> XML in plain assistant text—'
         'only use the API tool channel.\n'
+        'Edit-tool rules: To create a new file or rewrite an entire file, use `apply_workspace_full_file` with '
+        '`new_content` (the complete file text). `replace_workspace_snippet` is ONLY for editing existing files '
+        'and requires a non-empty `old_snippet` that matches text already present in the file; never pass an '
+        'empty string for `old_snippet`. For localized edits, prefer `replace_workspace_line_range` with '
+        '`start_line` and `end_line` (1-based inclusive).\n'
     )

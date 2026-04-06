@@ -12,6 +12,7 @@ import type {
 import { optimizationPresetsForProvider, QWEN_PRESET_DEFAULTS } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
+import { LucideAngularModule } from 'lucide-angular';
 
 type SettingsTab = 'appearance' | 'models' | 'tools' | 'audio' | 'workspaces';
 
@@ -21,7 +22,7 @@ interface EditableConnection extends LlmConnectionConfig {
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })
@@ -53,6 +54,8 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly editToolsMode = signal<'standard' | 'strict'>('standard');
   protected readonly maxFileReadLines = signal(400);
   protected readonly maxSearchResults = signal(40);
+  protected readonly defaultWorkspaceEncoding = signal('utf-8');
+  protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
   protected readonly selectedConnection = computed(() => {
     const selectedId = this.selectedConnectionId();
     return this.connections().find((connection) => connection.id === selectedId) ?? null;
@@ -298,6 +301,16 @@ export class Settings implements OnInit, OnDestroy {
     await this.updateWorkspaceTools({ maxSearchResults: clamped });
   }
 
+  protected async onDefaultWorkspaceEncodingChange(value: string): Promise<void> {
+    const v = (value || 'utf-8').trim() || 'utf-8';
+    await this.updateWorkspaceTools({ defaultWorkspaceEncoding: v });
+  }
+
+  protected async onDefaultWorkspaceNewlineChange(value: string): Promise<void> {
+    const v = value === 'crlf' || value === 'preserve' ? value : 'lf';
+    await this.updateWorkspaceTools({ defaultWorkspaceNewline: v });
+  }
+
   protected async onAudioProviderChange(provider: 'openai' | 'disabled' | 'google'): Promise<void> {
     if (provider === 'disabled') {
       await this.updateAudioSettings({ provider });
@@ -387,6 +400,11 @@ export class Settings implements OnInit, OnDestroy {
     this.editToolsMode.set(wt.editToolsMode === 'strict' ? 'strict' : 'standard');
     this.maxFileReadLines.set(wt.maxFileReadLines);
     this.maxSearchResults.set(wt.maxSearchResults);
+    this.defaultWorkspaceEncoding.set(wt.defaultWorkspaceEncoding || 'utf-8');
+    const nl = wt.defaultWorkspaceNewline;
+    this.defaultWorkspaceNewline.set(
+      nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
+    );
 
     const currentSelectedId = this.selectedConnectionId();
     const nextSelectedId = currentSelectedId && config.llmConnections.some((connection) => connection.id === currentSelectedId)

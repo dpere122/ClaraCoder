@@ -15,16 +15,29 @@ from nemo_backend.config import (
 
 __all__ = ['merge_partial_edit']
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('nemo.partial_workspace_edit')
 
-_LINE_NUMBER_PREFIX = re.compile(r'^(\d+):\s?(.*)$')
+# Legacy read_workspace_file gutter "N: text"; current gutter uses U+2502 or ASCII "|" after padded line number.
+_LINE_NUMBER_LEGACY_COLON = re.compile(r'^(\d+):\s?(.*)$')
+_LINE_NUMBER_GUTTER_PIPE = re.compile(r'^\s*(\d+)\s*[│|]\s(.*)$')
 
 # Fuzzy locate is unsafe for very short snippets (repeated tokens, wrong spans).
 SNIPPET_FUZZY_MIN_LENGTH = 4
 
 
+def _strip_one_read_tool_line(line: str) -> str | None:
+    """Return file text from a single numbered read_workspace_file line, or None if not in that format."""
+    m = _LINE_NUMBER_GUTTER_PIPE.match(line)
+    if m:
+        return m.group(2)
+    m = _LINE_NUMBER_LEGACY_COLON.match(line)
+    if m:
+        return m.group(2)
+    return None
+
+
 def _strip_numbered_read_prefixes(snippet: str) -> str | None:
-    """If every non-empty line looks like read_workspace_file output (``N: text``), return stripped text."""
+    """If every non-empty line looks like read_workspace_file numbered output, return stripped file text."""
     if not snippet:
         return None
     ends_nl = snippet.endswith('\n')
@@ -35,10 +48,10 @@ def _strip_numbered_read_prefixes(snippet: str) -> str | None:
         if line == '':
             out.append('')
             continue
-        m = _LINE_NUMBER_PREFIX.match(line)
-        if not m:
+        stripped = _strip_one_read_tool_line(line)
+        if stripped is None:
             return None
-        out.append(m.group(2))
+        out.append(stripped)
     result = '\n'.join(out)
     if ends_nl:
         result += '\n'

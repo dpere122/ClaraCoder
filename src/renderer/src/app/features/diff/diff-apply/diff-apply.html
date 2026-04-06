@@ -122,11 +122,11 @@
                   class="btn btn-sm btn-outline-secondary diff-hunk-toggle"
                   (click)="toggleHunk(item.hunkIndex)"
                 >
-                  @if (hunkCollapsed(item.hunkIndex)) {
-                    ▸
-                  } @else {
-                    ▾
-                  }
+                  <lucide-icon
+                    [name]="hunkCollapsed(item.hunkIndex) ? 'chevron-right' : 'chevron-down'"
+                    [size]="14"
+                    class="diff-hunk-chevron"
+                  />
                   Hunk {{ item.hunkIndex + 1 }}
                 </button>
                 @if (hunkAccepted(item.hunkIndex)) {
@@ -151,7 +151,7 @@
                   title="Copy this line"
                   (click)="copyText(item.row.leftText || item.row.rightText)"
                 >
-                  ⎘
+                  <lucide-icon name="copy" [size]="13" />
                 </button>
               </div>
             }
@@ -173,11 +173,11 @@
                   class="btn btn-sm btn-outline-secondary diff-hunk-toggle"
                   (click)="toggleHunk(item.hunkIndex)"
                 >
-                  @if (hunkCollapsed(item.hunkIndex)) {
-                    ▸
-                  } @else {
-                    ▾
-                  }
+                  <lucide-icon
+                    [name]="hunkCollapsed(item.hunkIndex) ? 'chevron-right' : 'chevron-down'"
+                    [size]="14"
+                    class="diff-hunk-chevron"
+                  />
                   Hunk {{ item.hunkIndex + 1 }}
                 </button>
                 @if (hunkAccepted(item.hunkIndex)) {
@@ -202,7 +202,7 @@
                   title="Copy this line"
                   (click)="copyText(item.row.rightText || item.row.leftText)"
                 >
-                  ⎘
+                  <lucide-icon name="copy" [size]="13" />
                 </button>
               </div>
             }

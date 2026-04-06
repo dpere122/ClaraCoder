@@ -312,12 +312,52 @@ app-chat-box .streaming-role-pill {
   border-radius: 2px;
 }
 
+app-chat-box .primary-stream-placeholder {
+  font-size: 0.78em;
+  line-height: 1.4;
+  color: var(--t-text-muted);
+  font-style: italic;
+  margin-bottom: 0.5rem;
+}
+
+app-chat-box .streaming-block--delegated {
+  margin-bottom: 0.45rem;
+}
+
+app-chat-box .streaming-block--delegated:last-child {
+  margin-bottom: 0;
+}
+
 app-chat-box .tool-read-stream-block {
-  margin-bottom: 0.55rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0;
   min-height: 0;
 }
 
-app-chat-box .tool-read-stream-label,
+app-chat-box .tool-read-stream-details {
+  margin-bottom: 0.55rem;
+  min-height: 0;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  background: color-mix(in srgb, var(--t-code-inline-bg) 88%, transparent);
+}
+
+app-chat-box .tool-read-stream-summary {
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+  list-style: none;
+  user-select: none;
+}
+
+app-chat-box .tool-read-stream-summary::-webkit-details-marker {
+  display: none;
+}
+
 app-chat-box .streaming-block-label {
   font-size: 0.65rem;
   font-weight: 600;
@@ -351,6 +391,52 @@ app-chat-box .tool-read-stream-pre::-webkit-scrollbar-thumb {
   background: var(--t-border);
 }
 
+app-chat-box .streaming-primary-plain {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+app-chat-box .streaming-plain {
+  font-size: 0.9em;
+  color: var(--t-secondary);
+}
+
+app-chat-box .streaming-delegated-plain {
+  font-size: 0.78em;
+  line-height: 1.45;
+  color: var(--t-secondary);
+  word-break: break-word;
+  padding: 0.35rem 0.45rem;
+  background: var(--t-code-inline-bg);
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 4px;
+  max-height: 10em;
+  overflow-y: auto;
+}
+
+app-chat-box .tool-read-stream-plain {
+  margin: 0;
+  font-size: 0.78em;
+  line-height: 1.45;
+  color: var(--t-secondary);
+  background: var(--t-code-inline-bg);
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 4px;
+  padding: 0.45rem 0.55rem;
+  max-height: 14em;
+  overflow-y: auto;
+  word-break: break-word;
+}
+
+app-chat-box .tool-read-stream-plain::-webkit-scrollbar {
+  width: 4px;
+}
+
+app-chat-box .tool-read-stream-plain::-webkit-scrollbar-thumb {
+  background: var(--t-border);
+}
+
 app-chat-box .streaming-block {
   display: flex;
   flex-direction: column;
@@ -376,32 +462,55 @@ app-chat-box .processing-bubble {
   margin-top: 0.15rem;
 }
 
-app-chat-box .streaming-bubble:not(:has(.streaming-block)):not(:has(.tool-read-stream-block)) .processing-bubble {
+app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.primary-stream-placeholder)):not(:has(.tool-read-stream-details)) .processing-bubble {
   border-top: none;
   margin-top: 0;
   padding-top: 0;
 }
 
-/* Rotating circular ring (accent segment spins around the circle). */
-app-chat-box .processing-spinner-wrap {
-  width: 1.05rem;
-  height: 1.05rem;
+/* NgxSpinner hosts (non-fullscreen overlays size to these boxes). */
+app-chat-box .processing-ngx-host,
+app-chat-box .talk-voice-ngx-host {
+  position: relative;
   flex-shrink: 0;
-  animation: processingSpin 0.72s linear infinite;
+  width: 2.35rem;
+  height: 2.35rem;
 }
 
-app-chat-box .processing-spinner-ring {
+app-chat-box .tts-ngx-host {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.6rem;
+  height: 1.35rem;
+}
+
+app-chat-box .processing-ngx-host ngx-spinner,
+app-chat-box .tts-ngx-host ngx-spinner,
+app-chat-box .talk-voice-ngx-host ngx-spinner {
   display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
-  border-top-color: #e8945c;
-  box-sizing: border-box;
+  pointer-events: none;
 }
 
-app-chat-box .processing-spinner-wrap--tools .processing-spinner-ring {
-  border-top-color: #5d9cec;
+app-chat-box .processing-ngx-host .ngx-spinner-overlay,
+app-chat-box .tts-ngx-host .ngx-spinner-overlay,
+app-chat-box .talk-voice-ngx-host .ngx-spinner-overlay {
+  pointer-events: none;
+}
+
+app-chat-box .talk-voice-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: 80%;
+}
+
+app-chat-box .talk-voice-label {
+  font-size: 0.82em;
+  color: var(--t-secondary);
 }
 
 app-chat-box .processing-text-col {
@@ -424,12 +533,6 @@ app-chat-box .processing-tool-hint {
   line-height: 1.35;
   color: var(--t-text-muted);
   word-break: break-word;
-}
-
-@keyframes processingSpin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 app-chat-box .streaming-bubble {

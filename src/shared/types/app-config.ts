@@ -36,6 +36,11 @@ export interface AudioTranscriptionConfig {
   apiKey: string;
 }
 
+/** Health window: backend log verbosity (Python `nemo` logger + uvicorn noise). */
+export interface HealthMonitorConfig {
+  logLevel: 'debug' | 'info' | 'warning' | 'error';
+}
+
 /** Workspace agent tool limits and edit-tool surface; synced to Python `/runtime-config`. */
 export interface WorkspaceToolsConfig {
   /** Standard: full file, line range, and snippet replace. Strict: line range and full file only (no snippet tool). */
@@ -44,6 +49,10 @@ export interface WorkspaceToolsConfig {
   maxFileReadLines: number;
   /** Cap on matches returned from `search_workspace`. */
   maxSearchResults: number;
+  /** Default Python codec when tools omit `encoding` (e.g. utf-8, cp1252). */
+  defaultWorkspaceEncoding: string;
+  /** Default newline mode for edit writes when tools omit `newline`. */
+  defaultWorkspaceNewline: 'lf' | 'crlf' | 'preserve';
 }
 
 /** Root persisted settings for the desktop app (config.json). */
@@ -56,4 +65,5 @@ export interface AppConfig {
   llmConnections: LlmConnectionConfig[];
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
+  healthMonitor: HealthMonitorConfig;
 }

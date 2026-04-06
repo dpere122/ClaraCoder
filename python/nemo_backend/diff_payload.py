@@ -10,7 +10,7 @@ from diff_match_patch import diff_match_patch
 
 from nemo_backend.config import DIFF_VERIFY_PATCH_MAX_BYTES, MAX_DIFF_INPUT_BYTES, MAX_DIFF_OUTPUT_ROWS
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('nemo.diff_payload')
 
 # diff_main / diff_charsToLines use integer op codes (Google diff-match-patch).
 DIFF_DELETE = -1
@@ -188,8 +188,17 @@ def build_file_diff_payload(
     relative_path: str,
     old_text: str,
     new_text: str,
+    *,
+    disk_encoding: str = 'utf-8',
+    disk_newline: str = 'lf',
 ) -> tuple[dict | None, str | None]:
-    """Return (payload, error_message). On success error_message is None."""
+    """Return (payload, error_message). On success error_message is None.
+
+    ``disk_encoding`` / ``disk_newline`` are applied when the Electron shell writes
+    ``fullNewContent`` to disk (resolved LF vs CRLF; no ``preserve`` here).
+    """
+    if disk_newline not in ('lf', 'crlf'):
+        return None, f'Invalid disk_newline {disk_newline!r} (expected lf or crlf).'
 
     if '\x00' in old_text or '\x00' in new_text:
         return None, 'Refusing diff: content appears binary (NUL bytes).'
@@ -237,5 +246,7 @@ def build_file_diff_payload(
         'fullNewContent': new_text,
         'truncated': truncated,
         'baseSha256': base_sha256,
+        'diskEncoding': disk_encoding,
+        'diskNewline': disk_newline,
     }
     return payload, None

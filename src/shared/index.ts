@@ -9,6 +9,7 @@ export type {
   AudioTranscriptionConfig,
   AppConfig,
   WorkspaceToolsConfig,
+  HealthMonitorConfig,
 } from './types/app-config';
 export type { LlmOptimizationPresetMeta } from './types/llm-presets';
 export {
@@ -23,17 +24,30 @@ export type {
   ConversationFile,
   ConversationSummary,
   DiffReviewStatus,
+  StreamPart,
 } from './types/conversation';
+export {
+  delegatedStreamPartsForDisplay,
+  isPrimaryAssistantStreamTag,
+  joinAllStreamPartTexts,
+  primaryAssistantTextFromParts,
+  primaryStreamPartsForDisplay,
+  shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
+  streamIndicatesNestedSpecialistRouting,
+  streamPlainOneLine,
+} from './stream-parts';
 export type { ClaraAgentMode, LlmAgentRole, LlmStatus, LlmStatusPayload } from './types/llm';
 export { claraModeFromLlmRole } from './types/llm';
 export type { FileEntry, WorkspaceFilesChangedMessage } from './types/files';
 export type { TtsStreamPacket } from './types/tts';
 export type { HostOsInfo } from './types/host-os';
 export type { ScriptLaunchPlan } from './types/script';
-export type { DiffRow, DiffRowKind, FileDiffPayload } from './types/diff';
+export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
+export type { DeleteConfirmPayload } from './types/delete-confirm';
 export type {
   WorkspaceContextState,
   WorkspaceChangeKind,
   WorkspaceFilesChangedPayload,
   WorkspaceChangeRecord,
 } from './types/workspace-context';
+export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';

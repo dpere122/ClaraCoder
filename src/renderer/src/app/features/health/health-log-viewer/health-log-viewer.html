@@ -1,0 +1,69 @@
+<div class='health-log'>
+  <div class='health-log__toolbar'>
+    <div class='health-log__toolbar-left'>
+      <label class='health-log__label'>
+        Verbosity
+        <select
+          class='health-log__select'
+          [ngModel]='logVerbosity()'
+          (ngModelChange)='onVerbosityChange($event)'
+        >
+          <option value='debug'>Debug</option>
+          <option value='info'>Info</option>
+          <option value='warning'>Warning</option>
+          <option value='error'>Error</option>
+        </select>
+      </label>
+      <label class='health-log__label'>
+        Show in list
+        <select class='health-log__select' [ngModel]='logLevelFilter()' (ngModelChange)='logLevelFilter.set($event)'>
+          <option value='ALL'>All levels</option>
+          <option value='INFO'>Info and above</option>
+          <option value='WARNING'>Warnings and errors</option>
+          <option value='ERROR'>Errors only</option>
+        </select>
+      </label>
+      <label class='health-log__label'>
+        Message format
+        <select
+          class='health-log__select health-log__select--wide'
+          [ngModel]='messageFormat()'
+          (ngModelChange)='messageFormat.set($event)'
+        >
+          <option value='raw'>Plain text</option>
+          <option value='json'>Pretty JSON (embedded)</option>
+          <option value='xml'>Pretty XML</option>
+        </select>
+      </label>
+    </div>
+    <input
+      type='search'
+      class='health-log__search'
+      placeholder='Search logs (message, logger, source)…'
+      [ngModel]='searchQuery()'
+      (ngModelChange)='searchQuery.set($event)'
+    />
+    <div class='health-log__toolbar-right'>
+      <button type='button' class='health-log__btn health-log__btn--primary' (click)='onLogExpandClick()'>
+        {{ logExpanded() ? 'Show charts' : 'Expand log' }}
+      </button>
+      <button type='button' class='health-log__btn' (click)='onAutoScrollToggle()'>
+        {{ autoScroll() ? 'Auto-scroll on' : 'Auto-scroll off' }}
+      </button>
+    </div>
+  </div>
+  <div class='health-log__viewport' #logViewport>
+    @for (row of filteredEntries(); track row.seq) {
+      <div class='health-log__row' [attr.data-level]='row.level'>
+        <span class='health-log__ts'>{{ formatTs(row.ts) }}</span>
+        <span class='health-log__lvl'>{{ row.level }}</span>
+        <span class='health-log__src'>{{ row.source }}</span>
+        <span class='health-log__logger'>{{ row.logger }}</span>
+        <span
+          class='health-log__msg'
+          [class.health-log__msg--formatted]="messageFormat() !== 'raw'"
+          >{{ row.message | healthLogMessage: messageFormat() }}</span>
+      </div>
+    }
+  </div>
+</div>

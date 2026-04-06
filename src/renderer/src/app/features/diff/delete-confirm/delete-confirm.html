@@ -1,0 +1,48 @@
+@if (reviewStatus() !== 'pending') {
+  <div class="delete-card delete-card--collapsed border rounded-2 px-3 py-2">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <div>
+        <span class="fw-medium">{{ payload().relativePath }}</span>
+        @if (reviewSummary()) {
+          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
+        }
+      </div>
+      <span
+        class="badge"
+        [class.text-bg-success]="reviewStatus() === 'complete'"
+        [class.text-bg-secondary]="reviewStatus() === 'cancelled'"
+        >{{ reviewStatus() === 'complete' ? 'Complete' : 'Cancelled' }}</span
+      >
+    </div>
+  </div>
+} @else {
+  <div class="delete-card border border-danger border-opacity-50 rounded-2 overflow-hidden">
+    <div class="delete-toolbar p-2 border-bottom bg-danger bg-opacity-10">
+      <div class="fw-medium text-danger">Confirm workspace delete</div>
+      <div class="small text-secondary">
+        {{ kindLabel() }}: <code>{{ payload().relativePath }}</code>
+        @if (recursiveWarning()) {
+          <div class="mt-1 text-danger-emphasis">{{ recursiveWarning() }}</div>
+        }
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button
+          type="button"
+          class="btn btn-sm btn-danger"
+          [disabled]="busy()"
+          (click)="onConfirm()"
+        >
+          Delete permanently
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          [disabled]="busy()"
+          (click)="onCancel()"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+}

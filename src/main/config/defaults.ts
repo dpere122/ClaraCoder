@@ -1,6 +1,13 @@
 import { randomUUID } from 'crypto';
 import path = require('path');
-import type { AppConfig, AudioTranscriptionConfig, LlmConnectionConfig, Workspace, WorkspaceToolsConfig } from '../../shared';
+import type {
+  AppConfig,
+  AudioTranscriptionConfig,
+  HealthMonitorConfig,
+  LlmConnectionConfig,
+  Workspace,
+  WorkspaceToolsConfig,
+} from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Seed LLM rows from env (OpenAI + LM Studio defaults). */
@@ -49,7 +56,13 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     editToolsMode: 'standard',
     maxFileReadLines: 400,
     maxSearchResults: 40,
+    defaultWorkspaceEncoding: 'utf-8',
+    defaultWorkspaceNewline: 'lf',
   };
+}
+
+export function getDefaultHealthMonitor(): HealthMonitorConfig {
+  return { logLevel: 'info' };
 }
 
 /** Fresh config file shape before first save. */
@@ -64,6 +77,7 @@ export function createDefaultConfig(): AppConfig {
     llmConnections,
     audioTranscription: getDefaultAudioTranscription(),
     workspaceTools: getDefaultWorkspaceTools(),
+    healthMonitor: getDefaultHealthMonitor(),
   };
 }
 

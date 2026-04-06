@@ -2,12 +2,13 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
-import type { AppConfig, LlmConnectionConfig, WorkspaceToolsConfig } from '../../shared';
+import type { AppConfig, HealthMonitorConfig, LlmConnectionConfig, WorkspaceToolsConfig } from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
   createDefaultConfig,
   getDefaultAudioTranscription,
+  getDefaultHealthMonitor,
   getDefaultLlmConnections,
   getDefaultWorkspaceTools,
   workspaceFromLegacyPath,
@@ -167,6 +168,27 @@ export function migrateConfig(config: AppConfig): AppConfig {
     }
     if (typeof wt.maxSearchResults !== 'number' || wt.maxSearchResults < 1 || wt.maxSearchResults > 200) {
       wt.maxSearchResults = 40;
+      migrated = true;
+    }
+    if (typeof wt.defaultWorkspaceEncoding !== 'string' || !wt.defaultWorkspaceEncoding.trim()) {
+      wt.defaultWorkspaceEncoding = 'utf-8';
+      migrated = true;
+    }
+    const allowedNl: WorkspaceToolsConfig['defaultWorkspaceNewline'][] = ['lf', 'crlf', 'preserve'];
+    if (!allowedNl.includes(wt.defaultWorkspaceNewline)) {
+      wt.defaultWorkspaceNewline = 'lf';
+      migrated = true;
+    }
+  }
+
+  const hm = (newConfig as AppConfig & { healthMonitor?: HealthMonitorConfig }).healthMonitor;
+  if (!hm || typeof hm !== 'object') {
+    (newConfig as AppConfig).healthMonitor = getDefaultHealthMonitor();
+    migrated = true;
+  } else {
+    const allowed: HealthMonitorConfig['logLevel'][] = ['debug', 'info', 'warning', 'error'];
+    if (!allowed.includes(hm.logLevel)) {
+      hm.logLevel = 'info';
       migrated = true;
     }
   }

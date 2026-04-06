@@ -8,17 +8,22 @@ import type {
   AppConfig,
   Conversation,
   ConversationMeta,
+  DeleteConfirmPayload,
   FileDiffPayload,
   FileEntry,
+  HealthLogRecord,
+  HealthMetricsSnapshot,
   LlmStatus,
   TtsStreamPacket,
   Workspace,
+  WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
 } from '@shared/index';
 
 export interface ChunkMessage {
   conversationId: string;
   delta: string;
+  streamTag?: string;
 }
 
 /** Read-tool output mirrored from the backend (not part of the saved assistant reply). */
@@ -39,6 +44,11 @@ export interface LlmStatusMessage {
 export interface DiffMessage {
   conversationId: string;
   diff: FileDiffPayload;
+}
+
+export interface DeleteConfirmMessage {
+  conversationId: string;
+  payload: DeleteConfirmPayload;
 }
 
 export interface ScriptOutputMessage {
@@ -66,6 +76,7 @@ export class ElectronService {
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
+  private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
@@ -77,11 +88,13 @@ export class ElectronService {
   private readonly scriptOutputSubject = new Subject<ScriptOutputMessage>();
   private readonly scriptCompleteSubject = new Subject<ScriptCompleteMessage>();
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
+  private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
   readonly chunk$ = this.chunkSubject.asObservable();
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
+  readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
@@ -94,6 +107,7 @@ export class ElectronService {
   readonly scriptComplete$ = this.scriptCompleteSubject.asObservable();
   /** TTS MP3 packets from the main process (filter by `seq` in the app). */
   readonly ttsStream$: Observable<TtsStreamPacket> = this.ttsStreamSubject.asObservable();
+  readonly healthLogRecord$ = this.healthLogRecordSubject.asObservable();
 
   private get api(): ElectronAPI | undefined {
     return window.electronAPI;
@@ -104,8 +118,8 @@ export class ElectronService {
   }
 
   constructor(private zone: NgZone) {
-    this.api?.onMessageChunk((_event, conversationId, delta) => {
-      this.zone.run(() => this.chunkSubject.next({ conversationId, delta }));
+    this.api?.onMessageChunk((_event, conversationId, delta, streamTag) => {
+      this.zone.run(() => this.chunkSubject.next({ conversationId, delta, streamTag }));
     });
     this.api?.onMessageToolReadChunk((_event, conversationId, delta) => {
       this.zone.run(() => this.toolReadChunkSubject.next({ conversationId, delta }));
@@ -118,6 +132,9 @@ export class ElectronService {
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
+    });
+    this.api?.onMessageDeleteConfirm?.((_event, conversationId, payload) => {
+      this.zone.run(() => this.deleteConfirmSubject.next({ conversationId, payload }));
     });
     this.api?.onConfigUpdated((_event, config) => {
       this.zone.run(() => this.configSubject.next(config));
@@ -155,6 +172,9 @@ export class ElectronService {
         this.zone.run(() => this.ttsStreamSubject.next(packet));
       });
     }
+    this.api?.onHealthLogRecord?.((_event, record) => {
+      this.zone.run(() => this.healthLogRecordSubject.next(record));
+    });
     this.api?.onReady();
   }
 
@@ -162,9 +182,17 @@ export class ElectronService {
     this.api?.sendMessage(conversationId, msg, applyMode, autoApplyMode);
   }
 
-  /** Resume the in-flight LangChain stream after diff review (same HTTP stream as the original message). */
-  notifyAgentContinue(conversationId: string, note: string): Promise<{ ok: boolean; error?: string }> {
-    return this.api?.agentContinue(conversationId, note) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  /** Resume the in-flight LangChain stream after diff or delete confirmation (same HTTP stream as the original message). */
+  notifyAgentContinue(
+    conversationId: string,
+    note: string,
+    deleteAction?: 'confirm' | 'cancel',
+    deleteRequestId?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.agentContinue(conversationId, note, deleteAction, deleteRequestId) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
   }
 
   /** Push toolbar auto-apply to Python so mid-stream toggles affect the next tool call. */
@@ -178,10 +206,11 @@ export class ElectronService {
   writeWorkspaceFile(
     workspaceRoot: string,
     relativePath: string,
-    utf8Content: string,
+    content: string,
+    options?: WorkspaceFileWriteOptions,
   ): Promise<{ ok: boolean; path?: string; error?: string }> {
     return (
-      this.api?.writeWorkspaceFile?.(workspaceRoot, relativePath, utf8Content) ??
+      this.api?.writeWorkspaceFile?.(workspaceRoot, relativePath, content, options) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
@@ -300,7 +329,10 @@ export class ElectronService {
         editToolsMode: 'standard',
         maxFileReadLines: 400,
         maxSearchResults: 40,
+        defaultWorkspaceEncoding: 'utf-8',
+        defaultWorkspaceNewline: 'lf',
       },
+      healthMonitor: { logLevel: 'info' },
     });
   }
 
@@ -326,5 +358,29 @@ export class ElectronService {
 
   endScript(processId: string): Promise<{ success: boolean; error?: string }> {
     return this.api?.endScript(processId) ?? Promise.resolve({ success: false, error: 'API not available' });
+  }
+
+  healthMetrics(): Promise<HealthMetricsSnapshot | null> {
+    return this.api?.healthMetrics() ?? Promise.resolve(null);
+  }
+
+  healthLogsRecent(limit: number): Promise<HealthLogRecord[]> {
+    return this.api?.healthLogsRecent(limit).then((r) => r.records) ?? Promise.resolve([]);
+  }
+
+  healthSetLogLevel(level: string): Promise<void> {
+    return (this.api?.healthSetLogLevel(level) ?? Promise.resolve({ ok: true })).then(() => undefined);
+  }
+
+  healthLogsSubscribe(): void {
+    this.api?.healthLogsSubscribe();
+  }
+
+  healthLogsUnsubscribe(): void {
+    this.api?.healthLogsUnsubscribe();
+  }
+
+  closeHealthWindow(): void {
+    this.api?.closeHealthWindow();
   }
 }

@@ -11,6 +11,20 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class EditStagingEntry:
+    """Pending nested edit: merged content on disk under ``NEMO_STAGING_DIR`` before code review / finalize."""
+
+    temp_path: str
+    old_text: str
+    merged_text: str
+    disk_encoding: str
+    #: ``lf`` or ``crlf`` for disk writes.
+    disk_newline: str
+    #: ``full-file`` | ``line-range`` | ``snippet``
+    edit_mode: str
+
+
+@dataclass
 class SessionState:
     """Per-chat-session data kept while the Electron app talks to this process."""
 
@@ -18,12 +32,16 @@ class SessionState:
     history: list[dict[str, str]] = field(default_factory=list)
     # Absolute path to the folder the user opened as workspace, or empty.
     workspace_path: str = ''
-    # Tree snapshot string pushed from the renderer (for system prompt + snapshot tool).
+    # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
     # Recent file activity summary from the app, also fed into prompts.
     workspace_state: str = ''
     # Set by workspace edit tools; consumed by SSE diff event after tool success.
     pending_diff_payload: dict | None = None
+    # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
+    pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
+    # Set by delete_workspace_entry when auto_apply is false; cleared after confirm/cancel via agent-continue.
+    pending_delete_request: dict | None = None
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).
@@ -34,10 +52,14 @@ class SessionState:
     worker_apply_mode: bool = False
     # LangGraph worker: middleware signals here so the SSE loop can emit a diff before on_tool_end.
     hitl_sse_queue: asyncio.Queue | None = None
-    # LangGraph manager only: nested worker graph events merged into the manager SSE loop during delegate_workspace_task.
-    delegate_nested_events_q: asyncio.Queue | None = None
-    # Set while delegate runs; SSE loop signals after it consumes the nested stream end sentinel.
-    delegate_nested_done_event: asyncio.Event | None = None
+    # LangGraph manager only: nested planning graph events merged into the manager SSE loop during modify_workspace.
+    planning_nested_events_q: asyncio.Queue | None = None
+    # Set while nested planning runs; SSE loop signals after it consumes the nested stream end sentinel.
+    planning_nested_done_event: asyncio.Event | None = None
+    # While True, chat-model token deltas from the parent graph's ``astream_events`` queue are not sent as SSE
+    # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
+    # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.
+    suppress_parent_graph_model_token_sse: bool = False
 
 
 @dataclass
@@ -88,6 +110,10 @@ class RuntimeToolsConfig:
     edit_tools_strict: bool = False
     max_file_read_lines: int = 400
     max_search_results: int = 40
+    #: Default text encoding for read/search/edit tools when the model omits ``encoding`` (Python codec name).
+    default_workspace_encoding: str = 'utf-8'
+    #: Default newline mode for edit writes: ``lf``, ``crlf``, or ``preserve`` (match existing file when present).
+    default_workspace_newline: str = 'lf'
 
 
 @dataclass

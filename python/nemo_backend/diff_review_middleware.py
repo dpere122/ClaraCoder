@@ -42,7 +42,7 @@ class DiffReviewAfterToolMiddleware(AgentMiddleware):
         if q is None:
             return result
 
-        await q.put(True)
+        await q.put(('diff',))
         note = await await_diff_review_note(session_id)
 
         tm: ToolMessage

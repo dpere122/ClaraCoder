@@ -3,12 +3,20 @@
  * Uses contextBridge only — renderer never gets raw `ipcRenderer` except through these whitelisted calls.
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { FileDiffPayload, TtsStreamPacket } from '../shared';
+import type {
+  DeleteConfirmPayload,
+  FileDiffPayload,
+  HealthLogRecord,
+  HealthMetricsSnapshot,
+  TtsStreamPacket,
+  WorkspaceFileWriteOptions,
+} from '../shared';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   onReady: () => ipcRenderer.send('ready'),
-  onMessageChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) =>
-    ipcRenderer.on('message-chunk', callback),
+  onMessageChunk: (
+    callback: (event: unknown, conversationId: string, delta: string, streamTag?: string) => void,
+  ) => ipcRenderer.on('message-chunk', callback),
   onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) =>
     ipcRenderer.on('message-tool-read-chunk', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
@@ -16,13 +24,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('message-status', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
+  onMessageDeleteConfirm: (
+    callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
+  ) => ipcRenderer.on('message-delete-confirm', callback),
   sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) =>
     ipcRenderer.send('message', conversationId, msg, applyMode ?? true, autoApplyMode ?? false),
-  agentContinue: (conversationId: string, note: string) => ipcRenderer.invoke('agent-continue', conversationId, note),
+  agentContinue: (
+    conversationId: string,
+    note: string,
+    deleteAction?: 'confirm' | 'cancel',
+    deleteRequestId?: string,
+  ) => ipcRenderer.invoke('agent-continue', conversationId, note, deleteAction, deleteRequestId),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
-  writeWorkspaceFile: (workspaceRoot: string, relativePath: string, utf8Content: string) =>
-    ipcRenderer.invoke('write-workspace-file', workspaceRoot, relativePath, utf8Content),
+  writeWorkspaceFile: (
+    workspaceRoot: string,
+    relativePath: string,
+    content: string,
+    options?: WorkspaceFileWriteOptions,
+  ) => ipcRenderer.invoke('write-workspace-file', workspaceRoot, relativePath, content, options),
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   getConversations: (workspaceId?: string | null) => ipcRenderer.invoke('get-conversations', workspaceId),
   loadConversation: (id: string, workspaceId?: string | null) => ipcRenderer.invoke('load-conversation', id, workspaceId),
@@ -79,5 +99,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendScriptInput: (processId: string, input: string) => ipcRenderer.invoke('send-script-input', processId, input),
   endScript: (processId: string) => ipcRenderer.invoke('end-script', processId),
   onScriptOutput: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-output', callback),
-  onScriptComplete: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-complete', callback),
+    onScriptComplete: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-complete', callback),
+  healthMetrics: () => ipcRenderer.invoke('health-metrics') as Promise<HealthMetricsSnapshot>,
+  healthLogsRecent: (limit: number) =>
+    ipcRenderer.invoke('health-logs-recent', limit) as Promise<{ records: HealthLogRecord[] }>,
+  healthSetLogLevel: (level: string) => ipcRenderer.invoke('health-set-log-level', level) as Promise<{ ok: boolean }>,
+  healthLogsSubscribe: () => ipcRenderer.send('health-logs-subscribe'),
+  healthLogsUnsubscribe: () => ipcRenderer.send('health-logs-unsubscribe'),
+  onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) =>
+    ipcRenderer.on('health-log-record', callback),
+  openHealthWindow: () => ipcRenderer.send('open-health-window'),
+  closeHealthWindow: () => ipcRenderer.send('close-health-window'),
 });

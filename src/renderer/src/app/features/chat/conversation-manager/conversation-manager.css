@@ -88,10 +88,12 @@ app-conversation-manager .rename-input:focus {
 
 app-conversation-manager .delete-btn {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   color: var(--t-border);
-  font-size: 0.75rem;
   padding: 0.15rem 0.3rem;
   cursor: pointer;
   opacity: 0;
@@ -108,7 +110,7 @@ app-conversation-manager .delete-btn:hover {
 
 app-conversation-manager .conv-pending-icon {
   flex-shrink: 0;
-  font-size: 0.7rem;
+  display: inline-flex;
   color: var(--t-primary);
   margin-right: 0.4em;
   animation: spin-cog 1.5s linear infinite;

@@ -37,6 +37,11 @@ from nemo_backend.domain import (
 # Which session_id workspace tools and the agent should use for the current task.
 current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_session_id', default='')
 
+# True only while nested create/update specialist graphs run edit tools (stage vs direct finalize).
+nested_edit_staging_active: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    'nested_edit_staging_active', default=False
+)
+
 # All known sessions; created on demand via get_session().
 sessions: dict[str, SessionState] = {}
 

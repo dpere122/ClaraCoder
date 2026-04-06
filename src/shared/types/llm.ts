@@ -1,4 +1,4 @@
-/** Optional UI tier for manager/worker agent rows (from Python ``agent_role``). */
+/** Legacy tier from Python ``agent_role`` (optional on persisted chain rows). */
 export type LlmAgentRole = 'manager' | 'worker';
 
 /**

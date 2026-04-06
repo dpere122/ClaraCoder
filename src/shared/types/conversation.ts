@@ -1,5 +1,13 @@
 import type { FileDiffPayload } from './diff';
+import type { DeleteConfirmPayload } from './delete-confirm';
 import type { LlmAgentRole } from './llm';
+
+/** One labeled segment of an in-flight assistant reply (multiplexed LLM subgraphs share one bubble). */
+export interface StreamPart {
+  streamTag: string;
+  label: string;
+  text: string;
+}
 
 /** Lifecycle of a proposed edit card in the chat transcript. */
 export type DiffReviewStatus = 'pending' | 'complete' | 'cancelled';
@@ -30,6 +38,12 @@ export type ConversationMessage =
       payload: FileDiffPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
+    }
+  | {
+      role: 'delete_confirm';
+      payload: DeleteConfirmPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
     };
 
 /** Full conversation as used in the renderer. */
@@ -54,6 +68,12 @@ export type ConversationFileMessage =
   | {
       role: 'diff';
       payload: FileDiffPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    }
+  | {
+      role: 'delete_confirm';
+      payload: DeleteConfirmPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
     };

@@ -2,11 +2,15 @@ import type {
   AppConfig,
   Conversation,
   ConversationMeta,
+  DeleteConfirmPayload,
   FileDiffPayload,
   FileEntry,
+  HealthLogRecord,
+  HealthMetricsSnapshot,
   LlmStatus,
   TtsStreamPacket,
   Workspace,
+  WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
 } from '../../shared/index';
 
@@ -19,18 +23,29 @@ export {};
 declare global {
   interface ElectronAPI {
     onReady: () => void;
-    onMessageChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
+    onMessageChunk: (
+      callback: (event: unknown, conversationId: string, delta: string, streamTag?: string) => void,
+    ) => void;
     onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
+    onMessageDeleteConfirm?: (
+      callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
+    ) => void;
     sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) => void;
-    agentContinue: (conversationId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
+    agentContinue: (
+      conversationId: string,
+      note: string,
+      deleteAction?: 'confirm' | 'cancel',
+      deleteRequestId?: string,
+    ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (
       workspaceRoot: string,
       relativePath: string,
-      utf8Content: string,
+      content: string,
+      options?: WorkspaceFileWriteOptions,
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
@@ -92,6 +107,14 @@ declare global {
     ) => void;
     setWorkspaceContext?: (sessionId: string, workspacePath: string, workspaceContext: string) => Promise<void>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
+    healthMetrics: () => Promise<HealthMetricsSnapshot>;
+    healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
+    healthSetLogLevel: (level: string) => Promise<{ ok: boolean }>;
+    healthLogsSubscribe: () => void;
+    healthLogsUnsubscribe: () => void;
+    onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) => void;
+    openHealthWindow: () => void;
+    closeHealthWindow: () => void;
   }
 
   interface Window {

@@ -17,7 +17,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "electron": "^41.0.4"
+    "electron": "^41.0.4",
+    "iconv-lite": "^0.6.3",
+    "systeminformation": "^5.31.5"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

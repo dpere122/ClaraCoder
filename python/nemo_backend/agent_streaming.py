@@ -136,3 +136,15 @@ def sse_tool_finished(
 
 def sse_line(payload: dict[str, Any]) -> str:
     return f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
+
+
+def model_chunk_payload(delta: str, stream_tag: str | None = None) -> dict[str, Any]:
+    """JSON body for a user-visible model token delta (optional ``stream_tag`` for multiplexed subgraphs)."""
+    row: dict[str, Any] = {'type': 'chunk', 'delta': delta}
+    if stream_tag:
+        row['stream_tag'] = stream_tag
+    return row
+
+
+def model_chunk_sse_line(delta: str, stream_tag: str | None = None) -> str:
+    return sse_line(model_chunk_payload(delta, stream_tag))

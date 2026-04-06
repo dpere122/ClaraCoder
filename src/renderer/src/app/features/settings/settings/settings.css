@@ -11,14 +11,18 @@
   margin-top: 6px;
 }
 
-.temperature-row input[type='range'] {
+/* Beat `.field input { width: 100% }` so the slider grows and the number stays compact. */
+.field .temperature-row input[type='range'] {
   flex: 1;
   min-width: 0;
+  width: auto;
 }
 
-.temperature-row__number {
+.field .temperature-row .temperature-row__number {
   width: 4.5rem;
+  max-width: 4.5rem;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .settings-shell {

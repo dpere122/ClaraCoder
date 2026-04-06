@@ -5,6 +5,8 @@ import { registerConversationsIpc } from './handlers/conversations';
 import { registerFsIpc } from './handlers/fs-handlers';
 import { registerScriptsIpc } from './handlers/scripts';
 import { registerWorkspaceWriteIpc } from './handlers/workspace-write';
+import { registerHealthIpc } from './handlers/health';
+import { registerHealthWindowIpc } from '../windows/health-window';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -15,4 +17,6 @@ export function registerAllIpc(): void {
   registerFsIpc();
   registerScriptsIpc();
   registerWorkspaceWriteIpc();
+  registerHealthIpc();
+  registerHealthWindowIpc();
 }

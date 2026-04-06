@@ -40,11 +40,12 @@
         [processingToolHint]='processingToolHint()'
         [processingAgentRole]='processingAgentRole()'
         [ttsLoading]='tts.ttsLoading()'
-        [streamingText]='streamingText()'
+        [streamingParts]='streamingParts()'
         [toolReadStreamText]='toolReadStreamText()'
         [fontSize]='fontSize()'
         (sendResponse)='onSendResponse($event)'
         (diffReviewFinished)='onDiffReviewFinished($event)'
+        (deleteReviewFinished)='onDeleteReviewFinished($event)'
       />
 
       <app-message-box

@@ -27,7 +27,8 @@ def test_standard_includes_three_tools() -> None:
         'replace_workspace_line_range',
         'replace_workspace_snippet',
     ]
-    assert hitl_diff_pause_tools() == frozenset(names) | {'approve_staged_workspace_edit'}
+    staging_names = {'stage_create_file', 'stage_line_range_edit', 'stage_snippet_edit'}
+    assert hitl_diff_pause_tools() == frozenset(names) | {'approve_staged_workspace_edit'} | staging_names
     assert hitl_delete_pause_tools() == frozenset({'delete_workspace_entry'})
 
 
@@ -35,7 +36,8 @@ def test_strict_omits_snippet_tool() -> None:
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=True)
     names = [t.name for t in edit_tools_for_strict(True)]
     assert names == ['apply_workspace_full_file', 'replace_workspace_line_range']
-    assert hitl_diff_pause_tools() == frozenset(names) | {'approve_staged_workspace_edit'}
+    staging_names = {'stage_create_file', 'stage_line_range_edit', 'stage_snippet_edit'}
+    assert hitl_diff_pause_tools() == frozenset(names) | {'approve_staged_workspace_edit'} | staging_names
     assert 'replace_workspace_snippet' not in hitl_diff_pause_tools()
 
 

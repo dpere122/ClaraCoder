@@ -10,16 +10,14 @@ and the diff / pause contract in :mod:`nemo_backend.agent` (see :func:`nemo_back
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
 
-from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.partial_workspace_edit import merge_partial_edit
-from nemo_backend.state import current_session_id, get_session, nested_edit_staging_active, runtime_config
+from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
     DiskNewline,
     NewlineMode,
@@ -32,7 +30,6 @@ from nemo_backend.workspace_text_io import (
 from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.tools.edit')
-_staging_logger = logging.getLogger('nemo.staging')
 
 __all__ = [
     'apply_workspace_full_file',
@@ -141,50 +138,8 @@ def _after_merge_workspace_edit(
     disk_encoding: str,
     disk_newline: DiskNewline,
 ) -> str:
-    """Nested create/update: stage code files for review; non-code uses temp then immediate finalize."""
-    if not nested_edit_staging_active.get():
-        return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
-
-    session_id = current_session_id.get()
-    if not session_id:
-        return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
-
-    prior = session.pending_edit_stagings.pop(rel_display, None)
-    if prior:
-        _edit_staging.unlink_staging_quiet(Path(prior.temp_path))
-
-    temp_path = _edit_staging.allocate_staging_file(session_id, rel_display)
-    try:
-        _edit_staging.write_staging_text(temp_path, merged, disk_encoding, disk_newline)
-    except OSError as exc:
-        return f'Tool error: could not write staging file ({exc}).'
-
-    if rel_display.lower().endswith('.py'):
-        ok, detail = _edit_staging.run_black_on_file(temp_path, encoding=disk_encoding, disk_newline=disk_newline)
-        _staging_logger.info('black path=%s ok=%s detail=%s', rel_display, ok, detail)
-    try:
-        merged_out = _edit_staging.read_staging_text(temp_path, disk_encoding)
-    except OSError as exc:
-        return f'Tool error: could not read staging file ({exc}).'
-
-    if _edit_staging.is_code_review_extension(rel_display):
-        session.pending_edit_stagings[rel_display] = EditStagingEntry(
-            temp_path=str(temp_path),
-            old_text=old_text,
-            merged_text=merged_out,
-            disk_encoding=disk_encoding,
-            disk_newline=disk_newline,
-            edit_mode=mode,
-        )
-        _staging_logger.info('staged for code review path=%s', rel_display)
-        return (
-            f'Staged `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
-            'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
-        )
-
-    out = _finalize_workspace_edit(session, rel_display, old_text, merged_out, mode, disk_encoding, disk_newline)
-    _edit_staging.unlink_staging_quiet(temp_path)
-    return out
+    """Finalize a workspace edit via diff or auto-apply (staging is handled by dedicated staging tools)."""
+    return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
 
 
 def _edit_preamble(

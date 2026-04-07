@@ -16,6 +16,7 @@ from typing import Any
 from nemo_backend.agents.planning.tool import MODIFY_WORKSPACE_NAME, PLANNING_TOOLS
 from nemo_backend.delete_tool import DELETE_WORKSPACE_ENTRY_NAME, delete_workspace_entry
 from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME, edit_tools_for_strict
+from nemo_backend.staging_edit_tools import STAGE_CREATE_FILE_NAME, STAGE_LINE_RANGE_EDIT_NAME, STAGE_SNIPPET_EDIT_NAME
 from nemo_backend.state import runtime_config
 from nemo_backend.workspace_tools import TOOLS, TOOL_MAP
 WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)
@@ -25,6 +26,9 @@ def hitl_diff_pause_tools() -> frozenset[str]:
     """Tool names that may emit a diff and require human review before the agent continues."""
     names = {t.name for t in edit_tools_for_strict(runtime_config.tools.edit_tools_strict)}
     names.add(APPROVE_STAGED_WORKSPACE_EDIT_NAME)
+    names.add(STAGE_CREATE_FILE_NAME)
+    names.add(STAGE_LINE_RANGE_EDIT_NAME)
+    names.add(STAGE_SNIPPET_EDIT_NAME)
     return frozenset(names)
 
 

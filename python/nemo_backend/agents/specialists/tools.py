@@ -5,20 +5,20 @@ from __future__ import annotations
 from typing import Any
 
 from nemo_backend.delete_tool import delete_workspace_entry
-from nemo_backend.edit_tool import apply_workspace_full_file, replace_workspace_line_range, replace_workspace_snippet
+from nemo_backend.staging_edit_tools import stage_create_file, stage_line_range_edit, stage_snippet_edit
 
 
 def create_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
-    t = [apply_workspace_full_file]
-    return t, {apply_workspace_full_file.name: apply_workspace_full_file}
+    t = [stage_create_file]
+    return t, {stage_create_file.name: stage_create_file}
 
 
 def update_specialist_tools(edit_tools_strict: bool) -> tuple[list[Any], dict[str, Any]]:
     if edit_tools_strict:
-        t = [replace_workspace_line_range]
-        return t, {replace_workspace_line_range.name: replace_workspace_line_range}
-    t = [replace_workspace_line_range, replace_workspace_snippet]
-    m = {replace_workspace_line_range.name: replace_workspace_line_range, replace_workspace_snippet.name: replace_workspace_snippet}
+        t = [stage_line_range_edit]
+        return t, {stage_line_range_edit.name: stage_line_range_edit}
+    t = [stage_line_range_edit, stage_snippet_edit]
+    m = {stage_line_range_edit.name: stage_line_range_edit, stage_snippet_edit.name: stage_snippet_edit}
     return t, m
 
 

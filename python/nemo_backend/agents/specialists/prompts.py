@@ -38,10 +38,11 @@ def build_router_system_prompt(session: SessionState) -> str:
 
 def build_create_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the workspace create specialist. You may use `apply_workspace_full_file` for new files or '
-        'whole-file rewrites. Prefer one tool call per turn. For programming-language files, edits are **staged** '
-        'first (Black runs on `.py` in staging); the router will send them to code review before the workspace '
-        'updates. When staging happens, report the path clearly so the router can call the code review specialist.\n'
+        'You are the workspace create specialist. Use `stage_create_file` for new files or '
+        'whole-file rewrites. Prefer one tool call per turn. Programming-language files are **staged** '
+        'for code review (Black runs on `.py` in staging); the router will send them to the code review specialist '
+        'before the workspace updates. Non-code files are finalized immediately.\n'
+        'When staging happens, report the path clearly so the router can call the code review specialist.\n'
         'When done, state briefly what was created or rewritten.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session)}'
         f'{_qwen_optimize_suffix()}'
@@ -50,9 +51,11 @@ def build_create_specialist_system_prompt(session: SessionState) -> str:
 
 def build_update_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the workspace update specialist. Use line-range and (when available) snippet replace tools. '
-        'Prefer one tool call per turn. For programming-language files, edits are **staged** first (Black on `.py` '
-        'in staging); the router will send them to code review. When staging happens, report the path for the router.\n'
+        'You are the workspace update specialist. Use `stage_line_range_edit` and (when available) '
+        '`stage_snippet_edit` to apply changes. Prefer one tool call per turn. Programming-language files are '
+        '**staged** for code review (Black on `.py` in staging); the router will send them to the code review '
+        'specialist. Non-code files are finalized immediately.\n'
+        'When staging happens, report the path for the router.\n'
         'When done, summarize edits by file and intent for the router.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session)}'
         f'{_qwen_optimize_suffix()}'

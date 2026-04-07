@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 from typing import Any
 
 from langchain.agents import create_agent
@@ -34,7 +34,7 @@ from nemo_backend.edit_staging import discard_all_session_stagings
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import final_assistant_text
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
-from nemo_backend.state import nested_edit_staging_active, runtime_config
+from nemo_backend.state import runtime_config
 
 logger = logging.getLogger('nemo.agent.langgraph.planning')
 
@@ -49,18 +49,6 @@ def _suppress_parent_graph_model_token_sse(session: SessionState):
         yield
     finally:
         session.suppress_parent_graph_model_token_sse = False
-
-
-@asynccontextmanager
-async def _nested_edit_staging_scope(kind: str):
-    token = None
-    if kind in ('create', 'update'):
-        token = nested_edit_staging_active.set(True)
-    try:
-        yield
-    finally:
-        if token is not None:
-            nested_edit_staging_active.reset(token)
 
 
 async def _enqueue_nested_event(nested_q: Any, stream_tag: str, ev: dict[str, Any]) -> None:
@@ -123,16 +111,15 @@ async def run_planning_nested_stream(
             spec_final = ''
             spec_tag = f'spec-{kind}-{uuid.uuid4().hex[:8]}'
             try:
-                async with _nested_edit_staging_scope(kind):
-                    async for ev in sub.astream_events(inputs, config, version='v2'):
-                        await _enqueue_nested_event(nested_q, spec_tag, ev)
-                        et = ev.get('event')
-                        data = ev.get('data') if isinstance(ev.get('data'), dict) else {}
-                        if et == 'on_chat_model_end':
-                            raw = data.get('output')
-                            msg = raw if isinstance(raw, AIMessage) else None
-                            if msg is not None and not (msg.tool_calls or []):
-                                spec_final = final_assistant_text(msg)
+                async for ev in sub.astream_events(inputs, config, version='v2'):
+                    await _enqueue_nested_event(nested_q, spec_tag, ev)
+                    et = ev.get('event')
+                    data = ev.get('data') if isinstance(ev.get('data'), dict) else {}
+                    if et == 'on_chat_model_end':
+                        raw = data.get('output')
+                        msg = raw if isinstance(raw, AIMessage) else None
+                        if msg is not None and not (msg.tool_calls or []):
+                            spec_final = final_assistant_text(msg)
             except Exception:
                 logger.exception('Specialist graph failed (%s)', kind)
                 raise

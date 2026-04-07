@@ -1,4 +1,4 @@
-"""Nested edit staging, Black, code review tools, and cleanup."""
+"""Dedicated staging tools, Black, code review tools, and cleanup."""
 
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ from nemo_backend.edit_staging import (
     is_code_review_extension,
 )
 from nemo_backend.edit_tool import apply_workspace_full_file
-from nemo_backend.state import current_session_id, get_session, nested_edit_staging_active, runtime_config
+from nemo_backend.staging_edit_tools import stage_create_file, stage_line_range_edit, stage_snippet_edit
+from nemo_backend.state import current_session_id, get_session, runtime_config
 
 
 @pytest.fixture()
@@ -81,50 +82,43 @@ def test_is_code_review_extension(staging_env) -> None:
     assert not is_code_review_extension('README.md')
 
 
-def test_stages_python_file_when_nested_active(staging_env) -> None:
+def test_stage_create_file_stages_python(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'mod.py').write_text('x=1\n', encoding='utf-8')
-    t = nested_edit_staging_active.set(True)
-    try:
-        out = apply_workspace_full_file.invoke(
-            {
-                'relative_path': 'mod.py',
-                'new_content': 'x = 1\n',
-                'encoding': 'utf-8',
-                'newline': 'lf',
-            }
-        )
-    finally:
-        nested_edit_staging_active.reset(t)
+    out = stage_create_file.invoke(
+        {
+            'relative_path': 'mod.py',
+            'new_content': 'x = 1\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
     assert 'code review' in out.lower()
     assert 'mod.py' in session.pending_edit_stagings
     entry = session.pending_edit_stagings['mod.py']
     assert Path(entry.temp_path).is_file()
 
 
-def test_non_code_finalizes_without_staging_dict(staging_env) -> None:
+def test_stage_create_file_non_code_finalizes(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'note.txt').write_text('hi\n', encoding='utf-8')
-    t = nested_edit_staging_active.set(True)
-    try:
-        out = apply_workspace_full_file.invoke(
-            {
-                'relative_path': 'note.txt',
-                'new_content': 'hello\n',
-                'encoding': 'utf-8',
-                'newline': 'lf',
-            }
-        )
-    finally:
-        nested_edit_staging_active.reset(t)
+    out = stage_create_file.invoke(
+        {
+            'relative_path': 'note.txt',
+            'new_content': 'hello\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
     assert session.pending_edit_stagings == {}
     assert 'Proposed' in out
     assert session.pending_diff_payload is not None
 
 
-def test_nested_inactive_goes_straight_to_diff(staging_env) -> None:
+def test_general_edit_tool_goes_straight_to_diff(staging_env) -> None:
+    """The general-purpose edit tool no longer stages; it always finalizes directly."""
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'a.py').write_text('y=2\n', encoding='utf-8')
@@ -140,22 +134,53 @@ def test_nested_inactive_goes_straight_to_diff(staging_env) -> None:
     assert 'Proposed' in out
 
 
+def test_stage_line_range_edit_stages_python(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'lr.py').write_text('line1\nline2\nline3\n', encoding='utf-8')
+    out = stage_line_range_edit.invoke(
+        {
+            'relative_path': 'lr.py',
+            'start_line': 2,
+            'end_line': 2,
+            'new_snippet': 'replaced\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'code review' in out.lower()
+    assert 'lr.py' in session.pending_edit_stagings
+
+
+def test_stage_snippet_edit_stages_python(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'sn.py').write_text('alpha\nbeta\ngamma\n', encoding='utf-8')
+    out = stage_snippet_edit.invoke(
+        {
+            'relative_path': 'sn.py',
+            'old_snippet': 'beta',
+            'new_snippet': 'BETA',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'code review' in out.lower()
+    assert 'sn.py' in session.pending_edit_stagings
+
+
 def test_read_format_approve_reject(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'z.py').write_text('a=1\n', encoding='utf-8')
-    t = nested_edit_staging_active.set(True)
-    try:
-        apply_workspace_full_file.invoke(
-            {
-                'relative_path': 'z.py',
-                'new_content': 'a=1\nb=2\n',
-                'encoding': 'utf-8',
-                'newline': 'lf',
-            }
-        )
-    finally:
-        nested_edit_staging_active.reset(t)
+    stage_create_file.invoke(
+        {
+            'relative_path': 'z.py',
+            'new_content': 'a=1\nb=2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
     r1 = read_staged_edit.invoke({'relative_path': 'z.py'})
     assert 'z.py' in r1
     assert 'b = 2' in r1
@@ -170,18 +195,14 @@ def test_approve_sets_diff_payload(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'q.py').write_text('n=0\n', encoding='utf-8')
-    t = nested_edit_staging_active.set(True)
-    try:
-        apply_workspace_full_file.invoke(
-            {
-                'relative_path': 'q.py',
-                'new_content': 'n = 0\n',
-                'encoding': 'utf-8',
-                'newline': 'lf',
-            }
-        )
-    finally:
-        nested_edit_staging_active.reset(t)
+    stage_create_file.invoke(
+        {
+            'relative_path': 'q.py',
+            'new_content': 'n = 0\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
     session.auto_apply_mode = False
     out = approve_staged_workspace_edit.invoke({'relative_path': 'q.py'})
     assert 'diff' in out.lower()

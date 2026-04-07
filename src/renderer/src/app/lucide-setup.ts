@@ -11,6 +11,7 @@ import {
   Minus,
   Plus,
   Settings,
+  Square,
   Trash,
 } from 'lucide-angular';
 
@@ -34,6 +35,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
       Minus,
       Plus,
       Settings,
+      Square,
       Trash,
     }),
   ),

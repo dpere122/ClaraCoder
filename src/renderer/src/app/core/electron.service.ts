@@ -182,6 +182,13 @@ export class ElectronService {
     this.api?.sendMessage(conversationId, msg, applyMode, autoApplyMode);
   }
 
+  abortMessage(conversationId: string): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.abortMessage(conversationId) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   /** Resume the in-flight LangChain stream after diff or delete confirmation (same HTTP stream as the original message). */
   notifyAgentContinue(
     conversationId: string,

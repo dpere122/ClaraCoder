@@ -3,6 +3,9 @@ import type { DeleteConfirmPayload, FileDiffPayload, LlmStatusPayload } from '..
 import { PYTHON_URL } from '../../python/server';
 import { mainState } from '../../state';
 
+/** Per-conversation abort controllers so the renderer can cancel an in-flight stream. */
+const streamAbortControllers = new Map<string, AbortController>();
+
 /**
  * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`, `diff`, `delete_confirm`.
  */
@@ -113,6 +116,12 @@ export function registerChatIpc(): void {
       autoApplyMode = false,
     ) => {
     console.log('Received message for', conversationId, ':', msg);
+
+    // Cancel any previous in-flight stream for this conversation.
+    streamAbortControllers.get(conversationId)?.abort();
+    const abortController = new AbortController();
+    streamAbortControllers.set(conversationId, abortController);
+
     try {
       const res = await fetch(`${PYTHON_URL}/chat/stream`, {
         method: 'POST',
@@ -123,6 +132,7 @@ export function registerChatIpc(): void {
           apply_mode: applyMode,
           auto_apply_mode: autoApplyMode,
         }),
+        signal: abortController.signal,
       });
 
       if (!res.ok || !res.body) {
@@ -162,6 +172,11 @@ export function registerChatIpc(): void {
         }
       }
     } catch (err) {
+      if (abortController.signal.aborted) {
+        console.log('Stream aborted for', conversationId);
+        event.reply('message-done', conversationId);
+        return;
+      }
       console.error('Failed to reach Python server:', err);
       event.reply('message-status', conversationId, {
         id: 'fatal',
@@ -172,6 +187,8 @@ export function registerChatIpc(): void {
       } as LlmStatusPayload);
       event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
       event.reply('message-done', conversationId);
+    } finally {
+      streamAbortControllers.delete(conversationId);
     }
   });
 
@@ -204,6 +221,25 @@ export function registerChatIpc(): void {
       console.error('agent-continue failed:', err);
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  ipcMain.handle('abort-message', async (_event, conversationId: string) => {
+    const controller = streamAbortControllers.get(conversationId);
+    if (controller) {
+      controller.abort();
+      streamAbortControllers.delete(conversationId);
+      try {
+        await fetch(`${PYTHON_URL}/chat/abort`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: conversationId }),
+        });
+      } catch {
+        // Best-effort: Python abort may fail if stream already ended.
+      }
+      return { ok: true };
+    }
+    return { ok: false, error: 'No active stream' };
   });
 
   ipcMain.handle('sync-auto-apply-mode', async (_event, conversationId: string, autoApplyMode: boolean) => {

@@ -34,6 +34,7 @@ declare global {
       callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
     ) => void;
     sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) => void;
+    abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     agentContinue: (
       conversationId: string,
       note: string,

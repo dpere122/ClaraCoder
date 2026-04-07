@@ -388,6 +388,12 @@ export class App implements OnInit, OnDestroy {
     await this.refreshConversationList();
   }
 
+  onAbortRequested(): void {
+    const convId = this.activeConversationId();
+    if (!convId || !this.pendingIds().has(convId)) return;
+    void this.electron.abortMessage(convId);
+  }
+
   onSendResponse(text: string): void {
     // Send the output as a new user message
     this.onMessageSent(text);

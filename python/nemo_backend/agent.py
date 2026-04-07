@@ -49,6 +49,8 @@ async def stream_agent_reply(
         auto_apply_mode=auto_apply_mode,
     )
 
+    session.abort_event.clear()
+
     try:
         try:
             build_llm()
@@ -73,6 +75,9 @@ async def stream_agent_reply(
             session_id=session_id,
             outcome=graph_outcome,
         ):
+            if session.abort_event.is_set():
+                logger.info('Stream aborted for session %s', session_id)
+                break
             yield line
         final_text = graph_outcome.final_text
 

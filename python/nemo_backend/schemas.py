@@ -41,6 +41,12 @@ class AgentContinueRequest(BaseModel):
     delete_request_id: str = ''
 
 
+class AbortRequest(BaseModel):
+    """Body for POST /chat/abort: cancel the in-flight stream for a session."""
+
+    session_id: str
+
+
 class LoadRequest(BaseModel):
     """Replace a session's history with the given messages (e.g. after reload)."""
 

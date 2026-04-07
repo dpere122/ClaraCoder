@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ) => ipcRenderer.on('message-delete-confirm', callback),
   sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) =>
     ipcRenderer.send('message', conversationId, msg, applyMode ?? true, autoApplyMode ?? false),
+  abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   agentContinue: (
     conversationId: string,
     note: string,

@@ -51,7 +51,9 @@
       <app-message-box
         class='message-box-host'
         [talkStatus]='talkStatus()'
+        [loading]='loading()'
         (messageSent)='onMessageSent($event)'
+        (abortRequested)='onAbortRequested()'
       />
     </div>
 

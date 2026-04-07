@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from nemo_backend.agent import stream_agent_reply
-from nemo_backend.schemas import AgentContinueRequest, ChatRequest
+from nemo_backend.schemas import AbortRequest, AgentContinueRequest, ChatRequest
 from nemo_backend import state
 
 router = APIRouter()
@@ -22,6 +22,18 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         request.auto_apply_mode,
     )
     return StreamingResponse(generator, media_type='text/event-stream')
+
+
+@router.post('/chat/abort')
+async def chat_abort(request: AbortRequest) -> dict[str, bool]:
+    """Signal the in-flight stream for a session to stop as soon as possible."""
+    sess = state.get_session(request.session_id)
+    sess.abort_event.set()
+    # Also unblock any HITL pause so the generator can exit.
+    ev = sess.agent_pause_event
+    if ev is not None:
+        ev.set()
+    return {'ok': True}
 
 
 @router.post('/chat/agent-continue')

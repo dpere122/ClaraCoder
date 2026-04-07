@@ -52,6 +52,8 @@ class SessionState:
     worker_apply_mode: bool = False
     # LangGraph worker: middleware signals here so the SSE loop can emit a diff before on_tool_end.
     hitl_sse_queue: asyncio.Queue | None = None
+    # Set when the client requests an abort; the streaming generator checks this to bail out early.
+    abort_event: asyncio.Event = field(default_factory=asyncio.Event)
     # LangGraph manager only: nested planning graph events merged into the manager SSE loop during modify_workspace.
     planning_nested_events_q: asyncio.Queue | None = None
     # Set while nested planning runs; SSE loop signals after it consumes the nested stream end sentinel.

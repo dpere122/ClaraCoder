@@ -1,0 +1,140 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.health-log {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.health-log__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.health-log__toolbar-left,
+.health-log__toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.health-log__toolbar-right {
+  margin-left: auto;
+}
+
+.health-log__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--t-text-muted);
+}
+
+.health-log__select {
+  min-width: 8rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: var(--t-bg);
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 12px;
+}
+
+.health-log__select--wide {
+  min-width: 11rem;
+}
+
+.health-log__search {
+  flex: 1;
+  min-width: 12rem;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: var(--t-bg);
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 12px;
+}
+
+.health-log__btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: transparent;
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.health-log__btn--primary {
+  border-color: color-mix(in srgb, var(--t-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 12%, transparent);
+}
+
+.health-log__viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.health-log__row {
+  display: grid;
+  grid-template-columns: 7.5rem 4rem 4.5rem minmax(8rem, 14rem) 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 40%, transparent);
+  color: var(--t-code-text);
+}
+
+.health-log__row[data-level='ERROR'] .health-log__lvl {
+  color: #ff6b6b;
+}
+
+.health-log__row[data-level='WARNING'] .health-log__lvl {
+  color: #ffd166;
+}
+
+.health-log__lvl {
+  font-weight: 600;
+}
+
+.health-log__logger {
+  color: var(--t-process-a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-log__msg {
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.health-log__msg--formatted {
+  white-space: pre;
+  overflow-x: auto;
+}

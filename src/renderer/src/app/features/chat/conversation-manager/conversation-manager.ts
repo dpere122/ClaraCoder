@@ -1,10 +1,11 @@
 import { Component, input, output, signal, ViewEncapsulation } from '@angular/core';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
 
 @Component({
   selector: 'app-conversation-manager',
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './conversation-manager.html',
   styleUrl: './conversation-manager.css',
   encapsulation: ViewEncapsulation.None

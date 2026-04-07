@@ -8,6 +8,8 @@
       [(selectedVoice)]='selectedVoice'
       [(talkEnabled)]='talkEnabled'
       [(currentTranscript)]='talkStatus'
+      [(editorMode)]='editorMode'
+      [(autoApplyMode)]='autoApplyMode'
       [(pinned)]='pinned'
       [activeConversationId]='activeConversationId()'
       (promptCaptured)='onMessageSent($event)'
@@ -32,19 +34,26 @@
       <app-chat-box
         class='chat-box-host flex-grow-1 overflow-hidden mb-1'
         [messages]='messages()'
+        [conversationId]='activeConversationId()'
         [loading]='loading()'
         [processingToolsActive]='processingToolsActive()'
         [processingToolHint]='processingToolHint()'
+        [processingAgentRole]='processingAgentRole()'
         [ttsLoading]='tts.ttsLoading()'
-        [streamingText]='streamingText()'
+        [streamingParts]='streamingParts()'
+        [toolReadStreamText]='toolReadStreamText()'
         [fontSize]='fontSize()'
         (sendResponse)='onSendResponse($event)'
+        (diffReviewFinished)='onDiffReviewFinished($event)'
+        (deleteReviewFinished)='onDeleteReviewFinished($event)'
       />
 
       <app-message-box
         class='message-box-host'
         [talkStatus]='talkStatus()'
+        [loading]='loading()'
         (messageSent)='onMessageSent($event)'
+        (abortRequested)='onAbortRequested()'
       />
     </div>
 

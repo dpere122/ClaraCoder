@@ -2,7 +2,8 @@
 
 The Electron app can run multiple chat sessions (by id). Each maps to a
 :class:`~nemo_backend.domain.SessionState`. LLM/audio settings live in a single
-mutable :class:`~nemo_backend.domain.RuntimeConfig` updated via POST /runtime-config.
+mutable :class:`~nemo_backend.domain.RuntimeConfig` updated via POST /runtime-config
+(including :class:`~nemo_backend.domain.RuntimeToolsConfig` from Settings → Tools).
 
 ``current_session_id`` is a :class:`contextvars.ContextVar` so concurrent
 async requests do not cross wires when workspace tools resolve the active session.
@@ -20,12 +21,16 @@ from nemo_backend.config import (
     DEFAULT_OPENAI_BASE_URL,
     DEFAULT_OPENAI_MODEL,
     DEFAULT_TRANSCRIBE_MODEL,
+    MAX_FILE_READ_LINES,
+    MAX_SEARCH_RESULTS,
+    NEMO_EDIT_TOOLS_STRICT,
 )
 from nemo_backend.domain import (
     RuntimeAudioConfig,
     RuntimeConfig,
     RuntimeConnection,
     RuntimeHostConfig,
+    RuntimeToolsConfig,
     SessionState,
 )
 
@@ -45,6 +50,10 @@ def build_default_runtime_config() -> RuntimeConfig:
         base_url=DEFAULT_OPENAI_BASE_URL,
         model=DEFAULT_OPENAI_MODEL,
         api_key='',
+        temperature=0.0,
+        parallel_tool_calls=False,
+        optimization_preset='generic',
+        max_output_tokens=0,
     )
     lmstudio_connection = RuntimeConnection(
         id='default-lmstudio',
@@ -53,6 +62,10 @@ def build_default_runtime_config() -> RuntimeConfig:
         base_url=DEFAULT_LM_STUDIO_BASE_URL,
         model=DEFAULT_LM_STUDIO_MODEL,
         api_key='lm-studio',
+        temperature=0.0,
+        parallel_tool_calls=False,
+        optimization_preset='generic',
+        max_output_tokens=0,
     )
     return RuntimeConfig(
         active_connection_id=openai_connection.id,
@@ -64,6 +77,11 @@ def build_default_runtime_config() -> RuntimeConfig:
             api_key='',
         ),
         host=RuntimeHostConfig(),
+        tools=RuntimeToolsConfig(
+            edit_tools_strict=NEMO_EDIT_TOOLS_STRICT,
+            max_file_read_lines=MAX_FILE_READ_LINES,
+            max_search_results=MAX_SEARCH_RESULTS,
+        ),
     )
 
 

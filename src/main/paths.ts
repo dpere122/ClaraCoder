@@ -32,3 +32,13 @@ export function getWorkspaceConversationsDir(workspaceId: string): string {
 export function getGeneralConversationsDir(): string {
   return path.join(getAppDataDir(), 'conversations');
 }
+
+/** Rotating app logs (`nemo-app.log*`) — same root as config.json. */
+export function getLogsDir(): string {
+  return path.join(getAppDataDir(), 'logs');
+}
+
+/** Nested edit staging (Python ``NEMO_STAGING_DIR``) — same root as config.json. */
+export function getWorkspaceStagingDir(): string {
+  return path.join(getAppDataDir(), 'workspace-staging');
+}

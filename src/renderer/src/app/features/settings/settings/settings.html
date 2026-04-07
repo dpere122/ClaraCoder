@@ -1,5 +1,4 @@
 <div class='settings-shell'>
-  <div class='settings-main'>
   <aside class='settings-nav'>
     <div class='settings-nav__header'>
       <p class='settings-eyebrow'>Configuration</p>
@@ -18,6 +17,8 @@
           <small>
             @if (tab.id === 'models') {
               {{ connections().length }} configured
+            } @else if (tab.id === 'tools') {
+              {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
             } @else if (tab.id === 'appearance') {
@@ -46,39 +47,39 @@
         <p class='panel__copy'>{{ selectedTabMeta().description }}</p>
       </div>
 
-      <div class='settings-overview__meta'>
-        <span class='pill'>Auto-save</span>
-        <span class='settings-copy'>Saved to your local config as you edit.</span>
+      <div class='settings-overview__right'>
+        <div class='settings-overview__meta'>
+          <span class='pill'>Auto-save</span>
+          <span class='settings-copy'>Saved to your local config as you edit.</span>
+        </div>
+        @if (selectedSettingsTab() === 'models') {
+          <button type='button' class='action-button action-button--primary' (click)='addConnection()'>
+            <lucide-icon name='plus' [size]='17' />
+            Add Connection
+          </button>
+        }
+        @if (selectedSettingsTab() === 'workspaces') {
+          <button type='button' class='action-button action-button--primary' (click)='addWorkspace()'>
+            <lucide-icon name='folder-plus' [size]='17' />
+            Add Workspace
+          </button>
+        }
       </div>
     </header>
 
     @if (selectedSettingsTab() === 'models') {
-      <div class='panel'>
-        <div class='panel__header'>
-          <div>
-            <p class='settings-eyebrow'>LangChain Routing</p>
-            <h3>Model Connections</h3>
-            <p class='panel__copy'>Pick your active chat provider, keep connection profiles organized, and edit credentials in one place.</p>
-          </div>
-
-          <button type='button' class='action-button action-button--primary' (click)='addConnection()'>
-            <i class='bi bi-plus-lg'></i>
-            Add Connection
-          </button>
-        </div>
-
+      <div class='settings-pane'>
         <div class='models-layout'>
-          <div class='stack-column'>
-            <div class='settings-section'>
-              <div class='section-heading'>
-                <div>
-                  <p class='settings-eyebrow'>Saved Profiles</p>
-                  <h4>Connections</h4>
-                </div>
-                <span class='section-count'>{{ connections().length }}</span>
+          <div class='models-sidebar'>
+            <div class='section-heading'>
+              <div>
+                <p class='settings-eyebrow'>Saved Profiles</p>
+                <h4>Connections</h4>
               </div>
+              <span class='section-count'>{{ connections().length }}</span>
+            </div>
 
-              <div class='connection-list'>
+            <div class='connection-list'>
                 @for (connection of connections(); track trackConnection($index, connection)) {
                   <button
                     type='button'
@@ -106,28 +107,25 @@
                   </div>
                 }
               </div>
-            </div>
 
             <hr class='settings-divider' />
 
-            <div class='settings-section'>
-              <div class='section-heading'>
-                <div>
-                  <p class='settings-eyebrow'>How It Works</p>
-                  <h4>Connection Tips</h4>
-                </div>
+            <div class='section-heading'>
+              <div>
+                <p class='settings-eyebrow'>How It Works</p>
+                <h4>Connection Tips</h4>
+              </div>
+            </div>
+
+            <div class='info-list'>
+              <div class='info-row'>
+                <strong>OpenAI</strong>
+                <p>Best when you want hosted models and straightforward API key setup.</p>
               </div>
 
-              <div class='info-list'>
-                <div class='info-row'>
-                  <strong>OpenAI</strong>
-                  <p>Best when you want hosted models and straightforward API key setup.</p>
-                </div>
-
-                <div class='info-row'>
-                  <strong>LM Studio</strong>
-                  <p>Great for local models. The default server URL usually stays `http://127.0.0.1:1234/v1`.</p>
-                </div>
+              <div class='info-row'>
+                <strong>LM Studio</strong>
+                <p>Great for local models. The default server URL usually stays `http://127.0.0.1:1234/v1`.</p>
               </div>
             </div>
           </div>
@@ -143,7 +141,7 @@
 
                 <div class='settings-editor__actions'>
                   <button type='button' class='action-button' (click)='duplicateConnection(connection)'>
-                    <i class='bi bi-copy'></i>
+                    <lucide-icon name='copy' [size]='16' />
                     Duplicate
                   </button>
 
@@ -153,7 +151,7 @@
                     [disabled]='!canDeleteSelectedConnection()'
                     (click)='removeConnection(connection.id)'
                   >
-                    <i class='bi bi-trash3'></i>
+                    <lucide-icon name='trash' [size]='16' />
                     Delete
                   </button>
                 </div>
@@ -206,6 +204,39 @@
                   </label>
 
                   <label class='field field--full'>
+                    <span>Optimization template</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      Provider-specific presets adjust tool calling, max output, and prompts. You can still edit fields below afterward.
+                    </p>
+                    <select
+                      [ngModel]='connection.optimizationPreset'
+                      (ngModelChange)='onOptimizationPresetChange($event)'
+                    >
+                      @for (p of presetsFor(connection.provider); track p.id) {
+                        <option [value]='p.id'>{{ p.label }}</option>
+                      }
+                    </select>
+                    @if (presetDescription(connection)) {
+                      <p class='settings-copy' style='margin: 0.5rem 0 0'>{{ presetDescription(connection) }}</p>
+                    }
+                  </label>
+
+                  <label class='field'>
+                    <span>Max output tokens</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      0 = automatic (preset defaults or server). Set a positive value to cap completion length (API max_tokens).
+                    </p>
+                    <input
+                      type='number'
+                      min='0'
+                      max='200000'
+                      step='256'
+                      [ngModel]='connection.maxOutputTokens'
+                      (ngModelChange)='onMaxOutputTokensChange($event)'
+                    />
+                  </label>
+
+                  <label class='field field--full'>
                     <span>Reasoning effort</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>
                       For OpenAI reasoning-style models and compatible APIs (Chat Completions). Leave default if unsupported.
@@ -221,6 +252,45 @@
                       <option value='high'>high</option>
                     </select>
                   </label>
+
+                  <label class='field field--full'>
+                    <span>Temperature (0–1): {{ formatTemperature(connection.temperature) }}</span>
+                    <div class='temperature-row'>
+                      <input
+                        type='range'
+                        min='0'
+                        max='1'
+                        step='0.05'
+                        [ngModel]='connection.temperature'
+                        (ngModelChange)='onTemperatureChange($event)'
+                      />
+                      <input
+                        type='number'
+                        class='temperature-row__number'
+                        min='0'
+                        max='1'
+                        step='0.05'
+                        [ngModel]='connection.temperature'
+                        (ngModelChange)='onTemperatureChange($event)'
+                      />
+                    </div>
+                  </label>
+
+                  <div class='field field--full'>
+                    <span>Parallel tool calls</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      When enabled, the model may request several tools in one completion. The Qwen template turns this off; generic +
+                      “qwen” in the model id may also force single-tool mode on the backend.
+                    </p>
+                    <label class='toggle-row'>
+                      <input
+                        type='checkbox'
+                        [ngModel]='connection.parallelToolCalls'
+                        (ngModelChange)='updateSelectedConnection({ parallelToolCalls: $event })'
+                      />
+                      <span>Allow parallel tool calls</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -266,17 +336,122 @@
       </div>
     }
 
-    @if (selectedSettingsTab() === 'audio') {
-      <div class='panel'>
-        <div class='panel__header'>
-          <div>
-            <p class='settings-eyebrow'>Speech Input</p>
-            <h3>Audio Transcription</h3>
-            <p class='panel__copy'>Control how recorded voice is transcribed before it reaches the chat model.</p>
-          </div>
-        </div>
+    @if (selectedSettingsTab() === 'tools') {
+      <div class='settings-pane'>
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Edit tools</h5>
+              <p class='settings-copy'>
+                Controls which file-edit tools the model can call when Editor mode is on in the chat toolbar. Standard includes
+                search-and-replace snippets; strict keeps only line-range and full-file edits (fewer ambiguous matches).
+              </p>
+            </div>
 
-        <div class='settings-body settings-body--constrained'>
+            <div class='form-grid'>
+              <label class='field field--full'>
+                <span>Mode</span>
+                <select [ngModel]='editToolsMode()' (ngModelChange)='onEditToolsModeChange($event)'>
+                  <option value='standard'>Standard — full file, line range, snippet replace</option>
+                  <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Read and search limits</h5>
+              <p class='settings-copy'>
+                Caps how much one tool call can return. Higher values use more context window; very large reads may feel slow on big files.
+              </p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Max lines per read</span>
+                <input
+                  type='number'
+                  min='50'
+                  max='2000'
+                  step='50'
+                  [ngModel]='maxFileReadLines()'
+                  (ngModelChange)='onMaxFileReadLinesChange($event)'
+                />
+              </label>
+
+              <label class='field'>
+                <span>Max search matches</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='200'
+                  step='1'
+                  [ngModel]='maxSearchResults()'
+                  (ngModelChange)='onMaxSearchResultsChange($event)'
+                />
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Default text encoding and newlines</h5>
+              <p class='settings-copy'>
+                Used when the model omits <code>encoding</code> / <code>newline</code> on read, search, and edit tools. Per-call overrides still apply.
+                <code>preserve</code> matches existing file line endings when the file already exists; new files use LF.
+              </p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field field--full'>
+                <span>Default encoding</span>
+                <select
+                  [ngModel]='defaultWorkspaceEncoding()'
+                  (ngModelChange)='onDefaultWorkspaceEncodingChange($event)'
+                >
+                  <option value='utf-8'>utf-8</option>
+                  <option value='utf-8-sig'>utf-8-sig (BOM)</option>
+                  <option value='utf-16'>utf-16 (BOM + LE)</option>
+                  <option value='utf-16-le'>utf-16-le</option>
+                  <option value='utf-16-be'>utf-16-be</option>
+                  <option value='latin-1'>latin-1</option>
+                  <option value='cp1252'>cp1252 (Windows-1252)</option>
+                  <option value='ascii'>ascii</option>
+                  <option value='mac-roman'>mac-roman</option>
+                </select>
+              </label>
+
+              <label class='field field--full'>
+                <span>Default newline for edits</span>
+                <select
+                  [ngModel]='defaultWorkspaceNewline()'
+                  (ngModelChange)='onDefaultWorkspaceNewlineChange($event)'
+                >
+                  <option value='lf'>LF (Unix)</option>
+                  <option value='crlf'>CRLF (Windows)</option>
+                  <option value='preserve'>Preserve existing file</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='callout'>
+            <p>
+              Editor mode in the chat window still controls whether write tools are bound at all. This page only changes how those tools behave
+              and how much read/search tools return per call.
+            </p>
+          </div>
+      </div>
+    }
+
+    @if (selectedSettingsTab() === 'audio') {
+      <div class='settings-pane'>
           <div class='form-section'>
             <div class='form-section__header'>
               <h5>Provider</h5>
@@ -353,21 +528,11 @@
               }
             </p>
           </div>
-        </div>
       </div>
     }
 
     @if (selectedSettingsTab() === 'appearance') {
-      <div class='panel'>
-        <div class='panel__header'>
-          <div>
-            <p class='settings-eyebrow'>Visual Defaults</p>
-            <h3>Appearance</h3>
-            <p class='panel__copy'>Set the global theme and the fallback look used when no workspace is selected.</p>
-          </div>
-        </div>
-
-        <div class='settings-body settings-body--constrained'>
+      <div class='settings-pane'>
           <div class='form-section'>
             <div class='form-section__header'>
               <h5>Theme Defaults</h5>
@@ -400,25 +565,11 @@
           <div class='callout'>
             <p>The active workspace can still override its own theme. These settings control the defaults the app falls back to.</p>
           </div>
-        </div>
       </div>
     }
 
     @if (selectedSettingsTab() === 'workspaces') {
-      <div class='panel'>
-        <div class='panel__header'>
-          <div>
-            <p class='settings-eyebrow'>Project Context</p>
-            <h3>Workspaces</h3>
-            <p class='panel__copy'>Manage attached folders, choose the active workspace, and set a theme per project.</p>
-          </div>
-
-          <button type='button' class='action-button action-button--primary' (click)='addWorkspace()'>
-            <i class='bi bi-folder-plus'></i>
-            Add Workspace
-          </button>
-        </div>
-
+      <div class='settings-pane'>
         <div class='workspace-list'>
           <div class='workspace-card workspace-card--none' [class.is-selected]='!currentWorkspace()'>
             <button type='button' class='workspace-card__body' (click)='selectWorkspace(null)'>
@@ -455,7 +606,7 @@
                 </label>
 
                 <button type='button' class='action-button action-button--danger' (click)='removeWorkspace(workspace.id)'>
-                  <i class='bi bi-trash3'></i>
+                  <lucide-icon name='trash' [size]='16' />
                   Remove
                 </button>
               </div>
@@ -469,7 +620,6 @@
       </div>
     }
   </section>
-  </div>
 
   <footer class='settings-footer'>
     <button type='button' class='action-button action-button--primary settings-close-btn' (click)='closeSettings()'>

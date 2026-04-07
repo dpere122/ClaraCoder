@@ -28,7 +28,11 @@
             ],
             "styles": [
               "node_modules/bootstrap/dist/css/bootstrap.min.css",
-              "node_modules/bootstrap-icons/font/bootstrap-icons.min.css",
+              "node_modules/ngx-spinner/animations/ball-triangle-path.css",
+              "node_modules/ngx-spinner/animations/ball-atom.css",
+              "node_modules/ngx-spinner/animations/line-scale.css",
+              "node_modules/ngx-spinner/animations/ball-clip-rotate-pulse.css",
+              "node_modules/ngx-spinner/animations/ball-pulse-sync.css",
               "src/styles.css"
             ]
           },
@@ -43,7 +47,7 @@
                 {
                   "type": "anyComponentStyle",
                   "maximumWarning": "4kB",
-                  "maximumError": "12kB"
+                  "maximumError": "15kB"
                 }
               ],
               "outputHashing": "all"

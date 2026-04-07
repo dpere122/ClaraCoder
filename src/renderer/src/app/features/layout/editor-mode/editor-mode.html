@@ -1,0 +1,16 @@
+<span class="editor-mode-host">
+  <label class="editor-mode-label" for="editor-mode-toggle">Editor</label>
+  <button
+    id="editor-mode-toggle"
+    type="button"
+    class="editor-mode-toggle"
+    [class.active]="editorMode()"
+    (click)="toggle()"
+    [attr.aria-pressed]="editorMode()"
+    title="Enable workspace edit tools. When off, only read and search tools are available."
+  >
+    <span class="editor-mode-track">
+      <span class="editor-mode-thumb"></span>
+    </span>
+  </button>
+</span>

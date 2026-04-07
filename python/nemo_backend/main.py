@@ -9,10 +9,24 @@ Or use the repo-level :file:`python/server.py` shim (same port) for Electron.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 
-from nemo_backend.routes import router
+from nemo_backend.app_logging import configure_logging
+from nemo_backend.log_routes import router as log_router
+from nemo_backend.routes import router as runtime_router
+from nemo_backend.routes_audio import router as audio_router
+from nemo_backend.routes_chat import router as chat_router
+from nemo_backend.routes_session import router as session_router
 
-# Importing the package triggers LangChain compatibility patches in __init__.py.
+_raw_log = os.environ.get('NEMO_LOG_DIR', '').strip()
+configure_logging(Path(_raw_log) if _raw_log else None)
+
 app = FastAPI(title='Nemo LangChain Backend')
-app.include_router(router)
+app.include_router(runtime_router)
+app.include_router(session_router)
+app.include_router(chat_router)
+app.include_router(audio_router)
+app.include_router(log_router)

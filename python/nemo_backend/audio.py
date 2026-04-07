@@ -5,9 +5,12 @@ Transcription routes choose the provider from :data:`~nemo_backend.state.runtime
 
 from __future__ import annotations
 
+import logging
 import os
 
 import speech_recognition as sr
+
+logger = logging.getLogger('nemo.audio')
 from fastapi import HTTPException
 from openai import OpenAI
 
@@ -28,6 +31,7 @@ def transcribe_google_web(wav_path: str) -> str:
     except sr.UnknownValueError:
         return ''
     except sr.RequestError as exc:
+        logger.warning('Google transcription request failed: %s', exc)
         raise HTTPException(
             status_code=502,
             detail=f'Google Speech Recognition request failed: {exc}',

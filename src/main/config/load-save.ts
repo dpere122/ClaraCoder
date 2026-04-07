@@ -2,10 +2,17 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
-import type { AppConfig, LlmConnectionConfig } from '../../shared';
+import type { AppConfig, HealthMonitorConfig, LlmConnectionConfig, WorkspaceToolsConfig } from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
-import { createDefaultConfig, getDefaultAudioTranscription, getDefaultLlmConnections, workspaceFromLegacyPath } from './defaults';
+import {
+  createDefaultConfig,
+  getDefaultAudioTranscription,
+  getDefaultHealthMonitor,
+  getDefaultLlmConnections,
+  getDefaultWorkspaceTools,
+  workspaceFromLegacyPath,
+} from './defaults';
 
 /**
  * Normalize older `config.json` shapes to the current schema; mutates a copy when needed.
@@ -81,6 +88,34 @@ export function migrateConfig(config: AppConfig): AppConfig {
       connection.reasoningEffort = '';
       migrated = true;
     }
+    if (typeof connection.temperature !== 'number' || Number.isNaN(connection.temperature)) {
+      connection.temperature = 0;
+      migrated = true;
+    } else {
+      const clamped = Math.min(1, Math.max(0, connection.temperature));
+      if (clamped !== connection.temperature) {
+        connection.temperature = clamped;
+        migrated = true;
+      }
+    }
+    if (connection.parallelToolCalls !== true && connection.parallelToolCalls !== false) {
+      connection.parallelToolCalls = false;
+      migrated = true;
+    }
+    if (connection.optimizationPreset !== 'generic' && connection.optimizationPreset !== 'qwen') {
+      connection.optimizationPreset = 'generic';
+      migrated = true;
+    }
+    if (typeof connection.maxOutputTokens !== 'number' || Number.isNaN(connection.maxOutputTokens)) {
+      connection.maxOutputTokens = 0;
+      migrated = true;
+    } else {
+      const mt = Math.min(200_000, Math.max(0, Math.floor(connection.maxOutputTokens)));
+      if (mt !== connection.maxOutputTokens) {
+        connection.maxOutputTokens = mt;
+        migrated = true;
+      }
+    }
   }
 
   if (newConfig.activeLlmConnectionId === undefined) {
@@ -113,6 +148,47 @@ export function migrateConfig(config: AppConfig): AppConfig {
     }
     if (audio.apiKey === undefined) {
       audio.apiKey = '';
+      migrated = true;
+    }
+  }
+
+  const wtRaw = (newConfig as AppConfig & { workspaceTools?: WorkspaceToolsConfig }).workspaceTools;
+  if (!wtRaw) {
+    (newConfig as AppConfig).workspaceTools = getDefaultWorkspaceTools();
+    migrated = true;
+  } else {
+    const wt = wtRaw;
+    if (wt.editToolsMode !== 'standard' && wt.editToolsMode !== 'strict') {
+      wt.editToolsMode = 'standard';
+      migrated = true;
+    }
+    if (typeof wt.maxFileReadLines !== 'number' || wt.maxFileReadLines < 50 || wt.maxFileReadLines > 2000) {
+      wt.maxFileReadLines = 400;
+      migrated = true;
+    }
+    if (typeof wt.maxSearchResults !== 'number' || wt.maxSearchResults < 1 || wt.maxSearchResults > 200) {
+      wt.maxSearchResults = 40;
+      migrated = true;
+    }
+    if (typeof wt.defaultWorkspaceEncoding !== 'string' || !wt.defaultWorkspaceEncoding.trim()) {
+      wt.defaultWorkspaceEncoding = 'utf-8';
+      migrated = true;
+    }
+    const allowedNl: WorkspaceToolsConfig['defaultWorkspaceNewline'][] = ['lf', 'crlf', 'preserve'];
+    if (!allowedNl.includes(wt.defaultWorkspaceNewline)) {
+      wt.defaultWorkspaceNewline = 'lf';
+      migrated = true;
+    }
+  }
+
+  const hm = (newConfig as AppConfig & { healthMonitor?: HealthMonitorConfig }).healthMonitor;
+  if (!hm || typeof hm !== 'object') {
+    (newConfig as AppConfig).healthMonitor = getDefaultHealthMonitor();
+    migrated = true;
+  } else {
+    const allowed: HealthMonitorConfig['logLevel'][] = ['debug', 'info', 'warning', 'error'];
+    if (!allowed.includes(hm.logLevel)) {
+      hm.logLevel = 'info';
       migrated = true;
     }
   }

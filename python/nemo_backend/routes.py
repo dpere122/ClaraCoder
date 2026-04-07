@@ -1,38 +1,23 @@
-"""HTTP route handlers for the FastAPI application.
-
-Endpoints mirror what the Electron renderer expects: health, session lifecycle,
-workspace sync, streaming chat, transcription, TTS, and runtime settings.
-"""
+"""Health check and runtime configuration routes."""
 
 from __future__ import annotations
 
-import asyncio
-import os
-import tempfile
-from typing import AsyncIterator
+import logging
 
-import edge_tts
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException
 
-from nemo_backend.agent import stream_agent_reply
-from nemo_backend.audio import get_openai_client, transcribe_google_web
 from nemo_backend.domain import (
     RuntimeAudioConfig,
     RuntimeConfig,
     RuntimeConnection,
     RuntimeHostConfig,
-    SessionState,
+    RuntimeToolsConfig,
 )
-from nemo_backend.schemas import (
-    ChatRequest,
-    ClearRequest,
-    LoadRequest,
-    RuntimeConfigRequest,
-    TtsRequest,
-    WorkspaceContextRequest,
-)
+from nemo_backend.schemas import RuntimeConfigRequest
+from nemo_backend.workspace_text_io import validate_workspace_encoding
 from nemo_backend import state
+
+logger = logging.getLogger('nemo.http.routes')
 
 router = APIRouter()
 
@@ -60,6 +45,10 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             model=item.model,
             api_key=item.apiKey,
             reasoning_effort=(item.reasoningEffort or '').strip(),
+            temperature=float(item.temperature),
+            parallel_tool_calls=bool(item.parallelToolCalls),
+            optimization_preset=item.optimizationPreset,
+            max_output_tokens=int(item.maxOutputTokens),
         )
         for item in request.connections
     ]
@@ -69,6 +58,25 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     active_connection_id = request.activeConnectionId
     if not any(connection.id == active_connection_id for connection in connections):
         active_connection_id = connections[0].id
+
+    prev_tools = state.runtime_config.tools
+    if request.tools is not None:
+        try:
+            default_enc = validate_workspace_encoding(request.tools.defaultWorkspaceEncoding)
+        except ValueError:
+            default_enc = 'utf-8'
+        nl = request.tools.defaultWorkspaceNewline
+        if nl not in ('lf', 'crlf', 'preserve'):
+            nl = 'lf'
+        tools_cfg = RuntimeToolsConfig(
+            edit_tools_strict=request.tools.editToolsStrict,
+            max_file_read_lines=request.tools.maxFileReadLines,
+            max_search_results=request.tools.maxSearchResults,
+            default_workspace_encoding=default_enc,
+            default_workspace_newline=nl,
+        )
+    else:
+        tools_cfg = prev_tools
 
     state.runtime_config = RuntimeConfig(
         active_connection_id=active_connection_id,
@@ -86,104 +94,6 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             version=request.host.version if request.host else '',
             label=request.host.label if request.host else '',
         ),
+        tools=tools_cfg,
     )
     return {'ok': True}
-
-
-@router.post('/clear')
-async def clear_session(request: ClearRequest) -> dict[str, bool]:
-    """Drop chat history for a session id (fresh SessionState)."""
-    state.sessions[request.session_id] = SessionState()
-    return {'ok': True}
-
-
-@router.post('/load')
-async def load_session(request: LoadRequest) -> dict[str, bool]:
-    """Bulk-restore messages into a session (typically after app restart)."""
-    sess = state.get_session(request.session_id)
-    sess.history = [
-        {
-            'role': item.get('role', 'user'),
-            'content': item.get('content', ''),
-        }
-        for item in request.messages
-        if item.get('content')
-    ]
-    return {'ok': True}
-
-
-@router.post('/workspace-context')
-async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, bool]:
-    """Attach or update workspace path and renderer-provided tree/state for a session."""
-    sess = state.get_session(request.session_id)
-    sess.workspace_path = request.workspace_path
-    sess.workspace_context = request.workspace_context
-    sess.workspace_state = request.workspace_state
-    return {'ok': True}
-
-
-@router.post('/chat/stream')
-async def chat_stream(request: ChatRequest) -> StreamingResponse:
-    """Stream assistant reply as Server-Sent Events (status + chunk + [DONE])."""
-    generator = stream_agent_reply(request.session_id, request.message, request.apply_mode)
-    return StreamingResponse(generator, media_type='text/event-stream')
-
-
-@router.post('/transcribe')
-async def transcribe(request: Request) -> dict[str, str]:
-    """Accept raw WAV bytes, transcribe via configured provider, return { text }."""
-    audio_bytes = await request.body()
-    if not audio_bytes:
-        return {'text': ''}
-
-    provider = state.runtime_config.audio.provider
-    if provider == 'disabled':
-        raise HTTPException(status_code=400, detail='Audio transcription is disabled in Settings.')
-
-    # Write body to a temp file; Google and OpenAI APIs expect a path or file handle.
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
-        temp_file.write(audio_bytes)
-        temp_path = temp_file.name
-
-    try:
-        if provider == 'google':
-            text = await asyncio.to_thread(transcribe_google_web, temp_path)
-            return {'text': text}
-        if provider == 'openai':
-            client = get_openai_client()
-            with open(temp_path, 'rb') as audio_file:
-                try:
-                    transcript = client.audio.transcriptions.create(
-                        file=audio_file, model=state.runtime_config.audio.model
-                    )
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=502, detail=f'Transcription failed: {exc}'
-                    ) from exc
-            return {'text': getattr(transcript, 'text', '') or ''}
-        raise HTTPException(status_code=500, detail=f'Unsupported audio provider: {provider}')
-    finally:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
-
-
-@router.post('/tts')
-async def tts(request: TtsRequest) -> StreamingResponse:
-    """Synthesize speech with Edge TTS and stream MPEG audio bytes."""
-
-    communicate = edge_tts.Communicate(request.text, request.voice)
-
-    async def audio_iter() -> AsyncIterator[bytes]:
-        async for chunk in communicate.stream():
-            if chunk.get('type') == 'audio':
-                data = chunk.get('data') or b''
-                if data:
-                    yield data
-
-    return StreamingResponse(
-        audio_iter(),
-        media_type='audio/mpeg',
-        headers={'Cache-Control': 'no-store'},
-    )

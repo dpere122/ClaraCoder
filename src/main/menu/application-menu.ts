@@ -3,6 +3,7 @@ import type Electron from 'electron';
 import { mainState } from '../state';
 import { getRecentConversations } from './recent-conversations';
 import { createSettingsWindow } from '../windows/settings-window';
+import { createHealthWindow } from '../windows/health-window';
 
 /**
  * Builds the application menu (File, Help). Open Recent aggregates conversation JSON files.
@@ -42,6 +43,10 @@ export function buildMenu(): void {
           label: 'Settings',
           accelerator: 'CmdOrCtrl+,',
           click: () => createSettingsWindow(),
+        },
+        {
+          label: 'Health window',
+          click: () => createHealthWindow(),
         },
         {
           label: 'Close',

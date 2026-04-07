@@ -29,13 +29,13 @@
   </select>
   <div class="threshold-control">
     <button (click)="decreaseThreshold()" title="Decrease silence threshold">
-      <i class="bi bi-dash"></i>
+      <lucide-icon name="minus" [size]="14" />
     </button>
     <span class="threshold-label" title="Silence threshold (seconds)">
       {{ silenceThreshold() | number:'1.1-1' }}s
     </span>
     <button (click)="increaseThreshold()" title="Increase silence threshold">
-      <i class="bi bi-plus"></i>
+      <lucide-icon name="plus" [size]="14" />
     </button>
   </div>
 </div>

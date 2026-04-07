@@ -1,0 +1,34 @@
+<div class='health-shell'>
+  <header class='health-header'>
+    <div class='health-header__titles'>
+      <p class='health-eyebrow'>Diagnostics</p>
+      <h2>Health</h2>
+      <p class='health-copy'>Live system metrics and unified backend logs (saved under your app data → logs).</p>
+    </div>
+    <button type='button' class='health-close-btn' (click)='closeWindow()'>Close</button>
+  </header>
+
+  <section class='health-charts' [class.health-charts--hidden]='logExpanded()'>
+    <div class='health-charts__grid'>
+      @for (c of chartDefs; track c.key) {
+        <div class='health-chart-card'>
+          <div class='health-chart-card__top'>
+            <span class='health-chart-card__label'>{{ c.label }}</span>
+            <span class='health-chart-card__value'>{{ lastValues()[c.key] || '—' }}</span>
+          </div>
+          <div class='health-chart-card__canvas'>
+            <canvas [attr.data-key]='c.key' height='90'></canvas>
+          </div>
+        </div>
+      }
+    </div>
+    <div class='health-gpu-card'>
+      <span class='health-chart-card__label'>GPU (best effort)</span>
+      <p class='health-gpu-card__text'>{{ gpuSummary() }}</p>
+    </div>
+  </section>
+
+  <section class='health-logs-wrap'>
+    <app-health-log-viewer [logExpanded]='logExpanded()' (logExpandedToggle)='toggleLogExpanded()' />
+  </section>
+</div>

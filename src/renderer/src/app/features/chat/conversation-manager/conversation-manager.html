@@ -1,6 +1,6 @@
 <div class="conv-manager">
   <button class="new-conv-btn" (click)="newConversation.emit()">
-    <i class="bi bi-plus-lg"></i> New Conversation
+    <lucide-icon name="plus" [size]="16" /> New Conversation
   </button>
 
   <div class="conv-list">
@@ -23,11 +23,11 @@
           />
         } @else {
           @if (pendingIds().has(conv.id)) {
-            <i class="bi bi-gear-fill conv-pending-icon"></i>
+            <lucide-icon name="settings" class="conv-pending-icon" [size]="14" />
           }
           <span class="conv-title" (dblclick)="startRename(conv, $event)">{{ conv.title }}</span>
           <button class="delete-btn" (click)="onDelete(conv.id, $event)" title="Delete conversation">
-            <i class="bi bi-trash"></i>
+            <lucide-icon name="trash" [size]="14" />
           </button>
         }
       </div>

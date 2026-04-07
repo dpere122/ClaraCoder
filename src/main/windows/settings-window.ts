@@ -25,8 +25,8 @@ export function createSettingsWindow(): void {
   }
 
   mainState.settingsWindow = new BrowserWindow({
-    width: 1240,
-    height: 820,
+    width: 1440,
+    height: 800,
     parent: mainWindow,
     modal: true,
     frame: false,

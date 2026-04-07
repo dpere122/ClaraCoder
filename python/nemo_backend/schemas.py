@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from nemo_backend.config import DEFAULT_TRANSCRIBE_MODEL
 
@@ -18,7 +18,33 @@ class ChatRequest(BaseModel):
 
     session_id: str
     message: str
+    #: When False, Editor mode is off: workspace write/edit tools are not bound (read/search only).
     apply_mode: bool = True
+    #: When True, successful edit proposals are written to disk in the backend and no diff-review pause is used.
+    auto_apply_mode: bool = False
+
+
+class SessionAutoApplyRequest(BaseModel):
+    """Body for POST /session/auto-apply: update the live auto-apply flag (e.g. user toggled mid-stream)."""
+
+    session_id: str
+    auto_apply_mode: bool = False
+
+
+class AgentContinueRequest(BaseModel):
+    """Resume an agent stream that is waiting after a diff or delete confirmation (same in-process session)."""
+
+    session_id: str
+    note: str = ''
+    #: When set with a pending delete request, perform or cancel the delete before resuming.
+    delete_action: Literal['confirm', 'cancel'] | None = None
+    delete_request_id: str = ''
+
+
+class AbortRequest(BaseModel):
+    """Body for POST /chat/abort: cancel the in-flight stream for a session."""
+
+    session_id: str
 
 
 class LoadRequest(BaseModel):
@@ -60,6 +86,10 @@ class RuntimeConnectionRequest(BaseModel):
     model: str
     apiKey: str = ''
     reasoningEffort: str = ''
+    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+    parallelToolCalls: bool = False
+    optimizationPreset: Literal['generic', 'qwen'] = 'generic'
+    maxOutputTokens: int = Field(default=0, ge=0, le=200_000)
 
 
 class RuntimeAudioRequest(BaseModel):
@@ -81,6 +111,16 @@ class RuntimeHostRequest(BaseModel):
     label: str = ''
 
 
+class RuntimeToolsRequest(BaseModel):
+    """Workspace tool limits and edit surface from the desktop app (Settings → Tools)."""
+
+    editToolsStrict: bool = False
+    maxFileReadLines: int = Field(default=400, ge=50, le=2000)
+    maxSearchResults: int = Field(default=40, ge=1, le=200)
+    defaultWorkspaceEncoding: str = 'utf-8'
+    defaultWorkspaceNewline: Literal['lf', 'crlf', 'preserve'] = 'lf'
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 
@@ -88,3 +128,19 @@ class RuntimeConfigRequest(BaseModel):
     connections: list[RuntimeConnectionRequest]
     audio: RuntimeAudioRequest
     host: RuntimeHostRequest | None = None
+    tools: RuntimeToolsRequest | None = None
+
+
+class LogLevelRequest(BaseModel):
+    """Body for POST /logs/level — matches UI ``HealthMonitorConfig.logLevel``."""
+
+    level: Literal['debug', 'info', 'warning', 'error']
+
+
+class LogIngestRequest(BaseModel):
+    """Body for POST /logs/ingest (Electron main → unified log)."""
+
+    level: str = 'INFO'
+    logger: str = 'nemo.electron.main'
+    message: str
+    source: str = 'electron'

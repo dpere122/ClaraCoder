@@ -11,7 +11,7 @@ import { mainState } from '../state';
 import { loadConfig } from '../config/load-save';
 import { syncWorkspaceContextToPython } from '../python/workspace-sync';
 import { buildWorkspaceTree, formatWorkspaceStateSummary } from './context-tree';
-import { normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
+import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
 import type { WorkspaceWatcherState } from './watcher-state';
 import type { WorkspaceChangeKind } from '../../shared';
 
@@ -27,6 +27,14 @@ export function clearWorkspaceWatcher(): void {
   mainState.activeWorkspaceWatcher = null;
 }
 
+function isRootGitignoreWatchPath(relativePath: string): boolean {
+  const n = normalizeContextPath(relativePath)
+    .replace(/^[/\\]+/, '')
+    .replace(/^\.\/+/, '');
+  const segments = n.split('/').filter((s) => s && s !== '.');
+  return segments.length === 1 && segments[0] === '.gitignore';
+}
+
 async function syncWatchedWorkspaceTree(
   watcherState: WorkspaceWatcherState,
   changePayload?: WorkspaceFilesChangedPayload,
@@ -35,6 +43,10 @@ async function syncWatchedWorkspaceTree(
   const changedAt = new Date().toISOString();
 
   try {
+    if (changePayload?.paths.some((p) => isRootGitignoreWatchPath(p))) {
+      watcherState.ignoreRules = await loadWorkspaceIgnoreRules(watcherState.workspacePath);
+    }
+
     const tree = await buildWorkspaceTree(watcherState.workspacePath);
     if (mainState.activeWorkspaceWatcher !== watcherState || watcherState.syncVersion !== syncVersion) {
       return;
@@ -103,7 +115,11 @@ function getWorkspaceChangeKind(eventType: string): WorkspaceChangeKind {
   return 'unknown';
 }
 
-function shouldProcessWorkspaceWatchPath(workspacePath: string, relativePath: string): boolean {
+function shouldProcessWorkspaceWatchPath(
+  workspacePath: string,
+  relativePath: string,
+  ignoreRules: string[],
+): boolean {
   const normalizedRelativePath = normalizeContextPath(relativePath).replace(/^\/+/, '');
   if (!normalizedRelativePath) {
     return true;
@@ -127,11 +143,18 @@ function shouldProcessWorkspaceWatchPath(workspacePath: string, relativePath: st
     path.join(normalizedWorkspacePath, normalizedRelativePath),
   );
 
-  return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, []);
+  return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, ignoreRules);
 }
 
-export function startWorkspaceWatcher(workspace: Workspace): void {
+export async function startWorkspaceWatcher(workspace: Workspace): Promise<void> {
   clearWorkspaceWatcher();
+
+  let ignoreRules: string[];
+  try {
+    ignoreRules = await loadWorkspaceIgnoreRules(workspace.path);
+  } catch {
+    ignoreRules = [];
+  }
 
   try {
     const watcher = syncFs.watch(
@@ -144,7 +167,7 @@ export function startWorkspaceWatcher(workspace: Workspace): void {
         }
 
         const relativePath = filename ? filename.toString() : '';
-        if (relativePath && !shouldProcessWorkspaceWatchPath(workspace.path, relativePath)) {
+        if (relativePath && !shouldProcessWorkspaceWatchPath(workspace.path, relativePath, aw.ignoreRules)) {
           return;
         }
 
@@ -163,6 +186,7 @@ export function startWorkspaceWatcher(workspace: Workspace): void {
     mainState.activeWorkspaceWatcher = {
       workspaceId: workspace.id,
       workspacePath: workspace.path,
+      ignoreRules,
       watcher,
       debounceTimer: null,
       pendingPaths: new Set(),
@@ -197,7 +221,7 @@ export async function refreshWorkspaceWatcherForCurrentConfig(config?: import('.
     return;
   }
 
-  startWorkspaceWatcher(workspace);
+  await startWorkspaceWatcher(workspace);
 }
 
 /** After load/new conversation, push tree + state summary to Python for the active session. */

@@ -36,7 +36,15 @@ export {
   streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
 } from './stream-parts';
-export type { ClaraAgentMode, LlmAgentRole, LlmStatus, LlmStatusPayload } from './types/llm';
+export type {
+  ClaraAgentMode,
+  LlmAgentRole,
+  LlmStatus,
+  LlmStatusPayload,
+  PlannerProgress,
+  PlannerStep,
+  PlannerStepState,
+} from './types/llm';
 export { claraModeFromLlmRole } from './types/llm';
 export type { FileEntry, WorkspaceFilesChangedMessage } from './types/files';
 export type { TtsStreamPacket } from './types/tts';

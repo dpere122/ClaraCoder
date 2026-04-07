@@ -35,13 +35,12 @@ export async function syncRuntimeConfigToPython(config: AppConfig): Promise<void
 }
 
 /**
- * Pushes workspace tree text + human-readable watch summary into the Python agent context.
+ * Pushes workspace tree text into the Python agent context.
  */
 export async function syncWorkspaceContextToPython(
   sessionId: string,
   workspacePath: string,
   workspaceContext: string,
-  workspaceState: string,
 ): Promise<void> {
   await fetch(`${PYTHON_URL}/workspace-context`, {
     method: 'POST',
@@ -50,7 +49,6 @@ export async function syncWorkspaceContextToPython(
       session_id: sessionId,
       workspace_path: workspacePath,
       workspace_context: workspaceContext,
-      workspace_state: workspaceState,
     }),
   });
 }

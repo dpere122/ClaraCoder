@@ -94,6 +94,16 @@ def get_session(session_id: str) -> SessionState:
     return sessions.setdefault(session_id, SessionState())
 
 
+def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
+    """Return an error when mutation-capable tools are used while Editor mode is off."""
+    sid = (session_id or current_session_id.get() or '').strip()
+    if not sid:
+        return 'Tool error: no active session.'
+    if not get_session(sid).worker_apply_mode:
+        return 'Tool error: Editor mode is off; workspace mutation and staging tools are unavailable.'
+    return None
+
+
 def get_active_connection() -> RuntimeConnection:
     """Resolve the LLM connection matching active_connection_id, or fall back to the first."""
     if not runtime_config.connections:

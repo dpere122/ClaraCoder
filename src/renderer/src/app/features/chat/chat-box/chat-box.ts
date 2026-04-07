@@ -6,23 +6,20 @@ import {
   input,
   OnDestroy,
   output,
-  signal,
   untracked,
   ElementRef,
   ViewEncapsulation,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { ConversationMessage, ClaraAgentMode, LlmAgentRole, StreamPart } from '@shared/index';
+import type { ConversationMessage, PlannerProgress, StreamPart } from '@shared/index';
 import {
-  claraModeFromLlmRole,
-  delegatedStreamPartsForDisplay,
   primaryStreamPartsForDisplay,
   streamPlainOneLine,
 } from '@shared/index';
-import { claraProcessingPhraseForMode } from '../../../core/clara-synonyms';
 import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { MarkdownPipe } from './markdown.pipe';
+import { PlannerTasksComponent } from './planner-tasks/planner-tasks';
 import { RunButtonDirective } from './run-button.directive';
 import { TalkUiState } from '../../../core/talk-ui-state';
 
@@ -41,24 +38,118 @@ const INLINE_SPINNER = {
 
 /** Same shape as `ConversationMessage` in `typings.d.ts` (single source for save/load). */
 export type ChatMessage = ConversationMessage;
+type UserMessage = Extract<ChatMessage, { role: 'user' }>;
+type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
+type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
+type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'delete_confirm' }>;
 
-/** Collapse adjacent segments with the same tag so the delegated UI does not stack one block per chunk. */
-function mergeAdjacentStreamPartsByTag(parts: StreamPart[]): StreamPart[] {
-  const out: StreamPart[] = [];
-  for (const p of parts) {
-    const last = out[out.length - 1];
-    if (last && last.streamTag === p.streamTag) {
-      out[out.length - 1] = { ...last, text: last.text + p.text };
-    } else {
-      out.push({ streamTag: p.streamTag, label: p.label, text: p.text });
+export interface ToolChainGroup {
+  key: string;
+  rows: ChainMessage[];
+  toolCallCount: number;
+}
+
+export type ChatDisplayRow =
+  | { kind: 'user'; msg: UserMessage }
+  | {
+      kind: 'assistant-turn';
+      assistant: AssistantMessage | null;
+      chainGroups: ToolChainGroup[];
+      artifacts: ArtifactMessage[];
+    };
+
+function buildToolChainGroup(rows: ChainMessage[], index: number): ToolChainGroup {
+  const visibleRows = rows.filter((row) => row.source === 'tool');
+  return {
+    key: rows[0]?.statusId ?? `tool-chain-${index}`,
+    rows: visibleRows,
+    toolCallCount: visibleRows.length,
+  };
+}
+
+function isNestedPlannerChainGroup(group: ToolChainGroup): boolean {
+  return group.rows.some((row) => {
+    const tag = row.streamTag?.trim() ?? '';
+    return tag === 'planner' || tag === 'planning' || tag.startsWith('spec-');
+  });
+}
+
+export function filterLiveToolChainGroups(
+  groups: ToolChainGroup[],
+  planner: PlannerProgress | null,
+): ToolChainGroup[] {
+  const planReady = planner?.planReady ?? false;
+  return groups.filter((group) => group.rows.length > 0 && (planReady || !isNestedPlannerChainGroup(group)));
+}
+
+export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] {
+  const rows: ChatDisplayRow[] = [];
+  const pendingArtifacts: ArtifactMessage[] = [];
+  const pendingChainGroups: ToolChainGroup[] = [];
+  let pendingChainRows: ChainMessage[] = [];
+  let chainGroupIndex = 0;
+
+  const flushChainGroup = (): void => {
+    if (pendingChainRows.length === 0) return;
+    const group = buildToolChainGroup([...pendingChainRows], chainGroupIndex++);
+    pendingChainRows = [];
+    if (group.rows.length === 0) return;
+    pendingChainGroups.push(group);
+  };
+
+  const flushPendingAssistantTurn = (): void => {
+    flushChainGroup();
+    if (pendingChainGroups.length === 0 && pendingArtifacts.length === 0) return;
+    rows.push({
+      kind: 'assistant-turn',
+      assistant: null,
+      chainGroups: [...pendingChainGroups],
+      artifacts: [...pendingArtifacts],
+    });
+    pendingChainGroups.length = 0;
+    pendingArtifacts.length = 0;
+  };
+
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      flushPendingAssistantTurn();
+      rows.push({ kind: 'user', msg });
+      continue;
     }
+    if (msg.role === 'chain') {
+      pendingChainRows.push(msg);
+      continue;
+    }
+    if (msg.role === 'diff' || msg.role === 'delete_confirm') {
+      flushChainGroup();
+      pendingArtifacts.push(msg);
+      continue;
+    }
+    flushChainGroup();
+    rows.push({
+      kind: 'assistant-turn',
+      assistant: msg,
+      chainGroups: [...pendingChainGroups],
+      artifacts: [...pendingArtifacts],
+    });
+    pendingChainGroups.length = 0;
+    pendingArtifacts.length = 0;
   }
-  return out;
+
+  flushPendingAssistantTurn();
+  return rows;
 }
 
 @Component({
   selector: 'app-chat-box',
-  imports: [MarkdownPipe, RunButtonDirective, DiffApplyComponent, DeleteConfirmComponent, NgxSpinnerComponent],
+  imports: [
+    MarkdownPipe,
+    RunButtonDirective,
+    DiffApplyComponent,
+    DeleteConfirmComponent,
+    PlannerTasksComponent,
+    NgxSpinnerComponent,
+  ],
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
   encapsulation: ViewEncapsulation.None,
@@ -70,20 +161,12 @@ export class ChatBox implements OnDestroy {
   readonly messages = input<ChatMessage[]>([]);
   readonly conversationId = input<string | null>(null);
   readonly loading = input(false);
-  /** True while a workspace tool is executing (processing spinner uses blue vs orange). */
   readonly processingToolsActive = input(false);
-  /** Optional sub-label from backend (e.g. tool name and path) while tools run. */
-  readonly processingToolHint = input('');
-  /** Manager vs Worker tier from backend while the model thinks (single-agent stays null → CLARA_AGENT). */
-  readonly processingAgentRole = input<LlmAgentRole | null>(null);
-  /** Fetching TTS audio for read-aloud (shown on the latest assistant bubble). */
   readonly ttsLoading = input(false);
   readonly streamingParts = input<StreamPart[]>([]);
-  /** Read-tool stream (separate from model tokens; not persisted on the assistant message). */
-  readonly toolReadStreamText = input('');
+  readonly livePlannerProgress = input<PlannerProgress | null>(null);
   readonly fontSize = input(0.9);
   readonly sendResponse = output<string>();
-  /** After diff review, parent updates transcript metadata (and save). */
   readonly diffReviewFinished = output<{
     relativePath: string;
     status: 'complete' | 'cancelled';
@@ -95,94 +178,72 @@ export class ChatBox implements OnDestroy {
     summary?: string;
   }>();
 
-  /** Tier for streaming chrome (header pill, `data-clara-mode`, processing-row synonym). */
-  readonly claraModeForProcessingUi = computed<ClaraAgentMode>(() =>
-    claraModeFromLlmRole(this.processingAgentRole()),
-  );
+  readonly transcriptRows = computed(() => buildChatDisplayRows(this.messages()));
 
-  /** Processing-row phrase: exactly `Clara`, or `Clara <synonym>` from Datamuse when a tier requests it. */
-  readonly processingPhraseLabel = signal('Clara');
-
-  /** Outer Clara tokens in the main streaming area (`agent`, legacy `mgr`). */
-  readonly primaryStreamParts = computed(() =>
-    primaryStreamPartsForDisplay(this.streamingParts(), this.processingAgentRole()),
-  );
-
-  /** Nested planning, specialists, legacy `worker` — collapsible (same-tag chunks merged for layout). */
-  readonly delegatedStreamParts = computed(() =>
-    mergeAdjacentStreamPartsByTag(
-      delegatedStreamPartsForDisplay(this.streamingParts(), this.processingAgentRole()),
-    ),
-  );
-
-  /** Shown when delegated work is streaming but the manager has not emitted text yet. */
-  readonly showPrimaryStreamPlaceholder = computed(() => {
-    const primary = this.primaryStreamParts();
-    const delegated = this.delegatedStreamParts();
-    const primaryTextEmpty = primary.every((p) => !p.text);
-    const delegatedHasText = delegated.some((p) => p.text.length > 0);
-    return primaryTextEmpty && delegatedHasText;
+  readonly persistedRows = computed(() => {
+    const rows = this.transcriptRows();
+    if (!this.loading()) return rows;
+    const last = rows.at(-1);
+    if (last?.kind === 'assistant-turn' && !last.assistant) {
+      return rows.slice(0, -1);
+    }
+    return rows;
   });
 
-  /** Primary token stream as one plain line (no markdown, no visible newlines). */
+  readonly primaryStreamParts = computed(() =>
+    primaryStreamPartsForDisplay(this.streamingParts(), null),
+  );
+
   readonly primaryStreamPlainDisplay = computed(() =>
     streamPlainOneLine(this.primaryStreamParts().map((p) => p.text).join('')),
   );
 
-  readonly toolReadStreamPlainDisplay = computed(() => streamPlainOneLine(this.toolReadStreamText()));
-
-  /** Blinking cursor after the live plain line while tokens arrive. */
   readonly showStreamingPrimaryCursor = computed(
     () => this.loading() && this.primaryStreamParts().some((p) => p.text.length > 0),
   );
 
-  private synonymRequestGen = 0;
+  readonly liveTurn = computed<Extract<ChatDisplayRow, { kind: 'assistant-turn' }> | null>(() => {
+    if (!this.loading()) return null;
+    const rows = this.transcriptRows();
+    const last = rows.at(-1);
+    const trailingTurn = last?.kind === 'assistant-turn' && !last.assistant ? last : null;
+    const hasLiveContent =
+      trailingTurn !== null ||
+      this.livePlannerProgress() !== null ||
+      this.primaryStreamPlainDisplay().length > 0 ||
+      this.processingToolsActive();
+    if (!hasLiveContent) return null;
+    return trailingTurn ?? {
+      kind: 'assistant-turn',
+      assistant: null,
+      chainGroups: [],
+      artifacts: [],
+    };
+  });
 
-  /** One-line plain preview for template (delegated streams, tool read). */
-  plainOneLine(text: string): string {
-    return streamPlainOneLine(text);
-  }
+  readonly liveVisibleChainGroups = computed(() => {
+    const liveTurn = this.liveTurn();
+    if (!liveTurn) return [];
+    return filterLiveToolChainGroups(liveTurn.chainGroups, this.livePlannerProgress());
+  });
 
   constructor(private el: ElementRef<HTMLElement>) {
-    effect(() => {
-      const loading = this.loading();
-      const mode = this.claraModeForProcessingUi();
-      if (!loading) {
-        untracked(() => this.processingPhraseLabel.set('Clara'));
-        return;
-      }
-      if (mode === 'CLARA_AGENT') {
-        untracked(() => this.processingPhraseLabel.set('Clara'));
-        return;
-      }
-      const gen = ++this.synonymRequestGen;
-      void claraProcessingPhraseForMode(mode).then((phrase) => {
-        untracked(() => {
-          if (gen !== this.synonymRequestGen) return;
-          if (!this.loading()) return;
-          if (this.claraModeForProcessingUi() !== mode) return;
-          this.processingPhraseLabel.set(phrase);
-        });
-      });
-    });
-
     effect(() => {
       this.messages();
       this.loading();
       this.processingToolsActive();
-      this.processingToolHint();
       this.ttsLoading();
       setTimeout(() => this.scrollToBottom());
     });
 
     effect(() => {
       this.streamingParts();
-      setTimeout(() => this.scrollStreamingPre());
+      setTimeout(() => this.scrollToBottom());
     });
 
     effect(() => {
-      this.toolReadStreamText();
-      setTimeout(() => this.scrollToolReadPre());
+      this.livePlannerProgress();
+      setTimeout(() => this.scrollToBottom());
     });
 
     effect(() => {
@@ -265,41 +326,10 @@ export class ChatBox implements OnDestroy {
     }
   }
 
-  private scrollStreamingPre(): void {
-    const scrollables = this.el.nativeElement.querySelectorAll('.streaming-delegated-plain, .tool-read-stream-plain');
-    const el = scrollables.item(scrollables.length - 1);
-    if (el) {
-      el.scrollTop = el.scrollHeight;
+  toolChainSummary(group: ToolChainGroup): string {
+    if (group.toolCallCount > 0) {
+      return `${group.toolCallCount} tool call${group.toolCallCount === 1 ? '' : 's'}`;
     }
-  }
-
-  private scrollToolReadPre(): void {
-    const el = this.el.nativeElement.querySelector('.tool-read-stream-plain');
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }
-
-  /** Visible author line (always Clara; mode is in {@link claraModeForProcessingUi} / pill). */
-  streamAuthorDisplay(): string {
-    return 'Clara';
-  }
-
-  /** Role pill (legacy chain rows may still reference manager/worker). */
-  claraModePill(): string | null {
-    return null;
-  }
-
-  public chainPillText(msg: ChatMessage): string {
-    if (msg.role !== 'chain') {
-      return '';
-    }
-    if (msg.agentRole === 'manager') {
-      return 'MANAGER';
-    }
-    if (msg.agentRole === 'worker') {
-      return 'WORKER';
-    }
-    return msg.source === 'tool' ? 'TOOL' : 'AGENT';
+    return `${group.rows.length} update${group.rows.length === 1 ? '' : 's'}`;
   }
 }

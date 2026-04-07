@@ -1,21 +1,31 @@
 import path = require('path');
 const syncFs = require('fs');
-import type { ConversationFile, Workspace, WorkspaceFilesChangedPayload } from '../../shared';
+import type {
+  ConversationFile,
+  Workspace,
+  WorkspaceContextState,
+  WorkspaceFilesChangedPayload,
+} from '../../shared';
 import {
+  WORKSPACE_CONTEXT_MAX_DEPTH,
+  WORKSPACE_CONTEXT_MAX_ENTRIES,
   WORKSPACE_CHANGE_HISTORY_LIMIT,
   WORKSPACE_CONTEXT_IGNORED_NAMES,
   WORKSPACE_CONTEXT_IGNORED_SUFFIXES,
   WORKSPACE_WATCH_DEBOUNCE_MS,
 } from '../constants';
+import { getWorkspaceStagingDir } from '../paths';
 import { mainState } from '../state';
 import { loadConfig } from '../config/load-save';
 import { syncWorkspaceContextToPython } from '../python/workspace-sync';
-import { buildWorkspaceTree, formatWorkspaceStateSummary } from './context-tree';
+import { buildWorkspaceTree } from './context-tree';
 import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
 import type { WorkspaceWatcherState } from './watcher-state';
 import type { WorkspaceChangeKind } from '../../shared';
 
 export type { WorkspaceWatcherState };
+
+type WatchSource = 'workspace' | 'staging';
 
 export function clearWorkspaceWatcher(): void {
   const w = mainState.activeWorkspaceWatcher;
@@ -23,7 +33,9 @@ export function clearWorkspaceWatcher(): void {
   if (w.debounceTimer) {
     clearTimeout(w.debounceTimer);
   }
-  w.watcher.close();
+  for (const watcher of w.watchers) {
+    watcher.close();
+  }
   mainState.activeWorkspaceWatcher = null;
 }
 
@@ -43,11 +55,11 @@ async function syncWatchedWorkspaceTree(
   const changedAt = new Date().toISOString();
 
   try {
-    if (changePayload?.paths.some((p) => isRootGitignoreWatchPath(p))) {
+    if (changePayload?.paths.some((p) => !p.startsWith('[staging] ') && isRootGitignoreWatchPath(p))) {
       watcherState.ignoreRules = await loadWorkspaceIgnoreRules(watcherState.workspacePath);
     }
 
-    const tree = await buildWorkspaceTree(watcherState.workspacePath);
+    const tree = await buildWatchedContextSnapshot(watcherState.workspacePath, watcherState.stagingPath);
     if (mainState.activeWorkspaceWatcher !== watcherState || watcherState.syncVersion !== syncVersion) {
       return;
     }
@@ -64,8 +76,6 @@ async function syncWatchedWorkspaceTree(
       watcherState.recentChanges = watcherState.recentChanges.slice(0, WORKSPACE_CHANGE_HISTORY_LIMIT);
     }
 
-    const workspaceState = formatWorkspaceStateSummary(watcherState.lastSyncedAt, watcherState.recentChanges);
-
     if (
       mainState.activeConversationId &&
       mainState.activeConversationWorkspaceId === watcherState.workspaceId
@@ -75,7 +85,6 @@ async function syncWatchedWorkspaceTree(
           mainState.activeConversationId,
           watcherState.workspacePath,
           tree,
-          workspaceState,
         );
       } catch (err) {
         console.error('Failed to sync watched workspace context:', err);
@@ -115,6 +124,42 @@ function getWorkspaceChangeKind(eventType: string): WorkspaceChangeKind {
   return 'unknown';
 }
 
+function createTreeState(rootPath: string, ignoreRules: string[]): WorkspaceContextState {
+  return {
+    rootPath,
+    maxDepth: WORKSPACE_CONTEXT_MAX_DEPTH,
+    maxEntries: WORKSPACE_CONTEXT_MAX_ENTRIES,
+    entriesWritten: 0,
+    truncated: false,
+    ignoreRules,
+  };
+}
+
+async function buildWatchedContextSnapshot(workspacePath: string, stagingPath: string): Promise<string> {
+  syncFs.mkdirSync(stagingPath, { recursive: true });
+
+  const workspaceTree = await buildWorkspaceTree(workspacePath);
+  const stagingTree = await buildWorkspaceTree(stagingPath, '', 0, createTreeState(stagingPath, []));
+
+  const trimmedWorkspaceTree = workspaceTree.trimEnd() || '[empty]';
+  const trimmedStagingTree = stagingTree.trimEnd() || '[empty]';
+
+  return [
+    `Workspace tree (${workspacePath}):`,
+    trimmedWorkspaceTree,
+    '',
+    `Nested edit staging tree (${stagingPath}):`,
+    trimmedStagingTree,
+    '',
+    'Treat the staging tree as live pending-edit context; files there may not yet exist in the workspace.',
+  ].join('\n');
+}
+
+function formatWatchedPath(source: WatchSource, relativePath: string): string {
+  const normalizedRelativePath = relativePath ? normalizeContextPath(relativePath) : '.';
+  return source === 'staging' ? `[staging] ${normalizedRelativePath}` : normalizedRelativePath;
+}
+
 function shouldProcessWorkspaceWatchPath(
   workspacePath: string,
   relativePath: string,
@@ -146,8 +191,42 @@ function shouldProcessWorkspaceWatchPath(
   return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, ignoreRules);
 }
 
+function createDirectoryWatcher(
+  watcherState: WorkspaceWatcherState,
+  rootPath: string,
+  source: WatchSource,
+): import('fs').FSWatcher {
+  return syncFs.watch(
+    rootPath,
+    { recursive: true },
+    (eventType: string, filename: string | Buffer | undefined) => {
+      const aw = mainState.activeWorkspaceWatcher;
+      if (!aw || aw !== watcherState) {
+        return;
+      }
+
+      const relativePath = filename ? filename.toString() : '';
+      if (
+        source === 'workspace' &&
+        relativePath &&
+        !shouldProcessWorkspaceWatchPath(watcherState.workspacePath, relativePath, aw.ignoreRules)
+      ) {
+        return;
+      }
+
+      const changeKind = getWorkspaceChangeKind(eventType);
+      aw.pendingPaths.add(formatWatchedPath(source, relativePath));
+      aw.pendingKinds.add(changeKind);
+      queueWorkspaceWatcherSync(aw);
+    },
+  );
+}
+
 export async function startWorkspaceWatcher(workspace: Workspace): Promise<void> {
   clearWorkspaceWatcher();
+
+  const stagingPath = getWorkspaceStagingDir();
+  syncFs.mkdirSync(stagingPath, { recursive: true });
 
   let ignoreRules: string[];
   try {
@@ -157,37 +236,12 @@ export async function startWorkspaceWatcher(workspace: Workspace): Promise<void>
   }
 
   try {
-    const watcher = syncFs.watch(
-      workspace.path,
-      { recursive: true },
-      (eventType: string, filename: string | Buffer | undefined) => {
-        const aw = mainState.activeWorkspaceWatcher;
-        if (!aw || aw.workspaceId !== workspace.id) {
-          return;
-        }
-
-        const relativePath = filename ? filename.toString() : '';
-        if (relativePath && !shouldProcessWorkspaceWatchPath(workspace.path, relativePath, aw.ignoreRules)) {
-          return;
-        }
-
-        const normalizedRelativePath = relativePath ? normalizeContextPath(relativePath) : '.';
-        const changeKind = getWorkspaceChangeKind(eventType);
-        aw.pendingPaths.add(normalizedRelativePath);
-        aw.pendingKinds.add(changeKind);
-        queueWorkspaceWatcherSync(aw);
-      },
-    );
-
-    watcher.on('error', (err: Error) => {
-      console.error('Workspace watcher error:', err);
-    });
-
-    mainState.activeWorkspaceWatcher = {
+    const watcherState: WorkspaceWatcherState = {
       workspaceId: workspace.id,
       workspacePath: workspace.path,
+      stagingPath,
       ignoreRules,
-      watcher,
+      watchers: [],
       debounceTimer: null,
       pendingPaths: new Set(),
       pendingKinds: new Set(),
@@ -196,6 +250,19 @@ export async function startWorkspaceWatcher(workspace: Workspace): Promise<void>
       lastSyncedAt: null,
       recentChanges: [],
     };
+
+    const workspaceWatcher = createDirectoryWatcher(watcherState, workspace.path, 'workspace');
+    workspaceWatcher.on('error', (err: Error) => {
+      console.error('Workspace watcher error:', err);
+    });
+
+    const stagingWatcher = createDirectoryWatcher(watcherState, stagingPath, 'staging');
+    stagingWatcher.on('error', (err: Error) => {
+      console.error('Workspace staging watcher error:', err);
+    });
+
+    watcherState.watchers = [workspaceWatcher, stagingWatcher];
+    mainState.activeWorkspaceWatcher = watcherState;
 
     void syncWatchedWorkspaceTree(mainState.activeWorkspaceWatcher);
   } catch (err) {
@@ -233,18 +300,16 @@ export async function syncConversationWorkspaceContext(conv: ConversationFile): 
     const workspace = config.workspaces.find((item) => item.id === conv.workspaceId);
     if (workspace) {
       const aw = mainState.activeWorkspaceWatcher;
+      const stagingPath = getWorkspaceStagingDir();
+      syncFs.mkdirSync(stagingPath, { recursive: true });
       const tree =
         aw?.workspaceId === workspace.id
-          ? aw.lastTree || (await buildWorkspaceTree(workspace.path))
-          : await buildWorkspaceTree(workspace.path);
-      const workspaceState =
-        aw?.workspaceId === workspace.id
-          ? formatWorkspaceStateSummary(aw.lastSyncedAt, aw.recentChanges)
-          : formatWorkspaceStateSummary(null, []);
-      await syncWorkspaceContextToPython(conv.id, workspace.path, tree, workspaceState);
+          ? aw.lastTree || (await buildWatchedContextSnapshot(workspace.path, stagingPath))
+          : await buildWatchedContextSnapshot(workspace.path, stagingPath);
+      await syncWorkspaceContextToPython(conv.id, workspace.path, tree);
       return;
     }
   }
 
-  await syncWorkspaceContextToPython(conv.id, '', '', '');
+  await syncWorkspaceContextToPython(conv.id, '', '');
 }

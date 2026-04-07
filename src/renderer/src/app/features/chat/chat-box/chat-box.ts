@@ -16,6 +16,7 @@ import {
   primaryStreamPartsForDisplay,
   streamPlainOneLine,
 } from '@shared/index';
+import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
 import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { MarkdownPipe } from './markdown.pipe';
@@ -41,7 +42,7 @@ export type ChatMessage = ConversationMessage;
 type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
-type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'delete_confirm' }>;
+type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'copy_confirm' | 'delete_confirm' }>;
 
 export interface ToolChainGroup {
   key: string;
@@ -120,7 +121,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
       pendingChainRows.push(msg);
       continue;
     }
-    if (msg.role === 'diff' || msg.role === 'delete_confirm') {
+    if (msg.role === 'diff' || msg.role === 'copy_confirm' || msg.role === 'delete_confirm') {
       flushChainGroup();
       pendingArtifacts.push(msg);
       continue;
@@ -146,6 +147,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
     MarkdownPipe,
     RunButtonDirective,
     DiffApplyComponent,
+    CopyConfirmComponent,
     DeleteConfirmComponent,
     PlannerTasksComponent,
     NgxSpinnerComponent,
@@ -173,6 +175,11 @@ export class ChatBox implements OnDestroy {
     summary?: string;
   }>();
   readonly deleteReviewFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  readonly copyReviewFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;

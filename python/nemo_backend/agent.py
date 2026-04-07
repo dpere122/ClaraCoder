@@ -4,10 +4,11 @@ Yields Server-Sent Events lines consumed by the Electron renderer. Status events
 tool progress and optional ``agent_role`` for UI labels.
 
 When :attr:`~nemo_backend.domain.SessionState.auto_apply_mode` is false and a tool in
-:func:`nemo_backend.tool_registry.hitl_diff_pause_tools` or
+:func:`nemo_backend.tool_registry.hitl_diff_pause_tools`,
+:func:`nemo_backend.tool_registry.hitl_copy_pause_tools`, or
 :func:`nemo_backend.tool_registry.hitl_delete_pause_tools` requires review, the HTTP stream
-pauses until ``POST /chat/agent-continue``. LangGraph agents use diff/delete middleware and
-the same pause API.
+pauses until ``POST /chat/agent-continue``. LangGraph agents use diff/copy/delete middleware
+and the same pause API.
 """
 
 from __future__ import annotations

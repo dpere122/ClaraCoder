@@ -168,7 +168,7 @@ def _os_hint_line() -> str:
 
 
 def _outer_agent_operational_block(apply_mode: bool) -> str:
-    """Outer Clara: reads/search; ``modify_workspace`` when Editor on (mutations in nested specialists)."""
+    """Outer Clara: reads/search; direct copy; ``modify_workspace`` for other mutations when Editor is on."""
     base = (
         'Operational guidance:\n'
         '- For codebase questions, inspect the workspace before making claims.\n'
@@ -191,11 +191,13 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         )
     return (
         base
-        + '- Editor mode is on: you have read/search tools plus `modify_workspace`. '
+        + '- Editor mode is on: you have read/search tools plus direct `copy_workspace_files` and `modify_workspace`. '
+        'Use `copy_workspace_files` only when you need to duplicate one or more existing workspace files to new '
+        'paths (destination subdirectories are allowed). '
         'Read and inspect relevant files yourself first, then call `modify_workspace` with a clear `task_summary` '
         'that includes the goal, constraints, paths, and any file content context you have already gathered. '
-        'You cannot call edit or delete tools directly\u2014use `modify_workspace` for any workspace mutation. '
-        'The user may review diffs or confirm deletes in the UI unless auto-apply is enabled.\n'
+        'You cannot call other edit or delete tools directly\u2014use `modify_workspace` for those workspace mutations. '
+        'The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
         '- After `modify_workspace` returns, answer the user with a concise summary of outcomes (files touched, '
         'key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
     )

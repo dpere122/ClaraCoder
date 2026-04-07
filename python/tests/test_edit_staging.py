@@ -24,7 +24,12 @@ from nemo_backend.edit_staging import (
     is_code_review_extension,
 )
 from nemo_backend.edit_tool import apply_workspace_full_file
-from nemo_backend.staging_edit_tools import stage_create_file, stage_line_range_edit, stage_snippet_edit
+from nemo_backend.staging_edit_tools import (
+    stage_create_file,
+    stage_line_range_edit,
+    stage_snippet_edit,
+    stage_workspace_file_overwrite,
+)
 from nemo_backend.state import current_session_id, get_session, runtime_config
 
 
@@ -173,6 +178,36 @@ def test_stage_snippet_edit_stages_python(staging_env) -> None:
     assert 'sn.py' in session.pending_edit_stagings
 
 
+def test_stage_workspace_file_overwrite_stages_python(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'edit.py').write_text('value = 1\n', encoding='utf-8')
+    out = stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'edit.py',
+            'new_content': 'value = 2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'code review' in out.lower()
+    entry = session.pending_edit_stagings['edit.py']
+    assert entry.old_text == 'value = 1\n'
+    assert entry.merged_text == 'value = 2\n'
+
+
+def test_stage_workspace_file_overwrite_requires_existing_file(staging_env) -> None:
+    out = stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'missing.py',
+            'new_content': 'value = 1\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'does not exist in the workspace' in out
+
+
 def test_read_format_approve_reject(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
@@ -196,9 +231,11 @@ def test_read_format_approve_reject(staging_env) -> None:
     assert Path(session.pending_edit_stagings['z.py'].temp_path).is_file()
 
 
-def test_rejected_staging_is_reused_for_follow_up_edit(staging_env) -> None:
+def test_follow_up_workspace_overwrite_restarts_from_workspace_file(staging_env) -> None:
+    ws = staging_env.workspace
     session = staging_env.session
-    out = stage_create_file.invoke(
+    (ws / 'draft.py').write_text('def value():\n    return 0\n', encoding='utf-8')
+    out = stage_workspace_file_overwrite.invoke(
         {
             'relative_path': 'draft.py',
             'new_content': 'def value():\n    return 1\n',
@@ -214,20 +251,19 @@ def test_rejected_staging_is_reused_for_follow_up_edit(staging_env) -> None:
     assert 'Rejected' in rej
     assert session.pending_edit_stagings['draft.py'].temp_path == str(first_path)
 
-    revised = stage_snippet_edit.invoke(
+    revised = stage_workspace_file_overwrite.invoke(
         {
             'relative_path': 'draft.py',
-            'old_snippet': 'return 1',
-            'new_snippet': 'return 2',
+            'new_content': 'def value():\n    return 2\n',
             'encoding': 'utf-8',
             'newline': 'lf',
         }
     )
     assert 'code review' in revised.lower()
     latest = session.pending_edit_stagings['draft.py']
-    assert latest.old_text == ''
+    assert latest.old_text == 'def value():\n    return 0\n'
     assert Path(latest.temp_path).is_file()
-    assert not first_path.exists()
+    assert latest.temp_path == str(first_path)
     reread = read_staged_edit.invoke({'relative_path': 'draft.py', 'include_line_numbers': False})
     assert 'return 2' in reread
 

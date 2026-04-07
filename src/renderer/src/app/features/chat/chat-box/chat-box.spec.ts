@@ -66,6 +66,33 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].artifacts.length).toBe(1);
   });
 
+  it('keeps copy confirmation artifacts grouped with the assistant turn', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Duplicate files' },
+      { role: 'chain', label: 'copy_workspace_files', text: 'Awaiting approval', state: 'complete', source: 'tool', statusId: 'tool-copy' },
+      {
+        role: 'copy_confirm',
+        payload: {
+          version: 1,
+          requestId: 'copy-1',
+          overwrite: false,
+          copies: [{ sourcePath: 'a.txt', destinationPath: 'copies/a.txt' }],
+        },
+        reviewStatus: 'pending',
+      },
+    ];
+
+    const rows = buildChatDisplayRows(messages);
+
+    expect(rows.length).toBe(2);
+    expect(rows[1].kind).toBe('assistant-turn');
+    if (rows[1].kind !== 'assistant-turn') return;
+    expect(rows[1].assistant).toBeNull();
+    expect(rows[1].chainGroups.length).toBe(1);
+    expect(rows[1].artifacts).toHaveLength(1);
+    expect(rows[1].artifacts[0].role).toBe('copy_confirm');
+  });
+
   it('hides agent-only status rows from the chat bubble stream', () => {
     const messages: ChatMessage[] = [
       { role: 'user', text: 'Do work' },

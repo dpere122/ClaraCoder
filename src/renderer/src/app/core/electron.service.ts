@@ -8,6 +8,7 @@ import type {
   AppConfig,
   Conversation,
   ConversationMeta,
+  CopyConfirmPayload,
   DeleteConfirmPayload,
   FileDiffPayload,
   FileEntry,
@@ -52,6 +53,11 @@ export interface DiffMessage {
   diff: FileDiffPayload;
 }
 
+export interface CopyConfirmMessage {
+  conversationId: string;
+  payload: CopyConfirmPayload;
+}
+
 export interface DeleteConfirmMessage {
   conversationId: string;
   payload: DeleteConfirmPayload;
@@ -83,6 +89,7 @@ export class ElectronService {
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly plannerSubject = new Subject<PlannerMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
+  private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
@@ -102,6 +109,7 @@ export class ElectronService {
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly planner$ = this.plannerSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
+  readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
@@ -143,6 +151,9 @@ export class ElectronService {
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
+    });
+    this.api?.onMessageCopyConfirm?.((_event, conversationId, payload) => {
+      this.zone.run(() => this.copyConfirmSubject.next({ conversationId, payload }));
     });
     this.api?.onMessageDeleteConfirm?.((_event, conversationId, payload) => {
       this.zone.run(() => this.deleteConfirmSubject.next({ conversationId, payload }));
@@ -200,15 +211,24 @@ export class ElectronService {
     );
   }
 
-  /** Resume the in-flight LangChain stream after diff or delete confirmation (same HTTP stream as the original message). */
+  /** Resume the in-flight LangChain stream after diff, delete, or copy confirmation. */
   notifyAgentContinue(
     conversationId: string,
     note: string,
     deleteAction?: 'confirm' | 'cancel',
     deleteRequestId?: string,
+    copyAction?: 'confirm' | 'cancel',
+    copyRequestId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     return (
-      this.api?.agentContinue(conversationId, note, deleteAction, deleteRequestId) ??
+      this.api?.agentContinue(
+        conversationId,
+        note,
+        deleteAction,
+        deleteRequestId,
+        copyAction,
+        copyRequestId,
+      ) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

@@ -192,6 +192,19 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.copyConfirm$.subscribe(({ conversationId, payload }) => {
+      if (conversationId !== this.activeConversationId()) return;
+      if (payload.version !== 1 || !payload.requestId || !Array.isArray(payload.copies) || payload.copies.length === 0) return;
+      this.messages.update((prev) => [
+        ...prev,
+        { role: 'copy_confirm', payload, reviewStatus: 'pending' as const },
+      ]);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...this.messages()];
+        this.pendingSave = true;
+      }
+    });
+
     this.electron.deleteConfirm$.subscribe(({ conversationId, payload }) => {
       if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId || !payload.relativePath) return;
@@ -373,6 +386,37 @@ export class App implements OnInit, OnDestroy {
         const m = copy[i];
         if (
           m.role === 'delete_confirm' &&
+          m.payload.requestId === event.requestId &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+      this.autoSave();
+    }
+  }
+
+  onCopyReviewFinished(event: {
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'copy_confirm' &&
           m.payload.requestId === event.requestId &&
           (m.reviewStatus ?? 'pending') === 'pending'
         ) {

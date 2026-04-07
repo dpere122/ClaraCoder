@@ -51,6 +51,7 @@ export type { TtsStreamPacket } from './types/tts';
 export type { HostOsInfo } from './types/host-os';
 export type { ScriptLaunchPlan } from './types/script';
 export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
+export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmPayload } from './types/delete-confirm';
 export type {
   WorkspaceContextState,

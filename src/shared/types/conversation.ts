@@ -1,4 +1,5 @@
 import type { FileDiffPayload } from './diff';
+import type { CopyConfirmPayload } from './copy-confirm';
 import type { DeleteConfirmPayload } from './delete-confirm';
 import type { LlmAgentRole, PlannerProgress } from './llm';
 
@@ -42,6 +43,12 @@ export type ConversationMessage =
       reviewSummary?: string;
     }
   | {
+      role: 'copy_confirm';
+      payload: CopyConfirmPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    }
+  | {
       role: 'delete_confirm';
       payload: DeleteConfirmPayload;
       reviewStatus?: DiffReviewStatus;
@@ -72,6 +79,12 @@ export type ConversationFileMessage =
   | {
       role: 'diff';
       payload: FileDiffPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    }
+  | {
+      role: 'copy_confirm';
+      payload: CopyConfirmPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
     }

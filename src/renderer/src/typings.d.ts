@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  CopyConfirmPayload,
   Conversation,
   ConversationMeta,
   DeleteConfirmPayload,
@@ -34,6 +35,9 @@ declare global {
       callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void,
     ) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
+    onMessageCopyConfirm?: (
+      callback: (event: unknown, conversationId: string, payload: CopyConfirmPayload) => void,
+    ) => void;
     onMessageDeleteConfirm?: (
       callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
     ) => void;
@@ -44,6 +48,8 @@ declare global {
       note: string,
       deleteAction?: 'confirm' | 'cancel',
       deleteRequestId?: string,
+      copyAction?: 'confirm' | 'cancel',
+      copyRequestId?: string,
     ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (

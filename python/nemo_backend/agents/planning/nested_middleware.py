@@ -19,7 +19,6 @@ from langgraph.types import Command
 
 from nemo_backend.agents.coding_planner.pipeline import run_coding_planner_stream
 from nemo_backend.agents.orchestration.nested_pipeline import NESTED_WORKER_STREAM_END, run_planning_nested_stream
-from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.config import NEMO_CODING_PLANNER_ENABLED, NEMO_WORKER_RESULT_MAX_CHARS
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
 from nemo_backend.tool_registry import MODIFY_WORKSPACE_NAME
@@ -99,8 +98,7 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
             except Exception as exc:
                 sess.pending_diff_payload = None
                 sess.pending_delete_request = None
-                discard_all_session_stagings(sess)
-                clear_session_staging_dir(session_id)
+                sess.pending_copy_request = None
                 err = f'{type(exc).__name__}: {exc}'
                 return ToolMessage(
                     content=f'Tool error: {err}',

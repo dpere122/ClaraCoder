@@ -18,18 +18,22 @@ from nemo_backend.edit_tool import _edit_preamble, _finalize_workspace_edit, _to
 from nemo_backend.partial_workspace_edit import merge_partial_edit
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
 from nemo_backend.workspace_text_io import DiskNewline
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.staging')
 
 STAGE_CREATE_FILE_NAME = 'stage_create_file'
+STAGE_WORKSPACE_FILE_OVERWRITE_NAME = 'stage_workspace_file_overwrite'
 STAGE_LINE_RANGE_EDIT_NAME = 'stage_line_range_edit'
 STAGE_SNIPPET_EDIT_NAME = 'stage_snippet_edit'
 
 __all__ = [
     'stage_create_file',
+    'stage_workspace_file_overwrite',
     'stage_line_range_edit',
     'stage_snippet_edit',
     'STAGE_CREATE_FILE_NAME',
+    'STAGE_WORKSPACE_FILE_OVERWRITE_NAME',
     'STAGE_LINE_RANGE_EDIT_NAME',
     'STAGE_SNIPPET_EDIT_NAME',
 ]
@@ -43,11 +47,21 @@ def _staging_after_merge(
     mode: str,
     disk_encoding: str,
     disk_newline: DiskNewline,
+    *,
+    staging_seed_text: str | None = None,
 ) -> str:
     """Write merged content to staging dir; stage code files for review, finalize non-code immediately."""
     session_id = current_session_id.get()
     if not session_id:
-        return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
+        return _finalize_workspace_edit(
+            session,
+            rel_display,
+            original_old_text,
+            merged,
+            mode,
+            disk_encoding,
+            disk_newline,
+        )
 
     prior = session.pending_edit_stagings.pop(rel_display, None)
     if prior:
@@ -55,6 +69,8 @@ def _staging_after_merge(
 
     temp_path = _edit_staging.allocate_staging_file(session_id, rel_display)
     try:
+        if staging_seed_text is not None:
+            _edit_staging.write_staging_text(temp_path, staging_seed_text, disk_encoding, disk_newline)
         _edit_staging.write_staging_text(temp_path, merged, disk_encoding, disk_newline)
     except OSError as exc:
         return f'Tool error: could not write staging file ({exc}).'
@@ -113,9 +129,8 @@ def _run_staging_tool(
     if isinstance(pre, str):
         return pre
     session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
-    prior = session.pending_edit_stagings.get(rel_display)
-    base_text = prior.merged_text if prior else workspace_old_text
-    original_old_text = prior.old_text if prior else workspace_old_text
+    base_text = workspace_old_text
+    original_old_text = workspace_old_text
 
     merged, merge_err = merge_partial_edit(
         base_text,
@@ -129,7 +144,16 @@ def _run_staging_tool(
         return f'Tool error: {merge_err}'
     assert merged is not None
 
-    return _staging_after_merge(session, rel_display, original_old_text, merged, mode, disk_enc, disk_nl)
+    return _staging_after_merge(
+        session,
+        rel_display,
+        original_old_text,
+        merged,
+        mode,
+        disk_enc,
+        disk_nl,
+        staging_seed_text=workspace_old_text,
+    )
 
 
 @tool(STAGE_CREATE_FILE_NAME)
@@ -154,6 +178,58 @@ def stage_create_file(
         relative_path, encoding, newline,
         mode='full-file',
         new_content=new_content or '',
+    )
+
+
+@tool(STAGE_WORKSPACE_FILE_OVERWRITE_NAME)
+def stage_workspace_file_overwrite(
+    relative_path: str,
+    new_content: str,
+    encoding: str = '',
+    newline: str = '',
+) -> str:
+    """Copy the current workspace file into staging, then overwrite the staged file with `new_content`.
+
+    Use this for edits to existing files when the specialist is ready to write the full revised file contents.
+    If the target does not exist yet, use `stage_create_file` instead. Programming-language files are staged for
+    code review before the workspace updates; non-code files are finalized immediately via diff or auto-apply.
+
+    `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
+    latin-1, cp1252, ascii, mac-roman.
+    `newline` is `lf`, `crlf`, or `preserve` (match existing file endings).
+
+    Relative paths only (e.g. src/app.ts)."""
+
+    blocked = mutation_tools_blocked_reason()
+    if blocked:
+        return blocked
+    try:
+        enc = _tool_encoding_param(encoding)
+        nm = _tool_newline_param(newline)
+    except ValueError as exc:
+        return f'Tool error: {exc}'
+
+    root = get_active_workspace_root()
+    target = normalize_relative_path(root, relative_path)
+    if not target.is_file():
+        return (
+            f'Tool error: `{target.relative_to(root).as_posix()}` does not exist in the workspace. '
+            'Use `stage_create_file` for new files.'
+        )
+
+    pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
+    if isinstance(pre, str):
+        return pre
+    session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
+    return _staging_after_merge(
+        session,
+        rel_display,
+        workspace_old_text,
+        new_content or '',
+        'full-file',
+        disk_enc,
+        disk_nl,
+        staging_seed_text=workspace_old_text,
     )
 
 
@@ -217,6 +293,7 @@ def stage_snippet_edit(
 
 STAGING_TOOLS: list[Any] = [
     stage_create_file,
+    stage_workspace_file_overwrite,
     stage_line_range_edit,
     stage_snippet_edit,
 ]

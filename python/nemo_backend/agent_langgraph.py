@@ -26,10 +26,13 @@ from nemo_backend.agents.planning.nested_middleware import (
     PlanningNestedWorkerMiddleware,
 )
 from nemo_backend.config import MAX_AGENT_STEPS
+from nemo_backend.copy_review_middleware import CopyReviewAfterToolMiddleware
+from nemo_backend.copy_tool import copy_confirm_sse_payload
 from nemo_backend.delete_tool import delete_confirm_sse_payload
 from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from nemo_backend.domain import SessionState
 from nemo_backend.langgraph_sse import (
@@ -46,6 +49,17 @@ from nemo_backend.tool_registry import worker_tools_and_map
 logger = logging.getLogger('nemo.agent.langgraph')
 
 _GRAPH_CHECKPOINTER = MemorySaver()
+
+
+def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
+    """Discard any leftover nested staging only after the outer agent turn has finished."""
+    if session.pending_edit_stagings:
+        logger.warning(
+            'Orphaned nested edit stagings after outer agent completion (discarding): %s',
+            list(session.pending_edit_stagings.keys()),
+        )
+        discard_all_session_stagings(session)
+    clear_session_staging_dir(session_id)
 
 
 def _unpack_nested_queue_item(item: Any) -> tuple[str, dict[str, Any]] | None:
@@ -113,6 +127,7 @@ async def _stream_langgraph_tool_agent(
     middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
     if extra_middleware:
         middleware.extend(extra_middleware)
+    middleware.append(CopyReviewAfterToolMiddleware())
     middleware.append(DeleteReviewAfterToolMiddleware())
     middleware.append(DiffReviewAfterToolMiddleware())
 
@@ -172,6 +187,12 @@ async def _stream_langgraph_tool_agent(
                         if pd:
                             yield sse_line(
                                 {'type': 'delete_confirm', 'deleteConfirm': delete_confirm_sse_payload(pd)}
+                            )
+                    elif raw_hitl == ('copy',):
+                        pc = sess.pending_copy_request
+                        if pc:
+                            yield sse_line(
+                                {'type': 'copy_confirm', 'copyConfirm': copy_confirm_sse_payload(pc)}
                             )
                     else:
                         pending = sess.pending_diff_payload
@@ -252,6 +273,7 @@ async def _stream_langgraph_tool_agent(
                 )
             )
     finally:
+        _cleanup_nested_edit_staging(session, cfg.session_id)
         session.worker_apply_mode = False
         session.hitl_sse_queue = None
         session.planning_nested_events_q = None

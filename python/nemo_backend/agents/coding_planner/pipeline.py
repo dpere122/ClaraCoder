@@ -37,7 +37,6 @@ from nemo_backend.config import (
     NEMO_PLANNER_STEP_RESULT_MAX_CHARS,
 )
 from nemo_backend.domain import SessionState
-from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import final_assistant_text
@@ -361,6 +360,11 @@ async def run_coding_planner_stream(
             nonlocal initial_plan_recorded
             if session.abort_event.is_set():
                 return 'Aborted by user.'
+            if initial_plan_recorded:
+                return (
+                    'Tool error: the initial build checklist is already recorded. Do not create a new plan. '
+                    'Keep executing or summarizing the original checklist.'
+                )
             cleaned = (plan_steps or '').strip()
             if not cleaned:
                 return 'Tool error: plan_steps must not be empty.'
@@ -451,7 +455,7 @@ async def run_coding_planner_stream(
             if step is None:
                 return (
                     'Tool error: there is no pending planned step to execute. '
-                    'Update the plan with `record_plan` before executing more work.'
+                    'Do not create a new plan. If the original checklist is complete, respond with the final summary.'
                 )
             step['state'] = 'running'
             await _emit_planner_progress(phase='executing', active_step_id=step['id'])
@@ -523,13 +527,6 @@ async def run_coding_planner_stream(
             logger.exception('Coding planner graph failed')
             raise
         finally:
-            if session.pending_edit_stagings:
-                logger.warning(
-                    'Orphaned edit stagings after coding planner (discarding): %s',
-                    list(session.pending_edit_stagings.keys()),
-                )
-                discard_all_session_stagings(session)
-            clear_session_staging_dir(session_id)
             await _enqueue_planner_progress(
                 nested_q,
                 planner_tag,

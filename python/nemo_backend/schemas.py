@@ -32,13 +32,16 @@ class SessionAutoApplyRequest(BaseModel):
 
 
 class AgentContinueRequest(BaseModel):
-    """Resume an agent stream that is waiting after a diff or delete confirmation (same in-process session)."""
+    """Resume an agent stream that is waiting after a diff, delete, or copy confirmation."""
 
     session_id: str
     note: str = ''
     #: When set with a pending delete request, perform or cancel the delete before resuming.
     delete_action: Literal['confirm', 'cancel'] | None = None
     delete_request_id: str = ''
+    #: When set with a pending copy request, perform or cancel the copy before resuming.
+    copy_action: Literal['confirm', 'cancel'] | None = None
+    copy_request_id: str = ''
 
 
 class AbortRequest(BaseModel):

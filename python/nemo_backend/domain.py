@@ -40,6 +40,8 @@ class SessionState:
     pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
     # Set by delete_workspace_entry when auto_apply is false; cleared after confirm/cancel via agent-continue.
     pending_delete_request: dict | None = None
+    # Set by copy_workspace_files when auto_apply is false; cleared after confirm/cancel via agent-continue.
+    pending_copy_request: dict | None = None
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).

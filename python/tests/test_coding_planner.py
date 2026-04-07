@@ -26,6 +26,7 @@ from nemo_backend.agents.coding_planner.prompts import (
 from nemo_backend.agents.specialists.prompts import (
     build_code_review_specialist_system_prompt,
     build_create_specialist_system_prompt,
+    build_router_system_prompt,
 )
 from nemo_backend.agents.orchestration.nested_pipeline import NESTED_WORKER_STREAM_END
 from nemo_backend.config import NEMO_PLANNER_MAX_STEP_TEXT_CHARS, NEMO_PLANNER_STEP_RESULT_MAX_CHARS
@@ -226,8 +227,10 @@ class TestCodingPlannerPrompt:
         assert 'Discover first' in prompt
         assert 'workspace tree already provided in your prompt' in prompt
         assert 'Record the build plan' in prompt
-        assert 'Adapt' in prompt
+        assert 'Adapt without replanning' in prompt
         assert 'Summarize' in prompt
+        assert 'do not create a second plan' in prompt
+        assert 'review approval and step completion' in prompt
         assert '/tmp/test-workspace' in prompt
 
     @patch('nemo_backend.messages.get_active_connection')
@@ -265,6 +268,22 @@ class TestCodingPlannerPrompt:
         assert 'Start with discovery' in prompt
         assert 'Record between 2 and 3 build steps.' in prompt
         assert 'Prefer the workspace tree already included in your prompt' in prompt
+        assert 'Call `record_plan` exactly once' in prompt
+
+    @patch('nemo_backend.messages.get_active_connection')
+    @patch('nemo_backend.messages.runtime_config')
+    def test_router_and_review_prompts_treat_transfer_as_approval(self, mock_rc: Any, mock_conn: Any) -> None:
+        mock_conn.return_value = MagicMock(name='test', provider='openai', model='gpt-4o')
+        mock_rc.host = MagicMock(platform='win32', release='10', arch='x86_64', version='10.0', label='Windows')
+        session = self._make_session()
+
+        router_prompt = build_router_system_prompt(session)
+        review_prompt = build_code_review_specialist_system_prompt(session)
+
+        assert 'approval signal' in router_prompt
+        assert 'completion-check task' in router_prompt
+        assert 'final approval signal' in review_prompt
+        assert 'reviewed and complete' in review_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +510,42 @@ class TestRunCodingPlannerStream:
         release_stream.set()
         await task
 
+    @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
+    @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
+    async def test_record_plan_can_only_be_called_once(self, mock_create: Any, mock_build: Any) -> None:
+        mock_build.return_value = MagicMock()
+        release_stream = asyncio.Event()
+        captured_tools: list[Any] = []
+
+        async def _fake_stream(*_a: Any, **_kw: Any):
+            await release_stream.wait()
+            yield {'event': 'on_chain_start', 'data': {}}
+
+        mock_graph = MagicMock()
+        mock_graph.astream_events = _fake_stream
+
+        def _capture_create(*args: Any, **_kwargs: Any) -> Any:
+            captured_tools.extend(args[1])
+            return mock_graph
+
+        mock_create.side_effect = _capture_create
+
+        session = SessionState()
+        nested_q: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(run_coding_planner_stream(session, 'sess-1', 'test task', nested_q, None))
+        await asyncio.sleep(0)
+
+        record_plan_tool = next(tool for tool in captured_tools if tool.name == 'record_plan')
+        first = await record_plan_tool.ainvoke({'plan_steps': '1. Update UI\n2. Render checklist'})
+        second = await record_plan_tool.ainvoke({'plan_steps': '1. Replace the plan\n2. Do something else'})
+
+        assert 'Initial build checklist recorded' in first
+        assert 'already recorded' in second
+        assert 'Do not create a new plan' in second
+
+        release_stream.set()
+        await task
+
     @patch('nemo_backend.agents.coding_planner.pipeline.run_planning_nested_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
@@ -604,11 +659,10 @@ class TestRunCodingPlannerStream:
                 sentinel_found = True
         assert sentinel_found
 
-    @patch('nemo_backend.agents.coding_planner.pipeline.discard_all_session_stagings')
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
-    async def test_orphaned_stagings_discarded_on_error(
-        self, mock_create: Any, mock_build: Any, mock_discard: Any
+    async def test_orphaned_stagings_survive_coding_planner_error(
+        self, mock_create: Any, mock_build: Any
     ) -> None:
         mock_build.return_value = MagicMock()
 
@@ -627,7 +681,7 @@ class TestRunCodingPlannerStream:
         with pytest.raises(ValueError, match='specialist boom'):
             await run_coding_planner_stream(session, 'sess-1', 'task', nested_q, None)
 
-        mock_discard.assert_called_once_with(session)
+        assert list(session.pending_edit_stagings.keys()) == ['foo.py']
         sentinel_found = False
         while not nested_q.empty():
             if nested_q.get_nowait() is NESTED_WORKER_STREAM_END:

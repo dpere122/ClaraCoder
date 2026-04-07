@@ -3,10 +3,12 @@
 import pytest
 
 from nemo_backend.agents.specialists.review_tools import code_review_specialist_tools
+from nemo_backend.agents.specialists.tools import update_specialist_tools
 from nemo_backend.edit_tool import edit_tools_for_strict
 from nemo_backend.state import get_session, runtime_config
 from nemo_backend.domain import RuntimeToolsConfig
 from nemo_backend.tool_registry import (
+    hitl_copy_pause_tools,
     hitl_delete_pause_tools,
     hitl_diff_pause_tools,
     worker_tools_and_map,
@@ -28,20 +30,32 @@ def test_standard_includes_three_tools() -> None:
         'replace_workspace_line_range',
         'replace_workspace_snippet',
     ]
-    staging_names = {'stage_create_file', 'stage_line_range_edit', 'stage_snippet_edit'}
+    staging_names = {
+        'stage_create_file',
+        'stage_workspace_file_overwrite',
+        'stage_line_range_edit',
+        'stage_snippet_edit',
+    }
     transfer_names = {'approve_staged_workspace_edit', 'transfer_staged_file_to_workspace'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_names
     assert hitl_delete_pause_tools() == frozenset({'delete_workspace_entry'})
+    assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
 
 
 def test_strict_omits_snippet_tool() -> None:
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=True)
     names = [t.name for t in edit_tools_for_strict(True)]
     assert names == ['apply_workspace_full_file', 'replace_workspace_line_range']
-    staging_names = {'stage_create_file', 'stage_line_range_edit', 'stage_snippet_edit'}
+    staging_names = {
+        'stage_create_file',
+        'stage_workspace_file_overwrite',
+        'stage_line_range_edit',
+        'stage_snippet_edit',
+    }
     transfer_names = {'approve_staged_workspace_edit', 'transfer_staged_file_to_workspace'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_names
     assert 'replace_workspace_snippet' not in hitl_diff_pause_tools()
+    assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
 
 
 def test_outer_agent_tools() -> None:
@@ -50,7 +64,7 @@ def test_outer_agent_tools() -> None:
     edit_names = {t.name for t in edit_tools_for_strict(False)}
 
     tools_on, map_on = worker_tools_and_map(True)
-    assert {t.name for t in tools_on} == read_names | {'modify_workspace'}
+    assert {t.name for t in tools_on} == read_names | {'copy_workspace_files', 'modify_workspace'}
     assert map_on.keys() == {t.name for t in tools_on}
     assert edit_names.isdisjoint({t.name for t in tools_on})
 
@@ -74,3 +88,11 @@ def test_code_review_specialist_tools_are_staging_only() -> None:
     }
     assert tool_map.keys() == names
     assert names.isdisjoint({'list_workspace_directory', 'read_workspace_file', 'search_workspace'})
+
+
+def test_update_specialist_uses_full_file_overwrite_only() -> None:
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    tools, tool_map = update_specialist_tools(False)
+    names = [t.name for t in tools]
+    assert names == ['stage_workspace_file_overwrite']
+    assert tool_map.keys() == {'stage_workspace_file_overwrite'}

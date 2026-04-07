@@ -4,6 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  CopyConfirmPayload,
   DeleteConfirmPayload,
   FileDiffPayload,
   HealthLogRecord,
@@ -27,6 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('message-planner', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
+  onMessageCopyConfirm: (
+    callback: (event: unknown, conversationId: string, payload: CopyConfirmPayload) => void,
+  ) => ipcRenderer.on('message-copy-confirm', callback),
   onMessageDeleteConfirm: (
     callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
   ) => ipcRenderer.on('message-delete-confirm', callback),
@@ -38,7 +42,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     note: string,
     deleteAction?: 'confirm' | 'cancel',
     deleteRequestId?: string,
-  ) => ipcRenderer.invoke('agent-continue', conversationId, note, deleteAction, deleteRequestId),
+    copyAction?: 'confirm' | 'cancel',
+    copyRequestId?: string,
+  ) => ipcRenderer.invoke(
+    'agent-continue',
+    conversationId,
+    note,
+    deleteAction,
+    deleteRequestId,
+    copyAction,
+    copyRequestId,
+  ),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
   writeWorkspaceFile: (

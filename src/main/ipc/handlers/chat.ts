@@ -1,5 +1,11 @@
 import { ipcMain } from 'electron';
-import type { DeleteConfirmPayload, FileDiffPayload, LlmStatusPayload, PlannerProgress } from '../../../shared';
+import type {
+  CopyConfirmPayload,
+  DeleteConfirmPayload,
+  FileDiffPayload,
+  LlmStatusPayload,
+  PlannerProgress,
+} from '../../../shared';
 import { PYTHON_URL } from '../../python/server';
 import { mainState } from '../../state';
 
@@ -7,7 +13,8 @@ import { mainState } from '../../state';
 const streamAbortControllers = new Map<string, AbortController>();
 
 /**
- * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`, `diff`, `delete_confirm`.
+ * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`,
+ * `diff`, `copy_confirm`, `delete_confirm`.
  */
 export function parseStreamPayload(
   payload: string,
@@ -17,6 +24,7 @@ export function parseStreamPayload(
   | { type: 'status'; status: LlmStatusPayload }
   | { type: 'planner'; planner: PlannerProgress }
   | { type: 'diff'; diff: FileDiffPayload }
+  | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload } {
   try {
     const parsed = JSON.parse(payload) as {
@@ -27,6 +35,7 @@ export function parseStreamPayload(
       status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
       planner?: PlannerProgress;
       diff?: unknown;
+      copyConfirm?: unknown;
       deleteConfirm?: unknown;
     };
     if (parsed.type === 'status' && parsed.status) {
@@ -53,6 +62,13 @@ export function parseStreamPayload(
 
     if (parsed.type === 'diff' && parsed.diff && typeof parsed.diff === 'object') {
       return { type: 'diff', diff: parsed.diff as FileDiffPayload };
+    }
+
+    if (parsed.type === 'copy_confirm' && parsed.copyConfirm && typeof parsed.copyConfirm === 'object') {
+      return {
+        type: 'copy_confirm',
+        copyConfirm: parsed.copyConfirm as CopyConfirmPayload,
+      };
     }
 
     if (
@@ -89,6 +105,8 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-planner', conversationId, parsed.planner);
   } else if (parsed.type === 'diff') {
     event.reply('message-diff', conversationId, parsed.diff);
+  } else if (parsed.type === 'copy_confirm') {
+    event.reply('message-copy-confirm', conversationId, parsed.copyConfirm);
   } else if (parsed.type === 'delete_confirm') {
     event.reply('message-delete-confirm', conversationId, parsed.deleteConfirm);
   } else if (parsed.type === 'tool_read_chunk') {
@@ -209,6 +227,8 @@ export function registerChatIpc(): void {
       note: string,
       deleteAction?: 'confirm' | 'cancel',
       deleteRequestId?: string,
+      copyAction?: 'confirm' | 'cancel',
+      copyRequestId?: string,
     ) => {
     try {
       const res = await fetch(`${PYTHON_URL}/chat/agent-continue`, {
@@ -219,6 +239,8 @@ export function registerChatIpc(): void {
           note: note ?? '',
           delete_action: deleteAction ?? null,
           delete_request_id: deleteRequestId ?? '',
+          copy_action: copyAction ?? null,
+          copy_request_id: copyRequestId ?? '',
         }),
       });
       if (!res.ok) {

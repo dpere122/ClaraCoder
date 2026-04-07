@@ -73,6 +73,20 @@
                   (deleteReviewFinished)="deleteReviewFinished.emit($event)"
                 />
               </div>
+            } @else if (artifact.role === 'copy_confirm') {
+              <div class="turn-artifact turn-artifact--copy">
+                <div class="diff-msg-header small text-secondary mb-2">
+                  <span class="diff-msg-title">Workspace copy</span>
+                  <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
+                </div>
+                <app-copy-confirm
+                  [conversationId]="conversationId()"
+                  [payload]="artifact.payload"
+                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                  [reviewSummary]="artifact.reviewSummary"
+                  (copyReviewFinished)="copyReviewFinished.emit($event)"
+                />
+              </div>
             }
           }
 
@@ -161,6 +175,20 @@
                 [reviewStatus]="artifact.reviewStatus ?? 'pending'"
                 [reviewSummary]="artifact.reviewSummary"
                 (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+              />
+            </div>
+          } @else if (artifact.role === 'copy_confirm') {
+            <div class="turn-artifact turn-artifact--copy">
+              <div class="diff-msg-header small text-secondary mb-2">
+                <span class="diff-msg-title">Workspace copy</span>
+                <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
+              </div>
+              <app-copy-confirm
+                [conversationId]="conversationId()"
+                [payload]="artifact.payload"
+                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                [reviewSummary]="artifact.reviewSummary"
+                (copyReviewFinished)="copyReviewFinished.emit($event)"
               />
             </div>
           }

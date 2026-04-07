@@ -30,7 +30,6 @@ from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddlewar
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.domain import SessionState
-from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import final_assistant_text
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
@@ -132,7 +131,7 @@ async def run_planning_nested_stream(
 
         @tool
         async def route_update_specialist(task_instruction: str) -> str:
-            """Hand off partial edits (line range / snippet) to the update specialist."""
+            """Hand off edits to existing files to the update specialist."""
             return await _run_specialist_graph('update', task_instruction)
 
         @tool
@@ -186,13 +185,6 @@ async def run_planning_nested_stream(
             logger.exception('Planning nested graph failed')
             raise
         finally:
-            if session.pending_edit_stagings:
-                logger.warning(
-                    'Orphaned nested edit stagings after planning (discarding): %s',
-                    list(session.pending_edit_stagings.keys()),
-                )
-                discard_all_session_stagings(session)
-            clear_session_staging_dir(session_id)
             await nested_q.put(NESTED_WORKER_STREAM_END)
 
         if not last_final_text.strip():

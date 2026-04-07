@@ -21,13 +21,14 @@ def coding_planner_tool_reference() -> str:
 
         Tool usage rules:
         - Do not call `execute_plan_step` until the initial plan has been recorded.
+        - Call `record_plan` exactly once. After the initial checklist is recorded, never create a second plan.
         - Do discovery first. Use reads/search/list to gather the missing context needed to form the build plan.
         - Record the plan only after your discovery pass is done.
         - Prefer the workspace tree already included in your prompt for navigation before calling `list_workspace_directory`.
         - The recorded checklist must contain only implementation/build/test/verification work.
         - Do not include read/search/list/inspect/review/open steps in the recorded checklist.
         - Keep each `execute_plan_step` instruction self-contained: include the goal, target paths, constraints, and relevant code context.
-        - If you discover new information after recording the plan, update the remaining build steps instead of adding discovery items to the checklist.
+        - If you discover new information after recording the plan, adapt the execution instructions for the remaining recorded steps instead of creating a new checklist.
         """
     ).strip()
 
@@ -80,14 +81,18 @@ def build_coding_planner_system_prompt(session: SessionState) -> str:
         '3. **Execute.** Call `execute_plan_step` once per step with a focused `step_instruction`. '
         'The instruction should include the goal, target file path(s), and any relevant code context '
         'or constraints gathered during reading.\n'
-        '4. **Adapt.** After each step, review the result. If a step fails or produces unexpected output, '
-        'adjust remaining steps accordingly. You may retry a failed step with revised instructions, '
-        'skip it with a note, or re-plan remaining work.\n'
+        '4. **Adapt without replanning.** After each step, review the result. If a step fails or produces unexpected output, '
+        'adjust how you execute the remaining recorded steps. You may retry a failed step with revised instructions '
+        'or skip it with a note, but do not create a second plan.\n'
+        '   - When the nested router reports that the code review specialist transferred a staged edit, treat that as '
+        'review approval and step completion. Continue to the next recorded step or finish the task; do not run a '
+        'separate completion-check step.\n'
         '5. **Summarize.** After all steps complete, reply with a compact summary for the outer agent: '
         'what was done, which paths were touched, and any errors or deviations from the plan.\n\n'
         '## Rules\n'
         '- Complete discovery before calling `record_plan` unless the task is so specific that the provided prompt already contains the required context.\n'
         '- `record_plan` must break the main task into an appropriate number of concrete build steps; broad tasks must be broken down more than small tasks.\n'
+        '- Call `record_plan` only once per task. The initial checklist is fixed; do not create replacement or follow-up plans.\n'
         '- Recorded plan steps must describe only build, mutation, test, or verification work.\n'
         '- Do not include read/search/list/inspect/review/open steps in the recorded checklist.\n'
         '- Do NOT attempt to edit, create, or delete files directly. All mutations go through '

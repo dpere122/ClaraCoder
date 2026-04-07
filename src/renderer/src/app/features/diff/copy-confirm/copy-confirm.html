@@ -1,0 +1,58 @@
+@if (reviewStatus() !== 'pending') {
+  <div class="copy-card copy-card--collapsed border rounded-2 px-3 py-2">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <div>
+        <span class="fw-medium">{{ copyCountLabel() }}</span>
+        @if (reviewSummary()) {
+          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
+        }
+      </div>
+      <span
+        class="badge"
+        [class.text-bg-success]="reviewStatus() === 'complete'"
+        [class.text-bg-secondary]="reviewStatus() === 'cancelled'"
+        >{{ reviewStatus() === 'complete' ? 'Complete' : 'Cancelled' }}</span
+      >
+    </div>
+  </div>
+} @else {
+  <div class="copy-card border border-primary border-opacity-50 rounded-2 overflow-hidden">
+    <div class="copy-toolbar p-2 border-bottom bg-primary bg-opacity-10">
+      <div class="fw-medium text-primary">Confirm workspace copy</div>
+      <div class="small text-secondary">
+        This will copy {{ copyCountLabel() }}
+        @if (payload().overwrite) {
+          <span> with overwrite enabled</span>
+        }
+        .
+      </div>
+      <div class="copy-list small mt-2">
+        @for (item of payload().copies; track $index) {
+          <div class="copy-list__row">
+            <code>{{ item.sourcePath }}</code>
+            <span class="copy-list__arrow">&rarr;</span>
+            <code>{{ item.destinationPath }}</code>
+          </div>
+        }
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          [disabled]="busy()"
+          (click)="onConfirm()"
+        >
+          Confirm copy
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          [disabled]="busy()"
+          (click)="onCancel()"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+}

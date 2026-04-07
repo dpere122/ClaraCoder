@@ -28,7 +28,7 @@ export function registerConfigWorkspacesIpc(): void {
   });
 
   ipcMain.handle('set-workspace-context', async (_event, sessionId: string, workspacePath: string, workspaceContext: string) => {
-    await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext, '');
+    await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext);
   });
 
   ipcMain.handle('load-config', async () => loadConfig());

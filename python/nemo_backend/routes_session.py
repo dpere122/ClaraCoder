@@ -40,11 +40,10 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
 
 @router.post('/workspace-context')
 async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, bool]:
-    """Attach or update workspace path and renderer-provided tree/state for a session."""
+    """Attach or update workspace path and renderer-provided tree for a session."""
     sess = state.get_session(request.session_id)
     sess.workspace_path = request.workspace_path
     sess.workspace_context = request.workspace_context
-    sess.workspace_state = request.workspace_state
     return {'ok': True}
 
 

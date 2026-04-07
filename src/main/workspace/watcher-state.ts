@@ -7,9 +7,10 @@ import type { WorkspaceChangeKind, WorkspaceChangeRecord } from '../../shared';
 export interface WorkspaceWatcherState {
   workspaceId: string;
   workspacePath: string;
+  stagingPath: string;
   /** Root `.gitignore` patterns (same subset as context tree); refreshed when root `.gitignore` changes. */
   ignoreRules: string[];
-  watcher: FSWatcher;
+  watchers: FSWatcher[];
   debounceTimer: NodeJS.Timeout | null;
   pendingPaths: Set<string>;
   pendingKinds: Set<WorkspaceChangeKind>;

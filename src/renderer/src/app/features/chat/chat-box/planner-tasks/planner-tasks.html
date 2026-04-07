@@ -1,0 +1,13 @@
+<div class="planner-panel" aria-label="Planner checklist">
+  <div class="planner-panel-title">Planner tasks</div>
+  <div class="planner-phase">Status: {{ planner().phase }}</div>
+  <div class="planner-steps">
+    @for (step of planner().steps; track step.id) {
+      <label class="planner-step" [class.is-running]="step.state === 'running'" [class.is-error]="step.state === 'error'">
+        <input type="checkbox" [checked]="step.state === 'complete'" disabled />
+        <span class="planner-step-text">{{ step.text }}</span>
+        <span class="planner-step-state">{{ step.state }}</span>
+      </label>
+    }
+  </div>
+</div>

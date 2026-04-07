@@ -22,6 +22,7 @@ def status_event(
     state: str = 'running',
     source: str = 'agent',
     agent_role: str | None = None,
+    stream_tag: str | None = None,
 ) -> dict[str, Any]:
     """Build one structured status payload for the UI (tool running, errors, etc.)."""
     row: dict[str, Any] = {
@@ -33,7 +34,14 @@ def status_event(
     }
     if agent_role:
         row['agent_role'] = agent_role
+    if stream_tag:
+        row['stream_tag'] = stream_tag
     return {'type': 'status', 'status': row}
+
+
+def planner_progress_event(planner: dict[str, Any]) -> dict[str, Any]:
+    """Build one structured planner progress payload for the UI."""
+    return {'type': 'planner', 'planner': planner}
 
 
 def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
@@ -126,12 +134,33 @@ def sse_tool_finished(
     ok: bool,
     error_detail: str = '',
     agent_role: str | None = None,
+    stream_tag: str | None = None,
 ) -> str:
     if not ok:
         line = truncate_text((error_detail or 'Error').replace('\n', ' '), MAX_TOOL_STATUS_LINE)
-        return sse_line(status_event(tool_id, tool_name, detail=line, state='error', source='tool', agent_role=agent_role))
+        return sse_line(
+            status_event(
+                tool_id,
+                tool_name,
+                detail=line,
+                state='error',
+                source='tool',
+                agent_role=agent_role,
+                stream_tag=stream_tag,
+            )
+        )
     line = tool_result_one_line(result_text)
-    return sse_line(status_event(tool_id, tool_name, detail=line, state='complete', source='tool', agent_role=agent_role))
+    return sse_line(
+        status_event(
+            tool_id,
+            tool_name,
+            detail=line,
+            state='complete',
+            source='tool',
+            agent_role=agent_role,
+            stream_tag=stream_tag,
+        )
+    )
 
 
 def sse_line(payload: dict[str, Any]) -> str:

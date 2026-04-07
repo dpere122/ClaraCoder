@@ -23,6 +23,33 @@ def test_line_range() -> None:
     assert out == 'l1\nx\nl3\n'
 
 
+def test_line_range_append_after_last_line() -> None:
+    old = 'l1\nl2\n'
+    out, err = merge_partial_edit(
+        old,
+        new_content='',
+        old_snippet='',
+        new_snippet='l3\nl4\n',
+        start_line=3,
+        end_line=3,
+    )
+    assert err is None
+    assert out == 'l1\nl2\nl3\nl4\n'
+
+
+def test_line_range_seeds_empty_file() -> None:
+    out, err = merge_partial_edit(
+        '',
+        new_content='',
+        old_snippet='',
+        new_snippet='seeded\n',
+        start_line=1,
+        end_line=1,
+    )
+    assert err is None
+    assert out == 'seeded\n'
+
+
 def test_snippet_patch() -> None:
     old = 'before\nOLD\nafter\n'
     out, err = merge_partial_edit(
@@ -179,3 +206,18 @@ def test_snippet_not_found() -> None:
     )
     assert out is None
     assert err is not None
+
+
+def test_line_range_past_end_error_suggests_append() -> None:
+    out, err = merge_partial_edit(
+        '',
+        new_content='',
+        old_snippet='',
+        new_snippet='x\n',
+        start_line=2,
+        end_line=2,
+    )
+    assert out is None
+    assert err is not None
+    assert 'append after the last line' in err
+    assert 'start_line=end_line=1' in err

@@ -34,8 +34,6 @@ class SessionState:
     workspace_path: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
-    # Recent file activity summary from the app, also fed into prompts.
-    workspace_state: str = ''
     # Set by workspace edit tools; consumed by SSE diff event after tool success.
     pending_diff_payload: dict | None = None
     # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.

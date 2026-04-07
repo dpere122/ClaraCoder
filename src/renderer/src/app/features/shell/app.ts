@@ -3,7 +3,7 @@
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
 import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
-import type { Conversation, ConversationMeta, LlmAgentRole, LlmStatus, StreamPart, Workspace } from '@shared/index';
+import type { Conversation, ConversationMeta, LlmStatus, PlannerProgress, StreamPart, Workspace } from '@shared/index';
 import {
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
@@ -17,34 +17,15 @@ import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { THEMES } from '../layout/theme-selector/theme-selector';
 
-function labelForStreamTag(tag: string): string {
-  if (tag === 'mgr') return 'Manager';
-  if (tag === 'worker') return 'Workspace worker';
-  if (tag === 'agent') return 'Reply';
-  if (tag === 'planning') return 'Planning';
-  if (tag.startsWith('spec-')) {
-    const kind = tag.slice('spec-'.length).split('-')[0] ?? '';
-    const names: Record<string, string> = {
-      read: 'Read',
-      create: 'Create',
-      update: 'Update',
-      delete: 'Delete',
-    };
-    return `${names[kind] ?? 'Specialist'} specialist`;
-  }
-  return 'Reply';
-}
-
 function appendStreamPart(parts: StreamPart[], streamTag: string | undefined, delta: string): StreamPart[] {
   const t = streamTag?.trim() ? streamTag.trim() : 'agent';
-  const label = labelForStreamTag(t);
   const next = [...parts];
   const last = next[next.length - 1];
   if (last?.streamTag === t) {
     next[next.length - 1] = { ...last, text: last.text + delta };
     return next;
   }
-  next.push({ streamTag: t, label, text: delta });
+  next.push({ streamTag: t, label: '', text: delta });
   return next;
 }
 
@@ -76,10 +57,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly editorMode = model(true);
   /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
   protected readonly autoApplyMode = model(false);
-  /** In-flight model tokens grouped by backend ``stream_tag`` (manager vs nested specialists, etc.). */
   protected readonly streamingParts = signal<StreamPart[]>([]);
-  /** Read-tool payloads streamed for the live bubble only (not saved with the assistant message). */
-  protected readonly toolReadStreamText = signal('');
+  protected readonly livePlannerProgress = signal<PlannerProgress | null>(null);
   protected readonly settingsWindowOpen = signal(false);
   /** In-flight tool call ids for the active conversation (drives processing-row spinner color). */
   private readonly toolRunIds = signal<Set<string>>(new Set());
@@ -91,10 +70,6 @@ export class App implements OnInit, OnDestroy {
   protected readonly processingToolsActive = computed(
     () => this.toolRunIds().size > 0 || this.toolPhaseEngaged(),
   );
-  /** Short hint while a workspace tool runs (tool name / path from backend status). */
-  protected readonly processingToolHint = signal('');
-  /** While the model step runs (no tool yet), show Manager vs Worker in the processing row. */
-  protected readonly processingAgentRole = signal<LlmAgentRole | null>(null);
 
   // Workspace management
   protected readonly workspaces = signal<Workspace[]>([]);
@@ -115,7 +90,7 @@ export class App implements OnInit, OnDestroy {
 
   private activeConversation: Conversation | null = null;
   private backgroundStreamParts = new Map<string, StreamPart[]>();
-  private backgroundToolReadChunks = new Map<string, string>();
+  private backgroundPlannerProgress = new Map<string, PlannerProgress>();
   private resizing: 'workspace' | 'sidebar' | null = null;
   private boundOnResizeMove = this.onResizeMove.bind(this);
   private boundOnResizeEnd = this.onResizeEnd.bind(this);
@@ -196,12 +171,11 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.toolReadChunk$.subscribe(({ conversationId, delta }) => {
+    this.electron.planner$.subscribe(({ conversationId, planner }) => {
       if (conversationId === this.activeConversationId()) {
-        this.toolReadStreamText.update((prev) => prev + delta);
+        this.livePlannerProgress.set(planner);
       } else {
-        const prev = this.backgroundToolReadChunks.get(conversationId) ?? '';
-        this.backgroundToolReadChunks.set(conversationId, prev + delta);
+        this.backgroundPlannerProgress.set(conversationId, planner);
       }
     });
 
@@ -239,8 +213,6 @@ export class App implements OnInit, OnDestroy {
       }
       if (src === 'tool' && status.state === 'running') {
         this.toolRunIds.update((s) => new Set(s).add(status.id));
-        const d = status.detail?.trim();
-        this.processingToolHint.set(d ? `${status.label}: ${d}` : status.label);
         this.upsertChainMessage(status);
         return;
       }
@@ -248,43 +220,36 @@ export class App implements OnInit, OnDestroy {
         this.toolRunIds.update((s) => {
           const next = new Set(s);
           next.delete(status.id);
-          if (next.size === 0) {
-            this.processingToolHint.set('');
-          }
           return next;
         });
       }
-      if (src === 'agent' && status.state === 'running' && status.agentRole) {
-        this.processingAgentRole.set(status.agentRole);
-      }
-      // Persist chain rows until the reply finishes (`done$`).
       this.upsertChainMessage(status);
     });
 
     this.electron.done$.subscribe(({ conversationId }) => {
       this.removePending(conversationId);
       if (conversationId === this.activeConversationId()) {
-        const roleForSavedReply = this.processingAgentRole();
         const parts = this.streamingParts();
+        const planner = this.livePlannerProgress();
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
-        this.processingToolHint.set('');
-        this.processingAgentRole.set(null);
         this.streamingParts.set([]);
-        this.toolReadStreamText.set('');
-        const text = primaryAssistantTextFromParts(parts, roleForSavedReply);
+        this.livePlannerProgress.set(null);
+        this.backgroundPlannerProgress.delete(conversationId);
+        const text = primaryAssistantTextFromParts(parts);
         if (text) {
-          this.pushMessage('assistant', text);
+          this.pushMessage('assistant', text, planner);
           if (this.speechEnabled()) void this.tts.speakText(text, this.selectedVoice());
           this.autoSave();
         }
       } else {
         const parts = this.backgroundStreamParts.get(conversationId) ?? [];
         this.backgroundStreamParts.delete(conversationId);
-        this.backgroundToolReadChunks.delete(conversationId);
+        const planner = this.backgroundPlannerProgress.get(conversationId) ?? null;
+        this.backgroundPlannerProgress.delete(conversationId);
         const text = primaryAssistantTextFromParts(parts);
         if (text) {
-          this.saveMessageToConversation(conversationId, text);
+          this.saveMessageToConversation(conversationId, text, planner);
         }
       }
     });
@@ -350,9 +315,9 @@ export class App implements OnInit, OnDestroy {
     this.pushMessage('user', normalized);
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
-    this.processingAgentRole.set(null);
     this.streamingParts.set([]);
-    this.toolReadStreamText.set('');
+    this.livePlannerProgress.set(null);
+    this.backgroundPlannerProgress.delete(convId);
     this.electron.sendMessage(
       convId,
       normalized,
@@ -371,10 +336,8 @@ export class App implements OnInit, OnDestroy {
     this.messages.set([]);
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
-    this.processingToolHint.set('');
-    this.processingAgentRole.set(null);
     this.streamingParts.set([]);
-    this.toolReadStreamText.set('');
+    this.livePlannerProgress.set(null);
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
     let themeToApply = config.noWorkspaceThemeId || 'dark';
@@ -600,9 +563,13 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  private pushMessage(role: 'user' | 'assistant', text: string): void {
+  private pushMessage(role: 'user' | 'assistant', text: string, planner: PlannerProgress | null = null): void {
     console.log('[App] pushMessage:', role, 'text length:', text.length);
-    this.messages.update((prev) => [...prev, { role, text }]);
+    const nextMessage: ChatMessage =
+      role === 'assistant'
+        ? (planner ? { role, text, planner } : { role, text })
+        : { role, text };
+    this.messages.update((prev) => [...prev, nextMessage]);
     if (this.activeConversation) {
       this.activeConversation.messages = [...this.messages()];
       this.pendingSave = true;
@@ -617,21 +584,16 @@ export class App implements OnInit, OnDestroy {
     this.messages.set(conv.messages);
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
-    this.processingToolHint.set('');
-    this.processingAgentRole.set(null);
     const stillStreaming = this.pendingIds().has(conv.id);
     if (stillStreaming) {
       const bgParts = this.backgroundStreamParts.get(conv.id) ?? [];
       this.streamingParts.set(bgParts.length ? [...bgParts] : []);
       this.backgroundStreamParts.delete(conv.id);
-      const tr = this.backgroundToolReadChunks.get(conv.id) ?? '';
-      this.toolReadStreamText.set(tr);
-      this.backgroundToolReadChunks.delete(conv.id);
+      this.livePlannerProgress.set(this.backgroundPlannerProgress.get(conv.id) ?? null);
     } else {
       this.streamingParts.set([]);
-      this.toolReadStreamText.set('');
       this.backgroundStreamParts.delete(conv.id);
-      this.backgroundToolReadChunks.delete(conv.id);
+      this.livePlannerProgress.set(null);
     }
 
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
@@ -673,13 +635,17 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  private async saveMessageToConversation(conversationId: string, text: string): Promise<void> {
+  private async saveMessageToConversation(
+    conversationId: string,
+    text: string,
+    planner: PlannerProgress | null = null,
+  ): Promise<void> {
     try {
       // Find the conversation's workspaceId from the list
       const convMeta = this.conversations().find(c => c.id === conversationId);
       const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
       const conv = await this.electron.loadConversation(conversationId, workspaceId);
-      conv.messages.push({ role: 'assistant', text });
+      conv.messages.push(planner ? { role: 'assistant', text, planner } : { role: 'assistant', text });
       conv.updatedAt = new Date().toISOString();
       await this.electron.saveConversation(conv);
       this.bumpConversation(conversationId);
@@ -711,6 +677,7 @@ export class App implements OnInit, OnDestroy {
         source: status.source,
         statusId: status.id,
         ...(status.agentRole ? { agentRole: status.agentRole } : {}),
+        ...(status.streamTag ? { streamTag: status.streamTag } : {}),
       };
       for (let i = prev.length - 1; i >= 0; i--) {
         const m = prev[i];

@@ -12,7 +12,7 @@ logger = logging.getLogger('nemo.tools.delete')
 from langchain_core.tools import tool
 
 from nemo_backend.domain import SessionState
-from nemo_backend.state import current_session_id, get_session
+from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
 from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
 
 DELETE_WORKSPACE_ENTRY_NAME = 'delete_workspace_entry'
@@ -110,8 +110,9 @@ def delete_workspace_entry(relative_path: str, recursive: bool = False) -> str:
     confirmation in the UI."""
 
     session_id = current_session_id.get()
-    if not session_id:
-        return 'Tool error: no active session.'
+    blocked = mutation_tools_blocked_reason(session_id)
+    if blocked:
+        return blocked
 
     session = get_session(session_id)
     reason = _reject_reason(relative_path)

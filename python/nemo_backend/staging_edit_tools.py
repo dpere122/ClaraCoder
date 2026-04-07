@@ -16,7 +16,7 @@ from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.edit_tool import _edit_preamble, _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
 from nemo_backend.partial_workspace_edit import merge_partial_edit
-from nemo_backend.state import current_session_id
+from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
 from nemo_backend.workspace_text_io import DiskNewline
 
 logger = logging.getLogger('nemo.staging')
@@ -38,7 +38,7 @@ __all__ = [
 def _staging_after_merge(
     session: SessionState,
     rel_display: str,
-    old_text: str,
+    original_old_text: str,
     merged: str,
     mode: str,
     disk_encoding: str,
@@ -70,7 +70,7 @@ def _staging_after_merge(
     if _edit_staging.is_code_review_extension(rel_display):
         session.pending_edit_stagings[rel_display] = EditStagingEntry(
             temp_path=str(temp_path),
-            old_text=old_text,
+            old_text=original_old_text,
             merged_text=merged_out,
             disk_encoding=disk_encoding,
             disk_newline=disk_newline,
@@ -82,7 +82,7 @@ def _staging_after_merge(
             'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
         )
 
-    out = _finalize_workspace_edit(session, rel_display, old_text, merged_out, mode, disk_encoding, disk_newline)
+    out = _finalize_workspace_edit(session, rel_display, original_old_text, merged_out, mode, disk_encoding, disk_newline)
     _edit_staging.unlink_staging_quiet(temp_path)
     return out
 
@@ -100,6 +100,9 @@ def _run_staging_tool(
     end_line: int = 0,
 ) -> str:
     """Shared body for staging tools: validate, read, merge, then stage or finalize."""
+    blocked = mutation_tools_blocked_reason()
+    if blocked:
+        return blocked
     try:
         enc = _tool_encoding_param(encoding)
         nm = _tool_newline_param(newline)
@@ -109,10 +112,13 @@ def _run_staging_tool(
     pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
-    session, rel_display, old_text, disk_enc, disk_nl = pre
+    session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
+    prior = session.pending_edit_stagings.get(rel_display)
+    base_text = prior.merged_text if prior else workspace_old_text
+    original_old_text = prior.old_text if prior else workspace_old_text
 
     merged, merge_err = merge_partial_edit(
-        old_text,
+        base_text,
         new_content=new_content,
         old_snippet=old_snippet,
         new_snippet=new_snippet,
@@ -123,7 +129,7 @@ def _run_staging_tool(
         return f'Tool error: {merge_err}'
     assert merged is not None
 
-    return _staging_after_merge(session, rel_display, old_text, merged, mode, disk_enc, disk_nl)
+    return _staging_after_merge(session, rel_display, original_old_text, merged, mode, disk_enc, disk_nl)
 
 
 @tool(STAGE_CREATE_FILE_NAME)
@@ -163,6 +169,8 @@ def stage_line_range_edit(
     """Replace an inclusive block of lines (1-based) with `new_snippet`; the result is staged for code review.
 
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
+    Use `stage_create_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after the
+    last line, and `1,1` can seed an empty file.
     See `stage_create_file` for `encoding` and `newline`.
 
     Programming-language files are staged for code review before the workspace updates.

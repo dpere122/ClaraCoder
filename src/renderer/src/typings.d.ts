@@ -8,6 +8,7 @@ import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
   LlmStatus,
+  PlannerProgress,
   TtsStreamPacket,
   Workspace,
   WorkspaceFileWriteOptions,
@@ -29,6 +30,9 @@ declare global {
     onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
+    onMessagePlanner?: (
+      callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void,
+    ) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
     onMessageDeleteConfirm?: (
       callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,

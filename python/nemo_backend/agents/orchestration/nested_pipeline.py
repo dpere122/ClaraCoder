@@ -30,7 +30,7 @@ from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddlewar
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.domain import SessionState
-from nemo_backend.edit_staging import discard_all_session_stagings
+from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import final_assistant_text
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
@@ -192,6 +192,7 @@ async def run_planning_nested_stream(
                     list(session.pending_edit_stagings.keys()),
                 )
                 discard_all_session_stagings(session)
+            clear_session_staging_dir(session_id)
             await nested_q.put(NESTED_WORKER_STREAM_END)
 
         if not last_final_text.strip():

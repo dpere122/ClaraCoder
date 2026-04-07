@@ -1,98 +1,131 @@
 <div class="chat-box p-3" appRunButton>
-  @for (msg of messages(); track $index) {
-    @if (!(loading() && msg.role === 'chain')) {
+  @for (row of persistedRows(); track $index) {
+    @if (row.kind === 'assistant-turn') {
+      @if (row.assistant?.planner; as planner) {
+        @if (planner.steps.length > 0) {
+        <div class="d-flex mb-2">
+          <app-planner-tasks class="planner-row-card" [planner]="planner" />
+        </div>
+        }
+      }
+    }
     <div
       class="d-flex mb-2"
-      [class.justify-content-end]="msg.role === 'user'"
-      [class.w-100]="msg.role === 'diff' || msg.role === 'delete_confirm'"
+      [class.justify-content-end]="row.kind === 'user'"
+      [class.w-100]="row.kind === 'assistant-turn' && row.artifacts.length > 0"
     >
       <div
         class="msg-bubble px-3 py-2"
-        [class.user-bubble]="msg.role === 'user'"
-        [class.assistant-bubble]="
-          msg.role === 'assistant' || msg.role === 'chain' || msg.role === 'diff' || msg.role === 'delete_confirm'
-        "
-        [class.chain-bubble]="msg.role === 'chain'"
-        [class.diff-msg-bubble]="msg.role === 'diff' || msg.role === 'delete_confirm'"
-        [style.max-width]="msg.role === 'diff' || msg.role === 'delete_confirm' ? '100%' : '80%'"
+        [class.user-bubble]="row.kind === 'user'"
+        [class.assistant-bubble]="row.kind === 'assistant-turn'"
+        [class.diff-msg-bubble]="row.kind === 'assistant-turn' && row.artifacts.length > 0"
+        [class.assistant-turn-bubble]="row.kind === 'assistant-turn'"
+        [style.max-width]="row.kind === 'assistant-turn' && row.artifacts.length > 0 ? '100%' : '80%'"
       >
-        @if (msg.role === 'assistant') {
-          <span [innerHTML]="msg.text | markdown"></span>
-          @if (ttsLoading() && $last) {
-            <div class="tts-loading" role="status" aria-live="polite">
-              <div class="tts-ngx-host" aria-hidden="true">
-                <ngx-spinner
-                  name="chat-tts"
-                  type="line-scale"
-                  [fullScreen]="false"
-                  bdColor="rgba(0,0,0,0)"
-                  size="small"
-                  color="var(--bs-secondary-color)"
-                ></ngx-spinner>
-              </div>
-              <span class="tts-loading-label">Preparing audio</span>
-            </div>
-          }
-        } @else if (msg.role === 'diff') {
-          <div class="diff-msg-header small text-secondary mb-2">
-            <span class="diff-msg-title">Proposed file edit</span>
-            <span class="diff-msg-subtitle"> — Accept, Skip, accept entire diff once, or Cancel.</span>
-          </div>
-          <app-diff-apply
-            [conversationId]="conversationId()"
-            [payload]="msg.payload"
-            [reviewStatus]="msg.reviewStatus ?? 'pending'"
-            [reviewSummary]="msg.reviewSummary"
-            (diffReviewFinished)="diffReviewFinished.emit($event)"
-          />
-        } @else if (msg.role === 'delete_confirm') {
-          <div class="diff-msg-header small text-secondary mb-2">
-            <span class="diff-msg-title">Workspace delete</span>
-            <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
-          </div>
-          <app-delete-confirm
-            [conversationId]="conversationId()"
-            [payload]="msg.payload"
-            [reviewStatus]="msg.reviewStatus ?? 'pending'"
-            [reviewSummary]="msg.reviewSummary"
-            (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-          />
-        } @else if (msg.role === 'chain') {
-          <div
-            class="chain-event"
-            [class.chain-event--error]="msg.state === 'error'"
-            [class.chain-event--complete]="msg.state === 'complete'"
-            role="status"
-          >
-            <span class="chain-pill">{{ chainPillText(msg) }}</span>
-            <span class="chain-line">
-              <span class="chain-label">{{ msg.label }}</span>
-              @if (msg.text) {
-                <span class="chain-detail">{{ msg.text }}</span>
-              }
-            </span>
-          </div>
+        @if (row.kind === 'user') {
+          {{ row.msg.text }}
         } @else {
-          {{ msg.text }}
+          @for (chainGroup of row.chainGroups; track chainGroup.key) {
+            <details class="tool-trail-collapse">
+              <summary class="tool-trail-summary">
+                <span class="tool-trail-count">{{ toolChainSummary(chainGroup) }}</span>
+              </summary>
+              <div class="tool-trail-persisted">
+                @for (trail of chainGroup.rows; track trail.statusId) {
+                  <div class="tool-trail-row">
+                    @if (trail.text) {
+                      <span class="tool-trail-detail">{{ trail.text }}</span>
+                      <span class="tool-trail-sep">&middot;</span>
+                    }
+                    <span class="tool-trail-name">{{ trail.label }}</span>
+                  </div>
+                }
+              </div>
+            </details>
+          }
+
+          @for (artifact of row.artifacts; track $index) {
+            @if (artifact.role === 'diff') {
+              <div class="turn-artifact turn-artifact--diff">
+                <div class="diff-msg-header small text-secondary mb-2">
+                  <span class="diff-msg-title">Proposed file edit</span>
+                  <span class="diff-msg-subtitle"> — Accept, Skip, accept entire diff once, or Cancel.</span>
+                </div>
+                <app-diff-apply
+                  [conversationId]="conversationId()"
+                  [payload]="artifact.payload"
+                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                  [reviewSummary]="artifact.reviewSummary"
+                  (diffReviewFinished)="diffReviewFinished.emit($event)"
+                />
+              </div>
+            } @else if (artifact.role === 'delete_confirm') {
+              <div class="turn-artifact turn-artifact--delete">
+                <div class="diff-msg-header small text-secondary mb-2">
+                  <span class="diff-msg-title">Workspace delete</span>
+                  <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
+                </div>
+                <app-delete-confirm
+                  [conversationId]="conversationId()"
+                  [payload]="artifact.payload"
+                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                  [reviewSummary]="artifact.reviewSummary"
+                  (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+                />
+              </div>
+            }
+          }
+
+          @if (row.assistant?.text) {
+            <span [innerHTML]="row.assistant!.text | markdown"></span>
+            @if (ttsLoading() && $last) {
+              <div class="tts-loading" role="status" aria-live="polite">
+                <div class="tts-ngx-host" aria-hidden="true">
+                  <ngx-spinner
+                    name="chat-tts"
+                    type="line-scale"
+                    [fullScreen]="false"
+                    bdColor="rgba(0,0,0,0)"
+                    size="small"
+                    color="var(--bs-secondary-color)"
+                  ></ngx-spinner>
+                </div>
+                <span class="tts-loading-label">Preparing audio</span>
+              </div>
+            }
+          }
         }
       </div>
     </div>
-    }
   } @empty {
     <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
   }
-  @if (loading()) {
+  @if (liveTurn(); as liveTurn) {
+    @if (livePlannerProgress(); as planner) {
+      @if (planner.steps.length > 0) {
+      <div class="d-flex mb-2">
+        <app-planner-tasks class="planner-row-card" [planner]="planner" />
+      </div>
+      }
+    }
     <div class="d-flex mb-2">
       <div
-        class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble"
-        [attr.data-clara-mode]="claraModeForProcessingUi()"
+        class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble assistant-turn-bubble"
+        [style.max-width]="liveTurn.artifacts.length > 0 ? '100%' : '80%'"
       >
-        <div class="streaming-bubble-header">
-          <span class="streaming-author">{{ streamAuthorDisplay() }}</span>
-          @if (claraModePill(); as pill) {
-            <span class="streaming-role-pill">{{ pill }}</span>
-          }
-        </div>
+        @for (chainGroup of liveVisibleChainGroups(); track chainGroup.key) {
+          <div class="tool-trail-live">
+            @for (trail of chainGroup.rows; track trail.statusId) {
+              <div class="tool-trail-row">
+                @if (trail.text) {
+                  <span class="tool-trail-detail">{{ trail.text }}</span>
+                  <span class="tool-trail-sep">&middot;</span>
+                }
+                <span class="tool-trail-name">{{ trail.label }}</span>
+              </div>
+            }
+          </div>
+        }
         @if (primaryStreamPlainDisplay().length > 0) {
           <div class="streaming-primary-plain" aria-live="polite">
             <span class="streaming-plain">{{ primaryStreamPlainDisplay() }}</span>
@@ -101,31 +134,36 @@
             }
           </div>
         }
-        @if (showPrimaryStreamPlaceholder()) {
-          <div class="primary-stream-placeholder" aria-live="polite">
-            Clara will reply here when the workspace agent finishes.
-          </div>
-        }
-        @if (delegatedStreamParts().length > 0) {
-          <details class="tool-read-stream-details">
-            <summary class="tool-read-stream-summary">Planning and specialists</summary>
-            <div class="tool-read-stream-block">
-              @for (part of delegatedStreamParts(); track part.streamTag + '-' + $index) {
-                <div class="streaming-block streaming-block--delegated">
-                  <div class="streaming-block-label">{{ part.label }}</div>
-                  <div class="streaming-delegated-plain">{{ plainOneLine(part.text) }}</div>
-                </div>
-              }
+        @for (artifact of liveTurn.artifacts; track $index) {
+          @if (artifact.role === 'diff') {
+            <div class="turn-artifact turn-artifact--diff">
+              <div class="diff-msg-header small text-secondary mb-2">
+                <span class="diff-msg-title">Proposed file edit</span>
+                <span class="diff-msg-subtitle"> — Accept, Skip, accept entire diff once, or Cancel.</span>
+              </div>
+              <app-diff-apply
+                [conversationId]="conversationId()"
+                [payload]="artifact.payload"
+                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                [reviewSummary]="artifact.reviewSummary"
+                (diffReviewFinished)="diffReviewFinished.emit($event)"
+              />
             </div>
-          </details>
-        }
-        @if (toolReadStreamPlainDisplay().length > 0) {
-          <details class="tool-read-stream-details">
-            <summary class="tool-read-stream-summary">Workspace read (tool preview)</summary>
-            <div class="tool-read-stream-block">
-              <div class="tool-read-stream-plain">{{ toolReadStreamPlainDisplay() }}</div>
+          } @else if (artifact.role === 'delete_confirm') {
+            <div class="turn-artifact turn-artifact--delete">
+              <div class="diff-msg-header small text-secondary mb-2">
+                <span class="diff-msg-title">Workspace delete</span>
+                <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
+              </div>
+              <app-delete-confirm
+                [conversationId]="conversationId()"
+                [payload]="artifact.payload"
+                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                [reviewSummary]="artifact.reviewSummary"
+                (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+              />
             </div>
-          </details>
+          }
         }
         <div class="processing-bubble" role="status" aria-live="polite">
           <div class="processing-ngx-host" aria-hidden="true">
@@ -146,12 +184,7 @@
               color="var(--bs-secondary-color)"
             ></ngx-spinner>
           </div>
-          <div class="processing-text-col">
-            <span class="processing-text">{{ processingPhraseLabel() }}</span>
-            @if (processingToolsActive() && processingToolHint().trim()) {
-              <span class="processing-tool-hint">{{ processingToolHint() }}</span>
-            }
-          </div>
+          <span class="processing-text">Clara</span>
         </div>
       </div>
     </div>

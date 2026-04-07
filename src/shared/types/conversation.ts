@@ -1,6 +1,6 @@
 import type { FileDiffPayload } from './diff';
 import type { DeleteConfirmPayload } from './delete-confirm';
-import type { LlmAgentRole } from './llm';
+import type { LlmAgentRole, PlannerProgress } from './llm';
 
 /** One labeled segment of an in-flight assistant reply (multiplexed LLM subgraphs share one bubble). */
 export interface StreamPart {
@@ -23,7 +23,8 @@ export interface ConversationMeta {
 
 /** One message in the chat UI (user/assistant text or tool chain row). */
 export type ConversationMessage =
-  | { role: 'user' | 'assistant'; text: string }
+  | { role: 'user'; text: string }
+  | { role: 'assistant'; text: string; planner?: PlannerProgress }
   | {
       role: 'chain';
       label: string;
@@ -32,6 +33,7 @@ export type ConversationMessage =
       source: 'agent' | 'tool';
       statusId: string;
       agentRole?: LlmAgentRole;
+      streamTag?: string;
     }
   | {
       role: 'diff';
@@ -55,7 +57,8 @@ export interface Conversation extends ConversationMeta {
 
 /** Serialized chat row in conversation JSON (includes tool/diff metadata). */
 export type ConversationFileMessage =
-  | { role: 'user' | 'assistant'; text: string }
+  | { role: 'user'; text: string }
+  | { role: 'assistant'; text: string; planner?: PlannerProgress }
   | {
       role: 'chain';
       label: string;
@@ -64,6 +67,7 @@ export type ConversationFileMessage =
       source: 'agent' | 'tool';
       statusId: string;
       agentRole?: LlmAgentRole;
+      streamTag?: string;
     }
   | {
       role: 'diff';

@@ -18,12 +18,12 @@ export function isPrimaryAssistantStreamTag(streamTag: string): boolean {
 }
 
 /**
- * Specialist nested pipeline (planning router + `spec-*` subgraphs).
+ * Nested pipeline: coding planner (`planner`), planning router (`planning`), and `spec-*` subgraphs.
  */
 export function streamIndicatesNestedSpecialistRouting(parts: StreamPart[]): boolean {
   return parts.some((p) => {
     const t = p.streamTag.trim();
-    return t === 'planning' || t.startsWith('spec-');
+    return t === 'planner' || t === 'planning' || t.startsWith('spec-');
   });
 }
 
@@ -45,7 +45,7 @@ export function delegatedStreamPartsForDisplay(
 
 /**
  * Text to persist and pass to TTS: `agent` first, then legacy `mgr`/`worker`.
- * Nested `planning` / `spec-*` chunks are never persisted (outer agent should stream the user-facing reply).
+ * Nested `planner` / `planning` / `spec-*` chunks are never persisted (outer agent should stream the user-facing reply).
  */
 export function primaryAssistantTextFromParts(parts: StreamPart[], _processingAgentRoleAtEnd: LlmAgentRole | null = null): string {
   const agent = parts

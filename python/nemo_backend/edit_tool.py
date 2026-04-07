@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.partial_workspace_edit import merge_partial_edit
-from nemo_backend.state import current_session_id, get_session, runtime_config
+from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
 from nemo_backend.workspace_text_io import (
     DiskNewline,
     NewlineMode,
@@ -187,6 +187,9 @@ def _run_edit_tool(
     end_line: int = 0,
 ) -> str:
     """Shared body for all three edit tools: validate params, read file, merge, finalize."""
+    blocked = mutation_tools_blocked_reason()
+    if blocked:
+        return blocked
     try:
         enc = _tool_encoding_param(encoding)
         nm = _tool_newline_param(newline)
@@ -249,6 +252,8 @@ def replace_workspace_line_range(
     """Replace an inclusive block of lines (1-based, same numbering as `read_workspace_file`) with `new_snippet`.
 
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
+    Use `apply_workspace_full_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after
+    the last line, and `1,1` can seed an empty file.
     See `apply_workspace_full_file` for `encoding` and `newline`.
 
     Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""

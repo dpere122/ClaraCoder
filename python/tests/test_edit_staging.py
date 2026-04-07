@@ -11,8 +11,11 @@ import pytest
 from nemo_backend.agents.specialists.review_tools import (
     approve_staged_workspace_edit,
     format_staging_file_black,
+    list_staged_edits,
     read_staged_edit,
     reject_staged_workspace_edit,
+    search_staged_edits,
+    transfer_staged_file_to_workspace,
 )
 from nemo_backend.domain import EditStagingEntry, RuntimeToolsConfig
 from nemo_backend.edit_staging import (
@@ -46,6 +49,7 @@ def staging_env():
     session.pending_edit_stagings.clear()
     session.pending_diff_payload = None
     session.auto_apply_mode = False
+    session.worker_apply_mode = True
 
     runtime_config.tools = RuntimeToolsConfig(
         edit_tools_strict=False,
@@ -188,7 +192,63 @@ def test_read_format_approve_reject(staging_env) -> None:
     assert 'Black' in fmt
     rej = reject_staged_workspace_edit.invoke({'relative_path': 'z.py', 'feedback': 'no'})
     assert 'Rejected' in rej
-    assert session.pending_edit_stagings == {}
+    assert 'z.py' in session.pending_edit_stagings
+    assert Path(session.pending_edit_stagings['z.py'].temp_path).is_file()
+
+
+def test_rejected_staging_is_reused_for_follow_up_edit(staging_env) -> None:
+    session = staging_env.session
+    out = stage_create_file.invoke(
+        {
+            'relative_path': 'draft.py',
+            'new_content': 'def value():\n    return 1\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'code review' in out.lower()
+    first_path = Path(session.pending_edit_stagings['draft.py'].temp_path)
+    assert first_path.is_file()
+
+    rej = reject_staged_workspace_edit.invoke({'relative_path': 'draft.py', 'feedback': 'return 2 instead'})
+    assert 'Rejected' in rej
+    assert session.pending_edit_stagings['draft.py'].temp_path == str(first_path)
+
+    revised = stage_snippet_edit.invoke(
+        {
+            'relative_path': 'draft.py',
+            'old_snippet': 'return 1',
+            'new_snippet': 'return 2',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'code review' in revised.lower()
+    latest = session.pending_edit_stagings['draft.py']
+    assert latest.old_text == ''
+    assert Path(latest.temp_path).is_file()
+    assert not first_path.exists()
+    reread = read_staged_edit.invoke({'relative_path': 'draft.py', 'include_line_numbers': False})
+    assert 'return 2' in reread
+
+
+def test_staging_review_tools_stay_inside_staging_surface(staging_env) -> None:
+    ws = staging_env.workspace
+    (ws / 'multi.py').write_text('alpha\nbeta\ngamma\n', encoding='utf-8')
+    stage_create_file.invoke(
+        {
+            'relative_path': 'multi.py',
+            'new_content': 'alpha\nBETA\ngamma\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    listed = list_staged_edits.invoke({})
+    assert 'multi.py' in listed
+    excerpt = read_staged_edit.invoke({'relative_path': 'multi.py', 'start_line': 2, 'end_line': 2})
+    assert '2 │ BETA' in excerpt
+    hits = search_staged_edits.invoke({'query': 'BETA', 'relative_path': 'multi.py'})
+    assert '[multi.py line 2]' in hits
 
 
 def test_approve_sets_diff_payload(staging_env) -> None:
@@ -210,6 +270,35 @@ def test_approve_sets_diff_payload(staging_env) -> None:
     assert session.pending_edit_stagings == {}
 
 
+def test_transfer_tool_sets_diff_payload(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'transfer.py').write_text('x=1\n', encoding='utf-8')
+    stage_create_file.invoke(
+        {
+            'relative_path': 'transfer.py',
+            'new_content': 'x = 1\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    out = transfer_staged_file_to_workspace.invoke({'relative_path': 'transfer.py'})
+    assert 'Transferred staged' in out
+    assert session.pending_diff_payload is not None
+    assert session.pending_edit_stagings == {}
+
+
+def test_mutation_tools_blocked_when_editor_off(staging_env) -> None:
+    session = staging_env.session
+    session.worker_apply_mode = False
+    assert 'Editor mode is off' in apply_workspace_full_file.invoke(
+        {'relative_path': 'a.py', 'new_content': 'x = 1\n'}
+    )
+    assert 'Editor mode is off' in stage_create_file.invoke(
+        {'relative_path': 'b.py', 'new_content': 'x = 1\n'}
+    )
+
+
 def test_discard_all_session_stagings(staging_env) -> None:
     session = staging_env.session
     p = staging_env.staging_root / 'f.txt'
@@ -224,3 +313,4 @@ def test_discard_all_session_stagings(staging_env) -> None:
     )
     discard_all_session_stagings(session)
     assert session.pending_edit_stagings == {}
+    assert not p.exists()

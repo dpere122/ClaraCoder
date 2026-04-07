@@ -1,0 +1,67 @@
+:host {
+  display: block;
+  width: min(100%, 40rem);
+}
+
+.planner-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--t-border-subtle);
+  border-left: 3px solid var(--t-assistant-border);
+  background: var(--t-hover-bg);
+}
+
+.planner-panel-title {
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.76rem;
+  color: var(--t-primary);
+  letter-spacing: 0.02em;
+}
+
+.planner-phase {
+  font-size: 0.72rem;
+  color: var(--t-text-muted);
+  text-transform: capitalize;
+}
+
+.planner-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.planner-step {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.55rem;
+  align-items: start;
+  font-size: 0.8rem;
+  color: var(--t-secondary);
+}
+
+.planner-step input {
+  margin-top: 0.12rem;
+}
+
+.planner-step-text {
+  word-break: break-word;
+}
+
+.planner-step-state {
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.68rem;
+  color: var(--t-text-muted);
+  text-transform: capitalize;
+}
+
+.planner-step.is-running .planner-step-state,
+.planner-step.is-running .planner-step-text {
+  color: var(--t-primary);
+}
+
+.planner-step.is-error .planner-step-state,
+.planner-step.is-error .planner-step-text {
+  color: #ff8a8a;
+}

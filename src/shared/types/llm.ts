@@ -1,6 +1,22 @@
 /** Legacy tier from Python ``agent_role`` (optional on persisted chain rows). */
 export type LlmAgentRole = 'manager' | 'worker';
 
+export type PlannerStepState = 'pending' | 'running' | 'complete' | 'error';
+
+export interface PlannerStep {
+  id: string;
+  text: string;
+  state: PlannerStepState;
+}
+
+export interface PlannerProgress {
+  streamTag: string;
+  phase: 'discovery' | 'planning' | 'executing' | 'complete' | 'error';
+  planReady?: boolean;
+  steps: PlannerStep[];
+  activeStepId?: string;
+}
+
 /**
  * Clara streaming/processing tier in the chat UI.
  * Maps from {@link LlmAgentRole} while a reply is in flight (single-agent uses `CLARA_AGENT`).
@@ -20,6 +36,7 @@ export interface LlmStatus {
   detail: string;
   state: 'running' | 'complete' | 'error';
   source: 'agent' | 'tool';
+  streamTag?: string;
   /** When set, chain row pill shows Manager / Worker instead of generic AGENT. */
   agentRole?: LlmAgentRole;
 }

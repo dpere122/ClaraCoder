@@ -117,13 +117,29 @@ def text_uses_pseudo_tool_markup(text: str) -> bool:
     return False
 
 
-def _workspace_hint(session: SessionState) -> str:
+_STAGING_TREE_SECTION_MARKER = '\n\nNested edit staging tree ('
+
+
+def _workspace_context_without_staging(workspace_context: str) -> str:
+    """Strip the appended staging-tree section from a combined workspace/staging snapshot."""
+    if not workspace_context:
+        return ''
+    before, marker, _after = workspace_context.partition(_STAGING_TREE_SECTION_MARKER)
+    if not marker:
+        return workspace_context
+    return before.rstrip()
+
+
+def _workspace_hint(session: SessionState, *, include_staging: bool = False) -> str:
     if not session.workspace_path:
         return 'No workspace is attached to this conversation.'
+    workspace_context = session.workspace_context or ''
+    if not include_staging:
+        workspace_context = _workspace_context_without_staging(workspace_context)
+    label = 'Workspace context snapshot' if include_staging else 'Workspace tree snapshot'
     return (
         f'Workspace path: {session.workspace_path}\n\n'
-        f'Workspace tree snapshot:\n{session.workspace_context or "[empty]"}\n\n'
-        f'Workspace live state:\n{session.workspace_state or "[no recent file activity recorded]"}'
+        f'{label}:\n{workspace_context or "[empty]"}'
     )
 
 
@@ -160,7 +176,8 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         '- When your answer refers to code or files, name the relevant paths clearly.\n'
         '- Match shell guidance to the detected host OS; do not assume Bash is available on Windows.\n'
         '- If no workspace is loaded, say that no local files were available.\n'
-        '- Read-only inspection: workspace tree and live state are in your system instructions above; use '
+        '- Read-only inspection: start with the workspace tree in your system instructions above for structure and likely file paths. '
+        'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree. Then use '
         '`list_workspace_directory`, `read_workspace_file`, and `search_workspace` to inspect files. '
         'For `.pdf` files, `read_workspace_file` treats start_line/end_line as 1-based page numbers (extracted text per page).\n'
         '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '

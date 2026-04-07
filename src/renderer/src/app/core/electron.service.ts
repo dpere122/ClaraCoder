@@ -14,6 +14,7 @@ import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
   LlmStatus,
+  PlannerProgress,
   TtsStreamPacket,
   Workspace,
   WorkspaceFileWriteOptions,
@@ -39,6 +40,11 @@ export interface DoneMessage {
 export interface LlmStatusMessage {
   conversationId: string;
   status: LlmStatus;
+}
+
+export interface PlannerMessage {
+  conversationId: string;
+  planner: PlannerProgress;
 }
 
 export interface DiffMessage {
@@ -75,6 +81,7 @@ export class ElectronService {
   private readonly toolReadChunkSubject = new Subject<ToolReadChunkMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
+  private readonly plannerSubject = new Subject<PlannerMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly configSubject = new Subject<AppConfig>();
@@ -93,6 +100,7 @@ export class ElectronService {
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
+  readonly planner$ = this.plannerSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
@@ -129,6 +137,9 @@ export class ElectronService {
     });
     this.api?.onMessageStatus((_event, conversationId, status) => {
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
+    });
+    this.api?.onMessagePlanner?.((_event, conversationId, planner) => {
+      this.zone.run(() => this.plannerSubject.next({ conversationId, planner }));
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));

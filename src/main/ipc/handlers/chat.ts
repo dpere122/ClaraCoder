@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import type { DeleteConfirmPayload, FileDiffPayload, LlmStatusPayload } from '../../../shared';
+import type { DeleteConfirmPayload, FileDiffPayload, LlmStatusPayload, PlannerProgress } from '../../../shared';
 import { PYTHON_URL } from '../../python/server';
 import { mainState } from '../../state';
 
@@ -15,6 +15,7 @@ export function parseStreamPayload(
   | { type: 'chunk'; delta: string; streamTag?: string }
   | { type: 'tool_read_chunk'; delta: string }
   | { type: 'status'; status: LlmStatusPayload }
+  | { type: 'planner'; planner: PlannerProgress }
   | { type: 'diff'; diff: FileDiffPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload } {
   try {
@@ -23,7 +24,8 @@ export function parseStreamPayload(
       delta?: string;
       stream_tag?: string;
       text?: string;
-      status?: LlmStatusPayload & { agent_role?: string };
+      status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
+      planner?: PlannerProgress;
       diff?: unknown;
       deleteConfirm?: unknown;
     };
@@ -39,9 +41,14 @@ export function parseStreamPayload(
           detail: parsed.status.detail ?? '',
           state: parsed.status.state ?? 'running',
           source: parsed.status.source ?? 'agent',
+          ...(parsed.status.stream_tag ? { streamTag: parsed.status.stream_tag } : {}),
           ...(agentRole ? { agentRole } : {}),
         },
       };
+    }
+
+    if (parsed.type === 'planner' && parsed.planner && typeof parsed.planner === 'object') {
+      return { type: 'planner', planner: parsed.planner };
     }
 
     if (parsed.type === 'diff' && parsed.diff && typeof parsed.diff === 'object') {
@@ -78,6 +85,8 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
   const parsed = parseStreamPayload(payload);
   if (parsed.type === 'status') {
     event.reply('message-status', conversationId, parsed.status);
+  } else if (parsed.type === 'planner') {
+    event.reply('message-planner', conversationId, parsed.planner);
   } else if (parsed.type === 'diff') {
     event.reply('message-diff', conversationId, parsed.diff);
   } else if (parsed.type === 'delete_confirm') {

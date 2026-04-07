@@ -17,6 +17,7 @@ from nemo_backend.agent_streaming import (
     is_meaningful_stream_delta,
     iter_read_tool_stream_sse,
     model_chunk_sse_line,
+    planner_progress_event,
     sse_line,
     sse_tool_finished,
     status_event,
@@ -63,6 +64,7 @@ def _on_chat_model_start(
     state: GraphStreamState,
     *,
     agent_role: str | None,
+    stream_tag: str | None,
     status_label: str,
     llm_event_prefix: str,
     llm_log_context: str,
@@ -85,6 +87,7 @@ def _on_chat_model_start(
                 state='running',
                 source='agent',
                 agent_role=agent_role,
+                stream_tag=stream_tag,
             )
         )
     ]
@@ -115,6 +118,7 @@ def _on_chat_model_end(
     state: GraphStreamState,
     *,
     agent_role: str | None,
+    stream_tag: str | None,
     status_label: str,
     llm_event_prefix: str,
     llm_log_context: str,
@@ -133,6 +137,7 @@ def _on_chat_model_end(
                 state='complete',
                 source='agent',
                 agent_role=agent_role,
+                stream_tag=stream_tag,
             )
         )
     ]
@@ -156,6 +161,7 @@ def _on_tool_start(
     state: GraphStreamState,
     *,
     agent_role: str | None,
+    stream_tag: str | None,
 ) -> list[str]:
     name = str(ev.get('name') or 'tool')
     raw_input = data.get('input')
@@ -172,6 +178,7 @@ def _on_tool_start(
                 state='running',
                 source='tool',
                 agent_role=agent_role,
+                stream_tag=stream_tag,
             )
         )
     ]
@@ -183,6 +190,7 @@ def _on_tool_end(
     state: GraphStreamState,
     *,
     agent_role: str | None,
+    stream_tag: str | None,
 ) -> list[str]:
     name = str(ev.get('name') or 'tool')
     run_id = str(ev.get('run_id') or '')
@@ -206,6 +214,7 @@ def _on_tool_end(
             ok=ok,
             error_detail=err_detail,
             agent_role=agent_role,
+            stream_tag=stream_tag,
         )
     )
     return lines
@@ -242,6 +251,7 @@ def sse_lines_for_graph_event(
         return _on_chat_model_start(
             data, state,
             agent_role=agent_role,
+            stream_tag=stream_tag,
             status_label=status_label,
             llm_event_prefix=llm_event_prefix,
             llm_log_context=llm_log_context,
@@ -256,15 +266,21 @@ def sse_lines_for_graph_event(
         return _on_chat_model_end(
             data, state,
             agent_role=agent_role,
+            stream_tag=stream_tag,
             status_label=status_label,
             llm_event_prefix=llm_event_prefix,
             llm_log_context=llm_log_context,
             record_model_end_final_text=record_model_end_final_text,
         )
     if et == 'on_tool_start':
-        return _on_tool_start(ev, data, state, agent_role=agent_role)
+        return _on_tool_start(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'on_tool_end':
-        return _on_tool_end(ev, data, state, agent_role=agent_role)
+        return _on_tool_end(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
+    if et == 'planner_progress':
+        planner = data.get('planner')
+        if isinstance(planner, dict):
+            return [sse_line(planner_progress_event(planner))]
+        return []
     return []
 
 

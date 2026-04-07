@@ -245,10 +245,29 @@ def _line_range_replace(old_text: str, start_line: int, end_line: int, new_snipp
         return None, 'end_line must be >= start_line.'
     lines = old_text.splitlines()
     n = len(lines)
+    if start_line == n + 1 and end_line == start_line:
+        if not old_text:
+            return new_snippet, None
+        append_lines = new_snippet.splitlines() if new_snippet else []
+        new_lines = lines + append_lines
+        new_text = '\n'.join(new_lines)
+        if old_text.endswith('\n'):
+            new_text += '\n'
+        return new_text, None
     if start_line > n:
-        return None, f'start_line {start_line} is past end of file ({n} lines).'
+        return (
+            None,
+            f'start_line {start_line} is past end of file ({n} lines). '
+            f'Use start_line=end_line={n + 1} to append after the last line.'
+            + (' For an empty file, use start_line=end_line=1 to seed the file.' if n == 0 else ''),
+        )
     if end_line > n:
-        return None, f'end_line {end_line} is past end of file ({n} lines).'
+        return (
+            None,
+            f'end_line {end_line} is past end of file ({n} lines). '
+            f'Use start_line=end_line={n + 1} to append after the last line.'
+            + (' For an empty file, use start_line=end_line=1 to seed the file.' if n == 0 else ''),
+        )
 
     insert_lines = new_snippet.splitlines() if new_snippet else []
     new_lines = lines[: start_line - 1] + insert_lines + lines[end_line:]

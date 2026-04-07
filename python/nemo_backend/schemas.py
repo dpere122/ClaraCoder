@@ -61,12 +61,11 @@ class ClearRequest(BaseModel):
 
 
 class WorkspaceContextRequest(BaseModel):
-    """Sync workspace path and renderer-generated tree/state for a session."""
+    """Sync workspace path and renderer-generated tree for a session."""
 
     session_id: str
     workspace_path: str
     workspace_context: str
-    workspace_state: str = ''
 
 
 class TtsRequest(BaseModel):

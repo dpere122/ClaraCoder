@@ -1,6 +1,8 @@
 import { Component, effect, model, NgZone, OnDestroy, OnInit, output, signal, ViewEncapsulation } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { ElectronService } from '../../../core/electron.service';
+import { TalkUiState } from '../../../core/talk-ui-state';
+import { LucideAngularModule } from 'lucide-angular';
 
 const MIN_THRESHOLD = 0.5;
 const MAX_THRESHOLD = 5.0;
@@ -14,7 +16,7 @@ export interface AudioDevice {
 
 @Component({
   selector: 'app-talk-mode',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, LucideAngularModule],
   templateUrl: './talk-mode.html',
   styleUrl: './talk-mode.css',
   encapsulation: ViewEncapsulation.None
@@ -44,7 +46,11 @@ export class TalkMode implements OnInit, OnDestroy {
   private silentMs = 0;
   private transcribing = false;
 
-  constructor(private zone: NgZone, private electron: ElectronService) {
+  constructor(
+    private zone: NgZone,
+    private electron: ElectronService,
+    private talkUi: TalkUiState,
+  ) {
     effect(() => {
       const enabled = this.talkEnabled();
       if (enabled) {
@@ -165,6 +171,7 @@ export class TalkMode implements OnInit, OnDestroy {
     this.hasVoice = false;
     this.silentMs = 0;
     this.transcribing = false;
+    this.zone.run(() => this.talkUi.reset());
 
     this.processorNode.onaudioprocess = (event) => {
       const buf = event.inputBuffer;
@@ -176,6 +183,7 @@ export class TalkMode implements OnInit, OnDestroy {
           this.hasVoice = true;
           this.zone.run(() => {
             this.currentTranscript.set('Recording...');
+            this.talkUi.capturing.set(true);
             this.recordingBegan.emit();
           });
         }
@@ -190,6 +198,10 @@ export class TalkMode implements OnInit, OnDestroy {
 
       if (this.hasVoice && this.silentMs >= this.silenceThreshold() * 1000 && !this.transcribing) {
         this.transcribing = true;
+        this.zone.run(() => {
+          this.talkUi.capturing.set(false);
+          this.talkUi.transcribing.set(true);
+        });
         const samples = this.mergePcmChunks();
         const wav = this.encodeWav(samples, sampleRate);
         this.pcmChunks = [];
@@ -225,6 +237,7 @@ export class TalkMode implements OnInit, OnDestroy {
     this.transcribing = false;
     this.listening.set(false);
     this.currentTranscript.set('');
+    this.zone.run(() => this.talkUi.reset());
   }
 
   private async transcribe(wav: ArrayBuffer): Promise<void> {
@@ -253,6 +266,7 @@ export class TalkMode implements OnInit, OnDestroy {
       this.transcribing = false;
       const captured = hadSpeech;
       this.zone.run(() => {
+        this.talkUi.transcribing.set(false);
         this.talkCaptureFinished.emit({ hadSpeech: captured });
         this.currentTranscript.set('');
         if (this.statusMessage() && this.statusMessage() !== 'Microphone permission is required') {

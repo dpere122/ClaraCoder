@@ -15,7 +15,7 @@
         aria-label='Add workspace'
         (click)='onAddWorkspace()'
       >
-        <i class='bi bi-folder-plus'></i>
+        <lucide-icon name='folder-plus' [size]='17' />
       </button>
     </div>
   </div>
@@ -36,11 +36,15 @@
             (click)='onTreeNodeClick(node)'
           >
             @if (node.isDirectory) {
-              <i class='bi node-chevron' [class.bi-chevron-right]='!node.expanded' [class.bi-chevron-down]='node.expanded'></i>
-              <i class='bi bi-folder-fill folder-icon'></i>
+              <lucide-icon
+                class='node-chevron'
+                [name]="node.expanded ? 'chevron-down' : 'chevron-right'"
+                [size]='12'
+              />
+              <lucide-icon name='folder' class='folder-icon' [size]='14' />
             } @else {
               <span class='node-chevron-spacer'></span>
-              <i class='bi bi-file-earmark file-icon'></i>
+              <lucide-icon name='file-text' class='file-icon' [size]='14' />
             }
             <span class='node-name'>{{ node.name }}</span>
           </div>

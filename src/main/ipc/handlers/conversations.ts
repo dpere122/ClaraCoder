@@ -144,7 +144,7 @@ export function registerConversationsIpc(): void {
     }
 
     const pyMessages = conv.messages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .filter((m): m is { role: 'user' | 'assistant'; text: string } => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({ role: m.role, content: m.text }));
     try {
       await fetch(`${PYTHON_URL}/load`, {

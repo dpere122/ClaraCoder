@@ -17,6 +17,7 @@ export const THEMES: ThemeOption[] = [
   { id: 'dark-classical', label: 'Dark Classical', cssClass: 'theme-dark-classical', bsTheme: 'dark' },
   { id: 'steampunk', label: 'Steam Punk', cssClass: 'theme-steampunk', bsTheme: 'dark' },
   { id: 'win95', label: 'Windows 95', cssClass: 'theme-win95', bsTheme: 'light' },
+  { id: 'woodland', label: 'Woodland', cssClass: 'theme-woodland', bsTheme: 'dark' },
 ];
 
 @Component({

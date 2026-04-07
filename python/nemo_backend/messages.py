@@ -12,6 +12,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
+from nemo_backend.model_tuning import qwen_optimize_profile_active, qwen_system_prompt_suffix
 from nemo_backend.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
@@ -116,25 +117,76 @@ def text_uses_pseudo_tool_markup(text: str) -> bool:
     return False
 
 
-def build_system_prompt(session: SessionState) -> str:
-    """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace."""
-    workspace_hint = 'No workspace is attached to this conversation.'
-    if session.workspace_path:
-        workspace_hint = (
-            f'Workspace path: {session.workspace_path}\n\n'
-            f'Workspace tree snapshot:\n{session.workspace_context or "[empty]"}\n\n'
-            f'Workspace live state:\n{session.workspace_state or "[no recent file activity recorded]"}'
-        )
+def _workspace_hint(session: SessionState) -> str:
+    if not session.workspace_path:
+        return 'No workspace is attached to this conversation.'
+    return (
+        f'Workspace path: {session.workspace_path}\n\n'
+        f'Workspace tree snapshot:\n{session.workspace_context or "[empty]"}\n\n'
+        f'Workspace live state:\n{session.workspace_state or "[no recent file activity recorded]"}'
+    )
 
+
+def _connection_line(session: SessionState) -> str:
     connection = get_active_connection()
+    return (
+        f'Active model connection: {connection.name} ({connection.provider}, model={connection.model}).'
+    )
+
+
+def _qwen_optimize_suffix() -> str:
+    if qwen_optimize_profile_active(get_active_connection()):
+        return qwen_system_prompt_suffix()
+    return ''
+
+
+def _os_hint_line() -> str:
     host = runtime_config.host
-    os_hint = 'Host operating system: unavailable.'
-    if host.platform:
-        os_hint = (
-            f'Host operating system: {host.label or host.platform} '
-            f'(platform={host.platform}, release={host.release or "unknown"}, '
-            f'version={host.version or "unknown"}, arch={host.arch or "unknown"}).'
+    if not host.platform:
+        return 'Host operating system: unavailable.'
+    return (
+        f'Host operating system: {host.label or host.platform} '
+        f'(platform={host.platform}, release={host.release or "unknown"}, '
+        f'version={host.version or "unknown"}, arch={host.arch or "unknown"}).'
+    )
+
+
+def _outer_agent_operational_block(apply_mode: bool) -> str:
+    """Outer Clara: reads/search; ``modify_workspace`` when Editor on (mutations in nested specialists)."""
+    base = (
+        'Operational guidance:\n'
+        '- For codebase questions, inspect the workspace before making claims.\n'
+        '- If a tool returns partial data, say what is missing.\n'
+        '- When your answer refers to code or files, name the relevant paths clearly.\n'
+        '- Match shell guidance to the detected host OS; do not assume Bash is available on Windows.\n'
+        '- If no workspace is loaded, say that no local files were available.\n'
+        '- Read-only inspection: workspace tree and live state are in your system instructions above; use '
+        '`list_workspace_directory`, `read_workspace_file`, and `search_workspace` to inspect files. '
+        'For `.pdf` files, `read_workspace_file` treats start_line/end_line as 1-based page numbers (extracted text per page).\n'
+        '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
+        'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
+    )
+    if not apply_mode:
+        return (
+            base
+            + '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
+            'If the user wants patches or deletes from chat, ask them to enable Editor in the toolbar.\n'
         )
+    return (
+        base
+        + '- Editor mode is on: you have read/search tools plus `modify_workspace`. '
+        'Read and inspect relevant files yourself first, then call `modify_workspace` with a clear `task_summary` '
+        'that includes the goal, constraints, paths, and any file content context you have already gathered. '
+        'You cannot call edit or delete tools directly\u2014use `modify_workspace` for any workspace mutation. '
+        'The user may review diffs or confirm deletes in the UI unless auto-apply is enabled.\n'
+        '- After `modify_workspace` returns, answer the user with a concise summary of outcomes (files touched, '
+        'key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
+    )
+
+
+def build_system_prompt(session: SessionState, apply_mode: bool) -> str:
+    """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace."""
+    workspace_hint = _workspace_hint(session)
     return (
         'You are Clara, a proactive coding assistant inside an Electron desktop app. '
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
@@ -142,16 +194,9 @@ def build_system_prompt(session: SessionState) -> str:
         'never emit tool invocations as XML tags, <tool_call> blocks, or similar text; those are ignored by the runtime. '
         'Prefer quoting exact file paths, line numbers, commands, and concrete next steps. '
         'Keep answers concise but useful, and explain what you actually inspected.\n\n'
-        f'Active model connection: {connection.name} ({connection.provider}, model={connection.model}).\n\n'
-        f'{os_hint}\n\n'
-        'Operational guidance:\n'
-        '- For codebase questions, inspect the workspace before making claims.\n'
-        '- If a tool returns partial data, say what is missing.\n'
-        '- When suggesting edits, mention the files that matter.\n'
-        '- Match shell guidance to the detected host OS; do not assume Bash is available on Windows.\n'
-        '- If no workspace is loaded, say that no local files were available.\n'
-        '- Workspace tools are read-only: you cannot create, delete, or modify files via tools. '
-        'When the user wants code changes, inspect the workspace, then describe exact edits '
-        '(paths, snippets, or patches) in your reply so they or the app can apply them.\n'
+        f'{_connection_line(session)}\n\n'
+        f'{_os_hint_line()}\n\n'
+        f'{_outer_agent_operational_block(apply_mode)}'
         f'{workspace_hint}'
+        f'{_qwen_optimize_suffix()}'
     )

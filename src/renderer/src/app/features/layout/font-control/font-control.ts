@@ -1,5 +1,6 @@
 import { Component, model, ViewEncapsulation } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { LucideAngularModule } from 'lucide-angular';
 
 const MIN_SIZE = 0.6;
 const MAX_SIZE = 1.6;
@@ -7,7 +8,7 @@ const STEP = 0.1;
 
 @Component({
   selector: 'app-font-control',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, LucideAngularModule],
   templateUrl: './font-control.html',
   styleUrl: './font-control.css',
   encapsulation: ViewEncapsulation.None

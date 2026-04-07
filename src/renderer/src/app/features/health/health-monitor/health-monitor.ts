@@ -1,0 +1,186 @@
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  inject,
+  signal,
+} from '@angular/core';
+import Chart from 'chart.js/auto';
+import type { AppConfig, HealthMetricsSnapshot } from '@shared/index';
+import { THEMES } from '../../layout/theme-selector/theme-selector';
+import { ElectronService } from '../../../core/electron.service';
+import { HealthLogViewer } from '../health-log-viewer/health-log-viewer';
+
+const MAX_POINTS = 36;
+
+type ChartKey = 'mem' | 'cpu' | 'netRx' | 'netTx' | 'diskR' | 'diskW';
+
+@Component({
+  selector: 'app-health-monitor',
+  imports: [HealthLogViewer],
+  templateUrl: './health-monitor.html',
+  styleUrl: './health-monitor.css',
+})
+export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly electron = inject(ElectronService);
+
+  private charts = new Map<ChartKey, InstanceType<typeof Chart>>();
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private configSub: { unsubscribe(): void } | null = null;
+
+  protected readonly gpuSummary = signal<string>('GPU: collecting…');
+
+  protected readonly chartDefs: Array<{ key: ChartKey; label: string; suffix: string; yMax?: number }> = [
+    { key: 'mem', label: 'Memory', suffix: '%', yMax: 100 },
+    { key: 'cpu', label: 'CPU', suffix: '%', yMax: 100 },
+    { key: 'netRx', label: 'Network in', suffix: 'B/s' },
+    { key: 'netTx', label: 'Network out', suffix: 'B/s' },
+    { key: 'diskR', label: 'Disk read', suffix: 'B/s' },
+    { key: 'diskW', label: 'Disk write', suffix: 'B/s' },
+  ];
+
+  protected readonly lastValues = signal<Record<string, string>>({});
+
+  /** When true, charts are hidden so the log uses the full window height. */
+  protected readonly logExpanded = signal(false);
+
+  protected toggleLogExpanded(): void {
+    this.logExpanded.update((v) => !v);
+  }
+
+  async ngOnInit(): Promise<void> {
+    const cfg = await this.electron.loadConfig();
+    this.applyTheme(cfg);
+    this.configSub = this.electron.config$.subscribe((c: AppConfig) => this.applyTheme(c));
+  }
+
+  ngAfterViewInit(): void {
+    queueMicrotask(() => this.initCharts());
+    this.pollTimer = setInterval(() => void this.tick(), 1000);
+    void this.tick();
+  }
+
+  ngOnDestroy(): void {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.configSub?.unsubscribe();
+    for (const c of this.charts.values()) {
+      c.destroy();
+    }
+    this.charts.clear();
+  }
+
+  protected closeWindow(): void {
+    this.electron.closeHealthWindow();
+  }
+
+  private applyTheme(config: AppConfig): void {
+    const theme = THEMES.find((t) => t.id === config.themeId);
+    document.documentElement.className = theme?.cssClass ?? '';
+    document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
+  }
+
+  private initCharts(): void {
+    const root = this.host.nativeElement;
+    for (const def of this.chartDefs) {
+      const canvas = root.querySelector(`canvas[data-key="${def.key}"]`) as HTMLCanvasElement | null;
+      if (!canvas) continue;
+      const chart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              data: [] as number[],
+              borderColor: 'rgba(0, 255, 65, 0.85)',
+              backgroundColor: 'rgba(0, 255, 65, 0.12)',
+              fill: true,
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 1.5,
+            },
+          ],
+        },
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: {
+              beginAtZero: true,
+              suggestedMax: def.yMax,
+              ticks: { maxTicksLimit: 4, color: 'var(--t-text-muted)' },
+              grid: { color: 'color-mix(in srgb, var(--t-border) 50%, transparent)' },
+            },
+          },
+        },
+      });
+      this.charts.set(def.key, chart);
+    }
+  }
+
+  private pushPoint(chart: InstanceType<typeof Chart>, y: number): void {
+    const ds = chart.data.datasets[0].data as number[];
+    ds.push(y);
+    if (ds.length > MAX_POINTS) ds.shift();
+    chart.data.labels = ds.map(() => '');
+    chart.update('none');
+  }
+
+  private fmtBytesPerSec(v: number): string {
+    if (!Number.isFinite(v) || v < 0) return '0 B/s';
+    if (v < 1024) return `${v.toFixed(0)} B/s`;
+    if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB/s`;
+    return `${(v / (1024 * 1024)).toFixed(2)} MB/s`;
+  }
+
+  private async tick(): Promise<void> {
+    const snap = await this.electron.healthMetrics();
+    if (!snap) return;
+    this.updateGpu(snap);
+    this.pushSnapshot(snap);
+  }
+
+  private updateGpu(s: HealthMetricsSnapshot): void {
+    const parts: string[] = [];
+    if (s.gpuModel) parts.push(s.gpuModel);
+    if (s.gpuUtilPercent != null && Number.isFinite(s.gpuUtilPercent)) {
+      parts.push(`util ${s.gpuUtilPercent.toFixed(0)}%`);
+    }
+    if (s.gpuMemoryUsedMb != null && s.gpuMemoryTotalMb != null) {
+      parts.push(`VRAM ${s.gpuMemoryUsedMb} / ${s.gpuMemoryTotalMb} MB`);
+    } else if (s.gpuMemoryTotalMb != null) {
+      parts.push(`VRAM ${s.gpuMemoryTotalMb} MB (reported)`);
+    }
+    this.gpuSummary.set(parts.length ? parts.join(' · ') : 'GPU: no detailed metrics (OS/driver)');
+  }
+
+  private pushSnapshot(s: HealthMetricsSnapshot): void {
+    const lv: Record<string, string> = {
+      mem: `${s.memoryUsedPercent.toFixed(1)}%`,
+      cpu: `${s.cpuLoadPercent.toFixed(1)}%`,
+      netRx: this.fmtBytesPerSec(s.networkRxBps),
+      netTx: this.fmtBytesPerSec(s.networkTxBps),
+      diskR: this.fmtBytesPerSec(s.diskReadBps),
+      diskW: this.fmtBytesPerSec(s.diskWriteBps),
+    };
+    this.lastValues.set(lv);
+
+    const m = this.charts.get('mem');
+    const c = this.charts.get('cpu');
+    const nr = this.charts.get('netRx');
+    const nt = this.charts.get('netTx');
+    const dr = this.charts.get('diskR');
+    const dw = this.charts.get('diskW');
+    if (m) this.pushPoint(m, s.memoryUsedPercent);
+    if (c) this.pushPoint(c, s.cpuLoadPercent);
+    if (nr) this.pushPoint(nr, s.networkRxBps);
+    if (nt) this.pushPoint(nt, s.networkTxBps);
+    if (dr) this.pushPoint(dr, s.diskReadBps);
+    if (dw) this.pushPoint(dw, s.diskWriteBps);
+  }
+}

@@ -4,62 +4,79 @@
   font-size: 13px;
 }
 
-.settings-shell {
+.temperature-row {
   display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 24px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* Beat `.field input { width: 100% }` so the slider grows and the number stays compact. */
+.field .temperature-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.field .temperature-row .temperature-row__number {
+  width: 4.5rem;
+  max-width: 4.5rem;
+  flex-shrink: 0;
   box-sizing: border-box;
+}
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  height: 100%;
+  padding: 14px 18px 12px;
+  box-sizing: border-box;
+  gap: 14px 20px;
   background:
     radial-gradient(circle at top left, color-mix(in srgb, var(--t-primary) 14%, transparent), transparent 32%),
     linear-gradient(180deg, color-mix(in srgb, var(--t-bg-surface) 88%, transparent), var(--t-bg));
   color: var(--t-fg);
 }
 
-.settings-main {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 24px;
-  flex: 1;
-  min-height: 0;
-}
-
 .settings-footer {
-  flex-shrink: 0;
+  grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  margin-top: 16px;
-  padding-top: 16px;
+  padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
   -webkit-app-region: no-drag;
 }
 
 .settings-close-btn {
   -webkit-app-region: no-drag;
+  min-width: 9rem;
 }
 
 .settings-nav,
-.panel,
 .connection-card,
 .workspace-card {
   border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
   background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
 }
 
 .settings-nav {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 22px;
+  gap: 12px;
+  padding: 16px 18px;
   -webkit-app-region: drag;
 }
 
 .settings-nav__group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   -webkit-app-region: no-drag;
 }
 
@@ -128,9 +145,8 @@
 }
 
 .settings-nav h2,
-.panel h3,
 .settings-overview h3,
-.settings-section h4,
+.section-heading h4,
 .settings-editor h4 {
   margin: 0;
   color: var(--t-primary);
@@ -141,13 +157,12 @@
   margin-bottom: 8px;
 }
 
-.panel h3,
 .settings-overview h3 {
   font-size: 1.12rem;
   font-weight: 600;
 }
 
-.settings-section h4,
+.section-heading h4,
 .settings-editor h4 {
   font-size: 0.95rem;
   font-weight: 600;
@@ -155,11 +170,13 @@
 
 .tab-button {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
-  padding: 14px 16px;
+  min-height: 0;
+  padding: 6px 14px;
   border: 1px solid transparent;
   background: color-mix(in srgb, var(--t-bg) 65%, transparent);
   color: var(--t-fg);
@@ -171,11 +188,14 @@
 .tab-button span {
   font-size: 13px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .tab-button small {
   font-size: 11px;
   color: var(--t-muted);
+  text-align: right;
+  line-height: 1.25;
 }
 
 .tab-button:hover,
@@ -186,18 +206,31 @@
 }
 
 .settings-content {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   -webkit-app-region: no-drag;
 }
 
 .settings-overview {
-  padding-bottom: 18px;
+  padding-bottom: 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
   -webkit-app-region: drag;
+}
+
+.settings-overview__right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  -webkit-app-region: no-drag;
 }
 
 .settings-overview,
@@ -206,82 +239,74 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
 .settings-overview__meta {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 6px;
   text-align: right;
 }
 
-.panel {
-  padding: 24px;
+.settings-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
 }
 
-.panel__header,
 .settings-editor__header,
 .workspace-card__controls,
 .connection-card__top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-}
-
-.panel__header {
-  margin-bottom: 20px;
+  gap: 12px;
 }
 
 .models-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 22px;
-}
-
-.stack-column {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
   gap: 16px;
 }
 
-.stack-column > .settings-divider {
-  margin: 0;
-}
-
-.settings-section {
+.models-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
-.settings-editor,
-.settings-body {
+.models-sidebar > .settings-divider {
+  margin: 4px 0;
+}
+
+.settings-editor {
   display: flex;
   flex-direction: column;
   gap: 0;
   min-width: 0;
 }
 
-.settings-editor > .settings-divider,
-.settings-body > .settings-divider {
-  margin: 18px 0;
+.settings-editor > .settings-divider {
+  margin: 12px 0;
 }
 
-.settings-body--constrained {
-  max-width: 860px;
+.settings-pane > .settings-divider {
+  margin: 12px 0;
 }
 
 .section-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 10px;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--t-primary) 35%, transparent);
   background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
   color: var(--t-primary);
@@ -312,7 +337,7 @@
 .workspace-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .connection-card,
@@ -324,7 +349,7 @@
 .connection-card,
 .workspace-card__body,
 .workspace-card--none {
-  padding: 16px;
+  padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
   background: color-mix(in srgb, var(--t-bg) 52%, var(--t-bg-surface));
   color: inherit;
@@ -351,21 +376,23 @@
 }
 
 .connection-card__model {
-  margin: 12px 0 4px;
+  margin: 8px 0 2px;
   font-weight: 600;
 }
 
 .settings-editor__actions {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .toggle-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 4px 0 0;
-  padding: 10px 0;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 6px 0;
   border: none;
   border-top: 1px solid color-mix(in srgb, var(--t-border) 55%, transparent);
   background: transparent;
@@ -374,19 +401,19 @@
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px 16px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .field--full {
@@ -410,7 +437,9 @@
 .field input,
 .field select {
   width: 100%;
-  padding: 11px 12px;
+  padding: 6px 10px;
+  min-height: 30px;
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
   background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
   color: var(--t-fg);
@@ -433,12 +462,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 5px 18px;
+  min-height: 30px;
+  min-width: 7.5rem;
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
   background: color-mix(in srgb, var(--t-bg) 52%, var(--t-bg-surface));
   color: var(--t-fg);
   cursor: pointer;
+}
+
+.settings-overview__right .action-button {
+  min-width: 10.5rem;
+}
+
+.workspace-card__controls .action-button {
+  min-width: 6.5rem;
+  align-self: flex-end;
 }
 
 .action-button:hover:not(:disabled) {
@@ -469,10 +510,6 @@
   color: #7ff0aa;
 }
 
-.workspace-card__controls {
-  margin-top: 18px;
-}
-
 .callout {
   margin: 0;
   padding: 0;
@@ -482,22 +519,22 @@
 
 .empty-state {
   margin: 0;
-  padding: 20px 12px;
+  padding: 14px 10px;
   border: none;
   background: transparent;
   text-align: center;
 }
 
 .settings-editor > .empty-state {
-  padding: 36px 12px;
+  padding: 24px 10px;
 }
 
 .workspace-list {
-  gap: 16px;
+  gap: 10px;
 }
 
 .workspace-card {
-  padding: 16px;
+  padding: 12px;
 }
 
 .workspace-card__body {
@@ -517,8 +554,9 @@
 
 .workspace-card__controls {
   display: flex;
-  align-items: end;
-  gap: 14px;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .workspace-card__controls .field {
@@ -528,13 +566,25 @@
 @media (max-width: 1100px) {
   .settings-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
     height: auto;
   }
 
   .settings-nav {
+    grid-column: 1;
+    grid-row: 1;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: stretch;
+  }
+
+  .settings-content {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .settings-footer {
+    grid-row: 3;
   }
 
   .settings-nav__group,
@@ -556,17 +606,19 @@
 }
 
 @media (max-width: 720px) {
-  .settings-shell,
-  .panel,
+  .settings-shell {
+    padding: 12px;
+  }
+
   .workspace-card {
-    padding: 16px;
+    padding: 12px;
   }
 
   .form-grid,
   .workspace-card__controls,
-  .panel__header,
   .settings-editor__header,
   .settings-overview,
+  .settings-overview__right,
   .section-heading,
   .form-section__header {
     grid-template-columns: 1fr;
@@ -576,6 +628,16 @@
   .settings-overview__meta {
     align-items: flex-start;
     text-align: left;
+  }
+
+  .settings-overview__right {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .settings-overview__right .action-button {
+    width: 100%;
+    min-width: 0;
   }
 
   .settings-editor__actions {

@@ -1,5 +1,6 @@
 import { Component, effect, input, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
 import type { Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { Subscription } from 'rxjs';
@@ -26,7 +27,7 @@ interface FlatNode {
 
 @Component({
   selector: 'app-workspace',
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,

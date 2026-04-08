@@ -8,24 +8,35 @@
     <button type='button' class='health-close-btn' (click)='closeWindow()'>Close</button>
   </header>
 
+  <app-health-metrics-toggle [enabled]='metricsEnabled()' (changed)='onMetricsToggle($event)' />
+
   <section class='health-charts' [class.health-charts--hidden]='logExpanded()'>
-    <div class='health-charts__grid'>
-      @for (c of chartDefs; track c.key) {
-        <div class='health-chart-card'>
-          <div class='health-chart-card__top'>
-            <span class='health-chart-card__label'>{{ c.label }}</span>
-            <span class='health-chart-card__value'>{{ lastValues()[c.key] || '—' }}</span>
+    @if (metricsEnabled()) {
+      <div class='health-charts__grid'>
+        @for (c of chartDefs; track c.key) {
+          <div class='health-chart-card'>
+            <div class='health-chart-card__top'>
+              <span class='health-chart-card__label'>{{ c.label }}</span>
+              <span class='health-chart-card__value'>{{ lastValues()[c.key] || '—' }}</span>
+            </div>
+            <div class='health-chart-card__canvas'>
+              <canvas [attr.data-key]='c.key' height='90'></canvas>
+            </div>
           </div>
-          <div class='health-chart-card__canvas'>
-            <canvas [attr.data-key]='c.key' height='90'></canvas>
-          </div>
-        </div>
-      }
-    </div>
-    <div class='health-gpu-card'>
-      <span class='health-chart-card__label'>GPU (best effort)</span>
-      <p class='health-gpu-card__text'>{{ gpuSummary() }}</p>
-    </div>
+        }
+      </div>
+      <div class='health-gpu-card'>
+        <span class='health-chart-card__label'>GPU (best effort)</span>
+        <p class='health-gpu-card__text'>{{ gpuSummary() }}</p>
+      </div>
+    } @else {
+      <div class='health-disabled-card'>
+        <span class='health-chart-card__label'>Live stats paused</span>
+        <p class='health-disabled-card__text'>
+          CPU, memory, network, disk, and GPU polling are disabled so the health window only keeps the log viewer active.
+        </p>
+      </div>
+    }
   </section>
 
   <section class='health-logs-wrap'>

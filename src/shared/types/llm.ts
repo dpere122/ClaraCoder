@@ -15,6 +15,10 @@ export interface PlannerProgress {
   planReady?: boolean;
   steps: PlannerStep[];
   activeStepId?: string;
+  finalReviewState?: PlannerStepState;
+  finalReviewAttempts?: number;
+  finalReviewMaxAttempts?: number;
+  finalReviewSummary?: string;
 }
 
 /**

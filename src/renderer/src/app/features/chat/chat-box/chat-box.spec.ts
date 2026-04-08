@@ -93,6 +93,38 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].artifacts[0].role).toBe('copy_confirm');
   });
 
+  it('keeps generic accept-command artifacts grouped with the assistant turn', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Install pytest' },
+      { role: 'chain', label: 'install_python_packages', text: 'Awaiting approval', state: 'complete', source: 'tool', statusId: 'tool-deps' },
+      {
+        role: 'accept_command',
+        payload: {
+          version: 1,
+          requestId: 'accept-1',
+          kind: 'python_dependency',
+          title: 'Install Python packages',
+          message: 'Install package(s) into the active workspace virtual environment.',
+          confirmLabel: 'Install packages',
+          cancelLabel: 'Cancel',
+          commandText: 'python -m pip install pytest',
+          details: ['Workspace root: `.`', 'Packages: `pytest`'],
+        },
+        reviewStatus: 'pending',
+      },
+    ];
+
+    const rows = buildChatDisplayRows(messages);
+
+    expect(rows.length).toBe(2);
+    expect(rows[1].kind).toBe('assistant-turn');
+    if (rows[1].kind !== 'assistant-turn') return;
+    expect(rows[1].assistant).toBeNull();
+    expect(rows[1].chainGroups.length).toBe(1);
+    expect(rows[1].artifacts).toHaveLength(1);
+    expect(rows[1].artifacts[0].role).toBe('accept_command');
+  });
+
   it('hides agent-only status rows from the chat bubble stream', () => {
     const messages: ChatMessage[] = [
       { role: 'user', text: 'Do work' },

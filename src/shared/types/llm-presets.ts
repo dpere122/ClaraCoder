@@ -23,6 +23,13 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
       'For Qwen-class models (e.g. Qwen 3.5 9B via LM Studio): single tool call per turn, higher max output, extra system prompt hints.',
     providers: ['openai', 'lmstudio'],
   },
+  {
+    id: 'capable',
+    label: 'Capable API',
+    description:
+      'For OpenAI and similar APIs that handle parallel tool calls well: enables parallel tool calls by default and adds prompt hints to batch independent reads.',
+    providers: ['openai', 'lmstudio'],
+  },
 ] as const;
 
 export function optimizationPresetsForProvider(provider: 'openai' | 'lmstudio'): LlmOptimizationPresetMeta[] {
@@ -43,4 +50,9 @@ export const QWEN_PRESET_DEFAULTS = {
   parallelToolCalls: false,
   maxOutputTokens: 8192,
   temperatureCap: 0.45,
+} as const;
+
+/** Defaults applied when the user picks the Capable API optimization template. */
+export const CAPABLE_PRESET_DEFAULTS = {
+  parallelToolCalls: true,
 } as const;

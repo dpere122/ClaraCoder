@@ -21,6 +21,7 @@ from nemo_backend.agent_streaming import (
     sse_line,
     sse_tool_finished,
     status_event,
+    tool_exec_chunk_event,
     tool_running_detail,
 )
 from nemo_backend.llm_interaction_logging import (
@@ -36,10 +37,50 @@ class GraphStreamState:
     """Mutable per-stream counters for SSE event mapping."""
 
     pending_tool_runs: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
+    seen_tool_events: set[tuple[str, str, str]] = field(default_factory=set)
     last_final_text: str = ''
+    partial_stream_text: str = ''
     llm_step: int = 0
     stream_chunks: int = 0
     stream_chars: int = 0
+
+
+_FORWARDED_RESULT_TOOL_NAMES = frozenset(
+    {
+        'execute_plan_step',
+        'modify_workspace',
+        'route_code_review_specialist',
+        'route_create_specialist',
+        'route_delete_specialist',
+        'route_project_review_specialist',
+        'route_update_specialist',
+    }
+)
+
+
+def _tool_event_seen(state: GraphStreamState, *, phase: str, name: str, run_id: str) -> bool:
+    if not run_id:
+        return False
+    key = (phase, name, run_id)
+    if key in state.seen_tool_events:
+        return True
+    state.seen_tool_events.add(key)
+    return False
+
+
+def _loggable_tool_result_text(name: str, result_text: str) -> str:
+    if name not in _FORWARDED_RESULT_TOOL_NAMES:
+        return result_text
+    stripped = result_text.strip()
+    if not stripped:
+        return '[forwarded nested result omitted to reduce duplicate logs; chars=0]'
+    first_line = stripped.splitlines()[0].strip()
+    if len(first_line) > 160:
+        first_line = first_line[:157] + '...'
+    return (
+        '[forwarded nested result omitted to reduce duplicate logs; '
+        f'chars={len(result_text)} preview={first_line!r}]'
+    )
 
 
 def _tool_output_text(raw: Any) -> tuple[str, bool, str]:
@@ -109,6 +150,8 @@ def _on_chat_model_stream(
     state.stream_chunks += 1
     state.stream_chars += len(delta)
     if emit_model_token_sse:
+        state.partial_stream_text += delta
+    if emit_model_token_sse:
         return [model_chunk_sse_line(delta, stream_tag)]
     return []
 
@@ -167,6 +210,8 @@ def _on_tool_start(
     raw_input = data.get('input')
     args: dict[str, Any] = raw_input if isinstance(raw_input, dict) else {}
     run_id = str(ev.get('run_id') or uuid.uuid4().hex[:12])
+    if _tool_event_seen(state, phase='start', name=name, run_id=run_id):
+        return []
     state.pending_tool_runs[run_id] = (name, args)
     log_llm_tool_input(name, args, run_id=run_id, agent_role=agent_role)
     return [
@@ -194,12 +239,14 @@ def _on_tool_end(
 ) -> list[str]:
     name = str(ev.get('name') or 'tool')
     run_id = str(ev.get('run_id') or '')
+    if _tool_event_seen(state, phase='end', name=name, run_id=run_id):
+        return []
     state.pending_tool_runs.pop(run_id, (name, {}))
     raw_out = data.get('output')
     result_text, ok, err_detail = _tool_output_text(raw_out)
     log_llm_tool_output(
         name,
-        result_text,
+        _loggable_tool_result_text(name, result_text),
         ok=ok,
         run_id=run_id or None,
         agent_role=agent_role,
@@ -281,6 +328,15 @@ def sse_lines_for_graph_event(
         if isinstance(planner, dict):
             return [sse_line(planner_progress_event(planner))]
         return []
+    if et == 'tool_exec_chunk':
+        delta = data.get('delta')
+        if not isinstance(delta, str) or not delta:
+            return []
+        stream_tag_value = data.get('stream_tag')
+        label_value = data.get('label')
+        stream_tag_out = stream_tag_value if isinstance(stream_tag_value, str) and stream_tag_value.strip() else stream_tag
+        label_out = label_value if isinstance(label_value, str) else ''
+        return [sse_line(tool_exec_chunk_event(delta, stream_tag=stream_tag_out, label=label_out))]
     return []
 
 

@@ -1,7 +1,7 @@
 import type { Workspace } from './workspace';
 
 /** Family-specific tuning template from Settings → Models (synced to Python). */
-export type LlmOptimizationPreset = 'generic' | 'qwen';
+export type LlmOptimizationPreset = 'generic' | 'qwen' | 'capable';
 
 /** Single LLM endpoint configuration (OpenAI-compatible or LM Studio). */
 export interface LlmConnectionConfig {
@@ -10,6 +10,8 @@ export interface LlmConnectionConfig {
   provider: 'openai' | 'lmstudio';
   baseUrl: string;
   model: string;
+  /** Main context window for this model/profile. */
+  contextWindowTokens: number;
   apiKey: string;
   /** OpenAI-style Chat Completions reasoning effort; empty = omit. */
   reasoningEffort?: '' | 'minimal' | 'low' | 'medium' | 'high';
@@ -26,6 +28,8 @@ export interface LlmConnectionConfig {
    * Hard cap on completion length sent to the API (max_tokens). 0 = let the backend choose (preset/env defaults).
    */
   maxOutputTokens: number;
+  /** Max final project-review retry attempts for this connection. */
+  planRetryAttemptsCount: number;
 }
 
 /** Speech-to-text settings forwarded to the Python backend. */
@@ -39,6 +43,8 @@ export interface AudioTranscriptionConfig {
 /** Health window: backend log verbosity (Python `nemo` logger + uvicorn noise). */
 export interface HealthMonitorConfig {
   logLevel: 'debug' | 'info' | 'warning' | 'error';
+  /** Enables live system metric polling in the health window. */
+  metricsEnabled: boolean;
 }
 
 /** Workspace agent tool limits and edit-tool surface; synced to Python `/runtime-config`. */

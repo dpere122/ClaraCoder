@@ -11,6 +11,7 @@ const logSubscribers = new Set<WebContents>();
 let streamReq: http.ClientRequest | null = null;
 let lastStreamSeq = 0;
 let streamBuffer = '';
+let healthMetricsEnabled = false;
 
 function broadcastLogRecord(rec: HealthLogRecord): void {
   if (typeof rec.seq === 'number' && rec.seq > lastStreamSeq) {
@@ -101,6 +102,10 @@ export async function syncPythonLogLevel(level: string): Promise<void> {
   }
 }
 
+export function setHealthMetricsEnabled(enabled: boolean): void {
+  healthMetricsEnabled = enabled;
+}
+
 function emptyHealthSnapshot(now: number): HealthMetricsSnapshot {
   return {
     timestampMs: now,
@@ -121,6 +126,9 @@ function emptyHealthSnapshot(now: number): HealthMetricsSnapshot {
 
 export async function collectHealthMetrics(): Promise<HealthMetricsSnapshot> {
   const now = Date.now();
+  if (!healthMetricsEnabled) {
+    return emptyHealthSnapshot(now);
+  }
   try {
     const [mem, load, netStats, fsStats, gfx] = await Promise.all([
       si.mem(),

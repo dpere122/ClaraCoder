@@ -1,35 +1,65 @@
-"""Unit tests for LangGraph outer-agent helpers."""
-
 from __future__ import annotations
 
+import asyncio
+from typing import Any
 from unittest.mock import MagicMock, patch
 
-from nemo_backend.agent_langgraph import _cleanup_nested_edit_staging
+import pytest
+
+from nemo_backend.agent_langgraph import stream_single_agent_langgraph
+from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from nemo_backend.domain import SessionState
 
+pytestmark = pytest.mark.asyncio(loop_scope='function')
 
-@patch('nemo_backend.agent_langgraph.clear_session_staging_dir')
-@patch('nemo_backend.agent_langgraph.discard_all_session_stagings')
-def test_cleanup_nested_edit_staging_discards_pending_entries(
-    mock_discard: MagicMock, mock_clear_dir: MagicMock
+
+async def _collect_lines(generator: Any) -> list[str]:
+    return [line async for line in generator]
+
+
+@patch('nemo_backend.agent_langgraph.worker_tools_and_map')
+@patch('nemo_backend.agent_langgraph.build_system_prompt')
+@patch('nemo_backend.agent_langgraph.session_to_messages')
+@patch('nemo_backend.agent_langgraph.build_llm')
+@patch('nemo_backend.agent_langgraph.create_agent')
+async def test_stream_single_agent_langgraph_aborts_while_waiting_for_events(
+    mock_create_agent: MagicMock,
+    mock_build_llm: MagicMock,
+    mock_session_to_messages: MagicMock,
+    mock_build_system_prompt: MagicMock,
+    mock_worker_tools: MagicMock,
 ) -> None:
+    mock_build_llm.return_value = MagicMock()
+    mock_session_to_messages.return_value = []
+    mock_build_system_prompt.return_value = 'System prompt'
+    mock_worker_tools.return_value = ([], {})
+
+    async def _hung_stream(*_args: Any, **_kwargs: Any):
+        await asyncio.Future()
+        yield {'event': 'on_chain_end', 'data': {}}
+
+    mock_graph = MagicMock()
+    mock_graph.astream_events = _hung_stream
+    mock_create_agent.return_value = mock_graph
+
     session = SessionState()
-    session.pending_edit_stagings = {'foo.py': MagicMock()}
+    outcome = LangGraphWorkerOutcome()
 
-    _cleanup_nested_edit_staging(session, 'sess-1')
+    task = asyncio.create_task(
+        _collect_lines(
+            stream_single_agent_langgraph(
+                session,
+                'hello',
+                True,
+                session_id='sess-1',
+                outcome=outcome,
+            )
+        )
+    )
+    await asyncio.sleep(0)
 
-    mock_discard.assert_called_once_with(session)
-    mock_clear_dir.assert_called_once_with('sess-1')
+    session.abort_event.set()
+    lines = await asyncio.wait_for(task, timeout=1)
 
-
-@patch('nemo_backend.agent_langgraph.clear_session_staging_dir')
-@patch('nemo_backend.agent_langgraph.discard_all_session_stagings')
-def test_cleanup_nested_edit_staging_still_clears_session_dir_without_entries(
-    mock_discard: MagicMock, mock_clear_dir: MagicMock
-) -> None:
-    session = SessionState()
-
-    _cleanup_nested_edit_staging(session, 'sess-1')
-
-    mock_discard.assert_not_called()
-    mock_clear_dir.assert_called_once_with('sess-1')
+    assert lines == []
+    assert outcome.state == AgentLoopOutcome.ABORTED

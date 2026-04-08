@@ -7,7 +7,7 @@ import { registerPrivilegedNemoTtsScheme } from './protocol/register-privileged'
 import { startPythonServer, waitForPython } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { loadConfig } from './config/load-save';
-import { syncPythonLogLevel } from './ipc/handlers/health';
+import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 import { clearWorkspaceWatcher, refreshWorkspaceWatcherForCurrentConfig } from './workspace/watcher';
 import { createMainWindow } from './windows/main-window';
@@ -23,6 +23,7 @@ app.whenReady().then(async () => {
   registerNemoTtsStreamProtocol();
   const config = await loadConfig();
   await syncPythonLogLevel(config.healthMonitor.logLevel);
+  setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
   await syncRuntimeConfigToPython(config);
   await refreshWorkspaceWatcherForCurrentConfig(config);
   createMainWindow();

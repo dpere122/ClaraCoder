@@ -1,0 +1,135 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+.context-capacity {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.9rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.context-capacity__details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.context-capacity__title-row,
+.context-capacity__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+}
+
+.context-capacity__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+.context-capacity__model {
+  font-size: 0.8rem;
+  color: var(--t-primary);
+  max-width: min(48vw, 26rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-capacity__metrics {
+  font-size: 0.82rem;
+  color: var(--t-text-muted);
+}
+
+.context-capacity__circle-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: default;
+}
+
+.context-capacity__circle {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.context-capacity__track,
+.context-capacity__fill {
+  fill: none;
+  stroke-width: 3;
+}
+
+.context-capacity__track {
+  stroke: color-mix(in srgb, var(--t-border) 78%, transparent);
+}
+
+.context-capacity__fill {
+  transform: rotate(-90deg);
+  transform-origin: 20px 20px;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.2s ease, stroke 0.2s ease;
+}
+
+.context-capacity__circle-label {
+  position: absolute;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--t-primary);
+}
+
+.context-capacity__tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.45rem);
+  padding: 0.28rem 0.5rem;
+  border: 1px solid var(--t-border);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--t-surface, var(--t-bg)) 92%, black);
+  color: var(--t-primary);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(0.2rem);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 0.55rem 1.4rem rgba(0, 0, 0, 0.28);
+}
+
+.context-capacity__circle-button:hover .context-capacity__tooltip,
+.context-capacity__circle-button:focus-visible .context-capacity__tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.context-capacity--healthy .context-capacity__fill {
+  stroke: var(--t-primary);
+}
+
+.context-capacity--warn .context-capacity__fill,
+.context-capacity--warn .context-capacity__circle-label {
+  stroke: #f0ad4e;
+  color: #f0ad4e;
+}
+
+.context-capacity--danger .context-capacity__fill,
+.context-capacity--danger .context-capacity__circle-label {
+  stroke: #e05050;
+  color: #e05050;
+}

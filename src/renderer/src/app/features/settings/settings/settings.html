@@ -200,7 +200,22 @@
 
                   <label class='field'>
                     <span>Model</span>
-                    <input type='text' [ngModel]='connection.model' (ngModelChange)='updateSelectedConnection({ model: $event })' />
+                    <input type='text' [ngModel]='connection.model' (ngModelChange)='onModelChange($event)' />
+                  </label>
+
+                  <label class='field'>
+                    <span>Context window tokens</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      Main context capacity for this model profile. The status bar uses this number to show used and remaining context.
+                    </p>
+                    <input
+                      type='number'
+                      min='1024'
+                      max='10000000'
+                      step='1024'
+                      [ngModel]='connection.contextWindowTokens'
+                      (ngModelChange)='onContextWindowTokensChange($event)'
+                    />
                   </label>
 
                   <label class='field field--full'>
@@ -233,6 +248,21 @@
                       step='256'
                       [ngModel]='connection.maxOutputTokens'
                       (ngModelChange)='onMaxOutputTokensChange($event)'
+                    />
+                  </label>
+
+                  <label class='field'>
+                    <span>PLAN_RETRY_ATTEMPTS_COUNT</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      Max number of final project-review retry passes this connection can trigger after the initial review fails.
+                    </p>
+                    <input
+                      type='number'
+                      min='0'
+                      max='20'
+                      step='1'
+                      [ngModel]='connection.planRetryAttemptsCount'
+                      (ngModelChange)='onPlanRetryAttemptsCountChange($event)'
                     />
                   </label>
 

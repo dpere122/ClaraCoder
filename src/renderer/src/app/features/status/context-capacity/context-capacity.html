@@ -1,0 +1,38 @@
+<div
+  class="context-capacity"
+  [class.context-capacity--healthy]="progressClass() === 'context-capacity--healthy'"
+  [class.context-capacity--warn]="progressClass() === 'context-capacity--warn'"
+  [class.context-capacity--danger]="progressClass() === 'context-capacity--danger'"
+>
+  <div class="context-capacity__details">
+    <div class="context-capacity__title-row">
+      <span class="context-capacity__label">Context</span>
+      <span class="context-capacity__model">{{ modelName() }}</span>
+    </div>
+    <div class="context-capacity__metrics">
+      <span>{{ formatCompact(usedTokens()) }} / {{ formatCompact(maxTokens()) }} tokens</span>
+      <span>{{ formatCompact(remainingTokens()) }} left</span>
+    </div>
+  </div>
+
+  <button
+    type="button"
+    class="context-capacity__circle-button"
+    [attr.aria-label]="tooltip()"
+    [attr.title]="percentageLabel()"
+  >
+    <span class="context-capacity__tooltip" role="tooltip">{{ percentageLabel() }}</span>
+    <svg class="context-capacity__circle" viewBox="0 0 40 40" aria-hidden="true">
+      <circle class="context-capacity__track" cx="20" cy="20" r="16"></circle>
+      <circle
+        class="context-capacity__fill"
+        cx="20"
+        cy="20"
+        r="16"
+        [attr.stroke-dasharray]="circleCircumference"
+        [attr.stroke-dashoffset]="dashOffset()"
+      ></circle>
+    </svg>
+    <span class="context-capacity__circle-label">{{ usedPercentage() }}</span>
+  </button>
+</div>

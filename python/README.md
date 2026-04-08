@@ -6,6 +6,7 @@ FastAPI service used by the Nemo / Clara Electron app. It runs a LangChain agent
 
 - **Streaming chat (`POST /chat/stream`)** — LangGraph agent with bound tools; responses are SSE (`status`, `chunk`, then `[DONE]`). Supports **OpenAI** and **LM Studio** (OpenAI-compatible base URL).
 - **Workspace tools** — Snapshot, list directory, read file (line range), and regex search under the session's workspace root (path traversal blocked).
+- **Python LSP tools** — Python diagnostics, hover, definitions, references, and document symbols via a session-scoped Jedi language server.
 - **Edit tools** — Full-file, line-range, and snippet-based workspace edits with diff preview and auto-apply mode.
 - **Nested mutations** — `modify_workspace` delegates to a router + specialist subgraph pipeline for multi-step workspace mutations (create/update/delete).
 - **Sessions** — `POST /clear`, `POST /load`, and `POST /workspace-context` sync chat history and workspace metadata from the renderer.
@@ -42,6 +43,8 @@ To use the venv's interpreter explicitly, run `.\.venv\Scripts\python` (Windows)
 
 From the repository root you can still install into the active environment with `python -m pip install -r python/requirements.txt` (see root `package.json` `setup:python`). The Electron app spawns the system `python` by default; point it at `.venv\Scripts\python` if you want the packaged backend to use this environment.
 
+When the final project reviewer runs Python tests for a workspace, it now bootstraps a workspace-local `.venv` automatically if one does not exist yet. That bootstrap installs both `requirements.txt` and `requirements-dev.txt` before running pytest.
+
 ## Run
 
 From the `python/` directory (so `nemo_backend` is importable), with the venv activated or using the venv's `python` directly:
@@ -64,8 +67,17 @@ The desktop app expects **127.0.0.1:5123** by default.
 
 ```bash
 cd python
-python -m pytest tests -v
+./.venv/bin/python -m pytest tests -v
 ```
+
+On Windows PowerShell, use:
+
+```powershell
+cd python
+.\.venv\Scripts\python -m pytest tests -v
+```
+
+Inside the nested planning flow, staged code review no longer runs pytest. Final Python validation happens in the project reviewer after approved edits are materialized in the workspace.
 
 ## Layout
 
@@ -80,6 +92,7 @@ python -m pytest tests -v
 | `nemo_backend/routes_chat.py` | Chat streaming and agent continuation (HITL). |
 | `nemo_backend/routes_audio.py` | Transcription and TTS. |
 | `nemo_backend/log_routes.py` | Log tail, stream, level control, ingest. |
+| `nemo_backend/routes_lsp.py` | Python LSP diagnostics/status routes. |
 | **Agent** | |
 | `nemo_backend/agent.py` | SSE streaming agent entry point. |
 | `nemo_backend/agent_langgraph.py` | LangGraph `create_agent` graph runner. |
@@ -103,6 +116,7 @@ python -m pytest tests -v
 | `nemo_backend/partial_workspace_edit.py` | Merge strategies (line range, snippet, fuzzy match). |
 | `nemo_backend/diff_payload.py` | Side-by-side diff rows via diff-match-patch. |
 | `nemo_backend/edit_staging.py` | Temp staging dir, code-review extensions, staging lifecycle. |
+| `nemo_backend/lsp/` | Python LSP client, manager, diagnostics, and tool surface. |
 | `nemo_backend/workspace_text_io.py` | Encoding/newline normalization and disk I/O for tools. |
 | `nemo_backend/workspace_ignore.py` | `.gitignore` + built-in ignores for search/list. |
 | `nemo_backend/tool_registry.py` | Central tool registry and HITL policy. |
@@ -138,7 +152,8 @@ python -m pytest tests -v
 | `LM_STUDIO_MODEL` | Default LM Studio model id (default `local-model`). |
 | `LM_STUDIO_API_KEY` | Optional key for local server (default placeholder `lm-studio` if unset). |
 | `NEMO_TRANSCRIBE_MODEL` | OpenAI transcription model (default `gpt-4o-mini-transcribe`). |
+| `PLAN_RETRY_ATTEMPTS_COUNT` | Default retry budget for final project review failures before the planner stops creating new retry requests (default `2`). |
 
 ## Dependencies
 
-See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, edge-tts, SpeechRecognition, diff-match-patch, pypdf, Black.
+See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, edge-tts, SpeechRecognition, diff-match-patch, pypdf, Black, Jedi Language Server.

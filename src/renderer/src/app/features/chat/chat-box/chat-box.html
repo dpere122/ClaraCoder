@@ -73,6 +73,20 @@
                   (deleteReviewFinished)="deleteReviewFinished.emit($event)"
                 />
               </div>
+            } @else if (artifact.role === 'accept_command') {
+              <div class="turn-artifact turn-artifact--copy">
+                <div class="diff-msg-header small text-secondary mb-2">
+                  <span class="diff-msg-title">{{ artifact.payload.title }}</span>
+                  <span class="diff-msg-subtitle"> — Approve or cancel before the assistant continues.</span>
+                </div>
+                <app-accept-command
+                  [conversationId]="conversationId()"
+                  [payload]="artifact.payload"
+                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                  [reviewSummary]="artifact.reviewSummary"
+                  (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+                />
+              </div>
             } @else if (artifact.role === 'copy_confirm') {
               <div class="turn-artifact turn-artifact--copy">
                 <div class="diff-msg-header small text-secondary mb-2">
@@ -148,6 +162,16 @@
             }
           </div>
         }
+        @if (delegatedStreamParts().length > 0) {
+          <div class="streaming-delegated" aria-live="polite">
+            @for (part of delegatedStreamParts(); track part.streamTag) {
+              <div class="streaming-delegated-block">
+                <div class="streaming-delegated-label">{{ part.label || 'Tool output' }}</div>
+                <pre class="streaming-delegated-text">{{ part.text }}</pre>
+              </div>
+            }
+          </div>
+        }
         @for (artifact of liveTurn.artifacts; track $index) {
           @if (artifact.role === 'diff') {
             <div class="turn-artifact turn-artifact--diff">
@@ -175,6 +199,20 @@
                 [reviewStatus]="artifact.reviewStatus ?? 'pending'"
                 [reviewSummary]="artifact.reviewSummary"
                 (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+              />
+            </div>
+          } @else if (artifact.role === 'accept_command') {
+            <div class="turn-artifact turn-artifact--copy">
+              <div class="diff-msg-header small text-secondary mb-2">
+                <span class="diff-msg-title">{{ artifact.payload.title }}</span>
+                <span class="diff-msg-subtitle"> — Approve or cancel before the assistant continues.</span>
+              </div>
+              <app-accept-command
+                [conversationId]="conversationId()"
+                [payload]="artifact.payload"
+                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
+                [reviewSummary]="artifact.reviewSummary"
+                (acceptCommandFinished)="acceptCommandFinished.emit($event)"
               />
             </div>
           } @else if (artifact.role === 'copy_confirm') {

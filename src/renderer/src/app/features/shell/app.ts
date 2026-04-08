@@ -3,7 +3,15 @@
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
 import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
-import type { Conversation, ConversationMeta, LlmStatus, PlannerProgress, StreamPart, Workspace } from '@shared/index';
+import type {
+  AppConfig,
+  Conversation,
+  ConversationMeta,
+  LlmStatus,
+  PlannerProgress,
+  StreamPart,
+  Workspace,
+} from '@shared/index';
 import {
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
@@ -12,30 +20,38 @@ import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
 import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
 import { ToolsBar } from '../layout/tools-bar/tools-bar';
+import { buildContextCapacitySnapshot } from '../status/context-capacity/context-capacity.utils';
+import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { THEMES } from '../layout/theme-selector/theme-selector';
 
-function appendStreamPart(parts: StreamPart[], streamTag: string | undefined, delta: string): StreamPart[] {
+function appendStreamPart(
+  parts: StreamPart[],
+  streamTag: string | undefined,
+  delta: string,
+  label = '',
+): StreamPart[] {
   const t = streamTag?.trim() ? streamTag.trim() : 'agent';
   const next = [...parts];
   const last = next[next.length - 1];
   if (last?.streamTag === t) {
-    next[next.length - 1] = { ...last, text: last.text + delta };
+    next[next.length - 1] = { ...last, label: last.label || label, text: last.text + delta };
     return next;
   }
-  next.push({ streamTag: t, label: '', text: delta });
+  next.push({ streamTag: t, label, text: delta });
   return next;
 }
 
 @Component({
   selector: 'app-root',
-  imports: [ChatBox, MessageBox, ConversationManager, ToolsBar, WorkspaceComponent],
+  imports: [ChatBox, MessageBox, ConversationManager, ToolsBar, WorkspaceComponent, StatusBarComponent],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App implements OnInit, OnDestroy {
+  protected readonly appConfig = signal<AppConfig | null>(null);
   protected readonly messages = signal<ChatMessage[]>([]);
   protected readonly pinned = signal(false);
   protected readonly pendingIds = signal<Set<string>>(new Set());
@@ -74,10 +90,24 @@ export class App implements OnInit, OnDestroy {
   // Workspace management
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspaceId = signal<string | null>(null);
+  protected readonly workspaceContextText = signal('');
   protected readonly currentWorkspace = computed(() => {
     const id = this.currentWorkspaceId();
     return this.workspaces().find(w => w.id === id) ?? null;
   });
+  protected readonly activeLlmConnection = computed(() => {
+    const config = this.appConfig();
+    if (!config) {
+      return null;
+    }
+    return config.llmConnections.find((connection) => connection.id === config.activeLlmConnectionId) ?? null;
+  });
+  protected readonly contextCapacity = computed(() => buildContextCapacitySnapshot({
+    connection: this.activeLlmConnection(),
+    messages: this.messages(),
+    streamingParts: this.streamingParts(),
+    workspaceContextText: this.workspaceContextText(),
+  }));
 
   // Layout
   protected readonly workspaceWidth = signal(220);
@@ -137,10 +167,13 @@ export class App implements OnInit, OnDestroy {
             this.syncWorkspaceContext(ws.path);
           }
         }, 0);
+      } else {
+        this.workspaceContextText.set('');
       }
     });
 
     this.electron.config$.subscribe((config) => {
+      this.appConfig.set(config);
       // Resolve theme: workspace theme > noWorkspaceThemeId > dark
       let themeToApply = config.noWorkspaceThemeId || 'dark';
       if (config.currentWorkspaceId) {
@@ -171,6 +204,15 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.toolExecChunk$.subscribe(({ conversationId, delta, streamTag, label }) => {
+      if (conversationId === this.activeConversationId()) {
+        this.streamingParts.update((prev) => appendStreamPart(prev, streamTag, delta, label ?? ''));
+      } else {
+        const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+        this.backgroundStreamParts.set(conversationId, appendStreamPart(prev, streamTag, delta, label ?? ''));
+      }
+    });
+
     this.electron.planner$.subscribe(({ conversationId, planner }) => {
       if (conversationId === this.activeConversationId()) {
         this.livePlannerProgress.set(planner);
@@ -185,6 +227,19 @@ export class App implements OnInit, OnDestroy {
       this.messages.update((prev) => [
         ...prev,
         { role: 'diff', payload: diff, reviewStatus: 'pending' as const },
+      ]);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...this.messages()];
+        this.pendingSave = true;
+      }
+    });
+
+    this.electron.acceptCommand$.subscribe(({ conversationId, payload }) => {
+      if (conversationId !== this.activeConversationId()) return;
+      if (payload.version !== 1 || !payload.requestId || !payload.title) return;
+      this.messages.update((prev) => [
+        ...prev,
+        { role: 'accept_command', payload, reviewStatus: 'pending' as const },
       ]);
       if (this.activeConversation) {
         this.activeConversation.messages = [...this.messages()];
@@ -249,8 +304,12 @@ export class App implements OnInit, OnDestroy {
         this.streamingParts.set([]);
         this.livePlannerProgress.set(null);
         this.backgroundPlannerProgress.delete(conversationId);
-        const text = primaryAssistantTextFromParts(parts);
-        if (text) {
+        let text = primaryAssistantTextFromParts(parts);
+        if (!text.trim() && (parts.length > 0 || planner != null)) {
+          text =
+            'Workspace tooling finished for this turn. Use the tool trail and nested workspace output above for specifics.';
+        }
+        if (text.trim()) {
           this.pushMessage('assistant', text, planner);
           if (this.speechEnabled()) void this.tts.speakText(text, this.selectedVoice());
           this.autoSave();
@@ -279,6 +338,7 @@ export class App implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     // Load config which includes workspaces
     const config = await this.electron.loadConfig();
+    this.appConfig.set(config);
     this.workspaces.set(config.workspaces);
     this.currentWorkspaceId.set(config.currentWorkspaceId);
 
@@ -417,6 +477,37 @@ export class App implements OnInit, OnDestroy {
         const m = copy[i];
         if (
           m.role === 'copy_confirm' &&
+          m.payload.requestId === event.requestId &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+      this.autoSave();
+    }
+  }
+
+  onAcceptCommandFinished(event: {
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'accept_command' &&
           m.payload.requestId === event.requestId &&
           (m.reviewStatus ?? 'pending') === 'pending'
         ) {
@@ -601,6 +692,7 @@ export class App implements OnInit, OnDestroy {
       if (syncToken !== this.workspaceSyncToken || convId !== this.activeConversationId()) {
         return;
       }
+      this.workspaceContextText.set(tree);
       await this.electron.setWorkspaceContext(convId, workspacePath, tree);
     } catch (err) {
       console.error('[App] Failed to sync workspace context:', err);

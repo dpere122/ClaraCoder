@@ -38,7 +38,8 @@ async def chat_abort(request: AbortRequest) -> dict[str, bool]:
 
 @router.post('/chat/agent-continue')
 async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
-    """Unblock an agent stream that is waiting after a diff, delete, or copy confirmation."""
+    """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
+    from nemo_backend.accept_command import execute_pending_accept_command_decision
     from nemo_backend.copy_tool import execute_pending_copy_decision
     from nemo_backend.delete_tool import execute_pending_delete_decision
 
@@ -56,6 +57,13 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
             sess,
             confirm=request.copy_action == 'confirm',
             request_id=request.copy_request_id or None,
+        )
+        note = extra if extra else note
+    elif request.accept_command_action:
+        extra = await execute_pending_accept_command_decision(
+            sess,
+            confirm=request.accept_command_action == 'confirm',
+            request_id=request.accept_command_request_id or None,
         )
         note = extra if extra else note
     sess.agent_pause_note = note

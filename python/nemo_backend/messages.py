@@ -12,7 +12,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
-from nemo_backend.model_tuning import qwen_optimize_profile_active, qwen_system_prompt_suffix
+from nemo_backend.model_tuning import combined_model_prompt_suffix
 from nemo_backend.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
@@ -150,10 +150,9 @@ def _connection_line(session: SessionState) -> str:
     )
 
 
-def _qwen_optimize_suffix() -> str:
-    if qwen_optimize_profile_active(get_active_connection()):
-        return qwen_system_prompt_suffix()
-    return ''
+def _model_prompt_suffix() -> str:
+    """Universal tool/edit semantics plus optional parallel-batching and Qwen-specific lines."""
+    return combined_model_prompt_suffix(get_active_connection())
 
 
 def _os_hint_line() -> str:
@@ -172,13 +171,17 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
     base = (
         'Operational guidance:\n'
         '- For codebase questions, inspect the workspace before making claims.\n'
+        '- After checking the workspace tree, resolve uncertainty with tools rather than long speculation; if blocked, '
+        'state the single missing fact and the next tool you would call.\n'
         '- If a tool returns partial data, say what is missing.\n'
         '- When your answer refers to code or files, name the relevant paths clearly.\n'
         '- Match shell guidance to the detected host OS; do not assume Bash is available on Windows.\n'
         '- If no workspace is loaded, say that no local files were available.\n'
         '- Read-only inspection: start with the workspace tree in your system instructions above for structure and likely file paths. '
         'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree. Then use '
-        '`list_workspace_directory`, `read_workspace_file`, and `search_workspace` to inspect files. '
+        '`list_workspace_directory`, `read_workspace_file`, and `search_workspace` to inspect files. For Python source, '
+        'prefer the LSP-directed tools (`lsp_get_diagnostics`, `lsp_get_document_symbols`, `lsp_hover`, '
+        '`lsp_find_definition`, `lsp_find_references`) over ordinary file reads whenever they provide the needed context. '
         'For `.pdf` files, `read_workspace_file` treats start_line/end_line as 1-based page numbers (extracted text per page).\n'
         '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
@@ -209,13 +212,11 @@ def build_system_prompt(session: SessionState, apply_mode: bool) -> str:
     return (
         'You are Clara, a proactive coding assistant inside an Electron desktop app. '
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
-        'Invoke tools only through the chat model’s structured tool-calling channel (native tool/function calls)—'
-        'never emit tool invocations as XML tags, <tool_call> blocks, or similar text; those are ignored by the runtime. '
         'Prefer quoting exact file paths, line numbers, commands, and concrete next steps. '
         'Keep answers concise but useful, and explain what you actually inspected.\n\n'
         f'{_connection_line(session)}\n\n'
         f'{_os_hint_line()}\n\n'
         f'{_outer_agent_operational_block(apply_mode)}'
         f'{workspace_hint}'
-        f'{_qwen_optimize_suffix()}'
+        f'{_model_prompt_suffix()}'
     )

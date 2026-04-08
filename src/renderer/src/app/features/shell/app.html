@@ -43,6 +43,7 @@
         [fontSize]='fontSize()'
         (sendResponse)='onSendResponse($event)'
         (diffReviewFinished)='onDiffReviewFinished($event)'
+        (acceptCommandFinished)='onAcceptCommandFinished($event)'
         (copyReviewFinished)='onCopyReviewFinished($event)'
         (deleteReviewFinished)='onDeleteReviewFinished($event)'
       />
@@ -53,6 +54,15 @@
         [loading]='loading()'
         (messageSent)='onMessageSent($event)'
         (abortRequested)='onAbortRequested()'
+      />
+
+      <app-status-bar
+        class='status-bar-host'
+        [usedTokens]='contextCapacity().usedTokens'
+        [maxTokens]='contextCapacity().maxTokens'
+        [remainingTokens]='contextCapacity().remainingTokens'
+        [usedPercentage]='contextCapacity().usedPercentage'
+        [modelName]='activeLlmConnection()?.model || "No active model"'
       />
     </div>
 

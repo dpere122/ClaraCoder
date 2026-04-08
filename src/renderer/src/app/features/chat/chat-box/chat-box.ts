@@ -13,9 +13,11 @@ import {
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { ConversationMessage, PlannerProgress, StreamPart } from '@shared/index';
 import {
+  delegatedStreamPartsForDisplay,
   primaryStreamPartsForDisplay,
   streamPlainOneLine,
 } from '@shared/index';
+import { AcceptCommandComponent } from '../../diff/accept-command/accept-command';
 import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
 import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
@@ -42,7 +44,7 @@ export type ChatMessage = ConversationMessage;
 type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
-type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'copy_confirm' | 'delete_confirm' }>;
+type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' }>;
 
 export interface ToolChainGroup {
   key: string;
@@ -126,6 +128,11 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
       pendingArtifacts.push(msg);
       continue;
     }
+    if (msg.role === 'accept_command') {
+      flushChainGroup();
+      pendingArtifacts.push(msg);
+      continue;
+    }
     flushChainGroup();
     rows.push({
       kind: 'assistant-turn',
@@ -147,6 +154,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
     MarkdownPipe,
     RunButtonDirective,
     DiffApplyComponent,
+    AcceptCommandComponent,
     CopyConfirmComponent,
     DeleteConfirmComponent,
     PlannerTasksComponent,
@@ -179,6 +187,11 @@ export class ChatBox implements OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
+  readonly acceptCommandFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
   readonly copyReviewFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';
@@ -201,6 +214,10 @@ export class ChatBox implements OnDestroy {
     primaryStreamPartsForDisplay(this.streamingParts(), null),
   );
 
+  readonly delegatedStreamParts = computed(() =>
+    delegatedStreamPartsForDisplay(this.streamingParts(), null),
+  );
+
   readonly primaryStreamPlainDisplay = computed(() =>
     streamPlainOneLine(this.primaryStreamParts().map((p) => p.text).join('')),
   );
@@ -214,18 +231,16 @@ export class ChatBox implements OnDestroy {
     const rows = this.transcriptRows();
     const last = rows.at(-1);
     const trailingTurn = last?.kind === 'assistant-turn' && !last.assistant ? last : null;
-    const hasLiveContent =
-      trailingTurn !== null ||
-      this.livePlannerProgress() !== null ||
-      this.primaryStreamPlainDisplay().length > 0 ||
-      this.processingToolsActive();
-    if (!hasLiveContent) return null;
-    return trailingTurn ?? {
-      kind: 'assistant-turn',
-      assistant: null,
-      chainGroups: [],
-      artifacts: [],
-    };
+    // Always show the live row while loading so the processing ngx-spinners stay mounted and visible
+    // during the gap before the first stream chunk, planner update, or tool status.
+    return (
+      trailingTurn ?? {
+        kind: 'assistant-turn',
+        assistant: null,
+        chainGroups: [],
+        artifacts: [],
+      }
+    );
   });
 
   readonly liveVisibleChainGroups = computed(() => {

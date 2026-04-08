@@ -1,0 +1,13 @@
+.accept-command-card code {
+  font-size: 0.85em;
+}
+
+.accept-command-code {
+  display: inline-block;
+  white-space: pre-wrap;
+}
+
+.accept-command-list {
+  display: grid;
+  gap: 0.35rem;
+}

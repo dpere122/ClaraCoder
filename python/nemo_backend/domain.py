@@ -22,6 +22,32 @@ class EditStagingEntry:
     disk_newline: str
     #: ``full-file`` | ``line-range`` | ``snippet``
     edit_mode: str
+    #: True once the approved staged draft has been materialized into the real workspace for the current chain.
+    workspace_applied: bool = False
+
+
+@dataclass
+class WorkspaceTestMaterializationEntry:
+    """Original workspace snapshot for a staged file materialized into the real workspace for test runs."""
+
+    existed: bool
+    original_text: str
+    disk_encoding: str
+    #: ``lf`` or ``crlf`` for disk writes.
+    disk_newline: str
+
+
+@dataclass
+class ProjectReviewReentryRequest:
+    """Structured handoff returned when final project review requires a brand-new planner graph."""
+
+    original_task_summary: str
+    next_task_summary: str
+    review_feedback: str
+    recorded_steps: list[str] = field(default_factory=list)
+    final_review_attempts: int = 0
+    retry_budget: int = 0
+    terminal_reason: str = ''
 
 
 @dataclass
@@ -34,14 +60,34 @@ class SessionState:
     workspace_path: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
+    # Resolved Python project root inside the active workspace, or empty when none is attached.
+    python_workspace_root: str = ''
+    # Human-readable label for the resolved Python project root: `.` or `python/`.
+    python_workspace_root_label: str = ''
+    # Absolute path to the active workspace virtual environment, or empty when none is attached.
+    python_workspace_venv_path: str = ''
+    # Absolute path to the workspace Python executable, or empty when none is attached.
+    python_workspace_python_executable: str = ''
+    # Absolute path to the workspace venv bin/Scripts directory used to prefix PATH.
+    python_workspace_bin_path: str = ''
+    # Most recent workspace Python environment status summary.
+    python_workspace_env_summary: str = ''
     # Set by workspace edit tools; consumed by SSE diff event after tool success.
     pending_diff_payload: dict | None = None
     # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
     pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
+    # Active planner graph namespace used for staging temp files and the seeded workspace snapshot.
+    active_planner_graph_id: str = ''
+    # Absolute path to the seeded staging snapshot root for the active planner graph, or empty when inactive.
+    active_planner_snapshot_root: str = ''
+    # Original workspace snapshots for staged files materialized into the real workspace before reviewer test runs.
+    test_run_materializations: dict[str, WorkspaceTestMaterializationEntry] = field(default_factory=dict)
     # Set by delete_workspace_entry when auto_apply is false; cleared after confirm/cancel via agent-continue.
     pending_delete_request: dict | None = None
     # Set by copy_workspace_files when auto_apply is false; cleared after confirm/cancel via agent-continue.
     pending_copy_request: dict | None = None
+    # Generic HITL command approval request (for example, deferred Python dependency actions).
+    pending_accept_command_request: dict | None = None
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).
@@ -62,6 +108,14 @@ class SessionState:
     # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
     # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.
     suppress_parent_graph_model_token_sse: bool = False
+    # Active Python LSP phase: `staging` while reviewing staged drafts, `workspace` for the final real-workspace pass.
+    lsp_active_scope: str = 'workspace'
+    # Python LSP workspace root for the active manager (empty when no LSP session has been started).
+    lsp_workspace_root: str = ''
+    # Cached normalized diagnostics keyed by workspace-relative path.
+    lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    # Structured project-review failure handoff consumed by the caller to start a brand-new planner graph.
+    pending_project_review_reentry: ProjectReviewReentryRequest | None = None
 
 
 @dataclass
@@ -78,10 +132,12 @@ class RuntimeConnection:
     reasoning_effort: str = ''
     temperature: float = 0.0
     parallel_tool_calls: bool = False
-    #: ``generic`` | ``qwen`` — from Settings optimization template.
+    #: ``generic`` | ``qwen`` | ``capable`` — from Settings optimization template.
     optimization_preset: str = 'generic'
     #: Chat max_tokens when > 0; 0 means use preset/env defaults.
     max_output_tokens: int = 0
+    #: Max number of final project-review retry attempts for this connection.
+    plan_retry_attempts_count: int = 2
 
 
 @dataclass

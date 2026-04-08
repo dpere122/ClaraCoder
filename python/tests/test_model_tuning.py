@@ -4,10 +4,12 @@ import os
 
 from nemo_backend.domain import RuntimeConnection
 from nemo_backend.model_tuning import (
+    combined_model_prompt_suffix,
     effective_parallel_tool_calls,
     is_qwen_family,
     llm_optional_kwargs,
     qwen_optimize_profile_active,
+    qwen_system_prompt_suffix,
 )
 
 
@@ -81,6 +83,33 @@ def test_connection_max_output_tokens_override() -> None:
             os.environ.pop('NEMO_CHAT_MAX_OUTPUT_TOKENS', None)
         else:
             os.environ['NEMO_CHAT_MAX_OUTPUT_TOKENS'] = prev_global
+
+
+def test_combined_suffix_includes_universal_tool_rules_for_non_qwen() -> None:
+    c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic')
+    s = combined_model_prompt_suffix(c)
+    assert 'Direct workspace edit tools' in s
+    assert 'Model note (Qwen)' not in s
+    assert 'parallel tools' not in s
+
+
+def test_combined_suffix_parallel_hint_when_parallel_enabled() -> None:
+    c = _conn(model='gpt-4o', parallel=True, optimization_preset='generic')
+    s = combined_model_prompt_suffix(c)
+    assert 'parallel tools' in s
+
+
+def test_combined_suffix_qwen_extra_when_qwen_preset() -> None:
+    c = _conn(model='local-model', parallel=True, optimization_preset='qwen')
+    s = combined_model_prompt_suffix(c)
+    assert 'Model note (Qwen)' in s
+    assert 'Direct workspace edit tools' in s
+
+
+def test_qwen_system_prompt_suffix_backward_compat() -> None:
+    s = qwen_system_prompt_suffix()
+    assert 'Direct workspace edit tools' in s
+    assert 'Model note (Qwen)' in s
 
 
 def test_llm_optional_max_tokens_for_qwen() -> None:

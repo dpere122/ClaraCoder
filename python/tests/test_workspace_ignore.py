@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from nemo_backend.search_backend import SearchLineMatch
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_ignore import (
     get_workspace_ignore_rules_cached,
@@ -45,6 +46,11 @@ def test_anchored_path() -> None:
 
 def test_node_modules_by_name() -> None:
     assert should_ignore_workspace_entry('node_modules', 'node_modules', [])
+
+
+def test_venv_dirs_by_name() -> None:
+    assert should_ignore_workspace_entry('.venv', '.venv', [])
+    assert should_ignore_workspace_entry('venv', 'venv', [])
 
 
 def test_log_suffix() -> None:
@@ -91,6 +97,25 @@ def test_search_skips_gitignored_files(workspace_session: Path) -> None:
     out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})
     assert 'keep.py' in out
     assert 'ignored_dir' not in out
+
+
+def test_search_workspace_uses_grep_when_available(workspace_session: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = workspace_session
+    (root / 'keep.py').write_text('needle here\n', encoding='utf-8')
+    seen: list[tuple[str, ...]] = []
+
+    def _fake_run_grep_line_search(query: str, candidates, **kwargs):
+        del kwargs
+        seen.append(tuple(candidate.display_path for candidate in candidates))
+        assert query == 'needle'
+        return [SearchLineMatch(display_path='keep.py', line_number=1)]
+
+    monkeypatch.setattr('nemo_backend.workspace_tools.run_grep_line_search', _fake_run_grep_line_search)
+
+    out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})
+
+    assert seen == [('keep.py',)]
+    assert '[keep.py line 1] │ needle here' in out
 
 
 def test_get_workspace_ignore_rules_cached_stable(workspace_session: Path) -> None:

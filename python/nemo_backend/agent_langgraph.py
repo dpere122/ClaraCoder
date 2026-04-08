@@ -21,6 +21,10 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 
 from nemo_backend.agent_streaming import sse_line, status_event
+from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from nemo_backend.accept_command import accept_command_sse_payload
+from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from nemo_backend.agents.specialists.review_tools import rollback_test_run_materializations
 from nemo_backend.agents.planning.nested_middleware import (
     NESTED_WORKER_STREAM_END,
     PlanningNestedWorkerMiddleware,
@@ -32,12 +36,11 @@ from nemo_backend.delete_tool import delete_confirm_sse_payload
 from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
-from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.planner_graph_session import cleanup_planner_graph_session
 from nemo_backend.domain import SessionState
 from nemo_backend.langgraph_sse import (
     GraphStreamState,
-    race_queues,
     sse_lines_for_graph_event,
 )
 from nemo_backend.llm import build_llm
@@ -58,8 +61,7 @@ def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None
             'Orphaned nested edit stagings after outer agent completion (discarding): %s',
             list(session.pending_edit_stagings.keys()),
         )
-        discard_all_session_stagings(session)
-    clear_session_staging_dir(session_id)
+    cleanup_planner_graph_session(session, session_id)
 
 
 def _unpack_nested_queue_item(item: Any) -> tuple[str, dict[str, Any]] | None:
@@ -71,9 +73,131 @@ def _unpack_nested_queue_item(item: Any) -> tuple[str, dict[str, Any]] | None:
     return None
 
 
-@dataclass
-class LangGraphWorkerOutcome:
-    final_text: str = ''
+async def _cancel_pending_waiters(tasks: list[asyncio.Task[Any]]) -> None:
+    """Cancel pending queue/event waiters used by the outer loop dispatcher."""
+
+    for task in tasks:
+        if task.done():
+            continue
+        task.cancel()
+    for task in tasks:
+        if task.done():
+            continue
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _race_stream_inputs(
+    *queues: asyncio.Queue,
+    labels: tuple[str, ...],
+    abort_event: asyncio.Event,
+) -> tuple[str, Any]:
+    """Wait for the next queue item or an abort signal."""
+
+    queue_tasks = [asyncio.create_task(q.get()) for q in queues]
+    abort_task = asyncio.create_task(abort_event.wait())
+    all_tasks = [*queue_tasks, abort_task]
+    try:
+        done, _pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
+        if abort_task in done and abort_event.is_set():
+            return 'abort', None
+        finished = next(iter(done))
+        for task, label in zip(queue_tasks, labels):
+            if task is finished:
+                return label, finished.result()
+        return labels[0], finished.result()
+    finally:
+        await _cancel_pending_waiters(all_tasks)
+
+
+def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
+    """Translate HITL queue signals into SSE payloads."""
+
+    raw_hitl = item
+    if raw_hitl == ('delete',):
+        pending_delete = session.pending_delete_request
+        if pending_delete:
+            return [sse_line({'type': 'delete_confirm', 'deleteConfirm': delete_confirm_sse_payload(pending_delete)})]
+        return []
+    if raw_hitl == ('accept_command',):
+        pending_cmd = session.pending_accept_command_request
+        if pending_cmd:
+            return [
+                sse_line({'type': 'accept_command', 'acceptCommand': accept_command_sse_payload(pending_cmd)})
+            ]
+        return []
+    if raw_hitl == ('copy',):
+        pending_copy = session.pending_copy_request
+        if pending_copy:
+            return [sse_line({'type': 'copy_confirm', 'copyConfirm': copy_confirm_sse_payload(pending_copy)})]
+        return []
+    pending_diff = session.pending_diff_payload
+    if pending_diff:
+        session.pending_diff_payload = None
+        return [sse_line({'type': 'diff', 'diff': pending_diff})]
+    return []
+
+
+def _nested_sse_lines(
+    session: SessionState,
+    item: Any,
+    *,
+    nested_states: dict[str, GraphStreamState],
+    cfg: AgentGraphConfig,
+) -> list[str]:
+    """Translate nested planner queue items into outer SSE lines."""
+
+    if item is NESTED_WORKER_STREAM_END:
+        done_ev = session.planning_nested_done_event
+        if done_ev is not None:
+            done_ev.set()
+        nested_states.clear()
+        return []
+    unpacked = _unpack_nested_queue_item(item)
+    if unpacked is None:
+        return []
+    tag, ev = unpacked
+    nested_state = nested_states.setdefault(tag, GraphStreamState())
+    return list(
+        sse_lines_for_graph_event(
+            ev,
+            nested_state,
+            agent_role=None,
+            status_label='Workspace',
+            llm_event_prefix='nest',
+            llm_log_context=f'{cfg.graph_name}:nested',
+            stream_tag=tag,
+            emit_model_token_sse=False,
+        )
+    )
+
+
+def _graph_sse_lines(
+    session: SessionState,
+    ev: dict[str, Any],
+    *,
+    main_state: GraphStreamState,
+    cfg: AgentGraphConfig,
+    main_stream_tag: str,
+) -> list[str]:
+    """Translate one outer graph event into SSE lines and state updates."""
+
+    emit_parent_tokens = not session.suppress_parent_graph_model_token_sse
+    return list(
+        sse_lines_for_graph_event(
+            ev,
+            main_state,
+            agent_role=cfg.agent_role,
+            status_label=cfg.status_label,
+            llm_event_prefix=cfg.llm_event_prefix,
+            llm_log_context=cfg.graph_name,
+            stream_tag=main_stream_tag,
+            emit_model_token_sse=emit_parent_tokens,
+            record_model_end_final_text=emit_parent_tokens,
+        )
+    )
 
 
 @dataclass
@@ -121,12 +245,16 @@ async def _stream_langgraph_tool_agent(
                 agent_role=cfg.agent_role,
             )
         )
-        outcome.final_text = cfg.failed_start_message.format(exc=exc)
+        outcome.mark_failed_configuration(
+            str(exc),
+            final_text=cfg.failed_start_message.format(exc=exc),
+        )
         return
 
     middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
     if extra_middleware:
         middleware.extend(extra_middleware)
+    middleware.append(AcceptCommandReviewAfterToolMiddleware())
     middleware.append(CopyReviewAfterToolMiddleware())
     middleware.append(DeleteReviewAfterToolMiddleware())
     middleware.append(DiffReviewAfterToolMiddleware())
@@ -177,51 +305,23 @@ async def _stream_langgraph_tool_agent(
     try:
         try:
             while True:
-                kind, item = await race_queues(*queues, labels=queue_labels)
+                kind, item = await _race_stream_inputs(*queues, labels=queue_labels, abort_event=session.abort_event)
+
+                if kind == 'abort':
+                    outcome.mark_aborted(partial_text=main_state.partial_stream_text)
+                    break
 
                 if kind == 'hitl':
-                    sess = get_session(cfg.session_id)
-                    raw_hitl = item
-                    if raw_hitl == ('delete',):
-                        pd = sess.pending_delete_request
-                        if pd:
-                            yield sse_line(
-                                {'type': 'delete_confirm', 'deleteConfirm': delete_confirm_sse_payload(pd)}
-                            )
-                    elif raw_hitl == ('copy',):
-                        pc = sess.pending_copy_request
-                        if pc:
-                            yield sse_line(
-                                {'type': 'copy_confirm', 'copyConfirm': copy_confirm_sse_payload(pc)}
-                            )
-                    else:
-                        pending = sess.pending_diff_payload
-                        if pending:
-                            yield sse_line({'type': 'diff', 'diff': pending})
-                            sess.pending_diff_payload = None
+                    for line in _hitl_sse_lines(get_session(cfg.session_id), item):
+                        yield line
                     continue
 
                 if kind == 'nested':
-                    if item is NESTED_WORKER_STREAM_END:
-                        done_ev = session.planning_nested_done_event
-                        if done_ev is not None:
-                            done_ev.set()
-                        nested_states.clear()
-                        continue
-                    unpacked = _unpack_nested_queue_item(item)
-                    if unpacked is None:
-                        continue
-                    tag, ev = unpacked
-                    st = nested_states.setdefault(tag, GraphStreamState())
-                    for line in sse_lines_for_graph_event(
-                        ev,
-                        st,
-                        agent_role=None,
-                        status_label='Workspace',
-                        llm_event_prefix='nest',
-                        llm_log_context=f'{cfg.graph_name}:nested',
-                        stream_tag=tag,
-                        emit_model_token_sse=False,
+                    for line in _nested_sse_lines(
+                        session,
+                        item,
+                        nested_states=nested_states,
+                        cfg=cfg,
                     ):
                         yield line
                     continue
@@ -231,20 +331,24 @@ async def _stream_langgraph_tool_agent(
 
                 ev = item
                 assert isinstance(ev, dict)
-                emit_parent_tokens = not session.suppress_parent_graph_model_token_sse
-                for line in sse_lines_for_graph_event(
+                for line in _graph_sse_lines(
+                    session,
                     ev,
-                    main_state,
-                    agent_role=cfg.agent_role,
-                    status_label=cfg.status_label,
-                    llm_event_prefix=cfg.llm_event_prefix,
-                    llm_log_context=cfg.graph_name,
-                    stream_tag=main_stream_tag,
-                    emit_model_token_sse=emit_parent_tokens,
-                    record_model_end_final_text=emit_parent_tokens,
+                    main_state=main_state,
+                    cfg=cfg,
+                    main_stream_tag=main_stream_tag,
                 ):
                     yield line
-            await pump_task
+                outcome.partial_text = main_state.partial_stream_text
+            if outcome.state == AgentLoopOutcome.ABORTED:
+                if not pump_task.done():
+                    pump_task.cancel()
+                try:
+                    await pump_task
+                except asyncio.CancelledError:
+                    pass
+            else:
+                await pump_task
         except Exception as exc:
             logger.exception('LangGraph agent failed (%s)', cfg.graph_name)
             log_llm_failure(exc, context=cfg.graph_name, agent_role=cfg.agent_role)
@@ -257,21 +361,33 @@ async def _stream_langgraph_tool_agent(
                     agent_role=cfg.agent_role,
                 )
             )
-            outcome.final_text = cfg.failed_run_message.format(exc=exc)
-        else:
-            if not main_state.last_final_text.strip():
-                main_state.last_final_text = cfg.empty_final_user_hint
-            outcome.final_text = main_state.last_final_text
-            yield sse_line(
-                status_event(
-                    cfg.done_event_id,
-                    cfg.status_label,
-                    detail=cfg.done_detail,
-                    state='complete',
-                    source='agent',
-                    agent_role=cfg.agent_role,
-                )
+            outcome.mark_failed_runtime(
+                f'{type(exc).__name__}: {exc}',
+                final_text=cfg.failed_run_message.format(exc=exc),
+                partial_text=main_state.partial_stream_text,
             )
+        else:
+            outcome.partial_text = main_state.partial_stream_text
+            if outcome.state == AgentLoopOutcome.ABORTED:
+                outcome.mark_aborted(partial_text=main_state.partial_stream_text)
+            else:
+                final_text = main_state.last_final_text
+                if not final_text.strip():
+                    final_text = cfg.empty_final_user_hint
+                outcome.mark_completed(
+                    final_text=final_text,
+                    partial_text=main_state.partial_stream_text,
+                )
+                yield sse_line(
+                    status_event(
+                        cfg.done_event_id,
+                        cfg.status_label,
+                        detail=cfg.done_detail,
+                        state='complete',
+                        source='agent',
+                        agent_role=cfg.agent_role,
+                    )
+                )
     finally:
         _cleanup_nested_edit_staging(session, cfg.session_id)
         session.worker_apply_mode = False

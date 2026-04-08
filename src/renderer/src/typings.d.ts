@@ -1,4 +1,5 @@
 import type {
+  AcceptCommandPayload,
   AppConfig,
   CopyConfirmPayload,
   Conversation,
@@ -29,12 +30,24 @@ declare global {
       callback: (event: unknown, conversationId: string, delta: string, streamTag?: string) => void,
     ) => void;
     onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
+    onMessageToolExecChunk: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        delta: string,
+        streamTag?: string,
+        label?: string,
+      ) => void,
+    ) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
     onMessagePlanner?: (
       callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void,
     ) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
+    onMessageAcceptCommand?: (
+      callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
+    ) => void;
     onMessageCopyConfirm?: (
       callback: (event: unknown, conversationId: string, payload: CopyConfirmPayload) => void,
     ) => void;
@@ -50,6 +63,8 @@ declare global {
       deleteRequestId?: string,
       copyAction?: 'confirm' | 'cancel',
       copyRequestId?: string,
+      acceptCommandAction?: 'confirm' | 'cancel',
+      acceptCommandRequestId?: string,
     ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (

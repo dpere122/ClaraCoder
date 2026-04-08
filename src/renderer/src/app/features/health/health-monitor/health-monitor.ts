@@ -12,6 +12,7 @@ import type { AppConfig, HealthMetricsSnapshot } from '@shared/index';
 import { THEMES } from '../../layout/theme-selector/theme-selector';
 import { ElectronService } from '../../../core/electron.service';
 import { HealthLogViewer } from '../health-log-viewer/health-log-viewer';
+import { HealthMetricsToggle } from '../health-metrics-toggle/health-metrics-toggle';
 
 const MAX_POINTS = 36;
 
@@ -19,7 +20,7 @@ type ChartKey = 'mem' | 'cpu' | 'netRx' | 'netTx' | 'diskR' | 'diskW';
 
 @Component({
   selector: 'app-health-monitor',
-  imports: [HealthLogViewer],
+  imports: [HealthLogViewer, HealthMetricsToggle],
   templateUrl: './health-monitor.html',
   styleUrl: './health-monitor.css',
 })
@@ -30,8 +31,10 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   private charts = new Map<ChartKey, InstanceType<typeof Chart>>();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private configSub: { unsubscribe(): void } | null = null;
+  private viewInitialized = false;
 
   protected readonly gpuSummary = signal<string>('GPU: collecting…');
+  protected readonly metricsEnabled = signal(false);
 
   protected readonly chartDefs: Array<{ key: ChartKey; label: string; suffix: string; yMax?: number }> = [
     { key: 'mem', label: 'Memory', suffix: '%', yMax: 100 },
@@ -53,27 +56,38 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     const cfg = await this.electron.loadConfig();
-    this.applyTheme(cfg);
-    this.configSub = this.electron.config$.subscribe((c: AppConfig) => this.applyTheme(c));
+    this.syncFromConfig(cfg);
+    this.configSub = this.electron.config$.subscribe((c: AppConfig) => this.syncFromConfig(c));
   }
 
   ngAfterViewInit(): void {
-    queueMicrotask(() => this.initCharts());
-    this.pollTimer = setInterval(() => void this.tick(), 1000);
-    void this.tick();
+    this.viewInitialized = true;
+    if (this.metricsEnabled()) {
+      this.enableMetrics();
+    }
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.stopPolling();
     this.configSub?.unsubscribe();
-    for (const c of this.charts.values()) {
-      c.destroy();
-    }
-    this.charts.clear();
+    this.destroyCharts();
   }
 
   protected closeWindow(): void {
     this.electron.closeHealthWindow();
+  }
+
+  protected async onMetricsToggle(enabled: boolean): Promise<void> {
+    this.syncMetricsEnabled(enabled);
+    const cfg = await this.electron.loadConfig();
+    const next: AppConfig = {
+      ...cfg,
+      healthMonitor: {
+        ...cfg.healthMonitor,
+        metricsEnabled: enabled,
+      },
+    };
+    await this.electron.saveConfig(next);
   }
 
   private applyTheme(config: AppConfig): void {
@@ -82,7 +96,40 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
   }
 
+  private syncFromConfig(config: AppConfig): void {
+    this.applyTheme(config);
+    this.syncMetricsEnabled(config.healthMonitor.metricsEnabled);
+  }
+
+  private syncMetricsEnabled(enabled: boolean): void {
+    if (this.metricsEnabled() === enabled) return;
+    this.metricsEnabled.set(enabled);
+    if (!this.viewInitialized) return;
+    if (enabled) {
+      setTimeout(() => {
+        if (this.metricsEnabled()) this.enableMetrics();
+      }, 0);
+      return;
+    }
+    this.disableMetrics();
+  }
+
+  private enableMetrics(): void {
+    if (this.pollTimer) return;
+    this.initCharts();
+    this.pollTimer = setInterval(() => void this.tick(), 1000);
+    void this.tick();
+  }
+
+  private disableMetrics(): void {
+    this.stopPolling();
+    this.destroyCharts();
+    this.lastValues.set({});
+    this.gpuSummary.set('GPU: monitoring paused');
+  }
+
   private initCharts(): void {
+    if (this.charts.size > 0) return;
     const root = this.host.nativeElement;
     for (const def of this.chartDefs) {
       const canvas = root.querySelector(`canvas[data-key="${def.key}"]`) as HTMLCanvasElement | null;
@@ -123,6 +170,20 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  private stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  private destroyCharts(): void {
+    for (const c of this.charts.values()) {
+      c.destroy();
+    }
+    this.charts.clear();
+  }
+
   private pushPoint(chart: InstanceType<typeof Chart>, y: number): void {
     const ds = chart.data.datasets[0].data as number[];
     ds.push(y);
@@ -139,6 +200,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private async tick(): Promise<void> {
+    if (!this.metricsEnabled()) return;
     const snap = await this.electron.healthMetrics();
     if (!snap) return;
     this.updateGpu(snap);

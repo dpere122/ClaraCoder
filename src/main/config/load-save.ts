@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
 import type { AppConfig, HealthMonitorConfig, LlmConnectionConfig, WorkspaceToolsConfig } from '../../shared';
+import { inferContextWindowTokens } from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
@@ -80,6 +81,16 @@ export function migrateConfig(config: AppConfig): AppConfig {
       connection.model = connection.provider === 'lmstudio' ? 'local-model' : 'gpt-4o-mini';
       migrated = true;
     }
+    if (typeof connection.contextWindowTokens !== 'number' || Number.isNaN(connection.contextWindowTokens)) {
+      connection.contextWindowTokens = inferContextWindowTokens(connection.model, connection.provider);
+      migrated = true;
+    } else {
+      const contextWindowTokens = Math.min(10_000_000, Math.max(1_024, Math.floor(connection.contextWindowTokens)));
+      if (contextWindowTokens !== connection.contextWindowTokens) {
+        connection.contextWindowTokens = contextWindowTokens;
+        migrated = true;
+      }
+    }
     if (connection.apiKey === undefined) {
       connection.apiKey = connection.provider === 'lmstudio' ? 'lm-studio' : '';
       migrated = true;
@@ -102,7 +113,11 @@ export function migrateConfig(config: AppConfig): AppConfig {
       connection.parallelToolCalls = false;
       migrated = true;
     }
-    if (connection.optimizationPreset !== 'generic' && connection.optimizationPreset !== 'qwen') {
+    if (
+      connection.optimizationPreset !== 'generic' &&
+      connection.optimizationPreset !== 'qwen' &&
+      connection.optimizationPreset !== 'capable'
+    ) {
       connection.optimizationPreset = 'generic';
       migrated = true;
     }
@@ -113,6 +128,16 @@ export function migrateConfig(config: AppConfig): AppConfig {
       const mt = Math.min(200_000, Math.max(0, Math.floor(connection.maxOutputTokens)));
       if (mt !== connection.maxOutputTokens) {
         connection.maxOutputTokens = mt;
+        migrated = true;
+      }
+    }
+    if (typeof connection.planRetryAttemptsCount !== 'number' || Number.isNaN(connection.planRetryAttemptsCount)) {
+      connection.planRetryAttemptsCount = 2;
+      migrated = true;
+    } else {
+      const attempts = Math.min(20, Math.max(0, Math.floor(connection.planRetryAttemptsCount)));
+      if (attempts !== connection.planRetryAttemptsCount) {
+        connection.planRetryAttemptsCount = attempts;
         migrated = true;
       }
     }
@@ -189,6 +214,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
     const allowed: HealthMonitorConfig['logLevel'][] = ['debug', 'info', 'warning', 'error'];
     if (!allowed.includes(hm.logLevel)) {
       hm.logLevel = 'info';
+      migrated = true;
+    }
+    if (typeof hm.metricsEnabled !== 'boolean') {
+      hm.metricsEnabled = false;
       migrated = true;
     }
   }

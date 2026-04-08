@@ -134,6 +134,21 @@
   word-break: break-word;
 }
 
+.health-disabled-card {
+  border: 1px dashed color-mix(in srgb, var(--t-border) 82%, transparent);
+  border-radius: 10px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--t-bg-surface) 78%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.health-disabled-card__text {
+  margin: 8px 0 0;
+  max-width: 48rem;
+  color: var(--t-text-muted);
+  line-height: 1.5;
+}
+
 .health-logs-wrap {
   flex: 1;
   min-height: 200px;

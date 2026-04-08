@@ -16,6 +16,7 @@ from fastapi import FastAPI
 
 from nemo_backend.app_logging import configure_logging
 from nemo_backend.log_routes import router as log_router
+from nemo_backend.routes_lsp import router as lsp_router
 from nemo_backend.routes import router as runtime_router
 from nemo_backend.routes_audio import router as audio_router
 from nemo_backend.routes_chat import router as chat_router
@@ -29,4 +30,5 @@ app.include_router(runtime_router)
 app.include_router(session_router)
 app.include_router(chat_router)
 app.include_router(audio_router)
+app.include_router(lsp_router)
 app.include_router(log_router)

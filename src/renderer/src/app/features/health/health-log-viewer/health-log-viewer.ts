@@ -84,7 +84,7 @@ export class HealthLogViewer implements OnInit, OnDestroy {
   protected async onVerbosityChange(level: HealthLogLevel): Promise<void> {
     this.logVerbosity.set(level);
     const cfg = await this.electron.loadConfig();
-    const next: AppConfig = { ...cfg, healthMonitor: { logLevel: level } };
+    const next: AppConfig = { ...cfg, healthMonitor: { ...cfg.healthMonitor, logLevel: level } };
     await this.electron.saveConfig(next);
     await this.electron.healthSetLogLevel(level);
   }

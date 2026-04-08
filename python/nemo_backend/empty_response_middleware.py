@@ -21,6 +21,7 @@ from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from typing_extensions import NotRequired, override
 
+from nemo_backend.agents.planning import MODIFY_WORKSPACE_NAME
 from nemo_backend.config import MAX_AGENT_EMPTY_NUDGES
 from nemo_backend.messages import final_assistant_text
 
@@ -37,16 +38,77 @@ _EMPTY_NUDGE_TEXT_HAS_TOOL_RESULTS = (
     'reply with a clear, complete answer for the user in plain language.'
 )
 
+_EMPTY_NUDGE_TEXT_AFTER_MODIFY_WORKSPACE = (
+    'Your last message had no user-visible text. You already have a completed '
+    '`modify_workspace` result in this conversation. First decide whether that '
+    'nested workspace run satisfied the user request. If it did, answer the user '
+    'now in plain language without more tools. If it did not, explain exactly '
+    'what remains and why before making at most one focused next tool call.'
+)
+
+_NUDGE_REPEAT_MODIFY_AFTER_FAILURE = (
+    'You called `modify_workspace` again with no user-visible text right after a '
+    'previous `modify_workspace` result that looks unsuccessful or incomplete. '
+    'Stop repeating the same tool call. Quote or paraphrase the concrete error or '
+    'outcome from the last `modify_workspace` tool message, answer the user in '
+    'plain language, and only use tools again with a clearly different plan.'
+)
+
 
 def _has_recent_tool_results(msgs: list[Any]) -> bool:
     """True when the conversation already contains ToolMessage results."""
     return any(isinstance(m, ToolMessage) for m in msgs)
 
 
+def _latest_tool_message(msgs: list[Any]) -> ToolMessage | None:
+    for item in reversed(msgs):
+        if isinstance(item, ToolMessage):
+            return item
+    return None
+
+
+def _aimessage_tool_names(msg: AIMessage) -> list[str]:
+    names: list[str] = []
+    for tc in msg.tool_calls or []:
+        if isinstance(tc, dict):
+            names.append(str(tc.get('name') or '').strip())
+        else:
+            names.append(str(getattr(tc, 'name', '') or '').strip())
+    return [n for n in names if n]
+
+
+def _is_successful_modify_workspace_tool(msg: ToolMessage | None) -> bool:
+    if msg is None:
+        return False
+    if str(getattr(msg, 'name', '') or '').strip() != MODIFY_WORKSPACE_NAME:
+        return False
+    text = str(getattr(msg, 'content', '') or '').strip().lower()
+    if text.startswith('tool error:'):
+        return False
+    if not text:
+        return False
+    # Nested planner often returns natural-language failure summaries without the prefix.
+    failure_markers = (
+        'could not',
+        'couldn\'t',
+        'unable to',
+        'failed',
+        'without a final',
+        'not be found',
+        'does not exist',
+        'no active session',
+        'planning stream not initialized',
+        'i\'m sorry',
+        'sorry, but',
+    )
+    return not any(marker in text for marker in failure_markers)
+
+
 class _EmptyResponseNudgeState(AgentState[ResponseT]):
     """Tracks empty no-tool model turns for nudging (not exposed in I/O schema)."""
 
     empty_response_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
+    post_tool_silent_tool_streak: NotRequired[Annotated[int, PrivateStateAttr]]
 
 
 class EmptyResponseNudgeMiddleware(AgentMiddleware):
@@ -69,12 +131,41 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
         if not isinstance(last, AIMessage):
             return None
         if last.tool_calls:
-            return None
+            if final_assistant_text(last).strip():
+                return {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
+            prior_msgs = msgs[:-1]
+            if any(isinstance(m, ToolMessage) for m in prior_msgs):
+                latest_tool = _latest_tool_message(prior_msgs)
+                lt_name = str(getattr(latest_tool, 'name', '') or '').strip() if latest_tool else ''
+                # Typical flow: list/read/search then modify_workspace — must not count as spam.
+                if lt_name != MODIFY_WORKSPACE_NAME:
+                    return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
+                if _is_successful_modify_workspace_tool(latest_tool):
+                    return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
+                # Unsuccessful modify_workspace: only count if the model doubles down with modify_workspace again
+                # (not when it switches to read/list tools after a failure).
+                if MODIFY_WORKSPACE_NAME not in _aimessage_tool_names(last):
+                    return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
+                silent = int(state.get('post_tool_silent_tool_streak') or 0) + 1
+                if silent >= 2:
+                    logger.info(
+                        'Nudging after repeated silent `modify_workspace` calls following an unsuccessful one '
+                        '(silent=%s)',
+                        silent,
+                    )
+                    return {
+                        'messages': [HumanMessage(content=_NUDGE_REPEAT_MODIFY_AFTER_FAILURE)],
+                        'jump_to': 'model',
+                        'post_tool_silent_tool_streak': 0,
+                        'empty_response_nudge_streak': 0,
+                    }
+                return {'post_tool_silent_tool_streak': silent, 'empty_response_nudge_streak': 0}
+            return {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
         inv = getattr(last, 'invalid_tool_calls', None) or ()
         if inv:
             return None
         if final_assistant_text(last).strip():
-            return {'empty_response_nudge_streak': 0}
+            return {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
         streak = int(state.get('empty_response_nudge_streak') or 0)
         if streak >= MAX_AGENT_EMPTY_NUDGES:
             return None
@@ -83,10 +174,15 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             streak + 1,
             MAX_AGENT_EMPTY_NUDGES,
         )
+        latest_tool = _latest_tool_message(msgs[:-1])
         nudge = (
-            _EMPTY_NUDGE_TEXT_HAS_TOOL_RESULTS
-            if _has_recent_tool_results(msgs)
-            else _EMPTY_NUDGE_TEXT
+            _EMPTY_NUDGE_TEXT_AFTER_MODIFY_WORKSPACE
+            if _is_successful_modify_workspace_tool(latest_tool)
+            else (
+                _EMPTY_NUDGE_TEXT_HAS_TOOL_RESULTS
+                if _has_recent_tool_results(msgs)
+                else _EMPTY_NUDGE_TEXT
+            )
         )
         return {
             'messages': [HumanMessage(content=nudge)],

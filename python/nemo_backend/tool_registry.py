@@ -18,6 +18,19 @@ from nemo_backend.copy_tool import COPY_WORKSPACE_FILES_NAME, copy_workspace_fil
 from nemo_backend.delete_tool import DELETE_WORKSPACE_ENTRY_NAME, delete_workspace_entry
 from nemo_backend.agents.specialists.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
 from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME, edit_tools_for_strict
+from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
+from nemo_backend.python_dependency_agent import (
+    INSTALL_PYTHON_PACKAGES_NAME,
+    INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
+    REMOVE_PYTHON_PACKAGES_NAME,
+    python_dependency_tools,
+)
+from nemo_backend.lsp.tools import (
+    LSP_CREATE_PYTHON_FILE_NAME,
+    LSP_DELETE_PYTHON_FILE_NAME,
+    LSP_UPDATE_PYTHON_FILE_NAME,
+    PYTHON_LSP_READ_TOOLS,
+)
 from nemo_backend.staging_edit_tools import (
     STAGE_CREATE_FILE_NAME,
     STAGE_LINE_RANGE_EDIT_NAME,
@@ -38,24 +51,43 @@ def hitl_diff_pause_tools() -> frozenset[str]:
     names.add(STAGE_WORKSPACE_FILE_OVERWRITE_NAME)
     names.add(STAGE_LINE_RANGE_EDIT_NAME)
     names.add(STAGE_SNIPPET_EDIT_NAME)
+    names.add(LSP_CREATE_PYTHON_FILE_NAME)
+    names.add(LSP_UPDATE_PYTHON_FILE_NAME)
     return frozenset(names)
 
 
 def hitl_delete_pause_tools() -> frozenset[str]:
-    return frozenset({DELETE_WORKSPACE_ENTRY_NAME})
+    return frozenset({DELETE_WORKSPACE_ENTRY_NAME, LSP_DELETE_PYTHON_FILE_NAME})
 
 
 def hitl_copy_pause_tools() -> frozenset[str]:
     return frozenset({COPY_WORKSPACE_FILES_NAME})
 
 
+def hitl_accept_command_pause_tools() -> frozenset[str]:
+    return frozenset(
+        {
+            INSTALL_PYTHON_PACKAGES_NAME,
+            REMOVE_PYTHON_PACKAGES_NAME,
+            INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
+        }
+    )
+
+
 def worker_tools_and_map(apply_mode: bool) -> tuple[list[Any], dict[str, Any]]:
     """Tools for the outer Clara agent: reads; plus direct copy and ``modify_workspace`` when Editor is on."""
-    tools: list[Any] = list(TOOLS)
+    tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
     mapping: dict[str, Any] = dict(TOOL_MAP)
+    for tool_ in PYTHON_LSP_READ_TOOLS:
+        mapping[tool_.name] = tool_
     if apply_mode:
         tools.append(copy_workspace_files)
         mapping[copy_workspace_files.name] = copy_workspace_files
+        tools.append(ensure_python_workspace_env_tool)
+        mapping[ensure_python_workspace_env_tool.name] = ensure_python_workspace_env_tool
+        dependency_tools, dependency_map = python_dependency_tools()
+        tools.extend(dependency_tools)
+        mapping.update(dependency_map)
         tools.extend(PLANNING_TOOLS)
         for t in PLANNING_TOOLS:
             mapping[t.name] = t

@@ -9,7 +9,7 @@ import { syncRuntimeConfigToPython, syncWorkspaceContextToPython } from '../../p
 import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
 import { getRecentConversations } from '../../menu/recent-conversations';
 import { buildMenu } from '../../menu/application-menu';
-import { syncPythonLogLevel } from './health';
+import { setHealthMetricsEnabled, syncPythonLogLevel } from './health';
 
 function broadcastConfig(config: AppConfig): void {
   mainState.mainWindow?.webContents.send('config-updated', config);
@@ -37,6 +37,7 @@ export function registerConfigWorkspacesIpc(): void {
     const migratedConfig = migrateConfig(config);
     await saveConfig(migratedConfig);
     await syncPythonLogLevel(migratedConfig.healthMonitor.logLevel);
+    setHealthMetricsEnabled(migratedConfig.healthMonitor.metricsEnabled);
     await syncRuntimeConfigToPython(migratedConfig);
     broadcastConfig(migratedConfig);
   });

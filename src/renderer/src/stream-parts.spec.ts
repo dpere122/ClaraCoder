@@ -1,5 +1,6 @@
 import type { StreamPart } from '@shared/index';
 import {
+  delegatedStreamPartsForDisplay,
   isPrimaryAssistantStreamTag,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
@@ -120,6 +121,18 @@ describe('primaryStreamPartsForDisplay', () => {
     expect(primaryStreamPartsForDisplay(parts, null)).toEqual([
       { streamTag: 'mgr', label: 'Manager', text: 'y' },
       { streamTag: 'agent', label: 'Reply', text: 'z' },
+    ]);
+  });
+});
+
+describe('delegatedStreamPartsForDisplay', () => {
+  it('keeps nested tool execution streams out of the saved primary reply', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'agent', label: 'Reply', text: 'done' },
+      { streamTag: 'spec-code_review-tests', label: 'Pytest', text: '1 passed' },
+    ];
+    expect(delegatedStreamPartsForDisplay(parts, null)).toEqual([
+      { streamTag: 'spec-code_review-tests', label: 'Pytest', text: '1 passed' },
     ]);
   });
 });

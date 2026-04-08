@@ -4,6 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AcceptCommandPayload,
   CopyConfirmPayload,
   DeleteConfirmPayload,
   FileDiffPayload,
@@ -21,6 +22,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ) => ipcRenderer.on('message-chunk', callback),
   onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) =>
     ipcRenderer.on('message-tool-read-chunk', callback),
+  onMessageToolExecChunk: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      delta: string,
+      streamTag?: string,
+      label?: string,
+    ) => void,
+  ) => ipcRenderer.on('message-tool-exec-chunk', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),
@@ -28,6 +38,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('message-planner', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
+  onMessageAcceptCommand: (
+    callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
+  ) => ipcRenderer.on('message-accept-command', callback),
   onMessageCopyConfirm: (
     callback: (event: unknown, conversationId: string, payload: CopyConfirmPayload) => void,
   ) => ipcRenderer.on('message-copy-confirm', callback),
@@ -44,6 +57,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
+    acceptCommandAction?: 'confirm' | 'cancel',
+    acceptCommandRequestId?: string,
   ) => ipcRenderer.invoke(
     'agent-continue',
     conversationId,
@@ -52,6 +67,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteRequestId,
     copyAction,
     copyRequestId,
+    acceptCommandAction,
+    acceptCommandRequestId,
   ),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),

@@ -17,6 +17,7 @@ logger = logging.getLogger('nemo.tools.workspace')
 from langchain_core.tools import tool
 from pypdf import PdfReader
 
+from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
 from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
     parse_newline_mode,
@@ -204,6 +205,81 @@ def _read_workspace_pdf(path: Path, rel_display: str, start_page: int, end_page:
     return header + '\n\n'.join(parts)
 
 
+def _search_workspace_python(
+    root_resolved: Path,
+    ignore_rules: list[str],
+    *,
+    pattern: re.Pattern[str],
+    limit: int,
+    encoding: str,
+) -> tuple[list[str], int]:
+    matches: list[str] = []
+    skipped = 0
+    for path in iter_workspace_search_files(root_resolved, ignore_rules):
+        try:
+            text = read_file_for_tools(path, encoding)
+        except OSError as exc:
+            logger.debug('search skip unreadable path=%s err=%s', path, exc)
+            skipped += 1
+            continue
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                rel_display = path.relative_to(root_resolved).as_posix()
+                matches.append(f'[{rel_display} line {line_number}]{_READ_FILE_GUTTER_SEP}{line}')
+                if len(matches) >= limit:
+                    return matches, skipped
+    return matches, skipped
+
+
+def _search_workspace_grep(
+    root_resolved: Path,
+    ignore_rules: list[str],
+    *,
+    query: str,
+    limit: int,
+    encoding: str,
+) -> tuple[list[str], int] | None:
+    candidates: list[SearchCandidate] = []
+    path_by_display: dict[str, Path] = {}
+    for path in iter_workspace_search_files(root_resolved, ignore_rules):
+        rel_path = path.relative_to(root_resolved)
+        rel_command_path = str(rel_path)
+        rel_display = rel_path.as_posix()
+        candidates.append(SearchCandidate(command_path=rel_command_path, display_path=rel_display))
+        path_by_display[rel_display] = path
+    grep_matches = run_grep_line_search(
+        query,
+        candidates,
+        max_matches=limit,
+        encoding=encoding,
+        cwd=root_resolved,
+    )
+    if grep_matches is None:
+        return None
+
+    rendered: list[str] = []
+    skipped = 0
+    lines_cache: dict[Path, list[str]] = {}
+    for match in grep_matches:
+        path = path_by_display.get(match.display_path)
+        if path is None:
+            continue
+        try:
+            file_lines = lines_cache.get(path)
+            if file_lines is None:
+                file_lines = read_file_for_tools(path, encoding).splitlines()
+                lines_cache[path] = file_lines
+        except OSError as exc:
+            logger.debug('search grep reread skip unreadable path=%s err=%s', path, exc)
+            skipped += 1
+            continue
+        if 1 <= match.line_number <= len(file_lines):
+            rendered.append(
+                f'[{match.display_path} line {match.line_number}]{_READ_FILE_GUTTER_SEP}{file_lines[match.line_number - 1]}'
+            )
+    return rendered, skipped
+
+
 @tool
 def read_workspace_file(
     relative_path: str,
@@ -212,7 +288,7 @@ def read_workspace_file(
     include_line_numbers: bool = True,
     encoding: str = '',
 ) -> str:
-    """Read a file from the workspace.
+    """Use to fetch literal file or PDF text from the workspace when LSP tools are not enough.
 
     For plain text, ``encoding`` selects the on-disk codec (default from app Settings → Tools), e.g. utf-8, utf-8-sig,
     utf-16, utf-16-le, utf-16-be, latin-1, cp1252, ascii, mac-roman. Invalid byte sequences are replaced (U+FFFD).
@@ -276,31 +352,27 @@ def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> s
     ignore_rules = get_workspace_ignore_rules_cached(root)
     limit = max(1, min(max_matches, _effective_max_search_results()))
     pattern = re.compile(query, re.IGNORECASE)
-    matches: list[str] = []
-    skipped = 0
 
     enc = (encoding or '').strip() or runtime_config.tools.default_workspace_encoding
     enc = validate_workspace_encoding(enc)
 
-    for path in iter_workspace_search_files(root_resolved, ignore_rules):
-        try:
-            text = read_file_for_tools(path, enc)
-        except OSError as exc:
-            logger.debug('search skip unreadable path=%s err=%s', path, exc)
-            skipped += 1
-            continue
-
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                rel_display = path.relative_to(root_resolved).as_posix()
-                matches.append(
-                    f'[{rel_display} line {line_number}]{_READ_FILE_GUTTER_SEP}{line}'
-                )
-                if len(matches) >= limit:
-                    summary = '\n'.join(matches)
-                    if skipped:
-                        summary += f'\n\nSkipped unreadable files: {skipped}'
-                    return summary
+    grep_result = _search_workspace_grep(
+        root_resolved,
+        ignore_rules,
+        query=query,
+        limit=limit,
+        encoding=enc,
+    )
+    if grep_result is None:
+        matches, skipped = _search_workspace_python(
+            root_resolved,
+            ignore_rules,
+            pattern=pattern,
+            limit=limit,
+            encoding=enc,
+        )
+    else:
+        matches, skipped = grep_result
 
     if not matches:
         return 'No matches found.'

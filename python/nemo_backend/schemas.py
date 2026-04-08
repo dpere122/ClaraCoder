@@ -32,7 +32,7 @@ class SessionAutoApplyRequest(BaseModel):
 
 
 class AgentContinueRequest(BaseModel):
-    """Resume an agent stream that is waiting after a diff, delete, or copy confirmation."""
+    """Resume an agent stream that is waiting after a diff or approval/confirmation step."""
 
     session_id: str
     note: str = ''
@@ -42,6 +42,9 @@ class AgentContinueRequest(BaseModel):
     #: When set with a pending copy request, perform or cancel the copy before resuming.
     copy_action: Literal['confirm', 'cancel'] | None = None
     copy_request_id: str = ''
+    #: When set with a pending generic command request, perform or cancel it before resuming.
+    accept_command_action: Literal['confirm', 'cancel'] | None = None
+    accept_command_request_id: str = ''
 
 
 class AbortRequest(BaseModel):
@@ -90,8 +93,9 @@ class RuntimeConnectionRequest(BaseModel):
     reasoningEffort: str = ''
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     parallelToolCalls: bool = False
-    optimizationPreset: Literal['generic', 'qwen'] = 'generic'
+    optimizationPreset: Literal['generic', 'qwen', 'capable'] = 'generic'
     maxOutputTokens: int = Field(default=0, ge=0, le=200_000)
+    planRetryAttemptsCount: int = Field(default=2, ge=0, le=20)
 
 
 class RuntimeAudioRequest(BaseModel):

@@ -137,6 +137,11 @@
   flex-shrink: 0;
 }
 
+.status-bar-host {
+  flex-shrink: 0;
+  width: 100%;
+}
+
 .tools-bar-host {
   display: block;
 }

@@ -20,6 +20,7 @@ export const WORKSPACE_CONTEXT_IGNORED_NAMES = new Set([
   '.next',
   '.nuxt',
   '.svn',
+  '.venv',
   '.vscode',
   '__pycache__',
   'bin',
@@ -32,6 +33,7 @@ export const WORKSPACE_CONTEXT_IGNORED_NAMES = new Set([
   'target',
   'tmp',
   'vendor',
+  'venv',
 ]);
 
 export const WORKSPACE_CONTEXT_IGNORED_SUFFIXES = ['.log', '.pyc', '.pyo', '.tmp', '.swp'];

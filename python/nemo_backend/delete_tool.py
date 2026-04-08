@@ -11,7 +11,10 @@ logger = logging.getLogger('nemo.tools.delete')
 
 from langchain_core.tools import tool
 
+from nemo_backend import edit_staging
 from nemo_backend.domain import SessionState
+from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.manager import close_session_document
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
 from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
 
@@ -95,9 +98,17 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
     rel = pending.get('relative_path', '')
     rec = bool(pending.get('recursive'))
     root = Path(pending.get('workspace_root') or '')
+    session_id = str(pending.get('session_id') or '').strip() or None
     if not root.is_dir():
         return f'Delete failed (request {rid}): workspace root unavailable.'
     ok, msg = _perform_delete(root, rel, rec)
+    if ok and session_id and is_lsp_managed_path(rel):
+        try:
+            close_session_document(rel, session_id=session_id, scope='workspace')
+        except Exception as exc:
+            logger.warning('python LSP close failed after delete path=%s err=%s', rel, exc)
+    if ok:
+        edit_staging.delete_snapshot_path(session, rel)
     return msg if ok else f'Delete failed: {msg}'
 
 
@@ -140,6 +151,13 @@ def delete_workspace_entry(relative_path: str, recursive: bool = False) -> str:
 
     if session.auto_apply_mode:
         ok, msg = _perform_delete(root, rel_clean, recursive)
+        if ok and is_lsp_managed_path(rel_display):
+            try:
+                close_session_document(rel_display, session_id=session_id, scope='workspace')
+            except Exception as exc:
+                logger.warning('python LSP close failed after auto delete path=%s err=%s', rel_display, exc)
+        if ok:
+            edit_staging.delete_snapshot_path(session, rel_display)
         return msg if ok else f'Tool error: {msg}'
 
     session.pending_delete_request = {
@@ -148,6 +166,7 @@ def delete_workspace_entry(relative_path: str, recursive: bool = False) -> str:
         'kind': 'directory' if is_dir else 'file',
         'recursive': recursive,
         'workspace_root': str(root.resolve()),
+        'session_id': session_id,
     }
     return (
         f'Pending user confirmation to delete {"directory" if is_dir else "file"} `{rel_display}`'

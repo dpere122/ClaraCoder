@@ -26,7 +26,10 @@ function stubElectronApi(): void {
       defaultWorkspaceEncoding: 'utf-8',
       defaultWorkspaceNewline: 'lf',
     },
-    healthMonitor: { logLevel: 'info' },
+    healthMonitor: {
+      logLevel: 'info',
+      metricsEnabled: false,
+    },
   };
   const convMeta = {
     id: 'test-conv',
@@ -86,5 +89,12 @@ describe('App', () => {
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('h1')?.textContent).toContain('Clara AI');
+  });
+
+  it('should render the status bar', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-status-bar')).not.toBeNull();
   });
 });

@@ -17,6 +17,7 @@ WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
         '.next',
         '.nuxt',
         '.svn',
+        '.venv',
         '.vscode',
         '__pycache__',
         'bin',
@@ -29,6 +30,7 @@ WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
         'target',
         'tmp',
         'vendor',
+        'venv',
     }
 )
 

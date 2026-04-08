@@ -9,13 +9,15 @@ from pathlib import Path
 from langchain_core.tools import tool
 
 from nemo_backend import edit_staging
-from nemo_backend.edit_tool import (
-    APPROVE_STAGED_WORKSPACE_EDIT_NAME,
-    finalize_staged_edit,
-)
+from nemo_backend.domain import WorkspaceTestMaterializationEntry
+from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME
+from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.manager import sync_session_document
+from nemo_backend.lsp.tools import lsp_get_diagnostics
+from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
-from nemo_backend.workspace_text_io import DiskNewline
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.workspace_text_io import DiskNewline, write_file_resolved
+from nemo_backend.workspace_tools import get_active_workspace_root, truncate_text
 
 logger = logging.getLogger('nemo.staging')
 
@@ -54,6 +56,64 @@ def _format_read_excerpt_with_gutter(excerpt: list[str], line_start: int, line_e
     )
 
 
+def _search_staged_edits_python(
+    entries: list[tuple[str, object]],
+    *,
+    pattern: re.Pattern[str],
+    limit: int,
+) -> list[str]:
+    matches: list[str] = []
+    for rel_key, entry in entries:
+        try:
+            text = edit_staging.read_staging_text(Path(entry.temp_path), entry.disk_encoding)
+        except OSError as exc:
+            logger.warning('search_staged_edits read failed path=%s err=%s', rel_key, exc)
+            continue
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                matches.append(f'[{rel_key} line {line_number}]{_READ_FILE_GUTTER_SEP}{line}')
+                if len(matches) >= limit:
+                    return matches
+    return matches
+
+
+def _search_staged_edits_grep(
+    entries: list[tuple[str, object]],
+    *,
+    query: str,
+    limit: int,
+) -> list[str] | None:
+    candidates = [
+        SearchCandidate(command_path=str(Path(entry.temp_path)), display_path=rel_key)
+        for rel_key, entry in entries
+    ]
+    grep_matches = run_grep_line_search(query, candidates, max_matches=limit)
+    if grep_matches is None:
+        return None
+
+    entry_by_rel_key = {rel_key: entry for rel_key, entry in entries}
+    lines_cache: dict[str, list[str]] = {}
+    rendered: list[str] = []
+    for match in grep_matches:
+        entry = entry_by_rel_key.get(match.display_path)
+        if entry is None:
+            continue
+        try:
+            file_lines = lines_cache.get(match.display_path)
+            if file_lines is None:
+                file_lines = edit_staging.read_staging_text(Path(entry.temp_path), entry.disk_encoding).splitlines()
+                lines_cache[match.display_path] = file_lines
+        except OSError as exc:
+            logger.warning('search_staged_edits grep reread failed path=%s err=%s', match.display_path, exc)
+            continue
+        if 1 <= match.line_number <= len(file_lines):
+            rendered.append(
+                f'[{match.display_path} line {match.line_number}]{_READ_FILE_GUTTER_SEP}'
+                f'{file_lines[match.line_number - 1]}'
+            )
+    return rendered
+
+
 def _get_staging_entry(rel: str):
     sid = current_session_id.get()
     if not sid:
@@ -66,7 +126,102 @@ def _get_staging_entry(rel: str):
     entry = session.pending_edit_stagings.get(rel_key)
     if not entry:
         return f'Tool error: no staged edit for `{rel_key}`.'
+    if _entry_workspace_applied(entry):
+        return (
+            f'Tool error: staged `{rel_key}` is already approved in the workspace for this chain. '
+            'It is no longer pending review. For follow-up edits, read the live file with `read_workspace_file` and '
+            'then stage the next revision with `stage_workspace_file_overwrite` or `lsp_update_python_file`.'
+        )
     return session, rel_key
+
+
+def _entry_workspace_applied(entry: object) -> bool:
+    value = getattr(entry, 'workspace_applied', False)
+    return value if isinstance(value, bool) else False
+
+
+def _review_pending_entries(session) -> list[tuple[str, object]]:
+    return [
+        (rel_key, entry)
+        for rel_key, entry in sorted(session.pending_edit_stagings.items())
+        if not _entry_workspace_applied(entry)
+    ]
+
+
+def _python_overlay_paths(session) -> list[tuple[str, object]]:
+    return [(rel_key, entry) for rel_key, entry in _review_pending_entries(session) if rel_key.lower().endswith('.py')]
+
+
+def _project_python_overlay_paths(
+    session,
+    *,
+    project_prefix: str,
+) -> list[tuple[str, object]]:
+    entries = _python_overlay_paths(session)
+    if not project_prefix:
+        return [(rel_key, entry) for rel_key, entry in entries if rel_key.lower().endswith('.py')]
+    return [
+        (rel_key, entry)
+        for rel_key, entry in entries
+        if rel_key.startswith(project_prefix) and rel_key.lower().endswith('.py')
+    ]
+
+
+def _restore_materialized_path(session, rel_key: str) -> None:
+    materialized = session.test_run_materializations.get(rel_key)
+    if materialized is None:
+        return
+    root = Path(session.workspace_path).resolve()
+    target = (root / rel_key).resolve()
+    if materialized.existed:
+        write_file_resolved(
+            target,
+            materialized.original_text,
+            materialized.disk_encoding,
+            'crlf' if materialized.disk_newline == 'crlf' else 'lf',
+        )
+    else:
+        target.unlink(missing_ok=True)
+    session.test_run_materializations.pop(rel_key, None)
+
+
+def rollback_test_run_materializations(session) -> None:
+    """Restore any workspace files that were materialized for test runs but not approved."""
+
+    for rel_key in list(session.test_run_materializations.keys()):
+        try:
+            _restore_materialized_path(session, rel_key)
+        except Exception as exc:
+            logger.warning('rollback_test_run_materializations failed path=%s err=%s', rel_key, exc)
+
+
+def _mark_materialization_approved(session, rel_key: str) -> None:
+    session.test_run_materializations.pop(rel_key, None)
+
+
+def _materialize_staged_python_files(session, overlays: list[tuple[str, object]]) -> tuple[bool, str]:
+    root = get_active_workspace_root()
+    for rel_key, entry in overlays:
+        target = (root / rel_key).resolve()
+        if rel_key not in session.test_run_materializations:
+            session.test_run_materializations[rel_key] = WorkspaceTestMaterializationEntry(
+                existed=target.exists(),
+                original_text=entry.old_text if target.exists() else '',
+                disk_encoding=entry.disk_encoding,
+                disk_newline=entry.disk_newline,
+            )
+        try:
+            write_file_resolved(
+                target,
+                str(entry.merged_text),
+                str(entry.disk_encoding),
+                'crlf' if entry.disk_newline == 'crlf' else 'lf',
+            )
+        except OSError as exc:
+            return False, f'Tool error: could not write staged file `{rel_key}` into the workspace ({exc}).'
+        except Exception as exc:
+            return False, f'Tool error: could not encode staged file `{rel_key}` for the workspace ({exc}).'
+    return True, ''
 
 
 @tool(LIST_STAGED_EDITS_NAME)
@@ -78,7 +233,7 @@ def list_staged_edits() -> str:
     if blocked:
         return blocked
     session = get_session(sid)
-    paths = sorted(session.pending_edit_stagings.keys())
+    paths = [rel_key for rel_key, _entry in _review_pending_entries(session)]
     if not paths:
         return 'No staged edits are available.'
     return 'Staged edits:\n' + '\n'.join(paths)
@@ -146,23 +301,17 @@ def search_staged_edits(query: str, relative_path: str = '', max_matches: int = 
     limit = max(1, min(int(max_matches), _effective_max_search_results()))
     matches: list[str] = []
 
-    entries = sorted(session.pending_edit_stagings.items())
+    entries = _review_pending_entries(session)
     if rel_filter:
         entries = [(path, entry) for path, entry in entries if path == rel_filter]
         if not entries:
             return f'Tool error: no staged edit for `{rel_filter}`.'
 
-    for rel_key, entry in entries:
-        try:
-            text = edit_staging.read_staging_text(Path(entry.temp_path), entry.disk_encoding)
-        except OSError as exc:
-            logger.warning('search_staged_edits read failed path=%s err=%s', rel_key, exc)
-            continue
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                matches.append(f'[{rel_key} line {line_number}]{_READ_FILE_GUTTER_SEP}{line}')
-                if len(matches) >= limit:
-                    return '\n'.join(matches)
+    grep_matches = _search_staged_edits_grep(entries, query=query, limit=limit)
+    if grep_matches is None:
+        matches = _search_staged_edits_python(entries, pattern=pattern, limit=limit)
+    else:
+        matches = grep_matches
 
     if not matches:
         return 'No matches found in staged edits.'
@@ -196,7 +345,7 @@ def format_staging_file_black(relative_path: str) -> str:
 
 @tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
 def transfer_staged_file_to_workspace(relative_path: str) -> str:
-    """Transfer a staged file into the workspace diff/apply flow, then remove its staging temp file."""
+    """Transfer a staged file into the real workspace now, while keeping the staged draft for the current chain."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -205,14 +354,47 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
     entry = session.pending_edit_stagings.get(rel_key)
     if not entry:
         return f'Tool error: no staged edit for `{rel_key}`.'
-    path = Path(entry.temp_path)
-    out = finalize_staged_edit(session, rel_key, entry)
-    if out.startswith('Tool error:'):
-        return out
-    session.pending_edit_stagings.pop(rel_key, None)
-    edit_staging.unlink_staging_quiet(path)
+    if rel_key in session.test_run_materializations:
+        out = (
+            f'Staged `{rel_key}` is already saved in the workspace from the reviewer test run. '
+            'Keeping the workspace copy as the approved version.'
+        )
+        _mark_materialization_approved(session, rel_key)
+    else:
+        root = get_active_workspace_root()
+        target = (root / rel_key).resolve()
+        try:
+            write_file_resolved(
+                target,
+                str(entry.merged_text),
+                str(entry.disk_encoding),
+                'crlf' if entry.disk_newline == 'crlf' else 'lf',
+            )
+        except OSError as exc:
+            return f'Tool error: could not write staged file `{rel_key}` into the workspace ({exc}).'
+        except Exception as exc:
+            return f'Tool error: could not encode staged file `{rel_key}` for the workspace ({exc}).'
+        lsp_note = ''
+        if is_lsp_managed_path(rel_key):
+            try:
+                diagnostics = sync_session_document(
+                    rel_key,
+                    str(entry.merged_text),
+                    session_id=current_session_id.get(),
+                    scope='workspace',
+                )
+                lsp_note = f' Python LSP diagnostics: {len(diagnostics)} issue(s).'
+            except Exception as exc:
+                logger.warning('workspace LSP sync failed after staged transfer path=%s err=%s', rel_key, exc)
+                lsp_note = f' Python LSP sync failed: {exc}.'
+        out = f'Approved staged `{rel_key}` into the real workspace.{lsp_note}'
+    entry.old_text = str(entry.merged_text)
+    entry.workspace_applied = True
     logger.info('transfer_staged_file_to_workspace path=%s', rel_key)
-    return f'Transferred staged `{rel_key}` to the workspace apply flow. {out}'
+    return (
+        f'Transferred staged `{rel_key}` to the real workspace and kept the staged draft for the current chain. '
+        f'{out} Stop this review turn after calling this tool.'
+    )
 
 
 @tool(APPROVE_STAGED_WORKSPACE_EDIT_NAME)
@@ -229,13 +411,14 @@ def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
         return got
-    _session, rel_key = got
+    session, rel_key = got
+    rollback_test_run_materializations(session)
     fb = (feedback or '').strip() or '(no details)'
     logger.info('reject_staged_workspace_edit path=%s', rel_key)
     return (
         f'Rejected staged edit for `{rel_key}`. Return this to the router so it can hand off to the create/update '
         f'specialist again. Keep revising the existing staged draft; it will be cleaned up automatically when the '
-        f'nested workspace chain finishes.\n\nReviewer feedback:\n{fb}'
+        f'nested workspace chain finishes. Stop this review turn after calling this tool.\n\nReviewer feedback:\n{fb}'
     )
 
 
@@ -244,6 +427,7 @@ def code_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
         list_staged_edits,
         read_staged_edit,
         search_staged_edits,
+        lsp_get_diagnostics,
         format_staging_file_black,
         transfer_staged_file_to_workspace,
         reject_staged_workspace_edit,

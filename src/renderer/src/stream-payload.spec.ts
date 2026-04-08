@@ -1,0 +1,151 @@
+import { parseAgentStreamPayload } from '@shared/index';
+
+describe('parseAgentStreamPayload', () => {
+  it('parses status payloads and normalizes legacy snake_case fields', () => {
+    const parsed = parseAgentStreamPayload(
+      JSON.stringify({
+        type: 'status',
+        status: {
+          id: 'agent-done',
+          label: 'Agent',
+          detail: 'Complete',
+          state: 'complete',
+          source: 'agent',
+          agent_role: 'worker',
+          stream_tag: 'planning',
+        },
+      }),
+    );
+
+    expect(parsed).toEqual({
+      type: 'status',
+      status: {
+        id: 'agent-done',
+        label: 'Agent',
+        detail: 'Complete',
+        state: 'complete',
+        source: 'agent',
+        agentRole: 'worker',
+        streamTag: 'planning',
+      },
+    });
+  });
+
+  it('parses planner progress payloads', () => {
+    const planner = {
+      streamTag: 'planner',
+      phase: 'executing' as const,
+      planReady: true,
+      steps: [{ id: 'step-1', text: 'Do work', state: 'running' as const }],
+    };
+
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'planner', planner }))).toEqual({
+      type: 'planner',
+      planner,
+    });
+  });
+
+  it('normalizes planner payloads with missing steps', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'planner',
+          planner: { streamTag: 'planner', phase: 'discovery' },
+        }),
+      ),
+    ).toEqual({
+      type: 'planner',
+      planner: {
+        streamTag: 'planner',
+        phase: 'discovery',
+        planReady: false,
+        steps: [],
+      },
+    });
+  });
+
+  it('parses tool execution chunks with optional label and stream tag', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'tool_exec_chunk',
+          delta: '1 passed\n',
+          stream_tag: 'spec-code_review-tests',
+          label: 'Pytest',
+        }),
+      ),
+    ).toEqual({
+      type: 'tool_exec_chunk',
+      delta: '1 passed\n',
+      streamTag: 'spec-code_review-tests',
+      label: 'Pytest',
+    });
+  });
+
+  it('parses review payload variants without falling back to plain chunks', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'diff',
+          diff: {
+            version: 1,
+            relativePath: 'src/app.ts',
+            language: 'typescript',
+            rows: [],
+            fullNewContent: 'next',
+            truncated: false,
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'diff',
+      diff: {
+        version: 1,
+        relativePath: 'src/app.ts',
+        language: 'typescript',
+        rows: [],
+        fullNewContent: 'next',
+        truncated: false,
+      },
+    });
+
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'accept_command',
+          acceptCommand: {
+            version: 1,
+            requestId: 'accept-1',
+            kind: 'python_dependency',
+            title: 'Install packages',
+            message: 'Install into the workspace venv.',
+            confirmLabel: 'Install',
+            cancelLabel: 'Cancel',
+            commandText: 'python -m pip install pytest',
+            details: [],
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'accept_command',
+      acceptCommand: {
+        version: 1,
+        requestId: 'accept-1',
+        kind: 'python_dependency',
+        title: 'Install packages',
+        message: 'Install into the workspace venv.',
+        confirmLabel: 'Install',
+        cancelLabel: 'Cancel',
+        commandText: 'python -m pip install pytest',
+        details: [],
+      },
+    });
+  });
+
+  it('falls back to a plain text chunk for unknown payloads', () => {
+    expect(parseAgentStreamPayload('not-json')).toEqual({
+      type: 'chunk',
+      delta: 'not-json',
+    });
+  });
+});

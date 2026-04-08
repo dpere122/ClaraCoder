@@ -1,101 +1,15 @@
 import { ipcMain } from 'electron';
 import type {
-  CopyConfirmPayload,
-  DeleteConfirmPayload,
-  FileDiffPayload,
   LlmStatusPayload,
-  PlannerProgress,
 } from '../../../shared';
+import { parseAgentStreamPayload } from '../../../shared';
 import { PYTHON_URL } from '../../python/server';
 import { mainState } from '../../state';
 
 /** Per-conversation abort controllers so the renderer can cancel an in-flight stream. */
 const streamAbortControllers = new Map<string, AbortController>();
 
-/**
- * Parse NDJSON/SSE-style payloads from Python: model `chunk`, read-tool mirror `tool_read_chunk`, `status`,
- * `diff`, `copy_confirm`, `delete_confirm`.
- */
-export function parseStreamPayload(
-  payload: string,
-):
-  | { type: 'chunk'; delta: string; streamTag?: string }
-  | { type: 'tool_read_chunk'; delta: string }
-  | { type: 'status'; status: LlmStatusPayload }
-  | { type: 'planner'; planner: PlannerProgress }
-  | { type: 'diff'; diff: FileDiffPayload }
-  | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
-  | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload } {
-  try {
-    const parsed = JSON.parse(payload) as {
-      type?: string;
-      delta?: string;
-      stream_tag?: string;
-      text?: string;
-      status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
-      planner?: PlannerProgress;
-      diff?: unknown;
-      copyConfirm?: unknown;
-      deleteConfirm?: unknown;
-    };
-    if (parsed.type === 'status' && parsed.status) {
-      const rawRole = parsed.status.agent_role;
-      const agentRole =
-        rawRole === 'manager' || rawRole === 'worker' ? rawRole : undefined;
-      return {
-        type: 'status',
-        status: {
-          id: parsed.status.id,
-          label: parsed.status.label,
-          detail: parsed.status.detail ?? '',
-          state: parsed.status.state ?? 'running',
-          source: parsed.status.source ?? 'agent',
-          ...(parsed.status.stream_tag ? { streamTag: parsed.status.stream_tag } : {}),
-          ...(agentRole ? { agentRole } : {}),
-        },
-      };
-    }
-
-    if (parsed.type === 'planner' && parsed.planner && typeof parsed.planner === 'object') {
-      return { type: 'planner', planner: parsed.planner };
-    }
-
-    if (parsed.type === 'diff' && parsed.diff && typeof parsed.diff === 'object') {
-      return { type: 'diff', diff: parsed.diff as FileDiffPayload };
-    }
-
-    if (parsed.type === 'copy_confirm' && parsed.copyConfirm && typeof parsed.copyConfirm === 'object') {
-      return {
-        type: 'copy_confirm',
-        copyConfirm: parsed.copyConfirm as CopyConfirmPayload,
-      };
-    }
-
-    if (
-      parsed.type === 'delete_confirm' &&
-      parsed.deleteConfirm &&
-      typeof parsed.deleteConfirm === 'object'
-    ) {
-      return {
-        type: 'delete_confirm',
-        deleteConfirm: parsed.deleteConfirm as DeleteConfirmPayload,
-      };
-    }
-
-    if (parsed.type === 'tool_read_chunk' && typeof parsed.delta === 'string') {
-      return { type: 'tool_read_chunk', delta: parsed.delta };
-    }
-
-    if (parsed.type === 'chunk' && typeof parsed.delta === 'string') {
-      const streamTag = typeof parsed.stream_tag === 'string' && parsed.stream_tag.trim() ? parsed.stream_tag.trim() : undefined;
-      return { type: 'chunk', delta: parsed.delta, streamTag };
-    }
-  } catch {
-    // fall through to plain text chunks
-  }
-
-  return { type: 'chunk', delta: payload };
-}
+export const parseStreamPayload = parseAgentStreamPayload;
 
 export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: string, payload: string): void {
   const parsed = parseStreamPayload(payload);
@@ -105,12 +19,16 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-planner', conversationId, parsed.planner);
   } else if (parsed.type === 'diff') {
     event.reply('message-diff', conversationId, parsed.diff);
+  } else if (parsed.type === 'accept_command') {
+    event.reply('message-accept-command', conversationId, parsed.acceptCommand);
   } else if (parsed.type === 'copy_confirm') {
     event.reply('message-copy-confirm', conversationId, parsed.copyConfirm);
   } else if (parsed.type === 'delete_confirm') {
     event.reply('message-delete-confirm', conversationId, parsed.deleteConfirm);
   } else if (parsed.type === 'tool_read_chunk') {
     event.reply('message-tool-read-chunk', conversationId, parsed.delta);
+  } else if (parsed.type === 'tool_exec_chunk') {
+    event.reply('message-tool-exec-chunk', conversationId, parsed.delta, parsed.streamTag, parsed.label);
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
   }
@@ -229,6 +147,8 @@ export function registerChatIpc(): void {
       deleteRequestId?: string,
       copyAction?: 'confirm' | 'cancel',
       copyRequestId?: string,
+      acceptCommandAction?: 'confirm' | 'cancel',
+      acceptCommandRequestId?: string,
     ) => {
     try {
       const res = await fetch(`${PYTHON_URL}/chat/agent-continue`, {
@@ -241,6 +161,8 @@ export function registerChatIpc(): void {
           delete_request_id: deleteRequestId ?? '',
           copy_action: copyAction ?? null,
           copy_request_id: copyRequestId ?? '',
+          accept_command_action: acceptCommandAction ?? null,
+          accept_command_request_id: acceptCommandRequestId ?? '',
         }),
       });
       if (!res.ok) {

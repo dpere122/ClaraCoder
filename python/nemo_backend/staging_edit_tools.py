@@ -14,10 +14,18 @@ from langchain_core.tools import tool
 
 from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
-from nemo_backend.edit_tool import _edit_preamble, _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
+from nemo_backend.edit_tool import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
+from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.partial_workspace_edit import merge_partial_edit
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
-from nemo_backend.workspace_text_io import DiskNewline
+from nemo_backend.workspace_text_io import (
+    DiskNewline,
+    NewlineMode,
+    decode_for_tools,
+    resolve_newline_for_write,
+    validate_workspace_encoding,
+)
 from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.staging')
@@ -37,6 +45,48 @@ __all__ = [
     'STAGE_LINE_RANGE_EDIT_NAME',
     'STAGE_SNIPPET_EDIT_NAME',
 ]
+
+
+def _existing_staging_entry(session: SessionState, rel_display: str) -> EditStagingEntry | None:
+    entry = session.pending_edit_stagings.get(rel_display)
+    return entry if isinstance(entry, EditStagingEntry) else None
+
+
+def _staging_edit_preamble(
+    relative_path: str,
+    *,
+    disk_encoding: str,
+    newline_mode: NewlineMode,
+) -> tuple[SessionState, str, str, str, DiskNewline] | str:
+    session_id = current_session_id.get()
+    if not session_id:
+        return 'Tool error: no active session.'
+
+    from nemo_backend.state import get_session
+
+    session = get_session(session_id)
+    session.pending_diff_payload = None
+
+    root = get_active_workspace_root()
+    target = normalize_relative_path(root, relative_path)
+    rel_display = target.relative_to(root).as_posix()
+
+    source_root = _edit_staging.get_active_planner_snapshot_root(session) or root
+    source = normalize_relative_path(source_root, rel_display)
+    if not source.exists() and target.exists():
+        source = target
+
+    raw_existing: bytes | None = None
+    old_text = ''
+    if source.is_file():
+        try:
+            raw_existing = source.read_bytes()
+            old_text = decode_for_tools(raw_existing, disk_encoding)
+        except OSError as exc:
+            return f'Tool error: could not read file ({exc}).'
+
+    disk_nl = resolve_newline_for_write(newline_mode, path=source, raw_existing=raw_existing)
+    return session, rel_display, old_text, disk_encoding, disk_nl
 
 
 def _staging_after_merge(
@@ -63,11 +113,16 @@ def _staging_after_merge(
             disk_newline,
         )
 
+    had_prior_staging = rel_display in session.pending_edit_stagings
     prior = session.pending_edit_stagings.pop(rel_display, None)
     if prior:
         _edit_staging.unlink_staging_quiet(Path(prior.temp_path))
 
-    temp_path = _edit_staging.allocate_staging_file(session_id, rel_display)
+    temp_path = _edit_staging.allocate_staging_file(
+        session_id,
+        rel_display,
+        graph_id=session.active_planner_graph_id,
+    )
     try:
         if staging_seed_text is not None:
             _edit_staging.write_staging_text(temp_path, staging_seed_text, disk_encoding, disk_newline)
@@ -82,6 +137,18 @@ def _staging_after_merge(
         merged_out = _edit_staging.read_staging_text(temp_path, disk_encoding)
     except OSError as exc:
         return f'Tool error: could not read staging file ({exc}).'
+    _edit_staging.write_snapshot_file(session, rel_display, merged_out, disk_encoding, disk_newline)
+
+    diagnostics_note = ''
+    diagnostics: list[dict[str, object]] = []
+    if is_lsp_managed_path(rel_display):
+        try:
+            diagnostics = sync_session_document(rel_display, merged_out, session_id=session_id, scope='staging')
+            logger.info('python LSP sync path=%s diagnostics=%s', rel_display, len(diagnostics))
+            diagnostics_note = f' Python LSP diagnostics: {len(diagnostics)} issue(s).'
+        except Exception as exc:
+            logger.warning('python LSP sync failed path=%s err=%s', rel_display, exc)
+            diagnostics_note = f' Python LSP sync failed: {exc}.'
 
     if _edit_staging.is_code_review_extension(rel_display):
         session.pending_edit_stagings[rel_display] = EditStagingEntry(
@@ -91,16 +158,19 @@ def _staging_after_merge(
             disk_encoding=disk_encoding,
             disk_newline=disk_newline,
             edit_mode=mode,
+            workspace_applied=False,
         )
         logger.info('staged for code review path=%s', rel_display)
+        action = 'Updated staged draft' if had_prior_staging else 'Staged'
         return (
-            f'Staged `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
-            'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
+            f'{action} `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
+            f'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
+            f'{diagnostics_note}'
         )
 
     out = _finalize_workspace_edit(session, rel_display, original_old_text, merged_out, mode, disk_encoding, disk_newline)
     _edit_staging.unlink_staging_quiet(temp_path)
-    return out
+    return out + diagnostics_note
 
 
 def _run_staging_tool(
@@ -125,12 +195,21 @@ def _run_staging_tool(
     except ValueError as exc:
         return f'Tool error: {exc}'
 
-    pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
+    pre = _staging_edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
     session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
+    prior = _existing_staging_entry(session, rel_display)
     base_text = workspace_old_text
     original_old_text = workspace_old_text
+    if prior:
+        try:
+            base_text = _edit_staging.read_staging_text(Path(prior.temp_path), prior.disk_encoding)
+        except OSError as exc:
+            return f'Tool error: could not read existing staged draft ({exc}).'
+        original_old_text = prior.old_text
+        disk_enc = prior.disk_encoding
+        disk_nl = 'crlf' if prior.disk_newline == 'crlf' else 'lf'
 
     merged, merge_err = merge_partial_edit(
         base_text,
@@ -163,13 +242,14 @@ def stage_create_file(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Create a new workspace file or fully rewrite an existing one; the result is staged for code review.
+    """Use for new files or full-file rewrites in the nested mutation pipeline; programming-language files are staged for code review before the workspace updates.
+
+    Parent directories for the target path are created when the change is applied to the workspace (non-code files immediately; code files after review transfer).
 
     `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
     latin-1, cp1252, ascii, mac-roman.
     `newline` is `lf`, `crlf`, or `preserve` (match existing file endings; new files default to LF).
 
-    Programming-language files are staged under a temp directory for code review before the workspace updates.
     Non-code files (e.g. config, markdown) are finalized immediately via diff or auto-apply.
 
     Relative paths only (e.g. src/app.ts)."""
@@ -188,9 +268,9 @@ def stage_workspace_file_overwrite(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Copy the current workspace file into staging, then overwrite the staged file with `new_content`.
+    """Use when the file already exists in the workspace (or a staged draft exists) and you have the full revised contents.
 
-    Use this for edits to existing files when the specialist is ready to write the full revised file contents.
+    Copies the current workspace file into staging, then overwrites the staged file with `new_content`.
     If the target does not exist yet, use `stage_create_file` instead. Programming-language files are staged for
     code review before the workspace updates; non-code files are finalized immediately via diff or auto-apply.
 
@@ -204,32 +284,40 @@ def stage_workspace_file_overwrite(
     if blocked:
         return blocked
     try:
-        enc = _tool_encoding_param(encoding)
+        enc = validate_workspace_encoding(_tool_encoding_param(encoding))
         nm = _tool_newline_param(newline)
     except ValueError as exc:
         return f'Tool error: {exc}'
 
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
-    if not target.is_file():
-        return (
-            f'Tool error: `{target.relative_to(root).as_posix()}` does not exist in the workspace. '
-            'Use `stage_create_file` for new files.'
-        )
-
-    pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
+    pre = _staging_edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
     session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
+    prior = _existing_staging_entry(session, rel_display)
+    if not target.is_file() and prior is None:
+        return (
+            f'Tool error: `{target.relative_to(root).as_posix()}` does not exist in the workspace. '
+            'Use `stage_create_file` for new files unless an existing staged draft for this path should be revised.'
+        )
+    if prior is not None:
+        disk_enc = prior.disk_encoding
+        disk_nl = 'crlf' if prior.disk_newline == 'crlf' else 'lf'
+        original_old_text = prior.old_text
+        staging_seed_text = prior.merged_text
+    else:
+        original_old_text = workspace_old_text
+        staging_seed_text = workspace_old_text
     return _staging_after_merge(
         session,
         rel_display,
-        workspace_old_text,
+        original_old_text,
         new_content or '',
         'full-file',
         disk_enc,
         disk_nl,
-        staging_seed_text=workspace_old_text,
+        staging_seed_text=staging_seed_text,
     )
 
 
@@ -239,10 +327,13 @@ def stage_line_range_edit(
     start_line: int,
     end_line: int,
     new_snippet: str = '',
+    new_content: str = '',
     encoding: str = '',
     newline: str = '',
 ) -> str:
     """Replace an inclusive block of lines (1-based) with `new_snippet`; the result is staged for code review.
+
+    Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
 
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
     Use `stage_create_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after the
@@ -254,10 +345,13 @@ def stage_line_range_edit(
 
     Relative paths only."""
 
+    ns = '' if new_snippet is None else new_snippet
+    nc = '' if new_content is None else new_content
+    snippet = ns if ns != '' else nc
     return _run_staging_tool(
         relative_path, encoding, newline,
         mode='line-range',
-        new_snippet=new_snippet if new_snippet is not None else '',
+        new_snippet=snippet,
         start_line=int(start_line) if start_line else 0,
         end_line=int(end_line) if end_line else 0,
     )

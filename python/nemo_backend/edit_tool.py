@@ -16,6 +16,8 @@ from langchain_core.tools import tool
 
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
+from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.partial_workspace_edit import merge_partial_edit
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
 from nemo_backend.workspace_text_io import (
@@ -139,7 +141,17 @@ def _after_merge_workspace_edit(
     disk_newline: DiskNewline,
 ) -> str:
     """Finalize a workspace edit via diff or auto-apply (staging is handled by dedicated staging tools)."""
-    return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline)
+    diagnostics_note = ''
+    session_id = current_session_id.get() or None
+    if is_lsp_managed_path(rel_display):
+        try:
+            diagnostics = sync_session_document(rel_display, merged, session_id=session_id, scope='workspace')
+            diagnostics_note = f' Python LSP diagnostics: {len(diagnostics)} issue(s).'
+            logger.info('python LSP sync path=%s diagnostics=%s', rel_display, len(diagnostics))
+        except Exception as exc:
+            logger.warning('python LSP sync failed path=%s err=%s', rel_display, exc)
+            diagnostics_note = f' Python LSP sync failed: {exc}.'
+    return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline) + diagnostics_note
 
 
 def _edit_preamble(
@@ -223,13 +235,15 @@ def apply_workspace_full_file(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Replace the entire workspace file with `new_content`; opens a side-by-side diff in the UI.
+    """Use for brand-new files or whole-file rewrites of an existing path; parent directories are created automatically.
+
+    Replaces the entire workspace file with `new_content`; opens a side-by-side diff in the UI.
 
     `encoding` is a text codec (default from app Settings → Tools): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
     latin-1, cp1252, ascii, mac-roman.
     `newline` is `lf`, `crlf`, or `preserve` (match existing file line endings when the file exists; new files use LF).
 
-    Use for new files or broad rewrites. For small localized changes, prefer `replace_workspace_line_range`.
+    For small localized changes on existing files, prefer `replace_workspace_line_range`.
 
     Relative paths only (e.g. src/app.ts). The user applies changes in the UI unless auto-apply is enabled."""
 
@@ -246,10 +260,13 @@ def replace_workspace_line_range(
     start_line: int,
     end_line: int,
     new_snippet: str = '',
+    new_content: str = '',
     encoding: str = '',
     newline: str = '',
 ) -> str:
     """Replace an inclusive block of lines (1-based, same numbering as `read_workspace_file`) with `new_snippet`.
+
+    Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
 
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
     Use `apply_workspace_full_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after
@@ -258,10 +275,13 @@ def replace_workspace_line_range(
 
     Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
 
+    ns = '' if new_snippet is None else new_snippet
+    nc = '' if new_content is None else new_content
+    snippet = ns if ns != '' else nc
     return _run_edit_tool(
         relative_path, encoding, newline,
         mode='line-range',
-        new_snippet=new_snippet if new_snippet is not None else '',
+        new_snippet=snippet,
         start_line=int(start_line) if start_line else 0,
         end_line=int(end_line) if end_line else 0,
     )

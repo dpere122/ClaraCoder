@@ -9,3 +9,4 @@ SpeechRecognition>=3.15,<4
 diff-match-patch>=20241021
 pypdf>=6.9,<7
 black>=26,<27
+jedi-language-server>=0.46,<0.47

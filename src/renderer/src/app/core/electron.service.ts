@@ -5,6 +5,7 @@
 import { Injectable, NgZone } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import type {
+  AcceptCommandPayload,
   AppConfig,
   Conversation,
   ConversationMeta,
@@ -34,6 +35,13 @@ export interface ToolReadChunkMessage {
   delta: string;
 }
 
+export interface ToolExecChunkMessage {
+  conversationId: string;
+  delta: string;
+  streamTag?: string;
+  label?: string;
+}
+
 export interface DoneMessage {
   conversationId: string;
 }
@@ -51,6 +59,11 @@ export interface PlannerMessage {
 export interface DiffMessage {
   conversationId: string;
   diff: FileDiffPayload;
+}
+
+export interface AcceptCommandMessage {
+  conversationId: string;
+  payload: AcceptCommandPayload;
 }
 
 export interface CopyConfirmMessage {
@@ -85,10 +98,12 @@ export class ElectronService {
 
   private readonly chunkSubject = new Subject<ChunkMessage>();
   private readonly toolReadChunkSubject = new Subject<ToolReadChunkMessage>();
+  private readonly toolExecChunkSubject = new Subject<ToolExecChunkMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly plannerSubject = new Subject<PlannerMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
+  private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly configSubject = new Subject<AppConfig>();
@@ -105,10 +120,12 @@ export class ElectronService {
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
   readonly chunk$ = this.chunkSubject.asObservable();
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
+  readonly toolExecChunk$ = this.toolExecChunkSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly planner$ = this.plannerSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
+  readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
@@ -140,6 +157,9 @@ export class ElectronService {
     this.api?.onMessageToolReadChunk((_event, conversationId, delta) => {
       this.zone.run(() => this.toolReadChunkSubject.next({ conversationId, delta }));
     });
+    this.api?.onMessageToolExecChunk?.((_event, conversationId, delta, streamTag, label) => {
+      this.zone.run(() => this.toolExecChunkSubject.next({ conversationId, delta, streamTag, label }));
+    });
     this.api?.onMessageDone((_event, conversationId) => {
       this.zone.run(() => this.doneSubject.next({ conversationId }));
     });
@@ -151,6 +171,9 @@ export class ElectronService {
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
+    });
+    this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
+      this.zone.run(() => this.acceptCommandSubject.next({ conversationId, payload }));
     });
     this.api?.onMessageCopyConfirm?.((_event, conversationId, payload) => {
       this.zone.run(() => this.copyConfirmSubject.next({ conversationId, payload }));
@@ -219,6 +242,8 @@ export class ElectronService {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
+    acceptCommandAction?: 'confirm' | 'cancel',
+    acceptCommandRequestId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     return (
       this.api?.agentContinue(
@@ -228,6 +253,8 @@ export class ElectronService {
         deleteRequestId,
         copyAction,
         copyRequestId,
+        acceptCommandAction,
+        acceptCommandRequestId,
       ) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
@@ -370,7 +397,10 @@ export class ElectronService {
         defaultWorkspaceEncoding: 'utf-8',
         defaultWorkspaceNewline: 'lf',
       },
-      healthMonitor: { logLevel: 'info' },
+      healthMonitor: {
+        logLevel: 'info',
+        metricsEnabled: false,
+      },
     });
   }
 

@@ -44,6 +44,16 @@ def planner_progress_event(planner: dict[str, Any]) -> dict[str, Any]:
     return {'type': 'planner', 'planner': planner}
 
 
+def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: str = '') -> dict[str, Any]:
+    """Build one structured live tool execution output payload for the UI."""
+    row: dict[str, Any] = {'type': 'tool_exec_chunk', 'delta': delta}
+    if stream_tag:
+        row['stream_tag'] = stream_tag
+    if label:
+        row['label'] = label
+    return row
+
+
 def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
     """Extract user-visible text delta from one streamed chat-model chunk (OpenAI-compatible)."""
     if not isinstance(chunk, AIMessageChunk):

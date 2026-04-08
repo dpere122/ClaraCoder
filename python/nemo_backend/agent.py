@@ -18,7 +18,8 @@ from collections.abc import AsyncIterator
 
 from fastapi import HTTPException
 
-from nemo_backend.agent_langgraph import LangGraphWorkerOutcome, stream_single_agent_langgraph
+from nemo_backend.agent_langgraph import stream_single_agent_langgraph
+from nemo_backend.agent_loop import AgentLoopOutcome, DEFAULT_AGENT_LOOP_POLICY, LangGraphWorkerOutcome
 from nemo_backend.agent_streaming import model_chunk_sse_line, sse_line, status_event
 from nemo_backend.config import MAX_TOOL_STATUS_LINE
 from nemo_backend.llm import build_llm
@@ -77,13 +78,15 @@ async def stream_agent_reply(
             outcome=graph_outcome,
         ):
             if session.abort_event.is_set():
+                if graph_outcome.state == AgentLoopOutcome.RUNNING:
+                    graph_outcome.mark_aborted(partial_text=graph_outcome.partial_text)
                 logger.info('Stream aborted for session %s', session_id)
                 break
             yield line
-        final_text = graph_outcome.final_text
 
-        session.history.append({'role': 'user', 'content': user_message})
-        session.history.append({'role': 'assistant', 'content': final_text})
+        if DEFAULT_AGENT_LOOP_POLICY.should_commit_history(graph_outcome):
+            session.history.append({'role': 'user', 'content': user_message})
+            session.history.append({'role': 'assistant', 'content': graph_outcome.best_available_text()})
 
         yield 'data: [DONE]\n\n'
     except Exception as exc:

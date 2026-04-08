@@ -9,7 +9,12 @@ import type {
   Workspace,
   WorkspaceToolsConfig,
 } from '@shared/index';
-import { optimizationPresetsForProvider, QWEN_PRESET_DEFAULTS } from '@shared/index';
+import {
+  CAPABLE_PRESET_DEFAULTS,
+  inferContextWindowTokens,
+  optimizationPresetsForProvider,
+  QWEN_PRESET_DEFAULTS,
+} from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
 import { LucideAngularModule } from 'lucide-angular';
@@ -206,7 +211,19 @@ export class Settings implements OnInit, OnDestroy {
       provider,
       baseUrl: defaults.baseUrl,
       model: defaults.model,
+      contextWindowTokens: inferContextWindowTokens(defaults.model, provider),
       apiKey: defaults.apiKey,
+    });
+  }
+
+  protected async onModelChange(model: string): Promise<void> {
+    const selected = this.selectedConnection();
+    if (!selected) {
+      return;
+    }
+    await this.updateSelectedConnection({
+      model,
+      contextWindowTokens: inferContextWindowTokens(model, selected.provider),
     });
   }
 
@@ -235,7 +252,8 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected async onOptimizationPresetChange(value: string): Promise<void> {
-    const preset: LlmOptimizationPreset = value === 'qwen' ? 'qwen' : 'generic';
+    const preset: LlmOptimizationPreset =
+      value === 'qwen' ? 'qwen' : value === 'capable' ? 'capable' : 'generic';
     const selected = this.selectedConnection();
     if (!selected) {
       return;
@@ -251,6 +269,13 @@ export class Settings implements OnInit, OnDestroy {
       });
       return;
     }
+    if (preset === 'capable') {
+      await this.updateSelectedConnection({
+        optimizationPreset: 'capable',
+        parallelToolCalls: CAPABLE_PRESET_DEFAULTS.parallelToolCalls,
+      });
+      return;
+    }
     await this.updateSelectedConnection({ optimizationPreset: 'generic' });
   }
 
@@ -261,6 +286,24 @@ export class Settings implements OnInit, OnDestroy {
     }
     const clamped = Math.min(200_000, Math.max(0, n));
     await this.updateSelectedConnection({ maxOutputTokens: clamped });
+  }
+
+  protected async onContextWindowTokensChange(raw: string | number): Promise<void> {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const clamped = Math.min(10_000_000, Math.max(1_024, n));
+    await this.updateSelectedConnection({ contextWindowTokens: clamped });
+  }
+
+  protected async onPlanRetryAttemptsCountChange(raw: string | number): Promise<void> {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const clamped = Math.min(20, Math.max(0, n));
+    await this.updateSelectedConnection({ planRetryAttemptsCount: clamped });
   }
 
   protected async updateAudioSettings(changes: Partial<AudioTranscriptionConfig>): Promise<void> {
@@ -348,18 +391,21 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   private buildNewConnection(index: number): LlmConnectionConfig {
+    const model = 'local-model';
     return {
       id: crypto.randomUUID(),
       name: `Connection ${index}`,
       provider: 'lmstudio',
       baseUrl: 'http://127.0.0.1:1234/v1',
-      model: 'local-model',
+      model,
+      contextWindowTokens: inferContextWindowTokens(model, 'lmstudio'),
       apiKey: 'lm-studio',
       reasoningEffort: '',
       temperature: 0,
       parallelToolCalls: false,
       optimizationPreset: 'generic',
       maxOutputTokens: 0,
+      planRetryAttemptsCount: 2,
     };
   }
 

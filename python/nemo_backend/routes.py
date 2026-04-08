@@ -49,6 +49,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             parallel_tool_calls=bool(item.parallelToolCalls),
             optimization_preset=item.optimizationPreset,
             max_output_tokens=int(item.maxOutputTokens),
+            plan_retry_attempts_count=int(item.planRetryAttemptsCount),
         )
         for item in request.connections
     ]

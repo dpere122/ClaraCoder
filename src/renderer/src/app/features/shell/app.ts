@@ -13,6 +13,8 @@ import type {
   Workspace,
 } from '@shared/index';
 import {
+  delegatedStreamPartsForDisplay,
+  isShellStyleToolStreamTag,
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
 } from '@shared/index';
@@ -41,6 +43,29 @@ function appendStreamPart(
     return next;
   }
   next.push({ streamTag: t, label, text: delta });
+  return next;
+}
+
+function markToolExecStreamComplete(
+  parts: StreamPart[],
+  streamTag: string | undefined,
+  exitCode: number | null | undefined,
+): StreamPart[] {
+  const t = streamTag?.trim();
+  if (!t) {
+    return parts;
+  }
+  const next = parts.map((p) => ({ ...p }));
+  for (let i = next.length - 1; i >= 0; i--) {
+    if (next[i].streamTag.trim() === t) {
+      next[i] = {
+        ...next[i],
+        runComplete: true,
+        ...(exitCode !== undefined ? { exitCode } : {}),
+      };
+      break;
+    }
+  }
   return next;
 }
 
@@ -213,6 +238,18 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.toolExecComplete$.subscribe(({ conversationId, streamTag, exitCode }) => {
+      if (conversationId === this.activeConversationId()) {
+        this.streamingParts.update((prev) => markToolExecStreamComplete(prev, streamTag, exitCode));
+      } else {
+        const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+        this.backgroundStreamParts.set(
+          conversationId,
+          markToolExecStreamComplete(prev, streamTag, exitCode),
+        );
+      }
+    });
+
     this.electron.planner$.subscribe(({ conversationId, planner }) => {
       if (conversationId === this.activeConversationId()) {
         this.livePlannerProgress.set(planner);
@@ -262,7 +299,10 @@ export class App implements OnInit, OnDestroy {
 
     this.electron.deleteConfirm$.subscribe(({ conversationId, payload }) => {
       if (conversationId !== this.activeConversationId()) return;
-      if (payload.version !== 1 || !payload.requestId || !payload.relativePath) return;
+      if (payload.version !== 1 || !payload.requestId) return;
+      const batchOk = Array.isArray(payload.entries) && payload.entries.length > 0;
+      const singleOk = typeof payload.relativePath === 'string' && payload.relativePath.trim().length > 0;
+      if (!batchOk && !singleOk) return;
       this.messages.update((prev) => [
         ...prev,
         { role: 'delete_confirm', payload, reviewStatus: 'pending' as const },
@@ -299,19 +339,26 @@ export class App implements OnInit, OnDestroy {
       if (conversationId === this.activeConversationId()) {
         const parts = this.streamingParts();
         const planner = this.livePlannerProgress();
+        const toolStreamCandidates = delegatedStreamPartsForDisplay(parts, null).filter(
+          (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
+        );
+        const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
         this.livePlannerProgress.set(null);
         this.backgroundPlannerProgress.delete(conversationId);
         let text = primaryAssistantTextFromParts(parts);
-        if (!text.trim() && (parts.length > 0 || planner != null)) {
+        if (
+          !text.trim() &&
+          (parts.length > 0 || planner != null || (toolStreams?.length ?? 0) > 0)
+        ) {
           text =
             'Workspace tooling finished for this turn. Use the tool trail and nested workspace output above for specifics.';
         }
-        if (text.trim()) {
-          this.pushMessage('assistant', text, planner);
-          if (this.speechEnabled()) void this.tts.speakText(text, this.selectedVoice());
+        if (text.trim() || (toolStreams?.length ?? 0) > 0) {
+          this.pushMessage('assistant', text, planner, toolStreams);
+          if (this.speechEnabled() && text.trim()) void this.tts.speakText(text, this.selectedVoice());
           this.autoSave();
         }
       } else {
@@ -319,9 +366,20 @@ export class App implements OnInit, OnDestroy {
         this.backgroundStreamParts.delete(conversationId);
         const planner = this.backgroundPlannerProgress.get(conversationId) ?? null;
         this.backgroundPlannerProgress.delete(conversationId);
-        const text = primaryAssistantTextFromParts(parts);
-        if (text) {
-          this.saveMessageToConversation(conversationId, text, planner);
+        const toolStreamCandidates = delegatedStreamPartsForDisplay(parts, null).filter(
+          (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
+        );
+        const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
+        let text = primaryAssistantTextFromParts(parts);
+        if (
+          !text.trim() &&
+          (parts.length > 0 || planner != null || (toolStreams?.length ?? 0) > 0)
+        ) {
+          text =
+            'Workspace tooling finished for this turn. Use the tool trail and nested workspace output above for specifics.';
+        }
+        if (text.trim() || (toolStreams?.length ?? 0) > 0) {
+          void this.saveMessageToConversation(conversationId, text, planner, toolStreams);
         }
       }
     });
@@ -699,12 +757,22 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  private pushMessage(role: 'user' | 'assistant', text: string, planner: PlannerProgress | null = null): void {
+  private pushMessage(
+    role: 'user' | 'assistant',
+    text: string,
+    planner: PlannerProgress | null = null,
+    toolStreams?: StreamPart[],
+  ): void {
     console.log('[App] pushMessage:', role, 'text length:', text.length);
-    const nextMessage: ChatMessage =
-      role === 'assistant'
-        ? (planner ? { role, text, planner } : { role, text })
-        : { role, text };
+    let nextMessage: ChatMessage;
+    if (role === 'user') {
+      nextMessage = { role, text };
+    } else {
+      const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
+      if (planner) assistant.planner = planner;
+      if (toolStreams?.length) assistant.toolStreams = toolStreams;
+      nextMessage = assistant;
+    }
     this.messages.update((prev) => [...prev, nextMessage]);
     if (this.activeConversation) {
       this.activeConversation.messages = [...this.messages()];
@@ -775,13 +843,17 @@ export class App implements OnInit, OnDestroy {
     conversationId: string,
     text: string,
     planner: PlannerProgress | null = null,
+    toolStreams?: StreamPart[],
   ): Promise<void> {
     try {
       // Find the conversation's workspaceId from the list
       const convMeta = this.conversations().find(c => c.id === conversationId);
       const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
       const conv = await this.electron.loadConversation(conversationId, workspaceId);
-      conv.messages.push(planner ? { role: 'assistant', text, planner } : { role: 'assistant', text });
+      const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
+      if (planner) assistant.planner = planner;
+      if (toolStreams?.length) assistant.toolStreams = toolStreams;
+      conv.messages.push(assistant);
       conv.updatedAt = new Date().toISOString();
       await this.electron.saveConversation(conv);
       this.bumpConversation(conversationId);

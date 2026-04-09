@@ -116,6 +116,8 @@ class SessionState:
     lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     # Structured project-review failure handoff consumed by the caller to start a brand-new planner graph.
     pending_project_review_reentry: ProjectReviewReentryRequest | None = None
+    # During ``modify_workspace``, planner/review handoffs appended for the outer Clara tool result and optional SSE.
+    modify_workspace_outer_briefs: list[str] = field(default_factory=list)
 
 
 @dataclass

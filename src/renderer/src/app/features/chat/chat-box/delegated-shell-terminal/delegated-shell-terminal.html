@@ -1,0 +1,28 @@
+<details class="delegated-shell-terminal-details" open>
+  <summary class="delegated-shell-terminal-summary">
+    <span class="delegated-shell-terminal-summary-label">{{ label() }}</span>
+  </summary>
+  <div class="code-block-output delegated-shell-terminal-wrap">
+    <div
+      class="terminal-shell"
+      [class.terminal-shell-running]="!runComplete()"
+    >
+      <div class="terminal-shell-header">
+        <div class="terminal-shell-title-row">
+          <span class="terminal-shell-title">Terminal</span>
+          <span [class]="badgeClass()">{{ badgeText() }}</span>
+        </div>
+      </div>
+      <div class="terminal-shell-body" #terminalBody>
+        @if (text().length === 0) {
+          <div class="terminal-placeholder">Waiting for terminal output...</div>
+        } @else {
+          <div class="terminal-stream terminal-stream-stdout">
+            <div class="terminal-stream-label">output</div>
+            <pre class="output-pre terminal-output terminal-output-stdout">{{ text() }}</pre>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</details>

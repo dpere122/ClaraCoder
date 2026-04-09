@@ -345,7 +345,13 @@ def format_staging_file_black(relative_path: str) -> str:
 
 @tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
 def transfer_staged_file_to_workspace(relative_path: str) -> str:
-    """Transfer a staged file into the real workspace now, while keeping the staged draft for the current chain."""
+    """PASS / approve this staged draft for the current step.
+
+    Call when the staged file correctly satisfies the task step and needs no further code changes from the
+    file-write specialist. This writes the staged content into the real workspace (approval signal for the router).
+
+    Do not call this if you still want the writer to change the code—use `reject_staged_workspace_edit` instead.
+    """
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -399,14 +405,22 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
 
 @tool(APPROVE_STAGED_WORKSPACE_EDIT_NAME)
 def approve_staged_workspace_edit(relative_path: str) -> str:
-    """Backward-compatible alias for `transfer_staged_file_to_workspace`."""
+    """Same as `transfer_staged_file_to_workspace`: PASS / approve the staged draft into the workspace."""
 
     return transfer_staged_file_to_workspace.invoke({'relative_path': relative_path})
 
 
 @tool(REJECT_STAGED_WORKSPACE_EDIT_NAME)
 def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
-    """Keep the staged draft available and return feedback for the create/update specialist to revise."""
+    """FAIL / needs revision: block this draft and send the writer concrete fix instructions.
+
+    Use ONLY when the staged code is wrong, incomplete, unsafe, or does not meet the step—so the file-write
+    specialist must produce a new staged version. The `feedback` must describe what is wrong and what to change.
+
+    Do NOT use this tool to summarize successful work, to say changes were applied as requested, or to ask for
+    a human "final approval"—those describe a PASS. For a passing draft call `transfer_staged_file_to_workspace`
+    instead.
+    """
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):

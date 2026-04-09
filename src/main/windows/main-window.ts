@@ -34,6 +34,5 @@ export function createMainWindow(): void {
     mainState.mainWindow.loadFile(rendererIndexHtml());
   }
 
-  mainState.mainWindow.webContents.openDevTools();
   buildMenu();
 }

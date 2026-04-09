@@ -18,6 +18,25 @@ const MAX_POINTS = 36;
 
 type ChartKey = 'mem' | 'cpu' | 'netRx' | 'netTx' | 'diskR' | 'diskW';
 
+/** Parse theme `--t-primary` (hex or rgb) for Chart.js dataset colors. */
+function cssColorToRgba(color: string, alpha: number): string {
+  const c = color.trim();
+  if (!c) return `rgba(0, 255, 65, ${alpha})`;
+  if (c.startsWith('#')) {
+    const hex = c.slice(1);
+    const full =
+      hex.length === 3 ? hex.split('').map((ch) => ch + ch).join('') : hex.length === 6 ? hex : '';
+    if (full.length !== 6) return `rgba(0, 255, 65, ${alpha})`;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  const m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(c);
+  if (m) return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})`;
+  return `rgba(0, 255, 65, ${alpha})`;
+}
+
 @Component({
   selector: 'app-health-monitor',
   imports: [HealthLogViewer, HealthMetricsToggle],
@@ -90,15 +109,41 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     await this.electron.saveConfig(next);
   }
 
+  /** Match main app: workspace theme, else no-workspace theme, else dark. */
+  private resolveThemeId(config: AppConfig): string {
+    const workspace = config.currentWorkspaceId
+      ? (config.workspaces.find((w) => w.id === config.currentWorkspaceId) ?? null)
+      : null;
+    return workspace?.themeId || config.noWorkspaceThemeId || 'dark';
+  }
+
   private applyTheme(config: AppConfig): void {
-    const theme = THEMES.find((t) => t.id === config.themeId);
+    const theme = THEMES.find((t) => t.id === this.resolveThemeId(config));
     document.documentElement.className = theme?.cssClass ?? '';
     document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
+  }
+
+  private readThemePrimary(): string {
+    return getComputedStyle(document.documentElement).getPropertyValue('--t-primary').trim();
+  }
+
+  private refreshChartColors(): void {
+    if (this.charts.size === 0) return;
+    const primary = this.readThemePrimary();
+    const border = cssColorToRgba(primary, 0.88);
+    const fill = cssColorToRgba(primary, 0.14);
+    for (const chart of this.charts.values()) {
+      const ds = chart.data.datasets[0];
+      ds.borderColor = border;
+      ds.backgroundColor = fill;
+      chart.update('none');
+    }
   }
 
   private syncFromConfig(config: AppConfig): void {
     this.applyTheme(config);
     this.syncMetricsEnabled(config.healthMonitor.metricsEnabled);
+    this.refreshChartColors();
   }
 
   private syncMetricsEnabled(enabled: boolean): void {
@@ -130,6 +175,9 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
 
   private initCharts(): void {
     if (this.charts.size > 0) return;
+    const primary = this.readThemePrimary();
+    const border = cssColorToRgba(primary, 0.88);
+    const fill = cssColorToRgba(primary, 0.14);
     const root = this.host.nativeElement;
     for (const def of this.chartDefs) {
       const canvas = root.querySelector(`canvas[data-key="${def.key}"]`) as HTMLCanvasElement | null;
@@ -141,8 +189,8 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
           datasets: [
             {
               data: [] as number[],
-              borderColor: 'rgba(0, 255, 65, 0.85)',
-              backgroundColor: 'rgba(0, 255, 65, 0.12)',
+              borderColor: border,
+              backgroundColor: fill,
               fill: true,
               tension: 0.25,
               pointRadius: 0,

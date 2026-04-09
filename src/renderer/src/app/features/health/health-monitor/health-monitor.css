@@ -64,6 +64,15 @@
   cursor: pointer;
 }
 
+.health-close-btn:hover {
+  background: var(--t-hover-bg);
+}
+
+.health-close-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .health-charts {
   flex: 0 0 auto;
   display: flex;
@@ -94,7 +103,7 @@
 .health-gpu-card {
   border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
   background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--t-elev-shadow);
   border-radius: 10px;
   padding: 10px 12px;
   -webkit-app-region: no-drag;

@@ -338,7 +338,7 @@ class TestRunPlanningNestedStream:
     @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.activate_session_lsp_scope')
-    async def test_create_specialist_auto_handoffs_staged_code_review(
+    async def test_write_specialist_auto_handoffs_staged_code_review(
         self, _mock_activate_scope: Any, mock_create: Any, mock_build: Any
     ) -> None:
         mock_build.return_value = MagicMock()
@@ -395,7 +395,7 @@ class TestRunPlanningNestedStream:
         task = asyncio.create_task(run_planning_nested_stream(session, 'sess-1', 'review task', nested_q, None))
         await asyncio.sleep(0)
 
-        route_tool = next(tool for tool in captured_router_tools if tool.name == 'route_create_specialist')
+        route_tool = next(tool for tool in captured_router_tools if tool.name == 'route_write_specialist')
         result = await route_tool.ainvoke({'task_instruction': 'Create `main.py` with the requested app.'})
 
         assert 'Code review outcome:' in result
@@ -568,7 +568,7 @@ class TestRunPlanningNestedStream:
         route_tool = next(tool for tool in captured_router_tools if tool.name == 'route_code_review_specialist')
         result = await route_tool.ainvoke({'task_instruction': 'Review `task_manager.py`'})
 
-        assert 'update specialist finished after a code review rejection' in result
+        assert 'write specialist finished after a code review rejection' in result
         assert 'staged draft did not change' in result
 
         release_router.set()

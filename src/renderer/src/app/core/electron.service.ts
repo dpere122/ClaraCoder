@@ -42,6 +42,13 @@ export interface ToolExecChunkMessage {
   label?: string;
 }
 
+export interface ToolExecCompleteMessage {
+  conversationId: string;
+  streamTag?: string;
+  label?: string;
+  exitCode?: number | null;
+}
+
 export interface DoneMessage {
   conversationId: string;
 }
@@ -99,6 +106,7 @@ export class ElectronService {
   private readonly chunkSubject = new Subject<ChunkMessage>();
   private readonly toolReadChunkSubject = new Subject<ToolReadChunkMessage>();
   private readonly toolExecChunkSubject = new Subject<ToolExecChunkMessage>();
+  private readonly toolExecCompleteSubject = new Subject<ToolExecCompleteMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly plannerSubject = new Subject<PlannerMessage>();
@@ -121,6 +129,7 @@ export class ElectronService {
   readonly chunk$ = this.chunkSubject.asObservable();
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly toolExecChunk$ = this.toolExecChunkSubject.asObservable();
+  readonly toolExecComplete$ = this.toolExecCompleteSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly planner$ = this.plannerSubject.asObservable();
@@ -159,6 +168,11 @@ export class ElectronService {
     });
     this.api?.onMessageToolExecChunk?.((_event, conversationId, delta, streamTag, label) => {
       this.zone.run(() => this.toolExecChunkSubject.next({ conversationId, delta, streamTag, label }));
+    });
+    this.api?.onMessageToolExecComplete?.((_event, conversationId, streamTag, label, exitCode) => {
+      this.zone.run(() =>
+        this.toolExecCompleteSubject.next({ conversationId, streamTag, label, exitCode }),
+      );
     });
     this.api?.onMessageDone((_event, conversationId) => {
       this.zone.run(() => this.doneSubject.next({ conversationId }));

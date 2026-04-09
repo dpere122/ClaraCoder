@@ -1,3 +1,15 @@
 .delete-card code {
   font-size: 0.85em;
 }
+
+.delete-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.delete-list__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}

@@ -31,6 +31,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       label?: string,
     ) => void,
   ) => ipcRenderer.on('message-tool-exec-chunk', callback),
+  onMessageToolExecComplete: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      streamTag?: string,
+      label?: string,
+      exitCode?: number | null,
+    ) => void,
+  ) => ipcRenderer.on('message-tool-exec-complete', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),

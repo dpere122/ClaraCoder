@@ -1,0 +1,31 @@
+.delegated-shell-terminal-details {
+  margin: 0.35rem 0 0.55rem;
+  border: 1px solid var(--t-border-subtle);
+  background: transparent;
+}
+
+.delegated-shell-terminal-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--t-primary);
+}
+
+.delegated-shell-terminal-summary::-webkit-details-marker {
+  display: none;
+}
+
+.delegated-shell-terminal-summary-label {
+  letter-spacing: 0.04em;
+}
+
+.delegated-shell-terminal-wrap {
+  margin: 0 !important;
+  padding: 0 0.35rem 0.45rem !important;
+}
+
+.delegated-shell-terminal-details[open] .delegated-shell-terminal-summary {
+  border-bottom: 1px solid var(--t-border-subtle);
+}

@@ -2,7 +2,7 @@
   <div class="delete-card delete-card--collapsed border rounded-2 px-3 py-2">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
       <div>
-        <span class="fw-medium">{{ payload().relativePath }}</span>
+        <span class="fw-medium">{{ deleteCountLabel() }}</span>
         @if (reviewSummary()) {
           <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
         }
@@ -20,11 +20,27 @@
     <div class="delete-toolbar p-2 border-bottom bg-danger bg-opacity-10">
       <div class="fw-medium text-danger">Confirm workspace delete</div>
       <div class="small text-secondary">
-        {{ kindLabel() }}: <code>{{ payload().relativePath }}</code>
+        @if (resolvedEntries().length === 1) {
+          {{ kindLabel() }}: <code>{{ resolvedEntries()[0].relativePath }}</code>
+        } @else {
+          Permanently remove {{ deleteCountLabel() }}:
+        }
         @if (recursiveWarning()) {
           <div class="mt-1 text-danger-emphasis">{{ recursiveWarning() }}</div>
         }
       </div>
+      @if (resolvedEntries().length > 1) {
+        <div class="delete-list small mt-2">
+          @for (e of resolvedEntries(); track e.relativePath) {
+            <div class="delete-list__row">
+              <code>{{ e.relativePath }}</code>
+              @if (e.kind === 'directory' && e.recursive) {
+                <span class="text-danger-emphasis ms-1">(recursive)</span>
+              }
+            </div>
+          }
+        </div>
+      }
       <div class="d-flex flex-wrap gap-2 mt-2">
         <button
           type="button"

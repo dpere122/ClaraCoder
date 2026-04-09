@@ -55,6 +55,14 @@ try:
     )
 except ValueError:
     NEMO_PLANNER_STEP_RESULT_MAX_CHARS = 80_000
+# Max characters per outer-agent brief (planner plan summary, review outcomes to Clara).
+try:
+    NEMO_OUTER_AGENT_BRIEF_MAX_CHARS = max(
+        400,
+        min(int(os.getenv('NEMO_OUTER_AGENT_BRIEF_MAX_CHARS', '2400').strip() or '2400'), 50_000),
+    )
+except ValueError:
+    NEMO_OUTER_AGENT_BRIEF_MAX_CHARS = 2400
 # Step sizing / complexity heuristics for discovery-first planning.
 NEMO_PLANNER_REQUEST_SMALL_CHARS = _env_int('NEMO_PLANNER_REQUEST_SMALL_CHARS', 220, 80, 10_000)
 NEMO_PLANNER_REQUEST_MEDIUM_CHARS = _env_int('NEMO_PLANNER_REQUEST_MEDIUM_CHARS', 500, 120, 20_000)

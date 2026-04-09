@@ -14,12 +14,11 @@ from langchain_core.tools import tool
 
 from nemo_backend.agents.specialists.prompts import (
     build_code_review_specialist_system_prompt,
-    build_create_specialist_system_prompt,
     build_dependency_specialist_system_prompt,
     build_delete_specialist_system_prompt,
     build_project_review_specialist_system_prompt,
     build_router_system_prompt,
-    build_update_specialist_system_prompt,
+    build_write_specialist_system_prompt,
 )
 from nemo_backend.agents.specialists.project_review_tools import (
     APPROVE_PROJECT_REVIEW_NAME,
@@ -32,13 +31,13 @@ from nemo_backend.agents.specialists.review_tools import (
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
     code_review_specialist_tools,
 )
+from nemo_backend.agents.orchestration.router_probe_tools import workspace_path_status
 from nemo_backend.agents.specialists.tools import (
-    create_specialist_tools,
     dependency_specialist_tools,
     delete_specialist_tools,
-    update_specialist_tools,
+    write_specialist_tools,
 )
-from nemo_backend.config import MAX_AGENT_STEPS
+from nemo_backend.config import MAX_AGENT_STEPS, NEMO_OUTER_AGENT_BRIEF_MAX_CHARS
 from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
 from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
@@ -48,7 +47,7 @@ from nemo_backend.llm import build_llm
 from nemo_backend.lsp.manager import activate_session_lsp_scope
 from nemo_backend.messages import final_assistant_text, stringify_content
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
-from nemo_backend.state import get_active_connection, runtime_config
+from nemo_backend.state import get_active_connection, get_session, runtime_config
 
 logger = logging.getLogger('nemo.agent.langgraph.planning')
 
@@ -103,9 +102,14 @@ def _pending_code_review_snapshot(session: SessionState, staged_paths: list[str]
 
 def _build_code_review_instruction(session: SessionState, task_instruction: str) -> str:
     base = task_instruction.strip() or 'Review the staged changes and decide whether to transfer or reject.'
+    decision_hint = (
+        '\n\nReviewer decision: `transfer_staged_file_to_workspace` = PASS (draft OK, apply to workspace). '
+        '`reject_staged_workspace_edit` = FAIL (draft needs writer fixes—feedback must say what is wrong). '
+        'Do not reject when the draft already satisfies the step.'
+    )
     staged_paths = _pending_code_review_paths(session)
     if not staged_paths:
-        return base
+        return base + decision_hint
     test_paths = [path for path in staged_paths if _is_probable_test_path(path)]
     lines = [base, '', 'Staged paths:']
     lines.extend(f'- `{path}`' for path in staged_paths)
@@ -114,6 +118,7 @@ def _build_code_review_instruction(session: SessionState, task_instruction: str)
         lines.extend(f'- `{path}`' for path in test_paths)
     else:
         lines.append('- None identified in the current staged set.')
+    lines.extend(['', decision_hint.strip()])
     return '\n'.join(lines)
 
 
@@ -123,7 +128,10 @@ def _build_auto_code_review_followup_instruction(
     mutation_result: str,
 ) -> str:
     base = task_instruction.strip() or 'Review the staged changes and decide whether to transfer or reject.'
-    kind_label = 'create' if mutation_kind == 'create' else 'update'
+    kind_label = {'write': 'file-write', 'create': 'create', 'update': 'update'}.get(
+        mutation_kind,
+        mutation_kind,
+    )
     summary = mutation_result.strip() or '(no specialist summary provided)'
     return (
         f'{base}\n\n'
@@ -210,6 +218,41 @@ async def _enqueue_nested_event(nested_q: Any, stream_tag: str, ev: dict[str, An
     await nested_q.put((stream_tag, ev))
 
 
+_OUTER_BRIEF_KIND_LABELS: dict[str, str] = {
+    'plan_recorded': 'Planner checklist',
+    'code_review': 'Code review',
+    'project_review': 'Project review',
+}
+
+
+def _truncate_outer_brief_text(text: str) -> str:
+    t = (text or '').strip()
+    if len(t) <= NEMO_OUTER_AGENT_BRIEF_MAX_CHARS:
+        return t
+    return t[: max(0, NEMO_OUTER_AGENT_BRIEF_MAX_CHARS - 24)].rstrip() + '\n[truncated]'
+
+
+async def enqueue_modify_workspace_outer_brief(
+    session_id: str,
+    nested_q: Any,
+    *,
+    kind: str,
+    summary: str,
+) -> None:
+    """Append a concise handoff for outer Clara (``modify_workspace`` tool text + live status line)."""
+    body = _truncate_outer_brief_text(summary)
+    if not body:
+        return
+    session = get_session(session_id)
+    label = _OUTER_BRIEF_KIND_LABELS.get(kind, str(kind).replace('_', ' ').title())
+    session.modify_workspace_outer_briefs.append(f'{label}:\n{body}')
+    await _enqueue_nested_event(
+        nested_q,
+        'clara',
+        {'event': 'outer_agent_brief', 'data': {'kind': kind, 'summary': body, 'label': label}},
+    )
+
+
 async def run_planning_nested_stream(
     session: SessionState,
     session_id: str,
@@ -233,12 +276,9 @@ async def run_planning_nested_stream(
             spec_llm = build_llm()
             if kind == 'code_review':
                 activate_session_lsp_scope(session_id, scope='staging')
-            if kind == 'create':
-                tools, _ = create_specialist_tools()
-                system_prompt = build_create_specialist_system_prompt(session)
-            elif kind == 'update':
-                tools, _ = update_specialist_tools(edit_strict)
-                system_prompt = build_update_specialist_system_prompt(session)
+            if kind == 'write':
+                tools, _ = write_specialist_tools(edit_strict)
+                system_prompt = build_write_specialist_system_prompt(session)
             elif kind == 'delete':
                 tools, _ = delete_specialist_tools()
                 system_prompt = build_delete_specialist_system_prompt(session)
@@ -329,10 +369,17 @@ async def run_planning_nested_stream(
                     f'{pending_detail}'
                 )
             if kind == 'code_review' and review_decision_tool == REJECT_STAGED_WORKSPACE_EDIT_NAME:
+                rejection_body = review_decision_result or spec_final.strip()
+                await enqueue_modify_workspace_outer_brief(
+                    session_id,
+                    nested_q,
+                    kind='code_review',
+                    summary=f'Rejected staged changes (revision required).\n{rejection_body}',
+                )
                 return (
                     'Tool error: code review rejected the current step. Retry the same recorded step with only the '
                     'minimum in-scope fixes needed for approval; do not broaden the task or create a new plan.\n\n'
-                    f'{review_decision_result or spec_final.strip()}'
+                    f'{rejection_body}'
                 )
             if kind == 'project_review' and not project_review_decision_made:
                 logger.warning(
@@ -344,10 +391,39 @@ async def run_planning_nested_stream(
                     '`approve_project_review` or `reject_project_review`.'
                 )
             if kind == 'project_review' and project_review_decision_tool == REJECT_PROJECT_REVIEW_NAME:
+                fail_body = project_review_decision_result or spec_final.strip()
+                await enqueue_modify_workspace_outer_brief(
+                    session_id,
+                    nested_q,
+                    kind='project_review',
+                    summary=f'Final review failed.\n{fail_body}',
+                )
                 return (
                     'Tool error: final project review failed. Use the reviewer feedback to make the minimum '
                     'workspace fixes needed for another final review pass.\n\n'
-                    f'{project_review_decision_result or spec_final.strip()}'
+                    f'{fail_body}'
+                )
+            if kind == 'code_review' and review_decision_made and review_decision_tool == TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME:
+                await enqueue_modify_workspace_outer_brief(
+                    session_id,
+                    nested_q,
+                    kind='code_review',
+                    summary=review_decision_result
+                    or spec_final.strip()
+                    or 'Staged changes approved and transferred to the workspace.',
+                )
+            elif (
+                kind == 'project_review'
+                and project_review_decision_made
+                and project_review_decision_tool == APPROVE_PROJECT_REVIEW_NAME
+            ):
+                await enqueue_modify_workspace_outer_brief(
+                    session_id,
+                    nested_q,
+                    kind='project_review',
+                    summary=project_review_decision_result
+                    or spec_final.strip()
+                    or 'Final project review approved.',
                 )
             return spec_final.strip() or f'Specialist `{kind}` finished without a final text response.'
 
@@ -379,14 +455,9 @@ async def run_planning_nested_stream(
             return f'{mutation_result}\n\nCode review outcome:\n{review_result}'
 
         @tool
-        async def route_create_specialist(task_instruction: str) -> str:
-            """Hand off new files or full-file writes to the create specialist."""
-            return await _run_mutation_specialist_with_auto_review('create', task_instruction)
-
-        @tool
-        async def route_update_specialist(task_instruction: str) -> str:
-            """Hand off edits to existing files to the update specialist."""
-            return await _run_mutation_specialist_with_auto_review('update', task_instruction)
+        async def route_write_specialist(task_instruction: str) -> str:
+            """Hand off new files, full-file writes, and updates to the unified file-write specialist."""
+            return await _run_mutation_specialist_with_auto_review('write', task_instruction)
 
         @tool
         async def route_delete_specialist(task_instruction: str) -> str:
@@ -439,7 +510,7 @@ async def run_planning_nested_stream(
                 snapshot_before_retry = _pending_code_review_snapshot(session, staged_paths)
                 retry_attempt += 1
                 update_result = await _run_specialist_graph(
-                    'update',
+                    'write',
                     _build_code_review_retry_instruction(
                         task_instruction,
                         review_result,
@@ -453,7 +524,7 @@ async def run_planning_nested_stream(
                 if snapshot_after_retry == snapshot_before_retry:
                     return (
                         f'{update_result}\n\n'
-                        'Tool error: the update specialist finished after a code review rejection, but the staged '
+                        'Tool error: the write specialist finished after a code review rejection, but the staged '
                         'draft did not change. Stop the retry loop and surface the reviewer feedback to the planner.'
                     )
                 prior_rejection = cleaned_rejection
@@ -499,8 +570,8 @@ async def run_planning_nested_stream(
             return await _run_specialist_graph('project_review', review_instruction)
 
         router_tools: list[Any] = [
-            route_create_specialist,
-            route_update_specialist,
+            workspace_path_status,
+            route_write_specialist,
             route_delete_specialist,
             route_dependency_specialist,
             route_code_review_specialist,

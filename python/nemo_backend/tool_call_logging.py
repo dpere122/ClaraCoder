@@ -16,6 +16,14 @@ _TRUNC_INFO = 12_000
 _TRUNC_DEBUG = 400_000
 
 
+def _agent_tool_lead(tool_name: str, agent_role: str | None) -> str:
+    tool = (tool_name or '').strip() or 'tool'
+    role = (agent_role or '').strip()
+    if role:
+        return f'{role} · {tool}'
+    return tool
+
+
 def _preview(obj: Any, max_len: int) -> str:
     try:
         s = json.dumps(obj, ensure_ascii=False, default=str, indent=None)
@@ -39,13 +47,12 @@ def log_llm_tool_input(
 ) -> None:
     if not logger.isEnabledFor(logging.INFO):
         return
+    lead = _agent_tool_lead(tool_name, agent_role)
     bits: list[str] = []
     if run_id:
         bits.append(f'run_id={run_id}')
-    if agent_role:
-        bits.append(f'agent_role={agent_role}')
-    prefix = (' ' + ' '.join(bits)) if bits else ''
-    logger.info('LLM tool in%s tool=%s args=%s', prefix, tool_name, _preview(args, _limit()))
+    suffix = (' ' + ' '.join(bits)) if bits else ''
+    logger.info('%s — LLM tool in%s args=%s', lead, suffix, _preview(args, _limit()))
 
 
 def log_llm_tool_output(
@@ -59,17 +66,16 @@ def log_llm_tool_output(
 ) -> None:
     if not logger.isEnabledFor(logging.INFO):
         return
+    lead = _agent_tool_lead(tool_name, agent_role)
     bits: list[str] = []
     if run_id:
         bits.append(f'run_id={run_id}')
-    if agent_role:
-        bits.append(f'agent_role={agent_role}')
-    prefix = (' ' + ' '.join(bits)) if bits else ''
+    suffix = (' ' + ' '.join(bits)) if bits else ''
     err = f' error={_preview(error_detail, min(_limit(), 4000))}' if error_detail else ''
     logger.info(
-        'LLM tool out%s tool=%s ok=%s%s result=%s',
-        prefix,
-        tool_name,
+        '%s — LLM tool out%s ok=%s%s result=%s',
+        lead,
+        suffix,
         ok,
         err,
         _preview(result_text, _limit()),

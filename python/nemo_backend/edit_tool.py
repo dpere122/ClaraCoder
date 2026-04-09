@@ -16,7 +16,7 @@ from langchain_core.tools import tool
 
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
-from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.file_policy import is_lsp_managed_path, outer_workspace_edit_guard_error
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.partial_workspace_edit import merge_partial_edit
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
@@ -213,6 +213,10 @@ def _run_edit_tool(
         return pre
     session, rel_display, old_text, disk_enc, disk_nl = pre
 
+    guarded = outer_workspace_edit_guard_error(rel_display)
+    if guarded:
+        return guarded
+
     merged, merge_err = merge_partial_edit(
         old_text,
         new_content=new_content,
@@ -245,7 +249,8 @@ def apply_workspace_full_file(
 
     For small localized changes on existing files, prefer `replace_workspace_line_range`.
 
-    Relative paths only (e.g. src/app.ts). The user applies changes in the UI unless auto-apply is enabled."""
+    Relative paths only (e.g. docs/readme.md). Do not use for code-review extensions (.py, .ts, .js, …)—use
+    `modify_workspace` for those. The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(
         relative_path, encoding, newline,
@@ -273,7 +278,8 @@ def replace_workspace_line_range(
     the last line, and `1,1` can seed an empty file.
     See `apply_workspace_full_file` for `encoding` and `newline`.
 
-    Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
+    Relative paths only. Not for code-review extensions—use `modify_workspace` for source files.
+    The user applies changes in the UI unless auto-apply is enabled."""
 
     ns = '' if new_snippet is None else new_snippet
     nc = '' if new_content is None else new_content
@@ -302,7 +308,8 @@ def replace_workspace_snippet(
     See `apply_workspace_full_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
 
-    Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
+    Relative paths only. Not for code-review extensions—use `modify_workspace` for source files.
+    The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(
         relative_path, encoding, newline,

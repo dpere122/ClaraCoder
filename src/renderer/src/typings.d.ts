@@ -39,6 +39,15 @@ declare global {
         label?: string,
       ) => void,
     ) => void;
+    onMessageToolExecComplete?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        streamTag?: string,
+        label?: string,
+        exitCode?: number | null,
+      ) => void,
+    ) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
     onMessagePlanner?: (

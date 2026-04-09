@@ -1,30 +1,24 @@
-<div class="chat-box p-3" appRunButton>
-  @for (row of persistedRows(); track $index) {
-    @if (row.kind === 'assistant-turn') {
-      @if (row.assistant?.planner; as planner) {
-        @if (planner.steps.length > 0) {
-        <div class="d-flex mb-2">
-          <app-planner-tasks class="planner-row-card" [planner]="planner" />
-        </div>
-        }
-      }
-    }
+<div class="chat-box p-3" #chatScroll (scroll)="onChatScroll()" appRunButton>
+  <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().topSpacer" aria-hidden="true"></div>
+  @for (slot of virtualWindow().slots; track slot.index) {
+    <div class="chat-row-mount" [attr.data-chat-row]="slot.index">
     <div
       class="d-flex mb-2"
-      [class.justify-content-end]="row.kind === 'user'"
-      [class.w-100]="row.kind === 'assistant-turn' && row.artifacts.length > 0"
+      [class.justify-content-end]="slot.row.kind === 'user'"
+      [class.w-100]="slot.row.kind === 'assistant-turn' && slot.row.artifacts.length > 0"
     >
       <div
         class="msg-bubble px-3 py-2"
-        [class.user-bubble]="row.kind === 'user'"
-        [class.assistant-bubble]="row.kind === 'assistant-turn'"
-        [class.diff-msg-bubble]="row.kind === 'assistant-turn' && row.artifacts.length > 0"
-        [class.assistant-turn-bubble]="row.kind === 'assistant-turn'"
-        [style.max-width]="row.kind === 'assistant-turn' && row.artifacts.length > 0 ? '100%' : '80%'"
+        [class.user-bubble]="slot.row.kind === 'user'"
+        [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
+        [class.diff-msg-bubble]="slot.row.kind === 'assistant-turn' && slot.row.artifacts.length > 0"
+        [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
+        [style.max-width]="slot.row.kind === 'assistant-turn' && slot.row.artifacts.length > 0 ? '100%' : '80%'"
       >
-        @if (row.kind === 'user') {
-          {{ row.msg.text }}
+        @if (slot.row.kind === 'user') {
+          {{ slot.row.msg.text }}
         } @else {
+          @let row = slot.row;
           @for (chainGroup of row.chainGroups; track chainGroup.key) {
             <details class="tool-trail-collapse">
               <summary class="tool-trail-summary">
@@ -32,16 +26,49 @@
               </summary>
               <div class="tool-trail-persisted">
                 @for (trail of chainGroup.rows; track trail.statusId) {
-                  <div class="tool-trail-row">
-                    @if (trail.text) {
-                      <span class="tool-trail-detail">{{ trail.text }}</span>
-                      <span class="tool-trail-sep">&middot;</span>
-                    }
-                    <span class="tool-trail-name">{{ trail.label }}</span>
-                  </div>
+                  @if (isClaraOuterBriefTrail(trail)) {
+                    <div class="clara-outer-brief" role="status" [attr.aria-label]="trail.label">
+                      <div class="clara-outer-brief-header">
+                        <span class="clara-outer-brief-brand">Clara</span>
+                        <span class="clara-outer-brief-chip">{{ trail.label }}</span>
+                      </div>
+                      @if (trail.text) {
+                        <pre class="clara-outer-brief-body">{{ trail.text }}</pre>
+                      }
+                    </div>
+                  } @else {
+                    <div class="tool-trail-row">
+                      @if (trail.text) {
+                        <span class="tool-trail-detail">{{ trail.text }}</span>
+                        <span class="tool-trail-sep">&middot;</span>
+                      }
+                      <span class="tool-trail-name">{{ trail.label }}</span>
+                    </div>
+                  }
                 }
               </div>
             </details>
+          }
+
+          @if (row.assistant?.planner; as planner) {
+            @if (planner.steps.length > 0) {
+              <div class="d-flex mb-2 w-100">
+                <app-planner-tasks class="planner-row-card" [planner]="planner" />
+              </div>
+            }
+          }
+
+          @if (row.assistant?.toolStreams?.length) {
+            <div class="streaming-delegated" aria-live="polite">
+              @for (part of row.assistant!.toolStreams!; track part.streamTag) {
+                <app-delegated-shell-terminal
+                  [label]="part.label || 'Tool output'"
+                  [text]="part.text"
+                  [runComplete]="true"
+                  [exitCode]="part.exitCode ?? null"
+                />
+              }
+            </div>
           }
 
           @for (artifact of row.artifacts; track $index) {
@@ -106,7 +133,7 @@
 
           @if (row.assistant?.text) {
             <span [innerHTML]="row.assistant!.text | markdown"></span>
-            @if (ttsLoading() && $last) {
+            @if (ttsLoading() && isLastPersistedRow(slot.index)) {
               <div class="tts-loading" role="status" aria-live="polite">
                 <div class="tts-ngx-host" aria-hidden="true">
                   <ngx-spinner
@@ -125,17 +152,12 @@
         }
       </div>
     </div>
+    </div>
   } @empty {
     <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
   }
+  <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().bottomSpacer" aria-hidden="true"></div>
   @if (liveTurn(); as liveTurn) {
-    @if (livePlannerProgress(); as planner) {
-      @if (planner.steps.length > 0) {
-      <div class="d-flex mb-2">
-        <app-planner-tasks class="planner-row-card" [planner]="planner" />
-      </div>
-      }
-    }
     <div class="d-flex mb-2">
       <div
         class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble assistant-turn-bubble"
@@ -144,15 +166,34 @@
         @for (chainGroup of liveVisibleChainGroups(); track chainGroup.key) {
           <div class="tool-trail-live">
             @for (trail of chainGroup.rows; track trail.statusId) {
-              <div class="tool-trail-row">
-                @if (trail.text) {
-                  <span class="tool-trail-detail">{{ trail.text }}</span>
-                  <span class="tool-trail-sep">&middot;</span>
-                }
-                <span class="tool-trail-name">{{ trail.label }}</span>
-              </div>
+              @if (isClaraOuterBriefTrail(trail)) {
+                <div class="clara-outer-brief clara-outer-brief--live" role="status" [attr.aria-label]="trail.label">
+                  <div class="clara-outer-brief-header">
+                    <span class="clara-outer-brief-brand">Clara</span>
+                    <span class="clara-outer-brief-chip">{{ trail.label }}</span>
+                  </div>
+                  @if (trail.text) {
+                    <pre class="clara-outer-brief-body">{{ trail.text }}</pre>
+                  }
+                </div>
+              } @else {
+                <div class="tool-trail-row">
+                  @if (trail.text) {
+                    <span class="tool-trail-detail">{{ trail.text }}</span>
+                    <span class="tool-trail-sep">&middot;</span>
+                  }
+                  <span class="tool-trail-name">{{ trail.label }}</span>
+                </div>
+              }
             }
           </div>
+        }
+        @if (livePlannerProgress(); as planner) {
+          @if (planner.steps.length > 0) {
+            <div class="d-flex mb-2 w-100">
+              <app-planner-tasks class="planner-row-card" [planner]="planner" />
+            </div>
+          }
         }
         @if (primaryStreamPlainDisplay().length > 0) {
           <div class="streaming-primary-plain" aria-live="polite">
@@ -162,9 +203,21 @@
             }
           </div>
         }
-        @if (delegatedStreamParts().length > 0) {
+        @if (shellDelegatedStreamParts().length > 0) {
           <div class="streaming-delegated" aria-live="polite">
-            @for (part of delegatedStreamParts(); track part.streamTag) {
+            @for (part of shellDelegatedStreamParts(); track part.streamTag) {
+              <app-delegated-shell-terminal
+                [label]="part.label || 'Tool output'"
+                [text]="part.text"
+                [runComplete]="!!part.runComplete"
+                [exitCode]="part.exitCode"
+              />
+            }
+          </div>
+        }
+        @if (otherDelegatedStreamParts().length > 0) {
+          <div class="streaming-delegated" aria-live="polite">
+            @for (part of otherDelegatedStreamParts(); track part.streamTag) {
               <div class="streaming-delegated-block">
                 <div class="streaming-delegated-label">{{ part.label || 'Tool output' }}</div>
                 <pre class="streaming-delegated-text">{{ part.text }}</pre>
@@ -250,7 +303,7 @@
               color="var(--bs-secondary-color)"
             ></ngx-spinner>
           </div>
-          <span class="processing-text">Clara</span>
+          <span class="processing-text">{{ processingBubbleLabel() }}</span>
         </div>
       </div>
     </div>

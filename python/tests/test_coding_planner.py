@@ -33,12 +33,14 @@ from nemo_backend.agents.specialists.prompts import (
     build_dependency_specialist_system_prompt,
     build_project_review_specialist_system_prompt,
     build_router_system_prompt,
-    build_update_specialist_system_prompt,
+    build_write_specialist_system_prompt,
 )
 from nemo_backend.agents.orchestration.nested_pipeline import NESTED_WORKER_STREAM_END
 from nemo_backend.config import NEMO_PLANNER_MAX_STEP_TEXT_CHARS, NEMO_PLANNER_STEP_RESULT_MAX_CHARS
 from nemo_backend.domain import SessionState
+from nemo_backend.edit_tool import edit_tools_for_strict
 from nemo_backend.planner_task_retry_middleware import PlannerTaskRetryMiddleware
+from nemo_backend.state import runtime_config
 from nemo_backend.python_env import PythonWorkspaceEnvResult, workspace_python_executable
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
@@ -246,6 +248,13 @@ class TestCodingPlannerPrompt:
         prompt = build_coding_planner_system_prompt(session)
 
         assert 'coding planning agent' in prompt.lower()
+        assert '## Role' in prompt
+        assert '**Coder:**' in prompt
+        assert '**Debugger:**' in prompt
+        assert '**Systems engineer:**' in prompt
+        assert 'routing handoff block' in prompt.lower()
+        assert '**Operation:**' in prompt
+        assert '**Existence:**' in prompt
         assert 'execute_plan_step' in prompt
         assert 'record_plan' in prompt
         assert 'read_workspace_file' in prompt
@@ -294,6 +303,8 @@ class TestCodingPlannerPrompt:
         assert 'record_plan' in prompt
         assert 'execute_plan_step' in prompt
         assert 'Planner tool reference' in prompt
+        assert 'Routing handoff block' in prompt
+        assert '**Existence:**' in prompt
         assert 'Start with discovery' in prompt
         assert 'lsp_get_diagnostics' in prompt
         assert 'lsp_find_references' in prompt
@@ -303,6 +314,8 @@ class TestCodingPlannerPrompt:
         assert 'If execution stalls' in prompt
         assert 'If code review rejects a change, treat that as an implementation-layer loop' in prompt
         assert 'run_final_project_review' in prompt
+        assert 'apply_workspace_full_file' in prompt
+        assert 'non-code paths' in prompt
         assert 'Python workspace playbook' in prompt
 
     def test_reflection_prompt_requires_continuing_same_checklist(self) -> None:
@@ -353,6 +366,7 @@ class TestCodingPlannerPrompt:
         assert 'Add CRUD behavior' in prompt
         assert 'Do not give a final summary yet' in prompt
         assert 'run_final_project_review` only after every recorded step is complete' in prompt
+        assert 'routing handoff block' in prompt.lower()
 
     @patch('nemo_backend.messages.get_active_connection')
     @patch('nemo_backend.messages.runtime_config')
@@ -365,20 +379,24 @@ class TestCodingPlannerPrompt:
         step_router_prompt = build_router_system_prompt(session, allow_project_review=False)
         review_prompt = build_code_review_specialist_system_prompt(session)
         dependency_prompt = build_dependency_specialist_system_prompt(session)
-        update_prompt = build_update_specialist_system_prompt(session)
+        write_prompt = build_write_specialist_system_prompt(session)
         project_review_prompt = build_project_review_specialist_system_prompt(session)
 
         assert 'approval signal' in router_prompt
         assert 'route_dependency_specialist' in router_prompt
+        assert 'workspace_path_status' in router_prompt
+        assert '**Operation:**' in router_prompt
         assert 'related test-file references' in router_prompt
         assert 'completion-check task' in router_prompt
-        assert 'pending staged draft from an earlier step' in router_prompt
+        assert 'route_write_specialist' in router_prompt
+        assert 'revises pending staged drafts' in router_prompt
         assert 'That handoff owns the review-to-revision loop' in router_prompt
         assert 'separate retry step' in router_prompt
         assert 'route_dependency_specialist' in step_router_prompt
         assert 'route_project_review_specialist' not in step_router_prompt
         assert 'Do not attempt a final whole-project review in this router pass.' in step_router_prompt
         assert 'Do not run the workspace test suite from this specialist' in review_prompt
+        assert 'file-write specialist' in review_prompt
         assert 'workspace dependency specialist' in dependency_prompt
         assert 'write a frozen requirements file' in dependency_prompt
         assert 'final approval signal' in review_prompt
@@ -386,8 +404,9 @@ class TestCodingPlannerPrompt:
         assert 'Do not write prose like "Action: Transfer to workspace"' in review_prompt
         assert 'minimum changes needed for approval' in review_prompt
         assert 'do not ask for unrelated refactors' in review_prompt
-        assert 'read_workspace_file' in update_prompt
-        assert 'no longer readable through `read_staged_edit`' in update_prompt
+        assert 'read_workspace_file' in write_prompt
+        assert 'read_staged_edit' in write_prompt
+        assert 'file-write specialist' in write_prompt
         assert 'ensure_python_workspace_env' in project_review_prompt
         assert 'run_workspace_pytest_tests' in project_review_prompt
         assert 'run_workspace_python_smoke_test' in project_review_prompt
@@ -898,6 +917,7 @@ class TestRunCodingPlannerStream:
 
         await run_coding_planner_stream(session, 'sess-1', 'test task', nested_q, None)
         planner_tools = mock_create.call_args.args[1]
+        edit_names = [t.name for t in edit_tools_for_strict(runtime_config.tools.edit_tools_strict)]
         assert [tool.name for tool in planner_tools] == [
             'ensure_python_workspace_env',
             'record_plan',
@@ -909,6 +929,7 @@ class TestRunCodingPlannerStream:
             'lsp_find_definition',
             'lsp_find_references',
             'lsp_get_document_symbols',
+            *edit_names,
             'execute_plan_step',
             'run_final_project_review',
         ]

@@ -11,6 +11,11 @@ app-chat-box .chat-box {
   background-color: var(--t-bg);
 }
 
+app-chat-box .chat-virtual-spacer,
+app-chat-box .chat-row-mount {
+  flex-shrink: 0;
+}
+
 app-chat-box .msg-bubble {
   font-size: var(--chat-font-size);
   line-height: 1.5;
@@ -394,6 +399,67 @@ app-chat-box .tool-trail-sep {
 app-chat-box .tool-trail-name {
   font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   opacity: 0.7;
+}
+
+/* --- Clara outer briefs (planner / review handoffs during modify_workspace) --- */
+
+app-chat-box .clara-outer-brief {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.45rem 0.55rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--t-border-subtle);
+  border-left: 3px solid var(--t-assistant-border);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--t-assistant-bg) 88%, var(--t-primary) 12%) 0%,
+    var(--t-assistant-bg) 100%
+  );
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 35%, transparent);
+}
+
+app-chat-box .clara-outer-brief--live {
+  margin-top: 0.15rem;
+  margin-bottom: 0.45rem;
+}
+
+app-chat-box .clara-outer-brief-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+app-chat-box .clara-outer-brief-brand {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-primary);
+  text-shadow: 0 0 6px var(--t-glow-soft);
+}
+
+app-chat-box .clara-outer-brief-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--t-secondary);
+  padding: 0.1em 0.45em;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--t-code-inline-bg) 85%, transparent);
+  border: 1px solid var(--t-border-subtle);
+}
+
+app-chat-box .clara-outer-brief-body {
+  margin: 0;
+  padding: 0.35rem 0.15rem 0.1rem;
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--t-secondary);
+  max-height: min(40vh, 22rem);
+  overflow-y: auto;
 }
 
 /* --- Collapsible persisted tool trail --- */

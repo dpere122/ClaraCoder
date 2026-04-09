@@ -79,6 +79,32 @@ async def _emit_project_review_chunk(
     )
 
 
+async def _emit_project_review_tool_complete(
+    session_id: str,
+    *,
+    stream_tag: str,
+    label: str,
+    exit_code: int | None,
+) -> None:
+    session = get_session(session_id)
+    queue = session.planning_nested_events_q
+    if queue is None:
+        return
+    await queue.put(
+        (
+            stream_tag,
+            {
+                'event': 'tool_exec_complete',
+                'data': {
+                    'stream_tag': stream_tag,
+                    'label': label,
+                    'exit_code': exit_code,
+                },
+            },
+        )
+    )
+
+
 async def _pump_pytest_stream(
     stream: asyncio.StreamReader | None,
     *,
@@ -315,6 +341,12 @@ async def run_workspace_pytest_tests() -> str:
             env=session_workspace_subprocess_env(session),
         )
     except OSError as exc:
+        await _emit_project_review_tool_complete(
+            sid,
+            stream_tag=_PYTEST_STREAM_TAG,
+            label=_PYTEST_STREAM_LABEL,
+            exit_code=None,
+        )
         return f'Tool error: could not start workspace pytest ({exc}).'
 
     stdout_chunks: list[str] = []
@@ -335,6 +367,12 @@ async def run_workspace_pytest_tests() -> str:
             await _emit_project_review_chunk(sid, '\n[workspace pytest aborted by user]\n')
             await _terminate_process(proc)
             await wait_task
+            await _emit_project_review_tool_complete(
+                sid,
+                stream_tag=_PYTEST_STREAM_TAG,
+                label=_PYTEST_STREAM_LABEL,
+                exit_code=proc.returncode,
+            )
             return 'Aborted by user.'
         else:
             exit_code = await wait_task
@@ -348,6 +386,12 @@ async def run_workspace_pytest_tests() -> str:
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     logger.info('run_workspace_pytest_tests exit_code=%s project_root=%s', exit_code, project_root)
+    await _emit_project_review_tool_complete(
+        sid,
+        stream_tag=_PYTEST_STREAM_TAG,
+        label=_PYTEST_STREAM_LABEL,
+        exit_code=exit_code,
+    )
     return _build_pytest_result(
         exit_code=exit_code,
         project_root_label=project_root_label,
@@ -410,6 +454,12 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             env=session_workspace_subprocess_env(session),
         )
     except OSError as exc:
+        await _emit_project_review_tool_complete(
+            sid,
+            stream_tag=_SMOKE_STREAM_TAG,
+            label=_SMOKE_STREAM_LABEL,
+            exit_code=None,
+        )
         return f'Tool error: could not start workspace smoke test ({exc}).'
 
     stdout_chunks: list[str] = []
@@ -455,6 +505,12 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             )
             await _terminate_process(proc)
             await wait_task
+            await _emit_project_review_tool_complete(
+                sid,
+                stream_tag=_SMOKE_STREAM_TAG,
+                label=_SMOKE_STREAM_LABEL,
+                exit_code=proc.returncode,
+            )
             return 'Aborted by user.'
         else:
             steady_state = True
@@ -475,6 +531,12 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
                 pass
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
+    await _emit_project_review_tool_complete(
+        sid,
+        stream_tag=_SMOKE_STREAM_TAG,
+        label=_SMOKE_STREAM_LABEL,
+        exit_code=exit_code,
+    )
     return _build_smoke_result(
         exit_code=exit_code,
         project_root_label=project_root_label,

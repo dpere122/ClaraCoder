@@ -1,9 +1,12 @@
 import type { StreamPart } from '@shared/index';
 import {
   delegatedStreamPartsForDisplay,
+  isClaraOuterBriefStreamTag,
   isPrimaryAssistantStreamTag,
+  isShellStyleToolStreamTag,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
+  SHELL_STYLE_TOOL_STREAM_TAGS,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
@@ -20,6 +23,15 @@ describe('isPrimaryAssistantStreamTag', () => {
     expect(isPrimaryAssistantStreamTag('worker')).toBe(false);
     expect(isPrimaryAssistantStreamTag('planning')).toBe(false);
     expect(isPrimaryAssistantStreamTag('spec-read-abc123')).toBe(false);
+  });
+});
+
+describe('isClaraOuterBriefStreamTag', () => {
+  it('matches the clara multiplex tag with trimming', () => {
+    expect(isClaraOuterBriefStreamTag('clara')).toBe(true);
+    expect(isClaraOuterBriefStreamTag(' clara ')).toBe(true);
+    expect(isClaraOuterBriefStreamTag(undefined)).toBe(false);
+    expect(isClaraOuterBriefStreamTag('planning')).toBe(false);
   });
 });
 
@@ -134,5 +146,31 @@ describe('delegatedStreamPartsForDisplay', () => {
     expect(delegatedStreamPartsForDisplay(parts, null)).toEqual([
       { streamTag: 'spec-code_review-tests', label: 'Pytest', text: '1 passed' },
     ]);
+  });
+});
+
+describe('isShellStyleToolStreamTag', () => {
+  it('is true for project review pytest and smoke tags', () => {
+    expect(isShellStyleToolStreamTag('spec-project_review-tests')).toBe(true);
+    expect(isShellStyleToolStreamTag('spec-project_review-smoke')).toBe(true);
+    expect(isShellStyleToolStreamTag('spec-code_review-tests')).toBe(true);
+  });
+
+  it('is false for planning and generic spec subgraphs', () => {
+    expect(isShellStyleToolStreamTag('planning')).toBe(false);
+    expect(isShellStyleToolStreamTag('planner')).toBe(false);
+    expect(isShellStyleToolStreamTag('spec-create-abc12')).toBe(false);
+    expect(isShellStyleToolStreamTag('worker')).toBe(false);
+  });
+
+  it('trims whitespace in the tag', () => {
+    expect(isShellStyleToolStreamTag('  spec-x-tests  ')).toBe(true);
+  });
+
+  it('exposes an allowlist set for tags that do not match -tests/-smoke suffixes', () => {
+    expect(SHELL_STYLE_TOOL_STREAM_TAGS).toBeInstanceOf(Set);
+    for (const tag of SHELL_STYLE_TOOL_STREAM_TAGS) {
+      expect(isShellStyleToolStreamTag(tag)).toBe(true);
+    }
   });
 });

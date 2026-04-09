@@ -22,6 +22,7 @@ from nemo_backend.agent_streaming import (
     sse_tool_finished,
     status_event,
     tool_exec_chunk_event,
+    tool_exec_complete_event,
     tool_running_detail,
 )
 from nemo_backend.llm_interaction_logging import (
@@ -50,10 +51,9 @@ _FORWARDED_RESULT_TOOL_NAMES = frozenset(
         'execute_plan_step',
         'modify_workspace',
         'route_code_review_specialist',
-        'route_create_specialist',
+        'route_write_specialist',
         'route_delete_specialist',
         'route_project_review_specialist',
-        'route_update_specialist',
     }
 )
 
@@ -328,6 +328,25 @@ def sse_lines_for_graph_event(
         if isinstance(planner, dict):
             return [sse_line(planner_progress_event(planner))]
         return []
+    if et == 'outer_agent_brief':
+        summary = data.get('summary')
+        label = data.get('label')
+        if not isinstance(summary, str) or not summary.strip():
+            return []
+        detail = summary.strip()
+        lbl = label if isinstance(label, str) and label.strip() else 'Clara'
+        return [
+            sse_line(
+                status_event(
+                    f'outer-brief-{uuid.uuid4().hex[:12]}',
+                    lbl,
+                    detail=detail,
+                    state='complete',
+                    source='agent',
+                    stream_tag='clara',
+                ),
+            ),
+        ]
     if et == 'tool_exec_chunk':
         delta = data.get('delta')
         if not isinstance(delta, str) or not delta:
@@ -337,6 +356,28 @@ def sse_lines_for_graph_event(
         stream_tag_out = stream_tag_value if isinstance(stream_tag_value, str) and stream_tag_value.strip() else stream_tag
         label_out = label_value if isinstance(label_value, str) else ''
         return [sse_line(tool_exec_chunk_event(delta, stream_tag=stream_tag_out, label=label_out))]
+    if et == 'tool_exec_complete':
+        stream_tag_value = data.get('stream_tag')
+        label_value = data.get('label')
+        exit_raw = data.get('exit_code')
+        stream_tag_out = stream_tag_value if isinstance(stream_tag_value, str) and stream_tag_value.strip() else stream_tag
+        label_out = label_value if isinstance(label_value, str) else ''
+        exit_code: int | None
+        if isinstance(exit_raw, int):
+            exit_code = exit_raw
+        elif exit_raw is None:
+            exit_code = None
+        else:
+            exit_code = None
+        return [
+            sse_line(
+                tool_exec_complete_event(
+                    stream_tag=stream_tag_out,
+                    label=label_out,
+                    exit_code=exit_code,
+                ),
+            ),
+        ]
     return []
 
 

@@ -52,18 +52,22 @@
       </button>
     </div>
   </div>
-  <div class='health-log__viewport' #logViewport>
-    @for (row of filteredEntries(); track row.seq) {
-      <div class='health-log__row' [attr.data-level]='row.level'>
-        <span class='health-log__ts'>{{ formatTs(row.ts) }}</span>
-        <span class='health-log__lvl'>{{ row.level }}</span>
-        <span class='health-log__src'>{{ row.source }}</span>
-        <span class='health-log__logger'>{{ row.logger }}</span>
-        <span
-          class='health-log__msg'
-          [class.health-log__msg--formatted]="messageFormat() !== 'raw'"
-          >{{ row.message | healthLogMessage: messageFormat() }}</span>
+  <div class='health-log__viewport' #logViewport (scroll)='onLogScroll()'>
+    <div class='health-log__virtual-spacer' [style.height.px]='virtualWindow().topSpacer' aria-hidden='true'></div>
+    @for (slot of virtualWindow().slots; track slot.index) {
+      <div class='health-log__row-mount' [attr.data-health-log-row]='slot.index'>
+        <div class='health-log__row' [attr.data-level]='slot.row.level'>
+          <span class='health-log__ts'>{{ formatTs(slot.row.ts) }}</span>
+          <span class='health-log__lvl'>{{ slot.row.level }}</span>
+          <span class='health-log__src'>{{ slot.row.source }}</span>
+          <span class='health-log__logger'>{{ slot.row.logger }}</span>
+          <span
+            class='health-log__msg'
+            [class.health-log__msg--formatted]="messageFormat() !== 'raw'"
+            >{{ slot.row.message | healthLogMessage: messageFormat() }}</span>
+        </div>
       </div>
     }
+    <div class='health-log__virtual-spacer' [style.height.px]='virtualWindow().bottomSpacer' aria-hidden='true'></div>
   </div>
 </div>

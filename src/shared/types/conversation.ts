@@ -9,6 +9,10 @@ export interface StreamPart {
   streamTag: string;
   label: string;
   text: string;
+  /** Set when the backend emits `tool_exec_complete` for this multiplexed subprocess stream. */
+  runComplete?: boolean;
+  /** Subprocess exit code when `runComplete`; null if finished but code unknown. */
+  exitCode?: number | null;
 }
 
 /** Lifecycle of a proposed edit card in the chat transcript. */
@@ -26,7 +30,7 @@ export interface ConversationMeta {
 /** One message in the chat UI (user/assistant text or tool chain row). */
 export type ConversationMessage =
   | { role: 'user'; text: string }
-  | { role: 'assistant'; text: string; planner?: PlannerProgress }
+  | { role: 'assistant'; text: string; planner?: PlannerProgress; toolStreams?: StreamPart[] }
   | {
       role: 'chain';
       label: string;
@@ -72,7 +76,7 @@ export interface Conversation extends ConversationMeta {
 /** Serialized chat row in conversation JSON (includes tool/diff metadata). */
 export type ConversationFileMessage =
   | { role: 'user'; text: string }
-  | { role: 'assistant'; text: string; planner?: PlannerProgress }
+  | { role: 'assistant'; text: string; planner?: PlannerProgress; toolStreams?: StreamPart[] }
   | {
       role: 'chain';
       label: string;

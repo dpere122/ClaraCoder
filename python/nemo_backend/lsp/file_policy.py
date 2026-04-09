@@ -13,6 +13,7 @@ __all__ = [
     'get_python_lsp_policy',
     'is_lsp_managed_path',
     'is_programming_path',
+    'outer_workspace_edit_guard_error',
     'requires_code_review',
 ]
 
@@ -98,3 +99,14 @@ def requires_code_review(relative_path: str) -> bool:
     if policy is not None:
         return policy.requires_review
     return _suffix(relative_path) in LEGACY_CODE_REVIEW_EXTENSIONS
+
+
+def outer_workspace_edit_guard_error(relative_workspace_path: str) -> str | None:
+    """If the path must use nested staging, return a tool error for direct workspace edit tools; else None."""
+    if not requires_code_review(relative_workspace_path):
+        return None
+    return (
+        'Tool error: code-review extensions (.py, .ts, .js, etc.) must be edited through `modify_workspace` '
+        '(nested staging and code review). Use `apply_workspace_full_file`, `replace_workspace_line_range`, or '
+        '`replace_workspace_snippet` only for non-code paths (e.g. markdown, json, yaml).'
+    )

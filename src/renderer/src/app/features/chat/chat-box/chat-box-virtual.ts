@@ -1,0 +1,75 @@
+import { computeVirtualRange, sumHeights } from '../../../utils/virtual-scroll-range';
+
+/** Persisted rows above this count use windowed rendering (off-screen rows are not in the DOM). */
+export const CHAT_VIRTUAL_THRESHOLD = 48;
+
+/** Extra pixels above/below the viewport to keep mounted for smooth scroll. */
+export const CHAT_VIRTUAL_PIXEL_BUFFER = 720;
+
+/** Fallback row height when a slot has not been measured yet (virtual range math). */
+export const CHAT_MIN_FALLBACK_ROW = 52;
+
+const MIN_ROW = CHAT_MIN_FALLBACK_ROW;
+
+export { sumHeights, computeVirtualRange };
+
+/** Structural copy of display rows used for height estimation (avoids circular imports with chat-box.ts). */
+export type ChatRowHeightInput =
+  | { kind: 'user'; msg: { text: string } }
+  | {
+      kind: 'assistant-turn';
+      assistant: {
+        text?: string;
+        planner?: { steps: readonly unknown[] };
+        toolStreams?: readonly unknown[] | null;
+      } | null;
+      chainGroups: readonly { rows: readonly unknown[] }[];
+      artifacts: readonly { role: string }[];
+    };
+
+/**
+ * Rough height guess from message shape so the scrollbar and window stay usable before DOM measure.
+ * Tuned for rem-based chat font and typical bubble padding (see chat-box.css).
+ */
+export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: number): number {
+  const linePx = fontSizeRem * 16 * 1.5;
+  const bubblePad = 28;
+
+  if (row.kind === 'user') {
+    const cpl = 44;
+    const lines = Math.max(1, Math.ceil(row.msg.text.length / cpl));
+    return Math.max(MIN_ROW, Math.round(bubblePad + lines * linePx));
+  }
+
+  let h = bubblePad + 6;
+  const planner = row.assistant?.planner;
+  if (planner && planner.steps.length > 0) {
+    h += 40 + planner.steps.length * 26;
+  }
+  h += row.chainGroups.length * 34;
+  for (const g of row.chainGroups) {
+    for (const r of g.rows) {
+      const rec = r as { streamTag?: string; text?: string };
+      const tag = (rec.streamTag ?? '').trim();
+      if (tag === 'clara') {
+        const lines = Math.max(2, Math.ceil((rec.text?.length ?? 0) / 52));
+        h += Math.min(420, 40 + lines * 16);
+      } else {
+        h += 20;
+      }
+    }
+  }
+  const streams = row.assistant?.toolStreams?.length ?? 0;
+  if (streams > 0) {
+    h += streams * Math.min(200, 80 + linePx * 3);
+  }
+  for (const art of row.artifacts) {
+    if (art.role === 'diff') h += 240;
+    else if (art.role === 'delete_confirm' || art.role === 'copy_confirm' || art.role === 'accept_command') {
+      h += 200;
+    }
+  }
+  const textLen = row.assistant?.text?.length ?? 0;
+  h += Math.min(2800, textLen) * 0.11;
+  return Math.max(MIN_ROW, Math.round(h));
+}

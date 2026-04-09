@@ -39,6 +39,17 @@ def _truncate_for_outer_agent(text: str) -> str:
     )
 
 
+def _append_modify_workspace_outer_briefs(sess: Any, content: str) -> str:
+    briefs = getattr(sess, 'modify_workspace_outer_briefs', None) or []
+    if not briefs:
+        return content
+    return (
+        content
+        + '\n\n---\nNotes for Clara (summarize for the user; do not paste raw nested logs):\n\n'
+        + '\n\n'.join(briefs)
+    )
+
+
 def _tool_message(content: str, *, tool_call_id: str, name: str) -> ToolMessage:
     return ToolMessage(
         content=_truncate_for_outer_agent(content),
@@ -231,7 +242,7 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
                 )
                 continue
             return _tool_message(
-                result.output_text,
+                _append_modify_workspace_outer_briefs(sess, result.output_text),
                 tool_call_id=tool_call_id,
                 name=name,
             )

@@ -1,12 +1,13 @@
 """Central registry for LangChain tools and human-in-the-loop (HITL) policy.
 
-**Outer agent** — workspace reads/search; direct ``copy_workspace_files``; plus ``modify_workspace`` when Editor
-is on (other mutations run in nested router + specialists).
+**Outer agent** — workspace reads/search; ``copy_workspace_files``; non-code-only direct edit tools
+(``apply_workspace_full_file``, line/snippet replace); plus ``modify_workspace`` for code-review paths when Editor
+is on. Nested router + specialists handle staged code mutations.
 
 **Nested executor** — router and specialist subgraphs bind create/update/delete tools in
 :mod:`nemo_backend.agents.orchestration.nested_pipeline`.
 
-**HITL** — diff pause for edit tools; delete confirmation pause for ``delete_workspace_entry`` when auto-apply is off.
+**HITL** — diff pause for edit tools; delete confirmation pause for ``delete_workspace_entry`` / ``batch_delete_workspace_entries`` when auto-apply is off.
 """
 
 from __future__ import annotations
@@ -15,7 +16,11 @@ from typing import Any
 
 from nemo_backend.agents.planning.tool import MODIFY_WORKSPACE_NAME, PLANNING_TOOLS
 from nemo_backend.copy_tool import COPY_WORKSPACE_FILES_NAME, copy_workspace_files
-from nemo_backend.delete_tool import DELETE_WORKSPACE_ENTRY_NAME, delete_workspace_entry
+from nemo_backend.delete_tool import (
+    BATCH_DELETE_WORKSPACE_ENTRIES_NAME,
+    DELETE_WORKSPACE_ENTRY_NAME,
+    delete_workspace_entry,
+)
 from nemo_backend.agents.specialists.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
 from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME, edit_tools_for_strict
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
@@ -57,7 +62,7 @@ def hitl_diff_pause_tools() -> frozenset[str]:
 
 
 def hitl_delete_pause_tools() -> frozenset[str]:
-    return frozenset({DELETE_WORKSPACE_ENTRY_NAME, LSP_DELETE_PYTHON_FILE_NAME})
+    return frozenset({DELETE_WORKSPACE_ENTRY_NAME, BATCH_DELETE_WORKSPACE_ENTRIES_NAME, LSP_DELETE_PYTHON_FILE_NAME})
 
 
 def hitl_copy_pause_tools() -> frozenset[str]:
@@ -90,5 +95,9 @@ def worker_tools_and_map(apply_mode: bool) -> tuple[list[Any], dict[str, Any]]:
         mapping.update(dependency_map)
         tools.extend(PLANNING_TOOLS)
         for t in PLANNING_TOOLS:
+            mapping[t.name] = t
+        edit_tools = edit_tools_for_strict(runtime_config.tools.edit_tools_strict)
+        tools.extend(edit_tools)
+        for t in edit_tools:
             mapping[t.name] = t
     return tools, mapping

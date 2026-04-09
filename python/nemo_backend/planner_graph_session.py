@@ -20,6 +20,7 @@ def prepare_new_planner_graph_session(session: SessionState, session_id: str) ->
     session.pending_copy_request = None
     session.pending_accept_command_request = None
     session.pending_project_review_reentry = None
+    session.modify_workspace_outer_briefs.clear()
     session.lsp_diagnostics.clear()
     session.lsp_workspace_root = ''
     session.lsp_active_scope = 'workspace'

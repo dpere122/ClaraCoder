@@ -82,6 +82,38 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses tool_exec_complete with exit_code', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'tool_exec_complete',
+          stream_tag: 'spec-project_review-tests',
+          label: 'Workspace Pytest',
+          exit_code: 0,
+        }),
+      ),
+    ).toEqual({
+      type: 'tool_exec_complete',
+      streamTag: 'spec-project_review-tests',
+      label: 'Workspace Pytest',
+      exitCode: 0,
+    });
+
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'tool_exec_complete',
+          stream_tag: 'spec-project_review-tests',
+          exit_code: null,
+        }),
+      ),
+    ).toEqual({
+      type: 'tool_exec_complete',
+      streamTag: 'spec-project_review-tests',
+      exitCode: null,
+    });
+  });
+
   it('parses review payload variants without falling back to plain chunks', () => {
     expect(
       parseAgentStreamPayload(

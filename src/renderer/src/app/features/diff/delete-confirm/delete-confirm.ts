@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, inject, input, output, signal } from '@angular/core';
-import type { DeleteConfirmPayload, DiffReviewStatus } from '@shared/index';
+import type { DeleteConfirmEntry, DeleteConfirmPayload, DiffReviewStatus } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 
 @Component({
@@ -27,14 +27,37 @@ export class DeleteConfirmComponent {
   readonly busy = signal(false);
   private continueSent = false;
 
+  resolvedEntries(): DeleteConfirmEntry[] {
+    const p = this.payload();
+    if (p.entries?.length) {
+      return p.entries;
+    }
+    const rp = p.relativePath;
+    const k = p.kind;
+    const r = p.recursive;
+    if (rp && k !== undefined && r !== undefined) {
+      return [{ relativePath: rp, kind: k, recursive: r }];
+    }
+    return [];
+  }
+
+  deleteCountLabel(): string {
+    const n = this.resolvedEntries().length;
+    return n === 1 ? '1 path' : `${n} paths`;
+  }
+
   kindLabel(): string {
-    return this.payload().kind === 'directory' ? 'Directory' : 'File';
+    const entries = this.resolvedEntries();
+    if (entries.length !== 1) {
+      return 'Paths';
+    }
+    return entries[0].kind === 'directory' ? 'Directory' : 'File';
   }
 
   recursiveWarning(): string {
-    return this.payload().recursive && this.payload().kind === 'directory'
-      ? 'This will remove the directory and all of its contents.'
-      : '';
+    const entries = this.resolvedEntries();
+    const anyRecDir = entries.some((e) => e.recursive && e.kind === 'directory');
+    return anyRecDir ? 'This batch includes recursive directory deletes (all contents under those folders are removed).' : '';
   }
 
   async onConfirm(): Promise<void> {

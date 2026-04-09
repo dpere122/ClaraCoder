@@ -23,6 +23,7 @@ from nemo_backend.agents.coding_planner.prompts import (
 )
 from nemo_backend.agents.orchestration.nested_pipeline import (
     NESTED_WORKER_STREAM_END,
+    enqueue_modify_workspace_outer_brief,
     run_planning_nested_stream,
 )
 from nemo_backend.config import (
@@ -40,6 +41,7 @@ from nemo_backend.config import (
     NEMO_PLANNER_STEP_RESULT_MAX_CHARS,
 )
 from nemo_backend.domain import ProjectReviewReentryRequest, SessionState
+from nemo_backend.edit_tool import edit_tools_for_strict
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.llm import build_llm
 from nemo_backend.lsp.tools import (
@@ -53,7 +55,7 @@ from nemo_backend.messages import final_assistant_text
 from nemo_backend.planner_task_retry_middleware import PlannerTaskRetryMiddleware
 from nemo_backend.python_env import ensure_session_python_workspace_env, resolve_python_workspace_root
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
-from nemo_backend.state import get_active_connection
+from nemo_backend.state import get_active_connection, runtime_config
 from nemo_backend.workspace_tools import list_workspace_directory, read_workspace_file, search_workspace
 
 logger = logging.getLogger('nemo.agent.langgraph.coding_planner')
@@ -603,6 +605,15 @@ async def run_coding_planner_stream(
             final_review_summary = ''
             latest_step_feedback = ''
             await _emit_planner_progress(phase='planning')
+            plan_lines = '\n'.join(
+                f'{i + 1}. {str(step.get("text") or "").strip()}' for i, step in enumerate(planner_steps)
+            )
+            await enqueue_modify_workspace_outer_brief(
+                session_id,
+                nested_q,
+                kind='plan_recorded',
+                summary=plan_lines,
+            )
             if followup_phase:
                 logger.info(
                     'Coding planner recorded follow-up plan after final review - steps_text_lines=%d target_steps=%d',
@@ -849,6 +860,7 @@ async def run_coding_planner_stream(
             planner_lsp_find_definition,
             planner_lsp_find_references,
             planner_lsp_get_document_symbols,
+            *edit_tools_for_strict(runtime_config.tools.edit_tools_strict),
             execute_plan_step,
             run_final_project_review,
         ]

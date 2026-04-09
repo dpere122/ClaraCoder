@@ -54,6 +54,21 @@ def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: s
     return row
 
 
+def tool_exec_complete_event(
+    *,
+    stream_tag: str | None = None,
+    label: str = '',
+    exit_code: int | None = None,
+) -> dict[str, Any]:
+    """Signal that a subprocess-style tool stream has finished (optional exit code for the badge)."""
+    row: dict[str, Any] = {'type': 'tool_exec_complete', 'exit_code': exit_code}
+    if stream_tag:
+        row['stream_tag'] = stream_tag
+    if label:
+        row['label'] = label
+    return row
+
+
 def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
     """Extract user-visible text delta from one streamed chat-model chunk (OpenAI-compatible)."""
     if not isinstance(chunk, AIMessageChunk):

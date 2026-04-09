@@ -29,11 +29,15 @@ export type {
   StreamPart,
 } from './types/conversation';
 export {
+  CLARA_OUTER_BRIEF_STREAM_TAG,
   delegatedStreamPartsForDisplay,
+  isClaraOuterBriefStreamTag,
   isPrimaryAssistantStreamTag,
+  isShellStyleToolStreamTag,
   joinAllStreamPartTexts,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
+  SHELL_STYLE_TOOL_STREAM_TAGS,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
@@ -57,7 +61,7 @@ export type { ScriptLaunchPlan } from './types/script';
 export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
 export type { AcceptCommandPayload } from './types/accept-command';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
-export type { DeleteConfirmPayload } from './types/delete-confirm';
+export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';
 export type {
   WorkspaceContextState,
   WorkspaceChangeKind,

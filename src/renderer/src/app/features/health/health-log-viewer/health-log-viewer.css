@@ -14,7 +14,7 @@
   border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--t-elev-shadow);
   overflow: hidden;
 }
 
@@ -95,10 +95,19 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--t-font-mono, var(--t-font));
   font-size: 11px;
   line-height: 1.45;
   padding: 8px 10px;
+}
+
+.health-log__virtual-spacer {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.health-log__row-mount {
+  min-height: 0;
 }
 
 .health-log__row {
@@ -111,11 +120,11 @@
 }
 
 .health-log__row[data-level='ERROR'] .health-log__lvl {
-  color: #ff6b6b;
+  color: var(--t-log-level-error);
 }
 
 .health-log__row[data-level='WARNING'] .health-log__lvl {
-  color: #ffd166;
+  color: var(--t-log-level-warning);
 }
 
 .health-log__lvl {

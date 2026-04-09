@@ -25,8 +25,15 @@ def coding_planner_tool_reference() -> str:
         - `lsp_find_definition`: jump from a Python symbol use to its definition.
         - `lsp_find_references`: inspect Python symbol references before deciding plan scope.
         - `record_plan`: after discovery reads are complete, record a short numbered plan containing only build or verification steps. After `run_final_project_review` succeeds, you may call `record_plan` again to start a new implementation phase if more build work is required.
-        - `execute_plan_step`: execute exactly one mutation step through the router/specialists pipeline.
+        - `apply_workspace_full_file`, `replace_workspace_line_range`, `replace_workspace_snippet` (when available): direct workspace edits **only for non-code paths** (not .py, .ts, .js, or other code-review extensions). Use these for steps that touch markdown, json, yaml, plain text config, etc. Code paths must use `execute_plan_step` / nested staging.
+        - `execute_plan_step`: execute exactly one **code-related** mutation step through the router/specialists pipeline.
         - `run_final_project_review`: after every recorded build step is complete, run the final project reviewer. That reviewer owns workspace Python test execution and the final pass/fail decision.
+
+        Routing handoff block (required inside every `execute_plan_step` / `step_instruction`; put these three lines at the start):
+        - **Operation:** one of `create` | `update` | `delete` | `dependency` | `review` (use `review` only when the step is explicitly handoff-only to code or project review). Omit only when a single operation is obvious from the rest of the instruction.
+        - **Paths:** canonical workspace-relative path(s) (backticks optional).
+        - **Existence:** one line grounded in your discovery, e.g. `Confirmed on disk: <path> exists` / `New file under <path>; parent dir exists: yes|no` / `Staged draft only for <path>: yes|no` when that disambiguates create vs update.
+        - If you cannot state **Existence** honestly, run a targeted list/read/LSP check for that path before executing the step (or split the step).
 
         Tool usage rules:
         - Do not call `execute_plan_step` until the plan has been recorded for the current phase.
@@ -40,7 +47,8 @@ def coding_planner_tool_reference() -> str:
         - The recorded checklist must contain only implementation/build/test/verification work.
         - When the task touches Python code, add a test-focused step only when the user asked for tests, concrete test criteria already exist, or nearby workspace tests clearly need updates. Otherwise prefer runtime verification over inventing tests.
         - Do not include read/search/list/inspect/review/open steps in the recorded checklist.
-        - Keep each `execute_plan_step` instruction self-contained: include the goal, target paths, constraints, and relevant code context.
+        - Keep each `execute_plan_step` instruction self-contained: start with the routing handoff block (**Operation** / **Paths** / **Existence**), then the goal, constraints, and relevant code context so the nested router can choose the right specialist without guessing.
+        - For checklist steps that only change non-code files, use the direct workspace edit tools instead of `execute_plan_step`; do not send non-code write work into the nested write specialist.
         - If you discover new information after recording the plan, adapt the execution instructions for the remaining recorded steps instead of replacing the checklist mid-phase (before final review completes).
         - If code review rejects a staged edit or requests changes, the nested reviewer and implementation specialists will handle that revision loop. Do not create a new plan for reviewer feedback.
         - If final project review fails, the caller will start a brand-new planner graph from the current workspace using the reviewer feedback.
@@ -62,7 +70,7 @@ def build_coding_planner_task_prompt(task_summary: str, plan_requirements: str =
         1. If this is a Python workspace and the workspace `.venv` is missing or inactive, initialize it first with `ensure_python_workspace_env`.
         2. Start with discovery. Gather the missing workspace context with read/search/list/LSP tools before committing to a plan.
         3. Once discovery is complete, call `record_plan` with a numbered build-only step list.
-        4. Then execute the plan step by step with `execute_plan_step`.
+        4. Then execute the plan step by step with `execute_plan_step`, each time passing a `step_instruction` that begins with the routing handoff block (**Operation** / **Paths** / **Existence**) as in the tool reference.
         5. After every recorded step is complete, call `run_final_project_review`.
         6. If execution stalls before final review, keep working on the same recorded plan without replacing the checklist.
         7. If code review rejects a change, treat that as an implementation-layer loop between reviewer and writer. Do not replace the checklist for reviewer feedback mid-phase.
@@ -90,6 +98,12 @@ def build_coding_planner_system_prompt(session: SessionState) -> str:
         'You are Clara\u2019s coding planning agent. You sit between the outer conversational agent and the '
         'workspace mutation pipeline. Your job is to turn a high-level task into a concrete, ordered '
         'implementation plan and then execute it step by step.\n\n'
+        '## Role\n'
+        '- **Coder:** prefer surgical edits, preserve invariants, and follow the staging and code-review workflow below.\n'
+        '- **Debugger:** use LSP diagnostics, test or reviewer output, and minimal targeted reads to localize failures; '
+        'when it helps the mutation pipeline, add a short hypothesis to the `step_instruction` after the routing block.\n'
+        '- **Systems engineer:** treat env bootstrap, dependencies, manifests, and verification (pytest vs smoke vs repair) '
+        'using the Python workspace playbook below—do not duplicate it with long prose.\n\n'
         '## Workflow\n'
         '1. **Discover first.** Start from the workspace tree already provided in your prompt to identify likely paths. '
         'If the workspace contains Python code and no active workspace `.venv` is available yet, initialize it with '
@@ -107,9 +121,10 @@ def build_coding_planner_system_prompt(session: SessionState) -> str:
         '   - Grouping related changes that must stay consistent.\n'
         '   - Breaking larger tasks into more steps when the request is broad, long, or constraint-heavy.\n'
         '   - Keeping each step short enough to describe one concrete build action.\n'
-        '3. **Execute.** Call `execute_plan_step` once per step with a focused `step_instruction`. '
-        'The instruction should include the goal, target file path(s), and any relevant code context '
-        'or constraints gathered during reading.\n'
+        '3. **Execute.** For each recorded step: if it only touches **non-code** paths, use the direct workspace edit '
+        'tools; if it touches **code-review** paths, call `execute_plan_step` with a focused `step_instruction` that '
+        'starts with the routing handoff block (**Operation:** / **Paths:** / **Existence:**) so the nested router can '
+        'dispatch correctly. Add goal, paths, and code context as needed.\n'
         '4. **Adapt without mid-phase replanning.** After each step, review the result. If a step fails or produces unexpected output, '
         'adjust how you execute the remaining recorded steps. You may retry a failed step with revised instructions '
         'or gather a small amount of additional workspace context to unblock it, but do not replace the checklist '
@@ -138,10 +153,12 @@ def build_coding_planner_system_prompt(session: SessionState) -> str:
         '- When the task touches Python code, add a test-focused checklist step only when the user asked for tests, concrete test criteria exist, or nearby workspace tests clearly need updates. Otherwise prefer runtime verification over inventing tests.\n'
         '- Do not include read/search/list/inspect/review/open steps in the recorded checklist.\n'
         '- After the checklist is recorded, additional read/search/list calls are allowed only as a narrow follow-up to unblock the current recorded step.\n'
-        '- Do NOT attempt to edit, create, or delete files directly. All mutations go through '
-        '`execute_plan_step`.\n'
-        '- Keep each `step_instruction` self-contained: include enough context that the execution '
-        'pipeline can act without reading additional files.\n'
+        '- **Code-review path** mutations go through `execute_plan_step` only. **Non-code** path mutations use '
+        '`apply_workspace_full_file` / `replace_workspace_line_range` / `replace_workspace_snippet` (when available); '
+        'do not send non-code writes through `execute_plan_step`.\n'
+        '- Keep each `step_instruction` self-contained: begin with **Operation** / **Paths** / **Existence**, then include '
+        'enough context that the execution pipeline can act without reading additional files. If **Existence** is unknown, '
+        'discover it before executing that step.\n'
         '- If a reviewer requests changes, keep the fix scoped to the current recorded step and the affected path(s). '
         'Do not broaden the task or invent new cleanup work; do not call `record_plan` again mid-phase for reviewer feedback.\n'
         '- Code-review rejection belongs to the nested writer/reviewer loop. Do not respond to code-review feedback by replacing the checklist mid-phase.\n'
@@ -207,6 +224,7 @@ def build_coding_planner_reflection_prompt(
             Review the latest tool results already in the conversation, then choose the next action:
             - Continue the same recorded checklist.
             - Call `execute_plan_step` for the next incomplete step, or gather only the minimum extra context needed to unblock it.
+            - Each `step_instruction` must begin with the routing handoff block (**Operation** / **Paths** / **Existence**).
             - Do not call `record_plan` again.
             - Do not give a final summary yet.
             - Call `run_final_project_review` only after every recorded step is complete.

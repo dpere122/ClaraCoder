@@ -194,15 +194,25 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         )
     return (
         base
-        + '- Editor mode is on: you have read/search tools plus direct `copy_workspace_files` and `modify_workspace`. '
-        'Use `copy_workspace_files` only when you need to duplicate one or more existing workspace files to new '
-        'paths (destination subdirectories are allowed). '
-        'Read and inspect relevant files yourself first, then call `modify_workspace` with a clear `task_summary` '
-        'that includes the goal, constraints, paths, and any file content context you have already gathered. '
-        'You cannot call other edit or delete tools directly\u2014use `modify_workspace` for those workspace mutations. '
-        'The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
+        + '- Editor mode is on: you have read/search tools, `copy_workspace_files`, direct workspace edit tools for '
+        '**non-code** paths, and `modify_workspace` for **source code** changes.\n'
+        '- **Source code** (code-review extensions such as .py, .ts, .js, .tsx, .go, .rs, etc.): use only '
+        '`modify_workspace` for creates and edits so work goes through nested staging and code review. Direct edit '
+        'tools reject those paths.\n'
+        '- **Non-code** (e.g. .md, .json, .yaml, .txt): use `apply_workspace_full_file`, `replace_workspace_line_range`, '
+        'or `replace_workspace_snippet` for CRUD-style edits; they open diffs or auto-apply per settings.\n'
+        '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
+        'Read and inspect relevant files first. For `modify_workspace`, use a clear `task_summary` with goal, '
+        'constraints, paths, and gathered context. For each logical **code** path, include a routing handoff block: '
+        '**Operation:** (create | update | delete | dependency | review when obvious); **Paths:** workspace-relative '
+        'path(s); **Existence:** one line grounded in what you verified (e.g. confirmed on disk vs new file; parent '
+        'dir exists: yes/no).\n'
+        '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
         '- After `modify_workspace` returns, answer the user with a concise summary of outcomes (files touched, '
         'key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
+        '- If the tool result ends with **Notes for Clara**, treat that block as authoritative handoffs from the '
+        'planner and review specialists (checklist, code review outcomes, final review). Fold them into your reply '
+        'to the user in plain language.\n'
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from langchain_core.messages import AIMessageChunk
 
 from nemo_backend.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
 
@@ -80,6 +81,54 @@ def test_tool_exec_chunk_event_is_forwarded() -> None:
     assert '"type": "tool_exec_chunk"' in lines[0]
     assert '"stream_tag": "spec-code_review-tests"' in lines[0]
     assert '"label": "Pytest"' in lines[0]
+
+
+def test_outer_agent_brief_emits_status() -> None:
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'outer_agent_brief',
+            'data': {
+                'kind': 'plan_recorded',
+                'summary': '1. First step\n2. Second step',
+                'label': 'Planner checklist',
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Workspace',
+        llm_event_prefix='nest',
+        llm_log_context='test',
+    )
+    assert len(lines) == 1
+    assert '"type": "status"' in lines[0]
+    assert '"label": "Planner checklist"' in lines[0]
+    assert 'First step' in lines[0]
+    assert '"stream_tag": "clara"' in lines[0]
+
+
+def test_tool_exec_complete_event_is_forwarded() -> None:
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'tool_exec_complete',
+            'data': {
+                'stream_tag': 'spec-project_review-tests',
+                'label': 'Workspace Pytest',
+                'exit_code': 1,
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Workspace',
+        llm_event_prefix='nest',
+        llm_log_context='test',
+    )
+
+    assert len(lines) == 1
+    assert '"type": "tool_exec_complete"' in lines[0]
+    assert '"stream_tag": "spec-project_review-tests"' in lines[0]
+    assert '"exit_code": 1' in lines[0]
 
 
 def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:

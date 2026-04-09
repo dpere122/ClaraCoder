@@ -1,7 +1,8 @@
 """Dedicated staging tools for create/update specialists in the nested planning pipeline.
 
-These tools always route through the staging path: code-review extensions are staged under
-``NEMO_STAGING_DIR`` for review, while non-code files finalize immediately via diff/auto-apply.
+Code-review extensions (see :func:`nemo_backend.edit_staging.is_code_review_extension`) are staged under
+``NEMO_STAGING_DIR`` for review before workspace update. Non-code paths are rejected here; use outer or
+coding-planner workspace edit tools for those files.
 """
 
 from __future__ import annotations
@@ -100,8 +101,14 @@ def _staging_after_merge(
     *,
     staging_seed_text: str | None = None,
 ) -> str:
-    """Write merged content to staging dir; stage code files for review, finalize non-code immediately."""
+    """Write merged content to staging dir for code-review paths; reject non-code (use outer edit tools)."""
     session_id = current_session_id.get()
+    if session_id and not _edit_staging.is_code_review_extension(rel_display):
+        return (
+            'Tool error: nested mutation staging applies only to code-review file extensions (e.g. .py, .ts, .js). '
+            'For non-code files use `apply_workspace_full_file`, `replace_workspace_line_range`, or '
+            '`replace_workspace_snippet` from the outer agent or coding planner (non-code paths only).'
+        )
     if not session_id:
         return _finalize_workspace_edit(
             session,
@@ -150,27 +157,22 @@ def _staging_after_merge(
             logger.warning('python LSP sync failed path=%s err=%s', rel_display, exc)
             diagnostics_note = f' Python LSP sync failed: {exc}.'
 
-    if _edit_staging.is_code_review_extension(rel_display):
-        session.pending_edit_stagings[rel_display] = EditStagingEntry(
-            temp_path=str(temp_path),
-            old_text=original_old_text,
-            merged_text=merged_out,
-            disk_encoding=disk_encoding,
-            disk_newline=disk_newline,
-            edit_mode=mode,
-            workspace_applied=False,
-        )
-        logger.info('staged for code review path=%s', rel_display)
-        action = 'Updated staged draft' if had_prior_staging else 'Staged'
-        return (
-            f'{action} `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
-            f'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
-            f'{diagnostics_note}'
-        )
-
-    out = _finalize_workspace_edit(session, rel_display, original_old_text, merged_out, mode, disk_encoding, disk_newline)
-    _edit_staging.unlink_staging_quiet(temp_path)
-    return out + diagnostics_note
+    session.pending_edit_stagings[rel_display] = EditStagingEntry(
+        temp_path=str(temp_path),
+        old_text=original_old_text,
+        merged_text=merged_out,
+        disk_encoding=disk_encoding,
+        disk_newline=disk_newline,
+        edit_mode=mode,
+        workspace_applied=False,
+    )
+    logger.info('staged for code review path=%s', rel_display)
+    action = 'Updated staged draft' if had_prior_staging else 'Staged'
+    return (
+        f'{action} `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
+        f'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
+        f'{diagnostics_note}'
+    )
 
 
 def _run_staging_tool(
@@ -242,15 +244,16 @@ def stage_create_file(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Use for new files or full-file rewrites in the nested mutation pipeline; programming-language files are staged for code review before the workspace updates.
+    """Use for new code-review-extension files or full-file rewrites in the nested mutation pipeline.
 
-    Parent directories for the target path are created when the change is applied to the workspace (non-code files immediately; code files after review transfer).
+    Paths are staged for code review before the workspace updates. Non-code paths are rejected—use outer/planner
+    workspace edit tools instead.
+
+    Parent directories are created when the change is applied after review transfer.
 
     `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
     latin-1, cp1252, ascii, mac-roman.
     `newline` is `lf`, `crlf`, or `preserve` (match existing file endings; new files default to LF).
-
-    Non-code files (e.g. config, markdown) are finalized immediately via diff or auto-apply.
 
     Relative paths only (e.g. src/app.ts)."""
 
@@ -271,8 +274,8 @@ def stage_workspace_file_overwrite(
     """Use when the file already exists in the workspace (or a staged draft exists) and you have the full revised contents.
 
     Copies the current workspace file into staging, then overwrites the staged file with `new_content`.
-    If the target does not exist yet, use `stage_create_file` instead. Programming-language files are staged for
-    code review before the workspace updates; non-code files are finalized immediately via diff or auto-apply.
+    If the target does not exist yet, use `stage_create_file` instead. Only code-review extensions; non-code paths
+    are rejected (use outer/planner edit tools).
 
     `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
     latin-1, cp1252, ascii, mac-roman.
@@ -340,8 +343,7 @@ def stage_line_range_edit(
     last line, and `1,1` can seed an empty file.
     See `stage_create_file` for `encoding` and `newline`.
 
-    Programming-language files are staged for code review before the workspace updates.
-    Non-code files are finalized immediately via diff or auto-apply.
+    Code-review extensions only; non-code paths are rejected (use outer/planner edit tools).
 
     Relative paths only."""
 
@@ -372,8 +374,7 @@ def stage_snippet_edit(
     See `stage_create_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
 
-    Programming-language files are staged for code review before the workspace updates.
-    Non-code files are finalized immediately via diff or auto-apply.
+    Code-review extensions only; non-code paths are rejected (use outer/planner edit tools).
 
     Relative paths only."""
 

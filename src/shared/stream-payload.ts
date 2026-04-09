@@ -8,6 +8,7 @@ export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
   | { type: 'tool_read_chunk'; delta: string }
   | { type: 'tool_exec_chunk'; delta: string; streamTag?: string; label?: string }
+  | { type: 'tool_exec_complete'; streamTag?: string; label?: string; exitCode?: number | null }
   | { type: 'status'; status: LlmStatusPayload }
   | { type: 'planner'; planner: PlannerProgress }
   | { type: 'diff'; diff: FileDiffPayload }
@@ -20,6 +21,7 @@ type RawAgentStreamPayload = {
   delta?: string;
   stream_tag?: string;
   label?: string;
+  exit_code?: unknown;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
   planner?: PlannerProgress;
   diff?: unknown;
@@ -165,6 +167,22 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
         delta: parsed.delta,
         streamTag: optionalTrimmedString(parsed.stream_tag),
         label: optionalTrimmedString(parsed.label),
+      };
+    }
+
+    if (parsed.type === 'tool_exec_complete') {
+      const exitRaw = parsed.exit_code;
+      let exitCode: number | null | undefined;
+      if (typeof exitRaw === 'number' && Number.isFinite(exitRaw)) {
+        exitCode = exitRaw;
+      } else if (exitRaw === null) {
+        exitCode = null;
+      }
+      return {
+        type: 'tool_exec_complete',
+        streamTag: optionalTrimmedString(parsed.stream_tag),
+        label: optionalTrimmedString(parsed.label),
+        ...(exitCode !== undefined ? { exitCode } : {}),
       };
     }
 

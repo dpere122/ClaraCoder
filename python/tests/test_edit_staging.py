@@ -139,7 +139,7 @@ def test_stage_create_file_stages_python(staging_env) -> None:
     assert Path(entry.temp_path).is_file()
 
 
-def test_stage_create_file_non_code_finalizes(staging_env) -> None:
+def test_stage_create_file_non_code_rejected(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'note.txt').write_text('hi\n', encoding='utf-8')
@@ -152,18 +152,19 @@ def test_stage_create_file_non_code_finalizes(staging_env) -> None:
         }
     )
     assert session.pending_edit_stagings == {}
-    assert 'Proposed' in out
-    assert session.pending_diff_payload is not None
+    assert 'Tool error:' in out
+    assert 'nested mutation staging' in out.lower()
+    assert (ws / 'note.txt').read_text(encoding='utf-8') == 'hi\n'
 
 
-def test_general_edit_tool_goes_straight_to_diff(staging_env) -> None:
-    """The general-purpose edit tool no longer stages; it always finalizes directly."""
+def test_general_edit_tool_goes_straight_to_diff_for_non_code(staging_env) -> None:
+    """Direct workspace edit tools apply to non-code paths only (code paths use modify_workspace)."""
     ws = staging_env.workspace
     session = staging_env.session
-    (ws / 'a.py').write_text('y=2\n', encoding='utf-8')
+    (ws / 'notes.md').write_text('y=2\n', encoding='utf-8')
     out = apply_workspace_full_file.invoke(
         {
-            'relative_path': 'a.py',
+            'relative_path': 'notes.md',
             'new_content': 'y = 2\n',
             'encoding': 'utf-8',
             'newline': 'lf',

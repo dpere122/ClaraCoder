@@ -29,6 +29,14 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-tool-read-chunk', conversationId, parsed.delta);
   } else if (parsed.type === 'tool_exec_chunk') {
     event.reply('message-tool-exec-chunk', conversationId, parsed.delta, parsed.streamTag, parsed.label);
+  } else if (parsed.type === 'tool_exec_complete') {
+    event.reply(
+      'message-tool-exec-complete',
+      conversationId,
+      parsed.streamTag,
+      parsed.label,
+      parsed.exitCode,
+    );
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
   }

@@ -131,6 +131,29 @@ def test_tool_exec_complete_event_is_forwarded() -> None:
     assert '"exit_code": 1' in lines[0]
 
 
+def test_tool_exec_complete_forwards_output_excerpt() -> None:
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'tool_exec_complete',
+            'data': {
+                'stream_tag': 'spec-project_review-tests',
+                'label': 'Workspace Pytest',
+                'exit_code': 2,
+                'output_excerpt': 'FAILED tests/test_x.py::test_a',
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Workspace',
+        llm_event_prefix='nest',
+        llm_log_context='test',
+    )
+
+    assert len(lines) == 1
+    assert '"output_excerpt": "FAILED tests/test_x.py::test_a"' in lines[0]
+
+
 def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
     state = GraphStreamState()
 

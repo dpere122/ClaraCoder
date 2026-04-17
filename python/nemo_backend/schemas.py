@@ -6,9 +6,9 @@ app can POST without extra mapping.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from nemo_backend.config import DEFAULT_TRANSCRIBE_MODEL
 
@@ -17,11 +17,46 @@ class ChatRequest(BaseModel):
     """Body for POST /chat/stream: one user message in an existing session."""
 
     session_id: str
-    message: str
+    #: Plain-text user turn (default). May be combined with ``structured_content`` / ``structuredContent``.
+    message: str = ''
+    #: OpenAI-style multimodal blocks (``text``, ``image_url``, ``input_audio``, etc.). Sent as ``HumanMessage`` content.
+    structured_content: list[dict[str, Any]] | None = Field(
+        default=None,
+        validation_alias=AliasChoices('structured_content', 'structuredContent'),
+    )
     #: When False, Editor mode is off: workspace write/edit tools are not bound (read/search only).
     apply_mode: bool = True
     #: When True, successful edit proposals are written to disk in the backend and no diff-review pause is used.
     auto_apply_mode: bool = False
+    #: Optional LangGraph ``checkpoint_id`` to continue or replay from (fork head / time-travel).
+    checkpoint_id: str = ''
+
+    @field_validator('structured_content')
+    @classmethod
+    def _structured_entries_are_objects(cls, v: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        if not v:
+            return v
+        for i, item in enumerate(v):
+            if not isinstance(item, dict):
+                raise ValueError(f'structured_content[{i}] must be a JSON object')
+        return v
+
+    @model_validator(mode='after')
+    def _user_turn_non_empty(self) -> 'ChatRequest':
+        from nemo_backend.chat_input import effective_user_message_content, validate_user_turn_not_empty
+
+        eff = effective_user_message_content(self.message, self.structured_content)
+        validate_user_turn_not_empty(eff)
+        return self
+
+
+class CheckpointForkRequest(BaseModel):
+    """Fork from a prior checkpoint (LangGraph ``update_state`` / time-travel)."""
+
+    session_id: str
+    apply_mode: bool = True
+    checkpoint_id: str
+    values: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionAutoApplyRequest(BaseModel):
@@ -57,7 +92,8 @@ class LoadRequest(BaseModel):
     """Replace a session's history with the given messages (e.g. after reload)."""
 
     session_id: str
-    messages: list[dict[str, str]]
+    #: Each item should include ``role`` and ``content`` (string or OpenAI-style multimodal list for user turns).
+    messages: list[dict[str, Any]]
 
 
 class ClearRequest(BaseModel):
@@ -93,9 +129,14 @@ class RuntimeConnectionRequest(BaseModel):
     reasoningEffort: str = ''
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     parallelToolCalls: bool = False
-    optimizationPreset: Literal['generic', 'qwen', 'capable'] = 'generic'
+    optimizationPreset: Literal['generic', 'qwen', 'capable', 'gemma'] = 'generic'
     maxOutputTokens: int = Field(default=0, ge=0, le=200_000)
     planRetryAttemptsCount: int = Field(default=2, ge=0, le=20)
+    thinkingMode: Literal['default', 'on', 'off'] = 'default'
+    samplingPreset: Literal['provider-default', 'gemma-recommended', 'custom'] = 'provider-default'
+    topP: float | None = Field(default=None, ge=0.0, le=1.0)
+    topK: int | None = Field(default=None, ge=1, le=256)
+    architectureHint: Literal['auto', 'dense', 'moe'] = 'auto'
 
 
 class RuntimeAudioRequest(BaseModel):

@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from nemo_backend.agent import stream_agent_reply
+from nemo_backend.chat_input import effective_user_message_content
 from nemo_backend.schemas import AbortRequest, AgentContinueRequest, ChatRequest
 from nemo_backend import state
 
@@ -15,11 +16,14 @@ router = APIRouter()
 @router.post('/chat/stream')
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     """Stream assistant reply as Server-Sent Events (status + chunk + [DONE])."""
+    ck = (request.checkpoint_id or '').strip() or None
+    user_content = effective_user_message_content(request.message, request.structured_content)
     generator = stream_agent_reply(
         request.session_id,
-        request.message,
+        user_content,
         request.apply_mode,
         request.auto_apply_mode,
+        ck,
     )
     return StreamingResponse(generator, media_type='text/event-stream')
 

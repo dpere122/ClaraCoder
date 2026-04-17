@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage
 from nemo_backend.agents.coding_planner.pipeline import (
     _StepProxyQueue,
     _parse_plan_steps,
+    _plan_requirements_text,
     _planner_has_incomplete_work,
     _planner_progress_snapshot,
     _planner_terminal_phase,
@@ -123,12 +124,25 @@ class TestPlannerStepParsing:
         steps = _parse_plan_steps('- Read app.ts\n* Update chat-box.html')
         assert [step['text'] for step in steps] == ['Read app.ts', 'Update chat-box.html']
 
+    def test_parse_numbered_steps_single_line_with_spaces(self) -> None:
+        text = (
+            '1. Create calculator.py: Init Tkinter and theme. '
+            '2. In calculator.py: Grid layout for buttons. '
+            '3. In calculator.py: Wire handlers and mainloop.'
+        )
+        steps = _parse_plan_steps(text)
+        assert len(steps) == 3
+        assert 'Init Tkinter' in steps[0]['text']
+        assert 'Grid layout' in steps[1]['text']
+        assert 'mainloop' in steps[2]['text']
+
     def test_initial_plan_requires_min_steps_for_complexity_profile(self) -> None:
         parsed = _parse_plan_steps('1. Do everything')
         profile = _task_complexity_profile('Update the planner and the renderer task list flow.')
         error = _validate_initial_plan_steps(parsed, profile, discovery_completed=True)
         assert error is not None
-        assert f'at least {profile.min_steps}' in error.lower()
+        floor_min = max(2, profile.min_steps - 1)
+        assert f'at least {floor_min}' in error.lower()
 
     def test_complex_tasks_require_discovery_before_plan(self) -> None:
         profile = _task_complexity_profile(
@@ -139,6 +153,34 @@ class TestPlannerStepParsing:
         error = _validate_initial_plan_steps(parsed, profile, discovery_completed=False)
         assert error is not None
         assert 'gather missing workspace context' in error.lower()
+
+    def test_validate_initial_plan_requires_discovery_for_code_paths_when_flagged(self) -> None:
+        """Low-complexity tasks that still name a programming path must pass explicit requires_discovery."""
+        profile = _task_complexity_profile('Tweak tasks_app.py only.')
+        assert profile.requires_discovery is False
+        parsed = _parse_plan_steps('1. Adjust helper\n2. Wire entrypoint')
+        err = _validate_initial_plan_steps(
+            parsed,
+            profile,
+            discovery_completed=False,
+            requires_discovery=True,
+        )
+        assert err is not None
+        assert 'gather missing workspace context' in err.lower()
+        assert (
+            _validate_initial_plan_steps(
+                parsed,
+                profile,
+                discovery_completed=True,
+                requires_discovery=True,
+            )
+            is None
+        )
+
+    def test_plan_requirements_text_mentions_discovery_for_programming_paths(self) -> None:
+        profile = _task_complexity_profile('Short non-code note.')
+        text = _plan_requirements_text(profile, 'Update `tasks_app.py` docstring.')
+        assert 'Perform discovery reads/searches' in text
 
     def test_validation_rejects_read_only_plan_steps(self) -> None:
         profile = _task_complexity_profile('Update planner UI')
@@ -249,13 +291,15 @@ class TestCodingPlannerPrompt:
 
         assert 'coding planning agent' in prompt.lower()
         assert '## Role' in prompt
-        assert '**Coder:**' in prompt
+        assert '**Coordinator (not the implementer):**' in prompt
         assert '**Debugger:**' in prompt
         assert '**Systems engineer:**' in prompt
         assert 'routing handoff block' in prompt.lower()
         assert '**Operation:**' in prompt
         assert '**Existence:**' in prompt
         assert 'execute_plan_step' in prompt
+        assert 'discover-then-stage' in prompt
+        assert 'diff-first review' in prompt
         assert 'record_plan' in prompt
         assert 'read_workspace_file' in prompt
         assert 'lsp_get_document_symbols' in prompt
@@ -302,6 +346,7 @@ class TestCodingPlannerPrompt:
         assert 'Required opening behavior' in prompt
         assert 'record_plan' in prompt
         assert 'execute_plan_step' in prompt
+        assert 'diff_staged_edit_against_baseline' in prompt
         assert 'Planner tool reference' in prompt
         assert 'Routing handoff block' in prompt
         assert '**Existence:**' in prompt
@@ -317,6 +362,16 @@ class TestCodingPlannerPrompt:
         assert 'apply_workspace_full_file' in prompt
         assert 'non-code paths' in prompt
         assert 'Python workspace playbook' in prompt
+
+    def test_task_prompt_without_lsp_discovery_omits_bound_lsp_tool_reference(self) -> None:
+        prompt = build_coding_planner_task_prompt(
+            'Update README.md',
+            '- Record between 2 and 3 build steps.',
+            include_lsp_discovery=False,
+        )
+        # Planner tool reference replaces LSP tool bullets with a scope note (playbook may still mention LSP generically).
+        assert 'LSP tools are not available for this task scope' in prompt
+        assert 'read/search/list tools only' in prompt
 
     def test_reflection_prompt_requires_continuing_same_checklist(self) -> None:
         prompt = build_coding_planner_reflection_prompt(
@@ -368,6 +423,23 @@ class TestCodingPlannerPrompt:
         assert 'run_final_project_review` only after every recorded step is complete' in prompt
         assert 'routing handoff block' in prompt.lower()
 
+    def test_reflection_prompt_when_remediation_step_is_pending(self) -> None:
+        prompt = build_coding_planner_reflection_prompt(
+            reflection_attempt=1,
+            plan_ready=True,
+            steps=[
+                {'id': 'step-1', 'text': 'Update planner loop', 'state': 'complete'},
+                {'id': 'step-2', 'text': 'Update tests', 'state': 'complete'},
+                {'id': 'step-3', 'text': 'Fix final review failures', 'state': 'pending'},
+            ],
+            next_step_text='Fix final review failures',
+            latest_feedback='Final project review failed; remediation step appended.',
+            final_review_state='pending',
+        )
+        assert 'unfinished work' in prompt
+        assert 'execute_plan_step' in prompt
+        assert 'Do not call `record_plan` again' in prompt
+
     @patch('nemo_backend.messages.get_active_connection')
     @patch('nemo_backend.messages.runtime_config')
     def test_router_and_review_prompts_treat_transfer_as_approval(self, mock_rc: Any, mock_conn: Any) -> None:
@@ -376,13 +448,15 @@ class TestCodingPlannerPrompt:
         session = self._make_session()
 
         router_prompt = build_router_system_prompt(session)
-        step_router_prompt = build_router_system_prompt(session, allow_project_review=False)
         review_prompt = build_code_review_specialist_system_prompt(session)
         dependency_prompt = build_dependency_specialist_system_prompt(session)
         write_prompt = build_write_specialist_system_prompt(session)
         project_review_prompt = build_project_review_specialist_system_prompt(session)
 
         assert 'approval signal' in router_prompt
+        assert '**Return to Clara:**' in router_prompt
+        assert 'Exploration before staging' in router_prompt
+        assert 'file-write specialist' in router_prompt
         assert 'route_dependency_specialist' in router_prompt
         assert 'workspace_path_status' in router_prompt
         assert '**Operation:**' in router_prompt
@@ -392,14 +466,15 @@ class TestCodingPlannerPrompt:
         assert 'revises pending staged drafts' in router_prompt
         assert 'That handoff owns the review-to-revision loop' in router_prompt
         assert 'separate retry step' in router_prompt
-        assert 'route_dependency_specialist' in step_router_prompt
-        assert 'route_project_review_specialist' not in step_router_prompt
-        assert 'Do not attempt a final whole-project review in this router pass.' in step_router_prompt
+        assert 'route_project_review_specialist' not in router_prompt
+        assert 'Do not attempt a final whole-project review in this router pass' in router_prompt
+        assert 'coding planner calls that separately' in router_prompt
         assert 'Do not run the workspace test suite from this specialist' in review_prompt
         assert 'file-write specialist' in review_prompt
         assert 'workspace dependency specialist' in dependency_prompt
         assert 'write a frozen requirements file' in dependency_prompt
         assert 'final approval signal' in review_prompt
+        assert '**Return to Clara:**' in review_prompt
         assert 'reviewed and complete' in review_prompt
         assert 'Do not write prose like "Action: Transfer to workspace"' in review_prompt
         assert 'minimum changes needed for approval' in review_prompt
@@ -473,6 +548,54 @@ class TestRunCodingPlannerStream:
     @patch('nemo_backend.agents.coding_planner.pipeline.list_workspace_directory')
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
+    async def test_record_plan_requires_discovery_when_task_names_code_path(
+        self,
+        mock_create: Any,
+        mock_build: Any,
+        mock_list_tool: MagicMock,
+    ) -> None:
+        """Even low-complexity tasks must run a discovery tool once the task text names a programming path."""
+        mock_build.return_value = MagicMock()
+        mock_list_tool.name = 'list_workspace_directory'
+        mock_list_tool.invoke.return_value = 'tasks_app.py'
+        release_stream = asyncio.Event()
+        captured_tools: list[Any] = []
+
+        async def _fake_stream(*_a: Any, **_kw: Any):
+            await release_stream.wait()
+            yield {'event': 'on_chain_start', 'data': {}}
+
+        mock_graph = MagicMock()
+        mock_graph.astream_events = _fake_stream
+
+        def _capture_create(*args: Any, **_kwargs: Any) -> Any:
+            captured_tools.extend(args[1])
+            return mock_graph
+
+        mock_create.side_effect = _capture_create
+
+        session = SessionState()
+        nested_q: asyncio.Queue = asyncio.Queue()
+        task_summary = 'Update `tasks_app.py` docstring only.'
+        task = asyncio.create_task(run_coding_planner_stream(session, 'sess-1', task_summary, nested_q, None))
+        await asyncio.sleep(0)
+
+        list_tool = next(tool for tool in captured_tools if tool.name == 'list_workspace_directory')
+        record_plan_tool = next(tool for tool in captured_tools if tool.name == 'record_plan')
+
+        first = await record_plan_tool.ainvoke({'plan_steps': '1. Edit docstring\n2. Verify imports'})
+        assert 'gather missing workspace context' in first.lower()
+
+        await list_tool.ainvoke({'relative_path': '.'})
+        second = await record_plan_tool.ainvoke({'plan_steps': '1. Edit docstring\n2. Verify imports'})
+        assert 'Initial build checklist recorded' in second
+
+        release_stream.set()
+        await task
+
+    @patch('nemo_backend.agents.coding_planner.pipeline.list_workspace_directory')
+    @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
+    @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
     async def test_discovery_reads_allowed_before_plan_and_retry_follow_up_after(
         self,
         mock_create: Any,
@@ -514,7 +637,7 @@ class TestRunCodingPlannerStream:
         follow_up_result = await list_tool.ainvoke({'relative_path': '.'})
         assert 'src/' in follow_up_result
         assert 'checklist is recorded and locked until final review completes' in follow_up_result
-        assert 'until `run_final_project_review` has succeeded' in follow_up_result
+        assert 'locked until final review completes' in follow_up_result
         assert mock_list_tool.invoke.call_count == 2
 
         release_stream.set()
@@ -589,7 +712,7 @@ class TestRunCodingPlannerStream:
         await record_plan_tool.ainvoke({'plan_steps': '1. Update chat box\n2. Verify chat box'})
         await execute_tool.ainvoke({'step_instruction': 'Update the chat box UI'})
 
-        assert mock_run_step.await_args.kwargs['allow_project_review'] is False
+        assert 'allow_project_review' not in mock_run_step.await_args.kwargs
 
         release_stream.set()
         await task
@@ -728,21 +851,26 @@ class TestRunCodingPlannerStream:
         release_stream.set()
         await task
 
+    @patch('nemo_backend.agents.coding_planner.pipeline.run_final_project_review_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.run_planning_nested_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
-    async def test_run_final_project_review_returns_reentry_handoff_on_failure(
+    async def test_run_final_project_review_failure_appends_remediation_step_and_clears_reentry(
         self,
         mock_create: Any,
         mock_build: Any,
         mock_run_step: AsyncMock,
+        mock_run_final: AsyncMock,
     ) -> None:
         mock_build.return_value = MagicMock()
         mock_run_step.side_effect = [
             'Updated the implementation files.',
             'Updated the tests.',
-            'Tool error: final project review failed. Use the reviewer feedback to make the minimum workspace fixes needed for another final review pass.\n\nProject review rejected.\n\nReviewer feedback:\nFix failing pytest assertion.',
         ]
+        mock_run_final.return_value = (
+            'Tool error: final project review failed. Use the reviewer feedback to make the minimum workspace fixes '
+            'needed for another final review pass.\n\nProject review rejected.\n\nReviewer feedback:\nFix failing pytest assertion.'
+        )
         release_stream = asyncio.Event()
         captured_tools: list[Any] = []
 
@@ -772,16 +900,18 @@ class TestRunCodingPlannerStream:
         await execute_tool.ainvoke({'step_instruction': 'Update test files'})
         result = await final_review_tool.ainvoke({})
 
-        assert 'brand-new planner graph' in result
-        assert mock_run_step.await_count == 3
-        assert mock_run_step.await_args_list[2].kwargs['allow_project_review'] is True
-        assert session.pending_project_review_reentry is not None
-        assert 'Fix failing pytest assertion.' in session.pending_project_review_reentry.review_feedback
-        assert 'Create a brand-new implementation plan' in session.pending_project_review_reentry.next_task_summary
+        assert 'appended automatically' in result
+        assert 'execute_plan_step' in result
+        assert 'Call `record_plan` with' not in result
+        assert mock_run_step.await_count == 2
+        assert mock_run_final.await_count == 1
+        assert session.pending_project_review_reentry is None
+        assert 'Fix failing pytest assertion.' in result
 
         release_stream.set()
         await task
 
+    @patch('nemo_backend.agents.coding_planner.pipeline.run_final_project_review_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.run_planning_nested_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
@@ -790,13 +920,14 @@ class TestRunCodingPlannerStream:
         mock_create: Any,
         mock_build: Any,
         mock_run_step: AsyncMock,
+        mock_run_final: AsyncMock,
     ) -> None:
         mock_build.return_value = MagicMock()
         mock_run_step.side_effect = [
             'Updated the implementation files.',
             'Updated the tests.',
-            'Project review approved.\n\nSummary:\nWorkspace tests passed.',
         ]
+        mock_run_final.return_value = 'Project review approved.\n\nSummary:\nWorkspace tests passed.'
         release_stream = asyncio.Event()
         captured_tools: list[Any] = []
 
@@ -827,12 +958,14 @@ class TestRunCodingPlannerStream:
         result = await final_review_tool.ainvoke({})
 
         assert 'Workspace tests passed.' in result
-        assert mock_run_step.await_count == 3
+        assert mock_run_step.await_count == 2
+        assert mock_run_final.await_count == 1
         assert session.pending_project_review_reentry is None
 
         release_stream.set()
         await task
 
+    @patch('nemo_backend.agents.coding_planner.pipeline.run_final_project_review_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.run_planning_nested_stream', new_callable=AsyncMock)
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
@@ -841,14 +974,17 @@ class TestRunCodingPlannerStream:
         mock_create: Any,
         mock_build: Any,
         mock_run_step: AsyncMock,
+        mock_run_final: AsyncMock,
     ) -> None:
         mock_build.return_value = MagicMock()
         mock_run_step.side_effect = [
             'Phase1 step A done.',
             'Phase1 step B done.',
-            'Project review approved.\n\nSummary:\nPhase 1 ok.',
             'Phase2 step A done.',
             'Phase2 step B done.',
+        ]
+        mock_run_final.side_effect = [
+            'Project review approved.\n\nSummary:\nPhase 1 ok.',
             'Project review approved.\n\nSummary:\nPhase 2 ok.',
         ]
         release_stream = asyncio.Event()
@@ -888,7 +1024,8 @@ class TestRunCodingPlannerStream:
         await execute_tool.ainvoke({'step_instruction': 'Phase 2 B'})
         final2 = await final_review_tool.ainvoke({})
         assert 'Phase 2 ok.' in final2
-        assert mock_run_step.await_count == 6
+        assert mock_run_step.await_count == 4
+        assert mock_run_final.await_count == 2
 
         release_stream.set()
         await task

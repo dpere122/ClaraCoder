@@ -11,6 +11,7 @@ import type {
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
+  GEMMA_PRESET_DEFAULTS,
   inferContextWindowTokens,
   optimizationPresetsForProvider,
   QWEN_PRESET_DEFAULTS,
@@ -34,7 +35,11 @@ interface EditableConnection extends LlmConnectionConfig {
 export class Settings implements OnInit, OnDestroy {
   protected readonly selectedSettingsTab = signal<SettingsTab>('models');
   protected readonly tabs: Array<{ id: SettingsTab; label: string; description: string }> = [
-    { id: 'models', label: 'Models', description: 'Providers, active chat model, and API credentials.' },
+    {
+      id: 'models',
+      label: 'Models',
+      description: 'Saved model profiles (connections): provider, model id, optimization template, and API credentials.',
+    },
     {
       id: 'tools',
       label: 'Tools',
@@ -217,14 +222,7 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected async onModelChange(model: string): Promise<void> {
-    const selected = this.selectedConnection();
-    if (!selected) {
-      return;
-    }
-    await this.updateSelectedConnection({
-      model,
-      contextWindowTokens: inferContextWindowTokens(model, selected.provider),
-    });
+    await this.updateSelectedConnection({ model });
   }
 
   protected async onTemperatureChange(raw: string | number): Promise<void> {
@@ -253,7 +251,13 @@ export class Settings implements OnInit, OnDestroy {
 
   protected async onOptimizationPresetChange(value: string): Promise<void> {
     const preset: LlmOptimizationPreset =
-      value === 'qwen' ? 'qwen' : value === 'capable' ? 'capable' : 'generic';
+      value === 'qwen'
+        ? 'qwen'
+        : value === 'capable'
+          ? 'capable'
+          : value === 'gemma'
+            ? 'gemma'
+            : 'generic';
     const selected = this.selectedConnection();
     if (!selected) {
       return;
@@ -269,6 +273,21 @@ export class Settings implements OnInit, OnDestroy {
       });
       return;
     }
+    if (preset === 'gemma') {
+      const g = GEMMA_PRESET_DEFAULTS;
+      await this.updateSelectedConnection({
+        optimizationPreset: 'gemma',
+        parallelToolCalls: g.parallelToolCalls,
+        maxOutputTokens: g.maxOutputTokens,
+        temperature: g.temperature,
+        samplingPreset: g.samplingPreset,
+        thinkingMode: g.thinkingMode,
+        architectureHint: g.architectureHint,
+        topP: g.topP,
+        topK: g.topK,
+      });
+      return;
+    }
     if (preset === 'capable') {
       await this.updateSelectedConnection({
         optimizationPreset: 'capable',
@@ -277,6 +296,24 @@ export class Settings implements OnInit, OnDestroy {
       return;
     }
     await this.updateSelectedConnection({ optimizationPreset: 'generic' });
+  }
+
+  protected async onTopPChange(raw: string | number): Promise<void> {
+    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const clamped = Math.min(1, Math.max(0, n));
+    await this.updateSelectedConnection({ topP: clamped });
+  }
+
+  protected async onTopKChange(raw: string | number): Promise<void> {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const clamped = Math.min(256, Math.max(1, Math.floor(n)));
+    await this.updateSelectedConnection({ topK: clamped });
   }
 
   protected async onMaxOutputTokensChange(raw: string | number): Promise<void> {
@@ -401,6 +438,9 @@ export class Settings implements OnInit, OnDestroy {
       contextWindowTokens: inferContextWindowTokens(model, 'lmstudio'),
       apiKey: 'lm-studio',
       reasoningEffort: '',
+      thinkingMode: 'default',
+      samplingPreset: 'provider-default',
+      architectureHint: 'auto',
       temperature: 0,
       parallelToolCalls: false,
       optimizationPreset: 'generic',

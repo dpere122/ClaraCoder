@@ -11,6 +11,7 @@ import pytest
 from nemo_backend.agents.specialists.review_tools import (
     _materialize_staged_python_files,
     approve_staged_workspace_edit,
+    diff_staged_edit_against_baseline,
     format_staging_file_black,
     list_staged_edits,
     read_staged_edit,
@@ -99,7 +100,7 @@ def test_is_code_review_extension(staging_env) -> None:
 
 
 def test_copy_workspace_into_snapshot_skips_uncopyable_files(tmp_path, monkeypatch) -> None:
-    """Regression: one bad file under e.g. .venv must not abort modify_workspace snapshot seed."""
+    """Regression: one bad file under e.g. .venv must not abort plan_and_modify snapshot seed."""
     from shutil import copy2 as real_copy2
 
     from nemo_backend import edit_staging as edit_staging_mod
@@ -158,7 +159,7 @@ def test_stage_create_file_non_code_rejected(staging_env) -> None:
 
 
 def test_general_edit_tool_goes_straight_to_diff_for_non_code(staging_env) -> None:
-    """Direct workspace edit tools apply to non-code paths only (code paths use modify_workspace)."""
+    """Direct workspace edit tools apply to non-code paths only (code paths use plan_and_modify)."""
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'notes.md').write_text('y=2\n', encoding='utf-8')
@@ -407,6 +408,39 @@ def test_staging_review_tools_stay_inside_staging_surface(staging_env) -> None:
     assert '2 │ BETA' in excerpt
     hits = search_staged_edits.invoke({'query': 'BETA', 'relative_path': 'multi.py'})
     assert '[multi.py line 2]' in hits
+
+
+def test_diff_staged_edit_against_baseline_unified_diff(staging_env) -> None:
+    ws = staging_env.workspace
+    (ws / 'delta.py').write_text('a\nb\nc\n', encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'delta.py',
+            'new_content': 'a\nB\nc\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    out = diff_staged_edit_against_baseline.invoke({'relative_path': 'delta.py'})
+    assert 'workspace_baseline/' in out
+    assert 'staged_draft/' in out
+    assert 'B' in out
+
+
+def test_diff_staged_edit_against_baseline_identical_reports_no_changes(staging_env) -> None:
+    ws = staging_env.workspace
+    content = 'same\nlines\n'
+    (ws / 'same.py').write_text(content, encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'same.py',
+            'new_content': content,
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    out = diff_staged_edit_against_baseline.invoke({'relative_path': 'same.py'})
+    assert 'identical' in out.lower() or 'no textual changes' in out.lower()
 
 
 def test_search_staged_edits_uses_grep_when_available(staging_env, monkeypatch: pytest.MonkeyPatch) -> None:

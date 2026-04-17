@@ -182,7 +182,7 @@ def copy_workspace_into_snapshot(workspace_root: Path, snapshot_root: Path) -> N
             except OSError as exc:
                 # Windows: junctions / reparse points / transient locks under .venv often make
                 # copy2 fail with FileNotFoundError (WinError 3). One bad file must not abort
-                # the whole planner snapshot (modify_workspace).
+                # the whole planner snapshot (plan_and_modify).
                 logger.warning(
                     'workspace snapshot: skipped copy (unreadable or uncopyable) rel=%s err=%s',
                     rel_path,

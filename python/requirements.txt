@@ -1,8 +1,13 @@
 fastapi>=0.135,<1
+pydantic>=2.10,<3
+typing-extensions>=4.12,<5
 uvicorn>=0.42,<1
 openai>=2.30,<3
 langchain>=1.2,<2
+langchain-core>=1.2,<2
 langgraph>=1.1,<2
+langgraph-checkpoint-sqlite>=3.0,<4
+aiosqlite>=0.22,<1
 langchain-openai>=1.1,<2
 edge-tts>=7.2,<8
 SpeechRecognition>=3.15,<4

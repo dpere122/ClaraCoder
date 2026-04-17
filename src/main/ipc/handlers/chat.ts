@@ -36,6 +36,7 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
       parsed.streamTag,
       parsed.label,
       parsed.exitCode,
+      parsed.outputExcerpt,
     );
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
@@ -67,6 +68,7 @@ export function registerChatIpc(): void {
       msg: string,
       applyMode = true,
       autoApplyMode = false,
+      structuredContent?: unknown,
     ) => {
     console.log('Received message for', conversationId, ':', msg);
 
@@ -75,16 +77,26 @@ export function registerChatIpc(): void {
     const abortController = new AbortController();
     streamAbortControllers.set(conversationId, abortController);
 
+    const body: Record<string, unknown> = {
+      session_id: conversationId,
+      message: msg,
+      apply_mode: applyMode,
+      auto_apply_mode: autoApplyMode,
+    };
+    if (Array.isArray(structuredContent) && structuredContent.length > 0) {
+      const ok = structuredContent.every((p) => p !== null && typeof p === 'object' && !Array.isArray(p));
+      if (ok) {
+        body.structuredContent = structuredContent;
+      } else {
+        console.warn('[Chat] Ignoring structuredContent: expected array of objects');
+      }
+    }
+
     try {
       const res = await fetch(`${PYTHON_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: conversationId,
-          message: msg,
-          apply_mode: applyMode,
-          auto_apply_mode: autoApplyMode,
-        }),
+        body: JSON.stringify(body),
         signal: abortController.signal,
       });
 

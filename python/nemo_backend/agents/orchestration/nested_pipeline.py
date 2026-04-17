@@ -220,6 +220,8 @@ async def _enqueue_nested_event(nested_q: Any, stream_tag: str, ev: dict[str, An
 
 _OUTER_BRIEF_KIND_LABELS: dict[str, str] = {
     'plan_recorded': 'Planner checklist',
+    'plan_extended_after_review': 'Planner checklist extension',
+    'plan_auto_remediation': 'Planner remediation step',
     'code_review': 'Code review',
     'project_review': 'Project review',
 }
@@ -232,25 +234,238 @@ def _truncate_outer_brief_text(text: str) -> str:
     return t[: max(0, NEMO_OUTER_AGENT_BRIEF_MAX_CHARS - 24)].rstrip() + '\n[truncated]'
 
 
-async def enqueue_modify_workspace_outer_brief(
+async def enqueue_plan_and_modify_outer_brief(
     session_id: str,
     nested_q: Any,
     *,
     kind: str,
     summary: str,
 ) -> None:
-    """Append a concise handoff for outer Clara (``modify_workspace`` tool text + live status line)."""
+    """Append a concise handoff for outer Clara (``plan_and_modify`` tool text + live status line)."""
     body = _truncate_outer_brief_text(summary)
     if not body:
         return
     session = get_session(session_id)
     label = _OUTER_BRIEF_KIND_LABELS.get(kind, str(kind).replace('_', ' ').title())
-    session.modify_workspace_outer_briefs.append(f'{label}:\n{body}')
+    session.plan_and_modify_outer_briefs.append(f'{label}:\n{body}')
     await _enqueue_nested_event(
         nested_q,
         'clara',
         {'event': 'outer_agent_brief', 'data': {'kind': kind, 'summary': body, 'label': label}},
     )
+
+
+async def run_specialist_agent_stream(
+    session: SessionState,
+    session_id: str,
+    kind: str,
+    task_instruction: str,
+    nested_q: Any,
+    checkpointer: Any,
+) -> str:
+    """Run a single specialist ``create_agent`` subgraph; stream LangGraph v2 events to *nested_q*."""
+    edit_strict = runtime_config.tools.edit_tools_strict
+    spec_llm = build_llm()
+    if kind == 'code_review':
+        activate_session_lsp_scope(session_id, scope='staging')
+    if kind == 'write':
+        tools, _ = write_specialist_tools(edit_strict)
+        system_prompt = build_write_specialist_system_prompt(session)
+    elif kind == 'delete':
+        tools, _ = delete_specialist_tools()
+        system_prompt = build_delete_specialist_system_prompt(session)
+    elif kind == 'dependency':
+        tools, _ = dependency_specialist_tools()
+        system_prompt = build_dependency_specialist_system_prompt(session)
+    elif kind == 'code_review':
+        tools, _ = code_review_specialist_tools()
+        system_prompt = build_code_review_specialist_system_prompt(session)
+    elif kind == 'project_review':
+        tools, _ = project_review_specialist_tools()
+        system_prompt = build_project_review_specialist_system_prompt(session)
+    else:
+        return f'Unknown specialist kind: {kind}'
+
+    if kind == 'project_review':
+        session.last_project_review_subprocess_report = ''
+
+    sub = create_agent(
+        spec_llm,
+        tools,
+        system_prompt=system_prompt,
+        name=f'nemo_specialist_{kind}',
+        middleware=[
+            ConnectionParallelToolCallsMiddleware(),
+            EmptyResponseNudgeMiddleware(),
+            AcceptCommandReviewAfterToolMiddleware(),
+            DiffReviewAfterToolMiddleware(),
+            DeleteReviewAfterToolMiddleware(),
+        ],
+        checkpointer=checkpointer,
+    )
+    thread_id = f'{session_id}:spec:{kind}:{uuid.uuid4().hex[:10]}'
+    config: RunnableConfig = {
+        'configurable': {'thread_id': thread_id},
+        'recursion_limit': MAX_AGENT_STEPS,
+    }
+    inputs: dict[str, Any] = {'messages': [HumanMessage(content=task_instruction.strip() or '(no instruction)')]}
+    spec_final = ''
+    spec_tag = f'spec-{kind}-{uuid.uuid4().hex[:8]}'
+    review_decision_made = False
+    review_decision_tool = ''
+    review_decision_result = ''
+    project_review_decision_made = False
+    project_review_decision_tool = ''
+    project_review_decision_result = ''
+    try:
+        async for ev in sub.astream_events(inputs, config, version='v2'):
+            await _enqueue_nested_event(nested_q, spec_tag, ev)
+            et = ev.get('event')
+            data = ev.get('data') if isinstance(ev.get('data'), dict) else {}
+            if et == 'on_tool_end' and kind == 'code_review':
+                tool_name = str(ev.get('name') or '')
+                if tool_name in _CODE_REVIEW_DECISION_TOOL_NAMES:
+                    tool_result = _tool_output_text(data.get('output')).strip()
+                    if not tool_result.lower().startswith('tool error:'):
+                        review_decision_made = True
+                        review_decision_tool = tool_name
+                        review_decision_result = tool_result
+            if et == 'on_tool_end' and kind == 'project_review':
+                tool_name = str(ev.get('name') or '')
+                if tool_name in _PROJECT_REVIEW_DECISION_TOOL_NAMES:
+                    tool_result = _tool_output_text(data.get('output')).strip()
+                    if not tool_result.lower().startswith('tool error:'):
+                        project_review_decision_made = True
+                        project_review_decision_tool = tool_name
+                        project_review_decision_result = tool_result
+            if et == 'on_chat_model_end':
+                raw = data.get('output')
+                msg = raw if isinstance(raw, AIMessage) else None
+                if msg is not None and not (msg.tool_calls or []):
+                    spec_final = final_assistant_text(msg)
+    except Exception:
+        logger.exception('Specialist graph failed (%s)', kind)
+        raise
+    if kind == 'code_review' and not review_decision_made:
+        pending = sorted(session.pending_edit_stagings.keys())
+        if pending:
+            pending_detail = f' Pending staged edits: {", ".join(f"`{path}`" for path in pending)}.'
+        else:
+            pending_detail = ''
+        logger.warning(
+            'Code review specialist finished without transfer/reject; final_text=%r pending=%s',
+            spec_final[:240],
+            pending,
+        )
+        return (
+            _CODE_REVIEW_DECISION_MISSING_PREFIX
+            + '`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit`.'
+            f' Review summary: {spec_final.strip() or "(no final text provided)"}'
+            f'{pending_detail}'
+        )
+    if kind == 'code_review' and review_decision_tool == REJECT_STAGED_WORKSPACE_EDIT_NAME:
+        rejection_body = review_decision_result or spec_final.strip()
+        await enqueue_plan_and_modify_outer_brief(
+            session_id,
+            nested_q,
+            kind='code_review',
+            summary=f'Rejected staged changes (revision required).\n{rejection_body}',
+        )
+        return (
+            'Tool error: code review rejected the current step. Retry the same recorded step with only the '
+            'minimum in-scope fixes needed for approval; do not broaden the task or create a new plan.\n\n'
+            f'{rejection_body}'
+        )
+    if kind == 'project_review' and not project_review_decision_made:
+        logger.warning(
+            'Project review specialist finished without approval or rejection; final_text=%r',
+            spec_final[:240],
+        )
+        return (
+            'Tool error: project review specialist finished without calling '
+            '`approve_project_review` or `reject_project_review`.'
+        )
+    if kind == 'project_review' and project_review_decision_tool == REJECT_PROJECT_REVIEW_NAME:
+        fail_body = project_review_decision_result or spec_final.strip()
+        await enqueue_plan_and_modify_outer_brief(
+            session_id,
+            nested_q,
+            kind='project_review',
+            summary=f'Final review failed.\n{fail_body}',
+        )
+        return (
+            'Tool error: final project review failed. Use the reviewer feedback to make the minimum '
+            'workspace fixes needed for another final review pass.\n\n'
+            f'{fail_body}'
+        )
+    if kind == 'code_review' and review_decision_made and review_decision_tool == TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME:
+        await enqueue_plan_and_modify_outer_brief(
+            session_id,
+            nested_q,
+            kind='code_review',
+            summary=review_decision_result
+            or spec_final.strip()
+            or 'Staged changes approved and transferred to the workspace.',
+        )
+    elif (
+        kind == 'project_review'
+        and project_review_decision_made
+        and project_review_decision_tool == APPROVE_PROJECT_REVIEW_NAME
+    ):
+        await enqueue_plan_and_modify_outer_brief(
+            session_id,
+            nested_q,
+            kind='project_review',
+            summary=project_review_decision_result
+            or spec_final.strip()
+            or 'Final project review approved.',
+        )
+    return spec_final.strip() or f'Specialist `{kind}` finished without a final text response.'
+
+
+async def run_final_project_review_stream(
+    session: SessionState,
+    session_id: str,
+    review_instruction: str,
+    nested_q: Any,
+    checkpointer: Any,
+) -> str:
+    """Run only the project-review specialist (no nested router); enqueue events then ``NESTED_WORKER_STREAM_END``."""
+    try:
+        _ = build_llm()
+    except Exception:
+        await nested_q.put(NESTED_WORKER_STREAM_END)
+        raise
+
+    with _suppress_parent_graph_model_token_sse(session):
+        try:
+            activate_session_lsp_scope(session_id, scope='workspace')
+            bootstrap_summary = await maybe_bootstrap_python_workspace_env_for_project_review(session_id)
+            if bootstrap_summary.lower().startswith('tool error:'):
+                return (
+                    'Tool error: final project review could not bootstrap the workspace Python environment.\n\n'
+                    f'{bootstrap_summary}'
+                )
+            review_text = review_instruction.strip() or '(no instruction)'
+            if bootstrap_summary:
+                review_text = (
+                    f'{review_text}\n\n'
+                    'Python workspace bootstrap already ran before this final review. Use the summary below as '
+                    'context. Use dependency tools if packages or manifests need repair, prefer a smoke test when '
+                    'there is an obvious Python entry script, and run `run_workspace_pytest_tests` only when the '
+                    'workspace or task provides a real pytest signal.\n\n'
+                    f'{bootstrap_summary}'
+                )
+            return await run_specialist_agent_stream(
+                session,
+                session_id,
+                'project_review',
+                review_text,
+                nested_q,
+                checkpointer,
+            )
+        finally:
+            await nested_q.put(NESTED_WORKER_STREAM_END)
 
 
 async def run_planning_nested_stream(
@@ -259,12 +474,9 @@ async def run_planning_nested_stream(
     task_summary: str,
     nested_q: Any,
     checkpointer: Any,
-    *,
-    allow_project_review: bool = True,
 ) -> str:
     """Run nested planning router; enqueue LangGraph v2 events, then ``NESTED_WORKER_STREAM_END``."""
     last_final_text = ''
-    edit_strict = runtime_config.tools.edit_tools_strict
     try:
         llm = build_llm()
     except Exception:
@@ -272,164 +484,11 @@ async def run_planning_nested_stream(
         raise
 
     with _suppress_parent_graph_model_token_sse(session):
-        async def _run_specialist_graph(kind: str, task_instruction: str) -> str:
-            spec_llm = build_llm()
-            if kind == 'code_review':
-                activate_session_lsp_scope(session_id, scope='staging')
-            if kind == 'write':
-                tools, _ = write_specialist_tools(edit_strict)
-                system_prompt = build_write_specialist_system_prompt(session)
-            elif kind == 'delete':
-                tools, _ = delete_specialist_tools()
-                system_prompt = build_delete_specialist_system_prompt(session)
-            elif kind == 'dependency':
-                tools, _ = dependency_specialist_tools()
-                system_prompt = build_dependency_specialist_system_prompt(session)
-            elif kind == 'code_review':
-                tools, _ = code_review_specialist_tools()
-                system_prompt = build_code_review_specialist_system_prompt(session)
-            elif kind == 'project_review':
-                tools, _ = project_review_specialist_tools()
-                system_prompt = build_project_review_specialist_system_prompt(session)
-            else:
-                return f'Unknown specialist kind: {kind}'
-
-            sub = create_agent(
-                spec_llm,
-                tools,
-                system_prompt=system_prompt,
-                name=f'nemo_specialist_{kind}',
-                middleware=[
-                    ConnectionParallelToolCallsMiddleware(),
-                    EmptyResponseNudgeMiddleware(),
-                    AcceptCommandReviewAfterToolMiddleware(),
-                    DiffReviewAfterToolMiddleware(),
-                    DeleteReviewAfterToolMiddleware(),
-                ],
-                checkpointer=checkpointer,
-            )
-            thread_id = f'{session_id}:spec:{kind}:{uuid.uuid4().hex[:10]}'
-            config: RunnableConfig = {
-                'configurable': {'thread_id': thread_id},
-                'recursion_limit': MAX_AGENT_STEPS,
-            }
-            inputs: dict[str, Any] = {'messages': [HumanMessage(content=task_instruction.strip() or '(no instruction)')]}
-            spec_final = ''
-            spec_tag = f'spec-{kind}-{uuid.uuid4().hex[:8]}'
-            review_decision_made = False
-            review_decision_tool = ''
-            review_decision_result = ''
-            project_review_decision_made = False
-            project_review_decision_tool = ''
-            project_review_decision_result = ''
-            try:
-                async for ev in sub.astream_events(inputs, config, version='v2'):
-                    await _enqueue_nested_event(nested_q, spec_tag, ev)
-                    et = ev.get('event')
-                    data = ev.get('data') if isinstance(ev.get('data'), dict) else {}
-                    if et == 'on_tool_end' and kind == 'code_review':
-                        tool_name = str(ev.get('name') or '')
-                        if tool_name in _CODE_REVIEW_DECISION_TOOL_NAMES:
-                            tool_result = _tool_output_text(data.get('output')).strip()
-                            if not tool_result.lower().startswith('tool error:'):
-                                review_decision_made = True
-                                review_decision_tool = tool_name
-                                review_decision_result = tool_result
-                    if et == 'on_tool_end' and kind == 'project_review':
-                        tool_name = str(ev.get('name') or '')
-                        if tool_name in _PROJECT_REVIEW_DECISION_TOOL_NAMES:
-                            tool_result = _tool_output_text(data.get('output')).strip()
-                            if not tool_result.lower().startswith('tool error:'):
-                                project_review_decision_made = True
-                                project_review_decision_tool = tool_name
-                                project_review_decision_result = tool_result
-                    if et == 'on_chat_model_end':
-                        raw = data.get('output')
-                        msg = raw if isinstance(raw, AIMessage) else None
-                        if msg is not None and not (msg.tool_calls or []):
-                            spec_final = final_assistant_text(msg)
-            except Exception:
-                logger.exception('Specialist graph failed (%s)', kind)
-                raise
-            if kind == 'code_review' and not review_decision_made:
-                pending = sorted(session.pending_edit_stagings.keys())
-                if pending:
-                    pending_detail = f' Pending staged edits: {", ".join(f"`{path}`" for path in pending)}.'
-                else:
-                    pending_detail = ''
-                logger.warning(
-                    'Code review specialist finished without transfer/reject; final_text=%r pending=%s',
-                    spec_final[:240],
-                    pending,
-                )
-                return (
-                    _CODE_REVIEW_DECISION_MISSING_PREFIX
-                    + '`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit`.'
-                    f' Review summary: {spec_final.strip() or "(no final text provided)"}'
-                    f'{pending_detail}'
-                )
-            if kind == 'code_review' and review_decision_tool == REJECT_STAGED_WORKSPACE_EDIT_NAME:
-                rejection_body = review_decision_result or spec_final.strip()
-                await enqueue_modify_workspace_outer_brief(
-                    session_id,
-                    nested_q,
-                    kind='code_review',
-                    summary=f'Rejected staged changes (revision required).\n{rejection_body}',
-                )
-                return (
-                    'Tool error: code review rejected the current step. Retry the same recorded step with only the '
-                    'minimum in-scope fixes needed for approval; do not broaden the task or create a new plan.\n\n'
-                    f'{rejection_body}'
-                )
-            if kind == 'project_review' and not project_review_decision_made:
-                logger.warning(
-                    'Project review specialist finished without approval or rejection; final_text=%r',
-                    spec_final[:240],
-                )
-                return (
-                    'Tool error: project review specialist finished without calling '
-                    '`approve_project_review` or `reject_project_review`.'
-                )
-            if kind == 'project_review' and project_review_decision_tool == REJECT_PROJECT_REVIEW_NAME:
-                fail_body = project_review_decision_result or spec_final.strip()
-                await enqueue_modify_workspace_outer_brief(
-                    session_id,
-                    nested_q,
-                    kind='project_review',
-                    summary=f'Final review failed.\n{fail_body}',
-                )
-                return (
-                    'Tool error: final project review failed. Use the reviewer feedback to make the minimum '
-                    'workspace fixes needed for another final review pass.\n\n'
-                    f'{fail_body}'
-                )
-            if kind == 'code_review' and review_decision_made and review_decision_tool == TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME:
-                await enqueue_modify_workspace_outer_brief(
-                    session_id,
-                    nested_q,
-                    kind='code_review',
-                    summary=review_decision_result
-                    or spec_final.strip()
-                    or 'Staged changes approved and transferred to the workspace.',
-                )
-            elif (
-                kind == 'project_review'
-                and project_review_decision_made
-                and project_review_decision_tool == APPROVE_PROJECT_REVIEW_NAME
-            ):
-                await enqueue_modify_workspace_outer_brief(
-                    session_id,
-                    nested_q,
-                    kind='project_review',
-                    summary=project_review_decision_result
-                    or spec_final.strip()
-                    or 'Final project review approved.',
-                )
-            return spec_final.strip() or f'Specialist `{kind}` finished without a final text response.'
-
         async def _run_mutation_specialist_with_auto_review(kind: str, task_instruction: str) -> str:
             pending_before = set(session.pending_edit_stagings.keys())
-            mutation_result = await _run_specialist_graph(kind, task_instruction)
+            mutation_result = await run_specialist_agent_stream(
+                session, session_id, kind, task_instruction, nested_q, checkpointer
+            )
             lowered = mutation_result.lower()
             if lowered.startswith('aborted by user') or lowered.startswith('tool error:'):
                 return mutation_result
@@ -462,12 +521,16 @@ async def run_planning_nested_stream(
         @tool
         async def route_delete_specialist(task_instruction: str) -> str:
             """Hand off file or directory deletion to the delete specialist."""
-            return await _run_specialist_graph('delete', task_instruction)
+            return await run_specialist_agent_stream(
+                session, session_id, 'delete', task_instruction, nested_q, checkpointer
+            )
 
         @tool
         async def route_dependency_specialist(task_instruction: str) -> str:
             """Hand off Python dependency and manifest actions to the dependency specialist."""
-            return await _run_specialist_graph('dependency', task_instruction)
+            return await run_specialist_agent_stream(
+                session, session_id, 'dependency', task_instruction, nested_q, checkpointer
+            )
 
         @tool
         async def route_code_review_specialist(task_instruction: str) -> str:
@@ -478,14 +541,25 @@ async def run_planning_nested_stream(
             prior_rejection = ''
             if not _pending_code_review_paths(session):
                 return 'Tool error: no staged edits are currently awaiting code review.'
-            review_result = await _run_specialist_graph('code_review', _build_code_review_instruction(session, task_instruction))
+            review_result = await run_specialist_agent_stream(
+                session,
+                session_id,
+                'code_review',
+                _build_code_review_instruction(session, task_instruction),
+                nested_q,
+                checkpointer,
+            )
             while review_result.lower().startswith(_CODE_REVIEW_DECISION_MISSING_PREFIX.lower()):
                 if decision_retry_attempt >= 1:
                     return review_result
                 decision_retry_attempt += 1
-                review_result = await _run_specialist_graph(
+                review_result = await run_specialist_agent_stream(
+                    session,
+                    session_id,
                     'code_review',
                     _build_code_review_force_decision_instruction(session, task_instruction, review_result),
+                    nested_q,
+                    checkpointer,
                 )
             while review_result.lower().startswith(_CODE_REVIEW_REJECTION_PREFIX.lower()):
                 staged_paths = _pending_code_review_paths(session)
@@ -509,7 +583,9 @@ async def run_planning_nested_stream(
                     )
                 snapshot_before_retry = _pending_code_review_snapshot(session, staged_paths)
                 retry_attempt += 1
-                update_result = await _run_specialist_graph(
+                update_result = await run_specialist_agent_stream(
+                    session,
+                    session_id,
                     'write',
                     _build_code_review_retry_instruction(
                         task_instruction,
@@ -517,6 +593,8 @@ async def run_planning_nested_stream(
                         staged_paths,
                         retry_attempt=retry_attempt,
                     ),
+                    nested_q,
+                    checkpointer,
                 )
                 if update_result.lower().startswith('aborted by user') or update_result.lower().startswith('tool error:'):
                     return update_result
@@ -528,46 +606,27 @@ async def run_planning_nested_stream(
                         'draft did not change. Stop the retry loop and surface the reviewer feedback to the planner.'
                     )
                 prior_rejection = cleaned_rejection
-                review_result = await _run_specialist_graph(
+                review_result = await run_specialist_agent_stream(
+                    session,
+                    session_id,
                     'code_review',
                     _build_code_review_instruction(session, task_instruction),
+                    nested_q,
+                    checkpointer,
                 )
                 while review_result.lower().startswith(_CODE_REVIEW_DECISION_MISSING_PREFIX.lower()):
                     if decision_retry_attempt >= 1:
                         return review_result
                     decision_retry_attempt += 1
-                    review_result = await _run_specialist_graph(
+                    review_result = await run_specialist_agent_stream(
+                        session,
+                        session_id,
                         'code_review',
                         _build_code_review_force_decision_instruction(session, task_instruction, review_result),
+                        nested_q,
+                        checkpointer,
                     )
             return review_result
-
-        @tool
-        async def route_project_review_specialist(task_instruction: str) -> str:
-            """Hand off final workspace validation to the project review specialist."""
-            if not allow_project_review:
-                return (
-                    'Tool error: `route_project_review_specialist` is reserved for the planner final review pass. '
-                    'Finish the current recorded build step and return control to the planner instead.'
-                )
-            activate_session_lsp_scope(session_id, scope='workspace')
-            bootstrap_summary = await maybe_bootstrap_python_workspace_env_for_project_review(session_id)
-            if bootstrap_summary.lower().startswith('tool error:'):
-                return (
-                    'Tool error: final project review could not bootstrap the workspace Python environment.\n\n'
-                    f'{bootstrap_summary}'
-                )
-            review_instruction = task_instruction.strip() or '(no instruction)'
-            if bootstrap_summary:
-                review_instruction = (
-                    f'{review_instruction}\n\n'
-                    'Python workspace bootstrap already ran before this final review. Use the summary below as '
-                    'context. Use dependency tools if packages or manifests need repair, prefer a smoke test when '
-                    'there is an obvious Python entry script, and run `run_workspace_pytest_tests` only when the '
-                    'workspace or task provides a real pytest signal.\n\n'
-                    f'{bootstrap_summary}'
-                )
-            return await _run_specialist_graph('project_review', review_instruction)
 
         router_tools: list[Any] = [
             workspace_path_status,
@@ -576,10 +635,8 @@ async def run_planning_nested_stream(
             route_dependency_specialist,
             route_code_review_specialist,
         ]
-        if allow_project_review:
-            router_tools.append(route_project_review_specialist)
 
-        system_prompt = build_router_system_prompt(session, allow_project_review=allow_project_review)
+        system_prompt = build_router_system_prompt(session)
         graph = create_agent(
             llm,
             router_tools,
@@ -594,6 +651,7 @@ async def run_planning_nested_stream(
             ],
             checkpointer=checkpointer,
         )
+        # Random suffix per nested run; outer Clara thread stays stable per conversation.
         thread_id = f'{session_id}:planning:{uuid.uuid4().hex[:10]}'
         config: RunnableConfig = {
             'configurable': {'thread_id': thread_id},

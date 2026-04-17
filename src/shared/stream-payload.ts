@@ -8,7 +8,14 @@ export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
   | { type: 'tool_read_chunk'; delta: string }
   | { type: 'tool_exec_chunk'; delta: string; streamTag?: string; label?: string }
-  | { type: 'tool_exec_complete'; streamTag?: string; label?: string; exitCode?: number | null }
+  | {
+      type: 'tool_exec_complete';
+      streamTag?: string;
+      label?: string;
+      exitCode?: number | null;
+      /** Full or tail replay when live chunks were empty or incomplete (pytest/smoke). */
+      outputExcerpt?: string;
+    }
   | { type: 'status'; status: LlmStatusPayload }
   | { type: 'planner'; planner: PlannerProgress }
   | { type: 'diff'; diff: FileDiffPayload }
@@ -22,6 +29,7 @@ type RawAgentStreamPayload = {
   stream_tag?: string;
   label?: string;
   exit_code?: unknown;
+  output_excerpt?: unknown;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
   planner?: PlannerProgress;
   diff?: unknown;
@@ -178,11 +186,15 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       } else if (exitRaw === null) {
         exitCode = null;
       }
+      const excerptRaw = parsed.output_excerpt;
+      const outputExcerpt =
+        typeof excerptRaw === 'string' && excerptRaw.trim() ? excerptRaw.trim() : undefined;
       return {
         type: 'tool_exec_complete',
         streamTag: optionalTrimmedString(parsed.stream_tag),
         label: optionalTrimmedString(parsed.label),
         ...(exitCode !== undefined ? { exitCode } : {}),
+        ...(outputExcerpt ? { outputExcerpt } : {}),
       };
     }
 

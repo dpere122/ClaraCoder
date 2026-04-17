@@ -3,6 +3,11 @@ import type { LlmConnectionConfig } from './types/app-config';
 const OPENAI_FALLBACK_CONTEXT_WINDOW = 128_000;
 const LM_STUDIO_FALLBACK_CONTEXT_WINDOW = 32_768;
 
+/** True when the model id is likely Google Gemma (local or API name). */
+export function isGemmaFamily(model: string): boolean {
+  return (model || '').toLowerCase().includes('gemma');
+}
+
 const MODEL_CONTEXT_WINDOWS: Array<{ pattern: RegExp; tokens: number }> = [
   { pattern: /^gpt-4\.1($|[-:])/i, tokens: 1_047_576 },
   { pattern: /^gpt-4o-mini($|[-:])/i, tokens: 128_000 },
@@ -23,6 +28,22 @@ export function inferContextWindowTokens(
     const match = MODEL_CONTEXT_WINDOWS.find((entry) => entry.pattern.test(normalized));
     if (match) {
       return match.tokens;
+    }
+    const m = normalized.toLowerCase();
+    if (provider === 'lmstudio' && m.includes('gemma')) {
+      if (/\b31b\b/.test(m)) {
+        return 256_000;
+      }
+      if (/\b26b\b/.test(m) && /\ba4b\b/.test(m)) {
+        return 256_000;
+      }
+      if (/\ba4b\b/.test(m)) {
+        return 256_000;
+      }
+      if (/\be2b\b/.test(m) || /\be4b\b/.test(m)) {
+        return 128_000;
+      }
+      return 128_000;
     }
   }
   return provider === 'lmstudio' ? LM_STUDIO_FALLBACK_CONTEXT_WINDOW : OPENAI_FALLBACK_CONTEXT_WINDOW;

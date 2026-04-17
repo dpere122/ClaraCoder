@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -55,7 +56,8 @@ class SessionState:
     """Per-chat-session data kept while the Electron app talks to this process."""
 
     # Serialized chat turns: each item has "role" and "content" (user/assistant/system).
-    history: list[dict[str, str]] = field(default_factory=list)
+    # ``content`` is usually a string; user turns may use OpenAI-style multimodal lists.
+    history: list[dict[str, Any]] = field(default_factory=list)
     # Absolute path to the folder the user opened as workspace, or empty.
     workspace_path: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
@@ -100,7 +102,7 @@ class SessionState:
     hitl_sse_queue: asyncio.Queue | None = None
     # Set when the client requests an abort; the streaming generator checks this to bail out early.
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
-    # LangGraph manager only: nested planning graph events merged into the manager SSE loop during modify_workspace.
+    # LangGraph manager only: nested planning graph events merged into the manager SSE loop during plan_and_modify.
     planning_nested_events_q: asyncio.Queue | None = None
     # Set while nested planning runs; SSE loop signals after it consumes the nested stream end sentinel.
     planning_nested_done_event: asyncio.Event | None = None
@@ -116,8 +118,10 @@ class SessionState:
     lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     # Structured project-review failure handoff consumed by the caller to start a brand-new planner graph.
     pending_project_review_reentry: ProjectReviewReentryRequest | None = None
-    # During ``modify_workspace``, planner/review handoffs appended for the outer Clara tool result and optional SSE.
-    modify_workspace_outer_briefs: list[str] = field(default_factory=list)
+    # Latest pytest/smoke captured output during project review; ``reject_project_review`` attaches it for the planner.
+    last_project_review_subprocess_report: str = ''
+    # During ``plan_and_modify``, planner/review handoffs appended for the outer Clara tool result and optional SSE.
+    plan_and_modify_outer_briefs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -130,16 +134,26 @@ class RuntimeConnection:
     base_url: str
     model: str
     api_key: str = ''
-    # For OpenAI-style reasoning models via Chat Completions: minimal|low|medium|high; empty = omit.
+    # Stored UI/config value; llm.py maps on→medium, off→none, and passes none|minimal|…|xhigh through.
     reasoning_effort: str = ''
     temperature: float = 0.0
     parallel_tool_calls: bool = False
-    #: ``generic`` | ``qwen`` | ``capable`` — from Settings optimization template.
+    #: ``generic`` | ``qwen`` | ``capable`` | ``gemma`` — from Settings optimization template.
     optimization_preset: str = 'generic'
     #: Chat max_tokens when > 0; 0 means use preset/env defaults.
     max_output_tokens: int = 0
     #: Max number of final project-review retry attempts for this connection.
     plan_retry_attempts_count: int = 2
+    #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
+    thinking_mode: str = 'default'
+    #: ``provider-default`` | ``gemma-recommended`` | ``custom``
+    sampling_preset: str = 'provider-default'
+    #: When ``sampling_preset`` is ``custom``, optional ``top_p`` (else ``None``).
+    top_p: float | None = None
+    #: When ``sampling_preset`` is ``custom``, optional ``top_k`` (else ``None``).
+    top_k: int | None = None
+    #: ``auto`` | ``dense`` | ``moe`` — MoE is a hint for defaults/prompts only.
+    architecture_hint: str = 'auto'
 
 
 @dataclass

@@ -7,6 +7,7 @@ import { Observable, Subject } from 'rxjs';
 import type {
   AcceptCommandPayload,
   AppConfig,
+  ChatStructuredContentPart,
   Conversation,
   ConversationMeta,
   CopyConfirmPayload,
@@ -47,6 +48,7 @@ export interface ToolExecCompleteMessage {
   streamTag?: string;
   label?: string;
   exitCode?: number | null;
+  outputExcerpt?: string;
 }
 
 export interface DoneMessage {
@@ -169,11 +171,19 @@ export class ElectronService {
     this.api?.onMessageToolExecChunk?.((_event, conversationId, delta, streamTag, label) => {
       this.zone.run(() => this.toolExecChunkSubject.next({ conversationId, delta, streamTag, label }));
     });
-    this.api?.onMessageToolExecComplete?.((_event, conversationId, streamTag, label, exitCode) => {
-      this.zone.run(() =>
-        this.toolExecCompleteSubject.next({ conversationId, streamTag, label, exitCode }),
-      );
-    });
+    this.api?.onMessageToolExecComplete?.(
+      (_event, conversationId, streamTag, label, exitCode, outputExcerpt) => {
+        this.zone.run(() =>
+          this.toolExecCompleteSubject.next({
+            conversationId,
+            streamTag,
+            label,
+            exitCode,
+            outputExcerpt,
+          }),
+        );
+      },
+    );
     this.api?.onMessageDone((_event, conversationId) => {
       this.zone.run(() => this.doneSubject.next({ conversationId }));
     });
@@ -237,8 +247,20 @@ export class ElectronService {
     this.api?.onReady();
   }
 
-  sendMessage(conversationId: string, msg: string, applyMode = true, autoApplyMode = false): void {
-    this.api?.sendMessage(conversationId, msg, applyMode, autoApplyMode);
+  sendMessage(
+    conversationId: string,
+    msg: string,
+    applyMode = true,
+    autoApplyMode = false,
+    structuredContent?: readonly ChatStructuredContentPart[],
+  ): void {
+    this.api?.sendMessage(
+      conversationId,
+      msg,
+      applyMode,
+      autoApplyMode,
+      structuredContent ? [...structuredContent] : undefined,
+    );
   }
 
   abortMessage(conversationId: string): Promise<{ ok: boolean; error?: string }> {

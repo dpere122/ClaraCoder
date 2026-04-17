@@ -39,6 +39,7 @@ def log_llm_user_request(
     session_id: str,
     apply_mode: bool,
     auto_apply_mode: bool,
+    structured: bool = False,
 ) -> None:
     """Log the chat user turn that will be sent to the agent (same pipeline as ``/logs/*``)."""
     if not logger.isEnabledFor(logging.INFO):
@@ -48,6 +49,7 @@ def log_llm_user_request(
         'user_message': _preview((user_text or '').strip(), _limit()),
         'apply_mode': apply_mode,
         'auto_apply_mode': auto_apply_mode,
+        'structured_input': structured,
     }
     logger.info('LLM user request %s', json.dumps(body, ensure_ascii=False, default=str))
 

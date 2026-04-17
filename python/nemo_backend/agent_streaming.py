@@ -59,6 +59,7 @@ def tool_exec_complete_event(
     stream_tag: str | None = None,
     label: str = '',
     exit_code: int | None = None,
+    output_excerpt: str = '',
 ) -> dict[str, Any]:
     """Signal that a subprocess-style tool stream has finished (optional exit code for the badge)."""
     row: dict[str, Any] = {'type': 'tool_exec_complete', 'exit_code': exit_code}
@@ -66,6 +67,9 @@ def tool_exec_complete_event(
         row['stream_tag'] = stream_tag
     if label:
         row['label'] = label
+    ex = output_excerpt.strip()
+    if ex:
+        row['output_excerpt'] = ex
     return row
 
 

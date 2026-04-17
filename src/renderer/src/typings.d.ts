@@ -1,6 +1,7 @@
 import type {
   AcceptCommandPayload,
   AppConfig,
+  ChatStructuredContentPart,
   CopyConfirmPayload,
   Conversation,
   ConversationMeta,
@@ -46,6 +47,7 @@ declare global {
         streamTag?: string,
         label?: string,
         exitCode?: number | null,
+        outputExcerpt?: string,
       ) => void,
     ) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
@@ -63,7 +65,13 @@ declare global {
     onMessageDeleteConfirm?: (
       callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
     ) => void;
-    sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) => void;
+    sendMessage: (
+      conversationId: string,
+      msg: string,
+      applyMode?: boolean,
+      autoApplyMode?: boolean,
+      structuredContent?: ChatStructuredContentPart[],
+    ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     agentContinue: (
       conversationId: string,

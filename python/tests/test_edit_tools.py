@@ -119,13 +119,19 @@ def test_outer_agent_tools() -> None:
 
     tools_on, map_on = worker_tools_and_map(True)
     assert {t.name for t in tools_on} == (
-        read_names | {'copy_workspace_files', 'modify_workspace'} | edit_names | dep_names | env_names
+        read_names
+        | {'copy_workspace_files', 'plan_and_modify', 'execute_workspace_mutation'}
+        | edit_names
+        | dep_names
+        | env_names
+        | {'delete_workspace_entry', 'batch_delete_workspace_entries'}
     )
     assert map_on.keys() == {t.name for t in tools_on}
 
     tools_off, map_off = worker_tools_and_map(False)
     assert {t.name for t in tools_off} == read_names
-    assert 'modify_workspace' not in map_off
+    assert 'plan_and_modify' not in map_off
+    assert 'execute_workspace_mutation' not in map_off
 
 
 def test_outer_workspace_edit_guard_blocks_code_extensions() -> None:
@@ -149,7 +155,7 @@ def test_apply_workspace_full_file_rejects_python_path(tmp_path) -> None:
             {'relative_path': 'a.py', 'new_content': 'x = 1\n', 'encoding': 'utf-8', 'newline': 'lf'}
         )
         assert 'Tool error:' in out
-        assert 'modify_workspace' in out
+        assert 'execute_workspace_mutation' in out or 'plan_and_modify' in out
     finally:
         current_session_id.reset(token)
 
@@ -161,6 +167,7 @@ def test_code_review_specialist_tools_are_staging_only() -> None:
     names = {t.name for t in tools}
     assert names == {
         'list_staged_edits',
+        'diff_staged_edit_against_baseline',
         'read_staged_edit',
         'search_staged_edits',
         'lsp_get_diagnostics',

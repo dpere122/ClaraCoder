@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter
 
+from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
 from nemo_backend.planner_graph_session import cleanup_planner_graph_session
 from nemo_backend.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
@@ -25,6 +27,7 @@ logger = logging.getLogger('nemo.http.routes')
 async def clear_session(request: ClearRequest) -> dict[str, bool]:
     """Drop chat history for a session id (fresh SessionState)."""
     cleanup_planner_graph_session(state.get_session(request.session_id), request.session_id)
+    await delete_outer_threads_for_session(request.session_id)
     state.sessions[request.session_id] = SessionState()
     return {'ok': True}
 
@@ -32,15 +35,24 @@ async def clear_session(request: ClearRequest) -> dict[str, bool]:
 @router.post('/load')
 async def load_session(request: LoadRequest) -> dict[str, bool]:
     """Bulk-restore messages into a session (typically after app restart)."""
+    await delete_outer_threads_for_session(request.session_id)
     sess = state.get_session(request.session_id)
-    sess.history = [
-        {
-            'role': item.get('role', 'user'),
-            'content': item.get('content', ''),
-        }
-        for item in request.messages
-        if item.get('content')
-    ]
+    restored: list[dict[str, Any]] = []
+    for item in request.messages:
+        role = item.get('role', 'user')
+        content = item.get('content', '')
+        if content is None:
+            continue
+        if isinstance(content, list):
+            if len(content) == 0:
+                continue
+        elif isinstance(content, str):
+            if not content.strip():
+                continue
+        else:
+            continue
+        restored.append({'role': str(role), 'content': content})
+    sess.history = restored
     return {'ok': True}
 
 

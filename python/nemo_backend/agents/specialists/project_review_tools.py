@@ -49,6 +49,9 @@ _SMOKE_ENTRYPOINT_CANDIDATES = (
     'manage.py',
     'todo_app.py',
 )
+_SUBPROCESS_READ_SIZE = 65536
+_TOOL_EXEC_COMPLETE_REPLAY_CHARS = 12_000
+_SUBPROCESS_STASH_MAX_CHARS = 80_000
 
 
 async def _emit_project_review_chunk(
@@ -85,44 +88,64 @@ async def _emit_project_review_tool_complete(
     stream_tag: str,
     label: str,
     exit_code: int | None,
+    output_excerpt: str = '',
 ) -> None:
     session = get_session(session_id)
     queue = session.planning_nested_events_q
     if queue is None:
         return
-    await queue.put(
-        (
-            stream_tag,
-            {
-                'event': 'tool_exec_complete',
-                'data': {
-                    'stream_tag': stream_tag,
-                    'label': label,
-                    'exit_code': exit_code,
-                },
-            },
-        )
-    )
+    payload: dict[str, object] = {
+        'stream_tag': stream_tag,
+        'label': label,
+        'exit_code': exit_code,
+    }
+    excerpt = output_excerpt.strip()
+    if excerpt:
+        payload['output_excerpt'] = excerpt
+    await queue.put((stream_tag, {'event': 'tool_exec_complete', 'data': payload}))
 
 
-async def _pump_pytest_stream(
+def _combined_raw_streams(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
+    stdout = ''.join(stdout_chunks)
+    stderr = ''.join(stderr_chunks)
+    if stderr:
+        return f'{stdout}\n[stderr]\n{stderr}' if stdout else f'[stderr]\n{stderr}'
+    return stdout
+
+
+def _stash_subprocess_output_and_replay_tail(
+    session_id: str,
+    stdout_chunks: list[str],
+    stderr_chunks: list[str],
+) -> str:
+    combined = _combined_raw_streams(stdout_chunks, stderr_chunks).strip()
+    if not combined:
+        return ''
+    session = get_session(session_id)
+    session.last_project_review_subprocess_report = truncate_text(combined, _SUBPROCESS_STASH_MAX_CHARS)
+    if len(combined) <= _TOOL_EXEC_COMPLETE_REPLAY_CHARS:
+        return combined
+    return combined[-_TOOL_EXEC_COMPLETE_REPLAY_CHARS:]
+
+
+async def _pump_subprocess_stream(
     stream: asyncio.StreamReader | None,
     *,
     session_id: str,
-    prefix: str,
-    chunks: list[str],
+    emit_prefix: str,
+    capture_chunks: list[str],
     stream_tag: str = _PYTEST_STREAM_TAG,
     label: str = _PYTEST_STREAM_LABEL,
 ) -> None:
     if stream is None:
         return
     while True:
-        line = await stream.readline()
-        if not line:
+        block = await stream.read(_SUBPROCESS_READ_SIZE)
+        if not block:
             break
-        text = line.decode('utf-8', errors='replace')
-        rendered = f'{prefix}{text}' if prefix else text
-        chunks.append(rendered)
+        text = block.decode('utf-8', errors='replace')
+        capture_chunks.append(text)
+        rendered = f'{emit_prefix}{text}' if emit_prefix else text
         await _emit_project_review_chunk(session_id, rendered, stream_tag=stream_tag, label=label)
 
 
@@ -346,16 +369,27 @@ async def run_workspace_pytest_tests() -> str:
             stream_tag=_PYTEST_STREAM_TAG,
             label=_PYTEST_STREAM_LABEL,
             exit_code=None,
+            output_excerpt='',
         )
         return f'Tool error: could not start workspace pytest ({exc}).'
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
     stdout_task = asyncio.create_task(
-        _pump_pytest_stream(proc.stdout, session_id=sid, prefix='', chunks=stdout_chunks)
+        _pump_subprocess_stream(
+            proc.stdout,
+            session_id=sid,
+            emit_prefix='',
+            capture_chunks=stdout_chunks,
+        )
     )
     stderr_task = asyncio.create_task(
-        _pump_pytest_stream(proc.stderr, session_id=sid, prefix='[stderr] ', chunks=stderr_chunks)
+        _pump_subprocess_stream(
+            proc.stderr,
+            session_id=sid,
+            emit_prefix='[stderr] ',
+            capture_chunks=stderr_chunks,
+        )
     )
     wait_task = asyncio.create_task(proc.wait())
     abort_task = asyncio.create_task(session.abort_event.wait())
@@ -367,11 +401,13 @@ async def run_workspace_pytest_tests() -> str:
             await _emit_project_review_chunk(sid, '\n[workspace pytest aborted by user]\n')
             await _terminate_process(proc)
             await wait_task
+            replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
             await _emit_project_review_tool_complete(
                 sid,
                 stream_tag=_PYTEST_STREAM_TAG,
                 label=_PYTEST_STREAM_LABEL,
                 exit_code=proc.returncode,
+                output_excerpt=replay,
             )
             return 'Aborted by user.'
         else:
@@ -386,11 +422,13 @@ async def run_workspace_pytest_tests() -> str:
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     logger.info('run_workspace_pytest_tests exit_code=%s project_root=%s', exit_code, project_root)
+    replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_PYTEST_STREAM_TAG,
         label=_PYTEST_STREAM_LABEL,
         exit_code=exit_code,
+        output_excerpt=replay,
     )
     return _build_pytest_result(
         exit_code=exit_code,
@@ -459,27 +497,28 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             stream_tag=_SMOKE_STREAM_TAG,
             label=_SMOKE_STREAM_LABEL,
             exit_code=None,
+            output_excerpt='',
         )
         return f'Tool error: could not start workspace smoke test ({exc}).'
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
     stdout_task = asyncio.create_task(
-        _pump_pytest_stream(
+        _pump_subprocess_stream(
             proc.stdout,
             session_id=sid,
-            prefix='',
-            chunks=stdout_chunks,
+            emit_prefix='',
+            capture_chunks=stdout_chunks,
             stream_tag=_SMOKE_STREAM_TAG,
             label=_SMOKE_STREAM_LABEL,
         )
     )
     stderr_task = asyncio.create_task(
-        _pump_pytest_stream(
+        _pump_subprocess_stream(
             proc.stderr,
             session_id=sid,
-            prefix='[stderr] ',
-            chunks=stderr_chunks,
+            emit_prefix='[stderr] ',
+            capture_chunks=stderr_chunks,
             stream_tag=_SMOKE_STREAM_TAG,
             label=_SMOKE_STREAM_LABEL,
         )
@@ -505,11 +544,13 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             )
             await _terminate_process(proc)
             await wait_task
+            replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
             await _emit_project_review_tool_complete(
                 sid,
                 stream_tag=_SMOKE_STREAM_TAG,
                 label=_SMOKE_STREAM_LABEL,
                 exit_code=proc.returncode,
+                output_excerpt=replay,
             )
             return 'Aborted by user.'
         else:
@@ -531,11 +572,13 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
                 pass
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
+    replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_SMOKE_STREAM_TAG,
         label=_SMOKE_STREAM_LABEL,
         exit_code=exit_code,
+        output_excerpt=replay,
     )
     return _build_smoke_result(
         exit_code=exit_code,
@@ -552,6 +595,9 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
 def approve_project_review(summary: str = '') -> str:
     """Mark the final project review as passed."""
 
+    sid = current_session_id.get()
+    if sid:
+        get_session(sid).last_project_review_subprocess_report = ''
     cleaned = (summary or '').strip()
     if cleaned:
         return f'Project review approved.\n\nSummary:\n{cleaned}'
@@ -563,7 +609,16 @@ def reject_project_review(feedback: str) -> str:
     """Mark the final project review as failed and return actionable feedback for a retry pass."""
 
     cleaned = (feedback or '').strip() or '(no details)'
-    return f'Project review rejected.\n\nReviewer feedback:\n{cleaned}'
+    body = f'Project review rejected.\n\nReviewer feedback:\n{cleaned}'
+    sid = current_session_id.get()
+    if sid:
+        stash = (get_session(sid).last_project_review_subprocess_report or '').strip()
+        if stash:
+            body += (
+                '\n\nLast workspace test/smoke output (attached automatically for the coding planner):\n'
+                f'{stash}'
+            )
+    return body
 
 
 def project_review_specialist_tools() -> tuple[list[object], dict[str, object]]:

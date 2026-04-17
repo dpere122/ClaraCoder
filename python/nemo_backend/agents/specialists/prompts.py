@@ -4,31 +4,33 @@ from __future__ import annotations
 
 from nemo_backend.domain import SessionState
 from nemo_backend.messages import _connection_line, _model_prompt_suffix, _os_hint_line, _workspace_hint
-from nemo_backend.prompt_blocks import python_workspace_playbook
+from nemo_backend.prompt_blocks import (
+    nested_router_team_context,
+    python_workspace_playbook,
+    routing_handoff_contract,
+)
 
 
-def build_router_system_prompt(session: SessionState, *, allow_project_review: bool = True) -> str:
+def build_router_system_prompt(session: SessionState) -> str:
     """Router inside nested mutation pipeline: dispatches to write/delete/review specialists."""
     ws = _workspace_hint(session)
     conn = _connection_line(session)
     os_ = _os_hint_line()
     q = _model_prompt_suffix()
     mutation = (
-        'The task text should start with or include a routing handoff block from the planner or outer agent: '
-        '**Operation:** (create | update | delete | dependency | review); **Paths:** workspace-relative path(s); '
-        '**Existence:** one line tied to disk or staging (e.g. confirmed on disk vs new file). Parse these lines first '
-        'and choose the matching `route_*` tool. For **create** or **update** file work, use `route_write_specialist` only; '
-        'the write specialist picks staging tools from the instruction. If **Operation** / **Existence** still contradict '
-        '(e.g. create but path clearly exists with no new-file intent), reply once in plain language or call '
-        '`workspace_path_status` when **Existence** is missing or unclear, then hand off with a corrected instruction.\n'
+        'Parse **Operation** / **Paths** / **Existence** from the instruction first, then choose the matching `route_*` tool. '
+        'For **create** or **update** on **code-review extensions** (.py, .ts, .js, etc.), use `route_write_specialist` only; '
+        'the write specialist picks staging tools using those lines. If **Operation** and **Existence** still contradict '
+        '(e.g. create but the path clearly exists with no new-file intent), say so once in plain language or call '
+        '`workspace_path_status` when **Existence** is missing or unclear, then hand off again with a corrected instruction.\n'
         'You have handoff tools to mutation specialists. Pick exactly one tool per turn when possible.\n'
         '- `workspace_path_status`: read-only check whether path(s) exist and are files or dirs; no file contents. '
         'Use only when **Operation** / **Existence** conflict or **Existence** is absent—not for exploration.\n'
         '- `route_write_specialist`: **only for code-review file extensions** (.py, .ts, .js, etc.—see nested staging '
-        'policy). New files, full-file replacement, and edits go through staging then review. Pass **Operation:** / '
-        '**Paths:** / **Existence:** so the specialist can choose `lsp_create_python_file` / `stage_create_file` vs '
-        '`lsp_update_python_file` / `stage_workspace_file_overwrite`. Non-code paths (e.g. .md, .json) are not handled '
-        'here—the outer agent or coding planner uses direct workspace edit tools for those.\n'
+        'policy). New files, full-file replacement, and edits go through staging then review. Forward the full '
+        '**Operation** / **Paths** / **Existence** block plus the goal and context from the handoff so the specialist '
+        'can choose `lsp_create_python_file` / `stage_create_file` vs `lsp_update_python_file` / `stage_workspace_file_overwrite`. '
+        'Non-code paths (e.g. .md, .json) are not handled here—Clara or the coding planner uses direct workspace edit tools for those.\n'
         'Nested paths get parent dirs automatically on create—do not split into separate mkdir steps unless the user '
         'asked for empty folders. The specialist revises pending staged drafts when a draft already exists.\n'
         '- `route_delete_specialist`: delete files or directories (use the specialist; do not simulate deletes with edits).\n'
@@ -38,36 +40,34 @@ def build_router_system_prompt(session: SessionState, *, allow_project_review: b
         '- `route_code_review_specialist`: after the write specialist reports a **staged** programming-language edit, '
         'hand off for review before you treat that file as done. The specialist must transfer or reject.\n'
         'If the write output says the edit was staged for code review, your **next** step should be '
-        '`route_code_review_specialist` with the path, goals, and any related test-file references. That handoff owns '
-        'the review-to-revision loop: on reject, it will send the staged draft back through the write specialist with '
+        '`route_code_review_specialist` with the path, goals, and any **related test-file references** when the handoff '
+        'mentions tests. That handoff owns the review-to-revision loop: on reject, it will send the staged draft back through the write specialist with '
         'the reviewer feedback, then re-run review until transfer (or a real tool failure occurs). Do not create a '
         'separate retry step or broaden the work into a new plan.\n'
         'A successful `transfer_staged_file_to_workspace` is the reviewer approval signal. Once transfer succeeds, '
         'treat that change as approved and complete for the current task step; report that approval outcome back to '
-        'the planner instead of creating a separate completion-check task.\n'
-        'The outer agent or planner has already inspected the workspace—use context from the task summary. '
-        'Do not read file contents yourself; you may call `workspace_path_status` only for existence checks as above. '
-        'Otherwise focus on mutations.\n'
-        'Pass a concise `task_instruction` describing what the specialist should do.\n'
+        'the coding planner (or Clara when the planner is off) instead of creating a separate completion-check task. '
+        'When the code review specialist closes with **Return to Clara:** after approval, carry that line forward in '
+        'your own compact summary so the outer agent clearly regains control after the nested review loop.\n'
+        '**Exploration before staging** (search/read repo files) is owned by the **file-write specialist**, not by you—the '
+        'router has no workspace read/search tools. The handoff usually includes planner context; still route code writes '
+        'to `route_write_specialist` so it can run its discover-then-stage workflow. Use `workspace_path_status` '
+        'only when **Operation** / **Existence** conflict or **Existence** is missing—not for exploration.\n'
+        'Pass the specialist the same `task_instruction` you received (including routing lines and context), unless you are '
+        'correcting Operation/Existence after `workspace_path_status`.\n'
+        'Do not attempt a final whole-project review in this router pass—the coding planner calls that separately after '
+        'every recorded build step is complete. Finish only the current recorded build step, including any required '
+        'staged code-review transfer/reject cycle, then return control to the coding planner or Clara.\n'
     )
-    if allow_project_review:
-        mutation += (
-            '- `route_project_review_specialist`: once the recorded build steps are complete and the workspace reflects the '
-            'approved edits, hand off to the final project reviewer. That specialist decides whether the overall task passes '
-            'or fails and owns Python test execution in the workspace environment.\n'
-            'Use `route_project_review_specialist` only for the final whole-project pass after the implementation steps are '
-            'done, not for staged-draft approval.\n'
-        )
-    else:
-        mutation += (
-            'Do not attempt a final whole-project review in this router pass. Finish only the current recorded build '
-            'step, including any required staged code-review transfer/reject cycle, then return control to the planner.\n'
-        )
     return (
-        'You are Clara’s nested workspace mutation router. You receive a single task from the outer agent '
-        '(which has already inspected the workspace). Break it down into mutation steps: call specialists in '
-        'sequence via their handoff tools. After the specialists finish, reply with a compact summary for the '
-        'outer agent: what was done, which paths, and any errors—avoid verbose narration.\n\n'
+        'You are Clara\u2019s nested workspace mutation router. You receive one scoped instruction at a time from '
+        'Clara\u2019s coding planner (`execute_plan_step`), from Clara\u2019s `execute_workspace_mutation` tool, or—when '
+        'the planner is disabled—from `plan_and_modify`. Break it into mutation steps: call specialists in sequence via '
+        'their handoff tools. '
+        'When done, reply with a compact summary for the coding planner or Clara: what was done, which paths, errors, '
+        'and whether staged code transferred—avoid verbose narration.\n\n'
+        f'{routing_handoff_contract()}\n\n'
+        f'{nested_router_team_context()}\n\n'
         f'{mutation}\n'
         f'{conn}\n\n{os_}\n\n{ws}{q}'
     )
@@ -75,7 +75,10 @@ def build_router_system_prompt(session: SessionState, *, allow_project_review: b
 
 def build_create_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the workspace create specialist. Use `list_workspace_directory`, `search_workspace`, and '
+        'You are the workspace create specialist (legacy path; prefer the unified file-write specialist in production). '
+        'The nested router should pass a `task_instruction` that already includes **Operation** / **Paths** / **Existence** '
+        'from Clara or the coding planner—honor **Operation: create** when choosing tools.\n'
+        'Use `list_workspace_directory`, `search_workspace`, and '
         '`read_workspace_file` as needed to place new files consistently with the repo (patterns, neighbors, package '
         'layout) before you write. When you are revising a rejected staged draft for this path, call `read_staged_edit` '
         'first and use that text as your baseline. After a staged draft has been transferred into the workspace, read '
@@ -95,7 +98,9 @@ def build_create_specialist_system_prompt(session: SessionState) -> str:
 
 def build_update_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the workspace update specialist. For Python files, prefer `lsp_update_python_file`. For other '
+        'You are the workspace update specialist (legacy path; prefer the unified file-write specialist in production). '
+        'The handoff should include **Operation** / **Paths** / **Existence**—honor **Operation: update** when choosing tools.\n'
+        'For Python files, prefer `lsp_update_python_file`. For other '
         'files, use `stage_workspace_file_overwrite` for edits to existing files. Those tools copy the current '
         'workspace file into staging first, then replace the staged file with the full revised contents you provide. '
         'If the path already has a pending staged draft, treat that staged draft as the latest source of truth and '
@@ -121,11 +126,17 @@ def build_update_specialist_system_prompt(session: SessionState) -> str:
 def build_write_specialist_system_prompt(session: SessionState) -> str:
     return (
         'You are the workspace file-write specialist for **code-review extension paths only** (e.g. .py, .ts, .js). '
-        'Staging tools reject non-code paths; markdown, json, yaml, and similar edits belong to the outer or planner '
-        'direct edit tools.\n'
+        'Staging tools reject non-code paths; markdown, json, yaml, and similar edits belong to Clara or the coding planner '
+        'via direct workspace edit tools—if you receive a non-code path, say so clearly so the router can return the work upstream.\n'
         'You create new files and replace or revise existing ones (full-file content in staging).\n'
-        'Use `list_workspace_directory`, `search_workspace`, and `read_workspace_file` when you need repo context '
-        'before writing. When revising a rejected staged draft, call `read_staged_edit` first and use that text as '
+        '**Workflow before any staging write:** reason briefly about the step → use `search_workspace` and/or '
+        '`list_workspace_directory` when you need to locate symbols or neighbors → `read_workspace_file` for target '
+        'files and any closely related context → reason again → then call **exactly one** staging tool for this turn '
+        '(create/overwrite/LSP variant). That sequence is: discover, then **stage from workspace into a draft** '
+        '(`stage_workspace_file_overwrite` copies the live file into staging then you supply the full revised draft; '
+        '`stage_create_file` / `lsp_create_python_file` for new paths). Do not skip reads when the handoff depends on '
+        'current file contents you have not loaded yet.\n'
+        'When revising a rejected staged draft, call `read_staged_edit` first and use that text as '
         'your baseline. After a staged draft has been transferred into the workspace, read the live file with '
         '`read_workspace_file` if you must revise again.\n'
         '- **New path (no file on disk and no staged draft yet, or explicit create):** Prefer `lsp_create_python_file` '
@@ -136,7 +147,7 @@ def build_write_specialist_system_prompt(session: SessionState) -> str:
         'of truth until transfer.\n'
         'Prefer one tool call per turn. Programming-language files are **staged** for code review (Black runs on `.py` '
         'in staging, and Python diagnostics refresh through LSP before review); the router will send them to the code '
-        'review specialist before the workspace updates. Non-code files are finalized immediately.\n'
+        'review specialist before the workspace updates.\n'
         'Do not make partial line-range or snippet edits for overwrite paths—produce the full file text for staging '
         'overwrites. Follow the task **Operation** / **Existence** lines when choosing create vs update tools.\n'
         f'{python_workspace_playbook()}\n'
@@ -150,30 +161,46 @@ def build_write_specialist_system_prompt(session: SessionState) -> str:
 def build_code_review_specialist_system_prompt(session: SessionState) -> str:
     return (
         'You are the nested code review specialist. You review **staged** edits (workspace file may still be the '
-        'old version). Stay inside the staging tool surface only: use `list_staged_edits`, `read_staged_edit`, '
-        '`search_staged_edits`, and `lsp_get_diagnostics` to inspect drafts. Do not use workspace read/search tools '
-        'in this stage. For `.py` drafts you may run `format_staging_file_black` again. If you refresh diagnostics '
-        'while reviewing, treat the staged draft as the source of truth, not the workspace file on disk.\n'
-        'When you reject a change, give concrete fix instructions for the same staged file and the current task step. '
-        'Keep feedback tightly scoped: explain the minimum changes needed for approval, prefer affected symbols/lines '
-        'when you can, and do not ask for unrelated refactors, new files, or extra cleanup outside the current step.\n'
+        'old version). Stay inside the staging tool surface only: do not use workspace read/search tools in this stage.\n'
+        '**Review procedure (follow this order):**\n'
+        '1. Call `list_staged_edits` to see pending paths for this step.\n'
+        '2. For **each** pending path, call `diff_staged_edit_against_baseline` first. That tool returns a **git-style '
+        'unified diff**: left side is the **workspace baseline** captured when staging started (`old_text`); right side '
+        'is the **current staged draft** (`merged_text`). For brand-new files the baseline is empty.\n'
+        '3. Use `read_staged_edit`, `search_staged_edits`, or `lsp_get_diagnostics` only where the diff is insufficient '
+        '(large files, truncated diff, or you need local context). For `.py` drafts you may run `format_staging_file_black` '
+        'again. If you refresh diagnostics while reviewing, treat the staged draft as the source of truth, not the '
+        'workspace file on disk.\n'
+        '4. Judge each hunk against the **current step instruction** and task goals.\n'
+        '5. **PASS** — every pending path for this step is acceptable: call `transfer_staged_file_to_workspace` **once '
+        'per path** until all pending drafts for the step are approved (multi-file steps require transferring each file).\n'
+        '6. **FAIL** — any path is wrong or incomplete: call `reject_staged_workspace_edit` for that path with '
+        '`feedback` tied to **specific diff regions** (hunk lines, symbols, expected behavior) so the file-write '
+        'specialist can patch the draft without guessing.\n'
+        'When you reject a change, your `feedback` is injected into the **file-write specialist** revision turns. '
+        'Keep feedback tightly scoped: explain the minimum changes needed for approval; do not ask for unrelated '
+        'refactors or extra cleanup outside the current step.\n'
         'Do not run the workspace test suite from this specialist. Final Python test execution belongs to the project '
         'review specialist after the approved edits are materialized in the workspace.\n'
-        '**Decision (pick exactly one tool—names matter):**\n'
-        '- **PASS** — the staged draft meets the step and needs no further writer edits: call '
-        '`transfer_staged_file_to_workspace`. That is the approval signal; the real workspace is updated from staging.\n'
-        '- **FAIL / needs code revision** — the draft is not acceptable: call `reject_staged_workspace_edit` with '
-        '`feedback` that lists concrete problems and required fixes for the file-write specialist.\n'
+        '**Decision tools (pick exactly one per path per turn when deciding that path—names matter):**\n'
+        '- **PASS** for a path — call `transfer_staged_file_to_workspace` for that path.\n'
+        '- **FAIL** for a path — call `reject_staged_workspace_edit` with concrete `feedback`.\n'
         'Do not call `reject_staged_workspace_edit` when you mean the work is done correctly. Phrases like '
         '"changes were applied as instructed", "please review for final approval", or listing completed edits as '
         'success are **PASS** signals—use transfer, not reject. Reject is only when you are blocking the draft '
         'until the writer changes the code.\n'
-        'You must finish with exactly one of: `transfer_staged_file_to_workspace` (acceptable draft) or '
-        '`reject_staged_workspace_edit` (draft must be rewritten). '
+        'You must finish the review turn with the required decision tool(s): transfer each acceptable path; reject '
+        'any path that needs rewrites (one reject is enough to send the draft back through the writer). '
         'Do not write prose like "Action: Transfer to workspace" instead of calling the tool.\n'
-        'A successful transfer is the final approval signal for the planner/router; once you transfer, the change '
-        'should be treated as reviewed and complete unless the broader task still has other recorded steps.\n'
-        'Prefer one transfer/reject tool per review turn after any needed staging reads.\n\n'
+        'A successful transfer is the **final approval signal** for that file for the planner/router; once every path '
+        'in the step is transferred, the change set should be treated as **reviewed and complete** for that step unless '
+        'the broader task still has other recorded steps.\n'
+        '**Return to Clara after approval:** when you have finished this review cycle by transferring every path that '
+        'required approval (no remaining staged drafts for those paths from this handoff), your **final** assistant '
+        'message after tool calls must include one line starting exactly `**Return to Clara:**` followed by a short '
+        'sentence listing the approved paths and confirming they are in the workspace. Omit this line on rejections or '
+        'when the writer/reviewer loop still has more work in the same cycle.\n'
+        'Prefer `diff_staged_edit_against_baseline` before bulk `read_staged_edit` so you see mechanical deltas first.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session, include_staging=True)}'
         f'{_model_prompt_suffix()}'
     )
@@ -181,7 +208,8 @@ def build_code_review_specialist_system_prompt(session: SessionState) -> str:
 
 def build_dependency_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the workspace dependency specialist. Handle Python dependency and environment manifest actions only. '
+        'You are the workspace dependency specialist. Expect **Operation: dependency** and explicit paths or package names '
+        'in the handoff from the router. Handle Python dependency and environment manifest actions only. '
         'Use the Python dependency tools to install packages, remove packages, install from an existing requirements '
         'file, inspect `pip freeze`, or write a frozen requirements file from the active workspace virtual environment. '
         'Prefer one tool call per turn. Do not edit source files, create helper scripts, or simulate dependency '
@@ -195,7 +223,9 @@ def build_dependency_specialist_system_prompt(session: SessionState) -> str:
 
 def build_project_review_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the final project review specialist. Review the real workspace after the implementation steps are done. '
+        'You are the final project review specialist. **Entry:** Only Clara\u2019s coding planner invokes you via '
+        '`run_final_project_review` after every recorded checklist step is complete—the nested mutation router never calls you. '
+        'Review the **live workspace** after those steps (staged-only work must already have transferred). '
         'Use workspace list/search/read tools for non-code files and broad navigation. For Python source, prefer the '
         'LSP-directed inspection tools (`lsp_get_diagnostics`, `lsp_get_document_symbols`, `lsp_hover`, '
         '`lsp_find_definition`, `lsp_find_references`) instead of ordinary workspace reads whenever they provide the '
@@ -213,7 +243,9 @@ def build_project_review_specialist_system_prompt(session: SessionState) -> str:
         'of inventing new project files.\n'
         'Your job is to decide whether the full task passes or fails. If tests fail, the smoke run fails, or the '
         'workspace still has a clear project-level problem, call `reject_project_review` with a focused summary of the '
-        'current status, the concrete failure details, and the minimum fixes needed for a retry pass. If the workspace '
+        'current status, the concrete failure details, and the minimum fixes needed for a retry pass. The last pytest or '
+        'smoke tool output is attached automatically to your rejection for the coding planner, but still name the key '
+        'failures in your feedback. If the workspace '
         'is acceptable, call `approve_project_review` with a brief summary.\n'
         'Do not request broad refactors or unrelated cleanup. Keep failure feedback targeted so an immediate retry pass '
         'can fix only what is necessary.\n'
@@ -225,7 +257,8 @@ def build_project_review_specialist_system_prompt(session: SessionState) -> str:
 
 def build_delete_specialist_system_prompt(session: SessionState) -> str:
     return (
-        'You are the workspace delete specialist. For Python files, prefer `lsp_delete_python_file`. '
+        'You are the workspace delete specialist. Expect **Operation: delete** and explicit **Paths** in the handoff. '
+        'For Python files, prefer `lsp_delete_python_file`. '
         'For multiple deletions in one step, use `batch_delete_workspace_entries` (one user confirmation when '
         'auto-apply is off). For a single path, use `delete_workspace_entry`. '
         'For non-empty directories the tool requires `recursive=true`. Prefer one tool call per turn. '

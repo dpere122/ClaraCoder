@@ -4,6 +4,9 @@ import type { CopyConfirmPayload } from './copy-confirm';
 import type { DeleteConfirmPayload } from './delete-confirm';
 import type { LlmAgentRole, PlannerProgress } from './llm';
 
+/** One OpenAI-style multimodal block for POST /chat/stream (`structuredContent` / `structured_content`). */
+export type ChatStructuredContentPart = Readonly<Record<string, unknown>>;
+
 /** One labeled segment of an in-flight assistant reply (multiplexed LLM subgraphs share one bubble). */
 export interface StreamPart {
   streamTag: string;
@@ -29,7 +32,7 @@ export interface ConversationMeta {
 
 /** One message in the chat UI (user/assistant text or tool chain row). */
 export type ConversationMessage =
-  | { role: 'user'; text: string }
+  | { role: 'user'; text: string; structuredContent?: readonly ChatStructuredContentPart[] }
   | { role: 'assistant'; text: string; planner?: PlannerProgress; toolStreams?: StreamPart[] }
   | {
       role: 'chain';
@@ -75,7 +78,7 @@ export interface Conversation extends ConversationMeta {
 
 /** Serialized chat row in conversation JSON (includes tool/diff metadata). */
 export type ConversationFileMessage =
-  | { role: 'user'; text: string }
+  | { role: 'user'; text: string; structuredContent?: readonly ChatStructuredContentPart[] }
   | { role: 'assistant'; text: string; planner?: PlannerProgress; toolStreams?: StreamPart[] }
   | {
       role: 'chain';

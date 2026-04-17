@@ -112,6 +112,22 @@ describe('parseAgentStreamPayload', () => {
       streamTag: 'spec-project_review-tests',
       exitCode: null,
     });
+
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'tool_exec_complete',
+          stream_tag: 'spec-project_review-smoke',
+          exit_code: 1,
+          output_excerpt: 'Traceback (most recent call last):',
+        }),
+      ),
+    ).toEqual({
+      type: 'tool_exec_complete',
+      streamTag: 'spec-project_review-smoke',
+      exitCode: 1,
+      outputExcerpt: 'Traceback (most recent call last):',
+    });
   });
 
   it('parses review payload variants without falling back to plain chunks', () => {

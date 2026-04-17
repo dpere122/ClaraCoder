@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 from nemo_backend.domain import SessionState
 from nemo_backend.model_tuning import combined_model_prompt_suffix
+from nemo_backend.prompt_blocks import routing_handoff_contract
 from nemo_backend.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
@@ -25,7 +26,7 @@ def session_to_messages(session: SessionState) -> list[BaseMessage]:
     result: list[BaseMessage] = []
     for item in session.history:
         role = item.get('role', 'user')
-        content = item.get('content', '')
+        content: Any = item.get('content', '')
         if role == 'assistant':
             result.append(AIMessage(content=content))
         elif role == 'system':
@@ -49,6 +50,10 @@ def stringify_content(content: Any) -> str:
                 text = item.get('text') or item.get('content')
                 if text:
                     parts.append(str(text))
+                    continue
+                kind = str(item.get('type') or '').strip()
+                if kind:
+                    parts.append(f'[{kind}]')
                 continue
             text = getattr(item, 'text', None)
             if text:
@@ -167,7 +172,7 @@ def _os_hint_line() -> str:
 
 
 def _outer_agent_operational_block(apply_mode: bool) -> str:
-    """Outer Clara: reads/search; direct copy; ``modify_workspace`` for other mutations when Editor is on."""
+    """Outer Clara: reads/search; direct copy; nested mutation tools for source code when Editor is on."""
     base = (
         'Operational guidance:\n'
         '- For codebase questions, inspect the workspace before making claims.\n'
@@ -194,22 +199,39 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         )
     return (
         base
-        + '- Editor mode is on: you have read/search tools, `copy_workspace_files`, direct workspace edit tools for '
-        '**non-code** paths, and `modify_workspace` for **source code** changes.\n'
-        '- **Source code** (code-review extensions such as .py, .ts, .js, .tsx, .go, .rs, etc.): use only '
-        '`modify_workspace` for creates and edits so work goes through nested staging and code review. Direct edit '
-        'tools reject those paths.\n'
+        + '- Editor mode is on: you have read/search tools, `copy_workspace_files`, `delete_workspace_entry` and '
+        '`batch_delete_workspace_entries` (any workspace path; non-empty dirs need `recursive=true`; the UI may ask '
+        'for confirmation when auto-apply is off), direct workspace edit tools for **non-code** paths, and nested tools '
+        'for **source code**: `execute_workspace_mutation` (single focused step, router + specialists only) and '
+        '`plan_and_modify` (planner when enabled: discovery, multi-step plan, final project review).\n'
+        '- **Source code** (code-review extensions such as .py, .ts, .js, .tsx, .go, .rs, etc.): use '
+        '`execute_workspace_mutation` or `plan_and_modify`—never direct edit tools—so work goes through nested staging '
+        'and code review. Those tools always reach the same **file-write specialist** subgraph the planner uses '
+        '(discover, stage, then code review before the workspace updates). Do not paste full source files into chat as a '
+        'substitute for running that pipeline.\n'
         '- **Non-code** (e.g. .md, .json, .yaml, .txt): use `apply_workspace_full_file`, `replace_workspace_line_range`, '
         'or `replace_workspace_snippet` for CRUD-style edits; they open diffs or auto-apply per settings.\n'
         '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
-        'Read and inspect relevant files first. For `modify_workspace`, use a clear `task_summary` with goal, '
-        'constraints, paths, and gathered context. For each logical **code** path, include a routing handoff block: '
-        '**Operation:** (create | update | delete | dependency | review when obvious); **Paths:** workspace-relative '
-        'path(s); **Existence:** one line grounded in what you verified (e.g. confirmed on disk vs new file; parent '
-        'dir exists: yes/no).\n'
+        'Read and inspect relevant files first. For `execute_workspace_mutation` and `plan_and_modify`, use a clear '
+        '`task_summary`: after discovery, put the **Routing handoff** block first (same contract the coding planner uses '
+        'for `execute_plan_step`), then goal, constraints, acceptance hints, and the **minimum** context (paths, symbols, '
+        'short excerpts) so the nested router and specialists do not repeat your reads. For code steps, nested review '
+        'compares workspace baseline vs staged draft with a mechanical diff tool before approval; list every code path '
+        'the step must touch so each can be transferred after review.\n'
+        f'{routing_handoff_contract()}\n'
+        '- **Inspect–integrate–mutate–verify (nested source work):** Before delegating, base **Existence** on tools, not '
+        'only the user message—for **update** (or when a path might already exist), use `read_workspace_file` and/or LSP '
+        'reads on those paths first so you augment or replace real content, not a guess. When adding I/O, config, '
+        'logging, or helpers, use `search_workspace` to find existing patterns and reuse them when they fit.\n'
+        '- **After** `execute_workspace_mutation` or `plan_and_modify` returns, for each touched **Python** path you '
+        'care about, call `lsp_get_diagnostics` (use `refresh_from_workspace=true` when you need the workspace on disk) '
+        'before telling the user the change is clean; mention any remaining diagnostics in your summary.\n'
+        '- **Incremental mutations:** Prefer `execute_workspace_mutation` (or several calls) for a **single verifiable** '
+        'slice; use `plan_and_modify` when you need multi-step discovery, a checklist, or final project review across '
+        'multiple build actions.\n'
         '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
-        '- After `modify_workspace` returns, answer the user with a concise summary of outcomes (files touched, '
-        'key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
+        '- After `execute_workspace_mutation` or `plan_and_modify` returns, answer the user with a concise summary of '
+        'outcomes (files touched, key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
         '- If the tool result ends with **Notes for Clara**, treat that block as authoritative handoffs from the '
         'planner and review specialists (checklist, code review outcomes, final review). Fold them into your reply '
         'to the user in plain language.\n'

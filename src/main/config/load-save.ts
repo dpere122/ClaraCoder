@@ -98,6 +98,24 @@ export function migrateConfig(config: AppConfig): AppConfig {
     if (connection.reasoningEffort === undefined) {
       connection.reasoningEffort = '';
       migrated = true;
+    } else {
+      const raw = String(connection.reasoningEffort).trim().toLowerCase();
+      const allowed: Array<NonNullable<LlmConnectionConfig['reasoningEffort']>> = [
+        '',
+        'none',
+        'minimal',
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'on',
+        'off',
+      ];
+      const normalized = (allowed as string[]).includes(raw) ? (raw as LlmConnectionConfig['reasoningEffort']) : '';
+      if (connection.reasoningEffort !== normalized) {
+        connection.reasoningEffort = normalized;
+        migrated = true;
+      }
     }
     if (typeof connection.temperature !== 'number' || Number.isNaN(connection.temperature)) {
       connection.temperature = 0;
@@ -116,10 +134,73 @@ export function migrateConfig(config: AppConfig): AppConfig {
     if (
       connection.optimizationPreset !== 'generic' &&
       connection.optimizationPreset !== 'qwen' &&
-      connection.optimizationPreset !== 'capable'
+      connection.optimizationPreset !== 'capable' &&
+      connection.optimizationPreset !== 'gemma'
     ) {
       connection.optimizationPreset = 'generic';
       migrated = true;
+    }
+    if (connection.thinkingMode === undefined) {
+      connection.thinkingMode = 'default';
+      migrated = true;
+    } else {
+      const tm = String(connection.thinkingMode).trim().toLowerCase();
+      const allowedTm: LlmConnectionConfig['thinkingMode'][] = ['default', 'on', 'off'];
+      const ntm = (allowedTm as string[]).includes(tm) ? (tm as LlmConnectionConfig['thinkingMode']) : 'default';
+      if (connection.thinkingMode !== ntm) {
+        connection.thinkingMode = ntm;
+        migrated = true;
+      }
+    }
+    if (connection.samplingPreset === undefined) {
+      connection.samplingPreset = 'provider-default';
+      migrated = true;
+    } else {
+      const sp = String(connection.samplingPreset).trim().toLowerCase();
+      const allowedSp: LlmConnectionConfig['samplingPreset'][] = ['provider-default', 'gemma-recommended', 'custom'];
+      const nsp = (allowedSp as string[]).includes(sp) ? (sp as LlmConnectionConfig['samplingPreset']) : 'provider-default';
+      if (connection.samplingPreset !== nsp) {
+        connection.samplingPreset = nsp;
+        migrated = true;
+      }
+    }
+    if (connection.architectureHint === undefined) {
+      connection.architectureHint = 'auto';
+      migrated = true;
+    } else {
+      const ah = String(connection.architectureHint).trim().toLowerCase();
+      const allowedAh: LlmConnectionConfig['architectureHint'][] = ['auto', 'dense', 'moe'];
+      const nah = (allowedAh as string[]).includes(ah) ? (ah as LlmConnectionConfig['architectureHint']) : 'auto';
+      if (connection.architectureHint !== nah) {
+        connection.architectureHint = nah;
+        migrated = true;
+      }
+    }
+    if (connection.topP !== undefined && connection.topP !== null) {
+      const tp = Number(connection.topP);
+      if (Number.isNaN(tp)) {
+        delete connection.topP;
+        migrated = true;
+      } else {
+        const c = Math.min(1, Math.max(0, tp));
+        if (c !== connection.topP) {
+          connection.topP = c;
+          migrated = true;
+        }
+      }
+    }
+    if (connection.topK !== undefined && connection.topK !== null) {
+      const tk = Math.floor(Number(connection.topK));
+      if (Number.isNaN(tk)) {
+        delete connection.topK;
+        migrated = true;
+      } else {
+        const c = Math.min(256, Math.max(1, tk));
+        if (c !== connection.topK) {
+          connection.topK = c;
+          migrated = true;
+        }
+      }
     }
     if (typeof connection.maxOutputTokens !== 'number' || Number.isNaN(connection.maxOutputTokens)) {
       connection.maxOutputTokens = 0;

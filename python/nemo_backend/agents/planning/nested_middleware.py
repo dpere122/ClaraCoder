@@ -1,8 +1,11 @@
-"""Intercept ``modify_workspace`` on the LangGraph outer agent: stream nested router/specialists to SSE.
+"""Intercept outer nested-mutation tools on the LangGraph agent: stream nested router/specialists to SSE.
 
-When the coding planner is enabled (default), delegates to ``run_coding_planner_stream`` which
-reads workspace files, plans the work, then executes steps through the router/specialists pipeline.
-When disabled, delegates directly to ``run_planning_nested_stream`` (the router) as before.
+``plan_and_modify``: when the coding planner is enabled (default), delegates to
+``run_coding_planner_orchestrated_stream`` (probe, fast path, or full planner graph), then the router/specialists
+pipeline. When the planner is disabled, delegates directly to ``run_planning_nested_stream``.
+
+``execute_workspace_mutation``: always delegates to ``run_planning_nested_stream`` (no coding planner), for single
+focused mutations with the same staging and code-review behavior.
 """
 
 from __future__ import annotations
@@ -18,12 +21,12 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from nemo_backend.agent_loop import NestedWorkerRunResult, NestedWorkerRunState, normalize_retry_budget
-from nemo_backend.agents.coding_planner.pipeline import run_coding_planner_stream
+from nemo_backend.agents.coding_planner.pipeline import run_coding_planner_orchestrated_stream
 from nemo_backend.agents.orchestration.nested_pipeline import NESTED_WORKER_STREAM_END, run_planning_nested_stream
 from nemo_backend.config import NEMO_CODING_PLANNER_ENABLED, NEMO_WORKER_RESULT_MAX_CHARS
 from nemo_backend.planner_graph_session import prepare_new_planner_graph_session
 from nemo_backend.state import current_session_id, get_active_connection, get_session, mutation_tools_blocked_reason
-from nemo_backend.tool_registry import MODIFY_WORKSPACE_NAME
+from nemo_backend.agents.planning.tool import NESTED_OUTER_MUTATION_TOOL_NAMES, PLAN_AND_MODIFY_NAME
 
 logger = logging.getLogger('nemo.agent.langgraph.planning')
 
@@ -39,8 +42,8 @@ def _truncate_for_outer_agent(text: str) -> str:
     )
 
 
-def _append_modify_workspace_outer_briefs(sess: Any, content: str) -> str:
-    briefs = getattr(sess, 'modify_workspace_outer_briefs', None) or []
+def _append_plan_and_modify_outer_briefs(sess: Any, content: str) -> str:
+    briefs = getattr(sess, 'plan_and_modify_outer_briefs', None) or []
     if not briefs:
         return content
     return (
@@ -104,21 +107,29 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
         session_id: str,
         current_task_summary: str,
         nested_q: Any,
-        reentry_attempts: int,
-        reentry_budget: int,
+        retry_budget: int,
+        route_via_coding_planner: bool,
     ) -> NestedWorkerRunResult:
         done_ev = asyncio.Event()
         sess.planning_nested_done_event = done_ev
         try:
             try:
                 prepare_new_planner_graph_session(sess, session_id)
-                if NEMO_CODING_PLANNER_ENABLED:
+                if route_via_coding_planner and NEMO_CODING_PLANNER_ENABLED:
                     logger.info(
-                        'modify_workspace intercepted — routing through coding planner '
-                        '(NEMO_CODING_PLANNER_ENABLED=True, graph_attempt=%s)',
-                        reentry_attempts,
+                        'plan_and_modify intercepted — routing through coding planner '
+                        '(NEMO_CODING_PLANNER_ENABLED=True)',
                     )
-                    raw_final = await run_coding_planner_stream(
+                    raw_final = await run_coding_planner_orchestrated_stream(
+                        sess,
+                        session_id,
+                        current_task_summary,
+                        nested_q,
+                        self._checkpointer,
+                    )
+                elif route_via_coding_planner:
+                    logger.info('plan_and_modify intercepted — routing directly to planning router (planner disabled)')
+                    raw_final = await run_planning_nested_stream(
                         sess,
                         session_id,
                         current_task_summary,
@@ -126,7 +137,9 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
                         self._checkpointer,
                     )
                 else:
-                    logger.info('modify_workspace intercepted — routing directly to planning router (planner disabled)')
+                    logger.info(
+                        'execute_workspace_mutation intercepted — nested router only (coding planner skipped)',
+                    )
                     raw_final = await run_planning_nested_stream(
                         sess,
                         session_id,
@@ -140,8 +153,8 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
                 return NestedWorkerRunResult(
                     state=NestedWorkerRunState.FAILED,
                     output_text=f'Tool error: {err}',
-                    reentry_attempts=reentry_attempts,
-                    retry_budget=reentry_budget,
+                    reentry_attempts=0,
+                    retry_budget=retry_budget,
                 )
 
             terminal_state = await _wait_for_nested_terminal_signal(sess, done_ev)
@@ -149,35 +162,15 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
                 return NestedWorkerRunResult(
                     state=NestedWorkerRunState.ABORTED,
                     output_text='Aborted by user.',
-                    reentry_attempts=reentry_attempts,
-                    retry_budget=reentry_budget,
+                    reentry_attempts=0,
+                    retry_budget=retry_budget,
                 )
 
-            reentry_request = sess.pending_project_review_reentry
-            if not NEMO_CODING_PLANNER_ENABLED or reentry_request is None:
-                return NestedWorkerRunResult(
-                    state=NestedWorkerRunState.COMPLETED,
-                    output_text=raw_final,
-                    reentry_attempts=reentry_attempts,
-                    retry_budget=reentry_budget,
-                )
-            if reentry_attempts >= reentry_budget:
-                sess.pending_project_review_reentry = None
-                return NestedWorkerRunResult(
-                    state=NestedWorkerRunState.RETRY_EXHAUSTED,
-                    output_text=(
-                        f'{raw_final}\n\n'
-                        f'Planner reentry budget exhausted: PLAN_RETRY_ATTEMPTS_COUNT={reentry_budget}.'
-                    ),
-                    reentry_attempts=reentry_attempts,
-                    retry_budget=reentry_budget,
-                )
             return NestedWorkerRunResult(
-                state=NestedWorkerRunState.RETRY,
+                state=NestedWorkerRunState.COMPLETED,
                 output_text=raw_final,
-                next_task_summary=reentry_request.next_task_summary,
-                reentry_attempts=reentry_attempts,
-                retry_budget=reentry_budget,
+                reentry_attempts=0,
+                retry_budget=retry_budget,
             )
         finally:
             sess.planning_nested_done_event = None
@@ -188,7 +181,7 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
         name = str(request.tool_call.get('name') or '')
-        if name != MODIFY_WORKSPACE_NAME:
+        if name not in NESTED_OUTER_MUTATION_TOOL_NAMES:
             return await handler(request)
 
         session_id = current_session_id.get()
@@ -219,30 +212,18 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
         raw_args = request.tool_call.get('args')
         args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
         task_summary = (args.get('task_summary') or '').strip() or '(empty task summary)'
-        current_task_summary = task_summary
-        reentry_attempts = 0
-        reentry_budget = normalize_retry_budget(get_active_connection().plan_retry_attempts_count)
-        while True:
-            result = await self._run_nested_attempt(
-                sess=sess,
-                session_id=session_id,
-                current_task_summary=current_task_summary,
-                nested_q=nested_q,
-                reentry_attempts=reentry_attempts,
-                reentry_budget=reentry_budget,
-            )
-            if result.state == NestedWorkerRunState.RETRY:
-                reentry_attempts += 1
-                current_task_summary = result.next_task_summary or current_task_summary
-                logger.info(
-                    'Starting brand-new planner graph after project review failure '
-                    '(attempt=%s budget=%s)',
-                    reentry_attempts,
-                    reentry_budget,
-                )
-                continue
-            return _tool_message(
-                _append_modify_workspace_outer_briefs(sess, result.output_text),
-                tool_call_id=tool_call_id,
-                name=name,
-            )
+        retry_budget = normalize_retry_budget(get_active_connection().plan_retry_attempts_count)
+        route_via_coding_planner = name == PLAN_AND_MODIFY_NAME
+        result = await self._run_nested_attempt(
+            sess=sess,
+            session_id=session_id,
+            current_task_summary=task_summary,
+            nested_q=nested_q,
+            retry_budget=retry_budget,
+            route_via_coding_planner=route_via_coding_planner,
+        )
+        return _tool_message(
+            _append_plan_and_modify_outer_briefs(sess, result.output_text),
+            tool_call_id=tool_call_id,
+            name=name,
+        )

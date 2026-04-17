@@ -99,6 +99,9 @@
                     </div>
 
                     <p class='connection-card__model'>{{ connection.model }}</p>
+                    @if (connection.reasoningEffort) {
+                      <p class='connection-card__reasoning'>Reasoning {{ connection.reasoningEffort }}</p>
+                    }
                     <p class='connection-card__url'>{{ connection.baseUrl || 'Default provider URL' }}</p>
                   </button>
                 } @empty {
@@ -126,6 +129,13 @@
               <div class='info-row'>
                 <strong>LM Studio</strong>
                 <p>Great for local models. The default server URL usually stays `http://127.0.0.1:1234/v1`.</p>
+              </div>
+
+              <div class='info-row'>
+                <strong>Reasoning models</strong>
+                <p>
+                  Add a separate connection per model you use. Reasoning effort is stored on that profile and synced to the Python backend with the rest of the profile.
+                </p>
               </div>
             </div>
           </div>
@@ -203,6 +213,121 @@
                     <input type='text' [ngModel]='connection.model' (ngModelChange)='onModelChange($event)' />
                   </label>
 
+                  <label class='field field--full'>
+                    <span>Optimization template</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      Presets adjust tool calling, max output, sampling hints, and which advanced fields apply. Pick a template first, then tune the fields below.
+                    </p>
+                    <select
+                      [ngModel]='connection.optimizationPreset'
+                      (ngModelChange)='onOptimizationPresetChange($event)'
+                    >
+                      @for (p of presetsFor(connection.provider); track p.id) {
+                        <option [value]='p.id'>{{ p.label }}</option>
+                      }
+                    </select>
+                    @if (presetDescription(connection)) {
+                      <p class='settings-copy' style='margin: 0.5rem 0 0'>{{ presetDescription(connection) }}</p>
+                    }
+                  </label>
+
+                  @if (connection.optimizationPreset === 'gemma') {
+                    <label class='field field--full'>
+                      <span>Gemma thinking</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        Boolean thinking via the local chat template / LM Studio toggles, not OpenAI-style
+                        <code>reasoning_effort</code> tiers. Shown when the <strong>Gemma (LM Studio)</strong> optimization template is selected.
+                      </p>
+                      <select
+                        [ngModel]='connection.thinkingMode'
+                        (ngModelChange)='updateSelectedConnection({ thinkingMode: $event })'
+                      >
+                        <option value='default'>Default (no extra hint)</option>
+                        <option value='on'>On (encourage structured reasoning)</option>
+                        <option value='off'>Off (prefer direct answers)</option>
+                      </select>
+                    </label>
+
+                    <label class='field'>
+                      <span>Architecture hint (Gemma 4)</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        <strong>Auto</strong> lets the backend infer dense vs MoE from the model id. This only adjusts defaults and system notes, not expert routing.
+                      </p>
+                      <select
+                        [ngModel]='connection.architectureHint'
+                        (ngModelChange)='updateSelectedConnection({ architectureHint: $event })'
+                      >
+                        <option value='auto'>Auto</option>
+                        <option value='dense'>Dense</option>
+                        <option value='moe'>MoE</option>
+                      </select>
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Gemma sampling preset</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        <strong>Gemma recommended</strong> sends <code>top_p=0.95</code> and <code>top_k=64</code> (via model kwargs) per Google’s model card; combine with temperature (e.g. 1.0 from the Gemma template).
+                      </p>
+                      <select
+                        [ngModel]='connection.samplingPreset'
+                        (ngModelChange)='updateSelectedConnection({ samplingPreset: $event })'
+                      >
+                        <option value='provider-default'>Provider default (omit top_p / top_k)</option>
+                        <option value='gemma-recommended'>Gemma recommended (top_p / top_k)</option>
+                        <option value='custom'>Custom top_p / top_k</option>
+                      </select>
+                    </label>
+
+                    @if (connection.samplingPreset === 'custom') {
+                      <label class='field'>
+                        <span>top_p (0–1)</span>
+                        <input
+                          type='number'
+                          min='0'
+                          max='1'
+                          step='0.01'
+                          [ngModel]='connection.topP ?? 0.95'
+                          (ngModelChange)='onTopPChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>top_k (1–256)</span>
+                        <input
+                          type='number'
+                          min='1'
+                          max='256'
+                          step='1'
+                          [ngModel]='connection.topK ?? 64'
+                          (ngModelChange)='onTopKChange($event)'
+                        />
+                      </label>
+                    }
+                  }
+
+                  @if (connection.optimizationPreset !== 'gemma') {
+                    <label class='field field--full'>
+                      <span>Reasoning effort</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        Sent as <code>reasoning_effort</code> for OpenAI-style APIs (none … xhigh). Options
+                        <strong>on</strong> / <strong>off</strong> map to <strong>medium</strong> / <strong>none</strong> on the wire. Hidden for the Gemma optimization template (use Gemma thinking instead).
+                      </p>
+                      <select
+                        [ngModel]='connection.reasoningEffort || ""'
+                        (ngModelChange)='updateSelectedConnection({ reasoningEffort: $event })'
+                      >
+                        <option value=''>Default (omit)</option>
+                        <option value='on'>on (→ medium)</option>
+                        <option value='off'>off (→ none)</option>
+                        <option value='none'>none</option>
+                        <option value='minimal'>minimal</option>
+                        <option value='low'>low</option>
+                        <option value='medium'>medium</option>
+                        <option value='high'>high</option>
+                        <option value='xhigh'>xhigh</option>
+                      </select>
+                    </label>
+                  }
+
                   <label class='field'>
                     <span>Context window tokens</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>
@@ -216,24 +341,6 @@
                       [ngModel]='connection.contextWindowTokens'
                       (ngModelChange)='onContextWindowTokensChange($event)'
                     />
-                  </label>
-
-                  <label class='field field--full'>
-                    <span>Optimization template</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      Provider-specific presets adjust tool calling, max output, and prompts. You can still edit fields below afterward.
-                    </p>
-                    <select
-                      [ngModel]='connection.optimizationPreset'
-                      (ngModelChange)='onOptimizationPresetChange($event)'
-                    >
-                      @for (p of presetsFor(connection.provider); track p.id) {
-                        <option [value]='p.id'>{{ p.label }}</option>
-                      }
-                    </select>
-                    @if (presetDescription(connection)) {
-                      <p class='settings-copy' style='margin: 0.5rem 0 0'>{{ presetDescription(connection) }}</p>
-                    }
                   </label>
 
                   <label class='field'>
@@ -267,23 +374,6 @@
                   </label>
 
                   <label class='field field--full'>
-                    <span>Reasoning effort</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      For OpenAI reasoning-style models and compatible APIs (Chat Completions). Leave default if unsupported.
-                    </p>
-                    <select
-                      [ngModel]='connection.reasoningEffort || ""'
-                      (ngModelChange)='updateSelectedConnection({ reasoningEffort: $event })'
-                    >
-                      <option value=''>Default (omit)</option>
-                      <option value='minimal'>minimal</option>
-                      <option value='low'>low</option>
-                      <option value='medium'>medium</option>
-                      <option value='high'>high</option>
-                    </select>
-                  </label>
-
-                  <label class='field field--full'>
                     <span>Temperature (0–1): {{ formatTemperature(connection.temperature) }}</span>
                     <div class='temperature-row'>
                       <input
@@ -309,8 +399,7 @@
                   <div class='field field--full'>
                     <span>Parallel tool calls</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      When enabled, the model may request several tools in one completion. The Qwen template turns this off; generic +
-                      “qwen” in the model id may also force single-tool mode on the backend.
+                      When enabled, the model may request several tools in one completion. The <strong>Qwen</strong> optimization template turns this off in the UI and the backend keeps a single-tool call path stable for that profile.
                     </p>
                     <label class='toggle-row'>
                       <input

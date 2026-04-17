@@ -50,16 +50,28 @@ function markToolExecStreamComplete(
   parts: StreamPart[],
   streamTag: string | undefined,
   exitCode: number | null | undefined,
+  outputExcerpt?: string,
 ): StreamPart[] {
   const t = streamTag?.trim();
   if (!t) {
     return parts;
   }
   const next = parts.map((p) => ({ ...p }));
+  const ex = outputExcerpt?.trim();
   for (let i = next.length - 1; i >= 0; i--) {
     if (next[i].streamTag.trim() === t) {
+      let text = next[i].text;
+      if (ex) {
+        const head = ex.slice(0, Math.min(160, ex.length));
+        if (!text.trim()) {
+          text = ex;
+        } else if (!text.includes(head)) {
+          text = `${text.endsWith('\n') ? text : `${text}\n`}\n${ex}`;
+        }
+      }
       next[i] = {
         ...next[i],
+        text,
         runComplete: true,
         ...(exitCode !== undefined ? { exitCode } : {}),
       };
@@ -78,7 +90,7 @@ function markToolExecStreamComplete(
 export class App implements OnInit, OnDestroy {
   protected readonly appConfig = signal<AppConfig | null>(null);
   protected readonly messages = signal<ChatMessage[]>([]);
-  protected readonly pinned = signal(false);
+  protected readonly pinned = model(false);
   protected readonly pendingIds = signal<Set<string>>(new Set());
   protected readonly loading = computed(() => {
     const id = this.activeConversationId();
@@ -86,11 +98,11 @@ export class App implements OnInit, OnDestroy {
   });
   protected readonly conversations = signal<ConversationMeta[]>([]);
   protected readonly activeConversationId = signal<string | null>(null);
-  protected readonly fontSize = signal(0.9);
-  protected readonly speechEnabled = signal(false);
-  protected readonly selectedVoice = signal('en-US-AriaNeural');
-  protected readonly talkStatus = signal('');
-  protected readonly talkEnabled = signal(false);
+  protected readonly fontSize = model(0.9);
+  protected readonly speechEnabled = model(false);
+  protected readonly selectedVoice = model('en-US-AriaNeural');
+  protected readonly talkStatus = model('');
+  protected readonly talkEnabled = model(false);
   /**
    * Editor mode: when true, the backend binds edit/write tools (`apply_mode`). When false, read/search only.
    * Auto apply is only available in the toolbar when this is on.
@@ -238,14 +250,16 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.toolExecComplete$.subscribe(({ conversationId, streamTag, exitCode }) => {
+    this.electron.toolExecComplete$.subscribe(({ conversationId, streamTag, exitCode, outputExcerpt }) => {
       if (conversationId === this.activeConversationId()) {
-        this.streamingParts.update((prev) => markToolExecStreamComplete(prev, streamTag, exitCode));
+        this.streamingParts.update((prev) =>
+          markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt),
+        );
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
         this.backgroundStreamParts.set(
           conversationId,
-          markToolExecStreamComplete(prev, streamTag, exitCode),
+          markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt),
         );
       }
     });

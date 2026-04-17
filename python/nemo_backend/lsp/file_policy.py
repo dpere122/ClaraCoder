@@ -106,7 +106,7 @@ def outer_workspace_edit_guard_error(relative_workspace_path: str) -> str | None
     if not requires_code_review(relative_workspace_path):
         return None
     return (
-        'Tool error: code-review extensions (.py, .ts, .js, etc.) must be edited through `modify_workspace` '
-        '(nested staging and code review). Use `apply_workspace_full_file`, `replace_workspace_line_range`, or '
-        '`replace_workspace_snippet` only for non-code paths (e.g. markdown, json, yaml).'
+        'Tool error: code-review extensions (.py, .ts, .js, etc.) must be edited through `execute_workspace_mutation` '
+        'or `plan_and_modify` (nested staging and code review). Use `apply_workspace_full_file`, '
+        '`replace_workspace_line_range`, or `replace_workspace_snippet` only for non-code paths (e.g. markdown, json, yaml).'
     )

@@ -271,7 +271,7 @@ describe('filterLiveToolChainGroups', () => {
     expect(filterLiveToolChainGroups(groups, planner)).toEqual([groups[0], groups[2]]);
   });
 
-  it('shows Clara-only groups when planner progress is absent (e.g. router-only modify_workspace)', () => {
+  it('shows Clara-only groups when planner progress is absent (e.g. router-only plan_and_modify)', () => {
     const claraGroup: ToolChainGroup = {
       key: 'clara',
       toolCallCount: 0,

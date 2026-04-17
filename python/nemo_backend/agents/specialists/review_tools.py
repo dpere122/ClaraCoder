@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from pathlib import Path
@@ -27,6 +28,10 @@ READ_STAGED_EDIT_NAME = 'read_staged_edit'
 SEARCH_STAGED_EDITS_NAME = 'search_staged_edits'
 FORMAT_STAGING_FILE_BLACK_NAME = 'format_staging_file_black'
 TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME = 'transfer_staged_file_to_workspace'
+DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME = 'diff_staged_edit_against_baseline'
+# Cap unified-diff lines so tool output stays model-friendly (git-style hunks).
+_MAX_STAGED_UNIFIED_DIFF_LINES = 2500
+_MAX_STAGED_DIFF_CHARS = 480_000
 _READ_FILE_GUTTER_SEP = ' │ '
 
 
@@ -148,6 +153,30 @@ def _review_pending_entries(session) -> list[tuple[str, object]]:
     ]
 
 
+def _unified_diff_baseline_vs_draft(rel_key: str, old_text: str, merged_text: str) -> tuple[str, bool]:
+    """Return (formatted diff body, truncated)."""
+    if '\x00' in old_text or '\x00' in merged_text:
+        return 'Tool error: refusing diff — content appears binary (NUL bytes).', False
+    a_lines = old_text.splitlines(keepends=True)
+    b_lines = merged_text.splitlines(keepends=True)
+    diff_lines = list(
+        difflib.unified_diff(
+            a_lines,
+            b_lines,
+            fromfile=f'workspace_baseline/{rel_key}',
+            tofile=f'staged_draft/{rel_key}',
+            lineterm='',
+        )
+    )
+    truncated = len(diff_lines) > _MAX_STAGED_UNIFIED_DIFF_LINES
+    if truncated:
+        diff_lines = diff_lines[:_MAX_STAGED_UNIFIED_DIFF_LINES]
+    body = '\n'.join(diff_lines)
+    if body:
+        body += '\n'
+    return body, truncated
+
+
 def _python_overlay_paths(session) -> list[tuple[str, object]]:
     return [(rel_key, entry) for rel_key, entry in _review_pending_entries(session) if rel_key.lower().endswith('.py')]
 
@@ -237,6 +266,46 @@ def list_staged_edits() -> str:
     if not paths:
         return 'No staged edits are available.'
     return 'Staged edits:\n' + '\n'.join(paths)
+
+
+@tool(DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME)
+def diff_staged_edit_against_baseline(relative_path: str) -> str:
+    """Unified diff of workspace baseline vs staged draft (git-style line compare).
+
+    Baseline is the workspace snapshot captured when staging started (`old_text`); the draft is current
+    staged merged content (`merged_text`). For new files the baseline is empty. Call once per pending
+    path after `list_staged_edits` before relying on full-file reads."""
+
+    got = _get_staging_entry(relative_path)
+    if isinstance(got, str):
+        return got
+    _session, rel_key = got
+    entry = _session.pending_edit_stagings[rel_key]
+    old_text = str(getattr(entry, 'old_text', '') or '')
+    merged_text = str(getattr(entry, 'merged_text', '') or '')
+    if old_text == merged_text:
+        return (
+            f'No textual changes for `{rel_key}`: workspace baseline and staged draft are identical '
+            '(empty diff). If you expected edits, re-read with `read_staged_edit` or check diagnostics.'
+        )
+    body, truncated = _unified_diff_baseline_vs_draft(rel_key, old_text, merged_text)
+    if body.startswith('Tool error:'):
+        return body
+    header = (
+        f'Diff `{rel_key}` (--- workspace baseline at stage time, +++ current staged draft)\n\n'
+    )
+    out = header + body
+    if truncated:
+        out += f'\n[Diff truncated after {_MAX_STAGED_UNIFIED_DIFF_LINES} lines; use `read_staged_edit` for full draft.]\n'
+    capped = truncate_text(out, _MAX_STAGED_DIFF_CHARS)
+    if len(capped) < len(out):
+        out = capped + '\n[Diff truncated by character cap; use `read_staged_edit` for surrounding context.]\n'
+    logger.info(
+        'diff_staged_edit_against_baseline path=%s truncated_lines=%s',
+        rel_key,
+        truncated,
+    )
+    return out
 
 
 @tool(READ_STAGED_EDIT_NAME)
@@ -439,6 +508,7 @@ def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
 def code_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
     tools: list[object] = [
         list_staged_edits,
+        diff_staged_edit_against_baseline,
         read_staged_edit,
         search_staged_edits,
         lsp_get_diagnostics,

@@ -21,7 +21,7 @@ from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from typing_extensions import NotRequired, override
 
-from nemo_backend.agents.planning import MODIFY_WORKSPACE_NAME
+from nemo_backend.agents.planning import NESTED_OUTER_MUTATION_TOOL_NAMES
 from nemo_backend.config import MAX_AGENT_EMPTY_NUDGES
 from nemo_backend.messages import final_assistant_text
 
@@ -38,19 +38,19 @@ _EMPTY_NUDGE_TEXT_HAS_TOOL_RESULTS = (
     'reply with a clear, complete answer for the user in plain language.'
 )
 
-_EMPTY_NUDGE_TEXT_AFTER_MODIFY_WORKSPACE = (
+_EMPTY_NUDGE_TEXT_AFTER_PLAN_AND_MODIFY = (
     'Your last message had no user-visible text. You already have a completed '
-    '`modify_workspace` result in this conversation. First decide whether that '
-    'nested workspace run satisfied the user request. If it did, answer the user '
-    'now in plain language without more tools. If it did not, explain exactly '
+    'nested workspace mutation result (`plan_and_modify` or `execute_workspace_mutation`) '
+    'in this conversation. First decide whether that nested workspace run satisfied the user request. '
+    'If it did, answer the user now in plain language without more tools. If it did not, explain exactly '
     'what remains and why before making at most one focused next tool call.'
 )
 
-_NUDGE_REPEAT_MODIFY_AFTER_FAILURE = (
-    'You called `modify_workspace` again with no user-visible text right after a '
-    'previous `modify_workspace` result that looks unsuccessful or incomplete. '
+_NUDGE_REPEAT_PLAN_AND_MODIFY_AFTER_FAILURE = (
+    'You called `plan_and_modify` or `execute_workspace_mutation` again with no user-visible text right after a '
+    'previous nested workspace mutation result that looks unsuccessful or incomplete. '
     'Stop repeating the same tool call. Quote or paraphrase the concrete error or '
-    'outcome from the last `modify_workspace` tool message, answer the user in '
+    'outcome from the last nested mutation tool message, answer the user in '
     'plain language, and only use tools again with a clearly different plan.'
 )
 
@@ -77,10 +77,10 @@ def _aimessage_tool_names(msg: AIMessage) -> list[str]:
     return [n for n in names if n]
 
 
-def _is_successful_modify_workspace_tool(msg: ToolMessage | None) -> bool:
+def _is_successful_outer_nested_mutation_tool(msg: ToolMessage | None) -> bool:
     if msg is None:
         return False
-    if str(getattr(msg, 'name', '') or '').strip() != MODIFY_WORKSPACE_NAME:
+    if str(getattr(msg, 'name', '') or '').strip() not in NESTED_OUTER_MUTATION_TOOL_NAMES:
         return False
     text = str(getattr(msg, 'content', '') or '').strip().lower()
     if text.startswith('tool error:'):
@@ -137,24 +137,25 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             if any(isinstance(m, ToolMessage) for m in prior_msgs):
                 latest_tool = _latest_tool_message(prior_msgs)
                 lt_name = str(getattr(latest_tool, 'name', '') or '').strip() if latest_tool else ''
-                # Typical flow: list/read/search then modify_workspace — must not count as spam.
-                if lt_name != MODIFY_WORKSPACE_NAME:
+                # Typical flow: list/read/search then nested mutation — must not count as spam.
+                if lt_name not in NESTED_OUTER_MUTATION_TOOL_NAMES:
                     return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
-                if _is_successful_modify_workspace_tool(latest_tool):
+                if _is_successful_outer_nested_mutation_tool(latest_tool):
                     return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
-                # Unsuccessful modify_workspace: only count if the model doubles down with modify_workspace again
+                # Unsuccessful nested mutation: only count if the model doubles down with the same class of tool again
                 # (not when it switches to read/list tools after a failure).
-                if MODIFY_WORKSPACE_NAME not in _aimessage_tool_names(last):
+                names_called = set(_aimessage_tool_names(last))
+                if not (names_called & NESTED_OUTER_MUTATION_TOOL_NAMES):
                     return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
                 silent = int(state.get('post_tool_silent_tool_streak') or 0) + 1
                 if silent >= 2:
                     logger.info(
-                        'Nudging after repeated silent `modify_workspace` calls following an unsuccessful one '
+                        'Nudging after repeated silent nested mutation calls following an unsuccessful one '
                         '(silent=%s)',
                         silent,
                     )
                     return {
-                        'messages': [HumanMessage(content=_NUDGE_REPEAT_MODIFY_AFTER_FAILURE)],
+                        'messages': [HumanMessage(content=_NUDGE_REPEAT_PLAN_AND_MODIFY_AFTER_FAILURE)],
                         'jump_to': 'model',
                         'post_tool_silent_tool_streak': 0,
                         'empty_response_nudge_streak': 0,
@@ -176,8 +177,8 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
         )
         latest_tool = _latest_tool_message(msgs[:-1])
         nudge = (
-            _EMPTY_NUDGE_TEXT_AFTER_MODIFY_WORKSPACE
-            if _is_successful_modify_workspace_tool(latest_tool)
+            _EMPTY_NUDGE_TEXT_AFTER_PLAN_AND_MODIFY
+            if _is_successful_outer_nested_mutation_tool(latest_tool)
             else (
                 _EMPTY_NUDGE_TEXT_HAS_TOOL_RESULTS
                 if _has_recent_tool_results(msgs)

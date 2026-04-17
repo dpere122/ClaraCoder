@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       streamTag?: string,
       label?: string,
       exitCode?: number | null,
+      outputExcerpt?: string,
     ) => void,
   ) => ipcRenderer.on('message-tool-exec-complete', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
@@ -56,8 +57,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMessageDeleteConfirm: (
     callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
   ) => ipcRenderer.on('message-delete-confirm', callback),
-  sendMessage: (conversationId: string, msg: string, applyMode?: boolean, autoApplyMode?: boolean) =>
-    ipcRenderer.send('message', conversationId, msg, applyMode ?? true, autoApplyMode ?? false),
+  sendMessage: (
+    conversationId: string,
+    msg: string,
+    applyMode?: boolean,
+    autoApplyMode?: boolean,
+    structuredContent?: Record<string, unknown>[],
+  ) =>
+    ipcRenderer.send(
+      'message',
+      conversationId,
+      msg,
+      applyMode ?? true,
+      autoApplyMode ?? false,
+      structuredContent,
+    ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   agentContinue: (
     conversationId: string,

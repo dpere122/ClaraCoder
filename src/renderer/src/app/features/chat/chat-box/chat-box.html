@@ -132,7 +132,7 @@
           }
 
           @if (row.assistant?.text) {
-            <span [innerHTML]="row.assistant!.text | markdown"></span>
+            <div class="assistant-md" [innerHTML]="row.assistant!.text | markdown"></div>
             @if (ttsLoading() && isLastPersistedRow(slot.index)) {
               <div class="tts-loading" role="status" aria-live="polite">
                 <div class="tts-ngx-host" aria-hidden="true">

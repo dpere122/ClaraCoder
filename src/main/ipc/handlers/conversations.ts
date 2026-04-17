@@ -2,7 +2,12 @@ import { ipcMain } from 'electron';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import path = require('path');
-import type { ConversationFile, ConversationMeta } from '../../../shared';
+import type {
+  ChatStructuredContentPart,
+  ConversationFile,
+  ConversationFileMessage,
+  ConversationMeta,
+} from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
 import { loadConfig } from '../../config/load-save';
@@ -12,6 +17,25 @@ import {
   getWorkspaceConversationsDir,
 } from '../../paths';
 import { syncConversationWorkspaceContext } from '../../workspace/watcher';
+
+type UserChatRow = Extract<ConversationFileMessage, { role: 'user' }>;
+
+/** Map a saved user row to Python session history (plain string or OpenAI-style multimodal list). */
+function userMessageToPythonHistoryEntry(m: UserChatRow): { role: 'user'; content: string | Record<string, unknown>[] } {
+  const sc = m.structuredContent;
+  if (sc && sc.length > 0) {
+    const blocks = sc.map((b: ChatStructuredContentPart) => ({ ...b }));
+    const hasText = blocks.some(
+      (b: Record<string, unknown>) =>
+        String(b['type'] ?? '').toLowerCase() === 'text' && String((b as { text?: string }).text ?? '').trim(),
+    );
+    if (m.text.trim() && !hasText) {
+      blocks.unshift({ type: 'text', text: m.text });
+    }
+    return { role: 'user', content: blocks };
+  }
+  return { role: 'user', content: m.text };
+}
 
 async function findConversationPath(id: string, workspaceId: string | null): Promise<string | null> {
   if (workspaceId) {
@@ -143,9 +167,17 @@ export function registerConversationsIpc(): void {
       console.error('Failed to sync workspace context:', err);
     }
 
-    const pyMessages = conv.messages
-      .filter((m): m is { role: 'user' | 'assistant'; text: string } => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role, content: m.text }));
+    type PyHistoryMsg =
+      | { role: 'user'; content: string | Record<string, unknown>[] }
+      | { role: 'assistant'; content: string };
+    const pyMessages: PyHistoryMsg[] = [];
+    for (const m of conv.messages) {
+      if (m.role === 'user') {
+        pyMessages.push(userMessageToPythonHistoryEntry(m));
+      } else if (m.role === 'assistant') {
+        pyMessages.push({ role: 'assistant', content: m.text });
+      }
+    }
     try {
       await fetch(`${PYTHON_URL}/load`, {
         method: 'POST',
@@ -278,6 +310,12 @@ export function registerConversationsIpc(): void {
       });
     } catch (err) {
       console.error('Failed to clear Python history:', err);
+    }
+
+    try {
+      await syncConversationWorkspaceContext(conv);
+    } catch (err) {
+      console.error('Failed to sync workspace context for new conversation:', err);
     }
 
     return conv;

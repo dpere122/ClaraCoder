@@ -250,7 +250,7 @@ def apply_workspace_full_file(
     For small localized changes on existing files, prefer `replace_workspace_line_range`.
 
     Relative paths only (e.g. docs/readme.md). Do not use for code-review extensions (.py, .ts, .js, …)—use
-    `modify_workspace` for those. The user applies changes in the UI unless auto-apply is enabled."""
+    `execute_workspace_mutation` or `plan_and_modify` for those. The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(
         relative_path, encoding, newline,
@@ -278,7 +278,7 @@ def replace_workspace_line_range(
     the last line, and `1,1` can seed an empty file.
     See `apply_workspace_full_file` for `encoding` and `newline`.
 
-    Relative paths only. Not for code-review extensions—use `modify_workspace` for source files.
+    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source files.
     The user applies changes in the UI unless auto-apply is enabled."""
 
     ns = '' if new_snippet is None else new_snippet
@@ -308,7 +308,7 @@ def replace_workspace_snippet(
     See `apply_workspace_full_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
 
-    Relative paths only. Not for code-review extensions—use `modify_workspace` for source files.
+    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source files.
     The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(

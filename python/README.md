@@ -8,7 +8,7 @@ FastAPI service used by the Nemo / Clara Electron app. It runs a LangChain agent
 - **Workspace tools** — Snapshot, list directory, read file (line range), and regex search under the session's workspace root (path traversal blocked).
 - **Python LSP tools** — Python diagnostics, hover, definitions, references, and document symbols via a session-scoped Jedi language server.
 - **Edit tools** — Full-file, line-range, and snippet-based workspace edits with diff preview and auto-apply mode.
-- **Nested mutations** — `modify_workspace` delegates to a router + specialist subgraph pipeline for multi-step workspace mutations (create/update/delete).
+- **Nested mutations** — `execute_workspace_mutation` runs the router + specialist pipeline directly for a single scoped code change. `plan_and_modify` may run the coding planner first (discovery, checklist, final project review), then the same nested pipeline.
 - **Sessions** — `POST /clear`, `POST /load`, and `POST /workspace-context` sync chat history and workspace metadata from the renderer.
 - **Runtime config (`POST /runtime-config`)** — LLM connections, active connection, transcription provider, and optional host OS hints for the system prompt.
 - **Transcription (`POST /transcribe`)** — WAV upload; **OpenAI** speech API, **Google Web Speech** (no key, network required), or **disabled**.
@@ -121,7 +121,7 @@ Inside the nested planning flow, staged code review no longer runs pytest. Final
 | `nemo_backend/workspace_ignore.py` | `.gitignore` + built-in ignores for search/list. |
 | `nemo_backend/tool_registry.py` | Central tool registry and HITL policy. |
 | **Nested Mutations** | |
-| `nemo_backend/agents/planning/tool.py` | `modify_workspace` stub tool. |
+| `nemo_backend/agents/planning/tool.py` | `plan_and_modify` and `execute_workspace_mutation` stub tools. |
 | `nemo_backend/agents/planning/nested_middleware.py` | LangGraph middleware: intercept mutation tool, run nested stream. |
 | `nemo_backend/agents/orchestration/nested_pipeline.py` | Nested router graph + specialist subgraphs. |
 | `nemo_backend/agents/specialists/tools.py` | Per-specialist tool lists. |
@@ -144,7 +144,7 @@ Inside the nested planning flow, staged code review no longer runs pytest. Final
 | Variable | Purpose |
 |----------|---------|
 | `NEMO_MAX_AGENT_STEPS` | Max LLM turns per chat request (default `400`, capped at `5000`). |
-| `NEMO_REASONING_EFFORT` | Fallback for OpenAI-style reasoning effort: `minimal`, `low`, `medium`, `high` (if not set per connection). |
+| `NEMO_REASONING_EFFORT` | Fallback for reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or UI aliases `on`/`off` (mapped to `medium`/`none` on the API). |
 | `OPENAI_API_KEY` | Default API key for OpenAI chat and OpenAI transcription when the UI leaves key empty. |
 | `OPENAI_BASE_URL` | Optional alternate OpenAI-compatible URL for the default OpenAI connection. |
 | `OPENAI_MODEL` | Default chat model name (default `gpt-4o-mini`). |

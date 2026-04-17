@@ -29,10 +29,10 @@ def _env_int(name: str, default: int, lo: int, hi: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Agent architecture (single outer agent + nested router/specialists via modify_workspace)
+# Agent architecture (single outer agent + nested router/specialists via plan_and_modify / execute_workspace_mutation)
 # ---------------------------------------------------------------------------
-# Qwen-oriented defaults (see :mod:`nemo_backend.model_tuning`): ``NEMO_QWEN_OPTIMIZE`` (default on),
-# ``NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS``, ``NEMO_CHAT_MAX_OUTPUT_TOKENS`` (applies to any model when set).
+# Qwen / Gemma template defaults (see :mod:`nemo_backend.model_tuning`): ``NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS``,
+# ``NEMO_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS``, ``NEMO_CHAT_MAX_OUTPUT_TOKENS`` (applies to any model when set).
 # Max characters returned from the worker to the manager (truncation with notice).
 try:
     NEMO_WORKER_RESULT_MAX_CHARS = max(
@@ -73,7 +73,18 @@ NEMO_PLANNER_COMPLEXITY_KEYWORD_WEIGHT = _env_int('NEMO_PLANNER_COMPLEXITY_KEYWO
 NEMO_PLANNER_COMPLEXITY_MAX_SCORE = _env_int('NEMO_PLANNER_COMPLEXITY_MAX_SCORE', 10, 2, 20)
 NEMO_PLANNER_MAX_STEP_TEXT_CHARS = _env_int('NEMO_PLANNER_MAX_STEP_TEXT_CHARS', 160, 40, 500)
 NEMO_PLANNER_FORCE_DISCOVERY_SCORE = _env_int('NEMO_PLANNER_FORCE_DISCOVERY_SCORE', 4, 1, 20)
+# When True, initial `record_plan` must follow at least one planner discovery tool if the task mentions a programming path.
+NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS = _env_bool('NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS', True)
 NEMO_PLANNER_REFLECTION_RETRIES = _env_int('NEMO_PLANNER_REFLECTION_RETRIES', 2, 0, 10)
+# When True, a short LLM plan probe may route `plan_and_modify` to a fast path (sequential nested steps + final review)
+# when the probed checklist has 1..NEMO_PLAN_FAST_PATH_MAX_STEPS steps. Disable to always use the full coding planner graph.
+NEMO_PLAN_PROBE_ENABLED = _env_bool('NEMO_PLAN_PROBE_ENABLED', True)
+# Fast path runs only when the probed plan has at most this many steps (default 3 = fewer than 4 steps).
+NEMO_PLAN_FAST_PATH_MAX_STEPS = _env_int('NEMO_PLAN_FAST_PATH_MAX_STEPS', 3, 1, 6)
+# If `_task_complexity_profile(...).max_steps` is at or above this threshold, skip the probe and use the full planner.
+NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS = _env_int(
+    'NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS', 4, 1, 20
+)
 
 # ---------------------------------------------------------------------------
 # Agent loop limits

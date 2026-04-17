@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain.agents import create_agent
+from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -23,7 +24,8 @@ from nemo_backend.agents.coding_planner.prompts import (
 )
 from nemo_backend.agents.orchestration.nested_pipeline import (
     NESTED_WORKER_STREAM_END,
-    enqueue_modify_workspace_outer_brief,
+    enqueue_plan_and_modify_outer_brief,
+    run_final_project_review_stream,
     run_planning_nested_stream,
 )
 from nemo_backend.config import (
@@ -35,15 +37,20 @@ from nemo_backend.config import (
     NEMO_PLANNER_FORCE_DISCOVERY_SCORE,
     NEMO_PLANNER_MAX_STEP_TEXT_CHARS,
     NEMO_PLANNER_REFLECTION_RETRIES,
+    NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS,
     NEMO_PLANNER_REQUEST_LARGE_CHARS,
     NEMO_PLANNER_REQUEST_MEDIUM_CHARS,
     NEMO_PLANNER_REQUEST_SMALL_CHARS,
     NEMO_PLANNER_STEP_RESULT_MAX_CHARS,
+    NEMO_PLAN_FAST_PATH_MAX_STEPS,
+    NEMO_PLAN_PROBE_ENABLED,
+    NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS,
 )
 from nemo_backend.domain import ProjectReviewReentryRequest, SessionState
 from nemo_backend.edit_tool import edit_tools_for_strict
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.llm import build_llm
+from nemo_backend.lsp.file_policy import is_programming_path
 from nemo_backend.lsp.tools import (
     lsp_find_definition,
     lsp_find_references,
@@ -52,6 +59,7 @@ from nemo_backend.lsp.tools import (
     lsp_hover,
 )
 from nemo_backend.messages import final_assistant_text
+from nemo_backend.prompt_blocks import routing_handoff_contract
 from nemo_backend.planner_task_retry_middleware import PlannerTaskRetryMiddleware
 from nemo_backend.python_env import ensure_session_python_workspace_env, resolve_python_workspace_root
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
@@ -61,6 +69,8 @@ from nemo_backend.workspace_tools import list_workspace_directory, read_workspac
 logger = logging.getLogger('nemo.agent.langgraph.coding_planner')
 _FINAL_PROJECT_REVIEW_FAILURE_PREFIX = 'Tool error: final project review failed.'
 _PLAN_STEP_RE = re.compile(r'^\s*(?:[-*]|\d+[.)])\s+(.*\S)\s*$')
+# Models often emit "1. ... 2. ... 3. ..." on one line; line-only parsing would collapse to one step.
+_INLINE_LIST_MARKER_BOUNDARY = re.compile(r'(?<=[^\d\s])\s+(?=\d{1,3}[.)]\s+\S)')
 _READ_ONLY_STEP_PREFIX_RE = re.compile(
     r'^(?:read|inspect|search|list|scan|review|open|explore|look\s+at|check|gather|analyze|understand)\b'
 )
@@ -85,6 +95,26 @@ _CROSS_CUTTING_KEYWORDS = (
     'sync',
 )
 _PATH_HINT_RE = re.compile(r'`[^`]+`|(?:[\w.-]+[\\/])+[\w.-]+|[\w.-]+\.[A-Za-z0-9]+')
+
+
+def scope_text_mentions_programming_paths(*text_parts: str) -> bool:
+    """True if any path-like token in the given text is a code-review / programming extension."""
+    combined = '\n'.join((p or '').strip() for p in text_parts if (p or '').strip())
+    for m in _PATH_HINT_RE.finditer(combined):
+        token = m.group(0).strip('`').strip()
+        if token and is_programming_path(token):
+            return True
+    return False
+
+
+class _PlanProbeSteps(BaseModel):
+    """Structured build-only steps from the plan probe LLM (1–6 items; orchestrator branches on count)."""
+
+    steps: list[str] = Field(
+        min_length=1,
+        max_length=6,
+        description='Numbered implementation steps only; no read/search/list steps.',
+    )
 
 
 @dataclass(frozen=True)
@@ -151,7 +181,7 @@ def _task_complexity_profile(task_summary: str) -> _TaskComplexityProfile:
     )
 
 
-def _plan_requirements_text(profile: _TaskComplexityProfile) -> str:
+def _plan_requirements_text(profile: _TaskComplexityProfile, task_summary: str = '') -> str:
     lines = [
         f'- Request length: {profile.char_count} chars; computed complexity score: {profile.score}.',
         (
@@ -162,7 +192,10 @@ def _plan_requirements_text(profile: _TaskComplexityProfile) -> str:
         '- The checklist must contain only implementation/build/test/verification steps.',
         '- For Python work, add a test step only when the user asked for tests, concrete test criteria exist, or nearby tests clearly need updates; otherwise prefer runtime verification.',
     ]
-    if profile.requires_discovery:
+    if profile.requires_discovery or (
+        NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS
+        and scope_text_mentions_programming_paths(task_summary)
+    ):
         lines.append('- Perform discovery reads/searches before calling `record_plan` for this task.')
     return '\n'.join(lines)
 
@@ -210,13 +243,44 @@ def _planner_follow_up_context_note(initial_plan_recorded: bool, final_review_st
     return (
         '\n\nPlanner note: the checklist is recorded and locked until final review completes. '
         'Use this context only to continue the current recorded step or final review. '
-        'Do not call `record_plan` again until `run_final_project_review` has succeeded.'
+        'Do not call `record_plan` again until `run_final_project_review` has succeeded or failed.'
     )
 
 
-def _parse_plan_steps(plan_steps: str) -> list[dict[str, str]]:
+def _next_plan_step_index(existing: list[dict[str, str]]) -> int:
+    m = 0
+    for s in existing:
+        sid = str(s.get('id') or '')
+        if sid.startswith('step-') and sid[5:].isdigit():
+            m = max(m, int(sid[5:]))
+    return m + 1
+
+
+def _auto_remediation_step_text_from_final_review(review_result: str) -> str:
+    header = (
+        'Remediate the failed final project review: make the minimum workspace changes implied by the reviewer '
+        'output below, then expect another `run_final_project_review` after this step completes.\n\n'
+        'Reviewer output:\n'
+    )
+    max_body = max(400, NEMO_PLANNER_MAX_STEP_TEXT_CHARS - len(header) - 48)
+    body = (review_result or '').strip()
+    if len(body) > max_body:
+        body = body[:max_body].rstrip() + '\n\n[truncated]'
+    return header + body
+
+
+def _normalize_plan_steps_raw_text(plan_steps: str) -> str:
+    """Turn inline numbered items into separate lines so each becomes its own checklist step."""
+    text = (plan_steps or '').replace('\r\n', '\n').strip()
+    if not text:
+        return text
+    return _INLINE_LIST_MARKER_BOUNDARY.sub('\n', text)
+
+
+def _parse_plan_steps(plan_steps: str, *, existing_steps: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
     steps: list[dict[str, str]] = []
-    for line in plan_steps.splitlines():
+    start = _next_plan_step_index(existing_steps) if existing_steps else 1
+    for line in _normalize_plan_steps_raw_text(plan_steps).splitlines():
         stripped = line.strip()
         if not stripped:
             continue
@@ -224,7 +288,8 @@ def _parse_plan_steps(plan_steps: str) -> list[dict[str, str]]:
         text = (match.group(1) if match else stripped).strip()
         if not text:
             continue
-        steps.append({'id': f'step-{len(steps) + 1}', 'text': text, 'state': 'pending'})
+        idx = start + len(steps)
+        steps.append({'id': f'step-{idx}', 'text': text, 'state': 'pending'})
     return steps
 
 
@@ -233,18 +298,23 @@ def _validate_initial_plan_steps(
     profile: _TaskComplexityProfile,
     *,
     discovery_completed: bool,
+    requires_discovery: bool | None = None,
 ) -> str | None:
     if not parsed_steps:
         return 'Tool error: plan_steps must contain at least one numbered or bulleted item.'
-    if profile.requires_discovery and not discovery_completed:
+    need_discovery = profile.requires_discovery if requires_discovery is None else requires_discovery
+    if need_discovery and not discovery_completed:
         return (
             'Tool error: gather missing workspace context with planner read/search/list tools before recording '
             'the build plan for this task.'
         )
-    if len(parsed_steps) < profile.min_steps:
+    # One-step slack: complexity is a hint; models often produce enough work split across N-1 concrete steps.
+    floor_min = max(2, profile.min_steps - 1)
+    if len(parsed_steps) < floor_min:
         return (
-            f'Tool error: this task needs at least {profile.min_steps} concrete build steps based on its complexity. '
-            'Do not record a single broad step.'
+            f'Tool error: this task needs at least {floor_min} concrete build steps based on its complexity '
+            f'(target about {profile.target_steps}). Put each step on its own line, or separate inline items '
+            'like "1. ... 2. ..." with spaces. Do not record one broad step when several are required.'
         )
     if len(parsed_steps) > profile.max_steps:
         return (
@@ -264,6 +334,56 @@ def _validate_initial_plan_steps(
                 'Do not include read/search/list/inspect/review/open actions as plan steps.'
             )
     return None
+
+
+def _validate_append_plan_steps(parsed_steps: list[dict[str, str]], profile: _TaskComplexityProfile) -> str | None:
+    if not parsed_steps:
+        return 'Tool error: plan_steps must contain at least one numbered or bulleted item.'
+    if len(parsed_steps) > profile.max_steps:
+        return (
+            f'Tool error: add at most {profile.max_steps} remediation steps at a time. '
+            'Split work across multiple append passes if needed.'
+        )
+    for step in parsed_steps:
+        text = str(step.get('text') or '').strip()
+        if len(text) > NEMO_PLANNER_MAX_STEP_TEXT_CHARS:
+            return (
+                'Tool error: keep each recorded step concise and action-oriented. '
+                f'Steps must stay under {NEMO_PLANNER_MAX_STEP_TEXT_CHARS} characters.'
+            )
+        if _is_read_only_step(text):
+            return (
+                'Tool error: appended checklist items must be build steps only. '
+                'Do not include read/search/list/inspect/review/open actions as plan steps.'
+            )
+    return None
+
+
+def _validate_probe_plan_steps(parsed_steps: list[dict[str, str]]) -> str | None:
+    """Validate probed plan before fast path or escalation (no complexity floor)."""
+    if not parsed_steps:
+        return 'empty plan'
+    if len(parsed_steps) > 6:
+        return 'too many probe steps'
+    for step in parsed_steps:
+        text = str(step.get('text') or '').strip()
+        if not text:
+            return 'empty step text'
+        if len(text) > NEMO_PLANNER_MAX_STEP_TEXT_CHARS:
+            return 'step too long'
+        if _is_read_only_step(text):
+            return 'read-only step'
+    return None
+
+
+def _compose_fast_path_step_instruction(task_summary: str, step_text: str) -> str:
+    return (
+        f'{routing_handoff_contract()}\n\n'
+        f'**Original plan_and_modify task summary:**\n{(task_summary or "").strip()}\n\n'
+        f'**Recorded plan step (execute this now):**\n{(step_text or "").strip()}\n\n'
+        'If **Operation:** / **Paths:** / **Existence:** are not explicit above, derive them from the task and step '
+        'before the nested router acts.'
+    )
 
 
 def _planner_progress_snapshot(
@@ -385,47 +505,6 @@ def _build_final_project_review_instruction(task_summary: str, steps: list[dict[
     )
 
 
-def _build_project_review_retry_instruction(
-    task_summary: str,
-    steps: list[dict[str, str]],
-    *,
-    review_feedback: str,
-    retry_attempt: int,
-    retry_limit: int,
-) -> str:
-    recorded_steps = _format_plan_steps_for_review(steps) or '- (no recorded steps)'
-    return (
-        'The final project review failed after the recorded implementation steps completed.\n\n'
-        f'Original task summary:\n{task_summary.strip() or "(empty task summary)"}\n\n'
-        'Recorded implementation steps:\n'
-        f'{recorded_steps}\n\n'
-        f'Final review retry attempt: {retry_attempt} of {retry_limit}\n\n'
-        'Project reviewer feedback:\n'
-        f'{review_feedback.strip() or "(no feedback provided)"}\n\n'
-        'Apply only the minimum in-scope workspace fixes needed to satisfy the reviewer. Do not create a new plan, '
-        'do not broaden the task, and stop once the targeted fixes are complete.'
-    )
-
-
-def _build_project_review_reentry_task_summary(
-    task_summary: str,
-    steps: list[dict[str, str]],
-    *,
-    review_feedback: str,
-) -> str:
-    recorded_steps = _format_plan_steps_for_review(steps) or '- (no recorded steps)'
-    return (
-        'Create a brand-new implementation plan from the current workspace state.\n\n'
-        f'Original task summary:\n{task_summary.strip() or "(empty task summary)"}\n\n'
-        'Previous planner checklist (completed before the failed final review):\n'
-        f'{recorded_steps}\n\n'
-        'Final project reviewer feedback:\n'
-        f'{review_feedback.strip() or "(no feedback provided)"}\n\n'
-        'Treat the current workspace as the source of truth. Start a new plan, using the reviewer feedback to decide '
-        'what follow-up implementation steps are now required.'
-    )
-
-
 def _project_review_reentry_payload(request: ProjectReviewReentryRequest | None) -> dict[str, Any] | None:
     if request is None:
         return None
@@ -438,6 +517,34 @@ def _project_review_reentry_payload(request: ProjectReviewReentryRequest | None)
         'retryBudget': request.retry_budget,
         'terminalReason': request.terminal_reason,
     }
+
+
+async def _run_plan_probe_llm(task_summary: str) -> list[str] | None:
+    """Return 1–6 build step strings, or None if the probe cannot run."""
+    cleaned = (task_summary or '').strip() or '(empty task summary)'
+    try:
+        llm = build_llm()
+    except Exception:
+        logger.exception('plan probe: failed to build LLM')
+        return None
+    probe_prompt = (
+        'You classify an implementation plan for a software workspace task.\n'
+        'Return ONLY concrete build/mutation/verification steps (not read/search/list/inspect steps).\n'
+        'Be honest about how many steps are needed: if the task truly needs four or more distinct build steps, '
+        'list all of them (up to six). If it needs fewer, list only those.\n'
+        'Each step must be a short imperative line (edit file X, add test Y, run Z).\n\n'
+        f'Task:\n{cleaned}'
+    )
+    try:
+        structured = llm.with_structured_output(_PlanProbeSteps)
+        out = await structured.ainvoke([HumanMessage(content=probe_prompt)])
+    except Exception:
+        logger.exception('plan probe: structured invoke failed')
+        return None
+    if not isinstance(out, _PlanProbeSteps):
+        return None
+    steps = [s.strip() for s in out.steps if isinstance(s, str) and s.strip()]
+    return steps or None
 
 
 class _StepProxyQueue:
@@ -459,12 +566,190 @@ class _StepProxyQueue:
         await self._outer_q.put(item)
 
 
+async def run_coding_planner_fast_path_stream(
+    session: SessionState,
+    session_id: str,
+    task_summary: str,
+    planner_steps: list[dict[str, str]],
+    nested_q: Any,
+    checkpointer: Any,
+) -> str:
+    """Run probed 1–3 steps via ``run_planning_nested_stream`` each, then final project review (no planner graph)."""
+    logger.info(
+        'Coding planner fast path — steps=%d task_summary_length=%d',
+        len(planner_steps),
+        len(task_summary),
+    )
+    last_final_text = ''
+    session.pending_project_review_reentry = None
+    planner_tag = 'planner'
+    final_review_state = 'pending'
+    final_review_attempts = 0
+    final_review_summary = ''
+
+    if _planner_needs_python_env_bootstrap(session):
+        bootstrap_result = await ensure_session_python_workspace_env(
+            session,
+            allow_workspace_root_fallback=False,
+            bootstrap_dependencies=True,
+        )
+        if bootstrap_result is None:
+            await nested_q.put(NESTED_WORKER_STREAM_END)
+            return (
+                'Tool error: the coding planner requires a workspace Python environment for this project, '
+                'but no Python workspace could be resolved.'
+            )
+        if not bootstrap_result.ok:
+            await nested_q.put(NESTED_WORKER_STREAM_END)
+            return (
+                'Tool error: the coding planner could not initialize the workspace Python environment before '
+                'planning began.\n\n'
+                f'{bootstrap_result.summary}'
+            )
+
+    step_proxy_q = _StepProxyQueue(nested_q)
+
+    async def _emit_fp_progress(
+        *,
+        phase: str,
+        active_step_id: str = '',
+    ) -> None:
+        try:
+            final_review_max_attempts = max(0, int(get_active_connection().plan_retry_attempts_count))
+        except Exception:
+            final_review_max_attempts = 0
+        await _enqueue_planner_progress(
+            nested_q,
+            planner_tag,
+            _planner_progress_snapshot(
+                planner_steps,
+                phase,
+                active_step_id=active_step_id,
+                plan_ready=True,
+                final_review_state=final_review_state,
+                final_review_attempts=final_review_attempts,
+                final_review_max_attempts=final_review_max_attempts,
+                final_review_summary=final_review_summary,
+                project_review_reentry=_project_review_reentry_payload(session.pending_project_review_reentry),
+            ),
+        )
+
+    try:
+        with _suppress_parent_graph_model_token_sse(session):
+            await _emit_fp_progress(phase='discovery')
+            plan_lines = '\n'.join(
+                f'{i + 1}. {str(step.get("text") or "").strip()}' for i, step in enumerate(planner_steps)
+            )
+            await enqueue_plan_and_modify_outer_brief(
+                session_id,
+                nested_q,
+                kind='plan_recorded',
+                summary=plan_lines,
+            )
+            await _emit_fp_progress(phase='planning')
+
+            for step in planner_steps:
+                if session.abort_event.is_set():
+                    last_final_text = 'Aborted by user.'
+                    break
+                sid = str(step.get('id') or '')
+                step['state'] = 'running'
+                await _emit_fp_progress(phase='executing', active_step_id=sid)
+                instruction = _compose_fast_path_step_instruction(
+                    task_summary,
+                    str(step.get('text') or ''),
+                )
+                try:
+                    step_result = await run_planning_nested_stream(
+                        session,
+                        session_id,
+                        instruction,
+                        step_proxy_q,
+                        checkpointer,
+                    )
+                except Exception:
+                    step['state'] = 'error'
+                    await _emit_fp_progress(phase='error', active_step_id=sid)
+                    raise
+                truncated = _truncate_step_result(step_result)
+                lowered = step_result.lower()
+                if lowered.startswith('aborted by user') or lowered.startswith('tool error:'):
+                    step['state'] = 'error'
+                    await _emit_fp_progress(phase='error', active_step_id=sid)
+                    last_final_text = truncated
+                    break
+                step['state'] = 'complete'
+                await _emit_fp_progress(phase='executing')
+
+            if not last_final_text and session.abort_event.is_set():
+                last_final_text = 'Aborted by user.'
+            elif (
+                not last_final_text
+                and planner_steps
+                and all(step.get('state') == 'complete' for step in planner_steps)
+            ):
+                final_review_state = 'running'
+                final_review_summary = ''
+                await _emit_fp_progress(phase='executing')
+                base_instruction = _build_final_project_review_instruction(task_summary, planner_steps)
+                review_result = await run_final_project_review_stream(
+                    session,
+                    session_id,
+                    base_instruction,
+                    step_proxy_q,
+                    checkpointer,
+                )
+                final_review_summary = review_result
+                if not review_result.lower().startswith(_FINAL_PROJECT_REVIEW_FAILURE_PREFIX.lower()):
+                    final_review_state = 'complete'
+                    last_final_text = review_result
+                else:
+                    final_review_state = 'error'
+                    final_review_attempts = 1
+                    last_final_text = (
+                        f'{review_result}\n\n'
+                        'Fast path: final project review failed. Re-run `plan_and_modify` with a broader task '
+                        'summary or enable the full planner path for automatic remediation steps.'
+                    )
+    except Exception:
+        logger.exception('Coding planner fast path failed')
+        raise
+    finally:
+        await _enqueue_planner_progress(
+            nested_q,
+            planner_tag,
+            _planner_progress_snapshot(
+                planner_steps,
+                _planner_terminal_phase_with_review(
+                    planner_steps,
+                    final_review_state=final_review_state,
+                ),
+                plan_ready=True,
+                final_review_state=final_review_state,
+                final_review_attempts=final_review_attempts,
+                final_review_max_attempts=max(0, int(get_active_connection().plan_retry_attempts_count)),
+                final_review_summary=final_review_summary,
+                project_review_reentry=_project_review_reentry_payload(session.pending_project_review_reentry),
+            ),
+        )
+        await nested_q.put(NESTED_WORKER_STREAM_END)
+
+    if not last_final_text.strip():
+        last_final_text = (
+            'The coding planner fast path finished without a final summary. Try rephrasing the task '
+            'or use the full planner.'
+        )
+    return last_final_text
+
+
 async def run_coding_planner_stream(
     session: SessionState,
     session_id: str,
     task_summary: str,
     nested_q: Any,
     checkpointer: Any,
+    *,
+    include_lsp_discovery: bool = True,
 ) -> str:
     """Run the coding planner agent; enqueue LangGraph v2 events, then ``NESTED_WORKER_STREAM_END``.
 
@@ -472,7 +757,11 @@ async def run_coding_planner_stream(
     for each step (which delegates to ``run_planning_nested_stream`` -- the existing
     router/specialists pipeline).
     """
-    logger.info('Coding planner starting — task_summary length=%d', len(task_summary))
+    logger.info(
+        'Coding planner starting — task_summary length=%d include_lsp_discovery=%s',
+        len(task_summary),
+        include_lsp_discovery,
+    )
     last_final_text = ''
     session.pending_project_review_reentry = None
     if _planner_needs_python_env_bootstrap(session):
@@ -553,6 +842,12 @@ async def run_coding_planner_stream(
                 return 'Tool error: final project review already passed for this task.'
             if final_review_state == 'running':
                 return 'Tool error: final project review is already running.'
+            if final_review_state == 'error':
+                return (
+                    'Tool error: final project review failed on a prior planner checkpoint. Call `record_plan` '
+                    'with remediation build steps, complete them with `execute_plan_step`, then call '
+                    '`run_final_project_review` again.'
+                )
             return None
 
         async def _record_discovery_tool_use() -> None:
@@ -563,21 +858,23 @@ async def run_coding_planner_stream(
 
         @tool
         async def record_plan(plan_steps: str) -> str:
-            """Record build steps after discovery, or a new phase after the last final project review passed."""
+            """Record build steps after discovery, append after a failed final review, or a new phase after review passed."""
             nonlocal initial_plan_recorded, final_review_state, final_review_summary, final_review_attempts, latest_step_feedback
             if session.abort_event.is_set():
                 return 'Aborted by user.'
             followup_phase = initial_plan_recorded and final_review_state == 'complete'
-            if initial_plan_recorded and not followup_phase:
+            remediation_phase = initial_plan_recorded and final_review_state == 'error'
+            if initial_plan_recorded and not followup_phase and not remediation_phase:
                 next_step = _next_incomplete_step_text(planner_steps)
                 if next_step:
                     next_action_hint = (
                         f' Your next tool call should be `execute_plan_step` for this recorded step: "{next_step}".'
                     )
+                elif _all_recorded_steps_complete(planner_steps) and final_review_state == 'pending':
+                    next_action_hint = ' Your next tool call should be `run_final_project_review`.'
                 else:
                     next_action_hint = (
-                        ' Do not call `record_plan` again until `run_final_project_review` succeeds; '
-                        'then you may record a follow-up checklist if more implementation is needed.'
+                        ' Do not call `record_plan` again until final project review completes for this phase.'
                     )
                 return (
                     'Tool error: the build checklist is already recorded for this phase and is locked until '
@@ -587,12 +884,48 @@ async def run_coding_planner_stream(
             cleaned = (plan_steps or '').strip()
             if not cleaned:
                 return 'Tool error: plan_steps must not be empty.'
+            if remediation_phase:
+                parsed_append = _parse_plan_steps(cleaned, existing_steps=planner_steps)
+                append_error = _validate_append_plan_steps(parsed_append, complexity_profile)
+                if append_error:
+                    return append_error
+                line_append = len([line for line in cleaned.splitlines() if line.strip()])
+                planner_steps.extend(parsed_append)
+                final_review_state = 'pending'
+                final_review_attempts = 0
+                final_review_summary = ''
+                latest_step_feedback = ''
+                session.pending_project_review_reentry = None
+                await _emit_planner_progress(phase='planning')
+                plan_lines = '\n'.join(
+                    f'{i + 1}. {str(step.get("text") or "").strip()}' for i, step in enumerate(planner_steps)
+                )
+                await enqueue_plan_and_modify_outer_brief(
+                    session_id,
+                    nested_q,
+                    kind='plan_extended_after_review',
+                    summary=plan_lines,
+                )
+                logger.info(
+                    'Coding planner appended remediation steps after failed final review - new_step_lines=%d',
+                    line_append,
+                )
+                return (
+                    'Remediation steps appended after the failed final review. Execute each new step with '
+                    '`execute_plan_step`, then call `run_final_project_review` again when every recorded step is complete.'
+                )
+
             parsed_steps = _parse_plan_steps(cleaned)
             discovery_completed = discovery_tool_calls > 0 or followup_phase
+            initial_requires_discovery = complexity_profile.requires_discovery or (
+                NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS
+                and scope_text_mentions_programming_paths(task_summary)
+            )
             validation_error = _validate_initial_plan_steps(
                 parsed_steps,
                 complexity_profile,
                 discovery_completed=discovery_completed,
+                requires_discovery=initial_requires_discovery,
             )
             if validation_error:
                 return validation_error
@@ -608,7 +941,7 @@ async def run_coding_planner_stream(
             plan_lines = '\n'.join(
                 f'{i + 1}. {str(step.get("text") or "").strip()}' for i, step in enumerate(planner_steps)
             )
-            await enqueue_modify_workspace_outer_brief(
+            await enqueue_plan_and_modify_outer_brief(
                 session_id,
                 nested_q,
                 kind='plan_recorded',
@@ -774,7 +1107,6 @@ async def run_coding_planner_stream(
                     step_instruction,
                     step_proxy_q,
                     checkpointer,
-                    allow_project_review=False,
                 )
             except Exception:
                 step['state'] = 'error'
@@ -804,7 +1136,6 @@ async def run_coding_planner_stream(
             blocked = _final_review_guard()
             if blocked:
                 return blocked
-            retry_limit = max(0, int(get_active_connection().plan_retry_attempts_count))
             base_instruction = (
                 review_instruction.strip()
                 or _build_final_project_review_instruction(task_summary, planner_steps)
@@ -812,13 +1143,12 @@ async def run_coding_planner_stream(
             final_review_state = 'running'
             final_review_summary = ''
             await _emit_planner_progress(phase='executing')
-            review_result = await run_planning_nested_stream(
+            review_result = await run_final_project_review_stream(
                 session,
                 session_id,
                 base_instruction,
                 step_proxy_q,
                 checkpointer,
-                allow_project_review=True,
             )
             final_review_summary = review_result
             if not review_result.lower().startswith(_FINAL_PROJECT_REVIEW_FAILURE_PREFIX.lower()):
@@ -827,53 +1157,70 @@ async def run_coding_planner_stream(
                 await _emit_planner_progress(phase='executing')
                 return review_result
 
-            final_review_state = 'error'
             final_review_attempts = 1
-            session.pending_project_review_reentry = ProjectReviewReentryRequest(
-                original_task_summary=task_summary.strip() or '(empty task summary)',
-                next_task_summary=_build_project_review_reentry_task_summary(
-                    task_summary,
-                    planner_steps,
-                    review_feedback=review_result,
-                ),
-                review_feedback=review_result,
-                recorded_steps=[str(step.get('text') or '').strip() for step in planner_steps if str(step.get('text') or '').strip()],
-                final_review_attempts=final_review_attempts,
-                retry_budget=retry_limit,
-                terminal_reason='project_review_failed',
+            session.pending_project_review_reentry = None
+            new_idx = _next_plan_step_index(planner_steps)
+            planner_steps.append(
+                {
+                    'id': f'step-{new_idx}',
+                    'text': _auto_remediation_step_text_from_final_review(review_result),
+                    'state': 'pending',
+                }
             )
-            final_review_summary = (
+            final_review_state = 'pending'
+            final_review_summary = 'Final project review failed; a remediation step was appended to the checklist.'
+            plan_lines = '\n'.join(
+                f'{i + 1}. {str(step.get("text") or "").strip()}' for i, step in enumerate(planner_steps)
+            )
+            await enqueue_plan_and_modify_outer_brief(
+                session_id,
+                nested_q,
+                kind='plan_auto_remediation',
+                summary=plan_lines,
+            )
+            await _emit_planner_progress(phase='planning')
+            return (
                 f'{review_result}\n\n'
-                'Final project review requested a brand-new planner graph from the current workspace state.'
+                'Final project review failed. A remediation checklist step was appended automatically from the reviewer '
+                'output. Run `execute_plan_step` for that new step, then call `run_final_project_review` again when '
+                'every recorded step is complete. Do not call `record_plan` for this failure unless you need to split '
+                'the remediation into multiple build steps.'
             )
-            await _emit_planner_progress(phase='error')
-            return final_review_summary
 
+        lsp_discovery_tools: list[Any] = [
+            planner_lsp_get_diagnostics,
+            planner_lsp_hover,
+            planner_lsp_find_definition,
+            planner_lsp_find_references,
+            planner_lsp_get_document_symbols,
+        ]
         planner_tools: list[Any] = [
             ensure_python_workspace_env_tool,
             record_plan,
             planner_list_workspace_directory,
             planner_read_workspace_file,
             planner_search_workspace,
-            planner_lsp_get_diagnostics,
-            planner_lsp_hover,
-            planner_lsp_find_definition,
-            planner_lsp_find_references,
-            planner_lsp_get_document_symbols,
+            *(lsp_discovery_tools if include_lsp_discovery else []),
             *edit_tools_for_strict(runtime_config.tools.edit_tools_strict),
             execute_plan_step,
             run_final_project_review,
         ]
 
-        system_prompt = build_coding_planner_system_prompt(session)
+        system_prompt = build_coding_planner_system_prompt(
+            session,
+            include_lsp_discovery=include_lsp_discovery,
+        )
 
         def _planner_should_retry_for_middleware() -> bool:
             if session.abort_event.is_set():
                 return False
-            return _planner_has_incomplete_work(initial_plan_recorded, planner_steps) or _planner_should_reflect_for_final_review(
-                initial_plan_recorded,
-                planner_steps,
-                final_review_state=final_review_state,
+            return (
+                _planner_has_incomplete_work(initial_plan_recorded, planner_steps)
+                or _planner_should_reflect_for_final_review(
+                    initial_plan_recorded,
+                    planner_steps,
+                    final_review_state=final_review_state,
+                )
             )
 
         graph = create_agent(
@@ -890,6 +1237,7 @@ async def run_coding_planner_stream(
                         steps=planner_steps,
                         next_step_text=_next_incomplete_step_text(planner_steps),
                         latest_feedback=latest_step_feedback or final_review_summary,
+                        final_review_state=final_review_state,
                     ),
                     max_retries=NEMO_PLANNER_REFLECTION_RETRIES,
                 ),
@@ -898,6 +1246,7 @@ async def run_coding_planner_stream(
             checkpointer=checkpointer,
         )
 
+        # Random suffix per plan_and_modify; isolates planner checkpoints between invocations.
         thread_id = f'{session_id}:coding_planner:{uuid.uuid4().hex[:10]}'
         config: RunnableConfig = {
             'configurable': {'thread_id': thread_id},
@@ -906,7 +1255,11 @@ async def run_coding_planner_stream(
         inputs: dict[str, Any] = {
             'messages': [
                 HumanMessage(
-                    content=build_coding_planner_task_prompt(task_summary, _plan_requirements_text(complexity_profile))
+                    content=build_coding_planner_task_prompt(
+                        task_summary,
+                        _plan_requirements_text(complexity_profile, task_summary),
+                        include_lsp_discovery=include_lsp_discovery,
+                    )
                 )
             ],
         }
@@ -953,3 +1306,98 @@ async def run_coding_planner_stream(
                 'Try rephrasing the task.'
             )
         return last_final_text
+
+
+async def run_coding_planner_orchestrated_stream(
+    session: SessionState,
+    session_id: str,
+    task_summary: str,
+    nested_q: Any,
+    checkpointer: Any,
+) -> str:
+    """Plan probe + fast path (1–3 steps) or full ``run_coding_planner_stream``; conditional LSP discovery tools."""
+    complexity_profile = _task_complexity_profile(task_summary)
+    include_lsp = scope_text_mentions_programming_paths(task_summary)
+
+    if not NEMO_PLAN_PROBE_ENABLED:
+        return await run_coding_planner_stream(
+            session,
+            session_id,
+            task_summary,
+            nested_q,
+            checkpointer,
+            include_lsp_discovery=include_lsp,
+        )
+
+    if complexity_profile.max_steps >= NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS:
+        logger.info(
+            'plan probe skipped — max_steps=%d >= NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS=%d',
+            complexity_profile.max_steps,
+            NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS,
+        )
+        return await run_coding_planner_stream(
+            session,
+            session_id,
+            task_summary,
+            nested_q,
+            checkpointer,
+            include_lsp_discovery=include_lsp,
+        )
+
+    raw_steps = await _run_plan_probe_llm(task_summary)
+    if raw_steps is None:
+        logger.info('plan probe unavailable — full coding planner')
+        return await run_coding_planner_stream(
+            session,
+            session_id,
+            task_summary,
+            nested_q,
+            checkpointer,
+            include_lsp_discovery=include_lsp,
+        )
+
+    plan_blob = '\n'.join(f'{i + 1}. {t}' for i, t in enumerate(raw_steps))
+    parsed = _parse_plan_steps(plan_blob)
+    probe_err = _validate_probe_plan_steps(parsed)
+    if probe_err:
+        logger.info('plan probe invalid (%s) — full coding planner', probe_err)
+        return await run_coding_planner_stream(
+            session,
+            session_id,
+            task_summary,
+            nested_q,
+            checkpointer,
+            include_lsp_discovery=include_lsp,
+        )
+
+    if len(parsed) >= 4:
+        logger.info('plan probe returned %d steps — full coding planner', len(parsed))
+        scope_lsp = scope_text_mentions_programming_paths(task_summary, *raw_steps)
+        return await run_coding_planner_stream(
+            session,
+            session_id,
+            task_summary,
+            nested_q,
+            checkpointer,
+            include_lsp_discovery=scope_lsp,
+        )
+
+    if 1 <= len(parsed) <= NEMO_PLAN_FAST_PATH_MAX_STEPS:
+        logger.info('plan probe fast path — %d step(s)', len(parsed))
+        return await run_coding_planner_fast_path_stream(
+            session,
+            session_id,
+            task_summary,
+            parsed,
+            nested_q,
+            checkpointer,
+        )
+
+    return await run_coding_planner_stream(
+        session,
+        session_id,
+        task_summary,
+        nested_q,
+        checkpointer,
+        include_lsp_discovery=include_lsp,
+    )

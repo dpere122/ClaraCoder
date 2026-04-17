@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage
 
-from nemo_backend.agents.orchestration.nested_pipeline import run_planning_nested_stream
+from nemo_backend.agents.orchestration.nested_pipeline import (
+    NESTED_WORKER_STREAM_END,
+    run_final_project_review_stream,
+    run_planning_nested_stream,
+)
 from nemo_backend.domain import EditStagingEntry, SessionState
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
@@ -610,7 +614,6 @@ class TestRunPlanningNestedStream:
                 'regular step task',
                 nested_q,
                 None,
-                allow_project_review=False,
             )
         )
         await asyncio.sleep(0)
@@ -630,7 +633,7 @@ class TestRunPlanningNestedStream:
         'nemo_backend.agents.orchestration.nested_pipeline.maybe_bootstrap_python_workspace_env_for_project_review',
         new_callable=AsyncMock,
     )
-    async def test_project_review_specialist_accepts_approval_tool(
+    async def test_run_final_project_review_stream_accepts_approval_tool(
         self, mock_bootstrap: AsyncMock, mock_activate_scope: Any, mock_create: Any, mock_build: Any
     ) -> None:
         mock_build.return_value = MagicMock()
@@ -639,13 +642,7 @@ class TestRunPlanningNestedStream:
             '- Workspace root: `python/`\n'
             '- Virtual environment: `python/.venv` (created)\n'
         )
-        captured_router_tools: list[Any] = []
         captured_review_messages: list[str] = []
-        release_router = asyncio.Event()
-
-        async def _router_stream(*_a: Any, **_kw: Any):
-            await release_router.wait()
-            yield {'event': 'on_chain_start', 'data': {}}
 
         async def _review_stream(inputs: Any, *_a: Any, **_kw: Any):
             captured_review_messages.append(inputs['messages'][0].content)
@@ -659,26 +656,20 @@ class TestRunPlanningNestedStream:
                 'data': {'output': AIMessage(content='Workspace tests passed.')},
             }
 
-        router_graph = MagicMock()
-        router_graph.astream_events = _router_stream
         review_graph = MagicMock()
         review_graph.astream_events = _review_stream
 
         def _capture_create(*args: Any, **kwargs: Any) -> Any:
-            if kwargs.get('name') == 'nemo_planning_router':
-                captured_router_tools.extend(args[1])
-                return router_graph
+            assert kwargs.get('name') == 'nemo_specialist_project_review'
             return review_graph
 
         mock_create.side_effect = _capture_create
 
         session = SessionState()
         nested_q: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(run_planning_nested_stream(session, 'sess-1', 'final review task', nested_q, None))
-        await asyncio.sleep(0)
-
-        route_tool = next(tool for tool in captured_router_tools if tool.name == 'route_project_review_specialist')
-        result = await route_tool.ainvoke({'task_instruction': 'Review the completed workspace.'})
+        result = await run_final_project_review_stream(
+            session, 'sess-1', 'Review the completed workspace.', nested_q, None
+        )
 
         assert result == 'Workspace tests passed.'
         mock_activate_scope.assert_called_once_with('sess-1', scope='workspace')
@@ -687,9 +678,13 @@ class TestRunPlanningNestedStream:
         assert 'Workspace root: `python/`' in captured_review_messages[0]
         assert 'real pytest signal' in captured_review_messages[0]
         assert 'smoke test' in captured_review_messages[0]
-
-        release_router.set()
-        await task
+        end = None
+        while True:
+            item = await asyncio.wait_for(nested_q.get(), timeout=1)
+            if item is NESTED_WORKER_STREAM_END:
+                end = item
+                break
+        assert end is NESTED_WORKER_STREAM_END
 
     @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
@@ -698,17 +693,11 @@ class TestRunPlanningNestedStream:
         'nemo_backend.agents.orchestration.nested_pipeline.maybe_bootstrap_python_workspace_env_for_project_review',
         new_callable=AsyncMock,
     )
-    async def test_project_review_rejection_returns_final_review_error(
+    async def test_run_final_project_review_stream_rejection_returns_final_review_error(
         self, mock_bootstrap: AsyncMock, mock_activate_scope: Any, mock_create: Any, mock_build: Any
     ) -> None:
         mock_build.return_value = MagicMock()
         mock_bootstrap.return_value = ''
-        captured_router_tools: list[Any] = []
-        release_router = asyncio.Event()
-
-        async def _router_stream(*_a: Any, **_kw: Any):
-            await release_router.wait()
-            yield {'event': 'on_chain_start', 'data': {}}
 
         async def _review_stream(*_a: Any, **_kw: Any):
             yield {
@@ -726,31 +715,29 @@ class TestRunPlanningNestedStream:
                 'data': {'output': AIMessage(content='Project review failed.')},
             }
 
-        router_graph = MagicMock()
-        router_graph.astream_events = _router_stream
         review_graph = MagicMock()
         review_graph.astream_events = _review_stream
 
         def _capture_create(*args: Any, **kwargs: Any) -> Any:
-            if kwargs.get('name') == 'nemo_planning_router':
-                captured_router_tools.extend(args[1])
-                return router_graph
+            assert kwargs.get('name') == 'nemo_specialist_project_review'
             return review_graph
 
         mock_create.side_effect = _capture_create
 
         session = SessionState()
         nested_q: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(run_planning_nested_stream(session, 'sess-1', 'final review task', nested_q, None))
-        await asyncio.sleep(0)
-
-        route_tool = next(tool for tool in captured_router_tools if tool.name == 'route_project_review_specialist')
-        result = await route_tool.ainvoke({'task_instruction': 'Review the completed workspace.'})
+        result = await run_final_project_review_stream(
+            session, 'sess-1', 'Review the completed workspace.', nested_q, None
+        )
 
         assert result.startswith('Tool error: final project review failed.')
         assert 'minimum workspace fixes needed' in result
         assert 'tests/test_main.py::test_value' in result
         mock_activate_scope.assert_called_once_with('sess-1', scope='workspace')
-
-        release_router.set()
-        await task
+        end = None
+        while True:
+            item = await asyncio.wait_for(nested_q.get(), timeout=1)
+            if item is NESTED_WORKER_STREAM_END:
+                end = item
+                break
+        assert end is NESTED_WORKER_STREAM_END

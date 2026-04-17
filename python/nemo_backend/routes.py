@@ -50,6 +50,11 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             optimization_preset=item.optimizationPreset,
             max_output_tokens=int(item.maxOutputTokens),
             plan_retry_attempts_count=int(item.planRetryAttemptsCount),
+            thinking_mode=item.thinkingMode,
+            sampling_preset=item.samplingPreset,
+            top_p=item.topP,
+            top_k=item.topK,
+            architecture_hint=item.architectureHint,
         )
         for item in request.connections
     ]

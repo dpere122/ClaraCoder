@@ -30,7 +30,7 @@ async def test_empty_response_nudge_resets_after_tool_call() -> None:
     assert result == {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
 
 
-async def test_empty_response_nudge_uses_modify_workspace_followup_prompt() -> None:
+async def test_empty_response_nudge_uses_nested_mutation_followup_prompt() -> None:
     middleware = EmptyResponseNudgeMiddleware()
 
     result = await middleware.aafter_model(
@@ -39,7 +39,7 @@ async def test_empty_response_nudge_uses_modify_workspace_followup_prompt() -> N
                 ToolMessage(
                     content='Completed the requested workspace changes successfully.',
                     tool_call_id='tool-1',
-                    name='modify_workspace',
+                    name='plan_and_modify',
                 ),
                 AIMessage(content=''),
             ],
@@ -51,8 +51,31 @@ async def test_empty_response_nudge_uses_modify_workspace_followup_prompt() -> N
     assert result is not None
     assert result['jump_to'] == 'model'
     assert result['empty_response_nudge_streak'] == 1
-    assert 'completed `modify_workspace` result' in result['messages'][0].content
+    assert 'nested workspace mutation result' in result['messages'][0].content
     assert 'answer the user now in plain language without more tools' in result['messages'][0].content
+
+
+async def test_empty_response_nudge_after_successful_execute_workspace_mutation() -> None:
+    middleware = EmptyResponseNudgeMiddleware()
+
+    result = await middleware.aafter_model(
+        {
+            'messages': [
+                ToolMessage(
+                    content='Staged and transferred foo.py successfully.',
+                    tool_call_id='tool-1',
+                    name='execute_workspace_mutation',
+                ),
+                AIMessage(content=''),
+            ],
+            'empty_response_nudge_streak': 0,
+        },
+        MagicMock(),
+    )
+
+    assert result is not None
+    assert result['jump_to'] == 'model'
+    assert 'nested workspace mutation result' in result['messages'][0].content
 
 
 async def test_post_tool_silent_streak_increments_once_before_nudge() -> None:
@@ -64,11 +87,11 @@ async def test_post_tool_silent_streak_increments_once_before_nudge() -> None:
                 ToolMessage(
                     content='Tool error: hello.py does not exist in the workspace.',
                     tool_call_id='tool-1',
-                    name='modify_workspace',
+                    name='plan_and_modify',
                 ),
                 AIMessage(
                     content='',
-                    tool_calls=[{'name': 'modify_workspace', 'args': {'task_summary': 'retry'}, 'id': 'tool-2'}],
+                    tool_calls=[{'name': 'plan_and_modify', 'args': {'task_summary': 'retry'}, 'id': 'tool-2'}],
                 ),
             ],
             'empty_response_nudge_streak': 0,
@@ -89,11 +112,11 @@ async def test_post_tool_silent_streak_second_turn_nudges_repeat_modify() -> Non
                 ToolMessage(
                     content='Tool error: hello.py does not exist in the workspace.',
                     tool_call_id='tool-1',
-                    name='modify_workspace',
+                    name='plan_and_modify',
                 ),
                 AIMessage(
                     content='',
-                    tool_calls=[{'name': 'modify_workspace', 'args': {'task_summary': 'retry'}, 'id': 'tool-2'}],
+                    tool_calls=[{'name': 'plan_and_modify', 'args': {'task_summary': 'retry'}, 'id': 'tool-2'}],
                 ),
             ],
             'empty_response_nudge_streak': 0,
@@ -110,7 +133,7 @@ async def test_post_tool_silent_streak_second_turn_nudges_repeat_modify() -> Non
 
 
 async def test_list_tool_result_then_read_tool_only_does_not_trigger_modify_spam_nudge() -> None:
-    """Regression: list → read → modify is normal; latest tool is not modify_workspace yet."""
+    """Regression: list → read → modify is normal; latest tool is not plan_and_modify yet."""
     middleware = EmptyResponseNudgeMiddleware()
 
     result = await middleware.aafter_model(
@@ -146,7 +169,7 @@ async def test_after_failed_modify_read_workspace_resets_spam_streak() -> None:
                 ToolMessage(
                     content='Tool error: nested planning failed.',
                     tool_call_id='tool-1',
-                    name='modify_workspace',
+                    name='plan_and_modify',
                 ),
                 AIMessage(
                     content='',

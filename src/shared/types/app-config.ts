@@ -1,7 +1,16 @@
 import type { Workspace } from './workspace';
 
 /** Family-specific tuning template from Settings → Models (synced to Python). */
-export type LlmOptimizationPreset = 'generic' | 'qwen' | 'capable';
+export type LlmOptimizationPreset = 'generic' | 'qwen' | 'capable' | 'gemma';
+
+/** Gemma 4 / LM Studio thinking: boolean-style control (not OpenAI reasoning_effort tiers). */
+export type GemmaThinkingMode = 'default' | 'on' | 'off';
+
+/** How sampling (temperature/top_p/top_k) is chosen for Gemma-class models. */
+export type GemmaSamplingPreset = 'provider-default' | 'gemma-recommended' | 'custom';
+
+/** Hint for dense vs MoE Gemma 4 variants (affects defaults and prompt notes only). */
+export type GemmaArchitectureHint = 'auto' | 'dense' | 'moe';
 
 /** Single LLM endpoint configuration (OpenAI-compatible or LM Studio). */
 export interface LlmConnectionConfig {
@@ -13,8 +22,22 @@ export interface LlmConnectionConfig {
   /** Main context window for this model/profile. */
   contextWindowTokens: number;
   apiKey: string;
-  /** OpenAI-style Chat Completions reasoning effort; empty = omit. */
-  reasoningEffort?: '' | 'minimal' | 'low' | 'medium' | 'high';
+  /**
+   * Chat Completions ``reasoning_effort``; empty = omit parameter.
+   * API values: none, minimal, low, medium, high, xhigh. UI aliases ``on`` / ``off`` map to medium / none in the backend.
+   * For Gemma-family models the backend omits this parameter; use ``thinkingMode`` instead.
+   */
+  reasoningEffort?: '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'on' | 'off';
+  /** Gemma / LM Studio boolean thinking guidance (not OpenAI-style reasoning tiers). */
+  thinkingMode: GemmaThinkingMode;
+  /** Gemma sampling profile (Google recommends temperature=1, top_p=0.95, top_k=64). */
+  samplingPreset: GemmaSamplingPreset;
+  /** When ``samplingPreset`` is ``custom``, optional top_p (0–1). */
+  topP?: number;
+  /** When ``samplingPreset`` is ``custom``, optional top_k (1–256). */
+  topK?: number;
+  /** Dense vs MoE hint for Gemma 4 (e.g. 26B A4B MoE); ``auto`` infers from the model id. */
+  architectureHint: GemmaArchitectureHint;
   /** Sampling temperature for chat completions (0–1). */
   temperature: number;
   /** When true, the model may request multiple tool calls in one completion. */

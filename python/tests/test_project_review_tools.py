@@ -7,6 +7,7 @@ import pytest
 
 from nemo_backend.agents.specialists.project_review_tools import (
     maybe_bootstrap_python_workspace_env_for_project_review,
+    reject_project_review,
     run_workspace_python_smoke_test,
     run_workspace_pytest_tests,
 )
@@ -15,7 +16,27 @@ from nemo_backend.python_env import (
     workspace_python_executable,
 )
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
-from nemo_backend.state import current_session_id, get_session
+from nemo_backend.state import current_session_id, get_session, sessions
+
+
+class _FakeAsyncStreamReader:
+    """Minimal ``asyncio.StreamReader`` stand-in for chunk ``read()``-based subprocess pumps."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._pos = 0
+
+    async def read(self, n: int = -1) -> bytes:
+        await asyncio.sleep(0)
+        if self._pos >= len(self._data):
+            return b''
+        if n == -1:
+            chunk = self._data[self._pos :]
+            self._pos = len(self._data)
+            return chunk
+        chunk = self._data[self._pos : self._pos + n]
+        self._pos += len(chunk)
+        return chunk
 
 
 @pytest.fixture()
@@ -123,18 +144,10 @@ async def test_run_workspace_pytest_tests_bootstraps_session_dependencies_first(
             summary='env-ready',
         )
 
-    class _FakeStream:
-        def __init__(self, lines: list[bytes]) -> None:
-            self._lines = list(lines)
-
-        async def readline(self) -> bytes:
-            await asyncio.sleep(0)
-            return self._lines.pop(0) if self._lines else b''
-
     class _PytestProc:
         def __init__(self) -> None:
-            self.stdout = _FakeStream([b'1 passed\n'])
-            self.stderr = _FakeStream([])
+            self.stdout = _FakeAsyncStreamReader(b'1 passed\n')
+            self.stderr = _FakeAsyncStreamReader(b'')
             self.returncode: int | None = None
 
         async def wait(self) -> int:
@@ -324,18 +337,10 @@ async def test_run_workspace_pytest_tests_uses_workspace_python_and_streams_outp
             summary='ready',
         )
 
-    class _FakeStream:
-        def __init__(self, lines: list[bytes]) -> None:
-            self._lines = list(lines)
-
-        async def readline(self) -> bytes:
-            await asyncio.sleep(0)
-            return self._lines.pop(0) if self._lines else b''
-
     class _PytestProc:
         def __init__(self) -> None:
-            self.stdout = _FakeStream([b'test session starts\n', b'1 passed\n'])
-            self.stderr = _FakeStream([])
+            self.stdout = _FakeAsyncStreamReader(b'test session starts\n1 passed\n')
+            self.stderr = _FakeAsyncStreamReader(b'')
             self.returncode: int | None = None
 
         async def wait(self) -> int:
@@ -368,7 +373,15 @@ async def test_run_workspace_pytest_tests_uses_workspace_python_and_streams_outp
     streamed = []
     while not session.planning_nested_events_q.empty():
         streamed.append(await session.planning_nested_events_q.get())
-    assert any('test session starts' in item[1]['data']['delta'] for item in streamed)
+    assert any(
+        item[1].get('event') == 'tool_exec_chunk'
+        and 'test session starts' in (item[1].get('data') or {}).get('delta', '')
+        for item in streamed
+    )
+    complete_events = [item for item in streamed if item[1].get('event') == 'tool_exec_complete']
+    assert complete_events
+    excerpt = (complete_events[-1][1].get('data') or {}).get('output_excerpt', '')
+    assert '1 passed' in excerpt
 
 
 @pytest.mark.asyncio
@@ -398,15 +411,10 @@ async def test_run_workspace_pytest_tests_aborts_process_when_session_cancelled(
             summary='ready',
         )
 
-    class _FakeStream:
-        async def readline(self) -> bytes:
-            await asyncio.sleep(0.05)
-            return b''
-
     class _PytestProc:
         def __init__(self) -> None:
-            self.stdout = _FakeStream()
-            self.stderr = _FakeStream()
+            self.stdout = _FakeAsyncStreamReader(b'')
+            self.stderr = _FakeAsyncStreamReader(b'')
             self.returncode: int | None = None
             self.terminated = False
 
@@ -474,15 +482,10 @@ async def test_run_workspace_python_smoke_test_uses_workspace_entrypoint_and_rep
             summary='ready',
         )
 
-    class _FakeStream:
-        async def readline(self) -> bytes:
-            await asyncio.sleep(0.01)
-            return b''
-
     class _SmokeProc:
         def __init__(self) -> None:
-            self.stdout = _FakeStream()
-            self.stderr = _FakeStream()
+            self.stdout = _FakeAsyncStreamReader(b'')
+            self.stderr = _FakeAsyncStreamReader(b'')
             self.returncode: int | None = None
             self.terminated = False
 
@@ -516,3 +519,18 @@ async def test_run_workspace_python_smoke_test_uses_workspace_entrypoint_and_rep
     assert 'Workspace Python smoke-test summary' in result
     assert 'startup reached steady state' in result
     assert fake_proc.terminated is True
+
+
+def test_reject_project_review_attaches_stashed_subprocess_output() -> None:
+    sid = 'reject-stash-unit'
+    token = current_session_id.set(sid)
+    try:
+        session = get_session(sid)
+        session.last_project_review_subprocess_report = 'pytest: 1 failed in test_x.py'
+        out = reject_project_review.invoke({'feedback': 'Fix the regression.'})
+        assert 'Fix the regression.' in out
+        assert 'test_x.py' in out
+        assert 'attached automatically' in out.lower()
+    finally:
+        current_session_id.reset(token)
+        sessions.pop(sid, None)

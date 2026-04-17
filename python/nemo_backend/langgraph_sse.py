@@ -49,11 +49,11 @@ class GraphStreamState:
 _FORWARDED_RESULT_TOOL_NAMES = frozenset(
     {
         'execute_plan_step',
-        'modify_workspace',
+        'execute_workspace_mutation',
+        'plan_and_modify',
         'route_code_review_specialist',
         'route_write_specialist',
         'route_delete_specialist',
-        'route_project_review_specialist',
     }
 )
 
@@ -369,12 +369,15 @@ def sse_lines_for_graph_event(
             exit_code = None
         else:
             exit_code = None
+        excerpt_raw = data.get('output_excerpt')
+        output_excerpt = excerpt_raw.strip() if isinstance(excerpt_raw, str) else ''
         return [
             sse_line(
                 tool_exec_complete_event(
                     stream_tag=stream_tag_out,
                     label=label_out,
                     exit_code=exit_code,
+                    output_excerpt=output_excerpt,
                 ),
             ),
         ]

@@ -3,7 +3,7 @@ import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
-import { getLogsDir, getWorkspaceStagingDir } from '../paths';
+import { getCheckpointDbPath, getLogsDir, getWorkspaceStagingDir } from '../paths';
 import { ingestElectronLog } from '../log-ingest';
 
 export { PYTHON_URL, PYTHON_PORT };
@@ -17,12 +17,19 @@ export function startPythonServer(): void {
   const scriptPath = path.join(__dirname, '..', '..', '..', 'python', 'server.py');
   const logDir = getLogsDir();
   const stagingDir = getWorkspaceStagingDir();
+  const checkpointDb = getCheckpointDbPath();
   mkdirSync(logDir, { recursive: true });
   mkdirSync(stagingDir, { recursive: true });
+  mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
   mainState.pythonProcess = spawn(pythonCmd, [scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NEMO_LOG_DIR: logDir, NEMO_STAGING_DIR: stagingDir },
+    env: {
+      ...process.env,
+      NEMO_LOG_DIR: logDir,
+      NEMO_STAGING_DIR: stagingDir,
+      NEMO_CHECKPOINT_DB: checkpointDb,
+    },
   });
 
   mainState.pythonProcess.stdout?.on('data', (data: Buffer) => {

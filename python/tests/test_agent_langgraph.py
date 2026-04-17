@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,22 +17,16 @@ async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
 
 
-@patch('nemo_backend.agent_langgraph.worker_tools_and_map')
-@patch('nemo_backend.agent_langgraph.build_system_prompt')
-@patch('nemo_backend.agent_langgraph.session_to_messages')
+@patch('nemo_backend.agent_langgraph.build_nemo_single_outer_graph')
 @patch('nemo_backend.agent_langgraph.build_llm')
-@patch('nemo_backend.agent_langgraph.create_agent')
+@patch('nemo_backend.agent_langgraph.get_graph_checkpointer')
 async def test_stream_single_agent_langgraph_aborts_while_waiting_for_events(
-    mock_create_agent: MagicMock,
+    mock_get_cp: MagicMock,
     mock_build_llm: MagicMock,
-    mock_session_to_messages: MagicMock,
-    mock_build_system_prompt: MagicMock,
-    mock_worker_tools: MagicMock,
+    mock_build_graph: MagicMock,
 ) -> None:
+    mock_get_cp.return_value = MagicMock()
     mock_build_llm.return_value = MagicMock()
-    mock_session_to_messages.return_value = []
-    mock_build_system_prompt.return_value = 'System prompt'
-    mock_worker_tools.return_value = ([], {})
 
     async def _hung_stream(*_args: Any, **_kwargs: Any):
         await asyncio.Future()
@@ -40,7 +34,8 @@ async def test_stream_single_agent_langgraph_aborts_while_waiting_for_events(
 
     mock_graph = MagicMock()
     mock_graph.astream_events = _hung_stream
-    mock_create_agent.return_value = mock_graph
+    mock_graph.aget_state = AsyncMock(return_value=MagicMock(values={}))
+    mock_build_graph.return_value = mock_graph
 
     session = SessionState()
     outcome = LangGraphWorkerOutcome()

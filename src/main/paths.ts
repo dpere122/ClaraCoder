@@ -42,3 +42,8 @@ export function getLogsDir(): string {
 export function getWorkspaceStagingDir(): string {
   return path.join(getAppDataDir(), 'workspace-staging');
 }
+
+/** LangGraph Sqlite checkpoints (Python ``NEMO_CHECKPOINT_DB``). */
+export function getCheckpointDbPath(): string {
+  return path.join(getAppDataDir(), 'langgraph-checkpoints.sqlite');
+}

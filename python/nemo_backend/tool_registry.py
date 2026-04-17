@@ -1,8 +1,10 @@
 """Central registry for LangChain tools and human-in-the-loop (HITL) policy.
 
-**Outer agent** — workspace reads/search; ``copy_workspace_files``; non-code-only direct edit tools
-(``apply_workspace_full_file``, line/snippet replace); plus ``modify_workspace`` for code-review paths when Editor
-is on. Nested router + specialists handle staged code mutations.
+**Outer agent** — workspace reads/search; ``copy_workspace_files``; ``delete_workspace_entry`` and
+``batch_delete_workspace_entries`` (any path, with HITL when auto-apply is off); non-code-only direct edit tools
+(``apply_workspace_full_file``, line/snippet replace); plus ``execute_workspace_mutation`` and ``plan_and_modify``
+for code-review paths when Editor is on. Nested router + specialists handle staged code mutations (direct mutation
+skips the coding planner; ``plan_and_modify`` may run the planner first).
 
 **Nested executor** — router and specialist subgraphs bind create/update/delete tools in
 :mod:`nemo_backend.agents.orchestration.nested_pipeline`.
@@ -14,11 +16,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from nemo_backend.agents.planning.tool import MODIFY_WORKSPACE_NAME, PLANNING_TOOLS
+from nemo_backend.agents.planning.tool import PLANNING_TOOLS
 from nemo_backend.copy_tool import COPY_WORKSPACE_FILES_NAME, copy_workspace_files
 from nemo_backend.delete_tool import (
     BATCH_DELETE_WORKSPACE_ENTRIES_NAME,
     DELETE_WORKSPACE_ENTRY_NAME,
+    batch_delete_workspace_entries,
     delete_workspace_entry,
 )
 from nemo_backend.agents.specialists.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
@@ -80,7 +83,7 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
 
 
 def worker_tools_and_map(apply_mode: bool) -> tuple[list[Any], dict[str, Any]]:
-    """Tools for the outer Clara agent: reads; plus direct copy and ``modify_workspace`` when Editor is on."""
+    """Tools for the outer Clara agent: reads; plus direct copy and nested mutation tools when Editor is on."""
     tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
     mapping: dict[str, Any] = dict(TOOL_MAP)
     for tool_ in PYTHON_LSP_READ_TOOLS:
@@ -100,4 +103,8 @@ def worker_tools_and_map(apply_mode: bool) -> tuple[list[Any], dict[str, Any]]:
         tools.extend(edit_tools)
         for t in edit_tools:
             mapping[t.name] = t
+        tools.append(delete_workspace_entry)
+        mapping[DELETE_WORKSPACE_ENTRY_NAME] = delete_workspace_entry
+        tools.append(batch_delete_workspace_entries)
+        mapping[BATCH_DELETE_WORKSPACE_ENTRIES_NAME] = batch_delete_workspace_entries
     return tools, mapping

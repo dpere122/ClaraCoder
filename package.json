@@ -4,6 +4,8 @@
   "description": "",
   "main": "dist/main/index.js",
   "scripts": {
+    "postinstall": "electron-rebuild -f -w node-pty || exit 0",
+    "rebuild:pty": "electron-rebuild -f -w node-pty",
     "test": "echo \"Error: no test specified\" && exit 1",
     "init:tsconfig": "npx create-tsconfig @typescript-eslint/parser --project=src/main/index.ts",
     "setup:python": "python -m pip install -r python/requirements.txt",
@@ -17,12 +19,21 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "electronmon": {
+    "patterns": [
+      "!**/__pycache__/**",
+      "!**/*.pyc",
+      "!**/*.pyo"
+    ]
+  },
   "dependencies": {
     "electron": "^41.0.4",
     "iconv-lite": "^0.6.3",
+    "node-pty": "^1.1.0",
     "systeminformation": "^5.31.5"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.2",
     "@types/node": "^25.5.0",
     "@typescript-eslint/parser": "^8.57.3-alpha.2",
     "concurrently": "^9.2.1",
@@ -30,6 +41,7 @@
     "electronmon": "^2.0.4",
     "ts-node": "^10.9.2",
     "typescript": "5.8.3",
+    "typescript-language-server": "^5.1.3",
     "wait-on": "^9.0.4"
   }
 }

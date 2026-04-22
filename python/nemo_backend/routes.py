@@ -6,14 +6,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from nemo_backend.domain import (
-    RuntimeAudioConfig,
-    RuntimeConfig,
-    RuntimeConnection,
-    RuntimeHostConfig,
-    RuntimeToolsConfig,
-)
+from nemo_backend.domain import RuntimeAudioConfig, RuntimeConnection, RuntimeHostConfig, RuntimeToolsConfig
 from nemo_backend.schemas import RuntimeConfigRequest
+from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 from nemo_backend import state
 
@@ -23,19 +18,30 @@ router = APIRouter()
 
 
 @router.get('/health')
-async def health() -> dict[str, str]:
-    """Liveness probe: confirms the process is up and reports active model metadata."""
+async def health() -> dict[str, str | bool]:
+    """Liveness probe: confirms the process is up and reports active model metadata.
+
+    ``orchestratedMode`` mirrors ``POST /runtime-config`` tools block (Settings → Tools); use it to verify the
+    backend matches the UI when debugging nested ``plan_and_modify`` availability.
+    """
     connection = state.get_active_connection()
     return {
         'status': 'ok',
         'provider': connection.provider,
         'model': connection.model,
+        'orchestratedMode': state.runtime_config.tools.orchestrated_mode,
     }
 
 
 @router.post('/runtime-config')
 async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
-    """Replace LLM connections, transcription settings, and host metadata from the UI."""
+    """Replace LLM connections, transcription settings, and host metadata from the UI.
+
+    Returns ``orchestratedMode`` so clients can confirm the value applied after parsing
+    (handles ``orchestrated_mode`` / string ``\"true\"`` aliases). When orchestration
+    toggles, LangGraph outer checkpoints for all sessions are cleared so prompts/tools
+    cannot stay stuck on a prior mode.
+    """
     connections = [
         RuntimeConnection(
             id=item.id,
@@ -54,7 +60,12 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             sampling_preset=item.samplingPreset,
             top_p=item.topP,
             top_k=item.topK,
+            min_p=item.minP,
+            presence_penalty=item.presencePenalty,
+            repeat_penalty=item.repeatPenalty,
             architecture_hint=item.architectureHint,
+            embeddings_base_url=(item.embeddingsBaseUrl or '').strip(),
+            embeddings_enabled=bool(item.embeddingsEnabled),
         )
         for item in request.connections
     ]
@@ -80,26 +91,43 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             max_search_results=request.tools.maxSearchResults,
             default_workspace_encoding=default_enc,
             default_workspace_newline=nl,
+            orchestrated_mode=request.tools.orchestratedMode,
         )
     else:
         tools_cfg = prev_tools
 
-    state.runtime_config = RuntimeConfig(
-        active_connection_id=active_connection_id,
-        connections=connections,
-        audio=RuntimeAudioConfig(
-            provider=request.audio.provider,
-            base_url=request.audio.baseUrl,
-            model=request.audio.model,
-            api_key=request.audio.apiKey,
-        ),
-        host=RuntimeHostConfig(
-            platform=request.host.platform if request.host else '',
-            release=request.host.release if request.host else '',
-            arch=request.host.arch if request.host else '',
-            version=request.host.version if request.host else '',
-            label=request.host.label if request.host else '',
-        ),
-        tools=tools_cfg,
+    orch_flipped = tools_cfg.orchestrated_mode != prev_tools.orchestrated_mode
+    if orch_flipped:
+        for sid in list(state.sessions.keys()):
+            await delete_outer_threads_for_session(sid)
+        logger.info(
+            'orchestrated_mode %s -> %s: cleared outer LangGraph checkpoints for %d session(s)',
+            prev_tools.orchestrated_mode,
+            tools_cfg.orchestrated_mode,
+            len(state.sessions),
+        )
+
+    # Mutate in place so modules that imported ``runtime_config`` keep seeing live values.
+    cfg = state.runtime_config
+    cfg.active_connection_id = active_connection_id
+    cfg.connections = connections
+    cfg.audio = RuntimeAudioConfig(
+        provider=request.audio.provider,
+        base_url=request.audio.baseUrl,
+        model=request.audio.model,
+        api_key=request.audio.apiKey,
     )
-    return {'ok': True}
+    cfg.host = RuntimeHostConfig(
+        platform=request.host.platform if request.host else '',
+        release=request.host.release if request.host else '',
+        arch=request.host.arch if request.host else '',
+        version=request.host.version if request.host else '',
+        label=request.host.label if request.host else '',
+    )
+    cfg.tools = tools_cfg
+    logger.info(
+        'POST /runtime-config applied orchestrated_mode=%s (tools payload: %s)',
+        state.runtime_config.tools.orchestrated_mode,
+        'yes' if request.tools is not None else 'no',
+    )
+    return {'ok': True, 'orchestratedMode': state.runtime_config.tools.orchestrated_mode}

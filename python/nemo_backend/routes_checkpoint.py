@@ -11,7 +11,7 @@ from nemo_backend.agent_langgraph import build_nemo_single_outer_graph
 from nemo_backend.checkpointing import outer_agent_thread_id
 from nemo_backend.llm import build_llm
 from nemo_backend.schemas import CheckpointForkRequest
-from nemo_backend.state import get_session
+from nemo_backend.state import get_session, runtime_config
 
 logger = logging.getLogger('nemo.http.checkpoint')
 
@@ -21,7 +21,12 @@ router = APIRouter(prefix='/checkpoint', tags=['checkpoint'])
 def _outer_config(session_id: str, *, apply_mode: bool) -> dict[str, Any]:
     return {
         'configurable': {
-            'thread_id': outer_agent_thread_id(session_id, 'single', apply_mode=apply_mode),
+            'thread_id': outer_agent_thread_id(
+                session_id,
+                'single',
+                apply_mode=apply_mode,
+                orchestrated_mode=runtime_config.tools.orchestrated_mode,
+            ),
         }
     }
 

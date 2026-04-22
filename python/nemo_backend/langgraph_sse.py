@@ -13,6 +13,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from nemo_backend.agent_streaming import (
+    aimessage_chunk_reasoning_delta,
     aimessage_chunk_sse_delta,
     is_meaningful_stream_delta,
     iter_read_tool_stream_sse,
@@ -29,7 +30,8 @@ from nemo_backend.llm_interaction_logging import (
     log_llm_chat_request_from_event_input,
     log_llm_chat_response,
 )
-from nemo_backend.messages import final_assistant_text, stringify_content
+from nemo_backend.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
+from nemo_backend.stream_tags import MOE_AUXILIARY_STREAM_TAG
 from nemo_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
 
 
@@ -44,11 +46,12 @@ class GraphStreamState:
     llm_step: int = 0
     stream_chunks: int = 0
     stream_chars: int = 0
+    #: True once a ``stream_tag=moe`` chunk was emitted for the current LLM step.
+    moe_emitted_this_step: bool = False
 
 
 _FORWARDED_RESULT_TOOL_NAMES = frozenset(
     {
-        'execute_plan_step',
         'execute_workspace_mutation',
         'plan_and_modify',
         'route_code_review_specialist',
@@ -113,6 +116,7 @@ def _on_chat_model_start(
     state.llm_step += 1
     state.stream_chunks = 0
     state.stream_chars = 0
+    state.moe_emitted_this_step = False
     log_llm_chat_request_from_event_input(
         data.get('input'),
         context=llm_log_context,
@@ -145,15 +149,25 @@ def _on_chat_model_stream(
     if not isinstance(raw, AIMessageChunk):
         return []
     delta = aimessage_chunk_sse_delta(raw)
-    if not is_meaningful_stream_delta(delta):
+    reason_delta = aimessage_chunk_reasoning_delta(raw)
+    main_ok = is_meaningful_stream_delta(delta)
+    moe_ok = is_meaningful_stream_delta(reason_delta)
+    if not main_ok and not moe_ok:
         return []
-    state.stream_chunks += 1
-    state.stream_chars += len(delta)
-    if emit_model_token_sse:
+    if main_ok:
+        state.stream_chunks += 1
+        state.stream_chars += len(delta)
+    if emit_model_token_sse and main_ok:
         state.partial_stream_text += delta
-    if emit_model_token_sse:
-        return [model_chunk_sse_line(delta, stream_tag)]
-    return []
+    if not emit_model_token_sse:
+        return []
+    out: list[str] = []
+    if main_ok:
+        out.append(model_chunk_sse_line(delta, stream_tag))
+    if moe_ok:
+        out.append(model_chunk_sse_line(reason_delta, MOE_AUXILIARY_STREAM_TAG))
+        state.moe_emitted_this_step = True
+    return out
 
 
 def _on_chat_model_end(
@@ -166,12 +180,19 @@ def _on_chat_model_end(
     llm_event_prefix: str,
     llm_log_context: str,
     record_model_end_final_text: bool,
+    emit_model_token_sse: bool,
 ) -> list[str]:
     raw = data.get('output')
     msg = raw if isinstance(raw, AIMessage) else None
     if msg is None:
         return []
-    lines = [
+    lines: list[str] = []
+    if emit_model_token_sse and not state.moe_emitted_this_step:
+        side = reasoning_sidecar_text(msg)
+        if side and is_meaningful_stream_delta(side):
+            lines.append(model_chunk_sse_line(side, MOE_AUXILIARY_STREAM_TAG))
+            state.moe_emitted_this_step = True
+    lines.append(
         sse_line(
             status_event(
                 f'{llm_event_prefix}-{state.llm_step}',
@@ -183,7 +204,7 @@ def _on_chat_model_end(
                 stream_tag=stream_tag,
             )
         )
-    ]
+    )
     log_llm_chat_response(
         msg,
         context=llm_log_context,
@@ -318,6 +339,7 @@ def sse_lines_for_graph_event(
             llm_event_prefix=llm_event_prefix,
             llm_log_context=llm_log_context,
             record_model_end_final_text=record_model_end_final_text,
+            emit_model_token_sse=emit_model_token_sse,
         )
     if et == 'on_tool_start':
         return _on_tool_start(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)

@@ -1,0 +1,212 @@
+.workspace-terminal-dock {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.workspace-terminal-dock__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 6px;
+  background: linear-gradient(180deg, var(--t-bg-deep), var(--t-code-bg));
+  color: var(--t-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.workspace-terminal-dock__bar:hover {
+  border-color: var(--t-primary);
+}
+
+.workspace-terminal-dock__chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--t-secondary);
+  transition: transform 0.15s ease;
+}
+
+.workspace-terminal-dock__chevron--open {
+  transform: rotate(90deg);
+}
+
+.workspace-terminal-dock__bar-label {
+  flex: 1;
+  text-align: left;
+}
+
+.workspace-terminal-dock__bar-count {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--t-border);
+  color: var(--t-text-muted);
+  border-radius: 4px;
+}
+
+.workspace-terminal-dock--expanded .workspace-terminal-dock__bar {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+}
+
+.workspace-terminal-dock__panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--t-border-subtle);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--t-bg-deep), var(--t-code-bg));
+  transition: height 0.18s ease, opacity 0.15s ease;
+}
+
+.workspace-terminal-dock__panel--collapsed {
+  height: 0 !important;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border: none;
+  visibility: hidden;
+}
+
+.workspace-terminal-dock__resize-handle {
+  height: 5px;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.workspace-terminal-dock__resize-handle:hover {
+  background: var(--t-primary);
+  opacity: 0.35;
+}
+
+.workspace-terminal-dock__empty {
+  padding: 1rem;
+  color: var(--t-text-muted);
+  font-size: 0.85rem;
+}
+
+.workspace-terminal-dock__toolbar {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--t-border-subtle);
+  padding: 0.25rem 0.35rem 0;
+}
+
+.workspace-terminal-dock__tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.workspace-terminal-dock__tab {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 11rem;
+  padding: 0.25rem 0.35rem 0.35rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  color: var(--t-text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  background: transparent;
+}
+
+.workspace-terminal-dock__tab--active {
+  color: var(--t-primary);
+  background: var(--t-code-bg);
+  border-color: var(--t-border-subtle);
+}
+
+.workspace-terminal-dock__tab--llama {
+  margin-left: auto;
+  border-color: color-mix(in srgb, var(--t-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 12%, var(--t-code-bg));
+  color: color-mix(in srgb, var(--t-primary) 92%, var(--t-text-muted));
+}
+
+.workspace-terminal-dock__tab--llama.workspace-terminal-dock__tab--active {
+  border-color: color-mix(in srgb, var(--t-primary) 65%, var(--t-border-subtle));
+  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-code-bg));
+}
+
+.workspace-terminal-dock__tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.workspace-terminal-dock__tab-close {
+  border: none;
+  background: transparent;
+  color: var(--t-text-muted);
+  padding: 0 0.15rem;
+  line-height: 1;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.workspace-terminal-dock__tab-close:hover {
+  color: var(--t-primary);
+}
+
+.workspace-terminal-dock__tab-add {
+  border: 1px dashed var(--t-border);
+  background: var(--t-hover-bg);
+  color: var(--t-secondary);
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  margin-bottom: 0.1rem;
+}
+
+.workspace-terminal-dock__tab-add:hover {
+  border-color: var(--t-primary);
+  color: var(--t-primary);
+}
+
+.workspace-terminal-dock__body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.workspace-terminal-dock__pane {
+  position: absolute;
+  inset: 0;
+  padding: 0.25rem 0.35rem 0.4rem;
+}
+
+.workspace-terminal-dock__pane--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.workspace-terminal-dock__pane .xterm {
+  height: 100%;
+}
+
+.workspace-terminal-dock__pane .xterm-viewport {
+  border-radius: 4px;
+}

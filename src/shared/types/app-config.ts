@@ -9,19 +9,31 @@ export type GemmaThinkingMode = 'default' | 'on' | 'off';
 /** How sampling (temperature/top_p/top_k) is chosen for Gemma-class models. */
 export type GemmaSamplingPreset = 'provider-default' | 'gemma-recommended' | 'custom';
 
-/** Hint for dense vs MoE Gemma 4 variants (affects defaults and prompt notes only). */
-export type GemmaArchitectureHint = 'auto' | 'dense' | 'moe';
+/** Hint for dense vs sparse-expert Gemma layouts (affects defaults and prompt notes only). */
+export type GemmaArchitectureHint = 'auto' | 'dense';
 
-/** Single LLM endpoint configuration (OpenAI-compatible or LM Studio). */
-export interface LlmConnectionConfig {
+/**
+ * Per-preset shell commands for managed ``llama-server`` (Electron spawns at Start).
+ * Each command must contain exactly one literal ``{{PORT}}``; the manager substitutes the picked TCP port.
+ * Empty ``embeddingRunCommand`` (after trim) disables the dedicated embedding process.
+ */
+export interface LlamaCppManaged {
+  chatRunCommand: string;
+  embeddingRunCommand: string;
+}
+
+/**
+ * Per-model preset under a provider (API model id + tuning). Persisted in `llmProviders[].models`.
+ * The same fields are merged with provider endpoint data for the Python runtime (`LlmConnectionConfig`).
+ */
+export interface LlmModelProfile {
   id: string;
+  /** Short label in settings lists (not the API model id). */
   name: string;
-  provider: 'openai' | 'lmstudio';
-  baseUrl: string;
+  /** Provider API model id / id string sent to the server. */
   model: string;
-  /** Main context window for this model/profile. */
+  /** Main context window for this model preset. */
   contextWindowTokens: number;
-  apiKey: string;
   /**
    * Chat Completions ``reasoning_effort``; empty = omit parameter.
    * API values: none, minimal, low, medium, high, xhigh. UI aliases ``on`` / ``off`` map to medium / none in the backend.
@@ -32,11 +44,19 @@ export interface LlmConnectionConfig {
   thinkingMode: GemmaThinkingMode;
   /** Gemma sampling profile (Google recommends temperature=1, top_p=0.95, top_k=64). */
   samplingPreset: GemmaSamplingPreset;
-  /** When ``samplingPreset`` is ``custom``, optional top_p (0–1). */
+  /** Optional nucleus sampling top_p (0–1); omitted when unset. Gemma “custom” uses this too. */
   topP?: number;
-  /** When ``samplingPreset`` is ``custom``, optional top_k (1–256). */
+  /** Optional top_k (1–256); often sent via request ``extra_body`` for local OpenAI-compatible servers. */
   topK?: number;
-  /** Dense vs MoE hint for Gemma 4 (e.g. 26B A4B MoE); ``auto`` infers from the model id. */
+  /** Optional min_p (0–1); llama.cpp / locals often accept as ``min_p`` in ``extra_body``. */
+  minP?: number;
+  /** Optional OpenAI-style presence_penalty (-2–2). */
+  presencePenalty?: number;
+  /**
+   * Optional llama.cpp-style repeat penalty; sent as ``repeat_penalty`` in ``extra_body`` (not OpenAI’s frequency_penalty).
+   */
+  repeatPenalty?: number;
+  /** Dense vs sparse-expert hint for Gemma 4 (e.g. 26B A4B); ``auto`` infers from the model id. */
   architectureHint: GemmaArchitectureHint;
   /** Sampling temperature for chat completions (0–1). */
   temperature: number;
@@ -51,9 +71,35 @@ export interface LlmConnectionConfig {
    * Hard cap on completion length sent to the API (max_tokens). 0 = let the backend choose (preset/env defaults).
    */
   maxOutputTokens: number;
-  /** Max final project-review retry attempts for this connection. */
+  /** Max final project-review retry attempts for this model preset. */
   planRetryAttemptsCount: number;
+  /** Managed ``llama-server`` launch profile (``llamacpp`` provider). */
+  llamaCppManaged?: LlamaCppManaged;
 }
+
+/** One API base URL + credentials with many named model presets. */
+export interface LlmProviderConfig {
+  id: string;
+  name: string;
+  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). */
+  provider: 'openai' | 'lmstudio' | 'llamacpp';
+  baseUrl: string;
+  apiKey: string;
+  models: LlmModelProfile[];
+}
+
+/** Effective chat + embeddings OpenAI base URLs for managed llamacpp (Electron-injected; ports not stored in profile). */
+export interface LlamaManagedRuntimeEndpoints {
+  baseUrl: string;
+  embeddingsBaseUrl: string;
+}
+
+/** Single resolved row for Python / UI (provider endpoint + one model preset). `id` is the model preset id. */
+export type LlmConnectionConfig = LlmModelProfile &
+  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey'> & {
+    /** Effective OpenAI-compatible embeddings base URL (managed llama embedding server); runtime-only from Electron. */
+    embeddingsBaseUrl?: string;
+  };
 
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
@@ -82,6 +128,11 @@ export interface WorkspaceToolsConfig {
   defaultWorkspaceEncoding: string;
   /** Default newline mode for edit writes when tools omit `newline`. */
   defaultWorkspaceNewline: 'lf' | 'crlf' | 'preserve';
+  /**
+   * When true, binds nested delegation tools (`plan_and_modify`, `execute_workspace_mutation`).
+   * When false (default), the outer agent uses staging tools only—a future default planner may replace this path.
+   */
+  orchestratedMode: boolean;
 }
 
 /** Root persisted settings for the desktop app (config.json). */
@@ -90,8 +141,9 @@ export interface AppConfig {
   workspaces: Workspace[];
   themeId: string;
   noWorkspaceThemeId: string;
-  activeLlmConnectionId: string;
-  llmConnections: LlmConnectionConfig[];
+  /** Which model preset is used for chat (`LlmModelProfile.id`). */
+  activeLlmModelId: string;
+  llmProviders: LlmProviderConfig[];
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
   healthMonitor: HealthMonitorConfig;

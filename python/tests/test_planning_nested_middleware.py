@@ -59,7 +59,8 @@ async def test_middleware_runs_single_coding_planner_stream(
     finally:
         current_session_id.reset(token)
 
-    assert result.content == 'Planner completed in one graph.'
+    assert result.content.startswith('[Nested delegation result · run=')
+    assert 'Planner completed in one graph.' in result.content
     assert mock_prepare_graph.call_count == 1
     assert mock_run_planner.await_count == 1
 
@@ -103,7 +104,8 @@ async def test_middleware_returns_aborted_result_while_waiting_for_nested_done_s
     finally:
         current_session_id.reset(token)
 
-    assert result.content == 'Aborted by user.'
+    assert result.content.startswith('[Nested delegation result · run=')
+    assert 'Aborted by user.' in result.content
 
 
 @patch('nemo_backend.agents.planning.nested_middleware.NEMO_CODING_PLANNER_ENABLED', True)
@@ -153,7 +155,64 @@ async def test_execute_workspace_mutation_skips_coding_planner_when_enabled(
     finally:
         current_session_id.reset(token)
 
-    assert result.content == 'Router-only done.'
+    assert result.content.startswith('[Nested delegation result · run=')
+    assert 'Router-only done.' in result.content
     assert mock_prepare_graph.call_count == 1
     assert mock_run_nested.await_count == 1
     assert mock_run_planner.await_count == 0
+
+
+@patch('nemo_backend.agents.planning.nested_middleware.NEMO_CODING_PLANNER_ENABLED', True)
+@patch('nemo_backend.agents.planning.nested_middleware.get_active_connection')
+@patch('nemo_backend.agents.planning.nested_middleware.prepare_new_planner_graph_session')
+@patch('nemo_backend.agents.planning.nested_middleware.run_planning_nested_stream', new_callable=AsyncMock)
+@patch('nemo_backend.agents.planning.nested_middleware.run_coding_planner_orchestrated_stream', new_callable=AsyncMock)
+async def test_plan_and_modify_disable_coding_planner_routes_nested_only(
+    mock_run_planner: AsyncMock,
+    mock_run_nested: AsyncMock,
+    mock_prepare_graph: MagicMock,
+    mock_active_connection: MagicMock,
+) -> None:
+    mock_active_connection.return_value = MagicMock(plan_retry_attempts_count=1)
+    middleware = PlanningNestedWorkerMiddleware(
+        None,
+        disable_coding_planner_for_plan_and_modify=True,
+    )
+    session_id = 'planner-disabled-session'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.workspace_path = 'C:/workspace'
+    session.worker_apply_mode = True
+    session.planning_nested_events_q = asyncio.Queue()
+
+    async def _run_nested(session_obj, sid, task_summary, nested_q, checkpointer):
+        del nested_q, checkpointer
+        assert session_obj is session
+        assert sid == session_id
+        if session.planning_nested_done_event is not None:
+            session.planning_nested_done_event.set()
+        return 'Nested-only router path.'
+
+    mock_run_nested.side_effect = _run_nested
+
+    request = SimpleNamespace(
+        tool_call={
+            'name': PLAN_AND_MODIFY_NAME,
+            'id': 'tool-plan-modify',
+            'args': {'task_summary': 'Nested task'},
+        }
+    )
+
+    async def _handler(_request):
+        raise AssertionError('handler should not be called')
+
+    try:
+        result = await middleware.awrap_tool_call(request, _handler)
+    finally:
+        current_session_id.reset(token)
+
+    assert result.content.startswith('[Nested delegation result · run=')
+    assert 'Nested-only router path.' in result.content
+    assert mock_run_planner.await_count == 0
+    assert mock_run_nested.await_count == 1
+    assert mock_prepare_graph.call_count == 1

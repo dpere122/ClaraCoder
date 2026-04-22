@@ -71,6 +71,15 @@
             </div>
           }
 
+          @if (row.assistant?.moeStreams?.length) {
+            <details class="llm-moe-panel">
+              <summary class="llm-moe-summary">Model reasoning</summary>
+              @for (part of row.assistant!.moeStreams!; track $index) {
+                <pre class="llm-moe-body">{{ part.text }}</pre>
+              }
+            </details>
+          }
+
           @for (artifact of row.artifacts; track $index) {
             @if (artifact.role === 'diff') {
               <div class="turn-artifact turn-artifact--diff">
@@ -195,13 +204,21 @@
             </div>
           }
         }
-        @if (primaryStreamPlainDisplay().length > 0) {
-          <div class="streaming-primary-plain" aria-live="polite">
-            <span class="streaming-plain">{{ primaryStreamPlainDisplay() }}</span>
+        @if (primaryStreamLiveText().length > 0) {
+          <div class="streaming-primary-live" aria-live="polite">
+            <div class="streaming-live-pre">{{ primaryStreamLiveText() }}</div>
             @if (showStreamingPrimaryCursor()) {
-              <span class="streaming-cursor streaming-cursor--plain" aria-hidden="true"></span>
+              <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
             }
           </div>
+        }
+        @if (moeStreamParts().length > 0) {
+          <details class="llm-moe-panel llm-moe-panel--live" open>
+            <summary class="llm-moe-summary">Model reasoning</summary>
+            @for (part of moeStreamParts(); track $index) {
+              <pre class="llm-moe-body">{{ part.text }}</pre>
+            }
+          </details>
         }
         @if (shellDelegatedStreamParts().length > 0) {
           <div class="streaming-delegated" aria-live="polite">

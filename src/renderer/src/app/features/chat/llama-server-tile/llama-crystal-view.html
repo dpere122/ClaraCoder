@@ -1,0 +1,6 @@
+<div class="llama-crystal-host" #host>
+  @if (loadError()) {
+    <div class="llama-crystal-fallback" [attr.data-state]="aggregate()"></div>
+  }
+  <canvas #cv class="llama-crystal-canvas" [class.llama-crystal-canvas--hidden]="loadError()"></canvas>
+</div>

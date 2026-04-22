@@ -6,19 +6,21 @@ import difflib
 import logging
 import re
 from pathlib import Path
+from typing import Literal
 
 from langchain_core.tools import tool
 
 from nemo_backend import edit_staging
-from nemo_backend.domain import WorkspaceTestMaterializationEntry
+from nemo_backend.diff_payload import build_file_diff_payload
+from nemo_backend.domain import PendingStagedTransferHitl, WorkspaceTestMaterializationEntry
 from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME
-from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.lsp.tools import lsp_get_diagnostics
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
-from nemo_backend.workspace_text_io import DiskNewline, write_file_resolved
-from nemo_backend.workspace_tools import get_active_workspace_root, truncate_text
+from nemo_backend.workspace_text_io import DiskNewline, decode_for_tools, write_file_resolved
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text
 
 logger = logging.getLogger('nemo.staging')
 
@@ -228,6 +230,92 @@ def _mark_materialization_approved(session, rel_key: str) -> None:
     session.test_run_materializations.pop(rel_key, None)
 
 
+def finalize_staged_transfer_after_hitl(
+    session,
+    action: Literal['confirm', 're_review'],
+    user_note: str,
+    *,
+    session_id: str | None = None,
+) -> str:
+    """Apply or abandon a deferred ``transfer_staged_file_to_workspace`` after chat HITL (``agent-continue``).
+
+    ``session_id`` should be the chat session id when called from HTTP (``current_session_id`` is unset there).
+    Returns text to append as a HumanMessage for the resumed agent (empty when nothing was pending).
+    """
+    pending = session.pending_staged_transfer_hitl
+    if pending is None:
+        return ''
+    rel_key = pending.relative_path.strip().replace('\\', '/')
+    session.pending_staged_transfer_hitl = None
+    entry = session.pending_edit_stagings.get(rel_key)
+
+    if action == 're_review':
+        fb = (user_note or '').strip() or '(no details)'
+        return (
+            '**Staged transfer returned for re-review (user did not approve landing this draft in the workspace '
+            f'yet).** Path: `{rel_key}`.\n\n'
+            'Route back to the **code review** specialist (or file-write specialist as appropriate). Use '
+            '`diff_staged_edit_against_baseline` / `read_staged_edit`, revise the staged draft, then call '
+            '`transfer_staged_file_to_workspace` again when ready.\n\n'
+            f'User / reviewer feedback:\n{fb}'
+        )
+
+    if entry is None:
+        return f'User confirmed staged transfer for `{rel_key}`, but no staging entry remained (ignored).'
+    if _entry_workspace_applied(entry):
+        return f'User confirmed staged transfer for `{rel_key}` (already applied for this chain).'
+
+    if rel_key in session.test_run_materializations:
+        _mark_materialization_approved(session, rel_key)
+        entry.old_text = str(entry.merged_text)
+        entry.workspace_applied = True
+        logger.info('finalize_staged_transfer_after_hitl confirm test_run path=%s', rel_key)
+        return (
+            f'User confirmed: staged `{rel_key}` (reviewer test-run materialization) finalized for this chain. '
+            'Continue the nested review / router turn from here.'
+        )
+
+    wp = (session.workspace_path or '').strip()
+    if not wp:
+        return 'Tool error after user confirmation: no workspace is attached to this session.'
+    root = Path(wp).resolve()
+    lsp_sid = (session_id or current_session_id.get() or '').strip() or None
+    target = normalize_relative_path(root, rel_key)
+    try:
+        write_file_resolved(
+            target,
+            str(entry.merged_text),
+            str(entry.disk_encoding),
+            'crlf' if entry.disk_newline == 'crlf' else 'lf',
+        )
+    except OSError as exc:
+        return f'Tool error after user confirmation: could not write staged file `{rel_key}` into the workspace ({exc}).'
+    except Exception as exc:
+        return f'Tool error after user confirmation: could not encode staged file `{rel_key}` for the workspace ({exc}).'
+    lsp_note = ''
+    if is_lsp_managed_path(rel_key):
+        try:
+            diagnostics = sync_session_document(
+                rel_key,
+                str(entry.merged_text),
+                session_id=lsp_sid,
+                scope='workspace',
+            )
+            ls_label = lsp_server_for_path(rel_key) or 'lsp'
+            lsp_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
+        except Exception as exc:
+            logger.warning('workspace LSP sync failed after hitl transfer path=%s err=%s', rel_key, exc)
+            ls_label = lsp_server_for_path(rel_key) or 'lsp'
+            lsp_note = f' {ls_label} LSP sync failed: {exc}.'
+    entry.old_text = str(entry.merged_text)
+    entry.workspace_applied = True
+    logger.info('finalize_staged_transfer_after_hitl confirm path=%s', rel_key)
+    return (
+        f'User confirmed: staged `{rel_key}` written to the real workspace.{lsp_note} '
+        'Continue the nested review / router turn from here.'
+    )
+
+
 def _materialize_staged_python_files(session, overlays: list[tuple[str, object]]) -> tuple[bool, str]:
     root = get_active_workspace_root()
     for rel_key, entry in overlays:
@@ -412,12 +500,39 @@ def format_staging_file_black(relative_path: str) -> str:
     return f'Black formatted staged `{rel_key}`. You may re-read with `read_staged_edit` before transferring.'
 
 
+def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[dict | None, str | None]:
+    """Workspace baseline vs staged merged text for chat diff review (no disk write)."""
+    root = get_active_workspace_root()
+    target = (root / rel_key).resolve()
+    old_text = ''
+    if target.is_file():
+        try:
+            raw_existing = target.read_bytes()
+            old_text = decode_for_tools(raw_existing, str(entry.disk_encoding))
+        except OSError as exc:
+            return None, f'could not read workspace file for diff ({exc})'
+    merged = str(entry.merged_text)
+    nl = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
+    payload, err = build_file_diff_payload(
+        rel_key,
+        old_text,
+        merged,
+        disk_encoding=str(entry.disk_encoding),
+        disk_newline=nl,
+    )
+    if err:
+        return None, err
+    payload['stagedTransferHitl'] = True
+    return payload, None
+
+
 @tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
 def transfer_staged_file_to_workspace(relative_path: str) -> str:
     """PASS / approve this staged draft for the current step.
 
     Call when the staged file correctly satisfies the task step and needs no further code changes from the
-    file-write specialist. This writes the staged content into the real workspace (approval signal for the router).
+    file-write specialist. When **auto-apply** is off, the real workspace is updated only after the human
+    confirms the transfer in chat (or returns it for re-review). When auto-apply is on, this writes immediately.
 
     Do not call this if you still want the writer to change the code—use `reject_staged_workspace_edit` instead.
     """
@@ -429,6 +544,33 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
     entry = session.pending_edit_stagings.get(rel_key)
     if not entry:
         return f'Tool error: no staged edit for `{rel_key}`.'
+
+    if not session.auto_apply_mode:
+        if rel_key in session.test_run_materializations:
+            payload, err = _build_staged_transfer_hitl_payload(session, rel_key, entry)
+            if err:
+                return f'Tool error: {err}'
+            session.pending_diff_payload = payload
+            session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path=rel_key)
+            logger.info('transfer_staged_file_to_workspace awaiting hitl (test_run) path=%s', rel_key)
+            return (
+                f'Staged `{rel_key}` is already on disk from the reviewer test run; **human confirmation** is '
+                'required before this chain treats it as approved. A diff card will appear in chat—approve the '
+                'transfer or return it for re-review with feedback for the code review / writer path. '
+                'Stop this review turn after calling this tool.'
+            )
+        payload, err = _build_staged_transfer_hitl_payload(session, rel_key, entry)
+        if err:
+            return f'Tool error: {err}'
+        session.pending_diff_payload = payload
+        session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path=rel_key)
+        logger.info('transfer_staged_file_to_workspace awaiting hitl path=%s', rel_key)
+        return (
+            f'Staged `{rel_key}` is ready to land in the real workspace; **human confirmation** is required. '
+            'A diff card will appear in chat—approve the transfer to write the workspace, or return for re-review '
+            'with feedback so the code review specialist can iterate. Stop this review turn after calling this tool.'
+        )
+
     if rel_key in session.test_run_materializations:
         out = (
             f'Staged `{rel_key}` is already saved in the workspace from the reviewer test run. '
@@ -458,10 +600,12 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
                     session_id=current_session_id.get(),
                     scope='workspace',
                 )
-                lsp_note = f' Python LSP diagnostics: {len(diagnostics)} issue(s).'
+                ls_label = lsp_server_for_path(rel_key) or 'lsp'
+                lsp_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
             except Exception as exc:
                 logger.warning('workspace LSP sync failed after staged transfer path=%s err=%s', rel_key, exc)
-                lsp_note = f' Python LSP sync failed: {exc}.'
+                ls_label = lsp_server_for_path(rel_key) or 'lsp'
+                lsp_note = f' {ls_label} LSP sync failed: {exc}.'
         out = f'Approved staged `{rel_key}` into the real workspace.{lsp_note}'
     entry.old_text = str(entry.merged_text)
     entry.workspace_applied = True

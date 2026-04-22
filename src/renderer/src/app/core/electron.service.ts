@@ -16,10 +16,16 @@ import type {
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  LlamaServerLifecycleEvent,
+  LlamaServerOutputEvent,
+  LlamaServerProcessExitEvent,
+  LlamaServerStartResult,
+  LlamaServerStatusResult,
   LlmStatus,
   PlannerProgress,
   TtsStreamPacket,
   Workspace,
+  WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
 } from '@shared/index';
@@ -96,6 +102,17 @@ export interface ScriptCompleteMessage {
   exitCode: number | null;
 }
 
+export interface WorkspacePtyDataMessage {
+  sessionId: string;
+  data: string;
+}
+
+export interface WorkspacePtyExitMessage {
+  sessionId: string;
+  exitCode: number;
+  signal: number | null;
+}
+
 export interface ConversationWorkspaceChangedMessage {
   id: string;
   workspacePath: string;
@@ -126,8 +143,16 @@ export class ElectronService {
   private readonly openConversationSubject = new Subject<string>();
   private readonly scriptOutputSubject = new Subject<ScriptOutputMessage>();
   private readonly scriptCompleteSubject = new Subject<ScriptCompleteMessage>();
+  private readonly workspacePtyDataSubject = new Subject<WorkspacePtyDataMessage>();
+  private readonly workspacePtyExitSubject = new Subject<WorkspacePtyExitMessage>();
+  private readonly llamaServerOutputSubject = new Subject<LlamaServerOutputEvent>();
+  private readonly llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
+  private readonly llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
+  private readonly windowMaximizedSubject = new Subject<boolean>();
+  /** Emits when the main BrowserWindow is maximized or restored (frameless chrome). */
+  readonly windowMaximized$ = this.windowMaximizedSubject.asObservable();
   readonly chunk$ = this.chunkSubject.asObservable();
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly toolExecChunk$ = this.toolExecChunkSubject.asObservable();
@@ -149,6 +174,11 @@ export class ElectronService {
   readonly openConversation$ = this.openConversationSubject.asObservable();
   readonly scriptOutput$ = this.scriptOutputSubject.asObservable();
   readonly scriptComplete$ = this.scriptCompleteSubject.asObservable();
+  readonly workspacePtyData$ = this.workspacePtyDataSubject.asObservable();
+  readonly workspacePtyExit$ = this.workspacePtyExitSubject.asObservable();
+  readonly llamaServerOutput$ = this.llamaServerOutputSubject.asObservable();
+  readonly llamaServerProcessExit$ = this.llamaServerProcessExitSubject.asObservable();
+  readonly llamaServerLifecycle$ = this.llamaServerLifecycleSubject.asObservable();
   /** TTS MP3 packets from the main process (filter by `seq` in the app). */
   readonly ttsStream$: Observable<TtsStreamPacket> = this.ttsStreamSubject.asObservable();
   readonly healthLogRecord$ = this.healthLogRecordSubject.asObservable();
@@ -235,6 +265,21 @@ export class ElectronService {
     this.api?.onScriptComplete((_event, data) => {
       this.zone.run(() => this.scriptCompleteSubject.next(data));
     });
+    this.api?.onWorkspacePtyData?.((_event, data) => {
+      this.zone.run(() => this.workspacePtyDataSubject.next(data));
+    });
+    this.api?.onWorkspacePtyExit?.((_event, data) => {
+      this.zone.run(() => this.workspacePtyExitSubject.next(data));
+    });
+    this.api?.onLlamaServerOutput?.((_event, data) => {
+      this.zone.run(() => this.llamaServerOutputSubject.next(data as LlamaServerOutputEvent));
+    });
+    this.api?.onLlamaServerProcessExit?.((_event, data) => {
+      this.zone.run(() => this.llamaServerProcessExitSubject.next(data as LlamaServerProcessExitEvent));
+    });
+    this.api?.onLlamaServerLifecycle?.((_event, data) => {
+      this.zone.run(() => this.llamaServerLifecycleSubject.next(data as LlamaServerLifecycleEvent));
+    });
     if (!ElectronService.ttsPacketListenerWired && this.api?.onTtsStreamPacket) {
       ElectronService.ttsPacketListenerWired = true;
       this.api.onTtsStreamPacket((packet) => {
@@ -243,6 +288,9 @@ export class ElectronService {
     }
     this.api?.onHealthLogRecord?.((_event, record) => {
       this.zone.run(() => this.healthLogRecordSubject.next(record));
+    });
+    this.api?.onWindowMaximizedChanged?.((maximized) => {
+      this.zone.run(() => this.windowMaximizedSubject.next(maximized));
     });
     this.api?.onReady();
   }
@@ -280,6 +328,7 @@ export class ElectronService {
     copyRequestId?: string,
     acceptCommandAction?: 'confirm' | 'cancel',
     acceptCommandRequestId?: string,
+    stagedTransferAction?: 'confirm' | 're_review',
   ): Promise<{ ok: boolean; error?: string }> {
     return (
       this.api?.agentContinue(
@@ -291,6 +340,7 @@ export class ElectronService {
         copyRequestId,
         acceptCommandAction,
         acceptCommandRequestId,
+        stagedTransferAction,
       ) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
@@ -392,8 +442,13 @@ export class ElectronService {
     return this.api?.readDirectoryRecursive(dirPath) ?? Promise.resolve('');
   }
 
-  async setWorkspaceContext(sessionId: string, workspacePath: string, workspaceContext: string): Promise<void> {
-    await (this.api?.setWorkspaceContext?.(sessionId, workspacePath, workspaceContext) ?? Promise.resolve());
+  async setWorkspaceContext(
+    sessionId: string,
+    workspacePath: string,
+    workspaceContext: string,
+    extras?: WorkspaceContextSyncExtras,
+  ): Promise<void> {
+    await (this.api?.setWorkspaceContext?.(sessionId, workspacePath, workspaceContext, extras) ?? Promise.resolve());
   }
 
   setConversationTheme(id: string, themeId: string): Promise<void> {
@@ -418,8 +473,8 @@ export class ElectronService {
       workspaces: [],
       themeId: 'dark',
       noWorkspaceThemeId: 'dark',
-      activeLlmConnectionId: 'default-openai',
-      llmConnections: [],
+      activeLlmModelId: 'default-openai',
+      llmProviders: [],
       audioTranscription: {
         provider: 'openai',
         baseUrl: '',
@@ -432,6 +487,7 @@ export class ElectronService {
         maxSearchResults: 40,
         defaultWorkspaceEncoding: 'utf-8',
         defaultWorkspaceNewline: 'lf',
+        orchestratedMode: false,
       },
       healthMonitor: {
         logLevel: 'info',
@@ -440,8 +496,20 @@ export class ElectronService {
     });
   }
 
-  saveConfig(config: AppConfig): Promise<void> {
-    return this.api?.saveConfig(config) ?? Promise.resolve();
+  saveConfig(config: AppConfig): Promise<AppConfig> {
+    return this.api?.saveConfig(config) ?? Promise.resolve(structuredClone(config));
+  }
+
+  llamaServerStart(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStartResult> {
+    return this.api?.llamaServerStart(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  llamaServerStop(payload: { modelId: string; config: AppConfig }): Promise<{ ok: true }> {
+    return this.api?.llamaServerStop(payload) ?? Promise.resolve({ ok: true });
+  }
+
+  llamaServerStatus(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStatusResult> {
+    return this.api?.llamaServerStatus(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   closeSettingsWindow(): void {
@@ -462,6 +530,36 @@ export class ElectronService {
 
   endScript(processId: string): Promise<{ success: boolean; error?: string }> {
     return this.api?.endScript(processId) ?? Promise.resolve({ success: false, error: 'API not available' });
+  }
+
+  workspacePtySpawn(
+    cwd: string,
+    cols: number,
+    rows: number,
+  ): Promise<{ success: true; sessionId: string } | { success: false; error: string }> {
+    return (
+      this.api?.workspacePtySpawn(cwd, cols, rows) ??
+      Promise.resolve({ success: false as const, error: 'API not available' })
+    );
+  }
+
+  workspacePtyWrite(sessionId: string, data: string): Promise<{ success: boolean; error?: string }> {
+    return this.api?.workspacePtyWrite(sessionId, data) ?? Promise.resolve({ success: false, error: 'API not available' });
+  }
+
+  workspacePtyResize(sessionId: string, cols: number, rows: number): Promise<{ success: boolean; error?: string }> {
+    return (
+      this.api?.workspacePtyResize(sessionId, cols, rows) ??
+      Promise.resolve({ success: false, error: 'API not available' })
+    );
+  }
+
+  workspacePtyKill(sessionId: string): Promise<{ success: boolean; error?: string }> {
+    return this.api?.workspacePtyKill(sessionId) ?? Promise.resolve({ success: false, error: 'API not available' });
+  }
+
+  workspacePtyKillAll(): Promise<{ success: boolean }> {
+    return this.api?.workspacePtyKillAll() ?? Promise.resolve({ success: false });
   }
 
   healthMetrics(): Promise<HealthMetricsSnapshot | null> {
@@ -486,5 +584,29 @@ export class ElectronService {
 
   closeHealthWindow(): void {
     this.api?.closeHealthWindow();
+  }
+
+  popupFileMenu(x: number, y: number): Promise<void> {
+    return this.api?.popupFileMenu(x, y) ?? Promise.resolve();
+  }
+
+  popupHelpMenu(x: number, y: number): Promise<void> {
+    return this.api?.popupHelpMenu(x, y) ?? Promise.resolve();
+  }
+
+  windowMinimize(): void {
+    this.api?.windowMinimize();
+  }
+
+  windowToggleMaximize(): void {
+    this.api?.windowToggleMaximize();
+  }
+
+  windowClose(): void {
+    this.api?.windowClose();
+  }
+
+  windowIsMaximized(): Promise<boolean> {
+    return this.api?.windowIsMaximized() ?? Promise.resolve(false);
   }
 }

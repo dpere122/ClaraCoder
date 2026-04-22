@@ -1,11 +1,11 @@
-import type { LlmOptimizationPreset } from './app-config';
+import type { LlmOptimizationPreset, LlmProviderConfig } from './app-config';
 
 export interface LlmOptimizationPresetMeta {
   id: LlmOptimizationPreset;
   label: string;
   description: string;
   /** If set, preset is only listed for these providers. */
-  providers?: ReadonlyArray<'openai' | 'lmstudio'>;
+  providers?: ReadonlyArray<LlmProviderConfig['provider']>;
 }
 
 /** Ordered list: Generic first in UI logic where we insert Qwen after generic — Qwen is the first *specialized* preset. */
@@ -21,27 +21,27 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     label: 'Qwen',
     description:
       'For Qwen-class models (e.g. Qwen 3.5 9B via LM Studio): single tool call per turn, higher max output, extra system prompt hints.',
-    providers: ['openai', 'lmstudio'],
+    providers: ['openai', 'lmstudio', 'llamacpp'],
   },
   {
     id: 'capable',
     label: 'Capable API',
     description:
       'For OpenAI and similar APIs that handle parallel tool calls well: enables parallel tool calls by default and adds prompt hints to batch independent reads.',
-    providers: ['openai', 'lmstudio'],
+    providers: ['openai', 'lmstudio', 'llamacpp'],
   },
   {
     id: 'gemma',
-    label: 'Gemma (LM Studio)',
+    label: 'Gemma (local)',
     description:
-      'For Google Gemma 3/4 via LM Studio: boolean thinking (on/off), recommended sampling (temp 1 / top_p 0.95 / top_k 64), higher default max output, MoE-aware notes. Does not use OpenAI-style reasoning_effort tiers.',
-    providers: ['lmstudio'],
+      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off), recommended sampling (temp 1 / top_p 0.95 / top_k 64), higher default max output, and sparse-expert layout notes when the model id suggests a 26B A4B–style variant. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx, often tens of thousands of tokens) caps prompt plus completion; it can be far below the model’s trained context in GGUF metadata.',
+    providers: ['lmstudio', 'llamacpp'],
   },
 ] as const;
 
-export function optimizationPresetsForProvider(provider: 'openai' | 'lmstudio'): LlmOptimizationPresetMeta[] {
+export function optimizationPresetsForProvider(provider: LlmProviderConfig['provider']): LlmOptimizationPresetMeta[] {
   const filtered = LLM_OPTIMIZATION_PRESET_LIST.filter((p) => !p.providers || p.providers.includes(provider));
-  if (provider === 'lmstudio') {
+  if (provider === 'lmstudio' || provider === 'llamacpp') {
     const qwen = filtered.find((p) => p.id === 'qwen');
     const gemma = filtered.find((p) => p.id === 'gemma');
     const generic = filtered.find((p) => p.id === 'generic');
@@ -68,7 +68,7 @@ export const CAPABLE_PRESET_DEFAULTS = {
   parallelToolCalls: true,
 } as const;
 
-/** Defaults applied when the user picks the Gemma (LM Studio) optimization template. */
+/** Defaults applied when the user picks the Gemma (local) optimization template. */
 export const GEMMA_PRESET_DEFAULTS = {
   parallelToolCalls: false,
   maxOutputTokens: 16_384,

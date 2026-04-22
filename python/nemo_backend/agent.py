@@ -26,8 +26,9 @@ from nemo_backend.agent_streaming import model_chunk_sse_line, sse_line, status_
 from nemo_backend.config import MAX_TOOL_STATUS_LINE
 from nemo_backend.llm import build_llm
 from nemo_backend.llm_interaction_logging import log_llm_user_request
+from nemo_backend.llm_visible_text import maybe_sanitize_gemma_visible_assistant_text
 from nemo_backend.messages import stringify_content
-from nemo_backend.state import current_session_id, get_session
+from nemo_backend.state import current_session_id, get_active_connection, get_session
 from nemo_backend.workspace_tools import truncate_text
 
 logger = logging.getLogger('nemo.agent')
@@ -45,6 +46,8 @@ async def stream_agent_reply(
     session.agent_pause_event = None
     session.agent_pause_note = None
     session.auto_apply_mode = auto_apply_mode
+    session.last_stream_apply_mode = apply_mode
+    session.last_stream_auto_apply_mode = auto_apply_mode
 
     token = current_session_id.set(session_id)
 
@@ -97,7 +100,11 @@ async def stream_agent_reply(
 
         if DEFAULT_AGENT_LOOP_POLICY.should_commit_history(graph_outcome):
             session.history.append({'role': 'user', 'content': user_message})
-            session.history.append({'role': 'assistant', 'content': graph_outcome.best_available_text()})
+            assistant_text = maybe_sanitize_gemma_visible_assistant_text(
+                graph_outcome.best_available_text(),
+                connection=get_active_connection(),
+            )
+            session.history.append({'role': 'assistant', 'content': assistant_text})
 
         yield 'data: [DONE]\n\n'
     except Exception as exc:

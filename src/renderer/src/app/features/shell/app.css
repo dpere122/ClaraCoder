@@ -18,6 +18,78 @@
   padding: 0.75rem 1.5rem 1rem;
 }
 
+/* Frameless window: drag strip + menus + traffic controls (Electron only). */
+.window-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.chrome-menu-btn,
+.chrome-win-btn {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.chrome-menu-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--t-border);
+  background: var(--t-bg-surface);
+  color: var(--t-fg);
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.chrome-menu-btn:hover {
+  background: var(--t-hover-bg);
+  border-color: var(--t-primary);
+  color: var(--t-primary);
+}
+
+.chrome-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  text-align: center;
+  cursor: default;
+}
+
+.title-glow--solo {
+  margin: 0 0 0.5rem;
+}
+
+.chrome-win-btn {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 1.65rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--t-border);
+  background: transparent;
+  color: var(--t-fg);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chrome-win-btn:hover {
+  background: var(--t-hover-bg);
+  color: var(--t-primary);
+}
+
+.chrome-win-close:hover {
+  background: color-mix(in srgb, #c62828 55%, var(--t-bg));
+  border-color: #e57373;
+  color: #fff;
+}
+
 .app-content {
   display: flex;
   flex: 1;
@@ -133,6 +205,11 @@
   overflow: hidden;
 }
 
+.workspace-terminal-dock-host {
+  flex-shrink: 0;
+  min-height: 0;
+}
+
 .message-box-host {
   flex-shrink: 0;
 }
@@ -144,6 +221,8 @@
 
 .tools-bar-host {
   display: block;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .title-glow {
@@ -152,4 +231,9 @@
   font-size: 1.4rem;
   letter-spacing: 0.05em;
   margin: 0 0 0.5rem;
+}
+
+.window-chrome .title-glow {
+  margin-bottom: 0;
+  font-size: 1.15rem;
 }

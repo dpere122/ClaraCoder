@@ -18,6 +18,7 @@ export const WORKSPACE_CONTEXT_IGNORED_NAMES = new Set([
   '.cursor',
   '.idea',
   '.next',
+  '.nemo',
   '.nuxt',
   '.svn',
   '.venv',

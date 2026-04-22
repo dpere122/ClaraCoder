@@ -25,6 +25,8 @@ export interface FileDiffPayload {
   diskEncoding?: string;
   /** Resolved line ending for disk write (never `preserve` here). */
   diskNewline?: 'lf' | 'crlf';
+  /** Staged code-review transfer: confirm in chat before writing the real workspace (backend applies on confirm). */
+  stagedTransferHitl?: boolean;
 }
 
 /** Options for IPC workspace writes (aligned with diff payload / Python tools). */

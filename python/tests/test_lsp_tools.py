@@ -200,6 +200,24 @@ def test_prepare_new_planner_graph_session_resets_lsp_and_seeds_snapshot(lsp_env
     assert (snapshot_root / 'pkg' / 'mod.py').read_text(encoding='utf-8') == 'value = "TODO"\nprint(value)\n'
 
 
+def test_typescript_lsp_read_tools(monkeypatch, lsp_env) -> None:
+    (lsp_env.workspace / 'app.ts').write_text('const x = 1;\n', encoding='utf-8')
+
+    def _inject(*a, **kwargs):
+        kwargs.setdefault('client_factory', lsp_env.factory)
+        return get_session_lsp_manager(*a, **kwargs)
+
+    monkeypatch.setattr('nemo_backend.lsp.tools.get_session_lsp_manager', _inject)
+
+    diag_text = lsp_get_diagnostics.invoke({'relative_path': 'app.ts', 'refresh_active_document': True})
+    assert 'LSP context:' in diag_text
+    assert 'scope=workspace' in diag_text
+    assert 'analyzed=workspace_file' in diag_text
+    assert 'No LSP diagnostics for `app.ts`' in diag_text or '0 issue' in diag_text
+    hover_text = lsp_hover.invoke({'relative_path': 'app.ts', 'line': 1, 'character': 8})
+    assert 'hover: value' in hover_text
+
+
 def test_lsp_tools_render_expected_outputs(lsp_env) -> None:
     lsp_env.manager.sync_workspace_document('pkg/mod.py')
 
@@ -209,6 +227,9 @@ def test_lsp_tools_render_expected_outputs(lsp_env) -> None:
     ref_text = lsp_find_references.invoke({'relative_path': 'pkg/mod.py', 'line': 1, 'character': 1})
     sym_text = lsp_get_document_symbols.invoke({'relative_path': 'pkg/mod.py'})
 
+    assert 'LSP context:' in diag_text
+    assert 'scope=workspace' in diag_text
+    assert 'analyzed=cached' in diag_text
     assert 'Found TODO marker' in diag_text
     assert 'hover: value' in hover_text
     assert '`pkg/mod.py`:1:5' in def_text
@@ -226,9 +247,9 @@ def test_lsp_get_diagnostics_returns_tool_error_when_lsp_bootstrap_fails(monkeyp
             del relative_path, encoding
             raise RuntimeError("LSP request failed for 'initialize': LSP client closed")
 
-    monkeypatch.setattr('nemo_backend.lsp.tools.get_session_lsp_manager', lambda: _BrokenManager())
+    monkeypatch.setattr('nemo_backend.lsp.tools.get_session_lsp_manager', lambda *a, **k: _BrokenManager())
 
-    result = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_from_workspace': True})
+    result = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
 
     assert result.startswith('Tool error: Python LSP diagnostics lookup failed for `pkg/mod.py`')
     assert 'configured language server' in result
@@ -246,9 +267,11 @@ def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env)
     activate_session_lsp_scope(lsp_env.session_id, scope='staging')
     staging_manager = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='staging')
 
-    diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_from_workspace': True})
+    diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
 
-    assert 'No LSP diagnostics for `pkg/mod.py`.' == diag_text
+    assert diag_text.startswith('LSP context: scope=staging; analyzed=staged_draft')
+    assert 'No LSP diagnostics for `pkg/mod.py`.' in diag_text
+    assert 'In staging scope, Python import resolution' in diag_text
     assert staging_manager._client is not None
     assert list(staging_manager._client.docs.values()) == ['value = "done"\nprint(value)\n']
 
@@ -258,7 +281,10 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
 
     def _fake_stage_create(payload: dict[str, object]) -> str:
         captured['payload'] = payload
-        return 'Staged `pkg/new_mod.py` for code review (nested planning). Python LSP diagnostics: 0 issue(s).'
+        return (
+            'Staged `pkg/new_mod.py` for code review. The workspace file on disk is **unchanged** until '
+            '`transfer_staged_file_to_workspace` succeeds. Python LSP diagnostics: 0 issue(s).'
+        )
 
     monkeypatch.setattr('nemo_backend.lsp.tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
@@ -290,9 +316,23 @@ def test_diagnostics_route_returns_cached_python_results(lsp_env) -> None:
     lsp_env.manager.sync_workspace_document('pkg/mod.py')
     payload = asyncio.run(lsp_diagnostics(session_id=lsp_env.session_id, relative_path='pkg/mod.py'))
     assert payload['relativePath'] == 'pkg/mod.py'
+    assert payload.get('server') == 'python'
     diagnostics = payload['diagnostics']
     assert isinstance(diagnostics, list)
     assert diagnostics[0]['source'] == 'fake-lsp'
+
+
+def test_diagnostics_route_refresh_alias_refresh_from_workspace(lsp_env) -> None:
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    payload = asyncio.run(
+        lsp_diagnostics(
+            session_id=lsp_env.session_id,
+            relative_path='pkg/mod.py',
+            refresh_from_workspace=True,
+        )
+    )
+    assert payload['relativePath'] == 'pkg/mod.py'
+    assert isinstance(payload['diagnostics'], list)
 
 
 def test_workspace_context_change_clears_lsp_session(lsp_env, tmp_path: Path) -> None:

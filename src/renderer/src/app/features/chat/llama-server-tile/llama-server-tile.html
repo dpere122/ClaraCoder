@@ -1,0 +1,43 @@
+@if (showTile()) {
+  <div class='llama-tile'>
+    <div class='llama-tile__title'>llama.cpp</div>
+    @if (status(); as st) {
+      @if (st.ok === false) {
+        <p class='llama-tile__err'>{{ st.error }}</p>
+      } @else {
+        <div class='llama-tile__status'>
+          <span class='llama-tile__lbl'>Chat</span>
+          <span [class]='dotClass(st.chat.health)' title='{{ st.chat.health }}'></span>
+          @if (st.embed) {
+            <span class='llama-tile__lbl'>Emb</span>
+            <span [class]='dotClass(st.embed.health)' title='{{ st.embed.health }}'></span>
+          }
+        </div>
+        @if (!st.running) {
+          <p class='llama-tile__hint'>Stopped — Start to run this preset&apos;s servers.</p>
+        } @else if (st.chat.port) {
+          <p class='llama-tile__ports'>chat :{{ st.chat.port }}</p>
+        }
+      }
+    }
+    @if (lastError()) {
+      <p class='llama-tile__err'>{{ lastError() }}</p>
+    }
+    <app-llama-crystal-view
+      [aggregate]='crystalAggregate()'
+      [recentOutput]='recentOutput()'
+      [llmStreamActive]='llmStreamActive()'
+    />
+    <div class='llama-tile__actions'>
+      @if (status(); as st2) {
+        @if (st2.ok === true && st2.running) {
+          <button type='button' class='btn btn-sm btn-outline-secondary' [disabled]='stopDisabled()' (click)='onStop()'>Stop</button>
+        } @else if (st2.ok === true && !st2.running) {
+          <button type='button' class='btn btn-sm btn-primary' [disabled]='startDisabled()' (click)='onStart()'>Start</button>
+        }
+      } @else {
+        <button type='button' class='btn btn-sm btn-primary' disabled>Start</button>
+      }
+    </div>
+  </div>
+}

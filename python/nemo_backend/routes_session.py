@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
@@ -10,6 +11,12 @@ from fastapi import APIRouter
 from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
 from nemo_backend.planner_graph_session import cleanup_planner_graph_session
+from nemo_backend.workspace_index.embeddings_factory import build_embedding_model
+from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes, flush_semantic_index_patches
+from nemo_backend.workspace_index.lifecycle import (
+    invalidate_staging_index_disk,
+    invalidate_workspace_index_disk,
+)
 from nemo_backend.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
 from nemo_backend.schemas import (
     ClearRequest,
@@ -26,9 +33,14 @@ logger = logging.getLogger('nemo.http.routes')
 @router.post('/clear')
 async def clear_session(request: ClearRequest) -> dict[str, bool]:
     """Drop chat history for a session id (fresh SessionState)."""
-    cleanup_planner_graph_session(state.get_session(request.session_id), request.session_id)
-    await delete_outer_threads_for_session(request.session_id)
-    state.sessions[request.session_id] = SessionState()
+    sid = request.session_id
+    try:
+        invalidate_staging_index_disk(sid)
+    except Exception:
+        logger.debug('invalidate staging semantic index on clear failed', exc_info=True)
+    cleanup_planner_graph_session(state.get_session(sid), sid)
+    await delete_outer_threads_for_session(sid)
+    state.sessions[sid] = SessionState()
     return {'ok': True}
 
 
@@ -60,12 +72,44 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
 async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, bool]:
     """Attach or update workspace path and renderer-provided tree for a session."""
     sess = state.get_session(request.session_id)
-    workspace_path_changed = bool(sess.workspace_path and sess.workspace_path != request.workspace_path)
+    prev_path = (sess.workspace_path or '').strip()
+    prev_wid = (sess.workspace_id or '').strip()
+    new_path = (request.workspace_path or '').strip()
+    workspace_path_changed = bool(prev_path and prev_path != new_path)
     if workspace_path_changed:
         cleanup_planner_graph_session(sess, request.session_id)
+        if prev_path:
+            try:
+                invalidate_workspace_index_disk(prev_wid, Path(prev_path))
+            except Exception:
+                logger.debug('invalidate semantic index after workspace change failed', exc_info=True)
+        sess.semantic_index_pending.clear()
+
     sess.workspace_path = request.workspace_path
     sess.workspace_context = request.workspace_context
-    if not request.workspace_path.strip():
+    sess.workspace_id = (request.workspace_id or '').strip()
+
+    ch = request.workspace_file_changes
+    if ch and ch.paths:
+        enqueue_semantic_index_changes(sess, ch.paths, ch.kinds)
+
+    if new_path:
+        try:
+            conn = state.get_active_connection()
+            embed_model, _em_err = build_embedding_model(conn)
+            if embed_model is not None:
+                flush_semantic_index_patches(
+                    request.session_id,
+                    sess,
+                    Path(new_path),
+                    sess.workspace_id,
+                    embed_model,
+                )
+        except Exception:
+            logger.debug('semantic index flush after workspace-context failed', exc_info=True)
+
+    if not new_path:
+        sess.semantic_index_pending.clear()
         clear_session_python_workspace_env(sess)
         return {'ok': True}
     if workspace_path_changed or not sess.python_workspace_python_executable:

@@ -33,7 +33,14 @@ export interface ConversationMeta {
 /** One message in the chat UI (user/assistant text or tool chain row). */
 export type ConversationMessage =
   | { role: 'user'; text: string; structuredContent?: readonly ChatStructuredContentPart[] }
-  | { role: 'assistant'; text: string; planner?: PlannerProgress; toolStreams?: StreamPart[] }
+  | {
+      role: 'assistant';
+      text: string;
+      planner?: PlannerProgress;
+      toolStreams?: StreamPart[];
+      /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
+      moeStreams?: StreamPart[];
+    }
   | {
       role: 'chain';
       label: string;
@@ -79,7 +86,14 @@ export interface Conversation extends ConversationMeta {
 /** Serialized chat row in conversation JSON (includes tool/diff metadata). */
 export type ConversationFileMessage =
   | { role: 'user'; text: string; structuredContent?: readonly ChatStructuredContentPart[] }
-  | { role: 'assistant'; text: string; planner?: PlannerProgress; toolStreams?: StreamPart[] }
+  | {
+      role: 'assistant';
+      text: string;
+      planner?: PlannerProgress;
+      toolStreams?: StreamPart[];
+      /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
+      moeStreams?: StreamPart[];
+    }
   | {
       role: 'chain';
       label: string;

@@ -1,10 +1,11 @@
 import { ipcMain } from 'electron';
 import path = require('path');
 import { randomUUID } from 'crypto';
-import type { AppConfig, Workspace } from '../../../shared';
+import type { AppConfig, Workspace, WorkspaceContextSyncExtras } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
 import { loadConfig, migrateConfig, saveConfig } from '../../config/load-save';
+import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
 import { syncRuntimeConfigToPython, syncWorkspaceContextToPython } from '../../python/workspace-sync';
 import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
 import { getRecentConversations } from '../../menu/recent-conversations';
@@ -27,9 +28,18 @@ export function registerConfigWorkspacesIpc(): void {
     buildMenu();
   });
 
-  ipcMain.handle('set-workspace-context', async (_event, sessionId: string, workspacePath: string, workspaceContext: string) => {
-    await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext);
-  });
+  ipcMain.handle(
+    'set-workspace-context',
+    async (
+      _event,
+      sessionId: string,
+      workspacePath: string,
+      workspaceContext: string,
+      extras?: WorkspaceContextSyncExtras,
+    ) => {
+      await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext, extras);
+    },
+  );
 
   ipcMain.handle('load-config', async () => loadConfig());
 
@@ -38,8 +48,9 @@ export function registerConfigWorkspacesIpc(): void {
     await saveConfig(migratedConfig);
     await syncPythonLogLevel(migratedConfig.healthMonitor.logLevel);
     setHealthMetricsEnabled(migratedConfig.healthMonitor.metricsEnabled);
-    await syncRuntimeConfigToPython(migratedConfig);
+    await syncRuntimeConfigToPython(migratedConfig, getLlamaManagedRuntimeOverrides(migratedConfig));
     broadcastConfig(migratedConfig);
+    return migratedConfig;
   });
 
   ipcMain.handle('get-workspaces', async () => {
@@ -58,7 +69,7 @@ export function registerConfigWorkspacesIpc(): void {
     };
     config.workspaces.push(workspace);
     await saveConfig(config);
-    await syncRuntimeConfigToPython(config);
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     broadcastConfig(config);
     return workspace;
@@ -71,7 +82,7 @@ export function registerConfigWorkspacesIpc(): void {
       config.currentWorkspaceId = config.workspaces.length > 0 ? config.workspaces[0].id : null;
     }
     await saveConfig(config);
-    await syncRuntimeConfigToPython(config);
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     broadcastConfig(config);
   });
@@ -80,7 +91,7 @@ export function registerConfigWorkspacesIpc(): void {
     const config = await loadConfig();
     config.currentWorkspaceId = id;
     await saveConfig(config);
-    await syncRuntimeConfigToPython(config);
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     mainState.mainWindow?.webContents.send('workspace-changed', id);
     broadcastConfig(config);
@@ -93,7 +104,7 @@ export function registerConfigWorkspacesIpc(): void {
       workspace.themeId = themeId;
       await saveConfig(config);
     }
-    await syncRuntimeConfigToPython(config);
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     broadcastConfig(config);
   });
 
@@ -101,7 +112,7 @@ export function registerConfigWorkspacesIpc(): void {
     const config = await loadConfig();
     config.noWorkspaceThemeId = themeId;
     await saveConfig(config);
-    await syncRuntimeConfigToPython(config);
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     broadcastConfig(config);
   });
 

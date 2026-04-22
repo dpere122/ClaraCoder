@@ -11,7 +11,11 @@ import uuid
 from shutil import copy2
 from pathlib import Path
 
-from nemo_backend.lsp.file_policy import LEGACY_CODE_REVIEW_EXTENSIONS, requires_code_review
+from nemo_backend.lsp.file_policy import (
+    CONFIG_CODE_REVIEW_EXTENSIONS,
+    LEGACY_CODE_REVIEW_EXTENSIONS,
+    requires_code_review,
+)
 from nemo_backend.workspace_ignore import get_workspace_ignore_rules_cached, should_ignore_workspace_entry
 from nemo_backend.workspace_text_io import DiskNewline, decode_for_tools, encode_for_disk
 
@@ -19,7 +23,7 @@ logger = logging.getLogger('nemo.staging')
 
 # Extensions that require code review before finalize (nested planning only).
 CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset(
-    {'.py', *LEGACY_CODE_REVIEW_EXTENSIONS}
+    {'.py', *LEGACY_CODE_REVIEW_EXTENSIONS, *CONFIG_CODE_REVIEW_EXTENSIONS}
 )
 
 

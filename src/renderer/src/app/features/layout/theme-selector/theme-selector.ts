@@ -19,6 +19,18 @@ export const THEMES: ThemeOption[] = [
   { id: 'win95', label: 'Windows 95', cssClass: 'theme-win95', bsTheme: 'light' },
   { id: 'woodland', label: 'Woodland', cssClass: 'theme-woodland', bsTheme: 'dark' },
   { id: 'ion', label: 'Ion', cssClass: 'theme-ion', bsTheme: 'dark' },
+  {
+    id: 'ashfang',
+    label: 'Ashfang Bastion',
+    cssClass: 'theme-ashfang',
+    bsTheme: 'dark',
+  },
+  {
+    id: 'kawaii-bow',
+    label: 'Kawaii Bow',
+    cssClass: 'theme-kawaii-bow',
+    bsTheme: 'light',
+  },
 ];
 
 @Component({

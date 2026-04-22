@@ -30,7 +30,7 @@ export function inferContextWindowTokens(
       return match.tokens;
     }
     const m = normalized.toLowerCase();
-    if (provider === 'lmstudio' && m.includes('gemma')) {
+    if ((provider === 'lmstudio' || provider === 'llamacpp') && m.includes('gemma')) {
       if (/\b31b\b/.test(m)) {
         return 256_000;
       }
@@ -46,7 +46,9 @@ export function inferContextWindowTokens(
       return 128_000;
     }
   }
-  return provider === 'lmstudio' ? LM_STUDIO_FALLBACK_CONTEXT_WINDOW : OPENAI_FALLBACK_CONTEXT_WINDOW;
+  return provider === 'lmstudio' || provider === 'llamacpp'
+    ? LM_STUDIO_FALLBACK_CONTEXT_WINDOW
+    : OPENAI_FALLBACK_CONTEXT_WINDOW;
 }
 
 export function resolveContextWindowTokens(

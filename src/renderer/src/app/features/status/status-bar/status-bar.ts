@@ -1,5 +1,5 @@
-import { Component, input } from '@angular/core';
-import { ContextCapacityComponent } from '../context-capacity/context-capacity';
+import { Component, input, output } from '@angular/core';
+import { ContextCapacityComponent, type LlmModelPresetOption } from '../context-capacity/context-capacity';
 
 @Component({
   selector: 'app-status-bar',
@@ -12,5 +12,8 @@ export class StatusBarComponent {
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
   readonly modelName = input('Unknown model');
+  readonly modelPresetOptions = input<LlmModelPresetOption[]>([]);
+  readonly activeLlmModelId = input('');
+  readonly activeLlmModelChange = output<string>();
   readonly usedPercentage = input(0);
 }

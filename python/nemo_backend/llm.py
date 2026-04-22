@@ -1,13 +1,15 @@
 """Construct a LangChain ChatOpenAI client from the active runtime connection.
 
-Supports OpenAI's API and LM Studio (OpenAI-compatible local server). Streaming is
+Supports OpenAI's API, LM Studio, and llama.cpp’s OpenAI-compatible HTTP server. Streaming is
 enabled for token-by-token :meth:`~langchain_core.language_models.chat_models.BaseChatModel.astream`.
 Optional ``reasoning_effort`` is passed through for models that support it
 (``none|minimal|low|medium|high|xhigh`` on current OpenAI-style APIs). UI values ``on`` / ``off``
 are mapped to ``medium`` / ``none`` so the wire value is always API-valid.
 ``nemo_backend.model_tuning`` may add ``max_tokens`` for the Qwen or Gemma **optimization templates**
-when selected, and Gemma-specific ``top_p`` plus ``top_k`` via ``extra_body`` (LM Studio–compatible). OpenAI-style ``reasoning_effort`` is
-omitted when the Gemma template is active (use Gemma thinking settings instead).
+when selected, optional per-preset sampling from Settings (``top_p``, ``top_k``, ``min_p``, ``presence_penalty``,
+``repeat_penalty``), and Gemma-specific ``top_p`` / ``top_k`` via the Gemma sampling preset (merging ``extra_body``
+for locals such as LM Studio / ``llama-server``). OpenAI-style ``reasoning_effort`` is omitted when the Gemma
+template is active (use Gemma thinking settings instead).
 """
 
 from __future__ import annotations
@@ -19,9 +21,14 @@ from typing import Any
 from fastapi import HTTPException
 from langchain_openai import ChatOpenAI
 
-from nemo_backend.config import DEFAULT_LM_STUDIO_BASE_URL
+from nemo_backend.config import DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
 from nemo_backend.llm_interaction_logging import log_llm_connection_settings
-from nemo_backend.model_tuning import gemma_optimize_profile_active, gemma_sampling_kwargs_for_llm, llm_optional_kwargs
+from nemo_backend.model_tuning import (
+    connection_user_sampling_kwargs_for_llm,
+    gemma_optimize_profile_active,
+    gemma_sampling_kwargs_for_llm,
+    llm_optional_kwargs,
+)
 from nemo_backend.state import get_active_connection, require_openai_api_key
 
 logger = logging.getLogger('nemo.llm')
@@ -61,6 +68,9 @@ def build_llm() -> ChatOpenAI:
     elif connection.provider == 'lmstudio':
         base_url = connection.base_url or DEFAULT_LM_STUDIO_BASE_URL
         api_key = connection.api_key or os.getenv('LM_STUDIO_API_KEY', 'lm-studio')
+    elif connection.provider == 'llamacpp':
+        base_url = connection.base_url or DEFAULT_LLAMACPP_BASE_URL
+        api_key = connection.api_key or os.getenv('LLAMACPP_API_KEY', 'not-needed')
     else:
         logger.error('Unsupported LLM provider: %s', connection.provider)
         raise HTTPException(status_code=500, detail=f'Unsupported LLM provider: {connection.provider}')
@@ -86,6 +96,14 @@ def build_llm() -> ChatOpenAI:
             kwargs['reasoning_effort'] = resolved
 
     kwargs.update(llm_optional_kwargs(connection))
+
+    user_sampling = connection_user_sampling_kwargs_for_llm(connection)
+    eb_user = user_sampling.pop('extra_body', None)
+    if eb_user:
+        base_eb = dict(kwargs.get('extra_body') or {})
+        base_eb.update(eb_user)
+        kwargs['extra_body'] = base_eb
+    kwargs.update(user_sampling)
 
     gemma_sampling = gemma_sampling_kwargs_for_llm(connection)
     eb_extra = gemma_sampling.pop('extra_body', None)

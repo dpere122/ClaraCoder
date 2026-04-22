@@ -2,18 +2,374 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
-import type { AppConfig, HealthMonitorConfig, LlmConnectionConfig, WorkspaceToolsConfig } from '../../shared';
-import { inferContextWindowTokens } from '../../shared';
+import type {
+  AppConfig,
+  HealthMonitorConfig,
+  LlmConnectionConfig,
+  LlmModelProfile,
+  LlmProviderConfig,
+  WorkspaceToolsConfig,
+} from '../../shared';
+import {
+  defaultLlamaCppManaged,
+  findLlmModelLocation,
+  inferContextWindowTokens,
+  isLegacyLlamaCppManagedShape,
+  migrateLegacyLlamaCppManagedToCommands,
+  type ShellQuotingPlatform,
+} from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
   createDefaultConfig,
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
-  getDefaultLlmConnections,
+  getDefaultLlmProviders,
   getDefaultWorkspaceTools,
   workspaceFromLegacyPath,
 } from './defaults';
+
+function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
+  const {
+    provider,
+    baseUrl,
+    apiKey,
+    id: modelId,
+    name: rowName,
+    model: apiModel,
+    contextWindowTokens,
+    reasoningEffort,
+    thinkingMode,
+    samplingPreset,
+    topP,
+    topK,
+    minP,
+    presencePenalty,
+    repeatPenalty,
+    architectureHint,
+    temperature,
+    parallelToolCalls,
+    optimizationPreset,
+    maxOutputTokens,
+    planRetryAttemptsCount,
+  } = row;
+  const modelProfile: LlmModelProfile = {
+    id: modelId,
+    name: rowName,
+    model: apiModel,
+    contextWindowTokens,
+    reasoningEffort,
+    thinkingMode,
+    samplingPreset,
+    topP,
+    topK,
+    minP,
+    presencePenalty,
+    repeatPenalty,
+    architectureHint,
+    temperature,
+    parallelToolCalls,
+    optimizationPreset,
+    maxOutputTokens,
+    planRetryAttemptsCount,
+  };
+  return {
+    id: randomUUID(),
+    name: rowName,
+    provider,
+    baseUrl,
+    apiKey,
+    models: [modelProfile],
+  };
+}
+
+function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderConfig): boolean {
+  let migrated = false;
+  if (!model.id) {
+    model.id = randomUUID();
+    migrated = true;
+  }
+  if (!model.name) {
+    model.name = model.model || 'Model';
+    migrated = true;
+  }
+  if (model.model === undefined || model.model === '') {
+    model.model =
+      provider.provider === 'lmstudio' || provider.provider === 'llamacpp' ? 'local-model' : 'gpt-4o-mini';
+    migrated = true;
+  }
+  if (typeof model.contextWindowTokens !== 'number' || Number.isNaN(model.contextWindowTokens)) {
+    model.contextWindowTokens = inferContextWindowTokens(model.model, provider.provider);
+    migrated = true;
+  } else {
+    const contextWindowTokens = Math.min(10_000_000, Math.max(1_024, Math.floor(model.contextWindowTokens)));
+    if (contextWindowTokens !== model.contextWindowTokens) {
+      model.contextWindowTokens = contextWindowTokens;
+      migrated = true;
+    }
+  }
+  if (model.reasoningEffort === undefined) {
+    model.reasoningEffort = '';
+    migrated = true;
+  } else {
+    const raw = String(model.reasoningEffort).trim().toLowerCase();
+    const allowed: Array<NonNullable<LlmModelProfile['reasoningEffort']>> = [
+      '',
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'on',
+      'off',
+    ];
+    const normalized = (allowed as string[]).includes(raw) ? (raw as LlmModelProfile['reasoningEffort']) : '';
+    if (model.reasoningEffort !== normalized) {
+      model.reasoningEffort = normalized;
+      migrated = true;
+    }
+  }
+  if (typeof model.temperature !== 'number' || Number.isNaN(model.temperature)) {
+    model.temperature = 0;
+    migrated = true;
+  } else {
+    const clamped = Math.min(1, Math.max(0, model.temperature));
+    if (clamped !== model.temperature) {
+      model.temperature = clamped;
+      migrated = true;
+    }
+  }
+  if (model.parallelToolCalls !== true && model.parallelToolCalls !== false) {
+    model.parallelToolCalls = false;
+    migrated = true;
+  }
+  if (
+    model.optimizationPreset !== 'generic' &&
+    model.optimizationPreset !== 'qwen' &&
+    model.optimizationPreset !== 'capable' &&
+    model.optimizationPreset !== 'gemma'
+  ) {
+    model.optimizationPreset = 'generic';
+    migrated = true;
+  }
+  if (model.thinkingMode === undefined) {
+    model.thinkingMode = 'default';
+    migrated = true;
+  } else {
+    const tm = String(model.thinkingMode).trim().toLowerCase();
+    const allowedTm: LlmModelProfile['thinkingMode'][] = ['default', 'on', 'off'];
+    const ntm = (allowedTm as string[]).includes(tm) ? (tm as LlmModelProfile['thinkingMode']) : 'default';
+    if (model.thinkingMode !== ntm) {
+      model.thinkingMode = ntm;
+      migrated = true;
+    }
+  }
+  if (model.samplingPreset === undefined) {
+    model.samplingPreset = 'provider-default';
+    migrated = true;
+  } else {
+    const sp = String(model.samplingPreset).trim().toLowerCase();
+    const allowedSp: LlmModelProfile['samplingPreset'][] = ['provider-default', 'gemma-recommended', 'custom'];
+    const nsp = (allowedSp as string[]).includes(sp) ? (sp as LlmModelProfile['samplingPreset']) : 'provider-default';
+    if (model.samplingPreset !== nsp) {
+      model.samplingPreset = nsp;
+      migrated = true;
+    }
+  }
+  if (model.architectureHint === undefined) {
+    model.architectureHint = 'auto';
+    migrated = true;
+  } else {
+    const ah = String(model.architectureHint).trim().toLowerCase();
+    const allowedAh: LlmModelProfile['architectureHint'][] = ['auto', 'dense'];
+    const nah = (allowedAh as string[]).includes(ah) ? (ah as LlmModelProfile['architectureHint']) : 'auto';
+    if (model.architectureHint !== nah) {
+      model.architectureHint = nah;
+      migrated = true;
+    }
+  }
+  if (model.topP !== undefined && model.topP !== null) {
+    const tp = Number(model.topP);
+    if (Number.isNaN(tp)) {
+      delete model.topP;
+      migrated = true;
+    } else {
+      const c = Math.min(1, Math.max(0, tp));
+      if (c !== model.topP) {
+        model.topP = c;
+        migrated = true;
+      }
+    }
+  }
+  if (model.topK !== undefined && model.topK !== null) {
+    const tk = Math.floor(Number(model.topK));
+    if (Number.isNaN(tk)) {
+      delete model.topK;
+      migrated = true;
+    } else {
+      const c = Math.min(256, Math.max(1, tk));
+      if (c !== model.topK) {
+        model.topK = c;
+        migrated = true;
+      }
+    }
+  }
+  if (model.minP !== undefined && model.minP !== null) {
+    const mp = Number(model.minP);
+    if (Number.isNaN(mp)) {
+      delete model.minP;
+      migrated = true;
+    } else {
+      const c = Math.min(1, Math.max(0, mp));
+      if (c !== model.minP) {
+        model.minP = c;
+        migrated = true;
+      }
+    }
+  }
+  if (model.presencePenalty !== undefined && model.presencePenalty !== null) {
+    const pp = Number(model.presencePenalty);
+    if (Number.isNaN(pp)) {
+      delete model.presencePenalty;
+      migrated = true;
+    } else {
+      const c = Math.min(2, Math.max(-2, pp));
+      if (c !== model.presencePenalty) {
+        model.presencePenalty = c;
+        migrated = true;
+      }
+    }
+  }
+  if (model.repeatPenalty !== undefined && model.repeatPenalty !== null) {
+    const rp = Number(model.repeatPenalty);
+    if (Number.isNaN(rp)) {
+      delete model.repeatPenalty;
+      migrated = true;
+    } else {
+      const c = Math.min(4, Math.max(0.01, rp));
+      if (c !== model.repeatPenalty) {
+        model.repeatPenalty = c;
+        migrated = true;
+      }
+    }
+  }
+  if (typeof model.maxOutputTokens !== 'number' || Number.isNaN(model.maxOutputTokens)) {
+    model.maxOutputTokens = 0;
+    migrated = true;
+  } else {
+    const mt = Math.min(200_000, Math.max(0, Math.floor(model.maxOutputTokens)));
+    if (mt !== model.maxOutputTokens) {
+      model.maxOutputTokens = mt;
+      migrated = true;
+    }
+  }
+  if (typeof model.planRetryAttemptsCount !== 'number' || Number.isNaN(model.planRetryAttemptsCount)) {
+    model.planRetryAttemptsCount = 2;
+    migrated = true;
+  } else {
+    const attempts = Math.min(20, Math.max(0, Math.floor(model.planRetryAttemptsCount)));
+    if (attempts !== model.planRetryAttemptsCount) {
+      model.planRetryAttemptsCount = attempts;
+      migrated = true;
+    }
+  }
+  if (provider.provider === 'llamacpp') {
+    if (normalizeLlamaCppManagedField(model)) {
+      migrated = true;
+    }
+  } else if (model.llamaCppManaged !== undefined) {
+    delete model.llamaCppManaged;
+    migrated = true;
+  }
+  return migrated;
+}
+
+function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
+  const base = defaultLlamaCppManaged();
+  const quotingPlatform: ShellQuotingPlatform = process.platform === 'win32' ? 'win32' : 'posix';
+
+  if (model.llamaCppManaged === undefined || typeof model.llamaCppManaged !== 'object') {
+    model.llamaCppManaged = { ...base };
+    return true;
+  }
+
+  const raw = model.llamaCppManaged as unknown as Record<string, unknown>;
+
+  if (isLegacyLlamaCppManagedShape(raw)) {
+    model.llamaCppManaged = migrateLegacyLlamaCppManagedToCommands(raw, quotingPlatform);
+    return true;
+  }
+
+  let migrated = false;
+  const chatRunCommand = typeof raw.chatRunCommand === 'string' ? raw.chatRunCommand : '';
+  const embeddingRunCommand = typeof raw.embeddingRunCommand === 'string' ? raw.embeddingRunCommand : '';
+  if (typeof raw.chatRunCommand !== 'string' || typeof raw.embeddingRunCommand !== 'string') {
+    migrated = true;
+  }
+  model.llamaCppManaged = { chatRunCommand, embeddingRunCommand };
+  return migrated;
+}
+
+function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
+  let migrated = false;
+  for (const p of providers) {
+    if (!p.id) {
+      p.id = randomUUID();
+      migrated = true;
+    }
+    if (!p.name) {
+      p.name =
+        p.provider === 'lmstudio' ? 'LM Studio' : p.provider === 'llamacpp' ? 'llama.cpp' : 'OpenAI';
+      migrated = true;
+    }
+    if (p.provider !== 'openai' && p.provider !== 'lmstudio' && p.provider !== 'llamacpp') {
+      p.provider = 'openai';
+      migrated = true;
+    }
+    if (p.baseUrl === undefined) {
+      p.baseUrl =
+        p.provider === 'lmstudio'
+          ? 'http://127.0.0.1:1234/v1'
+          : p.provider === 'llamacpp'
+            ? 'http://127.0.0.1:8080/v1'
+            : '';
+      migrated = true;
+    }
+    if (p.apiKey === undefined) {
+      p.apiKey = p.provider === 'lmstudio' ? 'lm-studio' : '';
+      migrated = true;
+    }
+    if (!Array.isArray(p.models) || p.models.length === 0) {
+      const mid =
+        p.provider === 'lmstudio' || p.provider === 'llamacpp' ? 'local-model' : 'gpt-4o-mini';
+      p.models = [
+        {
+          id: randomUUID(),
+          name: 'Default',
+          model: mid,
+          contextWindowTokens: inferContextWindowTokens(mid, p.provider),
+          reasoningEffort: '',
+          thinkingMode: 'default',
+          samplingPreset: 'provider-default',
+          architectureHint: 'auto',
+          temperature: 0,
+          parallelToolCalls: false,
+          optimizationPreset: 'generic',
+          maxOutputTokens: 0,
+          planRetryAttemptsCount: 2,
+        },
+      ];
+      migrated = true;
+    }
+    for (const m of p.models) {
+      if (normalizeLlmModelProfile(m, p)) {
+        migrated = true;
+      }
+    }
+  }
+  return migrated;
+}
 
 /**
  * Normalize older `config.json` shapes to the current schema; mutates a copy when needed.
@@ -55,183 +411,46 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
-  if (!Array.isArray(newConfig.llmConnections) || newConfig.llmConnections.length === 0) {
-    (newConfig as { llmConnections: LlmConnectionConfig[] }).llmConnections = getDefaultLlmConnections();
+  const rawLlm = newConfig as unknown as {
+    llmConnections?: LlmConnectionConfig[];
+    llmProviders?: LlmProviderConfig[];
+    activeLlmConnectionId?: string;
+    activeLlmModelId?: string;
+  };
+
+  const legacyConnections = Array.isArray(rawLlm.llmConnections) ? rawLlm.llmConnections : [];
+  const hasProviders = Array.isArray(rawLlm.llmProviders) && rawLlm.llmProviders.length > 0;
+
+  if (legacyConnections.length > 0 && !hasProviders) {
+    newConfig.llmProviders = legacyConnections.map((row) => legacyFlatRowToProvider(row));
+    migrated = true;
+  }
+  if (!Array.isArray(newConfig.llmProviders) || newConfig.llmProviders.length === 0) {
+    newConfig.llmProviders = getDefaultLlmProviders();
     migrated = true;
   }
 
-  for (const connection of newConfig.llmConnections) {
-    if (!connection.id) {
-      connection.id = randomUUID();
-      migrated = true;
-    }
-    if (!connection.name) {
-      connection.name = connection.provider === 'lmstudio' ? 'LM Studio Connection' : 'OpenAI Connection';
-      migrated = true;
-    }
-    if (!connection.provider) {
-      connection.provider = 'openai';
-      migrated = true;
-    }
-    if (connection.baseUrl === undefined) {
-      connection.baseUrl = connection.provider === 'lmstudio' ? 'http://127.0.0.1:1234/v1' : '';
-      migrated = true;
-    }
-    if (connection.model === undefined) {
-      connection.model = connection.provider === 'lmstudio' ? 'local-model' : 'gpt-4o-mini';
-      migrated = true;
-    }
-    if (typeof connection.contextWindowTokens !== 'number' || Number.isNaN(connection.contextWindowTokens)) {
-      connection.contextWindowTokens = inferContextWindowTokens(connection.model, connection.provider);
-      migrated = true;
-    } else {
-      const contextWindowTokens = Math.min(10_000_000, Math.max(1_024, Math.floor(connection.contextWindowTokens)));
-      if (contextWindowTokens !== connection.contextWindowTokens) {
-        connection.contextWindowTokens = contextWindowTokens;
-        migrated = true;
-      }
-    }
-    if (connection.apiKey === undefined) {
-      connection.apiKey = connection.provider === 'lmstudio' ? 'lm-studio' : '';
-      migrated = true;
-    }
-    if (connection.reasoningEffort === undefined) {
-      connection.reasoningEffort = '';
-      migrated = true;
-    } else {
-      const raw = String(connection.reasoningEffort).trim().toLowerCase();
-      const allowed: Array<NonNullable<LlmConnectionConfig['reasoningEffort']>> = [
-        '',
-        'none',
-        'minimal',
-        'low',
-        'medium',
-        'high',
-        'xhigh',
-        'on',
-        'off',
-      ];
-      const normalized = (allowed as string[]).includes(raw) ? (raw as LlmConnectionConfig['reasoningEffort']) : '';
-      if (connection.reasoningEffort !== normalized) {
-        connection.reasoningEffort = normalized;
-        migrated = true;
-      }
-    }
-    if (typeof connection.temperature !== 'number' || Number.isNaN(connection.temperature)) {
-      connection.temperature = 0;
-      migrated = true;
-    } else {
-      const clamped = Math.min(1, Math.max(0, connection.temperature));
-      if (clamped !== connection.temperature) {
-        connection.temperature = clamped;
-        migrated = true;
-      }
-    }
-    if (connection.parallelToolCalls !== true && connection.parallelToolCalls !== false) {
-      connection.parallelToolCalls = false;
-      migrated = true;
-    }
-    if (
-      connection.optimizationPreset !== 'generic' &&
-      connection.optimizationPreset !== 'qwen' &&
-      connection.optimizationPreset !== 'capable' &&
-      connection.optimizationPreset !== 'gemma'
-    ) {
-      connection.optimizationPreset = 'generic';
-      migrated = true;
-    }
-    if (connection.thinkingMode === undefined) {
-      connection.thinkingMode = 'default';
-      migrated = true;
-    } else {
-      const tm = String(connection.thinkingMode).trim().toLowerCase();
-      const allowedTm: LlmConnectionConfig['thinkingMode'][] = ['default', 'on', 'off'];
-      const ntm = (allowedTm as string[]).includes(tm) ? (tm as LlmConnectionConfig['thinkingMode']) : 'default';
-      if (connection.thinkingMode !== ntm) {
-        connection.thinkingMode = ntm;
-        migrated = true;
-      }
-    }
-    if (connection.samplingPreset === undefined) {
-      connection.samplingPreset = 'provider-default';
-      migrated = true;
-    } else {
-      const sp = String(connection.samplingPreset).trim().toLowerCase();
-      const allowedSp: LlmConnectionConfig['samplingPreset'][] = ['provider-default', 'gemma-recommended', 'custom'];
-      const nsp = (allowedSp as string[]).includes(sp) ? (sp as LlmConnectionConfig['samplingPreset']) : 'provider-default';
-      if (connection.samplingPreset !== nsp) {
-        connection.samplingPreset = nsp;
-        migrated = true;
-      }
-    }
-    if (connection.architectureHint === undefined) {
-      connection.architectureHint = 'auto';
-      migrated = true;
-    } else {
-      const ah = String(connection.architectureHint).trim().toLowerCase();
-      const allowedAh: LlmConnectionConfig['architectureHint'][] = ['auto', 'dense', 'moe'];
-      const nah = (allowedAh as string[]).includes(ah) ? (ah as LlmConnectionConfig['architectureHint']) : 'auto';
-      if (connection.architectureHint !== nah) {
-        connection.architectureHint = nah;
-        migrated = true;
-      }
-    }
-    if (connection.topP !== undefined && connection.topP !== null) {
-      const tp = Number(connection.topP);
-      if (Number.isNaN(tp)) {
-        delete connection.topP;
-        migrated = true;
-      } else {
-        const c = Math.min(1, Math.max(0, tp));
-        if (c !== connection.topP) {
-          connection.topP = c;
-          migrated = true;
-        }
-      }
-    }
-    if (connection.topK !== undefined && connection.topK !== null) {
-      const tk = Math.floor(Number(connection.topK));
-      if (Number.isNaN(tk)) {
-        delete connection.topK;
-        migrated = true;
-      } else {
-        const c = Math.min(256, Math.max(1, tk));
-        if (c !== connection.topK) {
-          connection.topK = c;
-          migrated = true;
-        }
-      }
-    }
-    if (typeof connection.maxOutputTokens !== 'number' || Number.isNaN(connection.maxOutputTokens)) {
-      connection.maxOutputTokens = 0;
-      migrated = true;
-    } else {
-      const mt = Math.min(200_000, Math.max(0, Math.floor(connection.maxOutputTokens)));
-      if (mt !== connection.maxOutputTokens) {
-        connection.maxOutputTokens = mt;
-        migrated = true;
-      }
-    }
-    if (typeof connection.planRetryAttemptsCount !== 'number' || Number.isNaN(connection.planRetryAttemptsCount)) {
-      connection.planRetryAttemptsCount = 2;
-      migrated = true;
-    } else {
-      const attempts = Math.min(20, Math.max(0, Math.floor(connection.planRetryAttemptsCount)));
-      if (attempts !== connection.planRetryAttemptsCount) {
-        connection.planRetryAttemptsCount = attempts;
-        migrated = true;
-      }
-    }
-  }
-
-  if (newConfig.activeLlmConnectionId === undefined) {
-    newConfig.activeLlmConnectionId = newConfig.llmConnections[0]?.id ?? 'default-openai';
+  if (normalizeLlmProvidersTree(newConfig.llmProviders)) {
     migrated = true;
   }
 
-  const hasActiveConnection = newConfig.llmConnections.some((c) => c.id === newConfig.activeLlmConnectionId);
-  if (!hasActiveConnection) {
-    newConfig.activeLlmConnectionId = newConfig.llmConnections[0]?.id ?? 'default-openai';
+  if (newConfig.activeLlmModelId === undefined || newConfig.activeLlmModelId === '') {
+    const legacyActive =
+      typeof rawLlm.activeLlmConnectionId === 'string' && rawLlm.activeLlmConnectionId
+        ? rawLlm.activeLlmConnectionId
+        : '';
+    newConfig.activeLlmModelId =
+      legacyActive && findLlmModelLocation(newConfig.llmProviders, legacyActive)
+        ? legacyActive
+        : (newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai');
+    migrated = true;
+  }
+
+  delete (newConfig as { llmConnections?: unknown }).llmConnections;
+  delete (newConfig as { activeLlmConnectionId?: unknown }).activeLlmConnectionId;
+
+  if (!findLlmModelLocation(newConfig.llmProviders, newConfig.activeLlmModelId)) {
+    newConfig.activeLlmModelId = newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai';
     migrated = true;
   }
 
@@ -283,6 +502,15 @@ export function migrateConfig(config: AppConfig): AppConfig {
     const allowedNl: WorkspaceToolsConfig['defaultWorkspaceNewline'][] = ['lf', 'crlf', 'preserve'];
     if (!allowedNl.includes(wt.defaultWorkspaceNewline)) {
       wt.defaultWorkspaceNewline = 'lf';
+      migrated = true;
+    }
+    const orchRaw = (wt as unknown as { orchestratedMode?: unknown }).orchestratedMode;
+    if (typeof orchRaw === 'string') {
+      const s = orchRaw.trim().toLowerCase();
+      wt.orchestratedMode = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof orchRaw !== 'boolean') {
+      wt.orchestratedMode = false;
       migrated = true;
     }
   }

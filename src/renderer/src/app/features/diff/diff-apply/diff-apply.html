@@ -33,9 +33,13 @@
           <code class="diff-filename small mb-0">{{ payload().relativePath }}</code>
         </div>
         @if (payload().truncated) {
-          <span class="badge text-bg-warning">Truncated — use “Accept entire diff once” only</span>
+          <span class="badge text-bg-warning">{{
+            isStagedTransferHitl()
+              ? 'Truncated — review carefully before approving the workspace transfer'
+              : 'Truncated — use “Accept entire diff once” only'
+          }}</span>
         }
-        @if (changeProgressLabel()) {
+        @if (!isStagedTransferHitl() && changeProgressLabel()) {
           <div class="diff-toolbar-group">
             <span class="diff-toolbar-label">Progress</span>
             <span class="small fw-medium">{{ changeProgressLabel() }}</span>
@@ -54,44 +58,75 @@
             (ngModelChange)="searchQuery.set($event)"
           />
         </div>
-        @if (incrementalOk() && changeHunkOrder().length > 0) {
+        @if (isStagedTransferHitl()) {
+          <span class="badge text-bg-info">Staged → workspace</span>
           <button
             type="button"
             class="btn btn-sm btn-success"
             [disabled]="applying()"
-            (click)="acceptCurrentChange()"
-            title="Write this change to disk, then move to the next (Ctrl+Enter)"
+            (click)="approveStagedTransferHitl()"
+            title="Write staged content to the real workspace and resume the assistant"
           >
-            Accept
+            Approve transfer
           </button>
           <button
             type="button"
-            class="btn btn-sm btn-outline-secondary"
+            class="btn btn-sm btn-outline-primary"
             [disabled]="applying()"
-            (click)="skipCurrentChange()"
-            title="Leave this change out of the file and move to the next"
+            (click)="returnStagedTransferForReReview()"
+            title="Do not write yet; send back to code review / writer with your notes"
           >
-            Skip
+            Return for re-review
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-danger"
+            [disabled]="applying()"
+            (click)="cancelProposal()"
+            title="Dismiss without approving — same as return for re-review with a default note"
+          >
+            Cancel
+          </button>
+        } @else {
+          @if (incrementalOk() && changeHunkOrder().length > 0) {
+            <button
+              type="button"
+              class="btn btn-sm btn-success"
+              [disabled]="applying()"
+              (click)="acceptCurrentChange()"
+              title="Write this change to disk, then move to the next (Ctrl+Enter)"
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary"
+              [disabled]="applying()"
+              (click)="skipCurrentChange()"
+              title="Leave this change out of the file and move to the next"
+            >
+              Skip
+            </button>
+          }
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-primary"
+            [disabled]="applying()"
+            (click)="applyAllAtOnce()"
+            title="Write the full proposed file at once"
+          >
+            Accept entire diff once
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-danger"
+            [disabled]="applying()"
+            (click)="cancelProposal()"
+            title="Discard this proposal and tell the assistant to continue"
+          >
+            Cancel
           </button>
         }
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-primary"
-          [disabled]="applying()"
-          (click)="applyAllAtOnce()"
-          title="Write the full proposed file at once"
-        >
-          Accept entire diff once
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-danger"
-          [disabled]="applying()"
-          (click)="cancelProposal()"
-          title="Discard this proposal and tell the assistant to continue"
-        >
-          Cancel
-        </button>
         <button
           type="button"
           class="btn btn-sm btn-outline-secondary"
@@ -105,6 +140,21 @@
           <span class="small text-secondary diff-status" role="status">{{ applyMessage() }}</span>
         }
       </div>
+      @if (isStagedTransferHitl()) {
+        <div class="diff-toolbar-row px-2 pb-2">
+          <label class="form-label small text-secondary mb-1" for="staged-rereview-notes">
+            Notes for code review / writer (optional, used with “Return for re-review”)
+          </label>
+          <textarea
+            id="staged-rereview-notes"
+            class="form-control form-control-sm"
+            rows="2"
+            [ngModel]="reReviewFeedback()"
+            (ngModelChange)="reReviewFeedback.set($event)"
+            placeholder="What should change before this lands in the workspace?"
+          ></textarea>
+        </div>
+      }
     </div>
 
     <div class="diff-panes" [class.diff-panes--stacked]="stacked()">

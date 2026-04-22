@@ -39,6 +39,13 @@ class WorkspaceTestMaterializationEntry:
 
 
 @dataclass
+class PendingStagedTransferHitl:
+    """While user reviews a staged→workspace transfer in the chat diff UI (auto_apply off)."""
+
+    relative_path: str
+
+
+@dataclass
 class ProjectReviewReentryRequest:
     """Structured handoff returned when final project review requires a brand-new planner graph."""
 
@@ -60,8 +67,12 @@ class SessionState:
     history: list[dict[str, Any]] = field(default_factory=list)
     # Absolute path to the folder the user opened as workspace, or empty.
     workspace_path: str = ''
+    # App workspace card id (Electron ``Workspace.id``); used for internal semantic index paths.
+    workspace_id: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
+    # Batched file watcher paths for incremental semantic index updates ``(path, kind)``.
+    semantic_index_pending: list[tuple[str, str]] = field(default_factory=list)
     # Resolved Python project root inside the active workspace, or empty when none is attached.
     python_workspace_root: str = ''
     # Human-readable label for the resolved Python project root: `.` or `python/`.
@@ -76,6 +87,8 @@ class SessionState:
     python_workspace_env_summary: str = ''
     # Set by workspace edit tools; consumed by SSE diff event after tool success.
     pending_diff_payload: dict | None = None
+    # Staged transfer awaiting human confirm (``transfer_staged_file_to_workspace`` / approve when auto_apply off).
+    pending_staged_transfer_hitl: PendingStagedTransferHitl | None = None
     # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
     pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
     # Active planner graph namespace used for staging temp files and the seeded workspace snapshot.
@@ -96,6 +109,10 @@ class SessionState:
     agent_pause_note: str | None = None
     # Live mirror of the UI toggle; POST /session/auto-apply updates this during an in-flight stream.
     auto_apply_mode: bool = False
+    #: Concurrent :func:`~nemo_backend.agent_langgraph._stream_langgraph_tool_agent` runs per session (nested SSE workers).
+    active_langgraph_agent_streams: int = 0
+    #: Subset of those started with ``apply_mode=True`` (Editor on). Drives ``worker_apply_mode`` together with the count.
+    active_editor_langgraph_streams: int = 0
     # LangGraph worker: editor/apply mode for this delegated task (mirrors chat apply_mode).
     worker_apply_mode: bool = False
     # LangGraph worker: middleware signals here so the SSE loop can emit a diff before on_tool_end.
@@ -110,18 +127,30 @@ class SessionState:
     # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
     # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.
     suppress_parent_graph_model_token_sse: bool = False
-    # Active Python LSP phase: `staging` while reviewing staged drafts, `workspace` for the final real-workspace pass.
+    # Active LSP phase: `staging` while reviewing staged drafts, `workspace` for the final real-workspace pass.
     lsp_active_scope: str = 'workspace'
-    # Python LSP workspace root for the active manager (empty when no LSP session has been started).
+    # Workspace root last associated with an LSP subprocess (empty when none have started).
     lsp_workspace_root: str = ''
+    # Auto-detected TypeScript/Node project root used for typescript-language-server cwd (nested ``package.json``).
+    typescript_lsp_resolved_root: str = ''
     # Cached normalized diagnostics keyed by workspace-relative path.
     lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     # Structured project-review failure handoff consumed by the caller to start a brand-new planner graph.
     pending_project_review_reentry: ProjectReviewReentryRequest | None = None
     # Latest pytest/smoke captured output during project review; ``reject_project_review`` attaches it for the planner.
     last_project_review_subprocess_report: str = ''
+    # Set by ``report_insufficient_workspace_recon`` during the file-write author phase; read and cleared by
+    # ``run_write_recon_then_author_stream`` to optionally run one supplemental recon pass (author stays workspace-blind).
+    write_recon_supplement_request: str = ''
     # During ``plan_and_modify``, planner/review handoffs appended for the outer Clara tool result and optional SSE.
     plan_and_modify_outer_briefs: list[str] = field(default_factory=list)
+    # Snapshot of UI/runtime flags for the active nested delegation (``None`` = not in nested outer tool).
+    nested_turn_apply_mode: bool | None = None
+    nested_turn_auto_apply_mode: bool | None = None
+    nested_turn_orchestrated_mode: bool | None = None
+    # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`nemo_backend.agent`).
+    last_stream_apply_mode: bool | None = None
+    last_stream_auto_apply_mode: bool | None = None
 
 
 @dataclass
@@ -152,8 +181,18 @@ class RuntimeConnection:
     top_p: float | None = None
     #: When ``sampling_preset`` is ``custom``, optional ``top_k`` (else ``None``).
     top_k: int | None = None
-    #: ``auto`` | ``dense`` | ``moe`` — MoE is a hint for defaults/prompts only.
+    #: ``auto`` | ``dense`` — sparse-expert Gemma notes are inferred from the model id when ``auto``.
     architecture_hint: str = 'auto'
+    #: OpenAI-compatible embeddings API base (managed embedding ``llama-server``); empty = use env / chat URL.
+    embeddings_base_url: str = ''
+    #: False when the llama.cpp preset has no embedding server (empty ``llamaCppManaged.embeddingRunCommand``); skips semantic index.
+    embeddings_enabled: bool = True
+    #: Optional ``min_p`` (0–1); locals often read it from chat completion ``extra_body``.
+    min_p: float | None = None
+    #: Optional OpenAI ``presence_penalty`` (-2–2) when set.
+    presence_penalty: float | None = None
+    #: Optional llama.cpp ``repeat_penalty`` in ``extra_body`` when set (not ``repetition_penalty`` on the wire).
+    repeat_penalty: float | None = None
 
 
 @dataclass
@@ -188,6 +227,8 @@ class RuntimeToolsConfig:
     default_workspace_encoding: str = 'utf-8'
     #: Default newline mode for edit writes: ``lf``, ``crlf``, or ``preserve`` (match existing file when present).
     default_workspace_newline: str = 'lf'
+    #: When True, outer agent binds ``plan_and_modify`` / ``execute_workspace_mutation`` (nested router + planner).
+    orchestrated_mode: bool = False
 
 
 @dataclass

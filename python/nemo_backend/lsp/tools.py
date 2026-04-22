@@ -1,4 +1,4 @@
-"""LangChain tools for Python LSP context, diagnostics, and CRUD helpers."""
+"""LangChain tools for LSP context, diagnostics, and Python CRUD helpers."""
 
 from __future__ import annotations
 
@@ -7,9 +7,13 @@ from typing import Any
 from langchain_core.tools import tool
 
 from nemo_backend.delete_tool import delete_workspace_entry
-from nemo_backend.lsp.diagnostics import format_diagnostics_summary
-from nemo_backend.lsp.file_policy import is_lsp_managed_path, normalize_relative_posix_path
-from nemo_backend.lsp.manager import activate_session_lsp_scope, get_session_lsp_manager
+from nemo_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
+from nemo_backend.lsp.file_policy import get_python_lsp_policy, lsp_server_for_path, normalize_relative_posix_path
+from nemo_backend.lsp.manager import (
+    LspServerKind,
+    activate_session_lsp_scope,
+    get_session_lsp_manager,
+)
 from nemo_backend.staging_edit_tools import stage_create_file, stage_workspace_file_overwrite
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
@@ -40,9 +44,19 @@ __all__ = [
 
 def _require_python_path(relative_path: str) -> str:
     rel = normalize_relative_posix_path(relative_path)
-    if not is_lsp_managed_path(rel):
-        raise ValueError(f'Python LSP tools only support `.py` files in v1. Got `{rel}`.')
+    if get_python_lsp_policy(rel) is None:
+        raise ValueError(f'Python LSP mutation tools only support `.py` files. Got `{rel}`.')
     return rel
+
+
+def _require_lsp_read_path(relative_path: str) -> tuple[str, LspServerKind]:
+    rel = normalize_relative_posix_path(relative_path)
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(
+            f'LSP read tools support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs`. Got `{rel}`.'
+        )
+    return rel, server
 
 
 def _format_hover_contents(contents: Any) -> str:
@@ -109,16 +123,32 @@ def _format_symbols(items: Any, *, depth: int = 0) -> list[str]:
     return lines
 
 
-def _format_lsp_tool_error(action: str, exc: Exception, *, relative_path: str = '') -> str:
+def _lsp_server_label(server: str) -> str:
+    return 'Python' if server == 'python' else 'TypeScript'
+
+
+def _format_lsp_tool_error(
+    action: str,
+    exc: Exception,
+    *,
+    relative_path: str = '',
+    server: str | None = None,
+) -> str:
     rel = normalize_relative_posix_path(relative_path) if relative_path else ''
     detail = ' '.join(str(exc).strip().split()) or exc.__class__.__name__
-    message = f'Tool error: Python LSP {action} failed'
+    label = _lsp_server_label(server) if server else 'LSP'
+    message = f'Tool error: {label} LSP {action} failed'
     if rel:
         message += f' for `{rel}`'
     message += f' ({detail}).'
     lowered = detail.lower()
-    if 'lsp client closed' in lowered or 'initialize' in lowered or 'jedi_language_server' in lowered:
-        message += ' The backend Python could not start the configured language server.'
+    if (
+        'lsp client closed' in lowered
+        or 'initialize' in lowered
+        or 'jedi_language_server' in lowered
+        or 'typescript-language-server' in lowered
+    ):
+        message += ' The backend could not start the configured language server (check Node for TS/JS or Python env for .py).'
     return message
 
 
@@ -134,85 +164,128 @@ def _run_lsp_python_staging_tool(tool_obj: Any, payload: dict[str, Any], *, rela
     return f'Python LSP staging path selected for `{rel}`.\n\n{result_text}'
 
 
-def _sync_active_document_for_diagnostics(manager: Any, relative_path: str, *, encoding: str) -> list[dict[str, Any]]:
+def _sync_active_document_for_diagnostics(
+    relative_path: str, *, encoding: str, server: LspServerKind
+) -> tuple[list[dict[str, Any]], str]:
+    manager = get_session_lsp_manager(server=server)
     if getattr(manager, 'scope', 'workspace') == 'staging':
         sid = (current_session_id.get() or '').strip()
         if sid:
             session = get_session(sid)
             entry = session.pending_edit_stagings.get(relative_path)
             if entry is not None and not getattr(entry, 'workspace_applied', False):
-                return manager.sync_document(relative_path, str(entry.merged_text))
-    return manager.sync_workspace_document(relative_path, encoding=encoding)
+                rows = manager.sync_document(relative_path, str(entry.merged_text))
+                return rows, 'staged_draft'
+    rows = manager.sync_workspace_document(relative_path, encoding=encoding)
+    return rows, 'workspace_file'
+
+
+def _session_lsp_scope_label(session_id: str | None) -> str:
+    sid = (session_id or '').strip()
+    if not sid:
+        return 'workspace'
+    return str(get_session(sid).lsp_active_scope or 'workspace')
 
 
 @tool(LSP_GET_DIAGNOSTICS_NAME)
-def lsp_get_diagnostics(relative_path: str = '', refresh_from_workspace: bool = False, encoding: str = '') -> str:
-    """Return cached Python LSP diagnostics for one file, or all cached Python diagnostics when no path is given.
+def lsp_get_diagnostics(relative_path: str = '', refresh_active_document: bool = False, encoding: str = '') -> str:
+    """Return cached LSP diagnostics for one file, or all cached diagnostics when no path is given.
 
-    Set `refresh_from_workspace=true` to re-sync from the active source before reporting diagnostics:
-    the real workspace file in workspace scope, or the staged draft in staging scope when one exists."""
+    Works for Python (`.py`) and TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`).
+
+    Set ``refresh_active_document=true`` to re-sync before reporting diagnostics: in **workspace** scope this reads the
+    on-disk file; in **staging** scope it uses the staged draft text when one exists for the path, otherwise disk."""
 
     enc = validate_workspace_encoding((encoding or '').strip() or 'utf-8')
     rel = normalize_relative_posix_path(relative_path)
     try:
-        manager = get_session_lsp_manager()
         if rel:
-            _require_python_path(rel)
-            cached_items = manager.get_diagnostics(rel)
-            if refresh_from_workspace or not cached_items:
+            rel2, server = _require_lsp_read_path(rel)
+            sid_tool = (current_session_id.get() or '').strip()
+            scope_label = _session_lsp_scope_label(sid_tool)
+            manager = get_session_lsp_manager(server=server)
+            cached_items = manager.get_diagnostics(rel2)
+            analyzed_source = 'cached'
+            if refresh_active_document or not cached_items:
                 try:
-                    _sync_active_document_for_diagnostics(manager, rel, encoding=enc)
+                    _, analyzed_source = _sync_active_document_for_diagnostics(rel2, encoding=enc, server=server)
                 except Exception as exc:
                     if cached_items:
                         return (
-                            format_diagnostics_summary(rel, cached_items)
-                            + f'\n\nNote: Python LSP refresh failed ({exc}).'
+                            format_diagnostics_summary(
+                                rel2,
+                                cached_items,
+                                lsp_scope=scope_label,
+                                analyzed_source='cached',
+                                server_kind=server,
+                            )
+                            + f'\n\nNote: {_lsp_server_label(server)} LSP refresh failed ({exc}).'
                         )
                     raise
-            return format_diagnostics_summary(rel, manager.get_diagnostics(rel))
+            final_items = manager.get_diagnostics(rel2)
+            return format_diagnostics_summary(
+                rel2,
+                final_items,
+                lsp_scope=scope_label,
+                analyzed_source=analyzed_source,
+                server_kind=server,
+            )
 
-        all_items = manager.get_diagnostics()
-        if not all_items:
-            return 'No cached Python LSP diagnostics are available.'
-        lines = [f'Cached Python LSP diagnostics ({len(all_items)} issue(s)):']
-        for item in all_items[:100]:
+        sid = (current_session_id.get() or '').strip()
+        if not sid:
+            return 'No cached LSP diagnostics are available.'
+        session = get_session(sid)
+        scope_label = _session_lsp_scope_label(sid)
+        all_rows: list[dict[str, Any]] = []
+        for path in sorted(session.lsp_diagnostics):
+            all_rows.extend(session.lsp_diagnostics[path])
+        if not all_rows:
+            return 'No cached LSP diagnostics are available.'
+        lines = [
+            diagnostics_session_aggregate_preamble(scope_label),
+            f'Cached LSP diagnostics ({len(all_rows)} issue(s)):',
+        ]
+        for item in all_rows[:100]:
             lines.append(
                 f"- `{item['relative_path']}` {item['line']}:{item['character']} [{item['severity']}] {item['message']}"
             )
-        if len(all_items) > 100:
-            lines.append(f'... {len(all_items) - 100} more diagnostic(s) omitted.')
+        if len(all_rows) > 100:
+            lines.append(f'... {len(all_rows) - 100} more diagnostic(s) omitted.')
         return '\n'.join(lines)
     except Exception as exc:
-        return _format_lsp_tool_error('diagnostics lookup', exc, relative_path=rel)
+        srv = lsp_server_for_path(rel) if rel else None
+        return _format_lsp_tool_error('diagnostics lookup', exc, relative_path=rel, server=srv)
 
 
 @tool(LSP_HOVER_NAME)
 def lsp_hover(relative_path: str, line: int, character: int) -> str:
-    """Resolve Python hover information at a 1-based line/character position in a `.py` file."""
+    """Resolve LSP hover information at a 1-based line/character position (Python or TS/JS files)."""
 
     try:
-        rel = _require_python_path(relative_path)
-        manager = get_session_lsp_manager()
+        rel, server = _require_lsp_read_path(relative_path)
+        manager = get_session_lsp_manager(server=server)
         result = manager.hover(rel, int(line), int(character))
         contents = _format_hover_contents(result.get('contents'))
         if not contents:
             return f'No hover information for `{rel}` at {line}:{character}.'
         return f'Hover for `{rel}` at {line}:{character}:\n\n{contents}'
     except Exception as exc:
-        return _format_lsp_tool_error('hover lookup', exc, relative_path=relative_path)
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('hover lookup', exc, relative_path=relative_path, server=srv)
 
 
 @tool(LSP_DEFINITION_NAME)
 def lsp_find_definition(relative_path: str, line: int, character: int) -> str:
-    """Find the definition location for the symbol at a 1-based line/character position in a `.py` file."""
+    """Find the definition location for the symbol at a 1-based line/character position (Python or TS/JS)."""
 
     try:
-        rel = _require_python_path(relative_path)
-        manager = get_session_lsp_manager()
+        rel, server = _require_lsp_read_path(relative_path)
+        manager = get_session_lsp_manager(server=server)
         result = manager.definition(rel, int(line), int(character))
         return f'Definition locations for `{rel}` at {line}:{character}:\n{_format_locations(manager, result)}'
     except Exception as exc:
-        return _format_lsp_tool_error('definition lookup', exc, relative_path=relative_path)
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('definition lookup', exc, relative_path=relative_path, server=srv)
 
 
 @tool(LSP_REFERENCES_NAME)
@@ -222,31 +295,33 @@ def lsp_find_references(
     character: int,
     include_declaration: bool = False,
 ) -> str:
-    """Find Python references for the symbol at a 1-based line/character position in a `.py` file."""
+    """Find references for the symbol at a 1-based line/character position (Python or TS/JS)."""
 
     try:
-        rel = _require_python_path(relative_path)
-        manager = get_session_lsp_manager()
+        rel, server = _require_lsp_read_path(relative_path)
+        manager = get_session_lsp_manager(server=server)
         result = manager.references(rel, int(line), int(character), include_declaration=bool(include_declaration))
         return f'References for `{rel}` at {line}:{character}:\n{_format_locations(manager, result)}'
     except Exception as exc:
-        return _format_lsp_tool_error('reference lookup', exc, relative_path=relative_path)
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('reference lookup', exc, relative_path=relative_path, server=srv)
 
 
 @tool(LSP_DOCUMENT_SYMBOLS_NAME)
 def lsp_get_document_symbols(relative_path: str) -> str:
-    """List document symbols for a Python file using the active LSP session."""
+    """List document symbols for a Python or TS/JS file using the active LSP session."""
 
     try:
-        rel = _require_python_path(relative_path)
-        manager = get_session_lsp_manager()
+        rel, server = _require_lsp_read_path(relative_path)
+        manager = get_session_lsp_manager(server=server)
         symbols = manager.document_symbols(rel)
         lines = _format_symbols(symbols)
         if not lines:
             return f'No document symbols for `{rel}`.'
         return f'Document symbols for `{rel}`:\n' + '\n'.join(lines[:200])
     except Exception as exc:
-        return _format_lsp_tool_error('document symbol lookup', exc, relative_path=relative_path)
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('document symbol lookup', exc, relative_path=relative_path, server=srv)
 
 
 @tool(LSP_CREATE_PYTHON_FILE_NAME)

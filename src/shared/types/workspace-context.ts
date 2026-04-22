@@ -24,3 +24,15 @@ export interface WorkspaceChangeRecord {
   paths: string[];
   kinds: WorkspaceChangeKind[];
 }
+
+/** Paths + kinds forwarded to Python for incremental semantic indexing (optional). */
+export interface WorkspaceFileChangesForSync {
+  paths: string[];
+  kinds: string[];
+}
+
+/** Optional fields when POSTing workspace context to the Python backend. */
+export interface WorkspaceContextSyncExtras {
+  workspaceId?: string;
+  workspaceFileChanges?: WorkspaceFileChangesForSync;
+}

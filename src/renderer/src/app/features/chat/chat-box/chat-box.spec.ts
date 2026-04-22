@@ -189,6 +189,19 @@ describe('buildChatDisplayRows', () => {
     if (rows[1].kind !== 'assistant-turn') return;
     expect(rows[1].assistant?.toolStreams).toEqual(toolStreams);
   });
+
+  it('preserves persisted moeStreams on the assistant row', () => {
+    const moeStreams = [{ streamTag: 'moe', label: 'Model reasoning', text: 'internal chain' }];
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Q' },
+      { role: 'assistant', text: 'A.', moeStreams },
+    ];
+    const rows = buildChatDisplayRows(messages);
+    expect(rows.length).toBe(2);
+    expect(rows[1].kind).toBe('assistant-turn');
+    if (rows[1].kind !== 'assistant-turn') return;
+    expect(rows[1].assistant?.moeStreams).toEqual(moeStreams);
+  });
 });
 
 describe('TOOL_BUILDING_SYNONYMS', () => {
@@ -269,6 +282,26 @@ describe('filterLiveToolChainGroups', () => {
   it('shows nested planner groups after the task list is published', () => {
     const planner: PlannerProgress = { streamTag: 'planner', phase: 'planning', planReady: true, steps: [] };
     expect(filterLiveToolChainGroups(groups, planner)).toEqual([groups[0], groups[2]]);
+  });
+
+  it('shows nested planning/specialist tool rows even when plan is not ready (execute_workspace_mutation path)', () => {
+    const planningGroup: ToolChainGroup = {
+      key: 'planning-router',
+      toolCallCount: 1,
+      rows: [
+        {
+          role: 'chain',
+          label: 'route_write_specialist',
+          text: '',
+          state: 'running',
+          source: 'tool',
+          statusId: 'nest-1',
+          streamTag: 'planning',
+        },
+      ],
+    };
+    const plannerNotReady: PlannerProgress = { streamTag: 'planner', phase: 'discovery', planReady: false, steps: [] };
+    expect(filterLiveToolChainGroups([groups[0], planningGroup], plannerNotReady)).toEqual([groups[0], planningGroup]);
   });
 
   it('shows Clara-only groups when planner progress is absent (e.g. router-only plan_and_modify)', () => {

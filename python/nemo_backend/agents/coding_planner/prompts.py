@@ -1,4 +1,9 @@
-"""Prompt helpers for the coding planning agent."""
+"""Prompt helpers for the coding planning agent.
+
+Live production uses the deterministic orchestrator in ``orchestrator.py`` (discovery subagent → structured
+build-plan LLM → ``run_planning_nested_stream`` per step → final project review). Functions below that describe
+task/system/reflection text are retained for tests and documentation; they do not reintroduce removed planner tools.
+"""
 
 from __future__ import annotations
 
@@ -15,57 +20,77 @@ from nemo_backend.prompt_blocks import (
 
 
 def coding_planner_tool_reference(*, include_lsp_discovery: bool = True) -> str:
-    """Compact tool reference injected into the planner request."""
+    """Orchestrator behavior and discovery-tool reference (for tests/docs; not a live single-graph tool list)."""
     lsp_lines = (
         """
-        - `lsp_get_diagnostics`: inspect Python diagnostics through the active LSP session.
-        - `lsp_get_document_symbols`: inspect Python file structure before planning edits.
-        - `lsp_hover`: inspect Python symbol details at a precise line/character.
-        - `lsp_find_definition`: jump from a Python symbol use to its definition.
-        - `lsp_find_references`: inspect Python symbol references before deciding plan scope.
+        - `lsp_get_diagnostics`: inspect diagnostics through the active LSP session (Python or TS/JS).
+        - `lsp_get_document_symbols`: inspect file structure/symbols before planning edits.
+        - `lsp_hover`: inspect symbol details at a precise line/character.
+        - `lsp_find_definition`: jump from a symbol use to its definition.
+        - `lsp_find_references`: inspect symbol references before deciding plan scope.
         """
         if include_lsp_discovery
         else """
-        - (LSP tools are not available for this task scope—no programming-language source paths were identified. Use `read_workspace_file`, `list_workspace_directory`, and `search_workspace` for discovery.)
+        - (LSP tools are not available for this task scope—no programming-language source paths were identified. Prefer `retrieve_workspace_semantic` first, then `search_workspace`, `read_workspace_file`, and `list_workspace_directory`; verify each semantic hit by **origin**—workspace hits with reads/search; staging hits with `read_staged_edit` / diff tools, not `read_workspace_file` alone.)
         """
     )
     return dedent(
         f"""
-        Planner tool reference:
-        - `list_workspace_directory`: inspect directories only when the workspace tree in your prompt is not enough to locate or confirm the relevant area.
-        - `read_workspace_file`: read focused non-code or config file excerpts for context before recording the build plan.
-        - `search_workspace`: search the workspace for symbols, strings, or patterns before recording the build plan.
-        - `ensure_python_workspace_env`: create or reuse the workspace `.venv`, install workspace dependencies, install Python LSP support, and activate it for this session.
+        Deterministic coding orchestrator (what runs for `plan_and_modify` when the planner is enabled):
+        - **Discovery:** a bounded mini-agent uses read/search tools only: `list_workspace_directory`, `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, and optionally LSP tools below. It ends with a single assistant message starting with `Discovery complete:`.
+        - **Build plan:** a structured LLM call turns the task plus discovery notes into a numbered checklist (build/mutation/verification steps only)—not separate `record_plan` / `execute_plan_step` tools.
+        - **Execute:** for each checklist item, the orchestrator composes one nested instruction (routing handoff + context) and runs `run_planning_nested_stream` (nested router → specialists). Staging and **`transfer_staged_file_to_workspace`** apply inside that pipeline.
+        - **Final review:** after all steps succeed or loop, the orchestrator runs whole-workspace final project review; on failure it may append a remediation checklist step.
+
+        Discovery-phase tools:
+        - `list_workspace_directory`: when the workspace tree in the prompt is not enough to locate the relevant area.
+        - `retrieve_workspace_semantic`: semantic recall over workspace and staging; verify each hit by **origin**.
+        - `search_workspace` / `read_workspace_file`: gather context before the structured plan is generated.
+        - `ensure_python_workspace_env` (outer/session): workspace `.venv` and dependencies when the task needs Python.
         {lsp_lines.strip()}
-        - `record_plan`: after discovery reads are complete, record a short numbered plan containing only build or verification steps. When `run_final_project_review` fails, the tool appends a remediation step automatically—run `execute_plan_step` for it (call `record_plan` only if you must split remediation into multiple steps). After `run_final_project_review` succeeds, you may call `record_plan` again to start a new implementation phase if more build work is required.
-        - `apply_workspace_full_file`, `replace_workspace_line_range`, `replace_workspace_snippet` (when available): direct workspace edits **only for non-code paths** (not .py, .ts, .js, or other code-review extensions). Use these for steps that touch markdown, json, yaml, plain text config, etc. Code paths must use `execute_plan_step` / nested staging.
-        - `execute_plan_step`: execute exactly one **code-related** mutation step through the nested mutation router and specialists (write/delete/dependency/code review as needed). Inside that step, the **file-write specialist** runs discover-then-stage (search/list/read, then staging tools). The **code review specialist** reviews using a mechanical **`diff_staged_edit_against_baseline`** (git-style unified diff: workspace snapshot at stage time vs staged draft) before relying on full-file reads; on approval it calls **`transfer_staged_file_to_workspace` once per pending path**, so multi-file steps need one transfer per file.
-        - `run_final_project_review`: after every recorded build step is complete (and nested code review has transferred for the last code step), run the final project reviewer directly. That reviewer owns workspace-level verification (pytest when justified, smoke runs, diagnostics) and the final pass/fail decision—not the nested router.
 
-        Routing handoff block (required at the start of every `execute_plan_step` `step_instruction`; same contract Clara uses in `plan_and_modify` / `execute_workspace_mutation`):
+        **Nested pipeline (per checklist step):** the **file-write specialist** uses staging tools; the **code review specialist** diffs staged vs baseline before transfer; **`transfer_staged_file_to_workspace`** commits approved work.
+
+        **Routing handoff** (Clara should put this first in `plan_and_modify` / `execute_workspace_mutation` task text; the orchestrator embeds it in composed step instructions):
         {routing_handoff_contract()}
-        - After the routing handoff lines, add: concrete goal, constraints, acceptance hints, and the **minimum** code context (symbols, snippets, or file excerpts) the router and specialists need—do not make them re-run your discovery.
+        - After the routing handoff lines: goal, constraints, acceptance hints, and the **minimum** context (symbols, snippets, paths) so nested agents do not repeat discovery blindly.
+        - For call-chain work, include **callers**, **imports/callees**, and **related paths** so write recon can finish in one pass when possible.
 
-        Tool usage rules:
-        - Do not call `execute_plan_step` until the plan has been recorded for the current phase.
-        - Call `record_plan` once per implementation phase. After a checklist is recorded, keep executing it until final review; do not replace that checklist mid-phase. After final project review succeeds, call `record_plan` again when another build phase is needed.
-        - For Python workspaces, ensure the workspace Python environment is ready before planning. If no active `.venv` is available yet, call `ensure_python_workspace_env` first.
-        - Do discovery first. Use reads/search/list{'/LSP' if include_lsp_discovery else ''} tools to gather the missing context needed to form the build plan.
-        - Record the plan only after your discovery pass is done.
-        - After the plan is recorded, you may do a small targeted read/search/list follow-up only when a failed or blocked step needs more context. Do not restart broad discovery.
-        - Prefer the workspace tree already included in your prompt for navigation before calling `list_workspace_directory`.
-        - {'When the task touches Python code, prefer the LSP-directed tools for inspection and navigation. Use `read_workspace_file` only when you truly need the literal file text.' if include_lsp_discovery else 'Use `read_workspace_file`, `list_workspace_directory`, and `search_workspace` for discovery; LSP tools are not bound for this task scope.'}
-        - The recorded checklist must contain only implementation/build/test/verification work.
-        - When the task touches Python code, add a test-focused step only when the user asked for tests, concrete test criteria already exist, or nearby workspace tests clearly need updates. Otherwise prefer runtime verification over inventing tests.
-        - Do not include read/search/list/inspect/review/open steps in the recorded checklist.
-        - Keep each `execute_plan_step` instruction self-contained: start with the routing handoff block (**Operation** / **Paths** / **Existence**), then the goal, constraints, and relevant code context so the nested router can choose the right specialist without guessing.
-        - For checklist steps that only change non-code files, use the direct workspace edit tools instead of `execute_plan_step`; do not send non-code write work into the nested write specialist.
-        - If you discover new information after recording the plan, adapt the execution instructions for the remaining recorded steps instead of replacing the checklist mid-phase (before final review completes).
-        - If code review rejects a staged edit or requests changes, the nested reviewer and implementation specialists will handle that revision loop. Do not create a new plan for reviewer feedback.
-        - If final project review fails, `run_final_project_review` appends a remediation step—execute it with `execute_plan_step`, then `run_final_project_review` again when the checklist is complete.
-        - Do not give a final summary until `run_final_project_review` succeeds or explicitly hands control back for a new planner graph.
+        Rules of thumb:
+        - Checklist steps must be build/mutation/test/verification only—no read/search/list meta steps.
+        - For Python, add explicit test steps only when justified (user asked, criteria exist, or nearby tests need updates).
+        - If a nested step returns `Tool error:` with no workspace transfer, the orchestrator surfaces a retry hint to **outer Clara**—typically **call `plan_and_modify` again** with a narrower task or clearer handoff, not a nonexistent planner tool.
         """
     ).strip()
+
+
+def build_discovery_system_prompt(
+    session: SessionState,
+    *,
+    include_lsp_discovery: bool = True,
+) -> str:
+    """Bounded discovery mini-agent: read/search only before structured plan generation."""
+    ws = _workspace_hint(session)
+    lsp_line = (
+        'Use LSP tools (`lsp_get_document_symbols`, `lsp_hover`, `lsp_find_definition`, `lsp_find_references`, '
+        '`lsp_get_diagnostics`) for Python or TS/JS source when those tools are available.\n'
+        if include_lsp_discovery
+        else 'LSP tools are not bound; use `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, '
+        '`list_workspace_directory` only—verify semantic hits by **origin** (staging vs on-disk).\n'
+    )
+    return (
+        'You are the **discovery** sub-phase of the coding orchestrator.\n'
+        '**Allowed:** workspace reads and navigation only (`retrieve_workspace_semantic`, `search_workspace`, '
+        '`read_workspace_file`, `list_workspace_directory`). Semantic recall may include **staging**; verify by **origin** '
+        'in tool output.\n'
+        + lsp_line
+        + '**Forbidden in this phase:** staging writes, delegated implementation (nested pipeline), dependency installs, pytest, or summarizing an implementation checklist.\n'
+        'Gather the minimum context needed to scope the task. **Do not** draft a numbered implementation checklist, '
+        'to-do list, or step-by-step build plan here—that happens in a later phase. When done, send a **single** final '
+        'assistant message (no tools) starting with `Discovery complete:` summarizing only facts: relevant paths, '
+        'symbols, constraints, and open questions. No re-planning or alternatives after that line.\n\n'
+        f'{ws.strip()}'
+    )
 
 
 def build_coding_planner_task_prompt(
@@ -74,29 +99,28 @@ def build_coding_planner_task_prompt(
     *,
     include_lsp_discovery: bool = True,
 ) -> str:
-    """Build the task request sent to the coding planner, including tool reference text."""
+    """Sample task text bundled with orchestrator reference (used in tests; production uses the orchestrator directly)."""
     cleaned = task_summary.strip() or '(empty task summary)'
     requirements = plan_requirements.strip()
     discovery_line = (
-        '2. Start with discovery. Gather the missing workspace context with read/search/list/LSP tools before committing to a plan.'
+        '2. Discovery uses read/search/list/LSP tools to gather context before the structured build plan is generated '
+        '(prefer `retrieve_workspace_semantic` first—verify every cited path by **origin**: workspace vs staging).'
         if include_lsp_discovery
-        else '2. Start with discovery. Gather the missing workspace context with read/search/list tools only (LSP tools are not available for this task scope) before committing to a plan.'
+        else '2. Discovery uses read/search/list tools only (no LSP for this scope) before the structured build plan is generated '
+        '(prefer `retrieve_workspace_semantic` first—verify every cited path by **origin**: workspace vs staging).'
     )
     return dedent(
         f"""
         Task:
         {cleaned}
 
-        Required opening behavior:
-        1. If this is a Python workspace and the workspace `.venv` is missing or inactive, initialize it first with `ensure_python_workspace_env`.
+        Expected pipeline (deterministic orchestrator):
+        1. If Python work needs it, ensure `ensure_python_workspace_env` has run on the session/workspace.
         {discovery_line}
-        3. Once discovery is complete, call `record_plan` with a numbered build-only step list.
-        4. Then execute the plan step by step with `execute_plan_step`, each time passing a `step_instruction` that begins with the routing handoff block (**Operation** / **Paths** / **Existence**) as in the tool reference.
-        5. After every recorded step is complete, call `run_final_project_review` (only you—not the nested router—run final review).
-        6. If execution stalls before final review, keep working on the same recorded plan without replacing the checklist.
-        7. If code review rejects a change, treat that as an implementation-layer loop between reviewer and writer. Do not replace the checklist for reviewer feedback mid-phase.
-        8. If final project review fails, a remediation step is appended automatically—run `execute_plan_step` for it, then `run_final_project_review` again when every step is complete.
-        9. If final project review succeeds and the user task (or clear follow-on work) still needs more implementation, call `record_plan` again for the next phase, then `execute_plan_step` and `run_final_project_review` as usual.
+        3. A structured LLM emits the numbered build checklist (no separate planner `record_plan` tool).
+        4. Each checklist item runs through the nested mutation pipeline (`run_planning_nested_stream`) with a composed instruction that includes the routing handoff.
+        5. After all checklist steps complete, the orchestrator runs whole-workspace final project review; remediation steps may be appended on failure.
+        6. If a nested step fails with `Tool error:` and nothing transferred to the workspace, outer **Clara** typically retries via a new `plan_and_modify` call with a clearer handoff—there is no `execute_plan_step` tool on the outer agent.
 
         Plan sizing requirements:
         {requirements or '- Use your discovery findings to choose an appropriate number of build steps.'}
@@ -113,109 +137,49 @@ def build_coding_planner_system_prompt(
     *,
     include_lsp_discovery: bool = True,
 ) -> str:
-    """Instruct the planner to discover context, record a build plan, then delegate execution."""
+    """Describe the deterministic orchestrator for tests/docs (not a live single-graph system prompt)."""
     ws = _workspace_hint(session)
     conn = _connection_line(session)
     os_ = _os_hint_line()
     q = _model_prompt_suffix()
 
     debugger_line = (
-        '- **Debugger:** use LSP diagnostics, test or reviewer output, and minimal targeted reads to localize failures; '
-        'when it helps the mutation pipeline, add a short hypothesis to the `step_instruction` after the routing block.\n'
+        '- **Debugger:** when scoping `plan_and_modify` for Clara, use LSP diagnostics, test output, and minimal reads; '
+        'encode a short hypothesis in the task text after the routing block if it helps nested work.\n'
         if include_lsp_discovery
-        else '- **Debugger:** use test or reviewer output and minimal targeted reads to localize failures; '
-        'when it helps the mutation pipeline, add a short hypothesis to the `step_instruction` after the routing block.\n'
+        else '- **Debugger:** when scoping `plan_and_modify` for Clara, use test output and minimal reads; '
+        'encode a short hypothesis in the task text after the routing block if it helps nested work.\n'
     )
     discover_first = (
-        '1. **Discover first.** Start from the workspace tree already provided in your prompt to identify likely paths. '
-        'If the workspace contains Python code and no active workspace `.venv` is available yet, initialize it with '
-        '`ensure_python_workspace_env` before relying on LSP or planning implementation steps. '
-        'For Python code, prefer `lsp_get_document_symbols`, `lsp_hover`, `lsp_find_definition`, '
-        '`lsp_find_references`, and `lsp_get_diagnostics` for focused inspection and navigation. Use '
-        '`read_workspace_file` when you need literal file text, and call `list_workspace_directory` only when the tree '
-        'is insufficient or you need to confirm a specific directory. Read only what you need and finish the necessary '
-        'discovery before you record the plan.\n'
-        if include_lsp_discovery
-        else '1. **Discover first.** Start from the workspace tree already provided in your prompt to identify likely paths. '
-        'If the workspace contains Python code and no active workspace `.venv` is available yet, initialize it with '
-        '`ensure_python_workspace_env` before planning implementation steps. '
-        'LSP tools are not bound for this task scope—use `read_workspace_file`, `list_workspace_directory`, and '
-        '`search_workspace` for discovery. Read only what you need and finish the necessary discovery before you record the plan.\n'
+        '1. **Discovery (orchestrator subagent).** Bounded read/search'
+        + ('/LSP' if include_lsp_discovery else '')
+        + ' pass; ends with `Discovery complete:`. Python `.venv` should exist before LSP-heavy work (`ensure_python_workspace_env`).\n'
     )
     return (
-        'You are Clara\u2019s coding planning agent. You sit between the outer conversational agent and the '
-        'workspace mutation pipeline. Your job is to turn a high-level task into a concrete, ordered '
-        'implementation plan and then execute it step by step.\n\n'
+        '## Deterministic coding orchestrator\n'
+        'Production `plan_and_modify` with the planner enabled runs **orchestrated code**, not a single agent with '
+        '`record_plan` / `execute_plan_step` tools.\n\n'
         '## Role\n'
-        '- **Coordinator (not the implementer):** you never type source code into files yourself. Every programming-path '
-        'mutation goes through `execute_plan_step` → nested router → **file-write specialist** (same specialist Clara '
-        'reaches via `plan_and_modify` / `execute_workspace_mutation`). Prefer surgical, well-scoped step instructions '
-        'and preserve invariants in what you ask the pipeline to do.\n'
+        '- **Outer Clara** supplies a strong `task_summary` (routing handoff first). She does not implement source changes herself—'
+        'nested specialists do, via staging until **`transfer_staged_file_to_workspace`**.\n'
         + debugger_line
-        + '- **Systems engineer:** treat env bootstrap, dependencies, manifests, and verification (pytest vs smoke vs repair) '
-        'using the Python workspace playbook below—do not duplicate it with long prose.\n\n'
+        + '- **Systems engineer:** env bootstrap and verification expectations follow the Python workspace playbook below.\n\n'
         f'{coding_planner_team_context()}\n\n'
         '## Workflow\n'
         + discover_first
-        + '2. **Record the build plan.** After discovery, call `record_plan` with a short, numbered list of discrete build steps. Each step should target '
-        'a specific file or small group of closely related files. Consider:\n'
-        '   - File dependency ordering (edit base modules before dependents).\n'
-        '   - Separating creates, updates, deletes, tests, and verification work into distinct steps when needed.\n'
-        '   - For Python work, adding a final test step only when the user asked for tests, concrete test criteria exist, or nearby workspace tests need updating. Otherwise prefer verification/smoke-run work over inventing tests.\n'
-        '   - Grouping related changes that must stay consistent.\n'
-        '   - Breaking larger tasks into more steps when the request is broad, long, or constraint-heavy.\n'
-        '   - Keeping each step short enough to describe one concrete build action.\n'
-        '3. **Execute.** For each recorded step: if it only touches **non-code** paths, use the direct workspace edit '
-        'tools; if it touches **code-review** paths, call `execute_plan_step` with a focused `step_instruction` that '
-        'starts with the routing handoff block (**Operation:** / **Paths:** / **Existence:**) so the nested router can '
-        'dispatch correctly. Add goal, paths, and code context as needed. Nested code paths use discover-then-stage on '
-        'the write specialist, diff-first review (`diff_staged_edit_against_baseline`), and **per-file** '
-        '`transfer_staged_file_to_workspace` for each staged path in the step.\n'
-        '4. **Adapt without mid-phase replanning.** After each step, review the result. If a step fails or produces unexpected output, '
-        'adjust how you execute the remaining recorded steps. You may retry a failed step with revised instructions '
-        'or gather a small amount of additional workspace context to unblock it, but do not replace the checklist '
-        'while final review for this phase is still pending.\n'
-        '   - If code review rejects a staged edit, treat that as an implementation-layer retry loop inside the nested '
-        'writer/reviewer graph, not as a reason to replace the checklist mid-phase.\n'
-        '   - When the nested router reports that the code review specialist transferred a staged edit, treat that as '
-        'review approval and step completion. Continue to the next recorded step or finish the task; do not run a '
-        'separate completion-check step.\n'
-        '5. **Final review.** After all recorded steps complete (including any code-review transfer for the last step), '
-        'call `run_final_project_review` yourself. The nested router never runs final project review. Do not give the outer '
-        'summary until that tool succeeds.\n'
-        '6. **More work after a passed review.** When final project review succeeds and more implementation is still '
-        'required, call `record_plan` again for the next phase, execute those steps, and run final review again.\n'
-        '7. **Summarize.** When the task is fully done (including any extra phases you recorded after a passed review), '
-        'reply with a compact summary for **Clara** (outer): what was done, which paths were touched, and any errors '
-        'or deviations from the plan.\n\n'
+        + '2. **Structured build plan.** A structured LLM emits numbered build-only steps from the task + discovery notes.\n'
+        '3. **Nested execution.** Each step: orchestrator composes an instruction (includes '
+        '**Operation** / **Paths** / **Existence**) and runs the nested mutation pipeline once.\n'
+        '4. **Retries.** If a nested step errors without workspace transfer, the orchestrator may return guidance to **retry '
+        '`plan_and_modify`** with a clearer scope—outer Clara has no `execute_plan_step` tool.\n'
+        '5. **Final review.** After **all** checklist steps for the phase, the orchestrator runs whole-workspace final project review; '
+        'remediation steps may be appended and re-executed in the nested pipeline.\n'
+        '6. **Summarize.** When `plan_and_modify` returns, Clara summarizes for the user in plain language.\n\n'
         f'{python_workspace_playbook()}\n\n'
         '## Rules\n'
-        '- Complete discovery before calling `record_plan` unless the task is so specific that the provided prompt already contains the required context.\n'
-        '- For Python workspaces, do not start the plan until the workspace Python environment has been initialized and dependency installation has run.\n'
-        '- `record_plan` must break the main task into an appropriate number of concrete build steps; broad tasks must be broken down more than small tasks.\n'
-        '- Call `record_plan` once per implementation phase. The checklist for the current phase is fixed until final '
-        'project review completes; do not replace it mid-phase. After final review succeeds, call `record_plan` again '
-        'when another build phase is needed.\n'
-        '- Recorded plan steps must describe only build, mutation, test, or verification work.\n'
-        '- When the task touches Python code, add a test-focused checklist step only when the user asked for tests, concrete test criteria exist, or nearby workspace tests clearly need updates. Otherwise prefer runtime verification over inventing tests.\n'
-        '- Do not include read/search/list/inspect/review/open steps in the recorded checklist.\n'
-        '- After the checklist is recorded, additional read/search/list calls are allowed only as a narrow follow-up to unblock the current recorded step.\n'
-        '- **Code-review path** mutations go through `execute_plan_step` only. **Non-code** path mutations use '
-        '`apply_workspace_full_file` / `replace_workspace_line_range` / `replace_workspace_snippet` (when available); '
-        'do not send non-code writes through `execute_plan_step`.\n'
-        '- Keep each `step_instruction` self-contained: begin with **Operation** / **Paths** / **Existence**, then include '
-        'enough context that the execution pipeline can act without reading additional files. If **Existence** is unknown, '
-        'discover it before executing that step.\n'
-        '- If a reviewer requests changes, keep the fix scoped to the current recorded step and the affected path(s). '
-        'Do not broaden the task or invent new cleanup work; do not call `record_plan` again mid-phase for reviewer feedback.\n'
-        '- Code-review rejection belongs to the nested writer/reviewer loop. Do not respond to code-review feedback by replacing the checklist mid-phase.\n'
-        '- If final project review fails, `run_final_project_review` appends a remediation step—execute it, then run final review again.\n'
-        '- After the recorded checklist is complete, you must call `run_final_project_review` before summarizing that phase. '
-        'If you record another phase after a passed review, run final review again after that phase.\n'
-        '- Clara (outer) may have read some files in the `plan_and_modify` task summary. Use your read '
-        'tools to fill in gaps, not to re-read everything from scratch.\n'
-        '- Prefer fewer, well-scoped build steps over many tiny ones, but split larger prompts into more than the small-task baseline.\n'
-        '- Keep discovery work out of the checklist; the checklist begins only when implementation is ready to start.\n\n'
+        '- Checklist steps are build/mutation/test/verification only.\n'
+        '- Prefer targeted `plan_and_modify` task text over vague handoffs; list every path the nested team must touch.\n'
+        '- Code-review loops stay inside the nested pipeline—do not reinterpret them as a reason to abandon the outer task.\n\n'
         f'{conn}\n\n{os_}\n\n{ws}{q}'
     )
 
@@ -229,7 +193,7 @@ def build_coding_planner_reflection_prompt(
     latest_feedback: str = '',
     final_review_state: str = 'pending',
 ) -> str:
-    """Prompt the planner to reflect and continue when it stops early."""
+    """Legacy reflection scaffold (tests only); deterministic orchestrator does not use this in production."""
     if not plan_ready:
         return dedent(
             f"""
@@ -237,8 +201,8 @@ def build_coding_planner_reflection_prompt(
 
             Before replying, decide what is still missing:
             - Continue discovery if you still lack the context needed to plan.
-            - Call `record_plan` once you have enough context.
-            - Once every recorded step is complete, call `run_final_project_review` instead of stopping early.
+            - Ensure a structured build checklist can be emitted (orchestrator), then drive nested execution per step.
+            - Whole-workspace final review runs only after all checklist steps for the phase complete.
 
             This is reflection attempt {reflection_attempt}. Do not give a final summary yet unless you are genuinely blocked.
             """
@@ -260,8 +224,8 @@ def build_coding_planner_reflection_prompt(
 
             Original checklist status:
             - The initial build plan is already recorded and locked for this task.
-            - Do not call `record_plan` again.
-            - Your next tool call should usually be `execute_plan_step` for the next incomplete step.
+            - Do not replace the checklist mid-phase for reviewer feedback.
+            - The orchestrator should run the nested pipeline for the next incomplete step (composed instruction per item).
 
             Current step to continue:
             - {next_step_text.strip() or '(choose the earliest recorded step that is not complete)'}
@@ -271,11 +235,11 @@ def build_coding_planner_reflection_prompt(
 
             Review the latest tool results already in the conversation, then choose the next action:
             - Continue the same recorded checklist.
-            - Call `execute_plan_step` for the next incomplete step, or gather only the minimum extra context needed to unblock it.
-            - Each `step_instruction` must begin with the routing handoff block (**Operation** / **Paths** / **Existence**), then goal, constraints, and the minimum code context the nested team needs.
-            - Do not call `record_plan` again.
+            - If any step shows **[ERROR]** after `Tool error:` from nested work, treat it as **unfinished work**: typically **retry `plan_and_modify`** with a revised routing handoff and narrower scope—outer Clara has no per-step planner tool.
+            - If the last attempt failed **without** landing an approved workspace transfer from staging (`transfer_staged_file_to_workspace`), tighten the handoff or scope before retrying—do not skip ahead or finalize unless the step truly required no file change.
+            - Each nested instruction must include the routing handoff block (**Operation** / **Paths** / **Existence**), then goal and minimum context.
             - Do not give a final summary yet.
-            - Call `run_final_project_review` only after every recorded step is complete.
+            - Whole-workspace final review runs only after every recorded step is complete.
 
             This is reflection attempt {reflection_attempt}.
             """
@@ -297,8 +261,7 @@ def build_coding_planner_reflection_prompt(
 
         Original checklist status:
         - The initial build plan is already recorded and locked for this task.
-        - Do not call `record_plan` again while you still have incomplete recorded steps.
-        - Your next tool call should be `run_final_project_review`.
+        - Whole-workspace final review is orchestrator-driven after all steps complete.
 
         Current step to continue:
         - {next_step_text.strip() or '(all recorded steps are already complete)'}
@@ -307,8 +270,7 @@ def build_coding_planner_reflection_prompt(
         {latest_feedback.strip() or '(none recorded; inspect the latest tool results already in the conversation)'}
 
         Review the latest tool results already in the conversation, then choose the next action:
-        - Call `run_final_project_review` now.
-        - If final review fails, a remediation step is appended automatically—run `execute_plan_step` for it.
+        - Let the orchestrator run final project review; on failure it may append a remediation checklist step executed via the nested pipeline.
 
         Only give a final summary when final project review succeeds.
         This is reflection attempt {reflection_attempt}.

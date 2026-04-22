@@ -1,7 +1,7 @@
 """LangGraph-based tool agent via ``langchain.agents.create_agent``.
 
-Single outer Clara with read/search + optional ``execute_workspace_mutation`` / ``plan_and_modify``.
-Nested router/specialists stream on a side queue during those tools. Per-connection ``parallel_tool_calls`` is applied via
+Standard Clara uses read/search plus optional ``execute_workspace_mutation`` / ``plan_and_modify``; nested
+router/specialists stream on a side queue while those tools run. Per-connection ``parallel_tool_calls`` is applied via
 :class:`~nemo_backend.parallel_tool_middleware.ConnectionParallelToolCallsMiddleware`.
 Diff-review pauses use :class:`~nemo_backend.diff_review_middleware.DiffReviewAfterToolMiddleware`
 plus a multiplexed event pump so diffs emit while the graph waits on ``POST /chat/agent-continue``.
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
@@ -44,8 +45,12 @@ from nemo_backend.langgraph_sse import (
 )
 from nemo_backend.llm import build_llm
 from nemo_backend.llm_interaction_logging import log_llm_failure
-from nemo_backend.messages import build_system_prompt, session_to_messages
-from nemo_backend.state import get_session
+from nemo_backend.messages import (
+    build_system_prompt,
+    compose_outer_turn_human_content,
+    session_to_messages,
+)
+from nemo_backend.state import get_session, runtime_config
 from nemo_backend.tool_registry import worker_tools_and_map
 
 logger = logging.getLogger('nemo.agent.langgraph')
@@ -59,7 +64,10 @@ def build_nemo_single_outer_graph(
     extra_middleware: list[Any] | None = None,
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible)."""
-    tools, _ = worker_tools_and_map(apply_mode)
+    tools, _ = worker_tools_and_map(
+        apply_mode,
+        include_planning_tools=runtime_config.tools.orchestrated_mode,
+    )
     system_prompt = build_system_prompt(session, apply_mode)
     middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
     if extra_middleware:
@@ -76,6 +84,15 @@ def build_nemo_single_outer_graph(
         middleware=middleware,
         checkpointer=get_graph_checkpointer(),
     )
+
+
+def _default_outer_graph_builder(
+    llm: Any,
+    session: SessionState,
+    apply_mode: bool,
+    extra_middleware: list[Any] | None,
+) -> Any:
+    return build_nemo_single_outer_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
 
 
 def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
@@ -157,10 +174,12 @@ def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
         if pending_copy:
             return [sse_line({'type': 'copy_confirm', 'copyConfirm': copy_confirm_sse_payload(pending_copy)})]
         return []
-    pending_diff = session.pending_diff_payload
-    if pending_diff:
-        session.pending_diff_payload = None
-        return [sse_line({'type': 'diff', 'diff': pending_diff})]
+    if raw_hitl == ('diff',):
+        pending_diff = session.pending_diff_payload
+        if pending_diff:
+            session.pending_diff_payload = None
+            return [sse_line({'type': 'diff', 'diff': pending_diff})]
+        return []
     return []
 
 
@@ -253,8 +272,14 @@ async def _stream_langgraph_tool_agent(
     extra_middleware: list[Any] | None = None,
     nested_planning_queue: asyncio.Queue | None = None,
     resume_checkpoint_id: str | None = None,
+    outer_graph_builder: Callable[[Any, SessionState, bool, list[Any] | None], Any] | None = None,
 ) -> AsyncIterator[str]:
-    """Run create_agent graph; yield SSE. Sets ``worker_apply_mode`` / ``hitl_sse_queue`` for diff middleware."""
+    """Run create_agent graph; yield SSE.
+
+    ``worker_apply_mode`` and ``hitl_sse_queue`` are refcounted across concurrent
+    streams for the same session so a finished stream cannot clear Editor mode or
+    shared queues while another stream is still running (e.g. overlapping fetches).
+    """
     try:
         llm = build_llm()
     except Exception as exc:
@@ -274,13 +299,14 @@ async def _stream_langgraph_tool_agent(
         )
         return
 
-    graph = build_nemo_single_outer_graph(
-        llm,
-        session,
-        apply_mode,
-        extra_middleware=extra_middleware,
+    _graph_make = outer_graph_builder or _default_outer_graph_builder
+    graph = _graph_make(llm, session, apply_mode, extra_middleware)
+    thread_id = outer_agent_thread_id(
+        cfg.session_id,
+        cfg.thread_kind,
+        apply_mode=apply_mode,
+        orchestrated_mode=runtime_config.tools.orchestrated_mode,
     )
-    thread_id = outer_agent_thread_id(cfg.session_id, cfg.thread_kind, apply_mode=apply_mode)
     config: RunnableConfig = {
         'configurable': {'thread_id': thread_id},
         'recursion_limit': MAX_AGENT_STEPS,
@@ -294,18 +320,15 @@ async def _stream_langgraph_tool_agent(
     existing = vals.get('messages') if isinstance(vals, dict) else None
     has_checkpoint_messages = bool(existing)
 
+    human_content = compose_outer_turn_human_content(session, apply_mode, user_message)
     if has_checkpoint_messages:
-        input_messages: list[Any] = [HumanMessage(content=user_message)]
+        input_messages: list[Any] = [HumanMessage(content=human_content)]
     else:
-        input_messages = [*session_to_messages(session), HumanMessage(content=user_message)]
+        input_messages = [*session_to_messages(session), HumanMessage(content=human_content)]
     inputs: dict[str, Any] = {'messages': input_messages}
 
     events_q: asyncio.Queue = asyncio.Queue()
     hitl_q: asyncio.Queue = asyncio.Queue()
-    session.worker_apply_mode = apply_mode
-    session.hitl_sse_queue = hitl_q
-    if nested_planning_queue is not None:
-        session.planning_nested_events_q = nested_planning_queue
 
     async def pump_events() -> None:
         try:
@@ -318,6 +341,14 @@ async def _stream_langgraph_tool_agent(
     nested_states: dict[str, GraphStreamState] = {}
     main_stream_tag = 'agent'
     pump_task = asyncio.create_task(pump_events())
+
+    session.active_langgraph_agent_streams += 1
+    if apply_mode:
+        session.active_editor_langgraph_streams += 1
+    session.worker_apply_mode = session.active_editor_langgraph_streams > 0
+    session.hitl_sse_queue = hitl_q
+    if nested_planning_queue is not None:
+        session.planning_nested_events_q = nested_planning_queue
 
     queue_labels: tuple[str, ...]
     queues: tuple[asyncio.Queue, ...]
@@ -415,11 +446,15 @@ async def _stream_langgraph_tool_agent(
                     )
                 )
     finally:
-        _cleanup_nested_edit_staging(session, cfg.session_id)
-        session.worker_apply_mode = False
-        session.hitl_sse_queue = None
-        session.planning_nested_events_q = None
-        session.planning_nested_done_event = None
+        if apply_mode:
+            session.active_editor_langgraph_streams = max(0, session.active_editor_langgraph_streams - 1)
+        session.worker_apply_mode = session.active_editor_langgraph_streams > 0
+        session.active_langgraph_agent_streams = max(0, session.active_langgraph_agent_streams - 1)
+        if session.active_langgraph_agent_streams == 0:
+            _cleanup_nested_edit_staging(session, cfg.session_id)
+            session.hitl_sse_queue = None
+            session.planning_nested_events_q = None
+            session.planning_nested_done_event = None
         if not pump_task.done():
             pump_task.cancel()
             try:
@@ -468,5 +503,6 @@ async def stream_single_agent_langgraph(
         extra_middleware=[PlanningNestedWorkerMiddleware(get_graph_checkpointer())],
         nested_planning_queue=nested_q,
         resume_checkpoint_id=resume_checkpoint_id,
+        outer_graph_builder=None,
     ):
         yield line

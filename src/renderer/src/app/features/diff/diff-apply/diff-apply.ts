@@ -77,7 +77,18 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
 
   readonly changeHunkOrder = computed(() => changeHunkOrderFromRows(this.payload().rows));
 
-  readonly incrementalOk = computed(() => !this.payload().truncated && this.payload().rows.length > 0);
+  /** Code-review staged file awaiting human gate before writing the real workspace. */
+  readonly isStagedTransferHitl = computed(() => !!this.payload().stagedTransferHitl);
+
+  readonly incrementalOk = computed(() => {
+    if (this.isStagedTransferHitl()) {
+      return false;
+    }
+    return !this.payload().truncated && this.payload().rows.length > 0;
+  });
+
+  /** Optional feedback when returning a staged transfer to the review / writer path. */
+  readonly reReviewFeedback = signal('');
 
   readonly currentFocusHunk = computed((): number | null => {
     const order = this.changeHunkOrder();
@@ -395,13 +406,26 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     return true;
   }
 
-  private async resumeAgent(note: string): Promise<boolean> {
+  private async resumeAgent(
+    note: string,
+    stagedTransferAction?: 'confirm' | 're_review',
+  ): Promise<boolean> {
     const id = this.conversationId();
     if (!id?.trim()) {
       this.flashMessage('No conversation id.', 3000);
       return false;
     }
-    const res = await this.electron.notifyAgentContinue(id, note);
+    const res = await this.electron.notifyAgentContinue(
+      id,
+      note,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      stagedTransferAction,
+    );
     if (!res.ok) {
       this.flashMessage(res.error ?? 'Could not resume assistant.', 5000);
       return false;
@@ -409,10 +433,15 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     return true;
   }
 
-  private async finishReview(status: 'complete' | 'cancelled', summary: string, note: string): Promise<void> {
+  private async finishReview(
+    status: 'complete' | 'cancelled',
+    summary: string,
+    note: string,
+    stagedTransferAction?: 'confirm' | 're_review',
+  ): Promise<void> {
     if (this.agentContinueSent) return;
     this.agentContinueSent = true;
-    const ok = await this.resumeAgent(note);
+    const ok = await this.resumeAgent(note, stagedTransferAction);
     if (!ok) {
       this.agentContinueSent = false;
       return;
@@ -536,8 +565,37 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  async approveStagedTransferHitl(): Promise<void> {
+    if (this.applying() || this.agentContinueSent) return;
+    this.applying.set(true);
+    this.applyMessage.set('');
+    try {
+      this.flashMessage('Approving workspace transfer…', 3500);
+      await this.finishReview('complete', 'Workspace transfer approved', '', 'confirm');
+    } finally {
+      this.applying.set(false);
+    }
+  }
+
+  async returnStagedTransferForReReview(): Promise<void> {
+    if (this.applying() || this.agentContinueSent) return;
+    this.applying.set(true);
+    this.applyMessage.set('');
+    try {
+      const fb = this.reReviewFeedback().trim();
+      this.flashMessage('Returning for re-review…', 3500);
+      await this.finishReview('cancelled', 'Returned for re-review', fb || '(no details)', 're_review');
+    } finally {
+      this.applying.set(false);
+    }
+  }
+
   async applyAllAtOnce(): Promise<void> {
     if (this.applying()) return;
+    if (this.isStagedTransferHitl()) {
+      await this.approveStagedTransferHitl();
+      return;
+    }
     this.applying.set(true);
     this.applyMessage.set('');
     try {
@@ -554,6 +612,16 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
 
   async cancelProposal(): Promise<void> {
     if (this.applying() || this.agentContinueSent) return;
+    if (this.isStagedTransferHitl()) {
+      this.flashMessage('Returning for re-review…', 3500);
+      await this.finishReview(
+        'cancelled',
+        'Returned for re-review',
+        '(user dismissed the transfer card without approving)',
+        're_review',
+      );
+      return;
+    }
     const path = this.payload().relativePath;
     const msg = [
       'The user cancelled applying the proposed edits for file',

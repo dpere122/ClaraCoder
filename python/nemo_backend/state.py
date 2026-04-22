@@ -102,7 +102,10 @@ def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
     sid = (session_id or current_session_id.get() or '').strip()
     if not sid:
         return 'Tool error: no active session.'
-    if not get_session(sid).worker_apply_mode:
+    sess = get_session(sid)
+    if sess.nested_turn_apply_mode is True:
+        return None
+    if not sess.worker_apply_mode:
         return 'Tool error: Editor mode is off; workspace mutation and staging tools are unavailable.'
     return None
 

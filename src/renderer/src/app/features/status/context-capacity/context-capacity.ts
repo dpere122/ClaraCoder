@@ -1,7 +1,14 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+
+export interface LlmModelPresetOption {
+  id: string;
+  label: string;
+}
 
 @Component({
   selector: 'app-context-capacity',
+  imports: [FormsModule],
   templateUrl: './context-capacity.html',
   styleUrl: './context-capacity.css',
 })
@@ -10,6 +17,10 @@ export class ContextCapacityComponent {
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
   readonly modelName = input('Unknown model');
+  /** When non-empty, replaces the static model label with a dropdown to switch presets. */
+  readonly modelPresetOptions = input<LlmModelPresetOption[]>([]);
+  readonly activeLlmModelId = input('');
+  readonly activeLlmModelChange = output<string>();
   readonly usedPercentage = input(0);
 
   private static readonly circleRadius = 16;

@@ -26,8 +26,9 @@ __all__ = [
 def plan_and_modify(task_summary: str) -> str:
     """Use when Editor mode is on and the work needs **coding-planner discovery**, a **multi-step checklist**, and/or **final project review**.
 
-    The runtime runs the coding planner (read/search/LSP discovery, `record_plan`, `execute_plan_step` per item) when
-    enabled, then the same nested router + write/code-review specialists as `execute_workspace_mutation`. Good fit for
+    The runtime runs the deterministic coding orchestrator when enabled—bounded discovery, a structured build plan,
+    one nested pipeline run per checklist step, then whole-workspace final review—using the same nested router and
+    write/code-review specialists as `execute_workspace_mutation`. Good fit for
     multi-file work, ambiguous scope, or a **chain of verifiable steps** you want sequenced and reviewed as a unit.
 
     Pass a self-contained `task_summary` with the **Routing handoff** block first, then goal, paths, and minimum context
@@ -35,7 +36,7 @@ def plan_and_modify(task_summary: str) -> str:
 
     Prefer `execute_workspace_mutation` for **one** scoped create/update/delete you can hand off without a planner pass.
     When this tool returns, summarize outcomes for the user in plain language (and run outer LSP reads on touched Python
-    paths before claiming the workspace is clean—see system guidance)."""
+    or TS/JS paths before claiming the workspace is clean—see system guidance)."""
     raise RuntimeError('plan_and_modify is handled by the runtime, not invoked directly.')
 
 
@@ -44,15 +45,16 @@ def execute_workspace_mutation(task_summary: str) -> str:
     """Use for **one scoped source-code create/update/delete** when Editor mode is on (same staged pipeline as `plan_and_modify`, **no** coding planner).
 
     The nested mutation router runs immediately with your `task_summary`. Start with the **Routing handoff** block
-    (Operation / Paths / Existence / Quality bar), then the precise instruction—same contract as a single
-    `execute_plan_step` step. You cannot call nested edit tools from the outer agent.
+    (Operation / Paths / Existence / Quality bar), then the precise instruction—same contract as one orchestrator
+    checklist step or `plan_and_modify` step. You cannot invoke the nested **router** (`route_*` handoffs) from the outer agent—use this
+    tool or `plan_and_modify` for that. Staging review and transfer tools may still appear on the outer tool list.
 
     Prefer this tool (possibly **several calls in sequence**) for a **single verifiable slice** per call—easier to reason
     about than one huge handoff. Use `plan_and_modify` when you need planner-led discovery, a numbered checklist across
     multiple build actions, or final project review.
 
     When this tool returns, summarize outcomes for the user in plain language (and run outer LSP reads on touched Python
-    paths before claiming the workspace is clean—see system guidance)."""
+    or TS/JS paths before claiming the workspace is clean—see system guidance)."""
     raise RuntimeError('execute_workspace_mutation is handled by the runtime, not invoked directly.')
 
 

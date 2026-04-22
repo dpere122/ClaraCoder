@@ -44,6 +44,7 @@ async def chat_abort(request: AbortRequest) -> dict[str, bool]:
 async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
     """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
     from nemo_backend.accept_command import execute_pending_accept_command_decision
+    from nemo_backend.agents.specialists.review_tools import finalize_staged_transfer_after_hitl
     from nemo_backend.copy_tool import execute_pending_copy_decision
     from nemo_backend.delete_tool import execute_pending_delete_decision
 
@@ -70,6 +71,18 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
             request_id=request.accept_command_request_id or None,
         )
         note = extra if extra else note
+    elif request.staged_transfer_action:
+        extra = finalize_staged_transfer_after_hitl(
+            sess,
+            request.staged_transfer_action,
+            note,
+            session_id=request.session_id,
+        )
+        if extra:
+            if request.staged_transfer_action == 're_review':
+                note = extra
+            else:
+                note = f'{extra}\n\n{note}'.strip() if note else extra
     sess.agent_pause_note = note
     ev = sess.agent_pause_event
     if ev is not None:

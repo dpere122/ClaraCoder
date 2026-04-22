@@ -24,6 +24,11 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "**/*",
+                "input": "assets/crystal_model",
+                "output": "/assets/crystal-model/"
               }
             ],
             "styles": [
@@ -33,6 +38,7 @@
               "node_modules/ngx-spinner/animations/line-scale.css",
               "node_modules/ngx-spinner/animations/ball-clip-rotate-pulse.css",
               "node_modules/ngx-spinner/animations/ball-pulse-sync.css",
+              "node_modules/@xterm/xterm/css/xterm.css",
               "src/styles.css"
             ]
           },

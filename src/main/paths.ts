@@ -47,3 +47,8 @@ export function getWorkspaceStagingDir(): string {
 export function getCheckpointDbPath(): string {
   return path.join(getAppDataDir(), 'langgraph-checkpoints.sqlite');
 }
+
+/** Workspace + staging semantic index (Python ``NEMO_WORKSPACE_INDEX_DIR``). */
+export function getWorkspaceSemanticIndexDir(): string {
+  return path.join(getAppDataDir(), 'workspace-semantic-index');
+}

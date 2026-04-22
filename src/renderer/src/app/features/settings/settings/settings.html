@@ -16,9 +16,9 @@
           <span>{{ tab.label }}</span>
           <small>
             @if (tab.id === 'models') {
-              {{ connections().length }} configured
+              {{ totalModelCount() }} model presets
             } @else if (tab.id === 'tools') {
-              {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              {{ orchestratedMode() ? 'Orchestrated' : 'Staging default' }} · {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
             } @else if (tab.id === 'appearance') {
@@ -35,7 +35,7 @@
 
     <div class='settings-nav__note'>
       <strong>Heads up</strong>
-      <p>Changes save immediately, so you can close this window as soon as things look right.</p>
+      <p>Edits stay in memory until you close this window. Nothing is written to disk until then, and only if you changed something.</p>
     </div>
   </aside>
 
@@ -49,13 +49,13 @@
 
       <div class='settings-overview__right'>
         <div class='settings-overview__meta'>
-          <span class='pill'>Auto-save</span>
-          <span class='settings-copy'>Saved to your local config as you edit.</span>
+          <span class='pill'>Save on close</span>
+          <span class='settings-copy'>Unsaved changes are written when you leave this window (only if you edited something).</span>
         </div>
         @if (selectedSettingsTab() === 'models') {
-          <button type='button' class='action-button action-button--primary' (click)='addConnection()'>
+          <button type='button' class='action-button action-button--primary' (click)='addProvider()'>
             <lucide-icon name='plus' [size]='17' />
-            Add Connection
+            Add provider
           </button>
         }
         @if (selectedSettingsTab() === 'workspaces') {
@@ -73,96 +73,131 @@
           <div class='models-sidebar'>
             <div class='section-heading'>
               <div>
-                <p class='settings-eyebrow'>Saved Profiles</p>
-                <h4>Connections</h4>
+                <p class='settings-eyebrow'>Providers</p>
+                <h4>Models</h4>
               </div>
-              <span class='section-count'>{{ connections().length }}</span>
+              <span class='section-count'>{{ totalModelCount() }}</span>
             </div>
 
             <div class='connection-list'>
-                @for (connection of connections(); track trackConnection($index, connection)) {
-                  <button
-                    type='button'
-                    class='connection-card'
-                    [class.is-selected]='selectedConnectionId() === connection.id'
-                    (click)='selectConnection(connection.id)'
-                  >
-                    <div class='connection-card__top'>
-                      <div>
-                        <strong>{{ connection.name }}</strong>
-                        <p>{{ connection.provider === 'lmstudio' ? 'LM Studio' : 'OpenAI' }}</p>
-                      </div>
-
-                      @if (isConnectionActive(connection.id)) {
-                        <span class='pill pill--success'>Active</span>
-                      }
-                    </div>
-
-                    <p class='connection-card__model'>{{ connection.model }}</p>
-                    @if (connection.reasoningEffort) {
-                      <p class='connection-card__reasoning'>Reasoning {{ connection.reasoningEffort }}</p>
-                    }
-                    <p class='connection-card__url'>{{ connection.baseUrl || 'Default provider URL' }}</p>
-                  </button>
-                } @empty {
-                  <div class='empty-state'>
-                    <p>No model connections saved yet.</p>
+              @for (provider of llmProviders(); track trackProvider($index, provider)) {
+                <div class='provider-block' [class.is-active]='isProviderHeaderActive(provider.id)'>
+                  <div class='provider-block__header'>
+                    <strong>{{ provider.name }}</strong>
+                    <span class='provider-block__kind'>{{ providerKindLabel(provider.provider) }}</span>
                   </div>
-                }
-              </div>
+                  <p class='provider-block__url'>
+                    @if (provider.provider === 'llamacpp') {
+                      Managed servers — use Start in chat sidebar
+                    } @else {
+                      {{ provider.baseUrl || 'Default provider URL' }}
+                    }
+                  </p>
+
+                  <div class='model-sublist'>
+                    @for (m of provider.models; track trackModel($index, m)) {
+                      <button
+                        type='button'
+                        class='model-row'
+                        [class.is-selected]='selectedModelId() === m.id'
+                        (click)='selectModel(m.id)'
+                      >
+                        <div class='model-row__top'>
+                          <span class='model-row__name'>{{ m.name }}</span>
+                          @if (isModelActive(m.id)) {
+                            <span class='pill pill--success'>Active</span>
+                          }
+                        </div>
+                        <span class='model-row__id'>{{ m.model }}</span>
+                      </button>
+                    }
+                  </div>
+
+                  <button type='button' class='action-button action-button--compact' (click)='addModel(provider.id)'>
+                    <lucide-icon name='plus' [size]='14' />
+                    Add model
+                  </button>
+                </div>
+              } @empty {
+                <div class='empty-state'>
+                  <p>No LLM providers saved yet.</p>
+                </div>
+              }
+            </div>
 
             <hr class='settings-divider' />
 
             <div class='section-heading'>
               <div>
                 <p class='settings-eyebrow'>How It Works</p>
-                <h4>Connection Tips</h4>
+                <h4>Tips</h4>
               </div>
             </div>
 
             <div class='info-list'>
               <div class='info-row'>
-                <strong>OpenAI</strong>
-                <p>Best when you want hosted models and straightforward API key setup.</p>
+                <strong>Provider</strong>
+                <p>One base URL and API key per provider. Add several model presets underneath to switch quickly without retyping credentials.</p>
+              </div>
+
+              <div class='info-row'>
+                <strong>Model preset</strong>
+                <p>Each preset has its own API model id, optimization template, temperature, and related tuning. Chat always uses the active preset.</p>
               </div>
 
               <div class='info-row'>
                 <strong>LM Studio</strong>
-                <p>Great for local models. The default server URL usually stays `http://127.0.0.1:1234/v1`.</p>
+                <p>Local server URL is usually <code>http://127.0.0.1:1234/v1</code> with key <code>lm-studio</code>.</p>
               </div>
 
               <div class='info-row'>
-                <strong>Reasoning models</strong>
+                <strong>llama.cpp</strong>
                 <p>
-                  Add a separate connection per model you use. Reasoning effort is stored on that profile and synced to the Python backend with the rest of the profile.
+                  Use the OpenAI-compatible HTTP server from your llama.cpp build (often <code>llama-server</code>, not the interactive
+                  <code>llama-cli</code>). Default URL is <code>http://127.0.0.1:8080/v1</code>; set the model id to match the server’s loaded model
+                  name.
                 </p>
               </div>
             </div>
           </div>
 
           <div class='settings-editor'>
-            @if (selectedConnection(); as connection) {
+            @if (selectedResolved(); as connection) {
               <div class='settings-editor__header'>
                 <div>
-                  <p class='settings-eyebrow'>Connection Details</p>
-                  <h4>{{ connection.name }}</h4>
-                  <p class='panel__copy'>These details are saved in `config.json` and synced to the Python LangChain backend.</p>
+                  <p class='settings-eyebrow'>Model preset</p>
+                  <h4>{{ selectedModel()?.name }}</h4>
+                  <p class='panel__copy'>Provider <strong>{{ selectedProvider()?.name }}</strong> · saved in <code>config.json</code> and synced to Python.</p>
                 </div>
 
                 <div class='settings-editor__actions'>
-                  <button type='button' class='action-button' (click)='duplicateConnection(connection)'>
-                    <lucide-icon name='copy' [size]='16' />
-                    Duplicate
+                  @if (selectedProvider(); as p) {
+                    @if (selectedModel(); as sm) {
+                      <button type='button' class='action-button' (click)='duplicateModel(p.id, sm)'>
+                        <lucide-icon name='copy' [size]='16' />
+                        Duplicate preset
+                      </button>
+                    }
+                  }
+
+                  <button
+                    type='button'
+                    class='action-button action-button--danger'
+                    [disabled]='!canDeleteSelectedModel()'
+                    (click)='removeSelectedModel()'
+                  >
+                    <lucide-icon name='trash' [size]='16' />
+                    Delete preset
                   </button>
 
                   <button
                     type='button'
                     class='action-button action-button--danger'
-                    [disabled]='!canDeleteSelectedConnection()'
-                    (click)='removeConnection(connection.id)'
+                    [disabled]='!canDeleteSelectedProvider()'
+                    (click)='removeSelectedProvider()'
                   >
                     <lucide-icon name='trash' [size]='16' />
-                    Delete
+                    Delete provider
                   </button>
                 </div>
               </div>
@@ -172,17 +207,17 @@
               <div class='form-section'>
                 <div class='form-section__header'>
                   <h5>Activation</h5>
-                  <p class='settings-copy'>Choose which saved connection powers chat right now.</p>
+                  <p class='settings-copy'>Choose which model preset powers chat.</p>
                 </div>
 
                 <label class='toggle-row'>
                   <input
                     type='radio'
-                    name='activeConnection'
-                    [checked]='isConnectionActive(connection.id)'
-                    (change)='setActiveConnection(connection.id)'
+                    name='activeModel'
+                    [checked]='isModelActive(connection.id)'
+                    (change)='setActiveModel(connection.id)'
                   />
-                  <span>Use this connection for chat</span>
+                  <span>Use this preset for chat</span>
                 </label>
               </div>
 
@@ -190,29 +225,121 @@
 
               <div class='form-section'>
                 <div class='form-section__header'>
-                  <h5>Profile</h5>
-                  <p class='settings-copy'>Name the profile and choose the provider it belongs to.</p>
+                  <h5>Provider</h5>
+                  <p class='settings-copy'>Endpoint shared by every model preset under this provider.</p>
                 </div>
 
                 <div class='form-grid'>
                   <label class='field field--full'>
-                    <span>Connection Name</span>
-                    <input type='text' [ngModel]='connection.name' (ngModelChange)='updateSelectedConnection({ name: $event })' />
+                    <span>Provider name</span>
+                    <input
+                      type='text'
+                      [ngModel]='selectedProvider()!.name'
+                      (ngModelChange)='updateSelectedProvider({ name: $event })'
+                    />
                   </label>
 
                   <label class='field'>
-                    <span>Provider</span>
-                    <select [ngModel]='connection.provider' (ngModelChange)='onProviderChange($event)'>
+                    <span>Provider type</span>
+                    <select [ngModel]='selectedProvider()!.provider' (ngModelChange)='onProviderKindChange($event)'>
                       <option value='openai'>OpenAI</option>
                       <option value='lmstudio'>LM Studio</option>
+                      <option value='llamacpp'>llama.cpp (OpenAI server)</option>
                     </select>
                   </label>
 
-                  <label class='field'>
-                    <span>Model</span>
-                    <input type='text' [ngModel]='connection.model' (ngModelChange)='onModelChange($event)' />
+                  @if (selectedProvider()!.provider !== 'llamacpp') {
+                    <label class='field field--full'>
+                      <span>Base URL</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.baseUrl'
+                        (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+                  }
+
+                  <label class='field field--full'>
+                    <span>API Key</span>
+                    <input
+                      type='password'
+                      [ngModel]='selectedProvider()!.apiKey'
+                      (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <hr class='settings-divider' />
+
+              <div class='form-section'>
+                <div class='form-section__header'>
+                  <h5>Preset label &amp; API model</h5>
+                  <p class='settings-copy'>The label is for your lists; the API model id is sent to the server.</p>
+                </div>
+
+                <div class='form-grid'>
+                  <label class='field field--full'>
+                    <span>Preset name</span>
+                    <input type='text' [ngModel]='selectedModel()!.name' (ngModelChange)='updateSelectedModel({ name: $event })' />
                   </label>
 
+                  <label class='field field--full'>
+                    <span>Model (API id)</span>
+                    <input type='text' [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)' />
+                  </label>
+                </div>
+              </div>
+
+              @if (connection.provider === 'llamacpp' && selectedModel()?.llamaCppManaged; as lm) {
+                <hr class='settings-divider' />
+
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Managed llama-server</h5>
+                    <p class='settings-copy'>
+                      One shell command per process. Each command must include exactly one
+                      <code>{{ managedLlamaPortToken }}</code>
+                      token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
+                      sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code> (the Base URL field above is
+                      unused for managed llama.cpp). Use <code>--host</code> in the command if you bind elsewhere; health
+                      checks use that host.
+                    </p>
+                  </div>
+
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Chat llama-server command</span>
+                      <textarea
+                        rows='4'
+                        [ngModel]='lm.chatRunCommand'
+                        (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
+                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0'"
+                      ></textarea>
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Embedding llama-server command (optional)</span>
+                      <textarea
+                        rows='4'
+                        [ngModel]='lm.embeddingRunCommand'
+                        (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
+                        [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
+                      ></textarea>
+                    </label>
+                  </div>
+                </div>
+              }
+
+              <hr class='settings-divider' />
+
+              <div class='form-section'>
+                <div class='form-section__header'>
+                  <h5>Model tuning</h5>
+                  <p class='settings-copy'>Saved only for this preset. Switch presets to use different optimization or sampling.</p>
+                </div>
+
+                <div class='form-grid'>
                   <label class='field field--full'>
                     <span>Optimization template</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>
@@ -235,12 +362,12 @@
                     <label class='field field--full'>
                       <span>Gemma thinking</span>
                       <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        Boolean thinking via the local chat template / LM Studio toggles, not OpenAI-style
-                        <code>reasoning_effort</code> tiers. Shown when the <strong>Gemma (LM Studio)</strong> optimization template is selected.
+                        Boolean thinking via the local chat template, not OpenAI-style
+                        <code>reasoning_effort</code> tiers. Shown when the <strong>Gemma (local)</strong> optimization template is selected.
                       </p>
                       <select
                         [ngModel]='connection.thinkingMode'
-                        (ngModelChange)='updateSelectedConnection({ thinkingMode: $event })'
+                        (ngModelChange)='updateSelectedModel({ thinkingMode: $event })'
                       >
                         <option value='default'>Default (no extra hint)</option>
                         <option value='on'>On (encourage structured reasoning)</option>
@@ -251,57 +378,32 @@
                     <label class='field'>
                       <span>Architecture hint (Gemma 4)</span>
                       <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        <strong>Auto</strong> lets the backend infer dense vs MoE from the model id. This only adjusts defaults and system notes, not expert routing.
+                        <strong>Auto</strong> lets the backend infer dense vs sparse-expert layouts from the model id. This only adjusts defaults and system notes.
                       </p>
                       <select
                         [ngModel]='connection.architectureHint'
-                        (ngModelChange)='updateSelectedConnection({ architectureHint: $event })'
+                        (ngModelChange)='updateSelectedModel({ architectureHint: $event })'
                       >
                         <option value='auto'>Auto</option>
                         <option value='dense'>Dense</option>
-                        <option value='moe'>MoE</option>
                       </select>
                     </label>
 
                     <label class='field field--full'>
                       <span>Gemma sampling preset</span>
                       <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        <strong>Gemma recommended</strong> sends <code>top_p=0.95</code> and <code>top_k=64</code> (via model kwargs) per Google’s model card; combine with temperature (e.g. 1.0 from the Gemma template).
+                        <strong>Gemma recommended</strong> sends <code>top_p=0.95</code> and <code>top_k=64</code> per Google’s model card.
+                        <strong>Custom</strong> uses the optional <code>top_p</code> / <code>top_k</code> fields under temperature.
                       </p>
                       <select
                         [ngModel]='connection.samplingPreset'
-                        (ngModelChange)='updateSelectedConnection({ samplingPreset: $event })'
+                        (ngModelChange)='updateSelectedModel({ samplingPreset: $event })'
                       >
                         <option value='provider-default'>Provider default (omit top_p / top_k)</option>
                         <option value='gemma-recommended'>Gemma recommended (top_p / top_k)</option>
                         <option value='custom'>Custom top_p / top_k</option>
                       </select>
                     </label>
-
-                    @if (connection.samplingPreset === 'custom') {
-                      <label class='field'>
-                        <span>top_p (0–1)</span>
-                        <input
-                          type='number'
-                          min='0'
-                          max='1'
-                          step='0.01'
-                          [ngModel]='connection.topP ?? 0.95'
-                          (ngModelChange)='onTopPChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>top_k (1–256)</span>
-                        <input
-                          type='number'
-                          min='1'
-                          max='256'
-                          step='1'
-                          [ngModel]='connection.topK ?? 64'
-                          (ngModelChange)='onTopKChange($event)'
-                        />
-                      </label>
-                    }
                   }
 
                   @if (connection.optimizationPreset !== 'gemma') {
@@ -313,7 +415,7 @@
                       </p>
                       <select
                         [ngModel]='connection.reasoningEffort || ""'
-                        (ngModelChange)='updateSelectedConnection({ reasoningEffort: $event })'
+                        (ngModelChange)='updateSelectedModel({ reasoningEffort: $event })'
                       >
                         <option value=''>Default (omit)</option>
                         <option value='on'>on (→ medium)</option>
@@ -361,7 +463,7 @@
                   <label class='field'>
                     <span>PLAN_RETRY_ATTEMPTS_COUNT</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      Max number of final project-review retry passes this connection can trigger after the initial review fails.
+                      Max number of final project-review retry passes this preset can trigger after the initial review fails.
                     </p>
                     <input
                       type='number'
@@ -396,6 +498,77 @@
                     </div>
                   </label>
 
+                  <div class='field field--full optional-sampling'>
+                    <span>Optional sampling</span>
+                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                      Leave a field empty to omit it from chat requests.
+                      <code>top_k</code>, <code>min_p</code>, and <code>repeat_penalty</code> are sent in the request body the way local OpenAI-compatible servers (for example <code>llama-server</code>) expect.
+                      <code>repeat_penalty</code> is the llama.cpp JSON name (some apps call the same knob <code>repetition_penalty</code>).
+                    </p>
+                    <div class='optional-sampling-grid'>
+                      <label class='field'>
+                        <span>top_p (0–1)</span>
+                        <input
+                          type='number'
+                          min='0'
+                          max='1'
+                          step='0.01'
+                          placeholder='omit'
+                          [ngModel]='connection.topP'
+                          (ngModelChange)='onOptionalTopPChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>top_k (1–256)</span>
+                        <input
+                          type='number'
+                          min='1'
+                          max='256'
+                          step='1'
+                          placeholder='omit'
+                          [ngModel]='connection.topK'
+                          (ngModelChange)='onOptionalTopKChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>min_p (0–1)</span>
+                        <input
+                          type='number'
+                          min='0'
+                          max='1'
+                          step='0.01'
+                          placeholder='omit'
+                          [ngModel]='connection.minP'
+                          (ngModelChange)='onOptionalMinPChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>Presence penalty (−2–2)</span>
+                        <input
+                          type='number'
+                          min='-2'
+                          max='2'
+                          step='0.05'
+                          placeholder='omit'
+                          [ngModel]='connection.presencePenalty'
+                          (ngModelChange)='onOptionalPresencePenaltyChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>Repeat penalty (0.01–4)</span>
+                        <input
+                          type='number'
+                          min='0.01'
+                          max='4'
+                          step='0.05'
+                          placeholder='omit'
+                          [ngModel]='connection.repeatPenalty'
+                          (ngModelChange)='onOptionalRepeatPenaltyChange($event)'
+                        />
+                      </label>
+                    </div>
+                  </div>
+
                   <div class='field field--full'>
                     <span>Parallel tool calls</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>
@@ -405,7 +578,7 @@
                       <input
                         type='checkbox'
                         [ngModel]='connection.parallelToolCalls'
-                        (ngModelChange)='updateSelectedConnection({ parallelToolCalls: $event })'
+                        (ngModelChange)='updateSelectedModel({ parallelToolCalls: $event })'
                       />
                       <span>Allow parallel tool calls</span>
                     </label>
@@ -415,39 +588,20 @@
 
               <hr class='settings-divider' />
 
-              <div class='form-section'>
-                <div class='form-section__header'>
-                  <h5>Endpoint</h5>
-                  <p class='settings-copy'>Set the base URL and credentials your provider expects.</p>
-                </div>
-
-                <div class='form-grid'>
-                  <label class='field field--full'>
-                    <span>Base URL</span>
-                    <input type='text' [ngModel]='connection.baseUrl' (ngModelChange)='updateSelectedConnection({ baseUrl: $event })' />
-                  </label>
-
-                  <label class='field field--full'>
-                    <span>API Key</span>
-                    <input type='password' [ngModel]='connection.apiKey' (ngModelChange)='updateSelectedConnection({ apiKey: $event })' />
-                  </label>
-                </div>
-              </div>
-
-              <hr class='settings-divider' />
-
               <div class='callout'>
                 <p>
                   @if (connection.provider === 'lmstudio') {
                     LM Studio works well with `http://127.0.0.1:1234/v1`, and the default key can stay `lm-studio` unless your local server expects something else.
+                  } @else if (connection.provider === 'llamacpp') {
+                    The app starts <code>llama-server</code> from your preset (sidebar). Use API key only if your server requires auth. Base URL is unused; ports are chosen at Start.
                   } @else {
-                    OpenAI connections require a valid API key unless you rely on the backend environment fallback.
+                    OpenAI providers require a valid API key unless you rely on the backend environment fallback.
                   }
                 </p>
               </div>
             } @else {
               <div class='empty-state'>
-                <p>Select a connection to edit its details.</p>
+                <p>Select a model preset to edit tuning and endpoint credentials.</p>
               </div>
             }
           </div>
@@ -474,6 +628,22 @@
                   <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
                 </select>
               </label>
+            </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='orchestratedMode()'
+                  (ngModelChange)='onOrchestratedModeChange($event)'
+                />
+                <span>Orchestrated mode</span>
+              </label>
+              <p class='settings-copy' style='margin-top: 0.35rem'>
+                When on, the main agent can call nested planning tools (<code>plan_and_modify</code>,
+                <code>execute_workspace_mutation</code>). When off (default), use staging edits only—the app is moving
+                toward a new default planning approach.
+              </p>
             </div>
           </div>
 

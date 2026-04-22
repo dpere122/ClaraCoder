@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 from nemo_backend.domain import SessionState
 from nemo_backend.lsp.python_server import build_python_lsp_command
 from nemo_backend.python_env import (
     PythonWorkspaceEnvResult,
+    _run_subprocess_with_output,
     ensure_session_python_workspace_env,
     resolve_python_workspace_root,
     workspace_python_executable,
@@ -15,6 +17,34 @@ from nemo_backend.python_env import (
 from nemo_backend.routes_session import set_workspace_context
 from nemo_backend.schemas import WorkspaceContextRequest
 from nemo_backend.state import get_session
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_run_subprocess_with_output_times_out_and_kills(tmp_path: Path, monkeypatch) -> None:
+    import nemo_backend.python_env as pe
+
+    monkeypatch.setattr(pe, 'NEMO_SUBPROCESS_TIMEOUT_SEC', 1)
+
+    async def hang():
+        await asyncio.sleep(3600)
+        return b'', None
+
+    proc = MagicMock()
+    proc.communicate = AsyncMock(side_effect=hang)
+    proc.kill = MagicMock()
+    proc.wait = AsyncMock(return_value=1)
+
+    async def fake_exec(*_a, **_kw):
+        return proc
+
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', fake_exec)
+
+    code, out = await _run_subprocess_with_output([sys.executable, '-c', 'pass'], cwd=tmp_path)
+    assert code is None
+    assert 'timed out' in out.lower()
+    proc.kill.assert_called()
 
 
 def test_build_python_lsp_command_prefers_workspace_venv(tmp_path: Path) -> None:

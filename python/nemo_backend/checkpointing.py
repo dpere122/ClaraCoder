@@ -29,10 +29,16 @@ def default_checkpoint_db_path() -> str:
     return str(Path(tempfile.gettempdir()) / 'nemo-langgraph-checkpoints.sqlite')
 
 
-def outer_agent_thread_id(session_id: str, thread_kind: str, *, apply_mode: bool) -> str:
-    """Stable per-conversation thread id; ``apply_mode`` keeps tool-graph shape aligned with checkpoints."""
+def outer_agent_thread_id(session_id: str, thread_kind: str, *, apply_mode: bool, orchestrated_mode: bool = False) -> str:
+    """Stable per-conversation thread id.
+
+    ``apply_mode`` keeps read vs editor tool-graph shapes separate. ``orchestrated_mode`` is included so toggling
+    Settings → Tools → Orchestrated mode does not reuse LangGraph checkpoints built with a different tool list /
+    system prompt (outer agent binds ``plan_and_modify`` only when orchestration is on).
+    """
     mode = 'apply' if apply_mode else 'read'
-    return f'{session_id}:{thread_kind}:{mode}'
+    orch = '1' if orchestrated_mode else '0'
+    return f'{session_id}:{thread_kind}:{mode}:orch{orch}'
 
 
 async def init_graph_checkpointing() -> None:
@@ -73,17 +79,39 @@ def reset_graph_checkpointing_for_tests() -> None:
     _checkpointer = None
 
 
-async def delete_outer_threads_for_session(session_id: str, thread_kind: str = 'single') -> None:
-    """Remove LangGraph checkpoints for both apply/read outer threads (conversation reset or resync)."""
+# ``moe`` kept for clearing legacy checkpoints from older builds that used a separate outer graph id.
+OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe')
+
+
+async def delete_outer_threads_for_session(session_id: str, thread_kind: str | None = None) -> None:
+    """Remove LangGraph checkpoints for outer threads (conversation reset or resync).
+
+    When ``thread_kind`` is None, clears every known outer graph kind (``single`` plus legacy ``moe``).
+    Deletes current thread-id shapes (apply × orchestration) and legacy ids without ``:orch*``.
+    """
     if _checkpointer is None:
         return
-    for apply_mode in (True, False):
-        tid = outer_agent_thread_id(session_id, thread_kind, apply_mode=apply_mode)
-        await _checkpointer.adelete_thread(tid)
+    kinds: tuple[str, ...] = (thread_kind,) if thread_kind else OUTER_AGENT_THREAD_KINDS
+    for kind in kinds:
+        for apply_mode in (True, False):
+            legacy_tid = f'{session_id}:{kind}:{"apply" if apply_mode else "read"}'
+            await _checkpointer.adelete_thread(legacy_tid)
+            for orchestrated_mode in (True, False):
+                tid = outer_agent_thread_id(
+                    session_id, kind, apply_mode=apply_mode, orchestrated_mode=orchestrated_mode
+                )
+                await _checkpointer.adelete_thread(tid)
 
 
 async def delete_outer_thread(session_id: str, thread_kind: str, *, apply_mode: bool) -> None:
     """Remove checkpoints for one outer thread (e.g. failed/aborted turn)."""
     if _checkpointer is None:
         return
-    await _checkpointer.adelete_thread(outer_agent_thread_id(session_id, thread_kind, apply_mode=apply_mode))
+    from nemo_backend.state import runtime_config
+
+    orch = runtime_config.tools.orchestrated_mode
+    tid = outer_agent_thread_id(session_id, thread_kind, apply_mode=apply_mode, orchestrated_mode=orch)
+    await _checkpointer.adelete_thread(tid)
+    legacy_tid = f'{session_id}:{thread_kind}:{"apply" if apply_mode else "read"}'
+    if legacy_tid != tid:
+        await _checkpointer.adelete_thread(legacy_tid)

@@ -7,8 +7,10 @@ from typing import Any
 from nemo_backend.domain import SessionState
 
 ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY = 'python_dependency'
+ACCEPT_COMMAND_KIND_NODE_DEPENDENCY = 'node_dependency'
 
 __all__ = [
+    'ACCEPT_COMMAND_KIND_NODE_DEPENDENCY',
     'ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY',
     'accept_command_sse_payload',
     'execute_pending_accept_command_decision',
@@ -54,4 +56,8 @@ async def execute_pending_accept_command_decision(
         from nemo_backend.python_dependency_agent import execute_pending_python_dependency_request
 
         return await execute_pending_python_dependency_request(session, pending)
+    if kind == ACCEPT_COMMAND_KIND_NODE_DEPENDENCY:
+        from nemo_backend.node_dependency_agent import execute_pending_node_dependency_request
+
+        return await execute_pending_node_dependency_request(session, pending)
     return f'Command confirmation failed: unsupported request kind `{kind or "unknown"}`.'

@@ -3,6 +3,7 @@
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
 import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
   Conversation,
@@ -13,21 +14,32 @@ import type {
   Workspace,
 } from '@shared/index';
 import {
+  collapseExcessiveAssistantBlankLines,
   delegatedStreamPartsForDisplay,
+  emptyPrimaryAssistantFallbackMessage,
+  findLlmModelLocation,
+  gemmaTemplateSanitizeActive,
+  isMoeAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
   primaryAssistantTextFromParts,
+  resolveActiveLlmConnection,
+  stripAssistantChannelNoise,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
 } from '@shared/index';
 import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
 import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
+import { LlamaServerTile } from '../chat/llama-server-tile/llama-server-tile';
 import { ToolsBar } from '../layout/tools-bar/tools-bar';
 import { buildContextCapacitySnapshot } from '../status/context-capacity/context-capacity.utils';
 import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
+import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { THEMES } from '../layout/theme-selector/theme-selector';
+
+const DEFAULT_REASONING_STREAM_LABEL = 'Model reasoning';
 
 function appendStreamPart(
   parts: StreamPart[],
@@ -36,13 +48,14 @@ function appendStreamPart(
   label = '',
 ): StreamPart[] {
   const t = streamTag?.trim() ? streamTag.trim() : 'agent';
+  const resolvedLabel = label || (isMoeAuxiliaryStreamTag(t) ? DEFAULT_REASONING_STREAM_LABEL : '');
   const next = [...parts];
   const last = next[next.length - 1];
   if (last?.streamTag === t) {
-    next[next.length - 1] = { ...last, label: last.label || label, text: last.text + delta };
+    next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
     return next;
   }
-  next.push({ streamTag: t, label, text: delta });
+  next.push({ streamTag: t, label: resolvedLabel, text: delta });
   return next;
 }
 
@@ -83,7 +96,16 @@ function markToolExecStreamComplete(
 
 @Component({
   selector: 'app-root',
-  imports: [ChatBox, MessageBox, ConversationManager, ToolsBar, WorkspaceComponent, StatusBarComponent],
+  imports: [
+    ChatBox,
+    MessageBox,
+    ConversationManager,
+    LlamaServerTile,
+    ToolsBar,
+    WorkspaceComponent,
+    WorkspaceTerminalDockComponent,
+    StatusBarComponent,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
@@ -113,6 +135,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly streamingParts = signal<StreamPart[]>([]);
   protected readonly livePlannerProgress = signal<PlannerProgress | null>(null);
   protected readonly settingsWindowOpen = signal(false);
+  /** Main window zoom state (frameless window controls). */
+  protected readonly windowMaximized = signal(false);
   /** In-flight tool call ids for the active conversation (drives processing-row spinner color). */
   private readonly toolRunIds = signal<Set<string>>(new Set());
   /**
@@ -132,12 +156,13 @@ export class App implements OnInit, OnDestroy {
     const id = this.currentWorkspaceId();
     return this.workspaces().find(w => w.id === id) ?? null;
   });
+  protected readonly currentWorkspacePath = computed(() => this.currentWorkspace()?.path?.trim() ?? '');
   protected readonly activeLlmConnection = computed(() => {
     const config = this.appConfig();
     if (!config) {
       return null;
     }
-    return config.llmConnections.find((connection) => connection.id === config.activeLlmConnectionId) ?? null;
+    return resolveActiveLlmConnection(config);
   });
   protected readonly contextCapacity = computed(() => buildContextCapacitySnapshot({
     connection: this.activeLlmConnection(),
@@ -145,6 +170,21 @@ export class App implements OnInit, OnDestroy {
     streamingParts: this.streamingParts(),
     workspaceContextText: this.workspaceContextText(),
   }));
+
+  /** Flattened model presets for the status-bar selector (under the message box). */
+  protected readonly llmModelPresetOptions = computed(() => {
+    const c = this.appConfig();
+    if (!c?.llmProviders?.length) {
+      return [] as Array<{ id: string; label: string }>;
+    }
+    const opts: Array<{ id: string; label: string }> = [];
+    for (const p of c.llmProviders) {
+      for (const m of p.models) {
+        opts.push({ id: m.id, label: `${m.name} · ${m.model}` });
+      }
+    }
+    return opts;
+  });
 
   // Layout
   protected readonly workspaceWidth = signal(220);
@@ -165,10 +205,14 @@ export class App implements OnInit, OnDestroy {
   private workspaceSyncToken = 0;
 
   constructor(
-    private electron: ElectronService,
+    protected readonly electron: ElectronService,
     private zone: NgZone,
     protected readonly tts: TtsPlaybackService,
   ) {
+    this.electron.windowMaximized$
+      .pipe(takeUntilDestroyed())
+      .subscribe((maximized) => this.windowMaximized.set(maximized));
+
     effect(() => {
       if (!this.speechEnabled()) this.tts.invalidateSpeechPipeline();
     });
@@ -357,6 +401,9 @@ export class App implements OnInit, OnDestroy {
           (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
         );
         const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
+        const moeCandidates = parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag) && p.text.trim());
+        const moeStreams = moeCandidates.length > 0 ? moeCandidates : undefined;
+        const hasReasoningStreamText = moeCandidates.length > 0;
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
@@ -365,13 +412,16 @@ export class App implements OnInit, OnDestroy {
         let text = primaryAssistantTextFromParts(parts);
         if (
           !text.trim() &&
-          (parts.length > 0 || planner != null || (toolStreams?.length ?? 0) > 0)
+          (parts.length > 0 ||
+            planner != null ||
+            (toolStreams?.length ?? 0) > 0 ||
+            (moeStreams?.length ?? 0) > 0)
         ) {
-          text =
-            'Workspace tooling finished for this turn. Use the tool trail and nested workspace output above for specifics.';
+          text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
         }
-        if (text.trim() || (toolStreams?.length ?? 0) > 0) {
-          this.pushMessage('assistant', text, planner, toolStreams);
+        text = this.sanitizeAssistantTextForActiveModel(text);
+        if (text.trim() || (toolStreams?.length ?? 0) > 0 || (moeStreams?.length ?? 0) > 0) {
+          this.pushMessage('assistant', text, planner, toolStreams, moeStreams);
           if (this.speechEnabled() && text.trim()) void this.tts.speakText(text, this.selectedVoice());
           this.autoSave();
         }
@@ -384,16 +434,22 @@ export class App implements OnInit, OnDestroy {
           (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
         );
         const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
+        const moeCandidates = parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag) && p.text.trim());
+        const moeStreams = moeCandidates.length > 0 ? moeCandidates : undefined;
+        const hasReasoningStreamText = moeCandidates.length > 0;
         let text = primaryAssistantTextFromParts(parts);
         if (
           !text.trim() &&
-          (parts.length > 0 || planner != null || (toolStreams?.length ?? 0) > 0)
+          (parts.length > 0 ||
+            planner != null ||
+            (toolStreams?.length ?? 0) > 0 ||
+            (moeStreams?.length ?? 0) > 0)
         ) {
-          text =
-            'Workspace tooling finished for this turn. Use the tool trail and nested workspace output above for specifics.';
+          text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
         }
-        if (text.trim() || (toolStreams?.length ?? 0) > 0) {
-          void this.saveMessageToConversation(conversationId, text, planner, toolStreams);
+        text = this.sanitizeAssistantTextForActiveModel(text);
+        if (text.trim() || (toolStreams?.length ?? 0) > 0 || (moeStreams?.length ?? 0) > 0) {
+          void this.saveMessageToConversation(conversationId, text, planner, toolStreams, moeStreams);
         }
       }
     });
@@ -423,6 +479,10 @@ export class App implements OnInit, OnDestroy {
       }
     }
     this.applyTheme(themeToApply);
+
+    if (this.electron.isElectron) {
+      this.windowMaximized.set(await this.electron.windowIsMaximized());
+    }
 
     // Load conversations for current workspace
     await this.loadConversationsForWorkspace();
@@ -717,6 +777,17 @@ export class App implements OnInit, OnDestroy {
     window.removeEventListener('mouseup', this.boundOnResizeEnd);
   }
 
+  protected async onActiveLlmModelChange(modelId: string): Promise<void> {
+    const config = await this.electron.loadConfig();
+    if (!modelId || modelId === config.activeLlmModelId) {
+      return;
+    }
+    if (!findLlmModelLocation(config.llmProviders, modelId)) {
+      return;
+    }
+    await this.electron.saveConfig({ ...config, activeLlmModelId: modelId });
+  }
+
   // Workspace management
   async onWorkspaceChanged(workspaceId: string | null): Promise<void> {
     console.log('[App] onWorkspaceChanged:', workspaceId);
@@ -765,10 +836,25 @@ export class App implements OnInit, OnDestroy {
         return;
       }
       this.workspaceContextText.set(tree);
-      await this.electron.setWorkspaceContext(convId, workspacePath, tree);
+      await this.electron.setWorkspaceContext(convId, workspacePath, tree, {
+        workspaceId: this.currentWorkspaceId() ?? '',
+      });
     } catch (err) {
       console.error('[App] Failed to sync workspace context:', err);
     }
+  }
+
+  /** Strip channel noise (all models); extra blank-line collapse for Gemma-oriented connections. */
+  private sanitizeAssistantTextForActiveModel(text: string): string {
+    let t = stripAssistantChannelNoise(text);
+    const conn = this.activeLlmConnection();
+    if (
+      conn &&
+      gemmaTemplateSanitizeActive({ optimizationPreset: conn.optimizationPreset, model: conn.model })
+    ) {
+      t = collapseExcessiveAssistantBlankLines(t);
+    }
+    return t;
   }
 
   private pushMessage(
@@ -776,6 +862,7 @@ export class App implements OnInit, OnDestroy {
     text: string,
     planner: PlannerProgress | null = null,
     toolStreams?: StreamPart[],
+    moeStreams?: StreamPart[],
   ): void {
     console.log('[App] pushMessage:', role, 'text length:', text.length);
     let nextMessage: ChatMessage;
@@ -785,6 +872,7 @@ export class App implements OnInit, OnDestroy {
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
       if (planner) assistant.planner = planner;
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
+      if (moeStreams?.length) assistant.moeStreams = moeStreams;
       nextMessage = assistant;
     }
     this.messages.update((prev) => [...prev, nextMessage]);
@@ -858,6 +946,7 @@ export class App implements OnInit, OnDestroy {
     text: string,
     planner: PlannerProgress | null = null,
     toolStreams?: StreamPart[],
+    moeStreams?: StreamPart[],
   ): Promise<void> {
     try {
       // Find the conversation's workspaceId from the list
@@ -867,6 +956,7 @@ export class App implements OnInit, OnDestroy {
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
       if (planner) assistant.planner = planner;
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
+      if (moeStreams?.length) assistant.moeStreams = moeStreams;
       conv.messages.push(assistant);
       conv.updatedAt = new Date().toISOString();
       await this.electron.saveConversation(conv);
@@ -984,6 +1074,30 @@ export class App implements OnInit, OnDestroy {
     }
 
     await this.loadConversation(conv.id, conv.workspaceId);
+  }
+
+  protected onChromeFileMenu(ev: MouseEvent): void {
+    const el = ev.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    void this.electron.popupFileMenu(Math.floor(r.left), Math.floor(r.bottom));
+  }
+
+  protected onChromeHelpMenu(ev: MouseEvent): void {
+    const el = ev.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    void this.electron.popupHelpMenu(Math.floor(r.left), Math.floor(r.bottom));
+  }
+
+  protected onWindowMinimize(): void {
+    this.electron.windowMinimize();
+  }
+
+  protected onWindowToggleMaximize(): void {
+    this.electron.windowToggleMaximize();
+  }
+
+  protected onWindowClose(): void {
+    this.electron.windowClose();
   }
 
   private applyTheme(themeId: string): void {

@@ -12,12 +12,14 @@ from langchain_core.messages import AIMessage
 
 from nemo_backend.agents.coding_planner.pipeline import (
     _StepProxyQueue,
+    _had_new_workspace_transfer_since,
     _parse_plan_steps,
     _plan_requirements_text,
     _planner_has_incomplete_work,
     _planner_progress_snapshot,
     _planner_terminal_phase,
     _select_step_for_execution,
+    _snapshot_workspace_applied_flags,
     _task_complexity_profile,
     _truncate_step_result,
     _validate_initial_plan_steps,
@@ -38,8 +40,8 @@ from nemo_backend.agents.specialists.prompts import (
 )
 from nemo_backend.agents.orchestration.nested_pipeline import NESTED_WORKER_STREAM_END
 from nemo_backend.config import NEMO_PLANNER_MAX_STEP_TEXT_CHARS, NEMO_PLANNER_STEP_RESULT_MAX_CHARS
-from nemo_backend.domain import SessionState
-from nemo_backend.edit_tool import edit_tools_for_strict
+from nemo_backend.domain import EditStagingEntry, SessionState
+from nemo_backend.tool_registry import staging_workspace_write_tools
 from nemo_backend.planner_task_retry_middleware import PlannerTaskRetryMiddleware
 from nemo_backend.state import runtime_config
 from nemo_backend.python_env import PythonWorkspaceEnvResult, workspace_python_executable
@@ -289,29 +291,18 @@ class TestCodingPlannerPrompt:
         session = self._make_session()
         prompt = build_coding_planner_system_prompt(session)
 
-        assert 'coding planning agent' in prompt.lower()
+        assert 'deterministic coding orchestrator' in prompt.lower()
         assert '## Role' in prompt
-        assert '**Coordinator (not the implementer):**' in prompt
+        assert '## Workflow' in prompt
+        assert 'outer clara' in prompt.lower()
         assert '**Debugger:**' in prompt
         assert '**Systems engineer:**' in prompt
-        assert 'routing handoff block' in prompt.lower()
-        assert '**Operation:**' in prompt
-        assert '**Existence:**' in prompt
         assert 'execute_plan_step' in prompt
-        assert 'discover-then-stage' in prompt
-        assert 'diff-first review' in prompt
         assert 'record_plan' in prompt
-        assert 'read_workspace_file' in prompt
-        assert 'lsp_get_document_symbols' in prompt
-        assert 'lsp_find_definition' in prompt
-        assert 'Discover first' in prompt
-        assert 'workspace tree already provided in your prompt' in prompt
-        assert 'Record the build plan' in prompt
-        assert 'Adapt without mid-phase replanning' in prompt
-        assert 'Summarize' in prompt
-        assert 'once per implementation phase' in prompt
-        assert 'review approval and step completion' in prompt
-        assert 'run_final_project_review' in prompt
+        assert 'nested mutation pipeline' in prompt.lower()
+        assert 'Structured build plan' in prompt
+        assert 'Final review' in prompt
+        assert 'run_final_project_review' not in prompt
         assert '/tmp/test-workspace' in prompt
         assert 'Python workspace playbook' in prompt
 
@@ -343,24 +334,19 @@ class TestCodingPlannerPrompt:
     def test_task_prompt_injects_tool_reference(self) -> None:
         prompt = build_coding_planner_task_prompt('Update auth flow', '- Record between 2 and 3 build steps.')
         assert 'Update auth flow' in prompt
-        assert 'Required opening behavior' in prompt
+        assert 'Expected pipeline' in prompt
         assert 'record_plan' in prompt
         assert 'execute_plan_step' in prompt
-        assert 'diff_staged_edit_against_baseline' in prompt
-        assert 'Planner tool reference' in prompt
-        assert 'Routing handoff block' in prompt
+        assert 'transfer_staged_file_to_workspace' in prompt
+        assert 'Deterministic coding orchestrator' in prompt
+        assert 'run_planning_nested_stream' in prompt
         assert '**Existence:**' in prompt
-        assert 'Start with discovery' in prompt
+        assert 'Discovery' in prompt
         assert 'lsp_get_diagnostics' in prompt
         assert 'lsp_find_references' in prompt
         assert 'Record between 2 and 3 build steps.' in prompt
-        assert 'Prefer the workspace tree already included in your prompt' in prompt
-        assert 'once per implementation phase' in prompt
-        assert 'If execution stalls' in prompt
-        assert 'If code review rejects a change, treat that as an implementation-layer loop' in prompt
-        assert 'run_final_project_review' in prompt
-        assert 'apply_workspace_full_file' in prompt
-        assert 'non-code paths' in prompt
+        assert 'plan_and_modify' in prompt
+        assert 'run_final_project_review' not in prompt
         assert 'Python workspace playbook' in prompt
 
     def test_task_prompt_without_lsp_discovery_omits_bound_lsp_tool_reference(self) -> None:
@@ -385,13 +371,12 @@ class TestCodingPlannerPrompt:
         )
         assert 'Reflection required' in prompt
         assert '[COMPLETE] Update tests' in prompt
-        assert 'Do not call `record_plan` again' in prompt
-        assert 'Your next tool call should be `run_final_project_review`' in prompt
+        assert 'orchestrator-driven' in prompt.lower()
         assert 'Current step to continue:' in prompt
         assert 'all recorded steps are already complete' in prompt
         assert 'Latest failure or reviewer feedback:' in prompt
         assert 'Final review has not run yet.' in prompt
-        assert 'Call `run_final_project_review` now.' in prompt
+        assert 'remediation checklist step' in prompt.lower()
 
     def test_reflection_prompt_handles_missing_plan(self) -> None:
         prompt = build_coding_planner_reflection_prompt(
@@ -416,11 +401,10 @@ class TestCodingPlannerPrompt:
         )
         assert 'recorded checklist still has unfinished work' in prompt
         assert '[PENDING] Add CRUD behavior' in prompt
-        assert 'Do not call `record_plan` again' in prompt
-        assert 'Your next tool call should usually be `execute_plan_step`' in prompt
+        assert 'retry `plan_and_modify`' in prompt
         assert 'Add CRUD behavior' in prompt
         assert 'Do not give a final summary yet' in prompt
-        assert 'run_final_project_review` only after every recorded step is complete' in prompt
+        assert 'final review runs only after every recorded step is complete' in prompt.lower()
         assert 'routing handoff block' in prompt.lower()
 
     def test_reflection_prompt_when_remediation_step_is_pending(self) -> None:
@@ -437,8 +421,8 @@ class TestCodingPlannerPrompt:
             final_review_state='pending',
         )
         assert 'unfinished work' in prompt
-        assert 'execute_plan_step' in prompt
-        assert 'Do not call `record_plan` again' in prompt
+        assert 'orchestrator' in prompt.lower()
+        assert 'checklist' in prompt.lower()
 
     @patch('nemo_backend.messages.get_active_connection')
     @patch('nemo_backend.messages.runtime_config')
@@ -458,6 +442,7 @@ class TestCodingPlannerPrompt:
         assert 'Exploration before staging' in router_prompt
         assert 'file-write specialist' in router_prompt
         assert 'route_dependency_specialist' in router_prompt
+        assert 'route_node_dependency_specialist' in router_prompt
         assert 'workspace_path_status' in router_prompt
         assert '**Operation:**' in router_prompt
         assert 'related test-file references' in router_prompt
@@ -468,7 +453,7 @@ class TestCodingPlannerPrompt:
         assert 'separate retry step' in router_prompt
         assert 'route_project_review_specialist' not in router_prompt
         assert 'Do not attempt a final whole-project review in this router pass' in router_prompt
-        assert 'coding planner calls that separately' in router_prompt
+        assert 'orchestrator runs that after the **full**' in router_prompt
         assert 'Do not run the workspace test suite from this specialist' in review_prompt
         assert 'file-write specialist' in review_prompt
         assert 'workspace dependency specialist' in dependency_prompt
@@ -493,10 +478,13 @@ class TestCodingPlannerPrompt:
 
 
 # ---------------------------------------------------------------------------
-# run_coding_planner_stream (integration-style with mocked LLM)
+# Legacy ``TestRunCodingPlannerStream`` targeted the removed LangGraph planner
+# (``create_agent`` + ``record_plan`` tools). The deterministic orchestrator
+# is covered by ``TestDeterministicOrchestratorStream`` and ``test_plan_orchestrator``.
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason='Legacy LangGraph nemo_coding_planner agent removed; use deterministic orchestrator tests.')
 class TestRunCodingPlannerStream:
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
@@ -735,6 +723,121 @@ class TestRunCodingPlannerStream:
         assert 'executing' in planner_phases
         assert 'running' in planner_states
         assert planner_states[-1] == 'complete'
+
+    async def test_workspace_applied_snapshot_detects_new_transfer(self) -> None:
+        session = SessionState()
+        assert _snapshot_workspace_applied_flags(session) == {}
+        session.pending_edit_stagings['src/x.py'] = EditStagingEntry(
+            temp_path='/tmp/x',
+            old_text='',
+            merged_text='a',
+            disk_encoding='utf-8',
+            disk_newline='lf',
+            edit_mode='full-file',
+            workspace_applied=False,
+        )
+        before = _snapshot_workspace_applied_flags(session)
+        assert before == {'src/x.py': False}
+        session.pending_edit_stagings['src/x.py'].workspace_applied = True
+        assert _had_new_workspace_transfer_since(session, before) is True
+        assert _had_new_workspace_transfer_since(session, {'src/x.py': True}) is False
+
+    @patch('nemo_backend.agents.coding_planner.pipeline.run_planning_nested_stream', new_callable=AsyncMock)
+    @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
+    @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
+    async def test_execute_plan_step_tool_error_appends_retry_hint_when_no_transfer(
+        self,
+        mock_create: Any,
+        mock_build: Any,
+        mock_run_step: AsyncMock,
+    ) -> None:
+        mock_build.return_value = MagicMock()
+        mock_run_step.return_value = 'Tool error: nested pipeline failed.'
+        release_stream = asyncio.Event()
+        captured_tools: list[Any] = []
+
+        async def _fake_stream(*_a: Any, **_kw: Any):
+            await release_stream.wait()
+            yield {'event': 'on_chain_start', 'data': {}}
+
+        mock_graph = MagicMock()
+        mock_graph.astream_events = _fake_stream
+
+        def _capture_create(*args: Any, **_kwargs: Any) -> Any:
+            captured_tools.extend(args[1])
+            return mock_graph
+
+        mock_create.side_effect = _capture_create
+
+        session = SessionState()
+        nested_q: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(run_coding_planner_stream(session, 'sess-1', 'test task', nested_q, None))
+        await asyncio.sleep(0)
+
+        record_plan_tool = next(tool for tool in captured_tools if tool.name == 'record_plan')
+        execute_tool = next(tool for tool in captured_tools if tool.name == 'execute_plan_step')
+        await record_plan_tool.ainvoke({'plan_steps': '1. Update chat box\n2. Verify chat box'})
+        result = await execute_tool.ainvoke({'step_instruction': 'x'})
+        assert 'Tool error: nested pipeline failed.' in result
+        assert 'Planner note: no staged file was approved into the workspace' in result
+
+        release_stream.set()
+        await task
+
+    @patch('nemo_backend.agents.coding_planner.pipeline.run_planning_nested_stream', new_callable=AsyncMock)
+    @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
+    @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
+    async def test_execute_plan_step_tool_error_omits_hint_after_workspace_transfer(
+        self,
+        mock_create: Any,
+        mock_build: Any,
+        mock_run_step: AsyncMock,
+    ) -> None:
+        mock_build.return_value = MagicMock()
+
+        async def _fail_after_transfer(sess: SessionState, *_a: Any, **_kw: Any) -> str:
+            sess.pending_edit_stagings['a.py'] = EditStagingEntry(
+                temp_path='/tmp/a',
+                old_text='',
+                merged_text='b',
+                disk_encoding='utf-8',
+                disk_newline='lf',
+                edit_mode='full-file',
+                workspace_applied=True,
+            )
+            return 'Tool error: nested pipeline failed after transfer.'
+
+        mock_run_step.side_effect = _fail_after_transfer
+        release_stream = asyncio.Event()
+        captured_tools: list[Any] = []
+
+        async def _fake_stream(*_a: Any, **_kw: Any):
+            await release_stream.wait()
+            yield {'event': 'on_chain_start', 'data': {}}
+
+        mock_graph = MagicMock()
+        mock_graph.astream_events = _fake_stream
+
+        def _capture_create(*args: Any, **_kwargs: Any) -> Any:
+            captured_tools.extend(args[1])
+            return mock_graph
+
+        mock_create.side_effect = _capture_create
+
+        session = SessionState()
+        nested_q: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(run_coding_planner_stream(session, 'sess-1', 'test task', nested_q, None))
+        await asyncio.sleep(0)
+
+        record_plan_tool = next(tool for tool in captured_tools if tool.name == 'record_plan')
+        execute_tool = next(tool for tool in captured_tools if tool.name == 'execute_plan_step')
+        await record_plan_tool.ainvoke({'plan_steps': '1. Update chat box\n2. Verify chat box'})
+        result = await execute_tool.ainvoke({'step_instruction': 'x'})
+        assert 'Tool error: nested pipeline failed after transfer.' in result
+        assert 'Planner note: no staged file was approved into the workspace' not in result
+
+        release_stream.set()
+        await task
 
     @patch('nemo_backend.agents.coding_planner.pipeline.build_llm')
     @patch('nemo_backend.agents.coding_planner.pipeline.create_agent')
@@ -1054,13 +1157,14 @@ class TestRunCodingPlannerStream:
 
         await run_coding_planner_stream(session, 'sess-1', 'test task', nested_q, None)
         planner_tools = mock_create.call_args.args[1]
-        edit_names = [t.name for t in edit_tools_for_strict(runtime_config.tools.edit_tools_strict)]
+        edit_names = [t.name for t in staging_workspace_write_tools(runtime_config.tools.edit_tools_strict)]
         assert [tool.name for tool in planner_tools] == [
             'ensure_python_workspace_env',
             'record_plan',
             'list_workspace_directory',
             'read_workspace_file',
             'search_workspace',
+            'retrieve_workspace_semantic',
             'lsp_get_diagnostics',
             'lsp_hover',
             'lsp_find_definition',
@@ -1303,3 +1407,62 @@ class TestRunCodingPlannerStream:
 
         result = await run_coding_planner_stream(session, 'sess-1', 'task', nested_q, None)
         assert 'finished without a final text response' in result
+
+
+class TestPlannerTaskRetryMiddlewareUnit:
+    """Middleware is no longer on the planner graph; keep unit coverage for the helper."""
+
+    async def test_planner_retry_middleware_reprompts_incomplete_stop(self) -> None:
+        should_retry = True
+        middleware = PlannerTaskRetryMiddleware(
+            should_retry=lambda: should_retry,
+            build_retry_prompt=lambda attempt: f'reflect attempt {attempt}',
+            max_retries=2,
+        )
+
+        first = await middleware.aafter_model(
+            {'messages': [AIMessage(content='All done?')]},
+            MagicMock(),
+        )
+        assert first is not None
+        assert first['jump_to'] == 'model'
+        assert first['planner_task_retry_streak'] == 1
+        assert first['messages'][0].content == 'reflect attempt 1'
+
+        second = await middleware.aafter_model(
+            {
+                'messages': [AIMessage(content='Still done?')],
+                'planner_task_retry_streak': 1,
+            },
+            MagicMock(),
+        )
+        assert second is not None
+        assert second['planner_task_retry_streak'] == 2
+
+        third = await middleware.aafter_model(
+            {
+                'messages': [AIMessage(content='Stopping again')],
+                'planner_task_retry_streak': 2,
+            },
+            MagicMock(),
+        )
+        assert third is None
+
+        should_retry = False
+        reset = await middleware.aafter_model(
+            {'messages': [AIMessage(content='Actually complete')]},
+            MagicMock(),
+        )
+        assert reset == {'planner_task_retry_streak': 0}
+
+
+class TestOrchestratorDeterministicStream:
+    @patch('nemo_backend.agents.coding_planner.orchestrator.build_llm')
+    async def test_build_llm_failure_puts_sentinel_then_raises(self, mock_build: Any) -> None:
+        mock_build.side_effect = RuntimeError('No API key')
+        session = SessionState()
+        session.workspace_path = str(Path(__file__).resolve().parent)
+        nested_q: asyncio.Queue = asyncio.Queue()
+        with pytest.raises(RuntimeError, match='No API key'):
+            await run_coding_planner_stream(session, 'sess-1', 'do stuff', nested_q, None)
+        assert nested_q.get_nowait() is NESTED_WORKER_STREAM_END

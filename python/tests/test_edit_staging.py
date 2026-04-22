@@ -12,6 +12,7 @@ from nemo_backend.agents.specialists.review_tools import (
     _materialize_staged_python_files,
     approve_staged_workspace_edit,
     diff_staged_edit_against_baseline,
+    finalize_staged_transfer_after_hitl,
     format_staging_file_black,
     list_staged_edits,
     read_staged_edit,
@@ -96,6 +97,8 @@ def test_get_staging_root_uses_env(staging_env) -> None:
 def test_is_code_review_extension(staging_env) -> None:
     assert is_code_review_extension('src/foo.py')
     assert is_code_review_extension('x.ts')
+    assert is_code_review_extension('package.json')
+    assert is_code_review_extension('config/app.yaml')
     assert not is_code_review_extension('README.md')
 
 
@@ -134,13 +137,29 @@ def test_stage_create_file_stages_python(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     assert 'mod.py' in session.pending_edit_stagings
     entry = session.pending_edit_stagings['mod.py']
     assert Path(entry.temp_path).is_file()
 
 
-def test_stage_create_file_non_code_rejected(staging_env) -> None:
+def test_stage_create_file_stages_package_json(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'package.json').write_text('{}\n', encoding='utf-8')
+    out = stage_create_file.invoke(
+        {
+            'relative_path': 'package.json',
+            'new_content': '{"name": "x"}\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'for review' in out.lower()
+    assert 'package.json' in session.pending_edit_stagings
+
+
+def test_stage_create_file_non_code_stages(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'note.txt').write_text('hi\n', encoding='utf-8')
@@ -152,9 +171,9 @@ def test_stage_create_file_non_code_rejected(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    assert session.pending_edit_stagings == {}
-    assert 'Tool error:' in out
-    assert 'nested mutation staging' in out.lower()
+    assert 'Tool error:' not in out
+    assert 'for review' in out.lower()
+    assert 'note.txt' in session.pending_edit_stagings
     assert (ws / 'note.txt').read_text(encoding='utf-8') == 'hi\n'
 
 
@@ -189,7 +208,7 @@ def test_stage_line_range_edit_stages_python(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     assert 'lr.py' in session.pending_edit_stagings
 
 
@@ -209,7 +228,7 @@ def test_stage_line_range_edit_accepts_new_content_alias(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     assert 'alias.py' in session.pending_edit_stagings
 
 
@@ -226,7 +245,7 @@ def test_stage_snippet_edit_stages_python(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     assert 'sn.py' in session.pending_edit_stagings
 
 
@@ -242,7 +261,7 @@ def test_stage_workspace_file_overwrite_stages_python(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     entry = session.pending_edit_stagings['edit.py']
     assert entry.old_text == 'value = 1\n'
     assert entry.merged_text == 'value = 2\n'
@@ -270,7 +289,7 @@ def test_stage_workspace_file_overwrite_allows_staged_only_new_file(staging_env)
             'newline': 'lf',
         }
     )
-    assert 'code review' in created.lower()
+    assert 'for review' in created.lower()
     first_entry = session.pending_edit_stagings['staged_only.py']
 
     out = stage_workspace_file_overwrite.invoke(
@@ -325,7 +344,7 @@ def test_stage_workspace_file_overwrite_uses_active_snapshot_baseline(staging_en
         }
     )
 
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     entry = session.pending_edit_stagings['baseline.py']
     assert entry.old_text == 'value = 1\n'
     assert entry.merged_text == 'value = 2\n'
@@ -366,7 +385,7 @@ def test_follow_up_workspace_overwrite_restarts_from_workspace_file(staging_env)
             'newline': 'lf',
         }
     )
-    assert 'code review' in out.lower()
+    assert 'for review' in out.lower()
     first_path = Path(session.pending_edit_stagings['draft.py'].temp_path)
     assert first_path.is_file()
 
@@ -382,7 +401,7 @@ def test_follow_up_workspace_overwrite_restarts_from_workspace_file(staging_env)
             'newline': 'lf',
         }
     )
-    assert 'code review' in revised.lower()
+    assert 'for review' in revised.lower()
     latest = session.pending_edit_stagings['draft.py']
     assert latest.old_text == 'def value():\n    return 0\n'
     assert Path(latest.temp_path).is_file()
@@ -487,11 +506,20 @@ def test_approve_sets_diff_payload(staging_env) -> None:
     )
     session.auto_apply_mode = False
     out = approve_staged_workspace_edit.invoke({'relative_path': 'q.py'})
-    assert 'real workspace' in out.lower()
-    assert (ws / 'q.py').read_text(encoding='utf-8') == 'n = 0\n'
-    assert session.pending_diff_payload is None
+    assert 'human confirmation' in out.lower()
+    assert (ws / 'q.py').read_text(encoding='utf-8') == 'n=0\n'
+    assert session.pending_staged_transfer_hitl is not None
+    assert session.pending_staged_transfer_hitl.relative_path == 'q.py'
+    assert session.pending_diff_payload is not None
+    assert session.pending_diff_payload.get('stagedTransferHitl') is True
     assert 'q.py' in session.pending_edit_stagings
+    assert session.pending_edit_stagings['q.py'].workspace_applied is False
+
+    msg = finalize_staged_transfer_after_hitl(session, 'confirm', '')
+    assert 'User confirmed' in msg
+    assert (ws / 'q.py').read_text(encoding='utf-8') == 'n = 0\n'
     assert session.pending_edit_stagings['q.py'].workspace_applied is True
+    assert session.pending_staged_transfer_hitl is None
 
 
 def test_transfer_tool_sets_diff_payload(staging_env) -> None:
@@ -507,12 +535,57 @@ def test_transfer_tool_sets_diff_payload(staging_env) -> None:
         }
     )
     out = transfer_staged_file_to_workspace.invoke({'relative_path': 'transfer.py'})
-    assert 'Transferred staged' in out
-    assert 'real workspace' in out.lower()
-    assert (ws / 'transfer.py').read_text(encoding='utf-8') == 'x = 1\n'
-    assert session.pending_diff_payload is None
+    assert 'transfer.py' in out
+    assert 'human confirmation' in out.lower()
+    assert (ws / 'transfer.py').read_text(encoding='utf-8') == 'x=1\n'
+    assert session.pending_staged_transfer_hitl is not None
+    assert session.pending_diff_payload is not None
     assert 'transfer.py' in session.pending_edit_stagings
+    assert session.pending_edit_stagings['transfer.py'].workspace_applied is False
+
+    finalize_staged_transfer_after_hitl(session, 'confirm', '')
+    assert (ws / 'transfer.py').read_text(encoding='utf-8') == 'x = 1\n'
     assert session.pending_edit_stagings['transfer.py'].workspace_applied is True
+
+
+def test_transfer_writes_immediately_when_auto_apply(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = True
+    (ws / 'auto.py').write_text('z=0\n', encoding='utf-8')
+    stage_create_file.invoke(
+        {
+            'relative_path': 'auto.py',
+            'new_content': 'z = 0\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    out = transfer_staged_file_to_workspace.invoke({'relative_path': 'auto.py'})
+    assert 'real workspace' in out.lower()
+    assert (ws / 'auto.py').read_text(encoding='utf-8') == 'z = 0\n'
+    assert session.pending_staged_transfer_hitl is None
+    assert session.pending_edit_stagings['auto.py'].workspace_applied is True
+
+
+def test_staged_transfer_re_review_skips_disk_write(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'rerev.py').write_text('a=1\n', encoding='utf-8')
+    stage_create_file.invoke(
+        {
+            'relative_path': 'rerev.py',
+            'new_content': 'a = 2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    transfer_staged_file_to_workspace.invoke({'relative_path': 'rerev.py'})
+    msg = finalize_staged_transfer_after_hitl(session, 're_review', 'needs more tests')
+    assert 're-review' in msg.lower()
+    assert (ws / 'rerev.py').read_text(encoding='utf-8') == 'a=1\n'
+    assert session.pending_edit_stagings['rerev.py'].workspace_applied is False
+    assert session.pending_staged_transfer_hitl is None
 
 
 def test_approved_staged_entry_is_hidden_from_review_tools(staging_env) -> None:
@@ -529,7 +602,8 @@ def test_approved_staged_entry_is_hidden_from_review_tools(staging_env) -> None:
     )
 
     out = transfer_staged_file_to_workspace.invoke({'relative_path': 'hidden.py'})
-    assert 'real workspace' in out.lower()
+    assert 'human confirmation' in out.lower()
+    finalize_staged_transfer_after_hitl(session, 'confirm', '')
     assert session.pending_edit_stagings['hidden.py'].workspace_applied is True
     assert list_staged_edits.invoke({}) == 'No staged edits are available.'
     reread = read_staged_edit.invoke({'relative_path': 'hidden.py'})

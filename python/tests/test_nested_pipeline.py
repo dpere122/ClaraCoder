@@ -13,6 +13,7 @@ from nemo_backend.agents.orchestration.nested_pipeline import (
     NESTED_WORKER_STREAM_END,
     run_final_project_review_stream,
     run_planning_nested_stream,
+    run_write_recon_then_author_stream,
 )
 from nemo_backend.domain import EditStagingEntry, SessionState
 
@@ -86,6 +87,15 @@ class TestRunPlanningNestedStream:
                 'event': 'on_tool_end',
                 'name': 'transfer_staged_file_to_workspace',
                 'data': {'output': 'Transferred staged `python/nemo_backend/main.py` to the workspace apply flow.'},
+            }
+            yield {
+                'event': 'on_tool_end',
+                'name': 'transfer_staged_file_to_workspace',
+                'data': {'output': 'Transferred staged `python/tests/test_main.py` to the workspace apply flow.'},
+            }
+            yield {
+                'event': 'on_chat_model_end',
+                'data': {'output': AIMessage(content='Both paths approved and transferred.')},
             }
 
         router_graph = MagicMock()
@@ -290,6 +300,84 @@ class TestRunPlanningNestedStream:
     @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.activate_session_lsp_scope')
+    async def test_code_review_multifile_partial_transfer_triggers_followup_then_completes(
+        self, _mock_activate_scope: Any, mock_create: Any, mock_build: Any
+    ) -> None:
+        mock_build.return_value = MagicMock()
+        captured_router_tools: list[Any] = []
+        captured_review_messages: list[str] = []
+        release_router = asyncio.Event()
+        review_calls = 0
+
+        async def _router_stream(*_a: Any, **_kw: Any):
+            await release_router.wait()
+            yield {'event': 'on_chain_start', 'data': {}}
+
+        async def _review_stream(inputs: Any, *_a: Any, **_kw: Any):
+            nonlocal review_calls
+            review_calls += 1
+            captured_review_messages.append(inputs['messages'][0].content)
+            if review_calls == 1:
+                yield {
+                    'event': 'on_tool_end',
+                    'name': 'transfer_staged_file_to_workspace',
+                    'data': {'output': 'Transferred staged `a.py` to the workspace apply flow.'},
+                }
+                yield {
+                    'event': 'on_chat_model_end',
+                    'data': {'output': AIMessage(content='First file looks good.')},
+                }
+                return
+            yield {
+                'event': 'on_tool_end',
+                'name': 'transfer_staged_file_to_workspace',
+                'data': {'output': 'Transferred staged `b.py` to the workspace apply flow.'},
+            }
+            yield {
+                'event': 'on_chat_model_end',
+                'data': {'output': AIMessage(content='Second file transferred; all done.')},
+            }
+
+        router_graph = MagicMock()
+        router_graph.astream_events = _router_stream
+        review_graph = MagicMock()
+        review_graph.astream_events = _review_stream
+
+        def _capture_create(*args: Any, **kwargs: Any) -> Any:
+            if kwargs.get('name') == 'nemo_planning_router':
+                captured_router_tools.extend(args[1])
+                return router_graph
+            return review_graph
+
+        mock_create.side_effect = _capture_create
+
+        session = SessionState()
+        session.pending_edit_stagings = {'a.py': MagicMock(), 'b.py': MagicMock()}
+        nested_q: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(run_planning_nested_stream(session, 'sess-1', 'review task', nested_q, None))
+        await asyncio.sleep(0)
+
+        route_tool = next(tool for tool in captured_router_tools if tool.name == 'route_code_review_specialist')
+        result = await route_tool.ainvoke({'task_instruction': 'Review staged edits for this step.'})
+
+        assert review_calls == 2
+        assert result == 'Second file transferred; all done.'
+        assert 'finished without deciding every staged path' in captured_review_messages[1]
+        assert 'Transfer order:' in captured_review_messages[0]
+
+        release_router.set()
+        await task
+
+    async def test_routing_handoff_contract_workspace_path_status_disambiguation(self) -> None:
+        from nemo_backend.prompt_blocks import routing_handoff_contract
+
+        text = routing_handoff_contract()
+        assert 'paths already listed under **Paths**' in text
+        assert 'too vague to choose **create** vs **update**' in text
+
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.activate_session_lsp_scope')
     async def test_code_review_specialist_accepts_successful_transfer_tool(
         self, _mock_activate_scope: Any, mock_create: Any, mock_build: Any
     ) -> None:
@@ -359,7 +447,8 @@ class TestRunPlanningNestedStream:
                 'event': 'on_chat_model_end',
                 'data': {
                     'output': AIMessage(
-                        content='Staged `main.py` for code review (nested planning). The workspace file is not updated yet.'
+                        content='Staged `main.py` for code review. The workspace file on disk is **unchanged** until '
+                        '`transfer_staged_file_to_workspace` succeeds.'
                     )
                 },
             }
@@ -376,14 +465,22 @@ class TestRunPlanningNestedStream:
                 'data': {'output': AIMessage(content='Approved and transferred.')},
             }
 
+        async def _recon_stream(*_a: Any, **_kw: Any):
+            yield {
+                'event': 'on_chat_model_end',
+                'data': {'output': AIMessage(content='Workspace recon: `main.py` context gathered.')},
+            }
+
         router_graph = MagicMock()
         router_graph.astream_events = _router_stream
-        create_graph = MagicMock()
-        create_graph.astream_events = _create_stream
+        recon_graph = MagicMock()
+        recon_graph.astream_events = _recon_stream
+        author_graph = MagicMock()
+        author_graph.astream_events = _create_stream
         review_graph = MagicMock()
         review_graph.astream_events = _review_stream
 
-        specialist_graphs = [create_graph, review_graph]
+        specialist_graphs = [recon_graph, author_graph, review_graph]
 
         def _capture_create(*args: Any, **kwargs: Any) -> Any:
             if kwargs.get('name') == 'nemo_planning_router':
@@ -462,16 +559,24 @@ class TestRunPlanningNestedStream:
                 'data': {'output': AIMessage(content='Approved after revision.')},
             }
 
+        async def _recon_stream(*_a: Any, **_kw: Any):
+            yield {
+                'event': 'on_chat_model_end',
+                'data': {'output': AIMessage(content='Workspace recon: `task_manager.py` noted.')},
+            }
+
         router_graph = MagicMock()
         router_graph.astream_events = _router_stream
         reject_review_graph = MagicMock()
         reject_review_graph.astream_events = _review_reject_stream
+        recon_graph = MagicMock()
+        recon_graph.astream_events = _recon_stream
         update_graph = MagicMock()
         update_graph.astream_events = _update_stream
         accept_review_graph = MagicMock()
         accept_review_graph.astream_events = _review_accept_stream
 
-        specialist_graphs = [reject_review_graph, update_graph, accept_review_graph]
+        specialist_graphs = [reject_review_graph, recon_graph, update_graph, accept_review_graph]
 
         def _capture_create(*args: Any, **kwargs: Any) -> Any:
             if kwargs.get('name') == 'nemo_planning_router':
@@ -537,14 +642,22 @@ class TestRunPlanningNestedStream:
                 'data': {'output': AIMessage(content='Revised the staged implementation.')},
             }
 
+        async def _recon_stream(*_a: Any, **_kw: Any):
+            yield {
+                'event': 'on_chat_model_end',
+                'data': {'output': AIMessage(content='Workspace recon: `task_manager.py` noted.')},
+            }
+
         router_graph = MagicMock()
         router_graph.astream_events = _router_stream
         reject_review_graph = MagicMock()
         reject_review_graph.astream_events = _review_reject_stream
+        recon_graph = MagicMock()
+        recon_graph.astream_events = _recon_stream
         update_graph = MagicMock()
         update_graph.astream_events = _update_stream
 
-        specialist_graphs = [reject_review_graph, update_graph]
+        specialist_graphs = [reject_review_graph, recon_graph, update_graph]
 
         def _capture_create(*args: Any, **kwargs: Any) -> Any:
             if kwargs.get('name') == 'nemo_planning_router':
@@ -620,6 +733,7 @@ class TestRunPlanningNestedStream:
 
         tool_names = {tool.name for tool in captured_router_tools}
         assert 'route_dependency_specialist' in tool_names
+        assert 'route_node_dependency_specialist' in tool_names
         assert 'route_project_review_specialist' not in tool_names
         mock_bootstrap.assert_not_awaited()
 
@@ -741,3 +855,63 @@ class TestRunPlanningNestedStream:
                 end = item
                 break
         assert end is NESTED_WORKER_STREAM_END
+
+
+class TestRunWriteReconThenAuthorStream:
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.activate_session_lsp_scope')
+    async def test_supplemental_recon_once_when_author_requests(
+        self, _mock_activate: Any, mock_create: Any, mock_build: Any
+    ) -> None:
+        mock_build.return_value = MagicMock()
+        session = SessionState()
+        create_order: list[str] = []
+
+        async def recon_stream(inputs: Any, *_a: Any, **_kw: Any):
+            human = inputs['messages'][0].content
+            if 'Missing facts' in human:
+                assert 'Need callers of foo()' in human
+                yield {
+                    'event': 'on_chat_model_end',
+                    'data': {'output': AIMessage(content='Workspace recon: Supplemental: `b.py` references foo().')},
+                }
+            else:
+                yield {'event': 'on_chat_model_end', 'data': {'output': AIMessage(content='Workspace recon: thin only.')}}
+
+        async def author_stream(inputs: Any, *_a: Any, **_kw: Any):
+            body = inputs['messages'][0].content
+            if '--- Supplemental workspace recon ---' not in body:
+                session.write_recon_supplement_request = 'Need callers of foo()'
+                yield {'event': 'on_chat_model_end', 'data': {'output': AIMessage(content='Blocked pending recon.')}}
+            else:
+                assert 'b.py' in body
+                yield {'event': 'on_chat_model_end', 'data': {'output': AIMessage(content='Staged edits complete.')}}
+
+        def _capture_create(*_args: Any, **kwargs: Any) -> Any:
+            name = kwargs.get('name')
+            g = MagicMock()
+            if name == 'nemo_specialist_write_recon':
+                create_order.append('recon')
+                g.astream_events = recon_stream
+            elif name == 'nemo_specialist_write_author':
+                create_order.append('author')
+                g.astream_events = author_stream
+            else:
+                raise AssertionError(name)
+            return g
+
+        mock_create.side_effect = _capture_create
+        nested_q: asyncio.Queue = asyncio.Queue()
+        result = await run_write_recon_then_author_stream(
+            session,
+            'sid-1',
+            'Operation: update\nPaths: `a.py`',
+            nested_q,
+            None,
+            edit_strict=False,
+        )
+
+        assert create_order == ['recon', 'author', 'recon', 'author']
+        assert result == 'Staged edits complete.'
+        assert session.write_recon_supplement_request == ''

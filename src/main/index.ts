@@ -8,10 +8,13 @@ import { startPythonServer, waitForPython } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { loadConfig } from './config/load-save';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
+import { getLlamaManagedRuntimeOverrides } from './llama-server-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 import { clearWorkspaceWatcher, refreshWorkspaceWatcherForCurrentConfig } from './workspace/watcher';
 import { createMainWindow } from './windows/main-window';
 import { registerAllIpc } from './ipc/register-ipc';
+import { killAllWorkspacePtySessions } from './ipc/handlers/workspace-pty';
+import { stopAllManagedLlamaServers } from './llama-server-manager';
 import { mainState } from './state';
 
 registerPrivilegedNemoTtsScheme();
@@ -24,7 +27,7 @@ app.whenReady().then(async () => {
   const config = await loadConfig();
   await syncPythonLogLevel(config.healthMonitor.logLevel);
   setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
-  await syncRuntimeConfigToPython(config);
+  await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
   await refreshWorkspaceWatcherForCurrentConfig(config);
   createMainWindow();
 });
@@ -42,6 +45,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  stopAllManagedLlamaServers();
+  killAllWorkspacePtySessions();
   clearWorkspaceWatcher();
   if (mainState.pythonProcess) {
     mainState.pythonProcess.kill();

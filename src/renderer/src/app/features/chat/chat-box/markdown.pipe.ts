@@ -1,5 +1,6 @@
 import { Pipe, PipeTransform } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { stripAssistantChannelNoise } from '@shared/index';
 import { Marked } from 'marked';
 import hljs from 'highlight.js';
 import { normalizeLooseAtxHeadings } from './markdown-normalize';
@@ -40,7 +41,8 @@ export class MarkdownPipe implements PipeTransform {
   constructor(private sanitizer: DomSanitizer) {}
 
   transform(value: string): SafeHtml {
-    const normalized = normalizeLooseAtxHeadings(value);
+    const stripped = stripAssistantChannelNoise(value ?? '');
+    const normalized = normalizeLooseAtxHeadings(stripped);
     const html = markedInstance.parse(normalized, { async: false }) as string;
     return this.sanitizer.bypassSecurityTrustHtml(html);
   }

@@ -18,6 +18,13 @@
   width: auto;
 }
 
+.optional-sampling-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  gap: 0.65rem 1rem;
+  margin-top: 0.35rem;
+}
+
 .field .temperature-row .temperature-row__number {
   width: 4.5rem;
   max-width: 4.5rem;
@@ -339,6 +346,94 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.provider-block {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--t-bg) 40%, var(--t-bg-surface));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.provider-block.is-active {
+  border-color: color-mix(in srgb, var(--t-primary) 45%, transparent);
+}
+
+.provider-block__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-block__header strong {
+  font-size: 13px;
+}
+
+.provider-block__kind {
+  font-size: 11px;
+  color: var(--t-muted);
+  font-weight: 600;
+}
+
+.provider-block__url {
+  margin: 0;
+  font-size: 11px;
+  color: var(--t-muted);
+  word-break: break-all;
+}
+
+.model-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-row {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--t-bg) 55%, var(--t-bg-surface));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.model-row:hover,
+.model-row.is-selected {
+  border-color: color-mix(in srgb, var(--t-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 12%, var(--t-bg-surface));
+}
+
+.model-row__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-row__name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.model-row__id {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--t-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.action-button--compact {
+  align-self: flex-start;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .connection-card,

@@ -1,0 +1,88 @@
+<div class="workspace-terminal-dock" [class.workspace-terminal-dock--expanded]="expanded()">
+  <button
+    type="button"
+    class="workspace-terminal-dock__bar"
+    (click)="toggleExpanded()"
+    [attr.aria-expanded]="expanded()"
+  >
+    <span class="workspace-terminal-dock__chevron" [class.workspace-terminal-dock__chevron--open]="expanded()" aria-hidden="true"></span>
+    <span class="workspace-terminal-dock__bar-label">Terminal</span>
+    @if (tabStripCount() > 0) {
+      <span class="workspace-terminal-dock__bar-count">{{ tabStripCount() }}</span>
+    }
+  </button>
+
+  <div
+    class="workspace-terminal-dock__panel"
+    [class.workspace-terminal-dock__panel--collapsed]="!expanded()"
+    [style.height.px]="expanded() ? panelHeightPx() : 0"
+    [attr.inert]="expanded() ? null : ''"
+  >
+    <div
+      class="workspace-terminal-dock__resize-handle"
+      (mousedown)="onResizeHandleDown($event)"
+      title="Drag to resize"
+    ></div>
+    @if (!hasDockPanelContent()) {
+      <div class="workspace-terminal-dock__empty">
+        Open a workspace for shell terminals, or select a llama.cpp model to view managed server output.
+      </div>
+    } @else {
+      <div class="workspace-terminal-dock__toolbar">
+        <div class="workspace-terminal-dock__tabs" role="tablist">
+          @for (tab of ptyDisplayTabs(); track tab.id) {
+            <div
+              class="workspace-terminal-dock__tab"
+              [class.workspace-terminal-dock__tab--active]="tab.id === activeTabId()"
+              role="tab"
+              [attr.aria-selected]="tab.id === activeTabId()"
+              (click)="selectTab(tab.id)"
+            >
+              <span class="workspace-terminal-dock__tab-title">{{ tab.title }}</span>
+              <button
+                type="button"
+                class="workspace-terminal-dock__tab-close"
+                (click)="closeTab(tab.id, $event)"
+                [attr.aria-label]="'Close ' + tab.title"
+              >
+                ×
+              </button>
+            </div>
+          }
+          @if (hasWorkspace()) {
+            <button type="button" class="workspace-terminal-dock__tab-add" (click)="addTab()" title="New terminal">+</button>
+          }
+          @if (showLlamaServerTab()) {
+            <div
+              class="workspace-terminal-dock__tab workspace-terminal-dock__tab--llama"
+              [class.workspace-terminal-dock__tab--active]="llamaServerTabId === activeTabId()"
+              role="tab"
+              [attr.aria-selected]="llamaServerTabId === activeTabId()"
+              (click)="selectTab(llamaServerTabId)"
+            >
+              <span class="workspace-terminal-dock__tab-title">llama.cpp server</span>
+            </div>
+          }
+        </div>
+      </div>
+      <div class="workspace-terminal-dock__body">
+        @for (tab of ptyTabs(); track tab.id) {
+          <div
+            class="workspace-terminal-dock__pane"
+            [class.workspace-terminal-dock__pane--hidden]="tab.id !== activeTabId()"
+            [id]="hostDomId(tab.id)"
+            role="tabpanel"
+          ></div>
+        }
+        @if (showLlamaServerTab()) {
+          <div
+            class="workspace-terminal-dock__pane"
+            [class.workspace-terminal-dock__pane--hidden]="llamaServerTabId !== activeTabId()"
+            [id]="hostDomId(llamaServerTabId)"
+            role="tabpanel"
+          ></div>
+        }
+      </div>
+    }
+  </div>
+</div>

@@ -4,6 +4,9 @@
     [maxTokens]="maxTokens()"
     [remainingTokens]="remainingTokens()"
     [modelName]="modelName()"
+    [modelPresetOptions]="modelPresetOptions()"
+    [activeLlmModelId]="activeLlmModelId()"
+    (activeLlmModelChange)="activeLlmModelChange.emit($event)"
     [usedPercentage]="usedPercentage()"
   />
 </div>

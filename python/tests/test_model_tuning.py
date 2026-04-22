@@ -1,11 +1,15 @@
 """Tests for Qwen / model-family tuning helpers."""
 
 import os
+from dataclasses import replace
 
 from nemo_backend.domain import RuntimeConnection
+from nemo_backend import state
 from nemo_backend.model_tuning import (
     combined_model_prompt_suffix,
+    connection_user_sampling_kwargs_for_llm,
     effective_parallel_tool_calls,
+    gemma_sparse_expert_workspace_suffix,
     gemma_optimize_profile_active,
     gemma_sampling_kwargs_for_llm,
     is_gemma_family,
@@ -83,9 +87,22 @@ def test_combined_suffix_gemma_thinking_on() -> None:
     c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='gemma', thinking_mode='on')
     s = combined_model_prompt_suffix(c)
     assert 'Model note (Gemma thinking)' in s
+    assert 'Model note (Gemma visible text)' in s
 
 
-def test_combined_suffix_gemma_moe_hint() -> None:
+def test_combined_suffix_gemma_visible_text_even_when_thinking_default() -> None:
+    c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='gemma', thinking_mode='default')
+    s = combined_model_prompt_suffix(c)
+    assert 'Model note (Gemma visible text)' in s
+
+
+def test_combined_suffix_generic_skips_gemma_visible_text() -> None:
+    c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='generic')
+    s = combined_model_prompt_suffix(c)
+    assert 'Model note (Gemma visible text)' not in s
+
+
+def test_combined_suffix_gemma_sparse_expert_hint() -> None:
     c = _conn(
         model='google/gemma-4-26b-a4b-it',
         parallel=False,
@@ -94,7 +111,65 @@ def test_combined_suffix_gemma_moe_hint() -> None:
         architecture_hint='auto',
     )
     s = combined_model_prompt_suffix(c)
-    assert 'Model note (Gemma MoE)' in s
+    assert 'Model note (Gemma sparse experts)' in s
+    assert 'Gemma sparse experts — workspace edits' in s
+    assert 'Single-purpose mutations' in s
+    assert 'Review synthesis' in s
+    assert 'read_staged_edit' in s
+    assert 'transfer_staged_file_to_workspace' in s
+
+
+def test_combined_suffix_generic_mentions_nested_pipeline_for_code() -> None:
+    saved_tools = state.runtime_config.tools
+    try:
+        state.runtime_config.tools = replace(saved_tools, orchestrated_mode=True)
+        c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
+        s = combined_model_prompt_suffix(c)
+        assert 'execute_workspace_mutation' in s
+        assert 'plan_and_modify' in s
+    finally:
+        state.runtime_config.tools = saved_tools
+
+
+def test_combined_suffix_generic_without_orchestration_skips_nested_tool_names() -> None:
+    saved_tools = state.runtime_config.tools
+    try:
+        state.runtime_config.tools = replace(saved_tools, orchestrated_mode=False)
+        c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
+        s = combined_model_prompt_suffix(c)
+        assert 'execute_workspace_mutation' not in s
+        assert 'plan_and_modify' not in s
+        assert 'Orchestrated mode is off' in s
+    finally:
+        state.runtime_config.tools = saved_tools
+
+
+def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_model() -> None:
+    dense = _conn(
+        model='google/gemma-4-it',
+        parallel=False,
+        optimization_preset='gemma',
+        architecture_hint='dense',
+    )
+    assert gemma_sparse_expert_workspace_suffix(dense) == ''
+
+    sparse_model = _conn(
+        model='google/gemma-4-26b-a4b-it',
+        parallel=False,
+        optimization_preset='gemma',
+        architecture_hint='auto',
+    )
+    g = gemma_sparse_expert_workspace_suffix(sparse_model)
+    assert 'workspace edits' in g
+    assert 'stage_snippet_edit' in g
+
+    generic = _conn(
+        model='google/gemma-4-26b-a4b-it',
+        parallel=False,
+        optimization_preset='generic',
+        architecture_hint='auto',
+    )
+    assert gemma_sparse_expert_workspace_suffix(generic) == ''
 
 
 def test_gemma_sampling_recommended() -> None:
@@ -115,6 +190,40 @@ def test_gemma_sampling_custom() -> None:
     kw = gemma_sampling_kwargs_for_llm(c)
     assert kw.get('top_p') == 0.88
     assert kw.get('extra_body', {}).get('top_k') == 32
+
+
+def test_connection_user_sampling_generic_top_p_top_k() -> None:
+    c = _conn(model='local-model', optimization_preset='generic', top_p=0.9, top_k=20)
+    kw = connection_user_sampling_kwargs_for_llm(c)
+    assert kw.get('top_p') == 0.9
+    assert kw.get('extra_body', {}).get('top_k') == 20
+
+
+def test_connection_user_sampling_gemma_recommended_skips_top_p_top_k() -> None:
+    c = replace(
+        _conn(
+            model='google/gemma-4-it',
+            optimization_preset='gemma',
+            sampling_preset='gemma-recommended',
+            top_p=0.1,
+            top_k=3,
+        ),
+        min_p=0.02,
+    )
+    kw = connection_user_sampling_kwargs_for_llm(c)
+    assert 'top_p' not in kw
+    assert kw.get('extra_body') == {'min_p': 0.02}
+
+
+def test_connection_user_sampling_presence_and_repeat_penalty() -> None:
+    c = replace(
+        _conn(model='local-model'),
+        presence_penalty=-0.5,
+        repeat_penalty=1.1,
+    )
+    kw = connection_user_sampling_kwargs_for_llm(c)
+    assert kw.get('presence_penalty') == -0.5
+    assert kw.get('extra_body', {}).get('repeat_penalty') == 1.1
 
 
 def test_llm_optional_max_tokens_for_gemma_template() -> None:
@@ -170,7 +279,7 @@ def test_connection_max_output_tokens_override() -> None:
 def test_combined_suffix_includes_universal_tool_rules_for_non_qwen() -> None:
     c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic')
     s = combined_model_prompt_suffix(c)
-    assert 'Direct workspace edit tools' in s
+    assert '**Workspace edits:**' in s
     assert 'Model note (Qwen)' not in s
     assert 'parallel tools' not in s
 
@@ -185,12 +294,12 @@ def test_combined_suffix_qwen_extra_when_qwen_preset() -> None:
     c = _conn(model='local-model', parallel=True, optimization_preset='qwen')
     s = combined_model_prompt_suffix(c)
     assert 'Model note (Qwen)' in s
-    assert 'Direct workspace edit tools' in s
+    assert '**Workspace edits:**' in s
 
 
 def test_qwen_system_prompt_suffix_backward_compat() -> None:
     s = qwen_system_prompt_suffix()
-    assert 'Direct workspace edit tools' in s
+    assert '**Workspace edits:**' in s
     assert 'Model note (Qwen)' in s
 
 

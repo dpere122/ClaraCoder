@@ -13,7 +13,7 @@ describe('inferContextWindowTokens (Gemma LM Studio)', () => {
     expect(inferContextWindowTokens('google/gemma-4-31b-it', 'lmstudio')).toBe(256_000);
   });
 
-  it('uses 256k for 26B A4B MoE style ids', () => {
+  it('uses 256k for 26B A4B sparse-expert style ids', () => {
     expect(inferContextWindowTokens('google/gemma-4-26b-a4b-it', 'lmstudio')).toBe(256_000);
   });
 
@@ -24,5 +24,7 @@ describe('inferContextWindowTokens (Gemma LM Studio)', () => {
 
   it('falls back for unknown LM Studio model', () => {
     expect(inferContextWindowTokens('local-model', 'lmstudio')).toBe(32_768);
+    expect(inferContextWindowTokens('local-model', 'llamacpp')).toBe(32_768);
+    expect(inferContextWindowTokens('google/gemma-4-E4B-it', 'llamacpp')).toBe(128_000);
   });
 });

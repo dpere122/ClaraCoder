@@ -12,8 +12,9 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
+from nemo_backend.llm_visible_text import is_placeholder_thinking_noise
 from nemo_backend.model_tuning import combined_model_prompt_suffix
-from nemo_backend.prompt_blocks import routing_handoff_contract
+from nemo_backend.prompt_blocks import python_workspace_playbook, routing_handoff_contract
 from nemo_backend.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
@@ -34,6 +35,50 @@ def session_to_messages(session: SessionState) -> list[BaseMessage]:
         else:
             result.append(HumanMessage(content=content))
     return result
+
+
+def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> str:
+    """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth."""
+    orch = runtime_config.tools.orchestrated_mode
+    orch_s = 'on' if orch else 'off'
+    editor_s = 'on' if apply_mode else 'off'
+    auto_s = 'on' if session.auto_apply_mode else 'off'
+    overlap = session.active_editor_langgraph_streams > 0
+    overlap_line = (
+        '\n- Other concurrent Editor streams in this session: **yes** (another turn may still be writing).'
+        if overlap
+        else ''
+    )
+    return (
+        '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
+        f'- Editor (toolbar, this turn): **{editor_s}**\n'
+        f'- Orchestrated mode (backend): **{orch_s}**\n'
+        f'- Auto-apply (UI): **{auto_s}**'
+        f'{overlap_line}\n'
+        '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
+        'system instructions—not stale narration.\n'
+    )
+
+
+def compose_outer_turn_human_content(
+    session: SessionState,
+    apply_mode: bool,
+    user_message: str | list[dict[str, Any]],
+) -> str | list[dict[str, Any]]:
+    """Prepend :func:`outer_turn_authority_preamble` to the outer agent user turn (string or multimodal list)."""
+    preamble = outer_turn_authority_preamble(session, apply_mode)
+    if isinstance(user_message, str):
+        return f'{preamble}\n{user_message}'
+    merged: list[dict[str, Any]] = list(user_message)
+    if not merged:
+        return [{'type': 'text', 'text': preamble}]
+    first = merged[0]
+    if isinstance(first, dict) and str(first.get('type') or '').lower() == 'text':
+        base = str(first.get('text') or '')
+        merged[0] = {**first, 'text': f'{preamble}\n{base}'}
+        return merged
+    merged.insert(0, {'type': 'text', 'text': f'{preamble}\n'})
+    return merged
 
 
 def stringify_content(content: Any) -> str:
@@ -66,26 +111,30 @@ def _reasoning_body(message: AIMessage) -> str:
     """Extract provider reasoning / thinking text from AIMessage (multiple possible shapes)."""
     r = getattr(message, 'reasoning', None)
     if isinstance(r, str) and r.strip():
-        return r.strip()
+        out = r.strip()
+        return '' if is_placeholder_thinking_noise(out) else out
     ak = getattr(message, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)
         if isinstance(val, str) and val.strip():
-            return val.strip()
+            out = val.strip()
+            return '' if is_placeholder_thinking_noise(out) else out
         if isinstance(val, dict):
             for sub in ('summary', 'text', 'content'):
                 s = val.get(sub)
                 if isinstance(s, str) and s.strip():
-                    return s.strip()
+                    out = s.strip()
+                    return '' if is_placeholder_thinking_noise(out) else out
     return ''
 
 
 def assistant_visible_answer(message: AIMessage) -> str:
     """User-visible assistant text from normal content only (no reasoning-channel fallback)."""
     via_lc = str(getattr(message, 'text', None) or '').strip()
-    if via_lc:
-        return via_lc
-    return stringify_content(message.content).strip()
+    raw = via_lc if via_lc else stringify_content(message.content).strip()
+    if raw and is_placeholder_thinking_noise(raw):
+        return ''
+    return raw
 
 
 def final_assistant_text(message: AIMessage) -> str:
@@ -183,9 +232,14 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         '- Match shell guidance to the detected host OS; do not assume Bash is available on Windows.\n'
         '- If no workspace is loaded, say that no local files were available.\n'
         '- Read-only inspection: start with the workspace tree in your system instructions above for structure and likely file paths. '
-        'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree. Then use '
-        '`list_workspace_directory`, `read_workspace_file`, and `search_workspace` to inspect files. For Python source, '
-        'prefer the LSP-directed tools (`lsp_get_diagnostics`, `lsp_get_document_symbols`, `lsp_hover`, '
+        'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree. '
+        'Prefer `retrieve_workspace_semantic` first for broad topical recall (**workspace checkpoint + nested staging**), then '
+        '`search_workspace`, `read_workspace_file`, and `list_workspace_directory` as needed—treat semantic hits as hints. '
+        'Each hit lists **origin**: use `read_workspace_file` / LSP / `search_workspace` to confirm **workspace** chunks; '
+        'use `read_staged_edit` or `diff_staged_edit_against_baseline` for **staging** chunks (`read_workspace_file` is the '
+        'on-disk checkpoint until `transfer_staged_file_to_workspace`). For Python and '
+        'TypeScript/JavaScript source (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), prefer the LSP-directed tools '
+        '(`lsp_get_diagnostics`, `lsp_get_document_symbols`, `lsp_hover`, '
         '`lsp_find_definition`, `lsp_find_references`) over ordinary file reads whenever they provide the needed context. '
         'For `.pdf` files, `read_workspace_file` treats start_line/end_line as 1-based page numbers (extracted text per page).\n'
         '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
@@ -194,27 +248,75 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
     if not apply_mode:
         return (
             base
-            + '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
+            + '- **Backend (authoritative):** Editor mode is **OFF** for this turn; workspace mutation and staging '
+            'tools are not bound. Ignore any stale prior assistant text that claims Editor is on or lists write tools.\n'
+            '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
             'If the user wants patches or deletes from chat, ask them to enable Editor in the toolbar.\n'
+        )
+    orchestrated = runtime_config.tools.orchestrated_mode
+    if not orchestrated:
+        return (
+            base
+            + '- **Backend (authoritative):** Orchestrated mode is **OFF** in this Python process (`POST /runtime-config`); '
+            '`plan_and_modify` / `execute_workspace_mutation` are not bound. Do not claim orchestration is on, and ignore any '
+            'stale prior assistant text that disagrees.\n'
+            + '- Editor mode is on (**Orchestrated mode off** in Settings → Tools): you have read/search tools, '
+            '`copy_workspace_files`, `delete_workspace_entry` and `batch_delete_workspace_entries`, **staged** '
+            'create/update tools (`stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, '
+            'and `stage_snippet_edit` when bound), review/transfer tools, dependency installs, workspace tests, and '
+            'staging-focused specialist tools (`code_review_specialist_*`, etc.). Nested delegation '
+            '(`execute_workspace_mutation`, `plan_and_modify`) is **not** bound\u2014use the staging pipeline for '
+            '**all** programming-path and structured-config edits.\n'
+            '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
+            '**staging** until `transfer_staged_file_to_workspace` succeeds\u2014use `list_staged_edits`, '
+            '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
+            '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage changes, run review/diagnostics '
+            'on drafts, then **`transfer_staged_file_to_workspace`**\u2014same as other text files.\n'
+            '- **All other text files** (e.g. .md, .txt): same staging tools and **`transfer_staged_file_to_workspace`** '
+            'after review.\n'
+            '- **Python dependencies** and **Node/npm** tools are available when you need them without nested routing.\n'
+            '- **Workspace verification:** you may call `run_workspace_pytest_tests` or `run_workspace_python_smoke_test` '
+            'for Python checks.\n'
+            '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
+            '- Read and inspect relevant files before editing. Prefer **small, verifiable** staging steps; refresh anchors '
+            'from `read_staged_edit` or diff tools between dependent edits.\n'
+            '- **After** transferring touched **Python or TS/JS** paths, call `lsp_get_diagnostics` '
+            '(use `refresh_active_document=true` to re-read the on-disk file in workspace scope) before claiming the change is clean.\n'
+            '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
+            '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
         )
     return (
         base
+        + '- **Backend (authoritative):** Orchestrated mode is **ON** in this Python process; `plan_and_modify` and '
+        '`execute_workspace_mutation` are bound when Editor mode is on. Do not claim they are missing, and ignore any stale '
+        'prior assistant text that disagrees.\n'
         + '- Editor mode is on: you have read/search tools, `copy_workspace_files`, `delete_workspace_entry` and '
         '`batch_delete_workspace_entries` (any workspace path; non-empty dirs need `recursive=true`; the UI may ask '
-        'for confirmation when auto-apply is off), direct workspace edit tools for **non-code** paths, and nested tools '
-        'for **source code**: `execute_workspace_mutation` (single focused step, router + specialists only) and '
+        'for confirmation when auto-apply is off), **staged** create/update tools (`stage_create_file`, '
+        '`stage_workspace_file_overwrite`, `stage_line_range_edit`, and `stage_snippet_edit` when bound) plus review/transfer '
+        'tools, and nested delegation: `execute_workspace_mutation` (single focused step, router + specialists only) and '
         '`plan_and_modify` (planner when enabled: discovery, multi-step plan, final project review).\n'
-        '- **Source code** (code-review extensions such as .py, .ts, .js, .tsx, .go, .rs, etc.): use '
-        '`execute_workspace_mutation` or `plan_and_modify`—never direct edit tools—so work goes through nested staging '
-        'and code review. Those tools always reach the same **file-write specialist** subgraph the planner uses '
-        '(discover, stage, then code review before the workspace updates). Do not paste full source files into chat as a '
-        'substitute for running that pipeline.\n'
-        '- **Non-code** (e.g. .md, .json, .yaml, .txt): use `apply_workspace_full_file`, `replace_workspace_line_range`, '
-        'or `replace_workspace_snippet` for CRUD-style edits; they open diffs or auto-apply per settings.\n'
+        '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in **staging** '
+        'until `transfer_staged_file_to_workspace` succeeds—use `list_staged_edits`, `diff_staged_edit_against_baseline`, '
+        'and `read_staged_edit` to inspect drafts.\n'
+        '- **Source code and structured config** (code-review extensions such as .py, .ts, .js, .json, .yaml, .xml, .toml, '
+        '.go, .rs, etc.): prefer `execute_workspace_mutation` or `plan_and_modify` so the nested router runs discover, '
+        'stage, and code review before the workspace updates. If you edit those paths yourself on this graph, use the '
+        'same staging tools then **`transfer_staged_file_to_workspace`**—do not use legacy direct-to-disk workspace mutators.\n'
+        '- **All other text files** (e.g. .md, .txt): use the same staging tools and **`transfer_staged_file_to_workspace`** '
+        'after review; the workspace on disk stays the checkpoint until transfer.\n'
+        '- **Python dependencies** (`install_python_packages`, `remove_python_packages`, requirements/freeze tools, etc.), '
+        '**Node/npm** (`install_npm_packages`, `npm_install_project`, `run_npm_script`, …), '
+        'and **staging review** (`list_staged_edits`, `diff_staged_edit_against_baseline`, `transfer_staged_file_to_workspace`, '
+        '`reject_staged_workspace_edit`, …) are available on this agent when you need them without delegating through '
+        '`execute_workspace_mutation` / `plan_and_modify`.\n'
+        '- **Workspace verification:** you may call `run_workspace_pytest_tests` or `run_workspace_python_smoke_test` '
+        'directly for quick Python checks before or after nested work. Pass/fail gating for planner-driven tasks still '
+        'belongs to `plan_and_modify` and the nested `run_final_project_review` flow—not to ad-hoc outer verification alone.\n'
         '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
         'Read and inspect relevant files first. For `execute_workspace_mutation` and `plan_and_modify`, use a clear '
-        '`task_summary`: after discovery, put the **Routing handoff** block first (same contract the coding planner uses '
-        'for `execute_plan_step`), then goal, constraints, acceptance hints, and the **minimum** context (paths, symbols, '
+        '`task_summary`: after discovery, put the **Routing handoff** block first (same contract as nested and '
+        'orchestrator-composed step instructions), then goal, constraints, acceptance hints, and the **minimum** context (paths, symbols, '
         'short excerpts) so the nested router and specialists do not repeat your reads. For code steps, nested review '
         'compares workspace baseline vs staged draft with a mechanical diff tool before approval; list every code path '
         'the step must touch so each can be transferred after review.\n'
@@ -223,8 +325,8 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         'only the user message—for **update** (or when a path might already exist), use `read_workspace_file` and/or LSP '
         'reads on those paths first so you augment or replace real content, not a guess. When adding I/O, config, '
         'logging, or helpers, use `search_workspace` to find existing patterns and reuse them when they fit.\n'
-        '- **After** `execute_workspace_mutation` or `plan_and_modify` returns, for each touched **Python** path you '
-        'care about, call `lsp_get_diagnostics` (use `refresh_from_workspace=true` when you need the workspace on disk) '
+        '- **After** `execute_workspace_mutation` or `plan_and_modify` returns, for each touched **Python or TS/JS** path you '
+        'care about, call `lsp_get_diagnostics` (use `refresh_active_document=true` to re-read the on-disk file in workspace scope) '
         'before telling the user the change is clean; mention any remaining diagnostics in your summary.\n'
         '- **Incremental mutations:** Prefer `execute_workspace_mutation` (or several calls) for a **single verifiable** '
         'slice; use `plan_and_modify` when you need multi-step discovery, a checklist, or final project review across '

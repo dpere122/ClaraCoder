@@ -18,20 +18,29 @@ function rendererIndexHtml(): string {
  * Creates the primary BrowserWindow (dev server URL or static Angular build).
  */
 export function createMainWindow(): void {
-  mainState.mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1920,
     height: 1080,
+    frame: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: preloadPath(),
     },
   });
+  mainState.mainWindow = win;
+
+  const broadcastMaximized = (): void => {
+    win.webContents.send('window-maximized-changed', win.isMaximized());
+  };
+  win.on('maximize', broadcastMaximized);
+  win.on('unmaximize', broadcastMaximized);
+  win.webContents.on('did-finish-load', broadcastMaximized);
 
   if (DEV_SERVER_URL) {
-    mainState.mainWindow.loadURL(DEV_SERVER_URL);
+    win.loadURL(DEV_SERVER_URL);
   } else {
-    mainState.mainWindow.loadFile(rendererIndexHtml());
+    win.loadFile(rendererIndexHtml());
   }
 
   buildMenu();

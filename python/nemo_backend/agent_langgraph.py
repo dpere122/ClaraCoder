@@ -30,7 +30,9 @@ from nemo_backend.delete_tool import delete_confirm_sse_payload
 from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from nemo_backend.invalid_tool_call_coach_middleware import InvalidToolCallCoachMiddleware
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.tool_outcome_coach_middleware import ToolOutcomeCoachMiddleware
 from nemo_backend.domain import SessionState
 from nemo_backend.langgraph_sse import (
     GraphStreamState,
@@ -110,7 +112,12 @@ async def _stream_langgraph_tool_agent(
         outcome.final_text = cfg.failed_start_message.format(exc=exc)
         return
 
-    middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
+    middleware: list[Any] = [
+        ConnectionParallelToolCallsMiddleware(),
+        EmptyResponseNudgeMiddleware(),
+        InvalidToolCallCoachMiddleware(),
+        ToolOutcomeCoachMiddleware(),
+    ]
     if extra_middleware:
         middleware.extend(extra_middleware)
     middleware.append(DeleteReviewAfterToolMiddleware())

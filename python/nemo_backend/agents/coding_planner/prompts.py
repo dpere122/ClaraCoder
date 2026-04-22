@@ -5,6 +5,7 @@ from __future__ import annotations
 from textwrap import dedent
 
 from nemo_backend.domain import SessionState
+from nemo_backend.llm_coaching import system_prompt_coaching_append
 from nemo_backend.messages import _connection_line, _os_hint_line, _qwen_optimize_suffix, _workspace_hint
 
 
@@ -98,5 +99,5 @@ def build_coding_planner_system_prompt(session: SessionState) -> str:
         'tools to fill in gaps, not to re-read everything from scratch.\n'
         '- Prefer fewer, well-scoped build steps over many tiny ones, but split larger prompts into more than the small-task baseline.\n'
         '- Keep discovery work out of the checklist; the checklist begins only when implementation is ready to start.\n\n'
-        f'{conn}\n\n{os_}\n\n{ws}{q}'
+        f'{conn}\n\n{os_}\n\n{ws}{q}{system_prompt_coaching_append()}'
     )

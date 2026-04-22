@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from nemo_backend.domain import SessionState
+from nemo_backend.llm_coaching import system_prompt_coaching_append
 from nemo_backend.messages import _connection_line, _os_hint_line, _qwen_optimize_suffix, _workspace_hint
 
 
@@ -34,7 +35,7 @@ def build_router_system_prompt(session: SessionState) -> str:
         'sequence via their handoff tools. After the specialists finish, reply with a compact summary for the '
         'outer agent: what was done, which paths, and any errors\u2014avoid verbose narration.\n\n'
         f'{mutation}\n'
-        f'{conn}\n\n{os_}\n\n{ws}{q}'
+        f'{conn}\n\n{os_}\n\n{ws}{q}{system_prompt_coaching_append()}'
     )
 
 
@@ -47,7 +48,7 @@ def build_create_specialist_system_prompt(session: SessionState) -> str:
         'When staging happens, report the path clearly so the router can call the code review specialist.\n'
         'When done, state briefly what was created or rewritten.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session)}'
-        f'{_qwen_optimize_suffix()}'
+        f'{_qwen_optimize_suffix()}{system_prompt_coaching_append()}'
     )
 
 
@@ -63,7 +64,7 @@ def build_update_specialist_system_prompt(session: SessionState) -> str:
         'When staging happens, report the path for the router.\n'
         'When done, summarize edits by file and intent for the router.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session)}'
-        f'{_qwen_optimize_suffix()}'
+        f'{_qwen_optimize_suffix()}{system_prompt_coaching_append()}'
     )
 
 
@@ -77,7 +78,7 @@ def build_code_review_specialist_system_prompt(session: SessionState) -> str:
         '`reject_staged_workspace_edit` with clear, actionable feedback for the create/update specialist.\n'
         'Prefer one transfer/reject tool per review turn after any needed staging reads.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session, include_staging=True)}'
-        f'{_qwen_optimize_suffix()}'
+        f'{_qwen_optimize_suffix()}{system_prompt_coaching_append()}'
     )
 
 
@@ -87,5 +88,5 @@ def build_delete_specialist_system_prompt(session: SessionState) -> str:
         'For non-empty directories the tool requires `recursive=true`. Prefer one tool call per turn. '
         'Confirm briefly what was removed for the router.\n\n'
         f'{_connection_line(session)}\n\n{_os_hint_line()}\n\n{_workspace_hint(session)}'
-        f'{_qwen_optimize_suffix()}'
+        f'{_qwen_optimize_suffix()}{system_prompt_coaching_append()}'
     )

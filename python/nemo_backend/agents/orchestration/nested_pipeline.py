@@ -29,11 +29,13 @@ from nemo_backend.config import MAX_AGENT_STEPS
 from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from nemo_backend.invalid_tool_call_coach_middleware import InvalidToolCallCoachMiddleware
 from nemo_backend.domain import SessionState
 from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import final_assistant_text
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.tool_outcome_coach_middleware import ToolOutcomeCoachMiddleware
 from nemo_backend.state import runtime_config
 
 logger = logging.getLogger('nemo.agent.langgraph.planning')
@@ -97,6 +99,8 @@ async def run_planning_nested_stream(
                 middleware=[
                     ConnectionParallelToolCallsMiddleware(),
                     EmptyResponseNudgeMiddleware(),
+                    InvalidToolCallCoachMiddleware(),
+                    ToolOutcomeCoachMiddleware(),
                     DiffReviewAfterToolMiddleware(),
                     DeleteReviewAfterToolMiddleware(),
                 ],
@@ -161,6 +165,8 @@ async def run_planning_nested_stream(
             middleware=[
                 ConnectionParallelToolCallsMiddleware(),
                 EmptyResponseNudgeMiddleware(),
+                InvalidToolCallCoachMiddleware(),
+                ToolOutcomeCoachMiddleware(),
                 DiffReviewAfterToolMiddleware(),
                 DeleteReviewAfterToolMiddleware(),
             ],

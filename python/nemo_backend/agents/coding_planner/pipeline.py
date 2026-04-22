@@ -39,8 +39,10 @@ from nemo_backend.config import (
 from nemo_backend.domain import SessionState
 from nemo_backend.edit_staging import clear_session_staging_dir, discard_all_session_stagings
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from nemo_backend.invalid_tool_call_coach_middleware import InvalidToolCallCoachMiddleware
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import final_assistant_text
+from nemo_backend.tool_outcome_coach_middleware import ToolOutcomeCoachMiddleware
 from nemo_backend.workspace_tools import list_workspace_directory, read_workspace_file, search_workspace
 
 logger = logging.getLogger('nemo.agent.langgraph.coding_planner')
@@ -489,6 +491,8 @@ async def run_coding_planner_stream(
             name='nemo_coding_planner',
             middleware=[
                 EmptyResponseNudgeMiddleware(),
+                InvalidToolCallCoachMiddleware(),
+                ToolOutcomeCoachMiddleware(),
             ],
             checkpointer=checkpointer,
         )

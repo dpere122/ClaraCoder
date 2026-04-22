@@ -12,6 +12,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
+from nemo_backend.llm_coaching import system_prompt_coaching_append
 from nemo_backend.model_tuning import qwen_optimize_profile_active, qwen_system_prompt_suffix
 from nemo_backend.state import get_active_connection, runtime_config
 
@@ -216,4 +217,5 @@ def build_system_prompt(session: SessionState, apply_mode: bool) -> str:
         f'{_outer_agent_operational_block(apply_mode)}'
         f'{workspace_hint}'
         f'{_qwen_optimize_suffix()}'
+        f'{system_prompt_coaching_append()}'
     )

@@ -77,6 +77,8 @@ except ValueError:
 
 # When the model returns no visible text, inject a nudge message instead of stopping.
 MAX_AGENT_EMPTY_NUDGES = 2
+# Cap HumanMessage nudges after malformed structured tool calls (invalid_tool_calls) per thread.
+MAX_INVALID_TOOL_CALL_COACH_NUDGES = 4
 
 # ---------------------------------------------------------------------------
 # Workspace tool limits

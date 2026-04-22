@@ -20,6 +20,7 @@ import os
 from typing import Any
 
 from nemo_backend.domain import RuntimeConnection
+from nemo_backend.state import runtime_config
 
 
 def is_qwen_family(model: str) -> bool:
@@ -46,17 +47,13 @@ def gemma_optimize_profile_active(connection: RuntimeConnection) -> bool:
     return optimization_preset(connection) == 'gemma'
 
 
-def effective_architecture_hint(connection: RuntimeConnection) -> str:
-    """Return ``dense`` or ``moe`` for prompt hints (``auto`` infers from the model id)."""
+def sparse_expert_variant_for_prompts(connection: RuntimeConnection) -> bool:
+    """True when Gemma-style sparse-expert layout notes should apply (model id only; not a separate agent graph)."""
     h = (getattr(connection, 'architecture_hint', None) or 'auto').strip().lower()
-    if h == 'moe':
-        return 'moe'
     if h == 'dense':
-        return 'dense'
+        return False
     m = (connection.model or '').lower()
-    if 'a4b' in m or ('26b' in m and 'moe' in m):
-        return 'moe'
-    return 'dense'
+    return 'a4b' in m or ('26b' in m and 'moe' in m)
 
 
 def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
@@ -68,6 +65,46 @@ def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
 
 GEMMA_RECOMMENDED_TOP_P = 0.95
 GEMMA_RECOMMENDED_TOP_K = 64
+
+
+def connection_user_sampling_kwargs_for_llm(connection: RuntimeConnection) -> dict[str, Any]:
+    """Map explicit Settings sampling fields to ``ChatOpenAI`` kwargs / ``extra_body``.
+
+    ``top_p`` / ``top_k`` from the connection are skipped when the Gemma template already
+    derives them from :func:`gemma_sampling_kwargs_for_llm` (recommended or custom preset).
+    ``min_p`` and ``repeat_penalty`` are sent in ``extra_body`` for OpenAI-compatible locals
+    (e.g. llama.cpp ``llama-server``); ``presence_penalty`` uses the standard Chat Completions field.
+    """
+    out: dict[str, Any] = {}
+    extra: dict[str, Any] = {}
+
+    opt = optimization_preset(connection)
+    sp = (getattr(connection, 'sampling_preset', None) or 'provider-default').strip().lower()
+    gemma_owns_top = opt == 'gemma' and sp in ('gemma-recommended', 'custom')
+
+    if not gemma_owns_top:
+        tp = getattr(connection, 'top_p', None)
+        tk = getattr(connection, 'top_k', None)
+        if tp is not None:
+            out['top_p'] = float(tp)
+        if tk is not None:
+            extra['top_k'] = int(tk)
+
+    mnp = getattr(connection, 'min_p', None)
+    if mnp is not None:
+        extra['min_p'] = float(mnp)
+
+    pr = getattr(connection, 'presence_penalty', None)
+    if pr is not None:
+        out['presence_penalty'] = float(pr)
+
+    rpen = getattr(connection, 'repeat_penalty', None)
+    if rpen is not None:
+        extra['repeat_penalty'] = float(rpen)
+
+    if extra:
+        out['extra_body'] = extra
+    return out
 
 
 def gemma_sampling_kwargs_for_llm(connection: RuntimeConnection) -> dict[str, Any]:
@@ -132,21 +169,28 @@ def llm_optional_kwargs(connection: RuntimeConnection) -> dict[str, Any]:
     return out
 
 
-def tool_calling_and_edit_semantics_suffix() -> str:
-    """Tool channel and direct workspace edit semantics; appended for every model."""
+def tool_calling_and_edit_semantics_suffix(_connection: RuntimeConnection | None = None) -> str:
+    """Tool channel and staged workspace edit semantics; appended for every model."""
+    nested_note = (
+        'For nested code mutations, prefer `execute_workspace_mutation` or `plan_and_modify` when you need the '
+        'router/specialists pipeline instead of hand-rolling the same steps. '
+        if runtime_config.tools.orchestrated_mode
+        else (
+            'Orchestrated mode is off: nested delegation tools are not bound—use staging (`stage_*`) and '
+            '`transfer_staged_file_to_workspace` for source and structured-config paths. '
+        )
+    )
     return (
         '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
         'only use the API tool channel.\n'
-        'Direct workspace edit tools (non-code paths only\u2014e.g. .md, .json, .yaml; not .py/.ts/.js and other '
-        'code-review extensions): To create a new file or rewrite an entire file, use `apply_workspace_full_file` '
-        'with `new_content` (the complete file text). For source code, use `execute_workspace_mutation` or '
-        '`plan_and_modify` instead. '
-        '`replace_workspace_snippet` is ONLY for editing existing non-code files and requires a non-empty `old_snippet` '
-        'that matches text already present in the file; never pass an empty string for `old_snippet`. For localized '
-        'edits, prefer `replace_workspace_line_range` with `start_line` and `end_line` (1-based inclusive).\n'
-        'Paths: Prefer a single write with the full relative path including any new nested directories; parent '
-        'directories are created automatically on write. Do not create empty directory trees unless the user asked '
-        'for empty folders.\n'
+        '**Workspace edits:** Treat the on-disk workspace as the checkpoint. For **every** text path, create or revise '
+        'content with `stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, or `stage_snippet_edit` '
+        '(when bound), inspect drafts with `list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit`, '
+        'then call `transfer_staged_file_to_workspace` when correct. Do not use legacy direct-to-disk workspace mutators '
+        '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
+        + nested_note
+        + 'For localized edits on existing files, prefer `stage_line_range_edit` or `stage_snippet_edit` over whole-file '
+        'rewrites when practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
     )
 
 
@@ -167,7 +211,7 @@ def qwen_specific_prompt_suffix() -> str:
 
 
 def gemma_thinking_prompt_suffix(connection: RuntimeConnection) -> str:
-    """Gemma thinking / MoE hints when Gemma optimize profile is active."""
+    """Gemma thinking and sparse-expert layout hints when Gemma optimize profile is active."""
     if not gemma_optimize_profile_active(connection):
         return ''
     mode = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower()
@@ -182,25 +226,54 @@ def gemma_thinking_prompt_suffix(connection: RuntimeConnection) -> str:
             '\nModel note (Gemma thinking): Prefer direct answers; avoid long scratchpad-style reasoning '
             'unless the user explicitly asks for step-by-step work.\n'
         )
-    if effective_architecture_hint(connection) == 'moe':
+    if sparse_expert_variant_for_prompts(connection):
         parts.append(
-            '\nModel note (Gemma MoE): Sparse mixture-of-experts variant (many total parameters, few active per '
-            'token); keep each assistant turn focused.\n'
+            '\nModel note (Gemma sparse experts): Sparse mixture-of-experts layout (many total parameters, few active '
+            'per token); keep each assistant turn focused.\n'
         )
+    parts.append(
+        '\nModel note (Gemma visible text): Do not paste Gemma chat-template control markers (e.g. `<|channel|>`, '
+        '`<|channel>`, other `<|...>` tags) or raw `<turn|>` into the user-facing answer. Put scratchpad / '
+        'step-by-step reasoning in the reasoning channel when the server supports it—not in the main reply. '
+        'Keep tools on the API tool channel only.\n'
+    )
     return ''.join(parts)
 
 
-def qwen_system_prompt_suffix() -> str:
+def gemma_sparse_expert_workspace_suffix(connection: RuntimeConnection) -> str:
+    """Gemma preset + sparse-expert model id: staging vs disk and small-step edit discipline."""
+    if not gemma_optimize_profile_active(connection):
+        return ''
+    if not sparse_expert_variant_for_prompts(connection):
+        return ''
+    return (
+        '\nModel note (Gemma sparse experts — workspace edits):\n'
+        '- **Single-purpose mutations:** Do not bundle refactoring, new features, and bug fixes into one huge step '
+        'for the same file. Prefer a **linear sequence** of small staging calls; do not assume parallel '
+        'writes to the same path are safe.\n'
+        '- **Checkpoint between edits:** After **staging** code, the draft is not on disk yet—refresh anchors from '
+        '`read_staged_edit` or `diff_staged_edit_against_baseline`, not `read_workspace_file` (that still shows the '
+        'pre-transfer baseline). After **`transfer_staged_file_to_workspace`**, treat the workspace file as source of '
+        'truth and use `read_workspace_file` or LSP with `refresh_active_document=true` before the next mutation.\n'
+        '- **Atomic patches, stable anchors:** Prefer `stage_snippet_edit` with **unique surrounding context** over '
+        'stacking dependent line-range replacements without re-reading staged or workspace text.\n'
+        '- **Review synthesis:** When code review rejects staged work, deconstruct each issue, locate the exact '
+        'region, apply minimal surgical fixes, then re-check diagnostics on touched paths.\n'
+    )
+
+
+def qwen_system_prompt_suffix(connection: RuntimeConnection | None = None) -> str:
     """Backward-compatible name: full Qwen block equals universal semantics plus Qwen-only lines."""
-    return tool_calling_and_edit_semantics_suffix() + qwen_specific_prompt_suffix()
+    return tool_calling_and_edit_semantics_suffix(connection) + qwen_specific_prompt_suffix()
 
 
 def combined_model_prompt_suffix(connection: RuntimeConnection) -> str:
     """Universal tool/edit semantics, optional parallel batching, optional Qwen single-call hint, optional Gemma."""
-    parts = [tool_calling_and_edit_semantics_suffix()]
+    parts = [tool_calling_and_edit_semantics_suffix(connection)]
     if effective_parallel_tool_calls(connection):
         parts.append(parallel_batching_prompt_suffix())
     if qwen_optimize_profile_active(connection):
         parts.append(qwen_specific_prompt_suffix())
     parts.append(gemma_thinking_prompt_suffix(connection))
+    parts.append(gemma_sparse_expert_workspace_suffix(connection))
     return ''.join(parts)

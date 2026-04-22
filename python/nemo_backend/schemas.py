@@ -80,6 +80,11 @@ class AgentContinueRequest(BaseModel):
     #: When set with a pending generic command request, perform or cancel it before resuming.
     accept_command_action: Literal['confirm', 'cancel'] | None = None
     accept_command_request_id: str = ''
+    #: When set with ``pending_staged_transfer_hitl``, finalize or return the deferred staged→workspace transfer.
+    staged_transfer_action: Literal['confirm', 're_review'] | None = Field(
+        default=None,
+        validation_alias=AliasChoices('staged_transfer_action', 'stagedTransferAction'),
+    )
 
 
 class AbortRequest(BaseModel):
@@ -102,12 +107,24 @@ class ClearRequest(BaseModel):
     session_id: str
 
 
+class WorkspaceFileChangesPayload(BaseModel):
+    """Debounced filesystem batch from the Electron workspace watcher (optional)."""
+
+    paths: list[str] = Field(default_factory=list)
+    kinds: list[str] = Field(default_factory=list)
+
+
 class WorkspaceContextRequest(BaseModel):
     """Sync workspace path and renderer-generated tree for a session."""
 
     session_id: str
     workspace_path: str
     workspace_context: str
+    workspace_id: str = Field(default='', validation_alias=AliasChoices('workspace_id', 'workspaceId'))
+    workspace_file_changes: WorkspaceFileChangesPayload | None = Field(
+        default=None,
+        validation_alias=AliasChoices('workspace_file_changes', 'workspaceFileChanges'),
+    )
 
 
 class TtsRequest(BaseModel):
@@ -122,7 +139,7 @@ class RuntimeConnectionRequest(BaseModel):
 
     id: str
     name: str
-    provider: Literal['openai', 'lmstudio']
+    provider: Literal['openai', 'lmstudio', 'llamacpp']
     baseUrl: str = ''
     model: str
     apiKey: str = ''
@@ -136,7 +153,25 @@ class RuntimeConnectionRequest(BaseModel):
     samplingPreset: Literal['provider-default', 'gemma-recommended', 'custom'] = 'provider-default'
     topP: float | None = Field(default=None, ge=0.0, le=1.0)
     topK: int | None = Field(default=None, ge=1, le=256)
-    architectureHint: Literal['auto', 'dense', 'moe'] = 'auto'
+    minP: float | None = Field(default=None, ge=0.0, le=1.0)
+    presencePenalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    repeatPenalty: float | None = Field(default=None, ge=0.01, le=4.0)
+    architectureHint: Literal['auto', 'dense'] = 'auto'
+    embeddingsBaseUrl: str = Field(
+        default='',
+        validation_alias=AliasChoices('embeddingsBaseUrl', 'embeddings_base_url'),
+    )
+    embeddingsEnabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices('embeddingsEnabled', 'embeddings_enabled'),
+    )
+
+    @field_validator('architectureHint', mode='before')
+    @classmethod
+    def _legacy_architecture_hint(cls, v: object) -> object:
+        if isinstance(v, str) and v.strip().lower() == 'moe':
+            return 'auto'
+        return v
 
 
 class RuntimeAudioRequest(BaseModel):
@@ -158,6 +193,17 @@ class RuntimeHostRequest(BaseModel):
     label: str = ''
 
 
+def _coerce_boolish(v: Any) -> Any:
+    """Accept true/false strings (hand-edited JSON, proxies) before standard bool validation."""
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ('true', '1', 'yes', 'on'):
+            return True
+        if s in ('false', '0', 'no', 'off'):
+            return False
+    return v
+
+
 class RuntimeToolsRequest(BaseModel):
     """Workspace tool limits and edit surface from the desktop app (Settings → Tools)."""
 
@@ -166,6 +212,15 @@ class RuntimeToolsRequest(BaseModel):
     maxSearchResults: int = Field(default=40, ge=1, le=200)
     defaultWorkspaceEncoding: str = 'utf-8'
     defaultWorkspaceNewline: Literal['lf', 'crlf', 'preserve'] = 'lf'
+    orchestratedMode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('orchestratedMode', 'orchestrated_mode'),
+    )
+
+    @field_validator('orchestratedMode', mode='before')
+    @classmethod
+    def _normalize_orchestrated(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
 
 
 class RuntimeConfigRequest(BaseModel):

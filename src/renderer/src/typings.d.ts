@@ -10,10 +10,16 @@ import type {
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  LlamaServerLifecycleEvent,
+  LlamaServerOutputEvent,
+  LlamaServerProcessExitEvent,
+  LlamaServerStartResult,
+  LlamaServerStatusResult,
   LlmStatus,
   PlannerProgress,
   TtsStreamPacket,
   Workspace,
+  WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
 } from '../../shared/index';
@@ -82,6 +88,7 @@ declare global {
       copyRequestId?: string,
       acceptCommandAction?: 'confirm' | 'cancel',
       acceptCommandRequestId?: string,
+      stagedTransferAction?: 'confirm' | 're_review',
     ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (
@@ -106,7 +113,10 @@ declare global {
     readDirectory: (dirPath: string) => Promise<FileEntry[]>;
     readDirectoryRecursive: (dirPath: string) => Promise<string>;
     loadConfig: () => Promise<AppConfig>;
-    saveConfig: (config: AppConfig) => Promise<void>;
+    saveConfig: (config: AppConfig) => Promise<AppConfig>;
+    llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
+    llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
+    llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
     getWorkspaces: () => Promise<Workspace[]>;
     addWorkspace: (name: string, path: string) => Promise<Workspace>;
     removeWorkspace: (id: string) => Promise<void>;
@@ -148,7 +158,42 @@ declare global {
     onScriptComplete: (
       callback: (event: unknown, data: { processId: string; exitCode: number | null }) => void,
     ) => void;
-    setWorkspaceContext?: (sessionId: string, workspacePath: string, workspaceContext: string) => Promise<void>;
+    workspacePtySpawn: (
+      cwd: string,
+      cols: number,
+      rows: number,
+    ) => Promise<
+      | { success: true; sessionId: string }
+      | { success: false; error: string }
+    >;
+    workspacePtyWrite: (sessionId: string, data: string) => Promise<{ success: boolean; error?: string }>;
+    workspacePtyResize: (
+      sessionId: string,
+      cols: number,
+      rows: number,
+    ) => Promise<{ success: boolean; error?: string }>;
+    workspacePtyKill: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+    workspacePtyKillAll: () => Promise<{ success: boolean }>;
+    onWorkspacePtyData: (
+      callback: (event: unknown, data: { sessionId: string; data: string }) => void,
+    ) => void;
+    onWorkspacePtyExit: (
+      callback: (
+        event: unknown,
+        data: { sessionId: string; exitCode: number; signal: number | null },
+      ) => void,
+    ) => void;
+    onLlamaServerOutput?: (callback: (event: unknown, data: LlamaServerOutputEvent) => void) => void;
+    onLlamaServerProcessExit?: (
+      callback: (event: unknown, data: LlamaServerProcessExitEvent) => void,
+    ) => void;
+    onLlamaServerLifecycle?: (callback: (event: unknown, data: LlamaServerLifecycleEvent) => void) => void;
+    setWorkspaceContext?: (
+      sessionId: string,
+      workspacePath: string,
+      workspaceContext: string,
+      extras?: WorkspaceContextSyncExtras,
+    ) => Promise<void>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
     healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
@@ -158,6 +203,13 @@ declare global {
     onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) => void;
     openHealthWindow: () => void;
     closeHealthWindow: () => void;
+    popupFileMenu: (x: number, y: number) => Promise<void>;
+    popupHelpMenu: (x: number, y: number) => Promise<void>;
+    windowMinimize: () => void;
+    windowToggleMaximize: () => void;
+    windowClose: () => void;
+    windowIsMaximized: () => Promise<boolean>;
+    onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => void;
   }
 
   interface Window {

@@ -2,10 +2,17 @@ import type { StreamPart } from '@shared/index';
 import {
   delegatedStreamPartsForDisplay,
   isClaraOuterBriefStreamTag,
+  isMoeAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
+  joinPrimaryAssistantStreamText,
+  moeStreamPartsForDisplay,
+  MOE_AUXILIARY_STREAM_TAG,
+  otherDelegatedStreamPartsForDisplay,
+  emptyPrimaryAssistantFallbackMessage,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
+  shellDelegatedStreamPartsForDisplay,
   SHELL_STYLE_TOOL_STREAM_TAGS,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamIndicatesNestedSpecialistRouting,
@@ -32,6 +39,17 @@ describe('isClaraOuterBriefStreamTag', () => {
     expect(isClaraOuterBriefStreamTag(' clara ')).toBe(true);
     expect(isClaraOuterBriefStreamTag(undefined)).toBe(false);
     expect(isClaraOuterBriefStreamTag('planning')).toBe(false);
+  });
+});
+
+describe('emptyPrimaryAssistantFallbackMessage', () => {
+  it('explains reasoning-only turns when pseudo-tool text was stripped from the main channel', () => {
+    expect(emptyPrimaryAssistantFallbackMessage(true)).toContain('Model reasoning');
+    expect(emptyPrimaryAssistantFallbackMessage(true)).toContain('main reply');
+  });
+
+  it('keeps the tooling-oriented copy when there was no reasoning sidecar', () => {
+    expect(emptyPrimaryAssistantFallbackMessage(false)).toContain('Workspace tooling finished');
   });
 });
 
@@ -95,6 +113,17 @@ describe('shouldIgnoreWhitespaceOnlyModelChunkDuringTool', () => {
   });
 });
 
+describe('joinPrimaryAssistantStreamText', () => {
+  it('joins agent parts preserving newlines', () => {
+    const parts = [
+      { streamTag: 'agent', label: '', text: '## Hi\n\n' },
+      { streamTag: 'planner', label: '', text: 'ignored' },
+      { streamTag: 'agent', label: '', text: 'Body' },
+    ];
+    expect(joinPrimaryAssistantStreamText(parts)).toBe('## Hi\n\nBody');
+  });
+});
+
 describe('streamPlainOneLine', () => {
   it('collapses newlines and whitespace for live preview', () => {
     expect(streamPlainOneLine('a\n\nb')).toBe('a b');
@@ -145,6 +174,30 @@ describe('delegatedStreamPartsForDisplay', () => {
     ];
     expect(delegatedStreamPartsForDisplay(parts, null)).toEqual([
       { streamTag: 'spec-code_review-tests', label: 'Pytest', text: '1 passed' },
+    ]);
+  });
+});
+
+describe('Reasoning auxiliary stream tag', () => {
+  it('uses a single canonical tag string', () => {
+    expect(MOE_AUXILIARY_STREAM_TAG).toBe('moe');
+    expect(isMoeAuxiliaryStreamTag('moe')).toBe(true);
+    expect(isMoeAuxiliaryStreamTag(' moe ')).toBe(true);
+    expect(isMoeAuxiliaryStreamTag('agent')).toBe(false);
+  });
+
+  it('partitions moe away from shell and other delegated streams', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'planning', label: 'P', text: 'plan' },
+      { streamTag: 'moe', label: 'Reasoning', text: 'think' },
+      { streamTag: 'spec-x-tests', label: 'T', text: 'out' },
+    ];
+    expect(moeStreamPartsForDisplay(parts, null)).toEqual([{ streamTag: 'moe', label: 'Reasoning', text: 'think' }]);
+    expect(shellDelegatedStreamPartsForDisplay(parts, null)).toEqual([
+      { streamTag: 'spec-x-tests', label: 'T', text: 'out' },
+    ]);
+    expect(otherDelegatedStreamPartsForDisplay(parts, null)).toEqual([
+      { streamTag: 'planning', label: 'P', text: 'plan' },
     ]);
   });
 });

@@ -15,21 +15,30 @@ from nemo_backend.lsp.tools import (
     lsp_get_document_symbols,
     lsp_hover,
 )
+from nemo_backend.node_dependency_agent import (
+    install_npm_packages_tool,
+    npm_install_project_tool,
+    remove_npm_packages_tool,
+    run_npm_script_tool,
+)
 from nemo_backend.python_dependency_agent import (
     freeze_python_requirements_tool,
     install_python_packages_tool,
     install_python_requirements_file_tool,
     write_frozen_python_requirements_file_tool,
 )
+from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
 from nemo_backend.python_env import ensure_session_python_workspace_env, session_workspace_subprocess_env
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
 from nemo_backend.state import current_session_id, get_session
+from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
 from nemo_backend.workspace_tools import (
     get_active_workspace_root,
     list_workspace_directory,
     read_workspace_file,
     search_workspace,
     truncate_text,
+    truncate_text_head_tail,
 )
 
 logger = logging.getLogger('nemo.project_review')
@@ -173,7 +182,7 @@ def _build_pytest_result(
     )
     if combined:
         body += f'\nCaptured output:\n{combined}'
-    return truncate_text(body, 120_000)
+    return truncate_text_head_tail(body, 120_000)
 
 
 def _has_pytest_workspace_signal(project_root: Path) -> bool:
@@ -277,7 +286,7 @@ def _build_smoke_result(
     )
     if combined:
         body += f'\nCaptured output:\n{combined}'
-    return truncate_text(body, 120_000)
+    return truncate_text_head_tail(body, 120_000)
 
 
 async def _terminate_process(proc: asyncio.subprocess.Process) -> int | None:
@@ -394,7 +403,39 @@ async def run_workspace_pytest_tests() -> str:
     wait_task = asyncio.create_task(proc.wait())
     abort_task = asyncio.create_task(session.abort_event.wait())
     try:
-        done, _pending = await asyncio.wait({wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+        timeout_sec = (
+            float(NEMO_SUBPROCESS_TIMEOUT_SEC)
+            if NEMO_SUBPROCESS_TIMEOUT_SEC and NEMO_SUBPROCESS_TIMEOUT_SEC > 0
+            else None
+        )
+        if timeout_sec is not None:
+            done, _pending = await asyncio.wait(
+                {wait_task, abort_task},
+                timeout=timeout_sec,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                await _emit_project_review_chunk(sid, '\n[workspace pytest timed out]\n')
+                await _terminate_process(proc)
+                await wait_task
+                exit_code = proc.returncode
+                replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+                await _emit_project_review_tool_complete(
+                    sid,
+                    stream_tag=_PYTEST_STREAM_TAG,
+                    label=_PYTEST_STREAM_LABEL,
+                    exit_code=exit_code,
+                    output_excerpt=replay,
+                )
+                return _build_pytest_result(
+                    exit_code=exit_code,
+                    project_root_label=project_root_label,
+                    python_executable=python_executable,
+                    stdout_chunks=stdout_chunks,
+                    stderr_chunks=stderr_chunks,
+                )
+        else:
+            done, _pending = await asyncio.wait({wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
         if wait_task in done:
             exit_code = await wait_task
         elif abort_task in done and session.abort_event.is_set():
@@ -624,8 +665,9 @@ def reject_project_review(feedback: str) -> str:
 def project_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
     tools: list[object] = [
         list_workspace_directory,
-        read_workspace_file,
+        retrieve_workspace_semantic,
         search_workspace,
+        read_workspace_file,
         lsp_get_diagnostics,
         lsp_hover,
         lsp_find_definition,
@@ -636,6 +678,10 @@ def project_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
         install_python_requirements_file_tool,
         freeze_python_requirements_tool,
         write_frozen_python_requirements_file_tool,
+        install_npm_packages_tool,
+        remove_npm_packages_tool,
+        npm_install_project_tool,
+        run_npm_script_tool,
         run_workspace_python_smoke_test,
         run_workspace_pytest_tests,
         approve_project_review,

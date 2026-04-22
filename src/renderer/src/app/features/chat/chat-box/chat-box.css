@@ -324,6 +324,26 @@ app-chat-box .streaming-plain {
   color: var(--t-secondary);
 }
 
+app-chat-box .streaming-primary-live {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+  word-break: break-word;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+app-chat-box .streaming-live-pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.9em;
+  color: var(--t-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 app-chat-box .streaming-delegated {
   margin-bottom: 0.5rem;
   display: flex;
@@ -534,7 +554,7 @@ app-chat-box .processing-bubble {
   margin-top: 0.15rem;
 }
 
-app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-delegated)):not(:has(.tool-trail-live)) .processing-bubble {
+app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(.tool-trail-live)) .processing-bubble {
   border-top: none;
   margin-top: 0;
   padding-top: 0;
@@ -595,6 +615,50 @@ app-chat-box .processing-text {
 app-chat-box .empty-state {
   color: var(--t-text-muted);
   font-size: 0.85rem;
+}
+
+/* Auxiliary reasoning stream (distinct from tool delegated blocks). */
+app-chat-box .llm-moe-panel {
+  margin-top: 0.15rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--t-assistant-bg) 88%, var(--t-primary) 12%);
+  padding: 0.35rem 0.5rem 0.5rem;
+  max-width: 100%;
+}
+
+app-chat-box .llm-moe-panel--live {
+  border-style: dashed;
+}
+
+app-chat-box .llm-moe-summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t-secondary);
+  list-style: none;
+}
+
+app-chat-box .llm-moe-summary::-webkit-details-marker {
+  display: none;
+}
+
+app-chat-box .llm-moe-body {
+  margin: 0.4rem 0 0;
+  padding: 0.45rem 0.5rem;
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--t-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--t-bg) 75%, transparent);
+  border: 1px solid var(--t-border-subtle);
 }
 
 /* --- Diff message bubbles --- */

@@ -5,6 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AcceptCommandPayload,
+  AppConfig,
   CopyConfirmPayload,
   DeleteConfirmPayload,
   FileDiffPayload,
@@ -12,6 +13,7 @@ import type {
   HealthMetricsSnapshot,
   PlannerProgress,
   TtsStreamPacket,
+  WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
 } from '../shared';
 
@@ -82,6 +84,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     copyRequestId?: string,
     acceptCommandAction?: 'confirm' | 'cancel',
     acceptCommandRequestId?: string,
+    stagedTransferAction?: 'confirm' | 're_review',
   ) => ipcRenderer.invoke(
     'agent-continue',
     conversationId,
@@ -92,6 +95,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     copyRequestId,
     acceptCommandAction,
     acceptCommandRequestId,
+    stagedTransferAction,
   ),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
@@ -122,10 +126,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
   readDirectory: (dirPath: string) => ipcRenderer.invoke('read-directory', dirPath),
   readDirectoryRecursive: (dirPath: string) => ipcRenderer.invoke('read-directory-recursive', dirPath),
-  setWorkspaceContext: (sessionId: string, workspacePath: string, workspaceContext: string) =>
-    ipcRenderer.invoke('set-workspace-context', sessionId, workspacePath, workspaceContext),
+  setWorkspaceContext: (
+    sessionId: string,
+    workspacePath: string,
+    workspaceContext: string,
+    extras?: WorkspaceContextSyncExtras,
+  ) => ipcRenderer.invoke('set-workspace-context', sessionId, workspacePath, workspaceContext, extras),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
+  llamaServerStart: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llama-server:start', payload),
+  llamaServerStop: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llama-server:stop', payload),
+  llamaServerStatus: (payload: { modelId: string; config: AppConfig }) =>
+    ipcRenderer.invoke('llama-server:status', payload),
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
   addWorkspace: (name: string, p: string) => ipcRenderer.invoke('add-workspace', name, p),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),
@@ -157,7 +169,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendScriptInput: (processId: string, input: string) => ipcRenderer.invoke('send-script-input', processId, input),
   endScript: (processId: string) => ipcRenderer.invoke('end-script', processId),
   onScriptOutput: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-output', callback),
-    onScriptComplete: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-complete', callback),
+  onScriptComplete: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-complete', callback),
+  workspacePtySpawn: (cwd: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('workspace-pty-spawn', cwd, cols, rows),
+  workspacePtyWrite: (sessionId: string, data: string) => ipcRenderer.invoke('workspace-pty-write', sessionId, data),
+  workspacePtyResize: (sessionId: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('workspace-pty-resize', sessionId, cols, rows),
+  workspacePtyKill: (sessionId: string) => ipcRenderer.invoke('workspace-pty-kill', sessionId),
+  workspacePtyKillAll: () => ipcRenderer.invoke('workspace-pty-kill-all'),
+  onWorkspacePtyData: (
+    callback: (event: unknown, data: { sessionId: string; data: string }) => void,
+  ) => ipcRenderer.on('workspace-pty-data', callback),
+  onWorkspacePtyExit: (
+    callback: (
+      event: unknown,
+      data: { sessionId: string; exitCode: number; signal: number | null },
+    ) => void,
+  ) => ipcRenderer.on('workspace-pty-exit', callback),
+  onLlamaServerOutput: (callback: (event: unknown, data: unknown) => void) =>
+    ipcRenderer.on('llama-server-output', callback),
+  onLlamaServerProcessExit: (callback: (event: unknown, data: unknown) => void) =>
+    ipcRenderer.on('llama-server-process-exit', callback),
+  onLlamaServerLifecycle: (callback: (event: unknown, data: unknown) => void) =>
+    ipcRenderer.on('llama-server-lifecycle', callback),
   healthMetrics: () => ipcRenderer.invoke('health-metrics') as Promise<HealthMetricsSnapshot>,
   healthLogsRecent: (limit: number) =>
     ipcRenderer.invoke('health-logs-recent', limit) as Promise<{ records: HealthLogRecord[] }>,
@@ -168,4 +202,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('health-log-record', callback),
   openHealthWindow: () => ipcRenderer.send('open-health-window'),
   closeHealthWindow: () => ipcRenderer.send('close-health-window'),
+  popupFileMenu: (x: number, y: number) => ipcRenderer.invoke('popup-file-menu', x, y),
+  popupHelpMenu: (x: number, y: number) => ipcRenderer.invoke('popup-help-menu', x, y),
+  windowMinimize: () => ipcRenderer.send('window-minimize'),
+  windowToggleMaximize: () => ipcRenderer.send('window-toggle-maximize'),
+  windowClose: () => ipcRenderer.send('window-close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized') as Promise<boolean>,
+  onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => {
+    ipcRenderer.on('window-maximized-changed', (_event, maximized: boolean) => callback(maximized));
+  },
 });

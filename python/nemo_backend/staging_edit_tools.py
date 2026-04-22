@@ -1,8 +1,7 @@
-"""Dedicated staging tools for create/update specialists in the nested planning pipeline.
+"""Dedicated staging tools for create/update specialists and the outer agent when Editor is on.
 
-Code-review extensions (see :func:`nemo_backend.edit_staging.is_code_review_extension`) are staged under
-``NEMO_STAGING_DIR`` for review before workspace update. Non-code paths are rejected here; use outer or
-coding-planner workspace edit tools for those files.
+All supported text paths are staged under ``NEMO_STAGING_DIR`` before the workspace updates. The on-disk workspace
+stays the checkpoint until ``transfer_staged_file_to_workspace`` (or auto-apply) lands the draft.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from langchain_core.tools import tool
 from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.edit_tool import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
-from nemo_backend.lsp.file_policy import is_lsp_managed_path
+from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.partial_workspace_edit import merge_partial_edit
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
@@ -41,6 +40,7 @@ __all__ = [
     'stage_workspace_file_overwrite',
     'stage_line_range_edit',
     'stage_snippet_edit',
+    'STAGING_TOOLS',
     'STAGE_CREATE_FILE_NAME',
     'STAGE_WORKSPACE_FILE_OVERWRITE_NAME',
     'STAGE_LINE_RANGE_EDIT_NAME',
@@ -67,6 +67,7 @@ def _staging_edit_preamble(
 
     session = get_session(session_id)
     session.pending_diff_payload = None
+    session.pending_staged_transfer_hitl = None
 
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
@@ -101,14 +102,8 @@ def _staging_after_merge(
     *,
     staging_seed_text: str | None = None,
 ) -> str:
-    """Write merged content to staging dir for code-review paths; reject non-code (use outer edit tools)."""
+    """Write merged content to staging (all path kinds use the same staging → review → transfer flow)."""
     session_id = current_session_id.get()
-    if session_id and not _edit_staging.is_code_review_extension(rel_display):
-        return (
-            'Tool error: nested mutation staging applies only to code-review file extensions (e.g. .py, .ts, .js). '
-            'For non-code files use `apply_workspace_full_file`, `replace_workspace_line_range`, or '
-            '`replace_workspace_snippet` from the outer agent or coding planner (non-code paths only).'
-        )
     if not session_id:
         return _finalize_workspace_edit(
             session,
@@ -151,11 +146,13 @@ def _staging_after_merge(
     if is_lsp_managed_path(rel_display):
         try:
             diagnostics = sync_session_document(rel_display, merged_out, session_id=session_id, scope='staging')
-            logger.info('python LSP sync path=%s diagnostics=%s', rel_display, len(diagnostics))
-            diagnostics_note = f' Python LSP diagnostics: {len(diagnostics)} issue(s).'
+            ls_label = lsp_server_for_path(rel_display) or 'lsp'
+            logger.info('%s LSP sync path=%s diagnostics=%s', ls_label, rel_display, len(diagnostics))
+            diagnostics_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
         except Exception as exc:
-            logger.warning('python LSP sync failed path=%s err=%s', rel_display, exc)
-            diagnostics_note = f' Python LSP sync failed: {exc}.'
+            ls_label = lsp_server_for_path(rel_display) or 'lsp'
+            logger.warning('%s LSP sync failed path=%s err=%s', ls_label, rel_display, exc)
+            diagnostics_note = f' {ls_label} LSP sync failed: {exc}.'
 
     session.pending_edit_stagings[rel_display] = EditStagingEntry(
         temp_path=str(temp_path),
@@ -166,11 +163,14 @@ def _staging_after_merge(
         edit_mode=mode,
         workspace_applied=False,
     )
-    logger.info('staged for code review path=%s', rel_display)
+    logger.info('staged for review path=%s', rel_display)
     action = 'Updated staged draft' if had_prior_staging else 'Staged'
     return (
-        f'{action} `{rel_display}` for code review (nested planning). The workspace file is not updated yet. '
-        f'Tell the router to call `route_code_review_specialist` with the path and task context before finishing.'
+        f'{action} `{rel_display}` for review. The workspace file on disk is **unchanged** until '
+        f'`transfer_staged_file_to_workspace` succeeds. Inspect the draft with `diff_staged_edit_against_baseline` '
+        f'and/or `read_staged_edit` (not `read_workspace_file` for new staged content). **Next:** review then call '
+        f'`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit` yourself; '
+        f'in nested mutation flows, the router should call `route_code_review_specialist` with the path and task context.'
         f'{diagnostics_note}'
     )
 
@@ -244,10 +244,7 @@ def stage_create_file(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Use for new code-review-extension files or full-file rewrites in the nested mutation pipeline.
-
-    Paths are staged for code review before the workspace updates. Non-code paths are rejected—use outer/planner
-    workspace edit tools instead.
+    """Use for new files or full-file rewrites; content is staged before the workspace updates.
 
     Parent directories are created when the change is applied after review transfer.
 
@@ -255,7 +252,7 @@ def stage_create_file(
     latin-1, cp1252, ascii, mac-roman.
     `newline` is `lf`, `crlf`, or `preserve` (match existing file endings; new files default to LF).
 
-    Relative paths only (e.g. src/app.ts)."""
+    Relative paths only (e.g. src/app.ts, docs/readme.md)."""
 
     return _run_staging_tool(
         relative_path, encoding, newline,
@@ -274,8 +271,7 @@ def stage_workspace_file_overwrite(
     """Use when the file already exists in the workspace (or a staged draft exists) and you have the full revised contents.
 
     Copies the current workspace file into staging, then overwrites the staged file with `new_content`.
-    If the target does not exist yet, use `stage_create_file` instead. Only code-review extensions; non-code paths
-    are rejected (use outer/planner edit tools).
+    If the target does not exist yet, use `stage_create_file` instead.
 
     `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
     latin-1, cp1252, ascii, mac-roman.
@@ -334,7 +330,7 @@ def stage_line_range_edit(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Replace an inclusive block of lines (1-based) with `new_snippet`; the result is staged for code review.
+    """Replace an inclusive block of lines (1-based) with `new_snippet`; the merged result is staged for review.
 
     Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
 
@@ -342,8 +338,6 @@ def stage_line_range_edit(
     Use `stage_create_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after the
     last line, and `1,1` can seed an empty file.
     See `stage_create_file` for `encoding` and `newline`.
-
-    Code-review extensions only; non-code paths are rejected (use outer/planner edit tools).
 
     Relative paths only."""
 
@@ -367,14 +361,12 @@ def stage_snippet_edit(
     encoding: str = '',
     newline: str = '',
 ) -> str:
-    """Search-replace: find `old_snippet` once and replace with `new_snippet`; the result is staged for code review.
+    """Search-replace: find `old_snippet` once and replace with `new_snippet`; the merged result is staged for review.
 
     Include enough context that the match is unique. Do not paste line-number gutters from `read_workspace_file`
     output into `old_snippet`; use line-range replace instead.
     See `stage_create_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
-
-    Code-review extensions only; non-code paths are rejected (use outer/planner edit tools).
 
     Relative paths only."""
 

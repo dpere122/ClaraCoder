@@ -4,7 +4,21 @@
  */
 export type { Workspace } from './types/workspace';
 export type {
+  LlamaServerLifecycleEvent,
+  LlamaServerOutputEvent,
+  LlamaServerProcessExitEvent,
+  LlamaServerStartResult,
+  LlamaServerStatusPayload,
+  LlamaServerStatusResult,
+  LlamaServerStreamKind,
+  ManagedServerHealthState,
+} from './types/llama-server-ipc';
+export type {
+  LlamaCppManaged,
+  LlamaManagedRuntimeEndpoints,
   LlmConnectionConfig,
+  LlmModelProfile,
+  LlmProviderConfig,
   LlmOptimizationPreset,
   GemmaArchitectureHint,
   GemmaSamplingPreset,
@@ -14,6 +28,25 @@ export type {
   WorkspaceToolsConfig,
   HealthMonitorConfig,
 } from './types/app-config';
+export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
+export {
+  argvToShellCommandLine,
+  buildLlamaServerArgv,
+  defaultLlamaCppManaged,
+  detectShellQuotingPlatform,
+  isLegacyLlamaCppManagedShape,
+  migrateLegacyLlamaCppManagedToCommands,
+  parseHostFromLlamaCommand,
+  prepareManagedLlamaShellCommand,
+  shellQuoteArg,
+} from './llama-cpp-managed';
+export {
+  countLlmModels,
+  findLlmModelLocation,
+  flattenLlmProvidersToConnections,
+  mergeLlmProviderModel,
+  resolveActiveLlmConnection,
+} from './llm-providers';
 export type { LlmOptimizationPresetMeta } from './types/llm-presets';
 export {
   LLM_OPTIMIZATION_PRESET_LIST,
@@ -23,6 +56,15 @@ export {
   QWEN_PRESET_DEFAULTS,
 } from './types/llm-presets';
 export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
+export {
+  collapseExcessiveAssistantBlankLines,
+  gemmaTemplateSanitizeActive,
+  isPlaceholderThinkingNoise,
+  sanitizeGemmaVisibleAssistantText,
+  stripAssistantChannelNoise,
+  stripLlmControlMarkers,
+  stripPseudoToolCallXml,
+} from './llm-visible-text';
 export type {
   ChatStructuredContentPart,
   ConversationMeta,
@@ -36,14 +78,21 @@ export type {
 } from './types/conversation';
 export {
   CLARA_OUTER_BRIEF_STREAM_TAG,
+  MOE_AUXILIARY_STREAM_TAG,
   delegatedStreamPartsForDisplay,
+  emptyPrimaryAssistantFallbackMessage,
   isClaraOuterBriefStreamTag,
+  isMoeAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
   joinAllStreamPartTexts,
+  joinPrimaryAssistantStreamText,
+  moeStreamPartsForDisplay,
+  otherDelegatedStreamPartsForDisplay,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
   SHELL_STYLE_TOOL_STREAM_TAGS,
+  shellDelegatedStreamPartsForDisplay,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
@@ -73,5 +122,7 @@ export type {
   WorkspaceChangeKind,
   WorkspaceFilesChangedPayload,
   WorkspaceChangeRecord,
+  WorkspaceContextSyncExtras,
+  WorkspaceFileChangesForSync,
 } from './types/workspace-context';
 export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';

@@ -16,6 +16,7 @@ def prepare_new_planner_graph_session(session: SessionState, session_id: str) ->
     if session.test_run_materializations:
         rollback_test_run_materializations(session)
     session.pending_diff_payload = None
+    session.pending_staged_transfer_hitl = None
     session.pending_delete_request = None
     session.pending_copy_request = None
     session.pending_accept_command_request = None
@@ -24,6 +25,7 @@ def prepare_new_planner_graph_session(session: SessionState, session_id: str) ->
     session.plan_and_modify_outer_briefs.clear()
     session.lsp_diagnostics.clear()
     session.lsp_workspace_root = ''
+    session.typescript_lsp_resolved_root = ''
     session.lsp_active_scope = 'workspace'
 
     workspace_root = Path(session.workspace_path).resolve()
@@ -44,4 +46,5 @@ def cleanup_planner_graph_session(session: SessionState, session_id: str) -> Non
     session.pending_project_review_reentry = None
     session.lsp_diagnostics.clear()
     session.lsp_workspace_root = ''
+    session.typescript_lsp_resolved_root = ''
     session.lsp_active_scope = 'workspace'

@@ -6,12 +6,16 @@ pipeline. When the planner is disabled, delegates directly to ``run_planning_nes
 
 ``execute_workspace_mutation``: always delegates to ``run_planning_nested_stream`` (no coding planner), for single
 focused mutations with the same staging and code-review behavior.
+
+``disable_coding_planner_for_plan_and_modify=True``: ``plan_and_modify`` delegates only to
+``run_planning_nested_stream`` so the coding planner graph is never invoked on that path.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -25,7 +29,13 @@ from nemo_backend.agents.coding_planner.pipeline import run_coding_planner_orche
 from nemo_backend.agents.orchestration.nested_pipeline import NESTED_WORKER_STREAM_END, run_planning_nested_stream
 from nemo_backend.config import NEMO_CODING_PLANNER_ENABLED, NEMO_WORKER_RESULT_MAX_CHARS
 from nemo_backend.planner_graph_session import prepare_new_planner_graph_session
-from nemo_backend.state import current_session_id, get_active_connection, get_session, mutation_tools_blocked_reason
+from nemo_backend.state import (
+    current_session_id,
+    get_active_connection,
+    get_session,
+    mutation_tools_blocked_reason,
+    runtime_config,
+)
 from nemo_backend.agents.planning.tool import NESTED_OUTER_MUTATION_TOOL_NAMES, PLAN_AND_MODIFY_NAME
 
 logger = logging.getLogger('nemo.agent.langgraph.planning')
@@ -53,9 +63,25 @@ def _append_plan_and_modify_outer_briefs(sess: Any, content: str) -> str:
     )
 
 
-def _tool_message(content: str, *, tool_call_id: str, name: str) -> ToolMessage:
+def _nested_delegation_outer_header(run_id: str) -> str:
+    return (
+        f'[Nested delegation result · run={run_id}]\n'
+        'Graph: nested mutation pipeline (LangGraph threads separate from outer Clara).\n'
+        'Tool names in the body refer to nested specialists—the outer agent list may differ.\n'
+        '---\n'
+    )
+
+
+def _tool_message_nested_result(
+    body: str,
+    *,
+    run_id: str,
+    tool_call_id: str,
+    name: str,
+) -> ToolMessage:
+    truncated = _truncate_for_outer_agent(body)
     return ToolMessage(
-        content=_truncate_for_outer_agent(content),
+        content=_nested_delegation_outer_header(run_id) + truncated,
         tool_call_id=tool_call_id,
         name=name,
     )
@@ -63,6 +89,7 @@ def _tool_message(content: str, *, tool_call_id: str, name: str) -> ToolMessage:
 
 def _clear_pending_hitl_requests(sess: Any) -> None:
     sess.pending_diff_payload = None
+    sess.pending_staged_transfer_hitl = None
     sess.pending_delete_request = None
     sess.pending_copy_request = None
     sess.pending_accept_command_request = None
@@ -97,8 +124,14 @@ async def _wait_for_nested_terminal_signal(sess: Any, done_ev: asyncio.Event) ->
 class PlanningNestedWorkerMiddleware(AgentMiddleware):
     """Runs the nested router + specialists graph and enqueues its stream for the outer agent SSE pump."""
 
-    def __init__(self, checkpointer: Any) -> None:
+    def __init__(
+        self,
+        checkpointer: Any,
+        *,
+        disable_coding_planner_for_plan_and_modify: bool = False,
+    ) -> None:
         self._checkpointer = checkpointer
+        self._disable_coding_planner_for_plan_and_modify = disable_coding_planner_for_plan_and_modify
 
     async def _run_nested_attempt(
         self,
@@ -115,6 +148,9 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
         try:
             try:
                 prepare_new_planner_graph_session(sess, session_id)
+                sess.nested_turn_apply_mode = True
+                sess.nested_turn_auto_apply_mode = bool(sess.auto_apply_mode)
+                sess.nested_turn_orchestrated_mode = bool(runtime_config.tools.orchestrated_mode)
                 if route_via_coding_planner and NEMO_CODING_PLANNER_ENABLED:
                     logger.info(
                         'plan_and_modify intercepted — routing through coding planner '
@@ -138,7 +174,7 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
                     )
                 else:
                     logger.info(
-                        'execute_workspace_mutation intercepted — nested router only (coding planner skipped)',
+                        'Nested mutation tool intercepted — routing to planning router only (coding planner skipped)',
                     )
                     raw_final = await run_planning_nested_stream(
                         sess,
@@ -174,6 +210,9 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
             )
         finally:
             sess.planning_nested_done_event = None
+            sess.nested_turn_apply_mode = None
+            sess.nested_turn_auto_apply_mode = None
+            sess.nested_turn_orchestrated_mode = None
 
     async def awrap_tool_call(
         self,
@@ -213,7 +252,9 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
         args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
         task_summary = (args.get('task_summary') or '').strip() or '(empty task summary)'
         retry_budget = normalize_retry_budget(get_active_connection().plan_retry_attempts_count)
-        route_via_coding_planner = name == PLAN_AND_MODIFY_NAME
+        route_via_coding_planner = (
+            name == PLAN_AND_MODIFY_NAME and not self._disable_coding_planner_for_plan_and_modify
+        )
         result = await self._run_nested_attempt(
             sess=sess,
             session_id=session_id,
@@ -222,8 +263,10 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
             retry_budget=retry_budget,
             route_via_coding_planner=route_via_coding_planner,
         )
-        return _tool_message(
+        run_id = uuid.uuid4().hex[:12]
+        return _tool_message_nested_result(
             _append_plan_and_modify_outer_briefs(sess, result.output_text),
+            run_id=run_id,
             tool_call_id=tool_call_id,
             name=name,
         )

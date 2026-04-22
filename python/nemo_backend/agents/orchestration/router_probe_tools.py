@@ -20,8 +20,9 @@ def _split_relative_paths(raw: str) -> list[str]:
 def workspace_path_status(relative_paths: str) -> str:
     """Check whether workspace paths exist and if each is a file or directory. Does not return file contents.
 
-    Pass workspace-relative paths, one per line or comma-separated. Use only when Operation/Existence in the task
-    are missing or contradictory—not for browsing.
+    Pass workspace-relative paths (only those already listed under **Paths** in the handoff), one per line or
+    comma-separated. Use to disambiguate **create** vs **update** when **Existence** is missing, contradicts
+    **Operation**, or is too vague—not for browsing or exploration.
     """
     root = get_active_workspace_root()
     paths = _split_relative_paths(relative_paths)

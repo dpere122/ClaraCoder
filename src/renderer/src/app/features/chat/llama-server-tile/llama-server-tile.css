@@ -1,0 +1,97 @@
+app-llama-server-tile {
+  display: block;
+}
+
+.llama-tile {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.65rem 0.55rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 6px;
+  background: var(--bs-body-bg);
+  max-width: 100%;
+  min-height: 11rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.llama-tile__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-secondary-color);
+}
+
+.llama-tile__status {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+}
+
+.llama-tile__lbl {
+  color: var(--bs-secondary-color);
+}
+
+.llama-tile__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.llama-tile__dot--ok {
+  background: var(--bs-success);
+}
+
+.llama-tile__dot--loading {
+  background: var(--bs-warning);
+}
+
+.llama-tile__dot--off {
+  background: var(--bs-secondary);
+}
+
+.llama-tile__dot--err {
+  background: var(--bs-danger);
+}
+
+.llama-tile__ports {
+  font-size: 0.68rem;
+  color: var(--bs-secondary-color);
+  margin: 0;
+}
+
+.llama-tile__hint {
+  font-size: 0.68rem;
+  color: var(--bs-secondary-color);
+  margin: 0;
+}
+
+.llama-tile__err {
+  font-size: 0.68rem;
+  color: var(--bs-danger);
+  margin: 0;
+}
+
+.llama-tile__actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+
+.llama-tile__actions .btn {
+  width: 100%;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.35rem;
+}
+
+app-llama-crystal-view {
+  display: block;
+  flex: 1;
+  min-height: 5.5rem;
+}

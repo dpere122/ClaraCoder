@@ -10,6 +10,12 @@ from typing import Any
 from langchain_core.messages import AIMessageChunk, BaseMessageChunk
 
 from nemo_backend.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STATUS_LINE, TEXT_CHUNK_WORDS
+from nemo_backend.llm_visible_text import (
+    is_placeholder_stream_delta,
+    is_placeholder_thinking_noise,
+    scrub_gemma_pipe_tags_fragment,
+    strip_pseudo_tool_call_xml,
+)
 from nemo_backend.tool_registry import WORKSPACE_READ_TOOL_NAMES
 from nemo_backend.workspace_tools import truncate_text
 
@@ -78,17 +84,21 @@ def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
     if not isinstance(chunk, AIMessageChunk):
         return ''
     text = getattr(chunk, 'text', None)
-    if isinstance(text, str) and text:
-        return text
     content = getattr(chunk, 'content', None)
-    if isinstance(content, str) and content:
-        return content
-    if isinstance(content, list):
+    raw = ''
+    if isinstance(text, str) and text:
+        raw = text
+    elif isinstance(content, str) and content:
+        raw = content
+    elif isinstance(content, list):
         parts: list[str] = []
         for block in content:
             if isinstance(block, str):
                 parts.append(block)
             elif isinstance(block, dict):
+                btype = str(block.get('type') or '').strip().lower()
+                if btype in ('tool_use', 'tool_call', 'function'):
+                    continue
                 t = block.get('text')
                 if isinstance(t, str):
                     parts.append(t)
@@ -96,7 +106,36 @@ def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
                     c = block.get('content')
                     if isinstance(c, str):
                         parts.append(c)
-        return ''.join(parts)
+        raw = ''.join(parts)
+    raw = scrub_gemma_pipe_tags_fragment(strip_pseudo_tool_call_xml(raw))
+    if is_placeholder_stream_delta(raw) or is_placeholder_thinking_noise(raw):
+        return ''
+    return raw
+
+
+def aimessage_chunk_reasoning_delta(chunk: BaseMessageChunk) -> str:
+    """Extract per-chunk reasoning / auxiliary text (OpenAI ``reasoning_content``, etc.)."""
+    if not isinstance(chunk, AIMessageChunk):
+        return ''
+    r = getattr(chunk, 'reasoning', None)
+    if isinstance(r, str) and r:
+        if is_placeholder_stream_delta(r) or is_placeholder_thinking_noise(r):
+            return ''
+        return r
+    ak = getattr(chunk, 'additional_kwargs', None) or {}
+    for key in ('reasoning_content', 'reasoning'):
+        val = ak.get(key)
+        if isinstance(val, str) and val:
+            if is_placeholder_stream_delta(val) or is_placeholder_thinking_noise(val):
+                return ''
+            return val
+        if isinstance(val, dict):
+            for sub in ('summary', 'text', 'content'):
+                s = val.get(sub)
+                if isinstance(s, str) and s:
+                    if is_placeholder_stream_delta(s) or is_placeholder_thinking_noise(s):
+                        return ''
+                    return s
     return ''
 
 

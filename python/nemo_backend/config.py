@@ -73,7 +73,7 @@ NEMO_PLANNER_COMPLEXITY_KEYWORD_WEIGHT = _env_int('NEMO_PLANNER_COMPLEXITY_KEYWO
 NEMO_PLANNER_COMPLEXITY_MAX_SCORE = _env_int('NEMO_PLANNER_COMPLEXITY_MAX_SCORE', 10, 2, 20)
 NEMO_PLANNER_MAX_STEP_TEXT_CHARS = _env_int('NEMO_PLANNER_MAX_STEP_TEXT_CHARS', 160, 40, 500)
 NEMO_PLANNER_FORCE_DISCOVERY_SCORE = _env_int('NEMO_PLANNER_FORCE_DISCOVERY_SCORE', 4, 1, 20)
-# When True, initial `record_plan` must follow at least one planner discovery tool if the task mentions a programming path.
+# When True, structured build-plan generation must follow discovery-tool usage when the task mentions a programming path.
 NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS = _env_bool('NEMO_PLANNER_REQUIRE_DISCOVERY_FOR_CODE_PATHS', True)
 NEMO_PLANNER_REFLECTION_RETRIES = _env_int('NEMO_PLANNER_REFLECTION_RETRIES', 2, 0, 10)
 # When True, a short LLM plan probe may route `plan_and_modify` to a fast path (sequential nested steps + final review)
@@ -85,6 +85,20 @@ NEMO_PLAN_FAST_PATH_MAX_STEPS = _env_int('NEMO_PLAN_FAST_PATH_MAX_STEPS', 3, 1, 
 NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS = _env_int(
     'NEMO_PLAN_SKIP_PROBE_MIN_COMPLEXITY_MAX_STEPS', 4, 1, 20
 )
+# Recursion limit for the bounded discovery mini-agent (read/search/LSP only) before build-plan generation.
+NEMO_PLANNER_DISCOVERY_RECURSION_LIMIT = _env_int('NEMO_PLANNER_DISCOVERY_RECURSION_LIMIT', 24, 4, 80)
+
+# ---------------------------------------------------------------------------
+# Subprocess / verification (pytest, npm, etc.)
+# ---------------------------------------------------------------------------
+# Wall-clock cap for ``asyncio.subprocess.Process.communicate()`` in shared helpers; 0 disables the timeout.
+try:
+    NEMO_SUBPROCESS_TIMEOUT_SEC = max(
+        0,
+        min(int(os.getenv('NEMO_SUBPROCESS_TIMEOUT_SEC', '900').strip() or '900'), 86_400),
+    )
+except ValueError:
+    NEMO_SUBPROCESS_TIMEOUT_SEC = 900
 
 # ---------------------------------------------------------------------------
 # Agent loop limits
@@ -103,6 +117,22 @@ MAX_AGENT_EMPTY_NUDGES = 2
 # ---------------------------------------------------------------------------
 MAX_FILE_READ_LINES = 400
 MAX_SEARCH_RESULTS = 40
+
+# Workspace semantic index (LlamaIndex under ``.nemo/llama_index``).
+# ``NEMO_EMBEDDINGS_MODEL`` = OpenAI-compatible embeddings model id (not the chat model).
+# ``NEMO_EMBEDDINGS_BASE_URL`` / ``NEMO_EMBEDDINGS_API_KEY`` = optional separate embeddings endpoint (e.g. second ``llama-server``).
+NEMO_LLAMA_INDEX_MAX_FILES = _env_int('NEMO_LLAMA_INDEX_MAX_FILES', 8000, 50, 100_000)
+try:
+    NEMO_LLAMA_INDEX_MAX_FILE_BYTES = max(
+        4096,
+        min(int(os.getenv('NEMO_LLAMA_INDEX_MAX_FILE_BYTES', '512000').strip() or '512000'), 5_000_000),
+    )
+except ValueError:
+    NEMO_LLAMA_INDEX_MAX_FILE_BYTES = 512_000
+NEMO_EMBEDDINGS_MODEL = (os.getenv('NEMO_EMBEDDINGS_MODEL', '') or 'text-embedding-3-small').strip()
+# Optional: OpenAI-compatible embeddings endpoint separate from the active chat connection (e.g. second ``llama-server`` on another port).
+NEMO_EMBEDDINGS_BASE_URL = (os.getenv('NEMO_EMBEDDINGS_BASE_URL', '') or '').strip()
+NEMO_EMBEDDINGS_API_KEY = (os.getenv('NEMO_EMBEDDINGS_API_KEY', '') or '').strip()
 
 # Seeds :attr:`~nemo_backend.state.runtime_config` before the first ``POST /runtime-config``; overridden by Settings → Tools.
 NEMO_EDIT_TOOLS_STRICT = _env_bool('NEMO_EDIT_TOOLS_STRICT', False)
@@ -150,8 +180,10 @@ except ValueError:
 # Default URLs and model names (overridable via env)
 # ---------------------------------------------------------------------------
 DEFAULT_LM_STUDIO_BASE_URL = os.getenv('LM_STUDIO_BASE_URL', 'http://127.0.0.1:1234/v1').strip()
+DEFAULT_LLAMACPP_BASE_URL = os.getenv('LLAMACPP_BASE_URL', 'http://127.0.0.1:8080/v1').strip()
 DEFAULT_OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', '').strip()
 DEFAULT_OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 DEFAULT_LM_STUDIO_MODEL = os.getenv('LM_STUDIO_MODEL', 'local-model')
+DEFAULT_LLAMACPP_MODEL = os.getenv('LLAMACPP_MODEL', 'local-model')
 DEFAULT_TRANSCRIBE_MODEL = os.getenv('NEMO_TRANSCRIBE_MODEL', 'gpt-4o-mini-transcribe')
 PLAN_RETRY_ATTEMPTS_COUNT = _env_int('PLAN_RETRY_ATTEMPTS_COUNT', 2, 0, 20)

@@ -17,11 +17,12 @@ import {
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { ConversationMessage, PlannerProgress, StreamPart } from '@shared/index';
 import {
-  delegatedStreamPartsForDisplay,
   isClaraOuterBriefStreamTag,
-  isShellStyleToolStreamTag,
+  joinPrimaryAssistantStreamText,
+  moeStreamPartsForDisplay,
+  otherDelegatedStreamPartsForDisplay,
   primaryStreamPartsForDisplay,
-  streamPlainOneLine,
+  shellDelegatedStreamPartsForDisplay,
 } from '@shared/index';
 import { AcceptCommandComponent } from '../../diff/accept-command/accept-command';
 import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
@@ -143,15 +144,28 @@ function isClaraOnlyToolChainGroup(group: ToolChainGroup): boolean {
   );
 }
 
-/** Nested tool/clara rows stay hidden until the planner checklist exists, unless there is no planner UI at all. */
+/**
+ * Coding-planner checklist UX: hide nested `planner` / Clara-brief noise until `planReady`.
+ * Nested router + specialists (`planning`, `spec-*`) are used by `execute_workspace_mutation` and
+ * `execute_plan_step` — they never get a planner checklist, so they must not wait on `planReady`
+ * (otherwise the live tool chain vanishes while the model works).
+ */
 function nestedGroupWaitsForPlanReady(group: ToolChainGroup, planner: PlannerProgress | null): boolean {
   if (!isNestedPlannerChainGroup(group)) {
     return false;
   }
-  if (planner == null && isClaraOnlyToolChainGroup(group)) {
+  if (
+    group.rows.some((row) => {
+      const tag = row.streamTag?.trim() ?? '';
+      return tag === 'planning' || tag.startsWith('spec-');
+    })
+  ) {
     return false;
   }
-  return true;
+  if (planner == null) {
+    return false;
+  }
+  return !planner.planReady;
 }
 
 export function filterLiveToolChainGroups(
@@ -346,20 +360,19 @@ export class ChatBox implements OnDestroy {
     primaryStreamPartsForDisplay(this.streamingParts(), null),
   );
 
-  readonly delegatedStreamParts = computed(() =>
-    delegatedStreamPartsForDisplay(this.streamingParts(), null),
-  );
+  readonly moeStreamParts = computed(() => moeStreamPartsForDisplay(this.streamingParts(), null));
 
   readonly shellDelegatedStreamParts = computed(() =>
-    this.delegatedStreamParts().filter((p) => isShellStyleToolStreamTag(p.streamTag)),
+    shellDelegatedStreamPartsForDisplay(this.streamingParts(), null),
   );
 
   readonly otherDelegatedStreamParts = computed(() =>
-    this.delegatedStreamParts().filter((p) => !isShellStyleToolStreamTag(p.streamTag)),
+    otherDelegatedStreamPartsForDisplay(this.streamingParts(), null),
   );
 
-  readonly primaryStreamPlainDisplay = computed(() =>
-    streamPlainOneLine(this.primaryStreamParts().map((p) => p.text).join('')),
+  /** Live primary stream text with newlines preserved (markdown layout survives tool rounds). */
+  readonly primaryStreamLiveText = computed(() =>
+    joinPrimaryAssistantStreamText(this.streamingParts()),
   );
 
   readonly showStreamingPrimaryCursor = computed(

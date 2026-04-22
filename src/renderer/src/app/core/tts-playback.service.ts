@@ -60,6 +60,7 @@ export class TtsPlaybackService {
     const gen = this.speechGen;
     const clean = text
       .replace(/<details class="llm-reasoning"[\s\S]*?<\/details>/gi, '')
+      .replace(/<details class="llm-moe-panel[^"]*"[\s\S]*?<\/details>/gi, '')
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`[^`]+`/g, '')
       .replace(/#{1,6}\s+/g, '')

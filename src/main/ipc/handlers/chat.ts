@@ -169,6 +169,7 @@ export function registerChatIpc(): void {
       copyRequestId?: string,
       acceptCommandAction?: 'confirm' | 'cancel',
       acceptCommandRequestId?: string,
+      stagedTransferAction?: 'confirm' | 're_review',
     ) => {
     try {
       const res = await fetch(`${PYTHON_URL}/chat/agent-continue`, {
@@ -183,6 +184,7 @@ export function registerChatIpc(): void {
           copy_request_id: copyRequestId ?? '',
           accept_command_action: acceptCommandAction ?? null,
           accept_command_request_id: acceptCommandRequestId ?? '',
+          staged_transfer_action: stagedTransferAction ?? null,
         }),
       });
       if (!res.ok) {

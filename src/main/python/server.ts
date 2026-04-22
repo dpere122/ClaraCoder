@@ -3,7 +3,7 @@ import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
-import { getCheckpointDbPath, getLogsDir, getWorkspaceStagingDir } from '../paths';
+import { getCheckpointDbPath, getLogsDir, getWorkspaceSemanticIndexDir, getWorkspaceStagingDir } from '../paths';
 import { ingestElectronLog } from '../log-ingest';
 
 export { PYTHON_URL, PYTHON_PORT };
@@ -18,8 +18,10 @@ export function startPythonServer(): void {
   const logDir = getLogsDir();
   const stagingDir = getWorkspaceStagingDir();
   const checkpointDb = getCheckpointDbPath();
+  const workspaceSemanticIndexDir = getWorkspaceSemanticIndexDir();
   mkdirSync(logDir, { recursive: true });
   mkdirSync(stagingDir, { recursive: true });
+  mkdirSync(workspaceSemanticIndexDir, { recursive: true });
   mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
   mainState.pythonProcess = spawn(pythonCmd, [scriptPath], {
@@ -29,6 +31,7 @@ export function startPythonServer(): void {
       NEMO_LOG_DIR: logDir,
       NEMO_STAGING_DIR: stagingDir,
       NEMO_CHECKPOINT_DB: checkpointDb,
+      NEMO_WORKSPACE_INDEX_DIR: workspaceSemanticIndexDir,
     },
   });
 

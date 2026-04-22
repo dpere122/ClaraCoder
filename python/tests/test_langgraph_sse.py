@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 from nemo_backend.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
 
@@ -185,3 +185,84 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
     assert len(first) == 1
     assert len(second) == 1
     assert state.partial_stream_text == 'Hello world'
+
+
+def test_chat_model_stream_emits_moe_for_reasoning_chunk() -> None:
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='Hi',
+                    additional_kwargs={'reasoning_content': 'think'},
+                ),
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert len(lines) == 2
+    assert '"delta": "Hi"' in lines[0]
+    assert '"stream_tag": "agent"' in lines[0]
+    assert '"delta": "think"' in lines[1]
+    assert '"stream_tag": "moe"' in lines[1]
+    assert state.moe_emitted_this_step is True
+
+
+def test_chat_model_end_emits_moe_sidecar_when_not_streamed() -> None:
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_start',
+            'data': {'input': []},
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    msg = AIMessage(
+        content='Answer text.',
+        additional_kwargs={'reasoning_content': 'Side reasoning only.'},
+    )
+    lines = sse_lines_for_graph_event(
+        {'event': 'on_chat_model_end', 'data': {'output': msg}},
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert len(lines) == 2
+    assert '"type": "chunk"' in lines[0]
+    assert 'Side reasoning only' in lines[0]
+    assert '"stream_tag": "moe"' in lines[0]
+    assert '"type": "status"' in lines[1]
+
+
+def test_hitl_sse_lines_diff_sentinel_only() -> None:
+    from nemo_backend.agent_langgraph import _hitl_sse_lines
+    from nemo_backend.domain import SessionState
+
+    s = SessionState()
+    s.pending_diff_payload = {'version': 1, 'rows': []}
+    lines = _hitl_sse_lines(s, ('diff',))
+    assert len(lines) == 1
+    assert 'diff' in lines[0]
+    assert s.pending_diff_payload is None
+
+    s2 = SessionState()
+    assert _hitl_sse_lines(s2, ('diff',)) == []
+
+    s3 = SessionState()
+    s3.pending_diff_payload = {'version': 1, 'rows': []}
+    assert _hitl_sse_lines(s3, ('unexpected',)) == []
+    assert s3.pending_diff_payload is not None

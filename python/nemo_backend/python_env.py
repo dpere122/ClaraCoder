@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
 from nemo_backend.domain import SessionState
 from nemo_backend.workspace_tools import truncate_text
 
@@ -120,7 +121,22 @@ async def _run_subprocess_with_output(
         )
     except OSError as exc:
         return None, f'Command failed to start: {exc}'
-    output_bytes, _ = await proc.communicate()
+    try:
+        if NEMO_SUBPROCESS_TIMEOUT_SEC > 0:
+            output_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=NEMO_SUBPROCESS_TIMEOUT_SEC)
+        else:
+            output_bytes, _ = await proc.communicate()
+    except asyncio.TimeoutError:
+        logger.warning('Subprocess timed out after %ss: %s', NEMO_SUBPROCESS_TIMEOUT_SEC, rendered_cmd)
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except (ProcessLookupError, asyncio.TimeoutError):
+            pass
+        return None, f'Command timed out after {NEMO_SUBPROCESS_TIMEOUT_SEC}s: {rendered_cmd}'
     output = output_bytes.decode('utf-8', errors='replace') if output_bytes else ''
     if output and emit_chunk is not None:
         await emit_chunk(output)

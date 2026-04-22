@@ -81,11 +81,13 @@ async function syncWatchedWorkspaceTree(
       mainState.activeConversationWorkspaceId === watcherState.workspaceId
     ) {
       try {
-        await syncWorkspaceContextToPython(
-          mainState.activeConversationId,
-          watcherState.workspacePath,
-          tree,
-        );
+        await syncWorkspaceContextToPython(mainState.activeConversationId, watcherState.workspacePath, tree, {
+          workspaceId: watcherState.workspaceId,
+          workspaceFileChanges:
+            changePayload && (changePayload.paths.length > 0 || changePayload.kinds.length > 0)
+              ? { paths: [...changePayload.paths], kinds: [...changePayload.kinds] }
+              : undefined,
+        });
       } catch (err) {
         console.error('Failed to sync watched workspace context:', err);
       }
@@ -306,7 +308,7 @@ export async function syncConversationWorkspaceContext(conv: ConversationFile): 
         aw?.workspaceId === workspace.id
           ? aw.lastTree || (await buildWatchedContextSnapshot(workspace.path, stagingPath))
           : await buildWatchedContextSnapshot(workspace.path, stagingPath);
-      await syncWorkspaceContextToPython(conv.id, workspace.path, tree);
+      await syncWorkspaceContextToPython(conv.id, workspace.path, tree, { workspaceId: workspace.id });
       return;
     }
   }

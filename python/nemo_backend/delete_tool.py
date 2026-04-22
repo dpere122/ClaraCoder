@@ -143,7 +143,7 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
                     try:
                         close_session_document(rel, session_id=session_id, scope='workspace')
                     except Exception as exc:
-                        logger.warning('python LSP close failed after delete path=%s err=%s', rel, exc)
+                        logger.warning('LSP close failed after delete path=%s err=%s', rel, exc)
                 edit_staging.delete_snapshot_path(session, rel)
             else:
                 any_fail = True
@@ -160,7 +160,7 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
         try:
             close_session_document(rel, session_id=session_id, scope='workspace')
         except Exception as exc:
-            logger.warning('python LSP close failed after delete path=%s err=%s', rel, exc)
+            logger.warning('LSP close failed after delete path=%s err=%s', rel, exc)
     if ok:
         edit_staging.delete_snapshot_path(session, rel)
     return msg if ok else f'Delete failed: {msg}'
@@ -209,7 +209,7 @@ def delete_workspace_entry(relative_path: str, recursive: bool = False) -> str:
             try:
                 close_session_document(rel_display, session_id=session_id, scope='workspace')
             except Exception as exc:
-                logger.warning('python LSP close failed after auto delete path=%s err=%s', rel_display, exc)
+                logger.warning('LSP close failed after auto delete path=%s err=%s', rel_display, exc)
         if ok:
             edit_staging.delete_snapshot_path(session, rel_display)
         return msg if ok else f'Tool error: {msg}'
@@ -314,7 +314,7 @@ def batch_delete_workspace_entries(relative_paths: list[str], recursive: bool = 
                     try:
                         close_session_document(rel, session_id=session_id, scope='workspace')
                     except Exception as exc:
-                        logger.warning('python LSP close failed after auto delete path=%s err=%s', rel, exc)
+                        logger.warning('LSP close failed after auto delete path=%s err=%s', rel, exc)
                 edit_staging.delete_snapshot_path(session, rel)
             else:
                 return f'Tool error: {msg}'

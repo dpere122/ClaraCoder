@@ -1,4 +1,4 @@
-"""Session-scoped Python LSP manager and cache."""
+"""Session-scoped LSP managers (Python + TypeScript/JavaScript) and diagnostics cache."""
 
 from __future__ import annotations
 
@@ -7,24 +7,30 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import unquote, urlparse
 
 from nemo_backend.domain import SessionState
 from nemo_backend.lsp.client import JsonRpcLspClient
 from nemo_backend.lsp.diagnostics import normalize_lsp_diagnostics
-from nemo_backend.lsp.file_policy import get_python_lsp_policy, is_lsp_managed_path, normalize_relative_posix_path
+from nemo_backend.lsp.file_policy import get_lsp_file_policy, lsp_server_for_path, normalize_relative_posix_path
 from nemo_backend.lsp.python_server import build_python_lsp_command
+from nemo_backend.lsp.typescript_project_root import resolve_typescript_project_root
+from nemo_backend.lsp.typescript_server import build_typescript_lsp_command
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_text_io import read_file_for_tools, validate_workspace_encoding
 from nemo_backend.workspace_tools import normalize_relative_path
 
 logger = logging.getLogger('nemo.lsp.manager')
 
+LspServerKind = Literal['python', 'typescript']
+
 __all__ = [
     'PythonLspManager',
+    'SessionWorkspaceLspManager',
     'activate_session_lsp_scope',
     'get_session_lsp_manager',
+    'get_lsp_dashboard_status',
     'shutdown_session_lsp',
     'shutdown_all_lsp_managers',
     'list_session_diagnostics',
@@ -33,14 +39,14 @@ __all__ = [
 ]
 
 _MANAGERS_LOCK = threading.RLock()
-_SESSION_MANAGERS: dict[str, PythonLspManager] = {}
+_SESSION_MANAGERS: dict[tuple[str, LspServerKind], SessionWorkspaceLspManager] = {}
 _VALID_LSP_SCOPES = frozenset({'workspace', 'staging'})
 
 
 def _normalize_lsp_scope(scope: str | None) -> str:
     value = (scope or '').strip().lower() or 'workspace'
     if value not in _VALID_LSP_SCOPES:
-        raise ValueError(f'Unsupported Python LSP scope: {scope!r}')
+        raise ValueError(f'Unsupported LSP scope: {scope!r}')
     return value
 
 
@@ -83,8 +89,8 @@ def _workspace_capabilities() -> dict[str, Any]:
     }
 
 
-class PythonLspManager:
-    """Owns one Python language-server process for a session/workspace pair."""
+class SessionWorkspaceLspManager:
+    """Owns one language-server process (Python or TypeScript) for a session/workspace/scope tuple."""
 
     def __init__(
         self,
@@ -93,24 +99,49 @@ class PythonLspManager:
         session: SessionState,
         workspace_root: Path,
         scope: str,
+        server_kind: LspServerKind,
         client_factory: Any | None = None,
     ) -> None:
         self.session_id = session_id
         self.session = session
         self.workspace_root = Path(workspace_root).resolve()
         self.scope = _normalize_lsp_scope(scope)
+        self.server_kind: LspServerKind = server_kind
         self._client_factory = client_factory
         self._client: JsonRpcLspClient | None = None
         self._lock = threading.RLock()
         self._diag_cond = threading.Condition(self._lock)
         self._doc_versions: dict[str, int] = {}
         self._diag_generation: dict[str, int] = {}
+        #: Effective cwd / LSP rootUri for typescript-language-server (nested package); ``None`` until first start.
+        self._typescript_project_root: Path | None = None
+        self._last_typescript_seed: str = ''
+
+    def _build_command(self) -> list[str]:
+        if self.server_kind == 'python':
+            return build_python_lsp_command(self.workspace_root)
+        root = self._typescript_project_root or self.workspace_root
+        return build_typescript_lsp_command(root)
+
+    def _policy(self, rel: str) -> Any:
+        policy = get_lsp_file_policy(rel)
+        if policy is None or policy.lsp_server != self.server_kind:
+            return None
+        return policy
 
     def ensure_started(self) -> None:
         with self._lock:
             if self._client is not None:
                 return
-            command = build_python_lsp_command(self.workspace_root)
+            lsp_cwd = self.workspace_root
+            if self.server_kind == 'typescript':
+                self._typescript_project_root = resolve_typescript_project_root(
+                    self.workspace_root,
+                    seed_relative_path=self._last_typescript_seed or None,
+                )
+                lsp_cwd = self._typescript_project_root
+                self.session.typescript_lsp_resolved_root = str(self._typescript_project_root)
+            command = self._build_command()
             factory = self._client_factory or (
                 lambda *, command, workspace_root, notification_handler: JsonRpcLspClient(
                     command,
@@ -120,11 +151,11 @@ class PythonLspManager:
             )
             client = factory(
                 command=command,
-                workspace_root=self.workspace_root,
+                workspace_root=lsp_cwd,
                 notification_handler=self._handle_notification,
             )
             client.initialize(
-                root_uri=_path_to_uri(self.workspace_root),
+                root_uri=_path_to_uri(lsp_cwd),
                 process_id=os.getpid(),
                 capabilities=_workspace_capabilities(),
             )
@@ -132,38 +163,54 @@ class PythonLspManager:
             self.session.lsp_workspace_root = str(self.workspace_root)
             self.session.lsp_active_scope = self.scope
             logger.info(
-                'python LSP session ready session=%s scope=%s workspace=%s',
+                '%s LSP session ready session=%s scope=%s workspace=%s lsp_cwd=%s',
+                self.server_kind,
                 self.session_id,
                 self.scope,
                 self.workspace_root,
+                lsp_cwd,
             )
 
     def shutdown(self) -> None:
         with self._lock:
             client = self._client
             self._client = None
+            tracked = list(self._doc_versions.keys())
             self._doc_versions.clear()
             self._diag_generation.clear()
-            self.session.lsp_diagnostics.clear()
-            self.session.lsp_workspace_root = ''
-            if self.session.lsp_active_scope == self.scope:
-                self.session.lsp_active_scope = 'workspace'
+            for rel in tracked:
+                self.session.lsp_diagnostics.pop(rel, None)
         if client is not None:
             try:
                 client.shutdown()
             except Exception as exc:
                 logger.warning(
-                    'python LSP shutdown failed session=%s scope=%s err=%s',
+                    '%s LSP shutdown failed session=%s scope=%s err=%s',
+                    self.server_kind,
                     self.session_id,
                     self.scope,
                     exc,
                 )
+        my_key = (self.session_id, self.server_kind)
+        with _MANAGERS_LOCK:
+            any_remaining = any(
+                k != my_key and k[0] == self.session_id for k in _SESSION_MANAGERS
+            )
+        if not any_remaining:
+            self.session.lsp_workspace_root = ''
+            if self.session.lsp_active_scope == self.scope:
+                self.session.lsp_active_scope = 'workspace'
+        if self.server_kind == 'typescript':
+            self.session.typescript_lsp_resolved_root = ''
+            self._typescript_project_root = None
 
     def sync_document(self, relative_path: str, text: str) -> list[dict[str, Any]]:
         rel = normalize_relative_posix_path(relative_path)
-        policy = get_python_lsp_policy(rel)
+        policy = self._policy(rel)
         if policy is None:
-            raise ValueError(f'LSP sync is not supported for `{rel}`.')
+            raise ValueError(f'LSP sync is not supported for `{rel}` on {self.server_kind} server.')
+        if self.server_kind == 'typescript':
+            self._last_typescript_seed = rel
         self.ensure_started()
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
@@ -185,7 +232,8 @@ class PythonLspManager:
                     },
                 )
                 logger.info(
-                    'python LSP didOpen session=%s scope=%s path=%s version=%s',
+                    '%s LSP didOpen session=%s scope=%s path=%s version=%s',
+                    self.server_kind,
                     self.session_id,
                     self.scope,
                     rel,
@@ -200,7 +248,8 @@ class PythonLspManager:
                     },
                 )
                 logger.info(
-                    'python LSP didChange session=%s scope=%s path=%s version=%s',
+                    '%s LSP didChange session=%s scope=%s path=%s version=%s',
+                    self.server_kind,
                     self.session_id,
                     self.scope,
                     rel,
@@ -218,7 +267,7 @@ class PythonLspManager:
 
     def close_document(self, relative_path: str) -> None:
         rel = normalize_relative_posix_path(relative_path)
-        if not is_lsp_managed_path(rel):
+        if self._policy(rel) is None:
             return
         with self._lock:
             client = self._client
@@ -230,7 +279,13 @@ class PythonLspManager:
             self._doc_versions.pop(rel, None)
             self.session.lsp_diagnostics.pop(rel, None)
             self._diag_generation.pop(rel, None)
-            logger.info('python LSP didClose session=%s scope=%s path=%s', self.session_id, self.scope, rel)
+            logger.info(
+                '%s LSP didClose session=%s scope=%s path=%s',
+                self.server_kind,
+                self.session_id,
+                self.scope,
+                rel,
+            )
 
     def get_diagnostics(self, relative_path: str = '') -> list[dict[str, Any]]:
         rel = normalize_relative_posix_path(relative_path)
@@ -274,8 +329,8 @@ class PythonLspManager:
 
     def _ensure_workspace_synced(self, relative_path: str) -> str:
         rel = normalize_relative_posix_path(relative_path)
-        if not is_lsp_managed_path(rel):
-            raise ValueError(f'LSP tools only support Python files in v1. Got `{rel}`.')
+        if self._policy(rel) is None:
+            raise ValueError(f'LSP tools do not support `{rel}` on the {self.server_kind} server.')
         if rel not in self._doc_versions:
             self.sync_workspace_document(rel)
         else:
@@ -287,11 +342,13 @@ class PythonLspManager:
             return
         uri = str(params.get('uri') or '')
         try:
-            rel = normalize_relative_path(self.workspace_root, _uri_to_path(uri).relative_to(self.workspace_root).as_posix()).relative_to(self.workspace_root).as_posix()
+            abs_path = _uri_to_path(uri)
+            rel = abs_path.resolve().relative_to(self.workspace_root.resolve()).as_posix()
         except Exception:
             logger.debug(
-                'ignoring diagnostics outside workspace session=%s scope=%s uri=%s',
+                'ignoring diagnostics outside workspace session=%s server=%s scope=%s uri=%s',
                 self.session_id,
+                self.server_kind,
                 self.scope,
                 uri,
             )
@@ -302,7 +359,8 @@ class PythonLspManager:
             self._diag_generation[rel] = self._diag_generation.get(rel, 0) + 1
             self._diag_cond.notify_all()
         logger.info(
-            'python diagnostics refreshed session=%s scope=%s path=%s count=%s',
+            '%s diagnostics refreshed session=%s scope=%s path=%s count=%s',
+            self.server_kind,
             self.session_id,
             self.scope,
             rel,
@@ -320,14 +378,20 @@ class PythonLspManager:
 
     def _require_client(self) -> JsonRpcLspClient:
         if self._client is None:
-            raise RuntimeError('Python LSP client is not initialized.')
+            raise RuntimeError(f'{self.server_kind} LSP client is not initialized.')
         return self._client
+
+    def is_client_running(self) -> bool:
+        return self._client is not None
+
+
+PythonLspManager = SessionWorkspaceLspManager
 
 
 def _resolve_session_and_root(session_id: str | None) -> tuple[str, SessionState, Path]:
     sid = (session_id or current_session_id.get() or '').strip()
     if not sid:
-        raise ValueError('No active session is available for Python LSP.')
+        raise ValueError('No active session is available for LSP.')
     session = get_session(sid)
     if not session.workspace_path:
         raise ValueError('This conversation does not have a workspace attached.')
@@ -335,20 +399,17 @@ def _resolve_session_and_root(session_id: str | None) -> tuple[str, SessionState
 
 
 def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> None:
-    sid, session, workspace_root = _resolve_session_and_root(session_id)
+    sid, session, _workspace_root = _resolve_session_and_root(session_id)
     desired_scope = _normalize_lsp_scope(scope)
     with _MANAGERS_LOCK:
-        manager = _SESSION_MANAGERS.get(sid)
-        if manager is not None and (
-            manager.workspace_root != workspace_root or manager.scope != desired_scope
-        ):
-            _SESSION_MANAGERS.pop(sid, None)
-            manager.shutdown()
-            manager = None
-        session.lsp_active_scope = desired_scope
-        if manager is None:
-            session.lsp_workspace_root = ''
-            session.lsp_diagnostics.clear()
+        keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == sid]
+        managers = [_SESSION_MANAGERS.pop(k) for k in keys]
+    for mgr in managers:
+        mgr.shutdown()
+    session.lsp_active_scope = desired_scope
+    session.lsp_workspace_root = ''
+    session.typescript_lsp_resolved_root = ''
+    session.lsp_diagnostics.clear()
 
 
 def get_session_lsp_manager(
@@ -356,50 +417,84 @@ def get_session_lsp_manager(
     *,
     client_factory: Any | None = None,
     scope: str | None = None,
-) -> PythonLspManager:
+    server: LspServerKind = 'python',
+) -> SessionWorkspaceLspManager:
     sid, session, workspace_root = _resolve_session_and_root(session_id)
     desired_scope = _normalize_lsp_scope(scope or session.lsp_active_scope)
+    key = (sid, server)
     with _MANAGERS_LOCK:
-        manager = _SESSION_MANAGERS.get(sid)
+        manager = _SESSION_MANAGERS.get(key)
         if manager is not None and (
             manager.workspace_root != workspace_root or manager.scope != desired_scope
         ):
             manager.shutdown()
-            _SESSION_MANAGERS.pop(sid, None)
+            _SESSION_MANAGERS.pop(key, None)
             manager = None
         if manager is None:
-            manager = PythonLspManager(
+            manager = SessionWorkspaceLspManager(
                 session_id=sid,
                 session=session,
                 workspace_root=workspace_root,
                 scope=desired_scope,
+                server_kind=server,
                 client_factory=client_factory,
             )
-            _SESSION_MANAGERS[sid] = manager
+            _SESSION_MANAGERS[key] = manager
         session.lsp_active_scope = desired_scope
         return manager
 
 
 def shutdown_session_lsp(session_id: str) -> None:
     with _MANAGERS_LOCK:
-        manager = _SESSION_MANAGERS.pop(session_id, None)
-    if manager is not None:
-        manager.shutdown()
+        keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == session_id]
+        managers = [_SESSION_MANAGERS.pop(k) for k in keys]
+    for mgr in managers:
+        mgr.shutdown()
 
 
 def shutdown_all_lsp_managers() -> None:
     with _MANAGERS_LOCK:
         items = list(_SESSION_MANAGERS.items())
         _SESSION_MANAGERS.clear()
-    for _session_id, manager in items:
+    for _key, manager in items:
         manager.shutdown()
+
+
+def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
+    """Summarize workspace LSP without starting language-server processes."""
+
+    sid, session, workspace_root = _resolve_session_and_root(session_id)
+    with _MANAGERS_LOCK:
+        py = _SESSION_MANAGERS.get((sid, 'python'))
+        ts = _SESSION_MANAGERS.get((sid, 'typescript'))
+    diag_count = sum(len(v) for v in session.lsp_diagnostics.values())
+    active_scope = session.lsp_active_scope or 'workspace'
+    return {
+        'sessionId': sid,
+        'workspaceRoot': str(workspace_root),
+        'typescriptProjectRoot': session.typescript_lsp_resolved_root or None,
+        'activeLspScope': active_scope,
+        'cachedDiagnostics': diag_count,
+        'diagnosticsCacheNote': 'Session-scoped cache only; clears when LSP scope changes (workspace vs staging).',
+        'servers': {
+            'python': {'initialized': py is not None and py.is_client_running()},
+            'typescript': {'initialized': ts is not None and ts.is_client_running()},
+        },
+    }
 
 
 def list_session_diagnostics(
     session_id: str, relative_path: str = '', *, scope: str | None = None
 ) -> list[dict[str, Any]]:
-    manager = get_session_lsp_manager(session_id, scope=scope)
-    return manager.get_diagnostics(relative_path)
+    sid, session, _ = _resolve_session_and_root(session_id)
+    _normalize_lsp_scope(scope or session.lsp_active_scope)
+    rel = normalize_relative_posix_path(relative_path)
+    if rel:
+        return list(session.lsp_diagnostics.get(rel, []))
+    all_items: list[dict[str, Any]] = []
+    for path in sorted(session.lsp_diagnostics):
+        all_items.extend(session.lsp_diagnostics[path])
+    return all_items
 
 
 def sync_session_document(
@@ -410,15 +505,18 @@ def sync_session_document(
     scope: str | None = None,
 ) -> list[dict[str, Any]]:
     sid = (session_id or current_session_id.get() or '').strip() or None
+    server = lsp_server_for_path(relative_path)
+    if not server:
+        raise ValueError(f'No LSP server is configured for `{relative_path}`.')
     try:
-        manager = get_session_lsp_manager(sid, scope=scope)
+        manager = get_session_lsp_manager(sid, scope=scope, server=server)
         return manager.sync_document(relative_path, text)
     except Exception as exc:
         if sid is None or not _should_retry_lsp_bootstrap(exc):
             raise
-        logger.warning('retrying python LSP sync after bootstrap failure session=%s err=%s', sid, exc)
+        logger.warning('retrying LSP sync after bootstrap failure session=%s server=%s err=%s', sid, server, exc)
         shutdown_session_lsp(sid)
-        manager = get_session_lsp_manager(sid, scope=scope)
+        manager = get_session_lsp_manager(sid, scope=scope, server=server)
         return manager.sync_document(relative_path, text)
 
 
@@ -428,5 +526,8 @@ def close_session_document(
     session_id: str | None = None,
     scope: str | None = None,
 ) -> None:
-    manager = get_session_lsp_manager(session_id, scope=scope)
+    server = lsp_server_for_path(relative_path)
+    if not server:
+        return
+    manager = get_session_lsp_manager(session_id, scope=scope, server=server)
     manager.close_document(relative_path)

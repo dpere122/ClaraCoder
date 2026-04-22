@@ -18,6 +18,7 @@ from langchain_core.tools import tool
 from pypdf import PdfReader
 
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
+from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
 from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
     parse_newline_mode,
@@ -44,6 +45,24 @@ def _effective_max_search_results() -> int:
 
 # U+2502: separates line numbers from file text; distinct from ASCII "|" often used in code.
 _READ_FILE_GUTTER_SEP = ' \u2502 '
+
+
+def _read_workspace_file_missing_on_disk_message(relative_path: str) -> str:
+    """Return as tool output (do not raise): uncaught tool exceptions abort nested LangGraph agents."""
+    return (
+        f'Tool note: `{relative_path}` is not on the workspace disk yet. '
+        '`read_workspace_file` only reads files already written under the workspace root. '
+        'If the file exists only as a **staged** draft, use `list_staged_edits` and `read_staged_edit`; '
+        'after `transfer_staged_file_to_workspace`, read it here again. '
+        'If it was never created, use `stage_create_file` (or the appropriate stage tool) then transfer when ready.'
+    )
+
+
+def _read_workspace_file_not_a_file_message(relative_path: str) -> str:
+    return (
+        f'Tool note: `{relative_path}` exists but is not a regular file. '
+        'Use `list_workspace_directory` to inspect directories, or pick a file path.'
+    )
 
 
 def _format_read_excerpt_with_gutter(excerpt: list[str], line_start: int, line_end: int) -> str:
@@ -87,6 +106,20 @@ def truncate_text(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return f'{value[:limit]}\n... [truncated]'
+
+
+def truncate_text_head_tail(value: str, limit: int, *, marker: str = '\n... [truncated middle] ...\n') -> str:
+    """Truncate by keeping a head and tail slice so failure lines near the end stay visible."""
+    if len(value) <= limit:
+        return value
+    marker_len = len(marker)
+    if limit <= marker_len + 16:
+        return truncate_text(value, limit)
+    budget = limit - marker_len
+    # Bias toward the tail (typical logs: banner at start, errors at end).
+    head_n = max(1, budget * 12 // 100)
+    tail_n = budget - head_n
+    return f'{value[:head_n]}{marker}{value[-tail_n:]}'
 
 
 def get_active_workspace_root() -> Path:
@@ -295,7 +328,7 @@ def read_workspace_file(
     ``start_line`` and ``end_line`` are 1-based inclusive line numbers after newline normalization to ``\\n``.
     For ``.pdf`` files, the same arguments are 1-based inclusive page numbers (``include_line_numbers`` and ``encoding`` are ignored).
 
-    Set ``include_line_numbers`` to false when you need the exact on-disk lines for ``replace_workspace_snippet``
+    Set ``include_line_numbers`` to false when you need the exact on-disk lines for staged snippet edits or legacy snippet replace tools
     (old_snippet): when true, each line is ``<n> │ <text>`` (Unicode U+2502)—only ``<text>`` is file content
     (including its leading spaces and tabs); do not include the gutter in ``old_snippet``.
     """
@@ -303,9 +336,9 @@ def read_workspace_file(
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
     if not target.exists():
-        raise ValueError(f'File does not exist: {relative_path}')
+        return _read_workspace_file_missing_on_disk_message(relative_path)
     if not target.is_file():
-        raise ValueError(f'Path is not a file: {relative_path}')
+        return _read_workspace_file_not_a_file_message(relative_path)
 
     rel_display = target.relative_to(root).as_posix()
 
@@ -385,7 +418,8 @@ def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> s
 
 TOOLS = [
     list_workspace_directory,
-    read_workspace_file,
+    retrieve_workspace_semantic,
     search_workspace,
+    read_workspace_file,
 ]
 TOOL_MAP = {tool_.name: tool_ for tool_ in TOOLS}

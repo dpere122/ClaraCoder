@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from contextlib import contextmanager
 from typing import Any
@@ -16,9 +17,11 @@ from nemo_backend.agents.specialists.prompts import (
     build_code_review_specialist_system_prompt,
     build_dependency_specialist_system_prompt,
     build_delete_specialist_system_prompt,
+    build_node_dependency_specialist_system_prompt,
     build_project_review_specialist_system_prompt,
     build_router_system_prompt,
-    build_write_specialist_system_prompt,
+    build_staging_author_system_prompt,
+    build_workspace_recon_system_prompt,
 )
 from nemo_backend.agents.specialists.project_review_tools import (
     APPROVE_PROJECT_REVIEW_NAME,
@@ -32,10 +35,13 @@ from nemo_backend.agents.specialists.review_tools import (
     code_review_specialist_tools,
 )
 from nemo_backend.agents.orchestration.router_probe_tools import workspace_path_status
+from nemo_backend.project_review_capture import nested_project_review_output_capture
 from nemo_backend.agents.specialists.tools import (
     dependency_specialist_tools,
     delete_specialist_tools,
-    write_specialist_tools,
+    node_dependency_specialist_tools,
+    staging_author_tools,
+    workspace_recon_tools,
 )
 from nemo_backend.config import MAX_AGENT_STEPS, NEMO_OUTER_AGENT_BRIEF_MAX_CHARS
 from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
@@ -59,6 +65,59 @@ _CODE_REVIEW_DECISION_TOOL_NAMES = frozenset(
 _PROJECT_REVIEW_DECISION_TOOL_NAMES = frozenset({APPROVE_PROJECT_REVIEW_NAME, REJECT_PROJECT_REVIEW_NAME})
 _CODE_REVIEW_REJECTION_PREFIX = 'Tool error: code review rejected the current step.'
 _CODE_REVIEW_DECISION_MISSING_PREFIX = 'Tool error: code review specialist finished without calling '
+_CODE_REVIEW_TRANSFER_INCOMPLETE_PREFIX = (
+    'Tool error: code review finished without deciding every staged path.'
+)
+
+
+def _code_review_needs_decision_followup(result: str) -> bool:
+    lower = (result or '').lower()
+    return lower.startswith(_CODE_REVIEW_DECISION_MISSING_PREFIX.lower()) or lower.startswith(
+        _CODE_REVIEW_TRANSFER_INCOMPLETE_PREFIX.lower()
+    )
+
+
+def _code_review_pending_after_transfer_requires_followup(session: SessionState) -> bool:
+    """True when auto-apply (or post-transfer) left other paths still needing transfer/reject.
+
+    When a staged transfer is paused for HITL, the reviewer intentionally stops after one tool call—do not
+    treat remaining pending paths as an incomplete multi-file decision in that case.
+    """
+    remaining = _pending_code_review_paths(session)
+    if not remaining:
+        return False
+    if session.pending_staged_transfer_hitl is not None:
+        return False
+    return True
+
+
+def _maybe_mark_workspace_applied_from_transfer_tool_message(
+    session: SessionState, tool_name: str, tool_result: str
+) -> None:
+    """Keep ``pending_edit_stagings`` consistent when tests mock ``on_tool_end`` without running real transfer.
+
+    Real ``transfer_staged_file_to_workspace`` already sets ``workspace_applied`` on success. Skip HITL outputs so
+    we do not mark applied while the human still owes confirmation.
+    """
+    if tool_name != TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME:
+        return
+    text = (tool_result or '').strip()
+    if text.lower().startswith('tool error:'):
+        return
+    lower = text.lower()
+    if 'human confirmation' in lower or 'diff card' in lower:
+        return
+    if 'transferred staged' not in lower and 'approved staged' not in lower:
+        return
+    for match in re.finditer(r'`([^`]+)`', text):
+        rel = match.group(1).strip().replace('\\', '/')
+        entry = session.pending_edit_stagings.get(rel)
+        if entry is None:
+            continue
+        try:
+            entry.workspace_applied = True
+        except (AttributeError, TypeError):
+            pass
 
 
 def _tool_output_text(raw: Any) -> str:
@@ -107,9 +166,16 @@ def _build_code_review_instruction(session: SessionState, task_instruction: str)
         '`reject_staged_workspace_edit` = FAIL (draft needs writer fixes—feedback must say what is wrong). '
         'Do not reject when the draft already satisfies the step.'
     )
+    transfer_order = ''
     staged_paths = _pending_code_review_paths(session)
+    if len(staged_paths) > 1:
+        transfer_order = (
+            '\n\n**Transfer order:** When multiple files are pending, call `transfer_staged_file_to_workspace` in '
+            '**lexicographic ascending order** of workspace-relative POSIX paths (sorted strings), or reject paths '
+            'that fail review—do not skip any pending path.'
+        )
     if not staged_paths:
-        return base + decision_hint
+        return base + decision_hint + transfer_order
     test_paths = [path for path in staged_paths if _is_probable_test_path(path)]
     lines = [base, '', 'Staged paths:']
     lines.extend(f'- `{path}`' for path in staged_paths)
@@ -119,6 +185,8 @@ def _build_code_review_instruction(session: SessionState, task_instruction: str)
     else:
         lines.append('- None identified in the current staged set.')
     lines.extend(['', decision_hint.strip()])
+    if transfer_order:
+        lines.append(transfer_order.strip())
     return '\n'.join(lines)
 
 
@@ -146,6 +214,7 @@ def _looks_like_staged_code_review_result(result_text: str) -> bool:
     lowered = result_text.lower()
     return (
         'for code review' in lowered
+        or 'for review' in lowered and 'unchanged' in lowered and 'transfer_staged_file_to_workspace' in lowered
         or 'workspace file is not updated yet' in lowered
         or 'updated staged draft' in lowered
     )
@@ -188,20 +257,23 @@ def _build_code_review_retry_instruction(
 def _build_code_review_force_decision_instruction(session: SessionState, task_instruction: str, prior_result: str) -> str:
     base = _build_code_review_instruction(session, task_instruction)
     prior = prior_result.strip()
-    if prior:
-        return (
-            f'{base}\n\n'
+    prior_lower = prior.lower()
+    incomplete = prior_lower.startswith(_CODE_REVIEW_TRANSFER_INCOMPLETE_PREFIX.lower())
+    if incomplete:
+        force_body = (
+            'You transferred at least one path but other staged paths still need a decision. Use the staged draft as '
+            'the source of truth, then call `transfer_staged_file_to_workspace` or `reject_staged_workspace_edit` for '
+            '**each** remaining path—finishing one file does not complete the step when others are still pending.'
+        )
+    else:
+        force_body = (
             'Your previous review turn ended without calling the required decision tool. Use the staged draft as the '
             'source of truth, then finish this turn with exactly one of '
-            '`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit`.\n\n'
-            f'Previous outcome:\n{prior}'
+            '`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit`.'
         )
-    return (
-        f'{base}\n\n'
-        'Your previous review turn ended without calling the required decision tool. Use the staged draft as the '
-        'source of truth, then finish this turn with exactly one of '
-        '`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit`.'
-    )
+    if prior:
+        return f'{base}\n\n{force_body}\n\nPrevious outcome:\n{prior}'
+    return f'{base}\n\n{force_body}'
 
 
 @contextmanager
@@ -255,6 +327,129 @@ async def enqueue_plan_and_modify_outer_brief(
     )
 
 
+def _write_specialist_middleware() -> list[Any]:
+    return [
+        ConnectionParallelToolCallsMiddleware(),
+        EmptyResponseNudgeMiddleware(),
+        AcceptCommandReviewAfterToolMiddleware(),
+        DiffReviewAfterToolMiddleware(),
+        DeleteReviewAfterToolMiddleware(),
+    ]
+
+
+async def run_write_recon_then_author_stream(
+    session: SessionState,
+    session_id: str,
+    task_instruction: str,
+    nested_q: Any,
+    checkpointer: Any,
+    *,
+    edit_strict: bool,
+) -> str:
+    """Two-phase file-write: workspace recon (read-only) then staging author (mutators only).
+
+    The author subgraph intentionally has **no** workspace read/search/LSP tools—only staging
+    mutators plus ``read_staged_edit`` and ``report_insufficient_workspace_recon``. Recon runs
+    with ``activate_session_lsp_scope(..., scope='workspace')`` and the author with ``scope='staging'``
+    so LSP queries match the checkpoint vs staging data planes. We do **not** attach workspace reads
+    to the author (avoids mixing live checkpoint truth with staged-draft edits); at most **one**
+    supplemental recon pass runs when the author records a supplement request, then the author
+    is invoked again with the merged ``Workspace recon`` text.
+    """
+    session.write_recon_supplement_request = ''
+    spec_llm = build_llm()
+    base_task = task_instruction.strip() or '(no instruction)'
+    recon_fallback = (
+        '(no workspace recon summary text; use the routing handoff only and stage conservatively.)'
+    )
+
+    async def _run_workspace_recon_human(human_content: str) -> str:
+        activate_session_lsp_scope(session_id, scope='workspace')
+        recon_tools, _ = workspace_recon_tools()
+        recon_prompt = build_workspace_recon_system_prompt(session)
+        recon_graph = create_agent(
+            spec_llm,
+            recon_tools,
+            system_prompt=recon_prompt,
+            name='nemo_specialist_write_recon',
+            middleware=_write_specialist_middleware(),
+            checkpointer=checkpointer,
+        )
+        recon_thread = f'{session_id}:spec:write_recon:{uuid.uuid4().hex[:10]}'
+        recon_config: RunnableConfig = {
+            'configurable': {'thread_id': recon_thread},
+            'recursion_limit': MAX_AGENT_STEPS,
+        }
+        recon_inputs: dict[str, Any] = {'messages': [HumanMessage(content=human_content)]}
+        recon_final = ''
+        recon_tag = f'spec-write-recon-{uuid.uuid4().hex[:8]}'
+        async for ev in recon_graph.astream_events(recon_inputs, recon_config, version='v2'):
+            await _enqueue_nested_event(nested_q, recon_tag, ev)
+            et = ev.get('event')
+            data = ev.get('data') if isinstance(ev.get('data'), dict) else {}
+            if et == 'on_chat_model_end':
+                raw = data.get('output')
+                msg = raw if isinstance(raw, AIMessage) else None
+                if msg is not None and not (msg.tool_calls or []):
+                    recon_final = final_assistant_text(msg)
+        return recon_final.strip() or recon_fallback
+
+    async def _run_staging_author(recon_body: str) -> str:
+        activate_session_lsp_scope(session_id, scope='staging')
+        author_tools, _ = staging_author_tools(edit_strict)
+        author_prompt = build_staging_author_system_prompt(session)
+        author_graph = create_agent(
+            spec_llm,
+            author_tools,
+            system_prompt=author_prompt,
+            name='nemo_specialist_write_author',
+            middleware=_write_specialist_middleware(),
+            checkpointer=checkpointer,
+        )
+        author_thread = f'{session_id}:spec:write_author:{uuid.uuid4().hex[:10]}'
+        author_config: RunnableConfig = {
+            'configurable': {'thread_id': author_thread},
+            'recursion_limit': MAX_AGENT_STEPS,
+        }
+        combined_human = (
+            '--- Workspace recon (on-disk / LSP; authoritative for paths and excerpts) ---\n'
+            f'{recon_body}\n\n'
+            '--- Original write task ---\n'
+            f'{base_task}'
+        )
+        author_inputs: dict[str, Any] = {'messages': [HumanMessage(content=combined_human)]}
+        author_final = ''
+        author_tag = f'spec-write-author-{uuid.uuid4().hex[:8]}'
+        async for ev in author_graph.astream_events(author_inputs, author_config, version='v2'):
+            await _enqueue_nested_event(nested_q, author_tag, ev)
+            et = ev.get('event')
+            data = ev.get('data') if isinstance(ev.get('data'), dict) else {}
+            if et == 'on_chat_model_end':
+                raw = data.get('output')
+                msg = raw if isinstance(raw, AIMessage) else None
+                if msg is not None and not (msg.tool_calls or []):
+                    author_final = final_assistant_text(msg)
+        return author_final.strip() or recon_body
+
+    recon_body = await _run_workspace_recon_human(base_task)
+    author_out = await _run_staging_author(recon_body)
+    supplement = session.write_recon_supplement_request.strip()
+    if supplement:
+        session.write_recon_supplement_request = ''
+        supplement_human = (
+            'The staging author could not proceed without more workspace facts. Gather **only** what is listed below; '
+            'then end with one assistant message starting `Workspace recon:` (focus on new facts; prefix bullets with '
+            '`Supplemental:` where helpful).\n\n'
+            f'--- Missing facts (from author) ---\n{supplement}\n\n'
+            f'--- Original write task (context) ---\n{base_task}'
+        )
+        extra = await _run_workspace_recon_human(supplement_human)
+        recon_body = f'{recon_body}\n\n--- Supplemental workspace recon ---\n{extra}'
+        author_out = await _run_staging_author(recon_body)
+    session.write_recon_supplement_request = ''
+    return author_out
+
+
 async def run_specialist_agent_stream(
     session: SessionState,
     session_id: str,
@@ -265,18 +460,27 @@ async def run_specialist_agent_stream(
 ) -> str:
     """Run a single specialist ``create_agent`` subgraph; stream LangGraph v2 events to *nested_q*."""
     edit_strict = runtime_config.tools.edit_tools_strict
-    spec_llm = build_llm()
     if kind == 'code_review':
         activate_session_lsp_scope(session_id, scope='staging')
     if kind == 'write':
-        tools, _ = write_specialist_tools(edit_strict)
-        system_prompt = build_write_specialist_system_prompt(session)
-    elif kind == 'delete':
+        return await run_write_recon_then_author_stream(
+            session,
+            session_id,
+            task_instruction,
+            nested_q,
+            checkpointer,
+            edit_strict=edit_strict,
+        )
+    spec_llm = build_llm()
+    if kind == 'delete':
         tools, _ = delete_specialist_tools()
         system_prompt = build_delete_specialist_system_prompt(session)
     elif kind == 'dependency':
         tools, _ = dependency_specialist_tools()
         system_prompt = build_dependency_specialist_system_prompt(session)
+    elif kind == 'node_dependency':
+        tools, _ = node_dependency_specialist_tools()
+        system_prompt = build_node_dependency_specialist_system_prompt(session)
     elif kind == 'code_review':
         tools, _ = code_review_specialist_tools()
         system_prompt = build_code_review_specialist_system_prompt(session)
@@ -317,6 +521,9 @@ async def run_specialist_agent_stream(
     project_review_decision_made = False
     project_review_decision_tool = ''
     project_review_decision_result = ''
+    capture_token = None
+    if kind == 'project_review':
+        capture_token = nested_project_review_output_capture.set(True)
     try:
         async for ev in sub.astream_events(inputs, config, version='v2'):
             await _enqueue_nested_event(nested_q, spec_tag, ev)
@@ -330,6 +537,9 @@ async def run_specialist_agent_stream(
                         review_decision_made = True
                         review_decision_tool = tool_name
                         review_decision_result = tool_result
+                        _maybe_mark_workspace_applied_from_transfer_tool_message(
+                            session, tool_name, tool_result
+                        )
             if et == 'on_tool_end' and kind == 'project_review':
                 tool_name = str(ev.get('name') or '')
                 if tool_name in _PROJECT_REVIEW_DECISION_TOOL_NAMES:
@@ -346,6 +556,9 @@ async def run_specialist_agent_stream(
     except Exception:
         logger.exception('Specialist graph failed (%s)', kind)
         raise
+    finally:
+        if capture_token is not None:
+            nested_project_review_output_capture.reset(capture_token)
     if kind == 'code_review' and not review_decision_made:
         pending = sorted(session.pending_edit_stagings.keys())
         if pending:
@@ -375,6 +588,25 @@ async def run_specialist_agent_stream(
             'Tool error: code review rejected the current step. Retry the same recorded step with only the '
             'minimum in-scope fixes needed for approval; do not broaden the task or create a new plan.\n\n'
             f'{rejection_body}'
+        )
+    if (
+        kind == 'code_review'
+        and review_decision_made
+        and review_decision_tool == TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
+        and _code_review_pending_after_transfer_requires_followup(session)
+    ):
+        remaining = _pending_code_review_paths(session)
+        logger.warning(
+            'Code review specialist transferred at least one path but left other pending paths; final_text=%r '
+            'remaining=%s',
+            spec_final[:240],
+            remaining,
+        )
+        return (
+            _CODE_REVIEW_TRANSFER_INCOMPLETE_PREFIX
+            + ' Call `transfer_staged_file_to_workspace` or `reject_staged_workspace_edit` for each remaining path.'
+            f' Remaining: {", ".join(f"`{p}`" for p in remaining)}.'
+            f' Review summary: {spec_final.strip() or "(no final text provided)"}'
         )
     if kind == 'project_review' and not project_review_decision_made:
         logger.warning(
@@ -533,34 +765,44 @@ async def run_planning_nested_stream(
             )
 
         @tool
+        async def route_node_dependency_specialist(task_instruction: str) -> str:
+            """Hand off Node/npm/pnpm/Yarn installs, removals, and package.json scripts to the Node dependency specialist."""
+            return await run_specialist_agent_stream(
+                session, session_id, 'node_dependency', task_instruction, nested_q, checkpointer
+            )
+
+        @tool
         async def route_code_review_specialist(task_instruction: str) -> str:
             """Hand off staged code edits to the code review specialist (read/search staging, approve or reject)."""
             retry_attempt = 0
-            decision_retry_attempt = 0
             retry_limit = max(1, int(get_active_connection().plan_retry_attempts_count))
             prior_rejection = ''
-            if not _pending_code_review_paths(session):
+            initial_pending = len(_pending_code_review_paths(session))
+            if initial_pending == 0:
                 return 'Tool error: no staged edits are currently awaiting code review.'
-            review_result = await run_specialist_agent_stream(
-                session,
-                session_id,
-                'code_review',
-                _build_code_review_instruction(session, task_instruction),
-                nested_q,
-                checkpointer,
-            )
-            while review_result.lower().startswith(_CODE_REVIEW_DECISION_MISSING_PREFIX.lower()):
-                if decision_retry_attempt >= 1:
-                    return review_result
-                decision_retry_attempt += 1
-                review_result = await run_specialist_agent_stream(
+            max_decision_followups = max(8, initial_pending * 2)
+
+            async def _run_code_review_turn(instruction: str) -> str:
+                return await run_specialist_agent_stream(
                     session,
                     session_id,
                     'code_review',
-                    _build_code_review_force_decision_instruction(session, task_instruction, review_result),
+                    instruction,
                     nested_q,
                     checkpointer,
                 )
+
+            async def _drain_code_review_decision_followups(review_result: str) -> str:
+                rounds = 0
+                while _code_review_needs_decision_followup(review_result) and rounds < max_decision_followups:
+                    rounds += 1
+                    review_result = await _run_code_review_turn(
+                        _build_code_review_force_decision_instruction(session, task_instruction, review_result)
+                    )
+                return review_result
+
+            review_result = await _run_code_review_turn(_build_code_review_instruction(session, task_instruction))
+            review_result = await _drain_code_review_decision_followups(review_result)
             while review_result.lower().startswith(_CODE_REVIEW_REJECTION_PREFIX.lower()):
                 staged_paths = _pending_code_review_paths(session)
                 if not staged_paths:
@@ -606,26 +848,8 @@ async def run_planning_nested_stream(
                         'draft did not change. Stop the retry loop and surface the reviewer feedback to the planner.'
                     )
                 prior_rejection = cleaned_rejection
-                review_result = await run_specialist_agent_stream(
-                    session,
-                    session_id,
-                    'code_review',
-                    _build_code_review_instruction(session, task_instruction),
-                    nested_q,
-                    checkpointer,
-                )
-                while review_result.lower().startswith(_CODE_REVIEW_DECISION_MISSING_PREFIX.lower()):
-                    if decision_retry_attempt >= 1:
-                        return review_result
-                    decision_retry_attempt += 1
-                    review_result = await run_specialist_agent_stream(
-                        session,
-                        session_id,
-                        'code_review',
-                        _build_code_review_force_decision_instruction(session, task_instruction, review_result),
-                        nested_q,
-                        checkpointer,
-                    )
+                review_result = await _run_code_review_turn(_build_code_review_instruction(session, task_instruction))
+                review_result = await _drain_code_review_decision_followups(review_result)
             return review_result
 
         router_tools: list[Any] = [
@@ -633,6 +857,7 @@ async def run_planning_nested_stream(
             route_write_specialist,
             route_delete_specialist,
             route_dependency_specialist,
+            route_node_dependency_specialist,
             route_code_review_specialist,
         ]
 

@@ -23,7 +23,10 @@ def test_scope_text_mentions_programming_paths_py() -> None:
 
 def test_scope_text_mentions_programming_paths_non_code() -> None:
     assert scope_text_mentions_programming_paths('Update README.md') is False
-    assert scope_text_mentions_programming_paths('Change `docs/config.yaml`') is False
+
+
+def test_scope_text_mentions_programming_paths_config() -> None:
+    assert scope_text_mentions_programming_paths('Change `docs/config.yaml`') is True
 
 
 def test_validate_probe_plan_steps_accepts_build_steps() -> None:
@@ -41,12 +44,15 @@ async def test_orchestrator_two_step_probe_uses_fast_path() -> None:
     session = SessionState()
     nested_q: asyncio.Queue = asyncio.Queue()
     with (
-        patch('nemo_backend.agents.coding_planner.pipeline._run_plan_probe_llm', new_callable=AsyncMock) as probe,
+        patch('nemo_backend.agents.coding_planner.orchestrator.run_plan_probe_llm', new_callable=AsyncMock) as probe,
         patch(
-            'nemo_backend.agents.coding_planner.pipeline.run_coding_planner_fast_path_stream',
+            'nemo_backend.agents.coding_planner.orchestrator.run_coding_planner_fast_path_stream',
             new_callable=AsyncMock,
         ) as fast,
-        patch('nemo_backend.agents.coding_planner.pipeline.run_coding_planner_stream', new_callable=AsyncMock) as full,
+        patch(
+            'nemo_backend.agents.coding_planner.orchestrator.run_coding_planner_deterministic_stream',
+            new_callable=AsyncMock,
+        ) as full,
     ):
         probe.return_value = ['Implement feature A', 'Add test for A']
         fast.return_value = 'fast-done'
@@ -68,12 +74,15 @@ async def test_orchestrator_four_step_probe_uses_full_planner() -> None:
     session = SessionState()
     nested_q: asyncio.Queue = asyncio.Queue()
     with (
-        patch('nemo_backend.agents.coding_planner.pipeline._run_plan_probe_llm', new_callable=AsyncMock) as probe,
+        patch('nemo_backend.agents.coding_planner.orchestrator.run_plan_probe_llm', new_callable=AsyncMock) as probe,
         patch(
-            'nemo_backend.agents.coding_planner.pipeline.run_coding_planner_fast_path_stream',
+            'nemo_backend.agents.coding_planner.orchestrator.run_coding_planner_fast_path_stream',
             new_callable=AsyncMock,
         ) as fast,
-        patch('nemo_backend.agents.coding_planner.pipeline.run_coding_planner_stream', new_callable=AsyncMock) as full,
+        patch(
+            'nemo_backend.agents.coding_planner.orchestrator.run_coding_planner_deterministic_stream',
+            new_callable=AsyncMock,
+        ) as full,
     ):
         probe.return_value = ['s1', 's2', 's3', 's4']
         full.return_value = 'full-done'
@@ -88,9 +97,12 @@ async def test_orchestrator_skips_probe_when_disabled() -> None:
     session = SessionState()
     nested_q: asyncio.Queue = asyncio.Queue()
     with (
-        patch('nemo_backend.agents.coding_planner.pipeline.NEMO_PLAN_PROBE_ENABLED', False),
-        patch('nemo_backend.agents.coding_planner.pipeline._run_plan_probe_llm', new_callable=AsyncMock) as probe,
-        patch('nemo_backend.agents.coding_planner.pipeline.run_coding_planner_stream', new_callable=AsyncMock) as full,
+        patch('nemo_backend.config.NEMO_PLAN_PROBE_ENABLED', False),
+        patch('nemo_backend.agents.coding_planner.orchestrator.run_plan_probe_llm', new_callable=AsyncMock) as probe,
+        patch(
+            'nemo_backend.agents.coding_planner.orchestrator.run_coding_planner_deterministic_stream',
+            new_callable=AsyncMock,
+        ) as full,
     ):
         full.return_value = 'only-full'
         out = await run_coding_planner_orchestrated_stream(session, 'sess-orch', 'any', nested_q, None)
@@ -106,9 +118,12 @@ async def test_orchestrator_skips_probe_when_complexity_max_steps_high() -> None
     prof = MagicMock()
     prof.max_steps = 6
     with (
-        patch('nemo_backend.agents.coding_planner.pipeline._task_complexity_profile', return_value=prof),
-        patch('nemo_backend.agents.coding_planner.pipeline._run_plan_probe_llm', new_callable=AsyncMock) as probe,
-        patch('nemo_backend.agents.coding_planner.pipeline.run_coding_planner_stream', new_callable=AsyncMock) as full,
+        patch('nemo_backend.agents.coding_planner.orchestrator.task_complexity_profile', return_value=prof),
+        patch('nemo_backend.agents.coding_planner.orchestrator.run_plan_probe_llm', new_callable=AsyncMock) as probe,
+        patch(
+            'nemo_backend.agents.coding_planner.orchestrator.run_coding_planner_deterministic_stream',
+            new_callable=AsyncMock,
+        ) as full,
     ):
         full.return_value = 'full'
         await run_coding_planner_orchestrated_stream(session, 'sess-orch', 'task', nested_q, None)

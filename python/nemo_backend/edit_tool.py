@@ -16,7 +16,7 @@ from langchain_core.tools import tool
 
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
-from nemo_backend.lsp.file_policy import is_lsp_managed_path, outer_workspace_edit_guard_error
+from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path, outer_workspace_edit_guard_error
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.partial_workspace_edit import merge_partial_edit
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
@@ -146,11 +146,13 @@ def _after_merge_workspace_edit(
     if is_lsp_managed_path(rel_display):
         try:
             diagnostics = sync_session_document(rel_display, merged, session_id=session_id, scope='workspace')
-            diagnostics_note = f' Python LSP diagnostics: {len(diagnostics)} issue(s).'
-            logger.info('python LSP sync path=%s diagnostics=%s', rel_display, len(diagnostics))
+            ls_label = lsp_server_for_path(rel_display) or 'lsp'
+            diagnostics_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
+            logger.info('%s LSP sync path=%s diagnostics=%s', ls_label, rel_display, len(diagnostics))
         except Exception as exc:
-            logger.warning('python LSP sync failed path=%s err=%s', rel_display, exc)
-            diagnostics_note = f' Python LSP sync failed: {exc}.'
+            ls_label = lsp_server_for_path(rel_display) or 'lsp'
+            logger.warning('%s LSP sync failed path=%s err=%s', ls_label, rel_display, exc)
+            diagnostics_note = f' {ls_label} LSP sync failed: {exc}.'
     return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline) + diagnostics_note
 
 
@@ -249,7 +251,7 @@ def apply_workspace_full_file(
 
     For small localized changes on existing files, prefer `replace_workspace_line_range`.
 
-    Relative paths only (e.g. docs/readme.md). Do not use for code-review extensions (.py, .ts, .js, …)—use
+    Relative paths only (e.g. docs/readme.md). Do not use for code-review extensions (.py, .ts, .js, .json, …)—use
     `execute_workspace_mutation` or `plan_and_modify` for those. The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(
@@ -278,7 +280,7 @@ def replace_workspace_line_range(
     the last line, and `1,1` can seed an empty file.
     See `apply_workspace_full_file` for `encoding` and `newline`.
 
-    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source files.
+    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source and structured-config files.
     The user applies changes in the UI unless auto-apply is enabled."""
 
     ns = '' if new_snippet is None else new_snippet
@@ -308,7 +310,7 @@ def replace_workspace_snippet(
     See `apply_workspace_full_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
 
-    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source files.
+    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source and structured-config files.
     The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(

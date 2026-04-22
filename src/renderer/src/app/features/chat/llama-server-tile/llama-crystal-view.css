@@ -1,0 +1,47 @@
+.llama-crystal-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bs-body-bg) 88%, var(--bs-border-color));
+}
+
+.llama-crystal-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.llama-crystal-canvas--hidden {
+  visibility: hidden;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.llama-crystal-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  opacity: 0.92;
+}
+
+.llama-crystal-fallback[data-state='off'] {
+  background: radial-gradient(circle at 40% 35%, #5a6a78 0%, #2a3238 72%);
+}
+
+.llama-crystal-fallback[data-state='loading'] {
+  background: radial-gradient(circle at 42% 38%, #e8c45c 0%, #6a4a12 75%);
+}
+
+.llama-crystal-fallback[data-state='ok'] {
+  background: radial-gradient(circle at 38% 32%, #5ed4b0 0%, #1a4a3c 78%);
+}
+
+.llama-crystal-fallback[data-state='error'] {
+  background: radial-gradient(circle at 40% 36%, #f06678 0%, #4a1820 76%);
+}

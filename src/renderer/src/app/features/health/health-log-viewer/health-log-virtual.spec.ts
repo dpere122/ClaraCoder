@@ -24,6 +24,13 @@ describe('health-log-virtual', () => {
     expect(long).toBeGreaterThan(short);
   });
 
+  it('estimateHealthLogRowHeight uses pretty-printed JSON for json format', () => {
+    const oneLine = rec(JSON.stringify({ a: 1, b: { c: 2 } }));
+    const rawH = estimateHealthLogRowHeight(oneLine, 'raw');
+    const jsonH = estimateHealthLogRowHeight(oneLine, 'json');
+    expect(jsonH).toBeGreaterThan(rawH);
+  });
+
   it('healthLogVirtualWindow returns all rows below threshold', () => {
     const rows = Array.from({ length: HEALTH_LOG_VIRTUAL_THRESHOLD - 1 }, (_, i) =>
       rec(`m${i}`),

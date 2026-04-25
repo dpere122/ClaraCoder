@@ -1,6 +1,6 @@
 import type { HealthLogRecord } from '@shared/index';
 import { computeVirtualRange, sumHeights } from '../../../utils/virtual-scroll-range';
-import type { HealthLogMessageFormat } from './health-log-message.pipe';
+import { formatHealthLogMessage, type HealthLogMessageFormat } from './health-log-message.pipe';
 
 /** Rows above this count use windowed rendering. */
 export const HEALTH_LOG_VIRTUAL_THRESHOLD = 80;
@@ -20,7 +20,8 @@ export function estimateHealthLogRowHeight(
   record: HealthLogRecord,
   fmt: HealthLogMessageFormat,
 ): number {
-  const msg = record.message ?? '';
+  const raw = record.message ?? '';
+  const msg = fmt === 'raw' ? raw : formatHealthLogMessage(raw, fmt);
   const nl = (msg.match(/\n/g) ?? []).length + 1;
   const cpl = fmt === 'raw' ? 96 : 52;
   const wrapLines = Math.max(nl, Math.ceil(msg.length / cpl));

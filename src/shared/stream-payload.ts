@@ -21,7 +21,8 @@ export type ParsedAgentStreamPayload =
   | { type: 'diff'; diff: FileDiffPayload }
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
-  | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload };
+  | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
+  | { type: 'harness_crystal'; polarity: 'positive' | 'negative' };
 
 type RawAgentStreamPayload = {
   type?: string;
@@ -30,6 +31,7 @@ type RawAgentStreamPayload = {
   label?: string;
   exit_code?: unknown;
   output_excerpt?: unknown;
+  polarity?: string;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
   planner?: PlannerProgress;
   diff?: unknown;
@@ -204,6 +206,13 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
         delta: parsed.delta,
         streamTag: optionalTrimmedString(parsed.stream_tag),
       };
+    }
+
+    if (parsed.type === 'harness_crystal') {
+      const pol = parsed.polarity;
+      if (pol === 'positive' || pol === 'negative') {
+        return { type: 'harness_crystal', polarity: pol };
+      }
     }
   } catch {
     // Fall through to plain text chunks.

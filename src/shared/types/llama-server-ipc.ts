@@ -34,4 +34,8 @@ export interface LlamaServerProcessExitEvent {
 
 export type LlamaServerLifecycleEvent =
   | { phase: 'starting'; modelId: string }
+  /** Remote weights are being fetched (e.g. ``-hf`` first run); UI may show fast crystal spin. */
+  | { phase: 'downloading'; modelId: string }
+  /** Chat (and embedding if configured) passed ``/health``; managed servers are ready. */
+  | { phase: 'running'; modelId: string }
   | { phase: 'stopped'; modelId: string };

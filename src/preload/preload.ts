@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),
+  onMessageHarnessCrystal: (
+    callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
+  ) => ipcRenderer.on('message-harness-crystal', callback),
   onMessagePlanner: (callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void) =>
     ipcRenderer.on('message-planner', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>

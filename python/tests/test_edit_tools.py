@@ -177,6 +177,7 @@ def test_code_review_specialist_tools_are_staging_only() -> None:
         'search_staged_edits',
         'lsp_get_diagnostics',
         'format_staging_file_black',
+        'run_staging_overlay_command',
         'transfer_staged_file_to_workspace',
         'reject_staged_workspace_edit',
     }
@@ -275,6 +276,8 @@ def test_write_specialist_tools_unions_create_and_update_surfaces() -> None:
         'stage_workspace_file_overwrite',
         'stage_line_range_edit',
         'stage_snippet_edit',
+        'format_staging_file_black',
+        'lsp_get_diagnostics',
     ]
     tools, tool_map = write_specialist_tools(False)
     assert [t.name for t in tools] == recon_names + author_names

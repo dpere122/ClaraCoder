@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessageChunk, BaseMessageChunk
 
 from nemo_backend.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STATUS_LINE, TEXT_CHUNK_WORDS
 from nemo_backend.llm_visible_text import (
+    is_auxiliary_reasoning_placeholder_delta,
     is_placeholder_stream_delta,
     is_placeholder_thinking_noise,
     scrub_gemma_pipe_tags_fragment,
@@ -119,21 +120,21 @@ def aimessage_chunk_reasoning_delta(chunk: BaseMessageChunk) -> str:
         return ''
     r = getattr(chunk, 'reasoning', None)
     if isinstance(r, str) and r:
-        if is_placeholder_stream_delta(r) or is_placeholder_thinking_noise(r):
+        if is_auxiliary_reasoning_placeholder_delta(r):
             return ''
         return r
     ak = getattr(chunk, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)
         if isinstance(val, str) and val:
-            if is_placeholder_stream_delta(val) or is_placeholder_thinking_noise(val):
+            if is_auxiliary_reasoning_placeholder_delta(val):
                 return ''
             return val
         if isinstance(val, dict):
             for sub in ('summary', 'text', 'content'):
                 s = val.get(sub)
                 if isinstance(s, str) and s:
-                    if is_placeholder_stream_delta(s) or is_placeholder_thinking_noise(s):
+                    if is_auxiliary_reasoning_placeholder_delta(s):
                         return ''
                     return s
     return ''

@@ -229,6 +229,10 @@ class RuntimeToolsConfig:
     default_workspace_newline: str = 'lf'
     #: When True, outer agent binds ``plan_and_modify`` / ``execute_workspace_mutation`` (nested router + planner).
     orchestrated_mode: bool = False
+    #: When True (Editor on), outer Clara uses a phased LangGraph (Learn → Write → Verify) instead of one flat tool agent.
+    outer_phased_coding_cycle: bool = False
+    #: When True, nested code review may call ``run_staging_overlay_command`` (Settings → Tools).
+    allow_staging_overlay_commands: bool = False
 
 
 @dataclass

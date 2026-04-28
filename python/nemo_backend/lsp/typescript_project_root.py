@@ -9,7 +9,7 @@ from pathlib import Path
 
 logger = logging.getLogger('nemo.lsp.typescript_project_root')
 
-__all__ = ['resolve_typescript_project_root']
+__all__ = ['resolve_typescript_project_root', 'workspace_has_typescript_tooling']
 
 _SKIP_WALK_DIRS = frozenset(
     {
@@ -40,6 +40,12 @@ def _has_typescript_tooling(project: Path) -> bool:
         if (nm / '.bin' / 'tsc.ps1').is_file():
             return True
     return (nm / '.bin' / 'tsc').is_file()
+
+
+def workspace_has_typescript_tooling(project: Path) -> bool:
+    """Public helper: whether ``project`` has a local ``typescript`` / ``tsc`` install (tsserver dependency)."""
+
+    return _has_typescript_tooling(project)
 
 
 def _package_json_declares_typescript(project: Path) -> bool:

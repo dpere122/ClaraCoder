@@ -13,7 +13,7 @@ from nemo_backend.config import (
     SNIPPET_FUZZY_TIE_DELTA,
 )
 
-__all__ = ['merge_partial_edit']
+__all__ = ['merge_partial_edit', 'line_range_edit_tool_feedback']
 
 logger = logging.getLogger('nemo.partial_workspace_edit')
 
@@ -275,6 +275,103 @@ def _line_range_replace(old_text: str, start_line: int, end_line: int, new_snipp
     if old_text.endswith('\n'):
         new_text += '\n'
     return new_text, None
+
+
+def _utf16_code_unit_len(text: str) -> int:
+    """Length of *text* in UTF-16 code units (LSP ``Position.character``)."""
+    return max(0, len(text.encode('utf-16-le')) // 2)
+
+
+def _clip_block(label: str, body: str, max_chars: int) -> str:
+    if len(body) <= max_chars:
+        return f'{label}\n{body}' if body else f'{label}\n[empty]'
+    return f'{label}\n{body[:max_chars]}\n... [truncated, {len(body) - max_chars} more chars] ...'
+
+
+def line_range_edit_tool_feedback(
+    baseline_text: str,
+    start_line: int,
+    end_line: int,
+    new_snippet: str,
+    *,
+    max_excerpt_chars: int = 4000,
+) -> str:
+    """Human- and LSP-oriented summary of a successful line-range splice (same rules as ``_line_range_replace``).
+
+    Appended to tool results so models retain the exact replaced span (lines, UTF-16 columns, and verbatim text).
+    """
+    if start_line < 1 or end_line < start_line:
+        return ''
+
+    lines = baseline_text.splitlines()
+    n = len(lines)
+    ns = new_snippet if new_snippet is not None else ''
+
+    # Append-only after last line (or seed empty file via 1,1 on empty baseline).
+    if start_line == n + 1 and end_line == start_line:
+        ins = ns.splitlines() if ns else []
+        if n == 0:
+            return (
+                '\n---\nLine-range edit detail:\n'
+                '- Mode: empty baseline — replaced the virtual span at lines 1–1 (convention for an empty file).\n'
+                f'- Inserted {len(ins)} new line(s) (split on ``\\n`` in ``new_snippet``).\n'
+                f'- LSP insertion point (0-based line, UTF-16 character): (0, 0) — zero-width; new text follows.\n'
+                f'{_clip_block("Inserted text (verbatim new_snippet):", ns, max_excerpt_chars)}'
+            )
+        last = lines[-1]
+        line0 = n - 1
+        ch0 = _utf16_code_unit_len(last)
+        return (
+            '\n---\nLine-range edit detail:\n'
+            f'- Mode: append after last baseline line (baseline had {n} line(s)).\n'
+            f'- Parameters: start_line=end_line={start_line} (1-based).\n'
+            f'- LSP insertion point after last character removed: '
+            f'({line0}, {ch0}) — 0-based line/UTF-16 character; zero-width range.\n'
+            f'- Inserted {len(ins)} new line(s).\n'
+            f'{_clip_block("Inserted text (verbatim new_snippet):", ns, max_excerpt_chars)}'
+        )
+
+    if start_line > n or end_line > n:
+        return ''
+
+    removed = lines[start_line - 1 : end_line]
+    ins_lines = ns.splitlines() if ns else []
+    last_removed = removed[-1] if removed else ''
+
+    start_l0 = start_line - 1
+    start_ch0 = 0
+    if end_line < n:
+        end_l0 = end_line
+        end_ch0 = 0
+    else:
+        end_l0 = end_line - 1
+        end_ch0 = _utf16_code_unit_len(last_removed)
+
+    start_cp_col1 = 1
+    if end_line < n:
+        end_ex_line1 = end_line + 1
+        end_ex_col1 = 1
+    else:
+        end_ex_line1 = end_line
+        end_ex_col1 = len(last_removed) + 1
+
+    removed_body = '\n'.join(removed)
+    ins_body = ns
+
+    return (
+        '\n---\nLine-range edit detail (same line numbering as ``read_workspace_file``, 1-based):\n'
+        f'- Replaced inclusive baseline lines: {start_line}–{end_line} ({len(removed)} line(s)).\n'
+        f'- Start of removed span — 1-based (line, column) first replaced character: ({start_line}, {start_cp_col1}). '
+        'Column counts Unicode scalar values (code points), not the read-tool gutter.\n'
+        f'- End of removed span — 1-based exclusive (line, column) first character after the removed span: '
+        f'({end_ex_line1}, {end_ex_col1}).\n'
+        f'- LSP-style range — 0-based line/UTF-16 ``character``, end exclusive: '
+        f'{{"start": {{"line": {start_l0}, "character": {start_ch0}}}, '
+        f'"end": {{"line": {end_l0}, "character": {end_ch0}}}}}\n'
+        f'- Inserted {len(ins_lines)} new line(s) from ``new_snippet``.\n'
+        f'{_clip_block("Removed baseline text (verbatim lines merged out):", removed_body, max_excerpt_chars)}\n'
+        f'{_clip_block("Inserted text (verbatim new_snippet):", ins_body, max_excerpt_chars)}'
+    )
 
 
 def merge_partial_edit(

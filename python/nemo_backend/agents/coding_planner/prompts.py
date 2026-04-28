@@ -37,7 +37,7 @@ def coding_planner_tool_reference(*, include_lsp_discovery: bool = True) -> str:
     return dedent(
         f"""
         Deterministic coding orchestrator (what runs for `plan_and_modify` when the planner is enabled):
-        - **Discovery:** a bounded mini-agent uses read/search tools only: `list_workspace_directory`, `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, and optionally LSP tools below. It ends with a single assistant message starting with `Discovery complete:`.
+        - **Discovery:** a bounded mini-agent uses read/search tools plus optional LSP tools below. For **unknown** targets prefer `retrieve_workspace_semantic` first; for **known** LSP-backed paths (`.py`, `.ts`, …) prefer LSP tools before heavy file reads. It ends with a single assistant message starting with `Discovery complete:`.
         - **Build plan:** a structured LLM call turns the task plus discovery notes into a numbered checklist (build/mutation/verification steps only)—not separate `record_plan` / `execute_plan_step` tools.
         - **Execute:** for each checklist item, the orchestrator composes one nested instruction (routing handoff + context) and runs `run_planning_nested_stream` (nested router → specialists). Staging and **`transfer_staged_file_to_workspace`** apply inside that pipeline.
         - **Final review:** after all steps succeed or loop, the orchestrator runs whole-workspace final project review; on failure it may append a remediation checklist step.
@@ -72,17 +72,27 @@ def build_discovery_system_prompt(
     """Bounded discovery mini-agent: read/search only before structured plan generation."""
     ws = _workspace_hint(session)
     lsp_line = (
-        'Use LSP tools (`lsp_get_document_symbols`, `lsp_hover`, `lsp_find_definition`, `lsp_find_references`, '
-        '`lsp_get_diagnostics`) for Python or TS/JS source when those tools are available.\n'
+        '**LSP-backed source** (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): when the task already names a '
+        'concrete path (or you have one from the tree), your **first** tools on that file should be LSP—start with '
+        '`lsp_get_document_symbols`, then `lsp_hover`, `lsp_find_definition`, `lsp_find_references`, `lsp_get_diagnostics` '
+        'as needed—**before** relying on semantic chunks or full-file `read_workspace_file`, unless you need literal text '
+        'LSP does not surface. For **unknown** targets or repo-wide “where is X?”, prefer `retrieve_workspace_semantic` '
+        'first, then switch to LSP-first on each **LSP-supported** candidate path.\n'
         if include_lsp_discovery
         else 'LSP tools are not bound; use `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, '
         '`list_workspace_directory` only—verify semantic hits by **origin** (staging vs on-disk).\n'
     )
     return (
         'You are the **discovery** sub-phase of the coding orchestrator.\n'
-        '**Allowed:** workspace reads and navigation only (`retrieve_workspace_semantic`, `search_workspace`, '
-        '`read_workspace_file`, `list_workspace_directory`). Semantic recall may include **staging**; verify by **origin** '
-        'in tool output.\n'
+        '**Allowed:** workspace reads and navigation (`retrieve_workspace_semantic`, `search_workspace`, '
+        '`read_workspace_file`, `list_workspace_directory`)'
+        + (
+            ', plus LSP read tools (`lsp_get_document_symbols`, `lsp_hover`, `lsp_find_definition`, '
+            '`lsp_find_references`, `lsp_get_diagnostics`) for Python/TS/JS source.'
+            if include_lsp_discovery
+            else '.'
+        )
+        + ' Semantic recall may include **staging**; verify by **origin** in tool output.\n'
         + lsp_line
         + '**Forbidden in this phase:** staging writes, delegated implementation (nested pipeline), dependency installs, pytest, or summarizing an implementation checklist.\n'
         'Gather the minimum context needed to scope the task. **Do not** draft a numbered implementation checklist, '
@@ -104,10 +114,11 @@ def build_coding_planner_task_prompt(
     requirements = plan_requirements.strip()
     discovery_line = (
         '2. Discovery uses read/search/list/LSP tools to gather context before the structured build plan is generated '
-        '(prefer `retrieve_workspace_semantic` first—verify every cited path by **origin**: workspace vs staging).'
+        '(unknown targets: `retrieve_workspace_semantic` first; known LSP paths: LSP tools before heavy reads—verify '
+        'every cited path by **origin**: workspace vs staging).'
         if include_lsp_discovery
         else '2. Discovery uses read/search/list tools only (no LSP for this scope) before the structured build plan is generated '
-        '(prefer `retrieve_workspace_semantic` first—verify every cited path by **origin**: workspace vs staging).'
+        '(prefer `retrieve_workspace_semantic` first when targets are unknown—verify every cited path by **origin**: workspace vs staging).'
     )
     return dedent(
         f"""

@@ -100,6 +100,10 @@ try:
 except ValueError:
     NEMO_SUBPROCESS_TIMEOUT_SEC = 900
 
+# Separate cap for ``npm run`` / ``pnpm run`` / ``yarn run`` (often starts a server). 0 = use
+# ``NEMO_SUBPROCESS_TIMEOUT_SEC`` instead. Prevents hung or long-lived script processes.
+NEMO_NPM_SCRIPT_TIMEOUT_SEC = _env_int('NEMO_NPM_SCRIPT_TIMEOUT_SEC', 300, 0, 86_400)
+
 # ---------------------------------------------------------------------------
 # Agent loop limits
 # ---------------------------------------------------------------------------
@@ -111,6 +115,12 @@ except ValueError:
 
 # When the model returns no visible text, inject a nudge message instead of stopping.
 MAX_AGENT_EMPTY_NUDGES = 2
+# When the model writes <tool_call> / <function=...> in plain text (common with some Qwen stacks) but sends no
+# API ``tool_calls``, re-prompt so the graph can reach the tool node. 0 = disable (same as max empty nudges).
+try:
+    MAX_AGENT_PSEUDO_TOOL_NUDGES = max(0, min(int(os.getenv('NEMO_MAX_AGENT_PSEUDO_TOOL_NUDGES', '2') or '2'), 20))
+except ValueError:
+    MAX_AGENT_PSEUDO_TOOL_NUDGES = 2
 
 # ---------------------------------------------------------------------------
 # Workspace tool limits
@@ -133,6 +143,9 @@ NEMO_EMBEDDINGS_MODEL = (os.getenv('NEMO_EMBEDDINGS_MODEL', '') or 'text-embeddi
 # Optional: OpenAI-compatible embeddings endpoint separate from the active chat connection (e.g. second ``llama-server`` on another port).
 NEMO_EMBEDDINGS_BASE_URL = (os.getenv('NEMO_EMBEDDINGS_BASE_URL', '') or '').strip()
 NEMO_EMBEDDINGS_API_KEY = (os.getenv('NEMO_EMBEDDINGS_API_KEY', '') or '').strip()
+# Split each embedding request into tiktoken-sized chunks (``cl100k_base``) at or below this size so local
+# ``llama-server --embedding`` (default physical batch / ubatch 512) and mismatched model tokenizers do not 500.
+NEMO_EMBEDDINGS_MAX_INPUT_TOKENS = _env_int('NEMO_EMBEDDINGS_MAX_INPUT_TOKENS', 384, 32, 8192)
 
 # Seeds :attr:`~nemo_backend.state.runtime_config` before the first ``POST /runtime-config``; overridden by Settings → Tools.
 NEMO_EDIT_TOOLS_STRICT = _env_bool('NEMO_EDIT_TOOLS_STRICT', False)

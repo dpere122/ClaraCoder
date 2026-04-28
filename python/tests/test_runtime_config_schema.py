@@ -66,3 +66,22 @@ def test_orchestrated_mode_accepts_camel_case_bool() -> None:
     r = RuntimeConfigRequest.model_validate(body)
     assert r.tools is not None
     assert r.tools.orchestratedMode is True
+
+
+def test_outer_phased_coding_cycle_accepts_snake_case_string() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'model': 'whisper-1', 'apiKey': ''},
+        'tools': {
+            'editToolsStrict': False,
+            'maxFileReadLines': 400,
+            'maxSearchResults': 40,
+            'defaultWorkspaceEncoding': 'utf-8',
+            'defaultWorkspaceNewline': 'lf',
+            'outer_phased_coding_cycle': 'true',
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.outerPhasedCodingCycle is True

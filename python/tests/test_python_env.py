@@ -27,14 +27,19 @@ async def test_run_subprocess_with_output_times_out_and_kills(tmp_path: Path, mo
 
     monkeypatch.setattr(pe, 'NEMO_SUBPROCESS_TIMEOUT_SEC', 1)
 
-    async def hang():
-        await asyncio.sleep(3600)
-        return b'', None
-
     proc = MagicMock()
-    proc.communicate = AsyncMock(side_effect=hang)
+    proc.returncode = None
+    comm_calls = {'n': 0}
+
+    async def communicate_impl():
+        comm_calls['n'] += 1
+        if comm_calls['n'] == 1:
+            await asyncio.sleep(3600)
+        return (b'', None)
+
+    proc.communicate = communicate_impl
     proc.kill = MagicMock()
-    proc.wait = AsyncMock(return_value=1)
+    proc.wait = AsyncMock(return_value=0)
 
     async def fake_exec(*_a, **_kw):
         return proc
@@ -45,6 +50,29 @@ async def test_run_subprocess_with_output_times_out_and_kills(tmp_path: Path, mo
     assert code is None
     assert 'timed out' in out.lower()
     proc.kill.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_run_subprocess_with_output_uses_isolated_session_and_devnull(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    orig = asyncio.create_subprocess_exec
+
+    async def spy(*a, **kw):
+        captured.update(kw)
+        return await orig(*a, **kw)
+
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spy)
+
+    code, out = await _run_subprocess_with_output(
+        [sys.executable, '-c', 'print(42)'],
+        cwd=tmp_path,
+        timeout_sec=60.0,
+    )
+    assert code == 0
+    assert '42' in out
+    assert captured.get('stdin') == asyncio.subprocess.DEVNULL
+    assert captured.get('start_new_session') is True
 
 
 def test_build_python_lsp_command_prefers_workspace_venv(tmp_path: Path) -> None:

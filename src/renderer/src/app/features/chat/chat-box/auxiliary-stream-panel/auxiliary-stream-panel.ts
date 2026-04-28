@@ -1,0 +1,64 @@
+import {
+  Component,
+  ElementRef,
+  Injector,
+  ViewEncapsulation,
+  afterNextRender,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
+import type { StreamPart } from '@shared/index';
+import { isMoeAuxiliaryStreamTag, isShellStyleToolStreamTag, isToolTrailStatusStreamTag } from '@shared/index';
+import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/delegated-shell-terminal';
+
+@Component({
+  selector: 'app-auxiliary-stream-panel',
+  standalone: true,
+  imports: [DelegatedShellTerminalComponent],
+  templateUrl: './auxiliary-stream-panel.html',
+  styleUrl: './auxiliary-stream-panel.css',
+  encapsulation: ViewEncapsulation.None,
+})
+export class AuxiliaryStreamPanelComponent {
+  private readonly inj = inject(Injector);
+
+  /** Multiplex segments (reasoning + delegated), already ordered. */
+  readonly parts = input.required<StreamPart[]>();
+  /** Live stream: parent may style timing (e.g. running tool row); panel is log-style, not a card. */
+  readonly live = input(false);
+
+  readonly expanded = signal(false);
+  private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
+
+  readonly isMoe = isMoeAuxiliaryStreamTag;
+  readonly isShellTool = isShellStyleToolStreamTag;
+  readonly isToolTrailStatus = isToolTrailStatusStreamTag;
+
+  constructor() {
+    effect(() => {
+      this.parts();
+      const expanded = this.expanded();
+      if (expanded) {
+        return;
+      }
+      untracked(() => {
+        afterNextRender(
+          () => {
+            const el = this.viewport()?.nativeElement;
+            if (!el) return;
+            el.scrollTop = el.scrollHeight;
+          },
+          { injector: this.inj },
+        );
+      });
+    });
+  }
+
+  toggleExpanded(): void {
+    this.expanded.update((v) => !v);
+  }
+}

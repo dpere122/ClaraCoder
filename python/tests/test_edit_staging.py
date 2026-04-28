@@ -209,6 +209,9 @@ def test_stage_line_range_edit_stages_python(staging_env) -> None:
         }
     )
     assert 'for review' in out.lower()
+    assert 'LSP-style range' in out
+    assert 'Replaced inclusive baseline lines: 2–2' in out
+    assert 'Removed baseline text' in out and 'line2' in out
     assert 'lr.py' in session.pending_edit_stagings
 
 

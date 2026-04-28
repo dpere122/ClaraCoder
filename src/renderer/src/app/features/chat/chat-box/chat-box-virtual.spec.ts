@@ -24,4 +24,29 @@ describe('chat-box-virtual', () => {
     expect(sumHeights([10, 20, 30], 0, 2)).toBe(30);
     expect(sumHeights([10, 20, 30], 1, 3)).toBe(50);
   });
+
+  it('estimateChatRowHeight uses auxiliaryStreamTimeline as a single fused block', () => {
+    const base = estimateChatRowHeight(
+      {
+        kind: 'assistant-turn',
+        assistant: { text: 'Short.', toolStreams: [], moeStreams: [] },
+        chainGroups: [],
+        artifacts: [],
+      },
+      0.9,
+    );
+    const withTimeline = estimateChatRowHeight(
+      {
+        kind: 'assistant-turn',
+        assistant: {
+          text: 'Short.',
+          auxiliaryStreamTimeline: [{ streamTag: 'moe', label: 'R', text: 'a' }],
+        },
+        chainGroups: [],
+        artifacts: [],
+      },
+      0.9,
+    );
+    expect(withTimeline).toBeGreaterThan(base);
+  });
 });

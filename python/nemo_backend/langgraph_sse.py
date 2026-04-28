@@ -33,6 +33,7 @@ from nemo_backend.llm_interaction_logging import (
 from nemo_backend.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
 from nemo_backend.stream_tags import MOE_AUXILIARY_STREAM_TAG
 from nemo_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
+from nemo_backend.tool_harness_feedback_middleware import pending_harness_crystal_polarity
 
 
 @dataclass
@@ -285,6 +286,10 @@ def _on_tool_end(
             stream_tag=stream_tag,
         )
     )
+    crystal_pol = pending_harness_crystal_polarity.get()
+    if crystal_pol is not None:
+        pending_harness_crystal_polarity.set(None)
+        lines.append(sse_line({'type': 'harness_crystal', 'polarity': crystal_pol}))
     return lines
 
 

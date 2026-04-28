@@ -194,7 +194,9 @@ def lsp_get_diagnostics(relative_path: str = '', refresh_active_document: bool =
     Works for Python (`.py`) and TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`).
 
     Set ``refresh_active_document=true`` to re-sync before reporting diagnostics: in **workspace** scope this reads the
-    on-disk file; in **staging** scope it uses the staged draft text when one exists for the path, otherwise disk."""
+    on-disk file; in **staging** scope it uses the staged draft text when one exists for the path, otherwise disk.
+    After `format_staging_file_black` on a staged `.py` path, call with ``refresh_active_document=true`` on that path
+    to verify indentation-related diagnostics are gone."""
 
     enc = validate_workspace_encoding((encoding or '').strip() or 'utf-8')
     rel = normalize_relative_posix_path(relative_path)

@@ -80,24 +80,31 @@ def read_staging_text(path: Path, encoding: str) -> str:
     return decode_for_tools(raw, encoding)
 
 
-def run_black_on_file(path: Path, *, encoding: str, disk_newline: DiskNewline) -> tuple[bool, str]:
-    """Run Black on ``path`` (UTF-8 round-trip through Black). Returns (ok, detail)."""
+def format_python_source_str(text: str) -> tuple[str | None, str]:
+    """Run Black on a source string. Returns ``(formatted, '')`` or ``(None, error_detail)``."""
+
     try:
         import black
     except ImportError:
-        return False, 'black is not installed'
+        return None, 'black is not installed'
+    try:
+        formatted = black.format_str(text, mode=black.FileMode())
+        return formatted, ''
+    except Exception as exc:
+        logger.warning('Black format_str failed err=%s', exc)
+        return None, str(exc)
 
+
+def run_black_on_file(path: Path, *, encoding: str, disk_newline: DiskNewline) -> tuple[bool, str]:
+    """Run Black on ``path`` (in-memory format, then write). Returns (ok, detail)."""
     try:
         src = read_staging_text(path, encoding)
     except OSError as exc:
         return False, f'read failed: {exc}'
 
-    try:
-        mode = black.FileMode()
-        formatted = black.format_str(src, mode=mode)
-    except Exception as exc:
-        logger.warning('Black format failed path=%s err=%s', path, exc)
-        return False, str(exc)
+    formatted, err = format_python_source_str(src)
+    if formatted is None:
+        return False, err
 
     try:
         write_staging_text(path, formatted, encoding, disk_newline)

@@ -24,10 +24,11 @@ export function startPythonServer(): void {
   mkdirSync(workspaceSemanticIndexDir, { recursive: true });
   mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
-  mainState.pythonProcess = spawn(pythonCmd, [scriptPath], {
+  mainState.pythonProcess = spawn(pythonCmd, ['-u', scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
+      PYTHONUNBUFFERED: '1',
       NEMO_LOG_DIR: logDir,
       NEMO_STAGING_DIR: stagingDir,
       NEMO_CHECKPOINT_DB: checkpointDb,
@@ -52,7 +53,11 @@ export function startPythonServer(): void {
 }
 
 /** Poll `/health` until the FastAPI (or similar) stack is accepting requests. */
-export async function waitForPython(retries = 30, intervalMs = 500): Promise<void> {
+export async function waitForPython(
+  /** Cold Python imports + FastAPI lifespan can exceed 15s on slower machines. */
+  retries = 120,
+  intervalMs = 500,
+): Promise<void> {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(`${PYTHON_URL}/health`);

@@ -125,6 +125,8 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     defaultWorkspaceEncoding: 'utf-8',
     defaultWorkspaceNewline: 'lf',
     orchestratedMode: false,
+    outerPhasedCodingCycle: false,
+    allowStagingOverlayCommands: false,
   };
 }
 

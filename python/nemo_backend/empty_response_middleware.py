@@ -2,6 +2,9 @@
 
 ``create_agent`` graphs otherwise treat an empty ``AIMessage`` as a finished answer;
 this middleware injects a user nudge up to :data:`nemo_backend.config.MAX_AGENT_EMPTY_NUDGES` times.
+It also nudges (separate cap, :data:`nemo_backend.config.MAX_AGENT_PSEUDO_TOOL_NUDGES`) when the
+model encodes tool usage as ``<tool_call>`` / ``<function=...>`` XML in assistant text or reasoning
+but the completion includes no registered ``tool_calls``—a frequent mismatch with some Qwen templates.
 
 The nudge streak counter only resets when the model produces *visible text* (the goal of
 the nudge).  Tool calls alone do **not** reset it—this prevents an alternating loop where
@@ -22,8 +25,8 @@ from langgraph.typing import ContextT
 from typing_extensions import NotRequired, override
 
 from nemo_backend.agents.planning import NESTED_OUTER_MUTATION_TOOL_NAMES
-from nemo_backend.config import MAX_AGENT_EMPTY_NUDGES
-from nemo_backend.messages import final_assistant_text
+from nemo_backend.config import MAX_AGENT_EMPTY_NUDGES, MAX_AGENT_PSEUDO_TOOL_NUDGES
+from nemo_backend.messages import final_assistant_text, text_uses_pseudo_tool_markup
 
 logger = logging.getLogger('nemo.agent.langgraph')
 
@@ -44,6 +47,13 @@ _EMPTY_NUDGE_TEXT_AFTER_PLAN_AND_MODIFY = (
     'in this conversation. First decide whether that nested workspace run satisfied the user request. '
     'If it did, answer the user now in plain language without more tools. If it did not, explain exactly '
     'what remains and why before making at most one focused next tool call.'
+)
+
+_PSEUDO_TOOL_MARKUP_NUDGE_TEXT = (
+    'Your last completion did not register any tool calls on the API, but it contained tool usage as '
+    '``<tool_call>`` / ``<function=...>`` or ``<parameter=...>`` XML in the assistant or reasoning text. '
+    'That form is not executed. Issue the same action again using the model\'s **tool-calling** channel only '
+    '(normal function/tool invocations the API accepts), not as raw XML. Keep any prose minimal or empty.'
 )
 
 _NUDGE_REPEAT_PLAN_AND_MODIFY_AFTER_FAILURE = (
@@ -109,6 +119,7 @@ class _EmptyResponseNudgeState(AgentState[ResponseT]):
 
     empty_response_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
     post_tool_silent_tool_streak: NotRequired[Annotated[int, PrivateStateAttr]]
+    pseudo_tool_markup_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
 
 
 class EmptyResponseNudgeMiddleware(AgentMiddleware):
@@ -132,21 +143,37 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             return None
         if last.tool_calls:
             if final_assistant_text(last).strip():
-                return {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
+                return {
+                    'empty_response_nudge_streak': 0,
+                    'post_tool_silent_tool_streak': 0,
+                    'pseudo_tool_markup_nudge_streak': 0,
+                }
             prior_msgs = msgs[:-1]
             if any(isinstance(m, ToolMessage) for m in prior_msgs):
                 latest_tool = _latest_tool_message(prior_msgs)
                 lt_name = str(getattr(latest_tool, 'name', '') or '').strip() if latest_tool else ''
                 # Typical flow: list/read/search then nested mutation — must not count as spam.
                 if lt_name not in NESTED_OUTER_MUTATION_TOOL_NAMES:
-                    return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
+                    return {
+                        'post_tool_silent_tool_streak': 0,
+                        'empty_response_nudge_streak': 0,
+                        'pseudo_tool_markup_nudge_streak': 0,
+                    }
                 if _is_successful_outer_nested_mutation_tool(latest_tool):
-                    return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
+                    return {
+                        'post_tool_silent_tool_streak': 0,
+                        'empty_response_nudge_streak': 0,
+                        'pseudo_tool_markup_nudge_streak': 0,
+                    }
                 # Unsuccessful nested mutation: only count if the model doubles down with the same class of tool again
                 # (not when it switches to read/list tools after a failure).
                 names_called = set(_aimessage_tool_names(last))
                 if not (names_called & NESTED_OUTER_MUTATION_TOOL_NAMES):
-                    return {'post_tool_silent_tool_streak': 0, 'empty_response_nudge_streak': 0}
+                    return {
+                        'post_tool_silent_tool_streak': 0,
+                        'empty_response_nudge_streak': 0,
+                        'pseudo_tool_markup_nudge_streak': 0,
+                    }
                 silent = int(state.get('post_tool_silent_tool_streak') or 0) + 1
                 if silent >= 2:
                     logger.info(
@@ -159,14 +186,44 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
                         'jump_to': 'model',
                         'post_tool_silent_tool_streak': 0,
                         'empty_response_nudge_streak': 0,
+                        'pseudo_tool_markup_nudge_streak': 0,
                     }
-                return {'post_tool_silent_tool_streak': silent, 'empty_response_nudge_streak': 0}
-            return {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
+                return {
+                    'post_tool_silent_tool_streak': silent,
+                    'empty_response_nudge_streak': 0,
+                    'pseudo_tool_markup_nudge_streak': 0,
+                }
+            return {
+                'empty_response_nudge_streak': 0,
+                'post_tool_silent_tool_streak': 0,
+                'pseudo_tool_markup_nudge_streak': 0,
+            }
         inv = getattr(last, 'invalid_tool_calls', None) or ()
         if inv:
             return None
-        if final_assistant_text(last).strip():
-            return {'empty_response_nudge_streak': 0, 'post_tool_silent_tool_streak': 0}
+        fat = (final_assistant_text(last) or '').strip()
+        if text_uses_pseudo_tool_markup(fat) and MAX_AGENT_PSEUDO_TOOL_NUDGES > 0:
+            p_streak = int(state.get('pseudo_tool_markup_nudge_streak') or 0)
+            if p_streak >= MAX_AGENT_PSEUDO_TOOL_NUDGES:
+                return None
+            logger.info(
+                'Nudging after assistant text used pseudo tool XML without API tool_calls (%s/%s LLM steps)',
+                p_streak + 1,
+                MAX_AGENT_PSEUDO_TOOL_NUDGES,
+            )
+            return {
+                'messages': [HumanMessage(content=_PSEUDO_TOOL_MARKUP_NUDGE_TEXT)],
+                'jump_to': 'model',
+                'pseudo_tool_markup_nudge_streak': p_streak + 1,
+                'empty_response_nudge_streak': 0,
+                'post_tool_silent_tool_streak': 0,
+            }
+        if fat:
+            return {
+                'empty_response_nudge_streak': 0,
+                'post_tool_silent_tool_streak': 0,
+                'pseudo_tool_markup_nudge_streak': 0,
+            }
         streak = int(state.get('empty_response_nudge_streak') or 0)
         if streak >= MAX_AGENT_EMPTY_NUDGES:
             return None
@@ -189,4 +246,5 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             'messages': [HumanMessage(content=nudge)],
             'jump_to': 'model',
             'empty_response_nudge_streak': streak + 1,
+            'pseudo_tool_markup_nudge_streak': 0,
         }

@@ -66,6 +66,11 @@ export interface LlmStatusMessage {
   status: LlmStatus;
 }
 
+export interface HarnessCrystalMessage {
+  conversationId: string;
+  polarity: 'positive' | 'negative';
+}
+
 export interface PlannerMessage {
   conversationId: string;
   planner: PlannerProgress;
@@ -128,6 +133,7 @@ export class ElectronService {
   private readonly toolExecCompleteSubject = new Subject<ToolExecCompleteMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
+  private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
   private readonly plannerSubject = new Subject<PlannerMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
@@ -159,6 +165,7 @@ export class ElectronService {
   readonly toolExecComplete$ = this.toolExecCompleteSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
+  readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
   readonly planner$ = this.plannerSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
@@ -219,6 +226,14 @@ export class ElectronService {
     });
     this.api?.onMessageStatus((_event, conversationId, status) => {
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
+    });
+    this.api?.onMessageHarnessCrystal?.((_event, conversationId, polarity) => {
+      this.zone.run(() =>
+        this.harnessCrystalSubject.next({
+          conversationId,
+          polarity: polarity === 'negative' ? 'negative' : 'positive',
+        }),
+      );
     });
     this.api?.onMessagePlanner?.((_event, conversationId, planner) => {
       this.zone.run(() => this.plannerSubject.next({ conversationId, planner }));
@@ -488,6 +503,8 @@ export class ElectronService {
         defaultWorkspaceEncoding: 'utf-8',
         defaultWorkspaceNewline: 'lf',
         orchestratedMode: false,
+        outerPhasedCodingCycle: false,
+        allowStagingOverlayCommands: false,
       },
       healthMonitor: {
         logLevel: 'info',

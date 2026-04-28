@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Literal
@@ -11,16 +13,30 @@ from typing import Literal
 from langchain_core.tools import tool
 
 from nemo_backend import edit_staging
+from nemo_backend.agents.specialists.project_review_tools import (
+    _emit_project_review_chunk,
+    _emit_project_review_tool_complete,
+    _pump_subprocess_stream,
+    _terminate_process,
+)
+from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import PendingStagedTransferHitl, WorkspaceTestMaterializationEntry
 from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.lsp.tools import lsp_get_diagnostics
+from nemo_backend.python_env import ensure_session_python_workspace_env, session_workspace_subprocess_env
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
+from nemo_backend.staging_test_overlay import (
+    build_staging_test_overlay,
+    parse_command_argv_json,
+    remove_overlay_parent,
+    resolve_overlay_cwd,
+)
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
 from nemo_backend.workspace_text_io import DiskNewline, decode_for_tools, write_file_resolved
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.staging')
 
@@ -31,6 +47,11 @@ SEARCH_STAGED_EDITS_NAME = 'search_staged_edits'
 FORMAT_STAGING_FILE_BLACK_NAME = 'format_staging_file_black'
 TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME = 'transfer_staged_file_to_workspace'
 DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME = 'diff_staged_edit_against_baseline'
+RUN_STAGING_OVERLAY_COMMAND_NAME = 'run_staging_overlay_command'
+_OVERLAY_STREAM_TAG = 'spec-code_review-overlay'
+_OVERLAY_STREAM_LABEL = 'Staging overlay'
+_SUBPROCESS_READ_SIZE = 65_536
+_MAX_OVERLAY_OUTPUT_CHARS = 120_000
 # Cap unified-diff lines so tool output stays model-friendly (git-style hunks).
 _MAX_STAGED_UNIFIED_DIFF_LINES = 2500
 _MAX_STAGED_DIFF_CHARS = 480_000
@@ -477,7 +498,10 @@ def search_staged_edits(query: str, relative_path: str = '', max_matches: int = 
 
 @tool(FORMAT_STAGING_FILE_BLACK_NAME)
 def format_staging_file_black(relative_path: str) -> str:
-    """Run Black on the staged file for this path (Python only). Updates staged content on disk."""
+    """Run Black on the staged file for this path (Python only). Updates staged content on disk.
+
+    Prefer this when LSP or **Post-edit checks** flag indentation or tab/space issues on a staged `.py` draft, then
+    call `lsp_get_diagnostics` with `refresh_active_document=true` to verify."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -497,7 +521,199 @@ def format_staging_file_black(relative_path: str) -> str:
     except OSError as exc:
         return f'Tool error: could not read staging after Black ({exc}).'
     logger.info('format_staging_file_black ok path=%s', rel_key)
-    return f'Black formatted staged `{rel_key}`. You may re-read with `read_staged_edit` before transferring.'
+    return (
+        f'Black formatted staged `{rel_key}`. Call `lsp_get_diagnostics` with `refresh_active_document=true` to verify, '
+        'or `read_staged_edit` before transferring.'
+    )
+
+
+def _overlay_combined_output(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
+    stdout = ''.join(stdout_chunks)
+    stderr = ''.join(stderr_chunks)
+    if stderr:
+        return f'{stdout}\n[stderr]\n{stderr}' if stdout else f'[stderr]\n{stderr}'
+    return stdout
+
+
+@tool(RUN_STAGING_OVERLAY_COMMAND_NAME)
+async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str = '') -> str:
+    """Run a subprocess in an **ephemeral overlay** of the workspace with **pending staged** drafts applied.
+
+    Requires **Allow staging overlay commands** in Settings → Tools. Pass ``command_argv_json`` as a JSON array of
+    strings (argv for ``exec``, no shell), e.g. ``["npm","test"]`` or ``["python","-m","pytest","tests","-v"]``.
+    Optional ``cwd_relative`` is a path under the overlay root (e.g. ``python`` or ``src/renderer``). Heavy dirs such
+    as ``node_modules`` / ``.venv`` are linked from the real workspace when present. The real workspace files are not
+    modified. You must still call ``transfer_staged_file_to_workspace`` or ``reject_staged_workspace_edit`` to finish review.
+    """
+
+    if not getattr(runtime_config.tools, 'allow_staging_overlay_commands', False):
+        return (
+            'Tool error: staging overlay commands are disabled. Enable **Allow staging overlay commands** '
+            'in Settings → Tools, then try again.'
+        )
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    blocked = mutation_tools_blocked_reason(sid)
+    if blocked:
+        return blocked
+    session = get_session(sid)
+    argv, parse_err = parse_command_argv_json(command_argv_json)
+    if argv is None:
+        return parse_err
+    try:
+        workspace_root = get_active_workspace_root()
+    except ValueError as exc:
+        return f'Tool error: {exc}'
+
+    overlay_root, overlay_parent, build_err = build_staging_test_overlay(session, workspace_root, sid)
+    if overlay_root is None or overlay_parent is None:
+        return build_err or 'Tool error: could not build staging overlay.'
+
+    cwd, cwd_err = resolve_overlay_cwd(overlay_root, cwd_relative)
+    if cwd is None:
+        remove_overlay_parent(overlay_parent)
+        return cwd_err
+
+    await ensure_session_python_workspace_env(
+        session,
+        allow_workspace_root_fallback=False,
+        bootstrap_dependencies=False,
+        emit_chunk=None,
+    )
+    proc_env = session_workspace_subprocess_env(session) or dict(os.environ)
+
+    rendered = ' '.join(argv)
+    await _emit_project_review_chunk(
+        sid,
+        f'$ {rendered}\n',
+        stream_tag=_OVERLAY_STREAM_TAG,
+        label=_OVERLAY_STREAM_LABEL,
+    )
+    exit_code: int | None = None
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    try:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=str(cwd),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=proc_env,
+            )
+        except OSError as exc:
+            await _emit_project_review_tool_complete(
+                sid,
+                stream_tag=_OVERLAY_STREAM_TAG,
+                label=_OVERLAY_STREAM_LABEL,
+                exit_code=None,
+                output_excerpt='',
+            )
+            return f'Tool error: could not start command ({exc}).'
+
+        stdout_task = asyncio.create_task(
+            _pump_subprocess_stream(
+                proc.stdout,
+                session_id=sid,
+                emit_prefix='',
+                capture_chunks=stdout_chunks,
+                stream_tag=_OVERLAY_STREAM_TAG,
+                label=_OVERLAY_STREAM_LABEL,
+            )
+        )
+        stderr_task = asyncio.create_task(
+            _pump_subprocess_stream(
+                proc.stderr,
+                session_id=sid,
+                emit_prefix='[stderr] ',
+                capture_chunks=stderr_chunks,
+                stream_tag=_OVERLAY_STREAM_TAG,
+                label=_OVERLAY_STREAM_LABEL,
+            )
+        )
+        wait_task = asyncio.create_task(proc.wait())
+        abort_task = asyncio.create_task(session.abort_event.wait())
+        try:
+            timeout_sec = (
+                float(NEMO_SUBPROCESS_TIMEOUT_SEC)
+                if NEMO_SUBPROCESS_TIMEOUT_SEC and NEMO_SUBPROCESS_TIMEOUT_SEC > 0
+                else None
+            )
+            if timeout_sec is not None:
+                done, _pending = await asyncio.wait(
+                    {wait_task, abort_task},
+                    timeout=timeout_sec,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    await _emit_project_review_chunk(
+                        sid,
+                        '\n[staging overlay command timed out]\n',
+                        stream_tag=_OVERLAY_STREAM_TAG,
+                        label=_OVERLAY_STREAM_LABEL,
+                    )
+                    await _terminate_process(proc)
+                    await wait_task
+                    exit_code = proc.returncode
+                elif wait_task in done:
+                    exit_code = await wait_task
+                elif abort_task in done and session.abort_event.is_set():
+                    await _emit_project_review_chunk(
+                        sid,
+                        '\n[staging overlay command aborted by user]\n',
+                        stream_tag=_OVERLAY_STREAM_TAG,
+                        label=_OVERLAY_STREAM_LABEL,
+                    )
+                    await _terminate_process(proc)
+                    await wait_task
+                    exit_code = proc.returncode
+            else:
+                done, _pending = await asyncio.wait({wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+                if wait_task in done:
+                    exit_code = await wait_task
+                elif abort_task in done and session.abort_event.is_set():
+                    await _emit_project_review_chunk(
+                        sid,
+                        '\n[staging overlay command aborted by user]\n',
+                        stream_tag=_OVERLAY_STREAM_TAG,
+                        label=_OVERLAY_STREAM_LABEL,
+                    )
+                    await _terminate_process(proc)
+                    await wait_task
+                    exit_code = proc.returncode
+        finally:
+            if not abort_task.done():
+                abort_task.cancel()
+                try:
+                    await abort_task
+                except asyncio.CancelledError:
+                    pass
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+
+        combined = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
+        excerpt = combined[-12_000:] if len(combined) > 12_000 else combined
+        await _emit_project_review_tool_complete(
+            sid,
+            stream_tag=_OVERLAY_STREAM_TAG,
+            label=_OVERLAY_STREAM_LABEL,
+            exit_code=exit_code,
+            output_excerpt=excerpt.strip(),
+        )
+        status = 'passed' if exit_code == 0 else 'failed'
+        body = (
+            'Staging overlay command summary:\n'
+            f'- Command: `{rendered}`\n'
+            f'- Working directory (overlay): `{cwd}`\n'
+            f'- Result: {status}\n'
+            f'- Exit code: {exit_code if exit_code is not None else "unknown"}\n'
+        )
+        if combined:
+            body += f'\nCaptured output:\n{combined}'
+        logger.info('run_staging_overlay_command exit_code=%s cwd=%s', exit_code, cwd)
+        return truncate_text_head_tail(body, _MAX_OVERLAY_OUTPUT_CHARS)
+    finally:
+        remove_overlay_parent(overlay_parent)
 
 
 def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[dict | None, str | None]:
@@ -657,6 +873,7 @@ def code_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
         search_staged_edits,
         lsp_get_diagnostics,
         format_staging_file_black,
+        run_staging_overlay_command,
         transfer_staged_file_to_workspace,
         reject_staged_workspace_edit,
     ]

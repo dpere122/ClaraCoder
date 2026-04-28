@@ -16,6 +16,8 @@ export interface StreamPart {
   runComplete?: boolean;
   /** Subprocess exit code when `runComplete`; null if finished but code unknown. */
   exitCode?: number | null;
+  /** Present on synthetic `tool-trail:*` segments: mirrors IPC tool status in the auxiliary timeline. */
+  toolChainState?: 'running' | 'complete' | 'error';
 }
 
 /** Lifecycle of a proposed edit card in the chat transcript. */
@@ -40,6 +42,8 @@ export type ConversationMessage =
       toolStreams?: StreamPart[];
       /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
       moeStreams?: StreamPart[];
+      /** Multiplex order for reasoning + delegated streams (non-primary tags), when available. */
+      auxiliaryStreamTimeline?: StreamPart[];
     }
   | {
       role: 'chain';
@@ -93,6 +97,8 @@ export type ConversationFileMessage =
       toolStreams?: StreamPart[];
       /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
       moeStreams?: StreamPart[];
+      /** Multiplex order for reasoning + delegated streams (non-primary tags), when available. */
+      auxiliaryStreamTimeline?: StreamPart[];
     }
   | {
       role: 'chain';

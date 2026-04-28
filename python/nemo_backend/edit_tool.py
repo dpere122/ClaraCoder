@@ -16,9 +16,11 @@ from langchain_core.tools import tool
 
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
+from nemo_backend.edit_staging import format_python_source_str
+from nemo_backend.lsp.diagnostics import post_edit_checks_footer
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path, outer_workspace_edit_guard_error
 from nemo_backend.lsp.manager import sync_session_document
-from nemo_backend.partial_workspace_edit import merge_partial_edit
+from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
 from nemo_backend.workspace_text_io import (
     DiskNewline,
@@ -29,7 +31,7 @@ from nemo_backend.workspace_text_io import (
     validate_workspace_encoding,
     write_file_resolved,
 )
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.tools.edit')
 
@@ -139,20 +141,40 @@ def _after_merge_workspace_edit(
     mode: str,
     disk_encoding: str,
     disk_newline: DiskNewline,
+    *,
+    formatter_lines: list[str] | None = None,
 ) -> str:
     """Finalize a workspace edit via diff or auto-apply (staging is handled by dedicated staging tools)."""
+    fl = list(formatter_lines or [])
+    if not fl:
+        fl = ['Formatter: (no automatic formatter for this extension in workspace edit tools).']
+
     diagnostics_note = ''
     session_id = current_session_id.get() or None
-    if is_lsp_managed_path(rel_display):
+    srv = lsp_server_for_path(rel_display)
+    if is_lsp_managed_path(rel_display) and srv:
         try:
             diagnostics = sync_session_document(rel_display, merged, session_id=session_id, scope='workspace')
-            ls_label = lsp_server_for_path(rel_display) or 'lsp'
-            diagnostics_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
-            logger.info('%s LSP sync path=%s diagnostics=%s', ls_label, rel_display, len(diagnostics))
+            logger.info('%s LSP sync path=%s diagnostics=%s', srv, rel_display, len(diagnostics))
+            diagnostics_note = truncate_text_head_tail(
+                post_edit_checks_footer(
+                    rel_display,
+                    diagnostics,
+                    lsp_scope='workspace',
+                    server_kind=srv,
+                    formatter_lines=fl,
+                ),
+                14_000,
+            )
         except Exception as exc:
-            ls_label = lsp_server_for_path(rel_display) or 'lsp'
-            logger.warning('%s LSP sync failed path=%s err=%s', ls_label, rel_display, exc)
-            diagnostics_note = f' {ls_label} LSP sync failed: {exc}.'
+            logger.warning('%s LSP sync failed path=%s err=%s', srv, rel_display, exc)
+            diagnostics_note = truncate_text_head_tail(
+                '\n---\nPost-edit checks:\n' + '\n'.join(fl) + f'\nLSP sync failed: {exc}.',
+                14_000,
+            )
+    else:
+        diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(fl)
+
     return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline) + diagnostics_note
 
 
@@ -231,7 +253,23 @@ def _run_edit_tool(
         return f'Tool error: {merge_err}'
     assert merged is not None
 
-    return _after_merge_workspace_edit(session, rel_display, old_text, merged, mode, disk_enc, disk_nl)
+    formatter_lines: list[str] = []
+    if rel_display.lower().endswith('.py'):
+        fmt, err = format_python_source_str(merged)
+        if fmt is not None:
+            merged = fmt
+            formatter_lines.append('Formatter (Black): applied before diff/LSP.')
+        else:
+            formatter_lines.append(f'Formatter (Black): skipped ({err}).')
+    else:
+        formatter_lines.append('Formatter: (Black applies only to `.py` in workspace edit tools).')
+
+    out = _after_merge_workspace_edit(
+        session, rel_display, old_text, merged, mode, disk_enc, disk_nl, formatter_lines=formatter_lines
+    )
+    if mode == 'line-range' and start_line > 0 and end_line >= start_line:
+        out += line_range_edit_tool_feedback(old_text, start_line, end_line, new_snippet)
+    return out
 
 
 @tool
@@ -278,6 +316,8 @@ def replace_workspace_line_range(
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
     Use `apply_workspace_full_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after
     the last line, and `1,1` can seed an empty file.
+    On success, the tool result includes a **Line-range edit detail** footer (1-based lines/columns, LSP UTF-16 range,
+    verbatim removed/inserted excerpts).
     See `apply_workspace_full_file` for `encoding` and `newline`.
 
     Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source and structured-config files.

@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 
 from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_NODE_DEPENDENCY
 from nemo_backend.domain import SessionState
+from nemo_backend.config import NEMO_NPM_SCRIPT_TIMEOUT_SEC
 from nemo_backend.python_env import _run_subprocess_with_output
 from nemo_backend.workspace_tools import truncate_text, truncate_text_head_tail
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
@@ -161,6 +162,14 @@ def _format_summary(
     return truncate_text_head_tail(body, _MAX_OUTPUT_CHARS)
 
 
+def _npm_run_script_timeout_sec() -> float | None:
+    """Wall clock for package.json scripts; ``None`` uses ``NEMO_SUBPROCESS_TIMEOUT_SEC`` only."""
+
+    if NEMO_NPM_SCRIPT_TIMEOUT_SEC > 0:
+        return float(NEMO_NPM_SCRIPT_TIMEOUT_SEC)
+    return None
+
+
 async def _run_pm(
     *,
     args: list[str],
@@ -170,9 +179,10 @@ async def _run_pm(
     project_label: str,
     pm: str,
     nested_review_stash_session_id: str | None = None,
+    subprocess_timeout_sec: float | None = None,
 ) -> str:
     command_text = ' '.join(args)
-    code, output = await _run_subprocess_with_output(args, cwd=cwd)
+    code, output = await _run_subprocess_with_output(args, cwd=cwd, timeout_sec=subprocess_timeout_sec)
     detail = output.strip() or f'(exit code {code})'
     if nested_review_stash_session_id:
         from nemo_backend.project_review_capture import append_nested_review_command_output
@@ -297,6 +307,7 @@ async def execute_pending_node_dependency_request(session: SessionState, pending
             workspace_label=ws_label,
             project_label=proj_label,
             pm=pm,
+            subprocess_timeout_sec=_npm_run_script_timeout_sec(),
         )
     return f'Tool error: unsupported pending Node dependency action `{kind or "unknown"}`.'
 
@@ -566,6 +577,7 @@ async def run_npm_script_tool(script_name: str, relative_project_dir: str = '') 
             project_label=proj_label,
             pm=pm,
             nested_review_stash_session_id=stash_sid,
+            subprocess_timeout_sec=_npm_run_script_timeout_sec(),
         )
     return _pending_node_command(
         session,

@@ -21,10 +21,12 @@ import {
   gemmaTemplateSanitizeActive,
   isMoeAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
+  multiplexAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   resolveActiveLlmConnection,
   stripAssistantChannelNoise,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
+  toolTrailStatusStreamTag,
 } from '@shared/index';
 import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
 import { MessageBox } from '../chat/message-box/message-box';
@@ -40,6 +42,25 @@ import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { THEMES } from '../layout/theme-selector/theme-selector';
 
 const DEFAULT_REASONING_STREAM_LABEL = 'Model reasoning';
+
+const LLAMA_SERVER_DOCK_STORAGE_KEY = 'nemo.llamaServerDock';
+
+type LlamaServerDockSide = 'conversations' | 'workspace';
+
+function readLlamaServerDockFromStorage(): LlamaServerDockSide {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return 'conversations';
+    }
+    const v = localStorage.getItem(LLAMA_SERVER_DOCK_STORAGE_KEY)?.trim();
+    if (v === 'workspace') {
+      return 'workspace';
+    }
+  } catch {
+    /* ignore */
+  }
+  return 'conversations';
+}
 
 function appendStreamPart(
   parts: StreamPart[],
@@ -57,6 +78,28 @@ function appendStreamPart(
   }
   next.push({ streamTag: t, label: resolvedLabel, text: delta });
   return next;
+}
+
+/** Insert or update a tool-status row in the multiplex timeline (wall-clock order vs. `moe` chunks). */
+function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
+  const src = (status.source ?? 'agent').toLowerCase();
+  if (src !== 'tool') {
+    return parts;
+  }
+  const streamTag = toolTrailStatusStreamTag(status.id);
+  const next = [...parts];
+  const idx = next.findIndex((p) => p.streamTag === streamTag);
+  const row: StreamPart = {
+    streamTag,
+    label: status.label,
+    text: status.detail ?? '',
+    toolChainState: status.state,
+  };
+  if (idx >= 0) {
+    next[idx] = { ...next[idx], ...row };
+    return next;
+  }
+  return [...next, row];
 }
 
 function markToolExecStreamComplete(
@@ -189,6 +232,8 @@ export class App implements OnInit, OnDestroy {
   // Layout
   protected readonly workspaceWidth = signal(220);
   protected readonly sidebarWidth = signal(220);
+  /** Where the managed llama.cpp status tile is docked (persisted in localStorage). */
+  protected readonly llamaServerDock = signal<LlamaServerDockSide>(readLlamaServerDockFromStorage());
 
   private static readonly MIN_WORKSPACE = 140;
   private static readonly MAX_WORKSPACE = 500;
@@ -379,6 +424,7 @@ export class App implements OnInit, OnDestroy {
       }
       if (src === 'tool' && status.state === 'running') {
         this.toolRunIds.update((s) => new Set(s).add(status.id));
+        this.streamingParts.update((prev) => upsertToolTrailStatusStreamPart(prev, status));
         this.upsertChainMessage(status);
         return;
       }
@@ -388,6 +434,9 @@ export class App implements OnInit, OnDestroy {
           next.delete(status.id);
           return next;
         });
+      }
+      if (src === 'tool') {
+        this.streamingParts.update((prev) => upsertToolTrailStatusStreamPart(prev, status));
       }
       this.upsertChainMessage(status);
     });
@@ -403,6 +452,8 @@ export class App implements OnInit, OnDestroy {
         const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
         const moeCandidates = parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag) && p.text.trim());
         const moeStreams = moeCandidates.length > 0 ? moeCandidates : undefined;
+        const timelineParts = multiplexAuxiliaryStreamTimeline(parts);
+        const auxiliaryStreamTimeline = timelineParts.length > 0 ? timelineParts : undefined;
         const hasReasoningStreamText = moeCandidates.length > 0;
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
@@ -415,13 +466,19 @@ export class App implements OnInit, OnDestroy {
           (parts.length > 0 ||
             planner != null ||
             (toolStreams?.length ?? 0) > 0 ||
-            (moeStreams?.length ?? 0) > 0)
+            (moeStreams?.length ?? 0) > 0 ||
+            (auxiliaryStreamTimeline?.length ?? 0) > 0)
         ) {
           text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
         }
         text = this.sanitizeAssistantTextForActiveModel(text);
-        if (text.trim() || (toolStreams?.length ?? 0) > 0 || (moeStreams?.length ?? 0) > 0) {
-          this.pushMessage('assistant', text, planner, toolStreams, moeStreams);
+        if (
+          text.trim() ||
+          (toolStreams?.length ?? 0) > 0 ||
+          (moeStreams?.length ?? 0) > 0 ||
+          (auxiliaryStreamTimeline?.length ?? 0) > 0
+        ) {
+          this.pushMessage('assistant', text, planner, toolStreams, moeStreams, auxiliaryStreamTimeline);
           if (this.speechEnabled() && text.trim()) void this.tts.speakText(text, this.selectedVoice());
           this.autoSave();
         }
@@ -436,6 +493,8 @@ export class App implements OnInit, OnDestroy {
         const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
         const moeCandidates = parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag) && p.text.trim());
         const moeStreams = moeCandidates.length > 0 ? moeCandidates : undefined;
+        const timelinePartsBg = multiplexAuxiliaryStreamTimeline(parts);
+        const auxiliaryStreamTimeline = timelinePartsBg.length > 0 ? timelinePartsBg : undefined;
         const hasReasoningStreamText = moeCandidates.length > 0;
         let text = primaryAssistantTextFromParts(parts);
         if (
@@ -443,13 +502,26 @@ export class App implements OnInit, OnDestroy {
           (parts.length > 0 ||
             planner != null ||
             (toolStreams?.length ?? 0) > 0 ||
-            (moeStreams?.length ?? 0) > 0)
+            (moeStreams?.length ?? 0) > 0 ||
+            (auxiliaryStreamTimeline?.length ?? 0) > 0)
         ) {
           text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
         }
         text = this.sanitizeAssistantTextForActiveModel(text);
-        if (text.trim() || (toolStreams?.length ?? 0) > 0 || (moeStreams?.length ?? 0) > 0) {
-          void this.saveMessageToConversation(conversationId, text, planner, toolStreams, moeStreams);
+        if (
+          text.trim() ||
+          (toolStreams?.length ?? 0) > 0 ||
+          (moeStreams?.length ?? 0) > 0 ||
+          (auxiliaryStreamTimeline?.length ?? 0) > 0
+        ) {
+          void this.saveMessageToConversation(
+            conversationId,
+            text,
+            planner,
+            toolStreams,
+            moeStreams,
+            auxiliaryStreamTimeline,
+          );
         }
       }
     });
@@ -735,6 +807,18 @@ export class App implements OnInit, OnDestroy {
     this.updateConversationMeta(event.id, { title: event.title, updatedAt: new Date().toISOString() });
   }
 
+  onLlamaServerDockChange(target: LlamaServerDockSide): void {
+    if (target !== 'conversations' && target !== 'workspace') {
+      return;
+    }
+    this.llamaServerDock.set(target);
+    try {
+      localStorage.setItem(LLAMA_SERVER_DOCK_STORAGE_KEY, target);
+    } catch {
+      /* ignore */
+    }
+  }
+
   onWorkspaceResizeStart(event: MouseEvent): void {
     event.preventDefault();
     this.resizing = 'workspace';
@@ -863,6 +947,7 @@ export class App implements OnInit, OnDestroy {
     planner: PlannerProgress | null = null,
     toolStreams?: StreamPart[],
     moeStreams?: StreamPart[],
+    auxiliaryStreamTimeline?: StreamPart[],
   ): void {
     console.log('[App] pushMessage:', role, 'text length:', text.length);
     let nextMessage: ChatMessage;
@@ -873,6 +958,7 @@ export class App implements OnInit, OnDestroy {
       if (planner) assistant.planner = planner;
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
       if (moeStreams?.length) assistant.moeStreams = moeStreams;
+      if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
       nextMessage = assistant;
     }
     this.messages.update((prev) => [...prev, nextMessage]);
@@ -947,6 +1033,7 @@ export class App implements OnInit, OnDestroy {
     planner: PlannerProgress | null = null,
     toolStreams?: StreamPart[],
     moeStreams?: StreamPart[],
+    auxiliaryStreamTimeline?: StreamPart[],
   ): Promise<void> {
     try {
       // Find the conversation's workspaceId from the list
@@ -957,6 +1044,7 @@ export class App implements OnInit, OnDestroy {
       if (planner) assistant.planner = planner;
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
       if (moeStreams?.length) assistant.moeStreams = moeStreams;
+      if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
       conv.messages.push(assistant);
       conv.updatedAt = new Date().toISOString();
       await this.electron.saveConversation(conv);

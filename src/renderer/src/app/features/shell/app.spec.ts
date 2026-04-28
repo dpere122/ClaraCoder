@@ -51,6 +51,8 @@ function stubElectronApi(): void {
       defaultWorkspaceEncoding: 'utf-8',
       defaultWorkspaceNewline: 'lf',
       orchestratedMode: false,
+      outerPhasedCodingCycle: false,
+      allowStagingOverlayCommands: false,
     },
     healthMonitor: {
       logLevel: 'info',
@@ -69,6 +71,7 @@ function stubElectronApi(): void {
     onMessageToolReadChunk: noop,
     onMessageDone: noop,
     onMessageStatus: noop,
+    onMessageHarnessCrystal: noop,
     onConfigUpdated: noop,
     onSettingsWindowVisibilityChanged: noop,
     onActiveConversationChanged: noop,

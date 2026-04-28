@@ -1,11 +1,15 @@
-import { Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { AppConfig, LlamaServerStatusResult, ManagedServerHealthState } from '@shared/index';
 import { resolveActiveLlmConnection } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 import { filter, merge, switchMap, tap, timer } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
-import { computeStatusPollIntervalMs, llamaCrystalAggregateFromPayload } from './llama-connection-display';
+import {
+  computeStatusPollIntervalMs,
+  llamaCrystalAggregateFromPayload,
+  type LlamaCrystalAggregate,
+} from './llama-connection-display';
 import { LlamaCrystalView } from './llama-crystal-view';
 
 @Component({
@@ -34,13 +38,34 @@ export class LlamaServerTile {
   readonly appConfig = input<AppConfig | null>(null);
   /** True while the active conversation is awaiting assistant output (IPC stream in flight). */
   readonly llmStreamActive = input(false);
+  /** When set, harness crystal pulses only match this conversation (ignore background streams). */
+  readonly activeConversationId = input<string | null>(null);
+  /** Which shell column currently hosts this tile (used for drag-and-dock). */
+  readonly dockTarget = input<'conversations' | 'workspace'>('conversations');
+  readonly dockTargetChange = output<'conversations' | 'workspace'>();
 
   protected readonly inflight = signal<'start' | 'stop' | null>(null);
   protected readonly lastError = signal('');
   protected readonly status = signal<LlamaServerStatusResult | null>(null);
   protected readonly recentOutput = signal(false);
+  protected readonly harnessCrystalPulse = signal<'positive' | 'negative' | null>(null);
+  protected readonly crystalShakeNonce = signal(0);
+  private harnessCrystalClearTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set from main-process lifecycle while HF / remote weights are being fetched. */
+  private readonly modelDownloadPhase = signal(false);
+  private dockDragActive = false;
 
-  protected readonly crystalAggregate = computed(() => {
+  protected readonly crystalAggregate = computed((): LlamaCrystalAggregate => {
+    const pulse = this.harnessCrystalPulse();
+    if (pulse === 'positive') {
+      return 'feedbackPositive';
+    }
+    if (pulse === 'negative') {
+      return 'feedbackNegative';
+    }
+    if (this.modelDownloadPhase()) {
+      return 'modelDownload';
+    }
     const st = this.status();
     if (!st || st.ok === false) {
       return llamaCrystalAggregateFromPayload(null);
@@ -49,6 +74,37 @@ export class LlamaServerTile {
   });
 
   constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.harnessCrystalClearTimer != null) {
+        clearTimeout(this.harnessCrystalClearTimer);
+        this.harnessCrystalClearTimer = null;
+      }
+      document.body.classList.remove('llama-dock-drag--active');
+      this.clearLlamaDockHover();
+      this.dockDragActive = false;
+    });
+
+    this.electron.harnessCrystal$
+      .pipe(
+        filter((m) => {
+          const active = this.activeConversationId();
+          return !active || m.conversationId === active;
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((m) => {
+        if (this.harnessCrystalClearTimer != null) {
+          clearTimeout(this.harnessCrystalClearTimer);
+          this.harnessCrystalClearTimer = null;
+        }
+        this.harnessCrystalPulse.set(m.polarity);
+        this.crystalShakeNonce.update((n) => n + 1);
+        this.harnessCrystalClearTimer = window.setTimeout(() => {
+          this.harnessCrystalPulse.set(null);
+          this.harnessCrystalClearTimer = null;
+        }, 750);
+      });
+
     merge(this.electron.llamaServerLifecycle$, this.electron.llamaServerProcessExit$)
       .pipe(
         filter((e) => {
@@ -58,7 +114,18 @@ export class LlamaServerTile {
         }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe(() => this.scheduleDebouncedRefresh());
+      .subscribe((e) => {
+        if ('phase' in e) {
+          if (e.phase === 'downloading') {
+            this.modelDownloadPhase.set(true);
+          } else if (e.phase === 'running' || e.phase === 'stopped' || e.phase === 'starting') {
+            this.modelDownloadPhase.set(false);
+          }
+        } else {
+          this.modelDownloadPhase.set(false);
+        }
+        this.scheduleDebouncedRefresh();
+      });
 
     effect((onCleanup) => {
       const cfg = this.appConfig();
@@ -342,6 +409,83 @@ export class LlamaServerTile {
     await this.refreshStatus(cfg);
     if (this.pollCfg === cfg) {
       this.schedulePollTick();
+    }
+  }
+
+  protected onDockHandlePointerDown(ev: PointerEvent): void {
+    ev.preventDefault();
+    const t = ev.currentTarget;
+    if (!(t instanceof HTMLElement)) {
+      return;
+    }
+    this.dockDragActive = true;
+    try {
+      t.setPointerCapture(ev.pointerId);
+    } catch {
+      /* ignore */
+    }
+    document.body.classList.add('llama-dock-drag--active');
+  }
+
+  protected onDockHandlePointerMove(ev: PointerEvent): void {
+    if (!this.dockDragActive) {
+      return;
+    }
+    this.updateLlamaDockHover(ev.clientX, ev.clientY);
+  }
+
+  protected onDockHandlePointerUp(ev: PointerEvent): void {
+    if (!this.dockDragActive) {
+      return;
+    }
+    this.dockDragActive = false;
+    document.body.classList.remove('llama-dock-drag--active');
+    this.clearLlamaDockHover();
+    const t = ev.currentTarget;
+    if (t instanceof HTMLElement) {
+      try {
+        if (t.hasPointerCapture(ev.pointerId)) {
+          t.releasePointerCapture(ev.pointerId);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    const zone = this.resolveLlamaDockZoneAtPoint(ev.clientX, ev.clientY);
+    if (zone && zone !== this.dockTarget()) {
+      this.dockTargetChange.emit(zone);
+    }
+  }
+
+  private resolveLlamaDockZoneAtPoint(clientX: number, clientY: number): 'conversations' | 'workspace' | undefined {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (const el of stack) {
+      if (!(el instanceof Element)) {
+        continue;
+      }
+      const host = el.closest('[data-llama-dock]');
+      if (!(host instanceof HTMLElement)) {
+        continue;
+      }
+      const v = host.dataset['llamaDock'];
+      if (v === 'conversations' || v === 'workspace') {
+        return v;
+      }
+    }
+    return undefined;
+  }
+
+  private clearLlamaDockHover(): void {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-llama-dock]')) {
+      el.classList.remove('llama-dock-zone--hover');
+    }
+  }
+
+  private updateLlamaDockHover(clientX: number, clientY: number): void {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-llama-dock]')) {
+      const r = el.getBoundingClientRect();
+      const over = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+      el.classList.toggle('llama-dock-zone--hover', over);
     }
   }
 }

@@ -20,6 +20,7 @@ def test_build_typescript_lsp_command_prefers_local_bin(tmp_path: Path, monkeypa
     monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
     bin_dir = tmp_path / 'node_modules' / '.bin'
     bin_dir.mkdir(parents=True)
+    (tmp_path / 'node_modules' / 'typescript').mkdir(parents=True)
     if os.name == 'nt':
         script = bin_dir / 'typescript-language-server.cmd'
         script.write_text('@echo off\n', encoding='utf-8')
@@ -39,6 +40,7 @@ def test_build_typescript_lsp_command_walks_up_for_monorepo(tmp_path: Path, monk
     nested.mkdir(parents=True)
     bin_dir = root / 'node_modules' / '.bin'
     bin_dir.mkdir(parents=True)
+    (root / 'node_modules' / 'typescript').mkdir(parents=True)
     if os.name == 'nt':
         script = bin_dir / 'typescript-language-server.cmd'
         script.write_text('@echo off\n', encoding='utf-8')
@@ -54,6 +56,29 @@ def test_build_typescript_lsp_command_walks_up_for_monorepo(tmp_path: Path, monk
 def test_build_typescript_lsp_command_npx_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
     cmd = build_typescript_lsp_command(tmp_path)
-    assert 'typescript-language-server' in cmd
     assert cmd[-1] == '--stdio'
+    assert cmd[-2] == 'typescript-language-server'
+    assert '-p' in cmd
+    assert 'typescript' in cmd
+    assert 'typescript-language-server' in cmd
     assert cmd[0].lower().endswith('npx.cmd') or cmd[0].endswith('npx')
+
+
+def test_build_typescript_lsp_command_local_bin_without_typescript_uses_npx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local typescript-language-server without ``node_modules/typescript`` must not win over npx."""
+
+    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
+    bin_dir = tmp_path / 'node_modules' / '.bin'
+    bin_dir.mkdir(parents=True)
+    if os.name == 'nt':
+        script = bin_dir / 'typescript-language-server.cmd'
+        script.write_text('@echo off\n', encoding='utf-8')
+    else:
+        script = bin_dir / 'typescript-language-server'
+        script.write_text('#!/bin/sh\n', encoding='utf-8')
+        script.chmod(0o755)
+    cmd = build_typescript_lsp_command(tmp_path)
+    assert cmd[0].lower().endswith('npx.cmd') or cmd[0].endswith('npx')
+    assert '-p' in cmd

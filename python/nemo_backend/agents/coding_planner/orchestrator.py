@@ -14,6 +14,7 @@ from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAft
 from nemo_backend.copy_review_middleware import CopyReviewAfterToolMiddleware
 from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
+from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from nemo_backend.agents.coding_planner.plan_llm import run_plan_probe_llm, run_structured_build_plan_llm
 from nemo_backend.agents.coding_planner.planner_core import (
     FINAL_PROJECT_REVIEW_FAILURE_PREFIX,
@@ -146,14 +147,16 @@ async def run_discovery_subagent(
         tools,
         system_prompt=system_prompt,
         name='nemo_coding_planner_discovery',
-        middleware=[
-            EmptyResponseNudgeMiddleware(),
-            ConnectionParallelToolCallsMiddleware(),
-            AcceptCommandReviewAfterToolMiddleware(),
-            DiffReviewAfterToolMiddleware(),
-            DeleteReviewAfterToolMiddleware(),
-            CopyReviewAfterToolMiddleware(),
-        ],
+        middleware=prepend_harness_feedback_middleware(
+            [
+                EmptyResponseNudgeMiddleware(),
+                ConnectionParallelToolCallsMiddleware(),
+                AcceptCommandReviewAfterToolMiddleware(),
+                DiffReviewAfterToolMiddleware(),
+                DeleteReviewAfterToolMiddleware(),
+                CopyReviewAfterToolMiddleware(),
+            ],
+        ),
         checkpointer=checkpointer,
     )
     thread_id = f'{session_id}:coding_planner_discovery:{uuid.uuid4().hex[:10]}'

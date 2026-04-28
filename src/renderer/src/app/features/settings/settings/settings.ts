@@ -72,6 +72,8 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly defaultWorkspaceEncoding = signal('utf-8');
   protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
   protected readonly orchestratedMode = signal(false);
+  protected readonly outerPhasedCodingCycle = signal(false);
+  protected readonly allowStagingOverlayCommands = signal(false);
   protected readonly selectedLocation = computed(() => {
     const modelId = this.selectedModelId();
     if (!modelId) {
@@ -553,6 +555,12 @@ export class Settings implements OnInit, OnDestroy {
     if (changes.orchestratedMode !== undefined) {
       this.orchestratedMode.set(!!changes.orchestratedMode);
     }
+    if (changes.outerPhasedCodingCycle !== undefined) {
+      this.outerPhasedCodingCycle.set(!!changes.outerPhasedCodingCycle);
+    }
+    if (changes.allowStagingOverlayCommands !== undefined) {
+      this.allowStagingOverlayCommands.set(!!changes.allowStagingOverlayCommands);
+    }
     this.markSettingsDirty();
   }
 
@@ -595,6 +603,16 @@ export class Settings implements OnInit, OnDestroy {
 
   protected onOrchestratedModeChange(enabled: boolean): void {
     this.orchestratedMode.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  protected onOuterPhasedCodingCycleChange(enabled: boolean): void {
+    this.outerPhasedCodingCycle.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  protected onAllowStagingOverlayCommandsChange(enabled: boolean): void {
+    this.allowStagingOverlayCommands.set(!!enabled);
     this.markSettingsDirty();
   }
 
@@ -736,6 +754,8 @@ export class Settings implements OnInit, OnDestroy {
         defaultWorkspaceEncoding: this.defaultWorkspaceEncoding(),
         defaultWorkspaceNewline: this.defaultWorkspaceNewline(),
         orchestratedMode: this.orchestratedMode(),
+        outerPhasedCodingCycle: this.outerPhasedCodingCycle(),
+        allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
       },
     };
   }
@@ -816,6 +836,8 @@ export class Settings implements OnInit, OnDestroy {
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
     this.orchestratedMode.set(!!wt.orchestratedMode);
+    this.outerPhasedCodingCycle.set(!!(wt.outerPhasedCodingCycle ?? false));
+    this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
 
     const currentSelected = this.selectedModelId();
     const selectedStillValid =

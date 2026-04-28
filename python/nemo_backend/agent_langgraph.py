@@ -37,6 +37,7 @@ from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddlewar
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from nemo_backend.planner_graph_session import cleanup_planner_graph_session
 from nemo_backend.domain import SessionState
 from nemo_backend.langgraph_sse import (
@@ -50,6 +51,7 @@ from nemo_backend.messages import (
     compose_outer_turn_human_content,
     session_to_messages,
 )
+from nemo_backend.outer_coding_cycle_graph import build_outer_phased_coding_cycle_graph
 from nemo_backend.state import get_session, runtime_config
 from nemo_backend.tool_registry import worker_tools_and_map
 
@@ -69,13 +71,14 @@ def build_nemo_single_outer_graph(
         include_planning_tools=runtime_config.tools.orchestrated_mode,
     )
     system_prompt = build_system_prompt(session, apply_mode)
-    middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
+    core_middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
     if extra_middleware:
-        middleware.extend(extra_middleware)
-    middleware.append(AcceptCommandReviewAfterToolMiddleware())
-    middleware.append(CopyReviewAfterToolMiddleware())
-    middleware.append(DeleteReviewAfterToolMiddleware())
-    middleware.append(DiffReviewAfterToolMiddleware())
+        core_middleware.extend(extra_middleware)
+    core_middleware.append(AcceptCommandReviewAfterToolMiddleware())
+    core_middleware.append(CopyReviewAfterToolMiddleware())
+    core_middleware.append(DeleteReviewAfterToolMiddleware())
+    core_middleware.append(DiffReviewAfterToolMiddleware())
+    middleware = prepend_harness_feedback_middleware(core_middleware)
     return create_agent(
         llm,
         tools,
@@ -93,6 +96,15 @@ def _default_outer_graph_builder(
     extra_middleware: list[Any] | None,
 ) -> Any:
     return build_nemo_single_outer_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
+
+
+def _phased_outer_coding_graph_builder(
+    llm: Any,
+    session: SessionState,
+    apply_mode: bool,
+    extra_middleware: list[Any] | None,
+) -> Any:
+    return build_outer_phased_coding_cycle_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
 
 
 def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
@@ -301,15 +313,20 @@ async def _stream_langgraph_tool_agent(
 
     _graph_make = outer_graph_builder or _default_outer_graph_builder
     graph = _graph_make(llm, session, apply_mode, extra_middleware)
+    phased_outer = bool(apply_mode and runtime_config.tools.outer_phased_coding_cycle)
     thread_id = outer_agent_thread_id(
         cfg.session_id,
         cfg.thread_kind,
         apply_mode=apply_mode,
         orchestrated_mode=runtime_config.tools.orchestrated_mode,
+        phased_outer_coding=phased_outer,
     )
+    rec_lim = MAX_AGENT_STEPS
+    if phased_outer:
+        rec_lim = min(MAX_AGENT_STEPS * 2, 2500)
     config: RunnableConfig = {
         'configurable': {'thread_id': thread_id},
-        'recursion_limit': MAX_AGENT_STEPS,
+        'recursion_limit': rec_lim,
     }
     rid = (resume_checkpoint_id or '').strip()
     if rid:
@@ -494,6 +511,9 @@ async def stream_single_agent_langgraph(
         done_detail='Complete',
     )
 
+    use_phased = bool(apply_mode and runtime_config.tools.outer_phased_coding_cycle)
+    outer_builder = _phased_outer_coding_graph_builder if use_phased else None
+
     async for line in _stream_langgraph_tool_agent(
         session,
         apply_mode,
@@ -503,6 +523,6 @@ async def stream_single_agent_langgraph(
         extra_middleware=[PlanningNestedWorkerMiddleware(get_graph_checkpointer())],
         nested_planning_queue=nested_q,
         resume_checkpoint_id=resume_checkpoint_id,
-        outer_graph_builder=None,
+        outer_graph_builder=outer_builder,
     ):
         yield line

@@ -85,8 +85,16 @@ describe('isPlaceholderThinkingNoise', () => {
     expect(isPlaceholderThinkingNoise('?'.repeat(40))).toBe(true);
   });
 
+  it('detects long slash walls', () => {
+    expect(isPlaceholderThinkingNoise('/'.repeat(40))).toBe(true);
+  });
+
   it('is false for normal prose', () => {
     expect(isPlaceholderThinkingNoise('Explain recursion in plain language.')).toBe(false);
+  });
+
+  it('is false for URL-like prose', () => {
+    expect(isPlaceholderThinkingNoise('See https://example.com/foo/bar for details.')).toBe(false);
   });
 });
 
@@ -103,5 +111,9 @@ describe('stripAssistantChannelNoise', () => {
 
   it('drops placeholder question-mark walls', () => {
     expect(stripAssistantChannelNoise('?'.repeat(50))).toBe('');
+  });
+
+  it('drops slash filler walls', () => {
+    expect(stripAssistantChannelNoise('/'.repeat(50))).toBe('');
   });
 });

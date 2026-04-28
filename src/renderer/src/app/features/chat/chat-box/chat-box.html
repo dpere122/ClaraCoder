@@ -19,7 +19,7 @@
           {{ slot.row.msg.text }}
         } @else {
           @let row = slot.row;
-          @for (chainGroup of row.chainGroups; track chainGroup.key) {
+          @for (chainGroup of chainGroupsForPersistedTurn(row); track chainGroup.key) {
             <details class="tool-trail-collapse">
               <summary class="tool-trail-summary">
                 <span class="tool-trail-count">{{ toolChainSummary(chainGroup) }}</span>
@@ -58,26 +58,11 @@
             }
           }
 
-          @if (row.assistant?.toolStreams?.length) {
-            <div class="streaming-delegated" aria-live="polite">
-              @for (part of row.assistant!.toolStreams!; track part.streamTag) {
-                <app-delegated-shell-terminal
-                  [label]="part.label || 'Tool output'"
-                  [text]="part.text"
-                  [runComplete]="true"
-                  [exitCode]="part.exitCode ?? null"
-                />
-              }
+          @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
+          @if (auxPersisted.length > 0) {
+            <div aria-live="polite">
+              <app-auxiliary-stream-panel [parts]="auxPersisted" [live]="false" />
             </div>
-          }
-
-          @if (row.assistant?.moeStreams?.length) {
-            <details class="llm-moe-panel">
-              <summary class="llm-moe-summary">Model reasoning</summary>
-              @for (part of row.assistant!.moeStreams!; track $index) {
-                <pre class="llm-moe-body">{{ part.text }}</pre>
-              }
-            </details>
           }
 
           @for (artifact of row.artifacts; track $index) {
@@ -141,7 +126,7 @@
           }
 
           @if (row.assistant?.text) {
-            <div class="assistant-md" [innerHTML]="row.assistant!.text | markdown"></div>
+            <div class="assistant-md" [innerHTML]="row.assistant!.text | markdown: assistantMdLayoutPass()"></div>
             @if (ttsLoading() && isLastPersistedRow(slot.index)) {
               <div class="tts-loading" role="status" aria-live="polite">
                 <div class="tts-ngx-host" aria-hidden="true">
@@ -172,7 +157,7 @@
         class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble assistant-turn-bubble"
         [style.max-width]="liveTurn.artifacts.length > 0 ? '100%' : '80%'"
       >
-        @for (chainGroup of liveVisibleChainGroups(); track chainGroup.key) {
+        @for (chainGroup of liveChainGroupsForDisplay(); track chainGroup.key) {
           <div class="tool-trail-live">
             @for (trail of chainGroup.rows; track trail.statusId) {
               @if (isClaraOuterBriefTrail(trail)) {
@@ -212,34 +197,9 @@
             }
           </div>
         }
-        @if (moeStreamParts().length > 0) {
-          <details class="llm-moe-panel llm-moe-panel--live" open>
-            <summary class="llm-moe-summary">Model reasoning</summary>
-            @for (part of moeStreamParts(); track $index) {
-              <pre class="llm-moe-body">{{ part.text }}</pre>
-            }
-          </details>
-        }
-        @if (shellDelegatedStreamParts().length > 0) {
-          <div class="streaming-delegated" aria-live="polite">
-            @for (part of shellDelegatedStreamParts(); track part.streamTag) {
-              <app-delegated-shell-terminal
-                [label]="part.label || 'Tool output'"
-                [text]="part.text"
-                [runComplete]="!!part.runComplete"
-                [exitCode]="part.exitCode"
-              />
-            }
-          </div>
-        }
-        @if (otherDelegatedStreamParts().length > 0) {
-          <div class="streaming-delegated" aria-live="polite">
-            @for (part of otherDelegatedStreamParts(); track part.streamTag) {
-              <div class="streaming-delegated-block">
-                <div class="streaming-delegated-label">{{ part.label || 'Tool output' }}</div>
-                <pre class="streaming-delegated-text">{{ part.text }}</pre>
-              </div>
-            }
+        @if (liveAuxiliaryTimeline().length > 0) {
+          <div aria-live="polite">
+            <app-auxiliary-stream-panel [parts]="liveAuxiliaryTimeline()" [live]="true" />
           </div>
         }
         @for (artifact of liveTurn.artifacts; track $index) {

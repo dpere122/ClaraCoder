@@ -88,6 +88,44 @@ export function stripLlmControlMarkers(text: string): string {
   return out.join('\n');
 }
 
+/** Single-character walls models sometimes stream into thinking / side channels. */
+const DOMINANT_FILLER_CHARS = new Set<string>([
+  '/',
+  '.',
+  '-',
+  '_',
+  '#',
+  '=',
+  '*',
+  '+',
+  '`',
+  '~',
+  '|',
+  '\\',
+]);
+
+function dominantFillerNoise(collapsed: string, minChars: number, minRatio: number): boolean {
+  if (collapsed.length < minChars) {
+    return false;
+  }
+  const counts = new Map<string, number>();
+  for (const c of collapsed) {
+    counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  let max = 0;
+  let maxChar = '';
+  for (const [c, n] of counts) {
+    if (n > max) {
+      max = n;
+      maxChar = c;
+    }
+  }
+  if (max / collapsed.length < minRatio || !DOMINANT_FILLER_CHARS.has(maxChar)) {
+    return false;
+  }
+  return true;
+}
+
 /** True when *text* is mostly tokenizer / redaction placeholders (ASCII `?`, U+FFFD, U+FF1F). */
 export function isPlaceholderThinkingNoise(text: string, minChars = 32, minRatio = 0.88): boolean {
   const collapsed = (text ?? '').replace(/\s+/g, '');
@@ -100,7 +138,10 @@ export function isPlaceholderThinkingNoise(text: string, minChars = 32, minRatio
       bad++;
     }
   }
-  return bad / collapsed.length >= minRatio;
+  if (bad / collapsed.length >= minRatio) {
+    return true;
+  }
+  return dominantFillerNoise(collapsed, minChars, minRatio);
 }
 
 /** Collapse 4+ consecutive newlines to three (reduces ladders after stripping markers). */

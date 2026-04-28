@@ -1,15 +1,19 @@
 import type { StreamPart } from '@shared/index';
 import {
+  auxiliaryTimelineEmbedsToolStatus,
   delegatedStreamPartsForDisplay,
   isClaraOuterBriefStreamTag,
   isMoeAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
+  isToolTrailStatusStreamTag,
   joinPrimaryAssistantStreamText,
   moeStreamPartsForDisplay,
   MOE_AUXILIARY_STREAM_TAG,
+  multiplexAuxiliaryStreamTimeline,
   otherDelegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
+  persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
   shellDelegatedStreamPartsForDisplay,
@@ -17,6 +21,7 @@ import {
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
+  toolTrailStatusStreamTag,
 } from '@shared/index';
 
 describe('isPrimaryAssistantStreamTag', () => {
@@ -175,6 +180,76 @@ describe('delegatedStreamPartsForDisplay', () => {
     expect(delegatedStreamPartsForDisplay(parts, null)).toEqual([
       { streamTag: 'spec-code_review-tests', label: 'Pytest', text: '1 passed' },
     ]);
+  });
+});
+
+describe('multiplexAuxiliaryStreamTimeline', () => {
+  it('preserves interleaved order and drops primary tags', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'moe', label: 'R', text: 'a' },
+      { streamTag: 'spec-x-tests', label: 'T', text: 'b' },
+      { streamTag: 'agent', label: 'Reply', text: 'ignored here' },
+      { streamTag: 'moe', label: 'R', text: 'c' },
+    ];
+    expect(multiplexAuxiliaryStreamTimeline(parts)).toEqual([
+      { streamTag: 'moe', label: 'R', text: 'a' },
+      { streamTag: 'spec-x-tests', label: 'T', text: 'b' },
+      { streamTag: 'moe', label: 'R', text: 'c' },
+    ]);
+  });
+
+  it('keeps embedded tool-trail status segments between reasoning chunks', () => {
+    const tid = toolTrailStatusStreamTag('run-1');
+    const parts: StreamPart[] = [
+      { streamTag: 'moe', label: 'Model reasoning', text: 'Planning…' },
+      { streamTag: tid, label: 'read_file', text: 'path', toolChainState: 'running' },
+      { streamTag: 'moe', label: 'Model reasoning', text: ' more' },
+    ];
+    expect(multiplexAuxiliaryStreamTimeline(parts)).toEqual(parts);
+    expect(isToolTrailStatusStreamTag(tid)).toBe(true);
+    expect(auxiliaryTimelineEmbedsToolStatus(parts)).toBe(true);
+  });
+});
+
+describe('toolTrailStatusStreamTag', () => {
+  it('encodes ids safely and matches isToolTrailStatusStreamTag', () => {
+    const id = 'a/b c';
+    const tag = toolTrailStatusStreamTag(id);
+    expect(tag.startsWith('tool-trail:')).toBe(true);
+    expect(isToolTrailStatusStreamTag(tag)).toBe(true);
+    expect(isToolTrailStatusStreamTag('moe')).toBe(false);
+  });
+});
+
+describe('persistedAuxiliaryStreamTimeline', () => {
+  it('prefers auxiliaryStreamTimeline when set', () => {
+    const ordered: StreamPart[] = [
+      { streamTag: 'spec-x-tests', label: 'T', text: 'first' },
+      { streamTag: 'moe', label: 'R', text: 'second' },
+    ];
+    expect(
+      persistedAuxiliaryStreamTimeline({
+        toolStreams: [{ streamTag: 'spec-y-tests', label: 'Y', text: 'legacy tool' }],
+        moeStreams: [{ streamTag: 'moe', label: 'R', text: 'legacy moe' }],
+        auxiliaryStreamTimeline: ordered,
+      }),
+    ).toEqual(ordered);
+  });
+
+  it('falls back to toolStreams then moeStreams when timeline absent', () => {
+    expect(
+      persistedAuxiliaryStreamTimeline({
+        toolStreams: [{ streamTag: 'spec-x-tests', label: 'T', text: 't' }],
+        moeStreams: [{ streamTag: 'moe', label: 'R', text: 'm' }],
+      }),
+    ).toEqual([
+      { streamTag: 'spec-x-tests', label: 'T', text: 't' },
+      { streamTag: 'moe', label: 'R', text: 'm' },
+    ]);
+  });
+
+  it('returns empty for null assistant', () => {
+    expect(persistedAuxiliaryStreamTimeline(null)).toEqual([]);
   });
 });
 

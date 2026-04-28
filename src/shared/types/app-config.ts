@@ -20,6 +20,11 @@ export type GemmaArchitectureHint = 'auto' | 'dense';
 export interface LlamaCppManaged {
   chatRunCommand: string;
   embeddingRunCommand: string;
+  /**
+   * Optional Hugging Face access token for ``-hf`` / hub downloads (gated or private repos).
+   * Injected as ``HF_TOKEN`` and ``HUGGING_FACE_HUB_TOKEN`` when the app spawns managed ``llama-server`` processes.
+   */
+  huggingFaceToken?: string;
 }
 
 /**
@@ -133,6 +138,15 @@ export interface WorkspaceToolsConfig {
    * When false (default), the outer agent uses staging tools only—a future default planner may replace this path.
    */
   orchestratedMode: boolean;
+  /**
+   * When true (Editor on), Python binds the phased outer LangGraph: Learn → Write → Verify instead of one flat tool loop.
+   */
+  outerPhasedCodingCycle?: boolean;
+  /**
+   * When true, nested code review may call `run_staging_overlay_command` (ephemeral workspace mirror + argv subprocess).
+   * Default false for safety. Optional on disk until migrated.
+   */
+  allowStagingOverlayCommands?: boolean;
 }
 
 /** Root persisted settings for the desktop app (config.json). */

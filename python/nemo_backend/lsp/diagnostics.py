@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from nemo_backend.lsp.file_policy import normalize_relative_posix_path
@@ -11,6 +12,8 @@ __all__ = [
     'normalize_lsp_diagnostics',
     'format_diagnostics_summary',
     'diagnostics_session_aggregate_preamble',
+    'post_edit_checks_footer',
+    'indentation_followup_guidance',
 ]
 
 _SEVERITY_LABELS = {
@@ -19,6 +22,15 @@ _SEVERITY_LABELS = {
     3: 'information',
     4: 'hint',
 }
+
+# Messages matching this suggest indentation / tab-space problems (steer toward formatter + LSP verify).
+_INDENT_DIAGNOSTIC_HINT = re.compile(
+    r'indentation|unexpected\s+indent|unindent\s+does\s+not\s+match|mixed\s+tabs\s+and\s+spaces|'
+    r'inconsistent\s+use\s+of\s+tabs|expected\s+an\s+indented\s+block|invalidIndentedBlock|IndentationError',
+    re.IGNORECASE,
+)
+
+_TS_LIKE_SUFFIXES: tuple[str, ...] = ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs')
 
 
 def diagnostic_severity_name(value: int | None) -> str:
@@ -58,6 +70,93 @@ def normalize_lsp_diagnostics(relative_path: str, items: list[dict[str, Any]] | 
         )
     out.sort(key=lambda item: (item['line'], item['character'], item['severity_value'], item['message']))
     return out
+
+
+def indentation_followup_guidance(
+    relative_path: str,
+    diagnostics: list[dict[str, Any]],
+    *,
+    lsp_scope: str,
+) -> str:
+    """When diagnostics look indentation-related, steer the model toward formatter + LSP refresh."""
+
+    if not diagnostics:
+        return ''
+    for item in diagnostics:
+        msg = str(item.get('message') or '')
+        if _INDENT_DIAGNOSTIC_HINT.search(msg):
+            break
+    else:
+        return ''
+
+    rel = normalize_relative_posix_path(relative_path).lower()
+    scope = (lsp_scope or 'workspace').strip().lower()
+    lines = [
+        '',
+        'Steer (indentation-like diagnostics detected):',
+    ]
+    if scope == 'staging':
+        if rel.endswith('.py'):
+            lines.append(
+                '- Call `format_staging_file_black` for this path, then `lsp_get_diagnostics` with '
+                '`refresh_active_document=true` on the same path to verify the staged draft.'
+            )
+        elif rel.endswith(_TS_LIKE_SUFFIXES):
+            lines.append(
+                '- No automatic formatter is bound for JS/TS drafts: apply a precise staging edit to fix '
+                'whitespace, then `lsp_get_diagnostics` with `refresh_active_document=true` on this path.'
+            )
+        else:
+            lines.append(
+                '- Fix whitespace with another accurate staging edit; refresh LSP for this path if the language '
+                'server is available.'
+            )
+    elif rel.endswith('.py'):
+        lines.append(
+            '- Black already ran on the merged `.py` text before this listing. If indentation errors remain, '
+            'correct the source and retry the workspace edit tool, or route the path through nested staging so '
+            '`format_staging_file_black` is available after each stage.'
+        )
+    else:
+        lines.append(
+            '- Correct indentation in the buffer and retry the edit tool, then `lsp_get_diagnostics` with '
+            '`refresh_active_document=true` if you still need a fresh diagnostic pass.'
+        )
+    return '\n'.join(lines)
+
+
+def post_edit_checks_footer(
+    relative_path: str,
+    diagnostics: list[dict[str, Any]],
+    *,
+    lsp_scope: str,
+    server_kind: str | None,
+    formatter_lines: list[str],
+) -> str:
+    """Human-readable block appended to edit tool results (formatter first, then LSP diagnostics)."""
+
+    head = [
+        '\n---',
+        'Post-edit checks (formatter ran first where applicable, then LSP on that result):',
+        *formatter_lines,
+    ]
+    if server_kind:
+        analyzed = 'staged draft' if lsp_scope == 'staging' else 'workspace buffer'
+        head.append(
+            format_diagnostics_summary(
+                relative_path,
+                diagnostics,
+                lsp_scope=lsp_scope,
+                analyzed_source=analyzed,
+                server_kind=server_kind,
+            )
+        )
+    else:
+        head.append('No integrated LSP for this path; formatter notes above are the only automated check.')
+    body = '\n'.join(head)
+    if server_kind:
+        body += indentation_followup_guidance(relative_path, diagnostics, lsp_scope=lsp_scope)
+    return body
 
 
 def diagnostics_session_aggregate_preamble(lsp_scope: str) -> str:

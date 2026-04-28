@@ -5,6 +5,7 @@ const syncFs = require('fs');
 import type {
   AppConfig,
   HealthMonitorConfig,
+  LlamaCppManaged,
   LlmConnectionConfig,
   LlmModelProfile,
   LlmProviderConfig,
@@ -307,7 +308,11 @@ function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
   if (typeof raw.chatRunCommand !== 'string' || typeof raw.embeddingRunCommand !== 'string') {
     migrated = true;
   }
-  model.llamaCppManaged = { chatRunCommand, embeddingRunCommand };
+  const next: LlamaCppManaged = { chatRunCommand, embeddingRunCommand };
+  if (typeof raw.huggingFaceToken === 'string') {
+    next.huggingFaceToken = raw.huggingFaceToken;
+  }
+  model.llamaCppManaged = next;
   return migrated;
 }
 
@@ -511,6 +516,24 @@ export function migrateConfig(config: AppConfig): AppConfig {
       migrated = true;
     } else if (typeof orchRaw !== 'boolean') {
       wt.orchestratedMode = false;
+      migrated = true;
+    }
+    const phasedRaw = (wt as unknown as { outerPhasedCodingCycle?: unknown }).outerPhasedCodingCycle;
+    if (typeof phasedRaw === 'string') {
+      const s = phasedRaw.trim().toLowerCase();
+      wt.outerPhasedCodingCycle = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof phasedRaw !== 'boolean') {
+      wt.outerPhasedCodingCycle = false;
+      migrated = true;
+    }
+    const overlayRaw = (wt as unknown as { allowStagingOverlayCommands?: unknown }).allowStagingOverlayCommands;
+    if (typeof overlayRaw === 'string') {
+      const s = overlayRaw.trim().toLowerCase();
+      wt.allowStagingOverlayCommands = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof overlayRaw !== 'boolean') {
+      wt.allowStagingOverlayCommands = false;
       migrated = true;
     }
   }

@@ -40,6 +40,8 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     );
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
+  } else if (parsed.type === 'harness_crystal') {
+    event.reply('message-harness-crystal', conversationId, parsed.polarity);
   }
 }
 

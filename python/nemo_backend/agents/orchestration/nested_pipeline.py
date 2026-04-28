@@ -54,6 +54,7 @@ from nemo_backend.lsp.manager import activate_session_lsp_scope
 from nemo_backend.messages import final_assistant_text, stringify_content
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from nemo_backend.state import get_active_connection, get_session, runtime_config
+from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 
 logger = logging.getLogger('nemo.agent.langgraph.planning')
 
@@ -328,13 +329,15 @@ async def enqueue_plan_and_modify_outer_brief(
 
 
 def _write_specialist_middleware() -> list[Any]:
-    return [
-        ConnectionParallelToolCallsMiddleware(),
-        EmptyResponseNudgeMiddleware(),
-        AcceptCommandReviewAfterToolMiddleware(),
-        DiffReviewAfterToolMiddleware(),
-        DeleteReviewAfterToolMiddleware(),
-    ]
+    return prepend_harness_feedback_middleware(
+        [
+            ConnectionParallelToolCallsMiddleware(),
+            EmptyResponseNudgeMiddleware(),
+            AcceptCommandReviewAfterToolMiddleware(),
+            DiffReviewAfterToolMiddleware(),
+            DeleteReviewAfterToolMiddleware(),
+        ],
+    )
 
 
 async def run_write_recon_then_author_stream(
@@ -498,13 +501,15 @@ async def run_specialist_agent_stream(
         tools,
         system_prompt=system_prompt,
         name=f'nemo_specialist_{kind}',
-        middleware=[
-            ConnectionParallelToolCallsMiddleware(),
-            EmptyResponseNudgeMiddleware(),
-            AcceptCommandReviewAfterToolMiddleware(),
-            DiffReviewAfterToolMiddleware(),
-            DeleteReviewAfterToolMiddleware(),
-        ],
+        middleware=prepend_harness_feedback_middleware(
+            [
+                ConnectionParallelToolCallsMiddleware(),
+                EmptyResponseNudgeMiddleware(),
+                AcceptCommandReviewAfterToolMiddleware(),
+                DiffReviewAfterToolMiddleware(),
+                DeleteReviewAfterToolMiddleware(),
+            ],
+        ),
         checkpointer=checkpointer,
     )
     thread_id = f'{session_id}:spec:{kind}:{uuid.uuid4().hex[:10]}'
@@ -867,13 +872,15 @@ async def run_planning_nested_stream(
             router_tools,
             system_prompt=system_prompt,
             name='nemo_planning_router',
-            middleware=[
-                ConnectionParallelToolCallsMiddleware(),
-                EmptyResponseNudgeMiddleware(),
-                AcceptCommandReviewAfterToolMiddleware(),
-                DiffReviewAfterToolMiddleware(),
-                DeleteReviewAfterToolMiddleware(),
-            ],
+            middleware=prepend_harness_feedback_middleware(
+                [
+                    ConnectionParallelToolCallsMiddleware(),
+                    EmptyResponseNudgeMiddleware(),
+                    AcceptCommandReviewAfterToolMiddleware(),
+                    DiffReviewAfterToolMiddleware(),
+                    DeleteReviewAfterToolMiddleware(),
+                ],
+            ),
             checkpointer=checkpointer,
         )
         # Random suffix per nested run; outer Clara thread stays stable per conversation.

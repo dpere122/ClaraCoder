@@ -1,3 +1,28 @@
+@keyframes llama-crystal-shake {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  20% {
+    transform: translate(-2px, 1px) rotate(-1.2deg);
+  }
+  40% {
+    transform: translate(2px, -1px) rotate(1deg);
+  }
+  60% {
+    transform: translate(-1px, 1px) rotate(-0.8deg);
+  }
+  80% {
+    transform: translate(1px, 0) rotate(0.6deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+}
+
+.llama-crystal-host--shake {
+  animation: llama-crystal-shake 0.28s ease-out;
+}
+
 .llama-crystal-host {
   position: relative;
   flex: 1;
@@ -38,10 +63,22 @@
   background: radial-gradient(circle at 42% 38%, #e8c45c 0%, #6a4a12 75%);
 }
 
+.llama-crystal-fallback[data-state='modelDownload'] {
+  background: radial-gradient(circle at 40% 36%, #6ec8f0 0%, #1a3d5c 78%);
+}
+
 .llama-crystal-fallback[data-state='ok'] {
   background: radial-gradient(circle at 38% 32%, #5ed4b0 0%, #1a4a3c 78%);
 }
 
 .llama-crystal-fallback[data-state='error'] {
   background: radial-gradient(circle at 40% 36%, #f06678 0%, #4a1820 76%);
+}
+
+.llama-crystal-fallback[data-state='feedbackPositive'] {
+  background: radial-gradient(circle at 38% 34%, #3ee8a8 0%, #0d4a38 78%);
+}
+
+.llama-crystal-fallback[data-state='feedbackNegative'] {
+  background: radial-gradient(circle at 40% 36%, #d888f0 0%, #3a1848 76%);
 }

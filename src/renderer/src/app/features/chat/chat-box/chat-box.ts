@@ -17,12 +17,12 @@ import {
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { ConversationMessage, PlannerProgress, StreamPart } from '@shared/index';
 import {
+  auxiliaryTimelineEmbedsToolStatus,
   isClaraOuterBriefStreamTag,
   joinPrimaryAssistantStreamText,
-  moeStreamPartsForDisplay,
-  otherDelegatedStreamPartsForDisplay,
+  multiplexAuxiliaryStreamTimeline,
+  persistedAuxiliaryStreamTimeline,
   primaryStreamPartsForDisplay,
-  shellDelegatedStreamPartsForDisplay,
 } from '@shared/index';
 import { AcceptCommandComponent } from '../../diff/accept-command/accept-command';
 import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
@@ -30,7 +30,7 @@ import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { MarkdownPipe } from './markdown.pipe';
 import { PlannerTasksComponent } from './planner-tasks/planner-tasks';
-import { DelegatedShellTerminalComponent } from './delegated-shell-terminal/delegated-shell-terminal';
+import { AuxiliaryStreamPanelComponent } from './auxiliary-stream-panel/auxiliary-stream-panel';
 import { RunButtonDirective } from './run-button.directive';
 import { TalkUiState } from '../../../core/talk-ui-state';
 import {
@@ -180,6 +180,23 @@ export function filterLiveToolChainGroups(
   );
 }
 
+/** Drop `source: tool` chain rows when those tools are already shown inside the auxiliary timeline. */
+function stripToolChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
+  return groups
+    .map((g) => {
+      const kept = g.rows.filter((r) => r.source !== 'tool');
+      const visibleRows = kept.filter(
+        (row) => row.source === 'tool' || isClaraOuterBriefStreamTag(row.streamTag),
+      );
+      return {
+        ...g,
+        rows: visibleRows,
+        toolCallCount: visibleRows.filter((row) => row.source === 'tool').length,
+      };
+    })
+    .filter((g) => g.rows.length > 0);
+}
+
 export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] {
   const rows: ChatDisplayRow[] = [];
   const pendingArtifacts: ArtifactMessage[] = [];
@@ -254,7 +271,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
     DeleteConfirmComponent,
     PlannerTasksComponent,
     NgxSpinnerComponent,
-    DelegatedShellTerminalComponent,
+    AuxiliaryStreamPanelComponent,
   ],
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
@@ -264,6 +281,9 @@ export class ChatBox implements OnDestroy {
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
   readonly talkUi = inject(TalkUiState);
+
+  /** Template: ordered persisted reasoning + delegated streams. */
+  readonly persistedAuxiliaryStreamTimeline = persistedAuxiliaryStreamTimeline;
 
   /** Template helper: nested workspace handoff rows for outer Clara (stream tag `clara`). */
   readonly isClaraOuterBriefTrail = (trail: ChainMessage) => isClaraOuterBriefStreamTag(trail.streamTag);
@@ -330,6 +350,25 @@ export class ChatBox implements OnDestroy {
   });
 
   /**
+   * Fingerprint of the latest persisted assistant reply (length + tail) so we can re-run markdown
+   * after the view commits — avoids a one-frame plain / stale pipe edge when the stream lands.
+   */
+  private readonly assistantMarkdownKey = computed(() => {
+    const rows = this.persistedRows();
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const row = rows[i];
+      if (row.kind === 'assistant-turn' && row.assistant?.text) {
+        const t = row.assistant.text;
+        return `${t.length}:${t.slice(-160)}`;
+      }
+    }
+    return '';
+  });
+
+  /** Bumped after render when the fingerprint changes while not streaming — refreshes `markdown` pipe input. */
+  readonly assistantMdLayoutPass = signal(0);
+
+  /**
    * Windowed transcript: only `slots` are in the DOM when the conversation is long.
    * Spacers preserve scroll extent using measured or estimated row heights.
    */
@@ -360,15 +399,7 @@ export class ChatBox implements OnDestroy {
     primaryStreamPartsForDisplay(this.streamingParts(), null),
   );
 
-  readonly moeStreamParts = computed(() => moeStreamPartsForDisplay(this.streamingParts(), null));
-
-  readonly shellDelegatedStreamParts = computed(() =>
-    shellDelegatedStreamPartsForDisplay(this.streamingParts(), null),
-  );
-
-  readonly otherDelegatedStreamParts = computed(() =>
-    otherDelegatedStreamPartsForDisplay(this.streamingParts(), null),
-  );
+  readonly liveAuxiliaryTimeline = computed(() => multiplexAuxiliaryStreamTimeline(this.streamingParts()));
 
   /** Live primary stream text with newlines preserved (markdown layout survives tool rounds). */
   readonly primaryStreamLiveText = computed(() =>
@@ -400,6 +431,15 @@ export class ChatBox implements OnDestroy {
     const liveTurn = this.liveTurn();
     if (!liveTurn) return [];
     return filterLiveToolChainGroups(liveTurn.chainGroups, this.livePlannerProgress());
+  });
+
+  /** Hides duplicate tool-only rows from the live strip when they stream inside the reasoning panel. */
+  readonly liveChainGroupsForDisplay = computed(() => {
+    const base = this.liveVisibleChainGroups();
+    if (!auxiliaryTimelineEmbedsToolStatus(this.liveAuxiliaryTimeline())) {
+      return base;
+    }
+    return stripToolChainRowsFromChainGroups(base);
   });
 
   readonly processingBubbleLabel = computed(() => {
@@ -485,6 +525,24 @@ export class ChatBox implements OnDestroy {
 
     effect(() => {
       this.el.nativeElement.style.setProperty('--chat-font-size', `${this.fontSize()}rem`);
+    });
+
+    effect(() => {
+      if (this.loading()) {
+        return;
+      }
+      const key = this.assistantMarkdownKey();
+      if (!key) {
+        return;
+      }
+      untracked(() => {
+        afterNextRender(
+          () => {
+            this.assistantMdLayoutPass.update((n) => n + 1);
+          },
+          { injector: this.inj },
+        );
+      });
     });
 
     this.el.nativeElement.addEventListener('send-response', ((event: CustomEvent) => {
@@ -643,6 +701,22 @@ export class ChatBox implements OnDestroy {
       }
       this.scheduleMeasureVisibleRows();
     });
+  }
+
+  /**
+   * When this turn’s auxiliary timeline includes embedded tool-status segments, omit duplicate
+   * `source: tool` rows from the collapsible strip above it.
+   */
+  chainGroupsForPersistedTurn(row: ChatDisplayRow): ToolChainGroup[] {
+    if (row.kind !== 'assistant-turn') {
+      return [];
+    }
+    const groups = row.chainGroups;
+    const timeline = persistedAuxiliaryStreamTimeline(row.assistant ?? undefined);
+    if (!auxiliaryTimelineEmbedsToolStatus(timeline)) {
+      return groups;
+    }
+    return stripToolChainRowsFromChainGroups(groups);
   }
 
   toolChainSummary(group: ToolChainGroup): string {

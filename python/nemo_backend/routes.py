@@ -92,18 +92,23 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             default_workspace_encoding=default_enc,
             default_workspace_newline=nl,
             orchestrated_mode=request.tools.orchestratedMode,
+            outer_phased_coding_cycle=request.tools.outerPhasedCodingCycle,
+            allow_staging_overlay_commands=request.tools.allowStagingOverlayCommands,
         )
     else:
         tools_cfg = prev_tools
 
     orch_flipped = tools_cfg.orchestrated_mode != prev_tools.orchestrated_mode
-    if orch_flipped:
+    phased_flipped = tools_cfg.outer_phased_coding_cycle != prev_tools.outer_phased_coding_cycle
+    if orch_flipped or phased_flipped:
         for sid in list(state.sessions.keys()):
             await delete_outer_threads_for_session(sid)
         logger.info(
-            'orchestrated_mode %s -> %s: cleared outer LangGraph checkpoints for %d session(s)',
+            'orchestrated_mode %s -> %s, outer_phased_coding_cycle %s -> %s: cleared outer LangGraph checkpoints for %d session(s)',
             prev_tools.orchestrated_mode,
             tools_cfg.orchestrated_mode,
+            prev_tools.outer_phased_coding_cycle,
+            tools_cfg.outer_phased_coding_cycle,
             len(state.sessions),
         )
 
@@ -130,4 +135,8 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         state.runtime_config.tools.orchestrated_mode,
         'yes' if request.tools is not None else 'no',
     )
-    return {'ok': True, 'orchestratedMode': state.runtime_config.tools.orchestrated_mode}
+    return {
+        'ok': True,
+        'orchestratedMode': state.runtime_config.tools.orchestrated_mode,
+        'outerPhasedCodingCycle': state.runtime_config.tools.outer_phased_coding_cycle,
+    }

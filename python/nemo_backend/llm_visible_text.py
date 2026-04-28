@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import TYPE_CHECKING
 
 # ASCII ``?``, Unicode replacement, fullwidth question mark (common tokenizer / redaction junk).
 _PLACEHOLDER_CHARS = frozenset('?\uFFFD\uFF1F')
+# Single-character "walls" models sometimes stream into thinking / side channels (not real prose).
+_DOMINANT_FILLER_CHARS = frozenset('/.-_#=*+`~|\\')
+# Per-chunk reasoning filter: any length, only these + whitespace (models stream ``/`` one token at a time).
+_REASONING_CHUNK_FILLER_UNION = _PLACEHOLDER_CHARS | _DOMINANT_FILLER_CHARS
 
 from nemo_backend.model_tuning import is_gemma_family, optimization_preset
 
@@ -102,24 +107,66 @@ def maybe_sanitize_gemma_visible_assistant_text(text: str, *, connection: Runtim
     return collapse_excessive_assistant_blank_lines(t)
 
 
+def _collapsed_non_whitespace(text: str) -> str:
+    t = (text or '').replace('\r\n', '\n').replace('\r', '\n')
+    return ''.join(t.split())
+
+
+def _dominant_filler_noise(t: str, *, min_chars: int, min_ratio: float) -> bool:
+    """True when one repeated filler character accounts for most of *t* (whitespace already removed)."""
+    if len(t) < min_chars:
+        return False
+    _ch, count = Counter(t).most_common(1)[0]
+    if count / len(t) < min_ratio:
+        return False
+    return _ch in _DOMINANT_FILLER_CHARS
+
+
 def is_placeholder_thinking_noise(text: str, *, min_chars: int = 32, min_ratio: float = 0.88) -> bool:
     """True when *text* is mostly unknown-token / redaction placeholders (``?``, U+FFFD, U+FF1F).
+
+    Also treats long runs of a single filler punctuation character (e.g. ``/``, ``.``, ``-``) as
+    noise—models sometimes stream these into ``reasoning_content`` with no real thinking text.
 
     Some OpenAI-compatible stacks stream ``reasoning_content`` or ``content`` filled with
     placeholders when the local tokenizer cannot decode a thinking channel, which otherwise
     floods the UI and agent history.
     """
-    t = (text or '').replace('\r\n', '\n').replace('\r', '\n')
-    t = ''.join(t.split())  # drop whitespace so "? ? ? ?" still counts as placeholders
+    t = _collapsed_non_whitespace(text)
     if len(t) < min_chars:
         return False
     bad = sum(1 for c in t if c in _PLACEHOLDER_CHARS)
-    return (bad / len(t)) >= min_ratio
+    if (bad / len(t)) >= min_ratio:
+        return True
+    return _dominant_filler_noise(t, min_chars=min_chars, min_ratio=min_ratio)
+
+
+def is_auxiliary_reasoning_placeholder_delta(delta: str) -> bool:
+    """True when a *reasoning* chunk is only placeholder / filler punctuation (any length).
+
+    Thinking channels are often streamed **one character per delta** (e.g. ``/`` walls). The main
+    ``content`` path keeps :func:`is_placeholder_stream_delta` stricter so ``foo`` + ``/`` + ``bar``
+    in the visible answer is not eaten across chunks.
+    """
+    stripped = (delta or '').strip()
+    if not stripped:
+        return False
+    if is_placeholder_thinking_noise(delta):
+        return True
+    collapsed = ''.join(stripped.split())
+    if not collapsed:
+        return False
+    return all(c in _REASONING_CHUNK_FILLER_UNION or c.isspace() for c in stripped)
 
 
 def is_placeholder_stream_delta(delta: str, *, min_len: int = 8) -> bool:
-    """True when a single streamed chunk is only placeholder punctuation (short runs)."""
+    """True when a single streamed *main content* chunk is placeholder / filler noise."""
     stripped = (delta or '').strip()
-    if len(stripped) < min_len:
+    if not stripped:
         return False
-    return all(c in _PLACEHOLDER_CHARS or c.isspace() for c in stripped)
+    collapsed = ''.join(stripped.split())
+    if len(set(collapsed)) == 1 and collapsed[0] in _DOMINANT_FILLER_CHARS and len(collapsed) >= min_len:
+        return True
+    if all(c in _PLACEHOLDER_CHARS or c.isspace() for c in stripped) and len(collapsed) >= min_len:
+        return True
+    return False

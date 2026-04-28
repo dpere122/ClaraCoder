@@ -15,11 +15,12 @@ def test_outer_turn_authority_preamble_reflects_live_flags() -> None:
     session.active_editor_langgraph_streams = 1
     with patch(
         'nemo_backend.messages.runtime_config',
-        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False)),
+        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False, outer_phased_coding_cycle=False)),
     ):
         text = outer_turn_authority_preamble(session, apply_mode=True)
     assert 'Editor (toolbar, this turn): **on**' in text
     assert 'Orchestrated mode (backend): **off**' in text
+    assert 'Phased outer coding cycle (Settings → Tools): **off**' in text
     assert 'Auto-apply (UI): **on**' in text
     assert 'Other concurrent Editor streams' in text
 
@@ -30,7 +31,7 @@ def test_outer_turn_authority_preamble_editor_off_branch() -> None:
     session.active_editor_langgraph_streams = 0
     with patch(
         'nemo_backend.messages.runtime_config',
-        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=True)),
+        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=True, outer_phased_coding_cycle=False)),
     ):
         text = outer_turn_authority_preamble(session, apply_mode=False)
     assert 'Editor (toolbar, this turn): **off**' in text
@@ -41,7 +42,7 @@ def test_compose_outer_turn_human_content_string() -> None:
     session = SessionState()
     with patch(
         'nemo_backend.messages.runtime_config',
-        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=True)),
+        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=True, outer_phased_coding_cycle=False)),
     ):
         out = compose_outer_turn_human_content(session, True, 'Do the thing')
     assert isinstance(out, str)
@@ -53,7 +54,7 @@ def test_compose_outer_turn_human_content_multimodal_text_first() -> None:
     session = SessionState()
     with patch(
         'nemo_backend.messages.runtime_config',
-        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False)),
+        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False, outer_phased_coding_cycle=False)),
     ):
         out = compose_outer_turn_human_content(
             session,
@@ -70,7 +71,7 @@ def test_compose_outer_turn_human_content_multimodal_inserts_text_block() -> Non
     session = SessionState()
     with patch(
         'nemo_backend.messages.runtime_config',
-        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False)),
+        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False, outer_phased_coding_cycle=False)),
     ):
         out = compose_outer_turn_human_content(
             session,
@@ -87,7 +88,7 @@ def test_compose_outer_turn_human_content_empty_list_is_preamble_only() -> None:
     session = SessionState()
     with patch(
         'nemo_backend.messages.runtime_config',
-        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False)),
+        SimpleNamespace(tools=SimpleNamespace(orchestrated_mode=False, outer_phased_coding_cycle=False)),
     ):
         preamble = outer_turn_authority_preamble(session, True)
         out = compose_outer_turn_human_content(session, True, [])

@@ -7,6 +7,28 @@ from textwrap import dedent
 from nemo_backend.domain import SessionState
 
 
+def harness_mindset_block() -> str:
+    """Nemo harness: confidence framing and tool-error recovery (outer Clara)."""
+    return dedent(
+        """
+        **Harness mindset:** You are a capable coding partner; workspace tools and reads are the source of truth.
+        When a tool returns `Tool error:`, treat it as a normal, actionable signal—read it literally, fix one concrete
+        mismatch (path, argument shape, workspace vs staging), refresh anchors if needed, then retry with a smaller step.
+        After a successful milestone (transfer, nested run, or tests passing), briefly confirm the outcome and continue.
+        """
+    ).strip()
+
+
+def harness_mindset_block_nested() -> str:
+    """Shorter harness mindset for nested router (router prompt is already long)."""
+    return dedent(
+        """
+        **Harness mindset:** Tool errors are actionable—read them literally, adjust paths/args or staging vs workspace, retry narrowly.
+        After a successful handoff milestone, state the outcome compactly and continue.
+        """
+    ).strip()
+
+
 def python_workspace_playbook() -> str:
     """Compact Python + workspace habits for coding agents."""
     return dedent(

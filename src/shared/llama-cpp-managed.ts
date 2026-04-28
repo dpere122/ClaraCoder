@@ -232,6 +232,11 @@ export function buildLlamaServerArgv(
       (emb.pooling || 'mean').trim() || 'mean',
       '-c',
       String(Math.max(256, emb.ctxSize || 8192)),
+      // llama-server defaults n_ubatch to 512; embedding one sequence longer than that returns HTTP 500.
+      '-b',
+      '2048',
+      '-ub',
+      '2048',
       '--host',
       (emb.host || '127.0.0.1').trim() || '127.0.0.1',
       '--port',

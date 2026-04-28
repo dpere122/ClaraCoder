@@ -18,7 +18,7 @@
             @if (tab.id === 'models') {
               {{ totalModelCount() }} model presets
             } @else if (tab.id === 'tools') {
-              {{ orchestratedMode() ? 'Orchestrated' : 'Staging default' }} · {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              {{ orchestratedMode() ? 'Orchestrated' : 'Staging default' }}{{ outerPhasedCodingCycle() ? ' · Phased outer' : '' }} · {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
             } @else if (tab.id === 'appearance') {
@@ -326,6 +326,25 @@
                         (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
                         [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
                       ></textarea>
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Hugging Face token (optional)</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        Use a <strong>read</strong> token from
+                        <a href='https://huggingface.co/settings/tokens' target='_blank' rel='noopener noreferrer'>huggingface.co/settings/tokens</a>
+                        when <code>-hf</code> pulls hit HTTP 401 (gated or private repos). Clara passes it as
+                        <code>HF_TOKEN</code> / <code>HUGGING_FACE_HUB_TOKEN</code> only for managed Start (chat and embedding
+                        processes). Stored locally in your config like other keys.
+                      </p>
+                      <input
+                        type='password'
+                        autocomplete='off'
+                        spellcheck='false'
+                        [ngModel]='lm.huggingFaceToken ?? ""'
+                        (ngModelChange)='patchLlamaCppManaged({ huggingFaceToken: $event })'
+                        placeholder='hf_...'
+                      />
                     </label>
                   </div>
                 </div>
@@ -643,6 +662,38 @@
                 When on, the main agent can call nested planning tools (<code>plan_and_modify</code>,
                 <code>execute_workspace_mutation</code>). When off (default), use staging edits only—the app is moving
                 toward a new default planning approach.
+              </p>
+            </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='outerPhasedCodingCycle()'
+                  (ngModelChange)='onOuterPhasedCodingCycleChange($event)'
+                />
+                <span>Phased outer coding cycle</span>
+              </label>
+              <p class='settings-copy' style='margin-top: 0.35rem'>
+                When Editor is on, Clara runs a LangGraph <strong>Learn → Write → Verify</strong> loop: read-only discovery,
+                then mutations and nested work, then any pending <strong>staged → workspace</strong> transfers,
+                then pytest/smoke plus LSP diagnostics (bounded retries if checks fail).
+                Off by default.
+              </p>
+            </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='allowStagingOverlayCommands()'
+                  (ngModelChange)='onAllowStagingOverlayCommandsChange($event)'
+                />
+                <span>Allow staging overlay commands</span>
+              </label>
+              <p class='settings-copy' style='margin-top: 0.35rem'>
+                When on, nested code review may run <code>run_staging_overlay_command</code>: a temporary copy of the
+                workspace with staged drafts applied (argv-only subprocess; no shell). Off by default.
               </p>
             </div>
           </div>

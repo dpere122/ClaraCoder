@@ -15,9 +15,10 @@ from langchain_core.tools import tool
 from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.edit_tool import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
+from nemo_backend.lsp.diagnostics import post_edit_checks_footer
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
-from nemo_backend.partial_workspace_edit import merge_partial_edit
+from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
 from nemo_backend.workspace_text_io import (
     DiskNewline,
@@ -26,7 +27,7 @@ from nemo_backend.workspace_text_io import (
     resolve_newline_for_write,
     validate_workspace_encoding,
 )
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.staging')
 
@@ -132,9 +133,17 @@ def _staging_after_merge(
     except OSError as exc:
         return f'Tool error: could not write staging file ({exc}).'
 
+    formatter_lines: list[str] = []
     if rel_display.lower().endswith('.py'):
         ok, detail = _edit_staging.run_black_on_file(temp_path, encoding=disk_encoding, disk_newline=disk_newline)
         logger.info('black path=%s ok=%s detail=%s', rel_display, ok, detail)
+        if ok:
+            formatter_lines.append('Formatter (Black): applied to the staged draft.')
+        else:
+            formatter_lines.append(f'Formatter (Black): draft unchanged ({detail}).')
+    else:
+        formatter_lines.append('Formatter: automatic Black applies only to `.py` drafts.')
+
     try:
         merged_out = _edit_staging.read_staging_text(temp_path, disk_encoding)
     except OSError as exc:
@@ -142,17 +151,32 @@ def _staging_after_merge(
     _edit_staging.write_snapshot_file(session, rel_display, merged_out, disk_encoding, disk_newline)
 
     diagnostics_note = ''
-    diagnostics: list[dict[str, object]] = []
-    if is_lsp_managed_path(rel_display):
+    diagnostics: list[dict[str, Any]] = []
+    srv = lsp_server_for_path(rel_display)
+    if is_lsp_managed_path(rel_display) and srv:
         try:
             diagnostics = sync_session_document(rel_display, merged_out, session_id=session_id, scope='staging')
-            ls_label = lsp_server_for_path(rel_display) or 'lsp'
-            logger.info('%s LSP sync path=%s diagnostics=%s', ls_label, rel_display, len(diagnostics))
-            diagnostics_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
+            logger.info('%s LSP sync path=%s diagnostics=%s', srv, rel_display, len(diagnostics))
+            diagnostics_note = truncate_text_head_tail(
+                post_edit_checks_footer(
+                    rel_display,
+                    diagnostics,
+                    lsp_scope='staging',
+                    server_kind=srv,
+                    formatter_lines=formatter_lines,
+                ),
+                14_000,
+            )
         except Exception as exc:
-            ls_label = lsp_server_for_path(rel_display) or 'lsp'
-            logger.warning('%s LSP sync failed path=%s err=%s', ls_label, rel_display, exc)
-            diagnostics_note = f' {ls_label} LSP sync failed: {exc}.'
+            logger.warning('%s LSP sync failed path=%s err=%s', srv, rel_display, exc)
+            diagnostics_note = truncate_text_head_tail(
+                '\n---\nPost-edit checks:\n'
+                + '\n'.join(formatter_lines)
+                + f'\nLSP sync failed: {exc}.',
+                14_000,
+            )
+    elif formatter_lines:
+        diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(formatter_lines)
 
     session.pending_edit_stagings[rel_display] = EditStagingEntry(
         temp_path=str(temp_path),
@@ -225,7 +249,7 @@ def _run_staging_tool(
         return f'Tool error: {merge_err}'
     assert merged is not None
 
-    return _staging_after_merge(
+    out = _staging_after_merge(
         session,
         rel_display,
         original_old_text,
@@ -235,6 +259,9 @@ def _run_staging_tool(
         disk_nl,
         staging_seed_text=workspace_old_text,
     )
+    if mode == 'line-range' and start_line > 0 and end_line >= start_line:
+        out += line_range_edit_tool_feedback(base_text, start_line, end_line, new_snippet)
+    return out
 
 
 @tool(STAGE_CREATE_FILE_NAME)
@@ -337,6 +364,9 @@ def stage_line_range_edit(
     `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
     Use `stage_create_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after the
     last line, and `1,1` can seed an empty file.
+    On success, the tool result includes a **Line-range edit detail** footer: inclusive 1-based line span, 1-based
+    start/end columns (Unicode scalar columns for the first/after-last removed character), an LSP-style 0-based
+    UTF-16 range (end exclusive), and verbatim removed/inserted excerpts—use it to anchor follow-up edits.
     See `stage_create_file` for `encoding` and `newline`.
 
     Relative paths only."""

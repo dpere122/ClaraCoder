@@ -134,8 +134,11 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
 def retrieve_workspace_semantic(query: str, top_k: int = 8) -> str:
     """Semantic search over indexed workspace files and nested-edit staging (code, text, PDFs).
 
-    Prefer this tool first for broad discovery, then narrow with ``search_workspace`` / ``read_workspace_file`` / LSP
-    for **workspace** hits, or ``read_staged_edit`` / diff tools for **staging** hits (see tool output header).
+    Strong choice for **broad discovery** when target paths are unknown; treat hits as hints and verify by **origin**.
+    When a hit is an **LSP-supported** source path (``.py``, ``.ts``, ``.tsx``, ``.js``, ``.jsx``, ``.mjs``, ``.cjs``),
+    follow up with LSP tools on that path (e.g. ``lsp_get_document_symbols``) before relying only on chunks or full reads.
+    Narrow with ``search_workspace`` / ``read_workspace_file`` / LSP for **workspace** hits, or ``read_staged_edit`` /
+    diff tools for **staging** hits (see tool output header).
 
     The index is stored under the app data directory (not inside the workspace). It refreshes incrementally from the
     Electron file watcher when embeddings are available; otherwise updates apply on the next call. If the server has no
@@ -151,6 +154,7 @@ def retrieve_workspace_checkpoint_semantic(query: str, top_k: int = 8) -> str:
     Use in **workspace recon** phases where the checkpoint is authoritative. For drafts after staging, use
     ``read_staged_edit`` or the full ``retrieve_workspace_semantic`` on graphs that include staging in recall.
 
-    Results are hints only—verify with ``read_workspace_file``, LSP, or ``search_workspace``.
+    Strong for **unknown** targets; for **LSP-supported** candidate paths, prefer LSP tools on those files before
+    treating chunks as sufficient. Results are hints only—verify with ``read_workspace_file``, LSP, or ``search_workspace``.
     """
     return _retrieve_semantic_impl(query, top_k, include_nested_staging=False)

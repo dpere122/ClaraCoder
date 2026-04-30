@@ -6,3 +6,4 @@ package-lock.json
 __pycache__/
 *.pyc
 python/.venv/
+.DS_Store

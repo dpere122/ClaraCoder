@@ -18,6 +18,8 @@ FastAPI service used by the Nemo / Clara Electron app. It runs a LangChain agent
 
 ## Setup
 
+**Python 3.10 or newer is required.** (FastAPI, LangChain, and other dependencies do not install on Python 3.9.) Check with `python3 --version`, then create the venv with that interpreter—for example `python3.12 -m venv .venv` if `python3` is still 3.9 on your machine.
+
 Create a dedicated virtual environment under `python/.venv` (ignored by git), then install dependencies:
 
 **Windows (PowerShell), from the `python/` directory:**

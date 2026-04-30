@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from nemo_backend.lsp.file_policy import normalize_relative_posix_path
+from nemo_backend.lsp.file_policy import is_prettier_managed_path, normalize_relative_posix_path
 
 __all__ = [
     'diagnostic_severity_name',
@@ -29,8 +29,6 @@ _INDENT_DIAGNOSTIC_HINT = re.compile(
     r'inconsistent\s+use\s+of\s+tabs|expected\s+an\s+indented\s+block|invalidIndentedBlock|IndentationError',
     re.IGNORECASE,
 )
-
-_TS_LIKE_SUFFIXES: tuple[str, ...] = ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs')
 
 
 def diagnostic_severity_name(value: int | None) -> str:
@@ -101,10 +99,11 @@ def indentation_followup_guidance(
                 '- Call `format_staging_file_black` for this path, then `lsp_get_diagnostics` with '
                 '`refresh_active_document=true` on the same path to verify the staged draft.'
             )
-        elif rel.endswith(_TS_LIKE_SUFFIXES):
+        elif is_prettier_managed_path(rel):
             lines.append(
-                '- No automatic formatter is bound for JS/TS drafts: apply a precise staging edit to fix '
-                'whitespace, then `lsp_get_diagnostics` with `refresh_active_document=true` on this path.'
+                '- Call `format_staging_file_prettier` for this path, then `lsp_get_diagnostics` with '
+                '`refresh_active_document=true` when the TypeScript/JavaScript server applies (`.ts`, `.tsx`, '
+                '`.js`, `.jsx`, `.mjs`, `.cjs`); for `.html`/`.htm`/`.css`, use `read_staged_edit` to verify the draft.'
             )
         else:
             lines.append(
@@ -116,6 +115,12 @@ def indentation_followup_guidance(
             '- Black already ran on the merged `.py` text before this listing. If indentation errors remain, '
             'correct the source and retry the workspace edit tool, or route the path through nested staging so '
             '`format_staging_file_black` is available after each stage.'
+        )
+    elif is_prettier_managed_path(rel):
+        lines.append(
+            '- Prettier already ran on merged text for this extension when the edit path used automatic formatting. '
+            'If indentation errors remain, correct the source and retry the workspace edit tool, or route through '
+            'nested staging so `format_staging_file_prettier` is available after each stage.'
         )
     else:
         lines.append(

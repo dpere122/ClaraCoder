@@ -6,6 +6,8 @@ import hashlib
 import logging
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import uuid
 from shutil import copy2
@@ -20,6 +22,122 @@ from nemo_backend.workspace_ignore import get_workspace_ignore_rules_cached, sho
 from nemo_backend.workspace_text_io import DiskNewline, decode_for_tools, encode_for_disk
 
 logger = logging.getLogger('nemo.staging')
+
+# Extensions that require code review before finalize (nested planning only).
+CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset(
+    {'.py', *LEGACY_CODE_REVIEW_EXTENSIONS, *CONFIG_CODE_REVIEW_EXTENSIONS}
+)
+
+
+def resolve_prettier_cli(workspace_root: Path) -> Path | None:
+    """Locate ``prettier.cjs`` or a ``prettier`` on PATH; optional ``NEMO_PRETTIER_CLI`` override."""
+
+    override = (os.environ.get('NEMO_PRETTIER_CLI') or '').strip()
+    if override:
+        p = Path(override).expanduser()
+        return p.resolve() if p.is_file() else None
+
+    cur = workspace_root.resolve()
+    for _ in range(64):
+        candidate = cur / 'node_modules' / 'prettier' / 'bin' / 'prettier.cjs'
+        if candidate.is_file():
+            return candidate.resolve()
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+
+    which = shutil.which('prettier')
+    if which:
+        return Path(which).resolve()
+    return None
+
+
+def _resolve_node_executable() -> str | None:
+    n = (os.environ.get('NEMO_NODE_EXECUTABLE') or '').strip()
+    if n:
+        if Path(n).is_file():
+            return str(Path(n).resolve())
+        w = shutil.which(n)
+        return w
+    return shutil.which('node')
+
+
+def format_source_via_prettier(
+    text: str,
+    *,
+    workspace_root: Path,
+    relative_posix: str,
+    source_encoding: str = 'utf-8',
+    timeout_sec: float = 60.0,
+) -> tuple[str | None, str]:
+    """Run Prettier on source via stdin; ``cwd`` is workspace root for config resolution."""
+
+    prettier_cli = resolve_prettier_cli(workspace_root)
+    if prettier_cli is None:
+        return None, 'prettier CLI not found (install in workspace or set NEMO_PRETTIER_CLI)'
+
+    node = _resolve_node_executable()
+    if not node:
+        return None, 'node executable not found (install Node.js or set NEMO_NODE_EXECUTABLE)'
+
+    rel = relative_posix.strip().replace('\\', '/')
+    cwd = str(workspace_root.resolve())
+    try:
+        input_bytes = text.encode(source_encoding or 'utf-8', errors='strict')
+    except UnicodeEncodeError as exc:
+        return None, f'encode for prettier stdin failed: {exc}'
+
+    try:
+        proc = subprocess.run(
+            [node, str(prettier_cli), '--stdin-filepath', rel],
+            input=input_bytes,
+            capture_output=True,
+            cwd=cwd,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        return None, 'prettier timed out'
+    except OSError as exc:
+        logger.warning('prettier spawn failed err=%s', exc)
+        return None, str(exc)
+
+    if proc.returncode != 0:
+        err = (proc.stderr or b'').decode('utf-8', errors='replace').strip() or str(proc.returncode)
+        logger.warning('prettier failed rc=%s stderr_head=%s', proc.returncode, err[:500])
+        return None, f'prettier exited {proc.returncode}: {err[:800]}'
+
+    out = (proc.stdout or b'').decode('utf-8')
+    return out, ''
+
+
+def run_prettier_on_file(
+    path: Path,
+    *,
+    workspace_root: Path,
+    relative_posix: str,
+    encoding: str,
+    disk_newline: DiskNewline,
+) -> tuple[bool, str]:
+    """Run Prettier on ``path`` (read → format → write). Returns (ok, detail)."""
+
+    try:
+        src = read_staging_text(path, encoding)
+    except OSError as exc:
+        return False, f'read failed: {exc}'
+
+    formatted, err = format_source_via_prettier(
+        src, workspace_root=workspace_root, relative_posix=relative_posix, source_encoding=encoding or 'utf-8'
+    )
+    if formatted is None:
+        return False, err
+
+    try:
+        write_staging_text(path, formatted, encoding, disk_newline)
+    except OSError as exc:
+        return False, f'write failed: {exc}'
+    return True, 'formatted'
+
 
 # Extensions that require code review before finalize (nested planning only).
 CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset(

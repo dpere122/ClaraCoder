@@ -27,7 +27,9 @@
             <span [class]='dotClass(st.embed.health)' title='{{ st.embed.health }}'></span>
           }
         </div>
-        @if (!st.running) {
+        @if (st.ok === true && st.remote) {
+          <p class='llama-tile__hint'>Remote llama-server — health from your Settings base URL.</p>
+        } @else if (!st.running) {
           <p class='llama-tile__hint'>Stopped — Start to run this preset&apos;s servers.</p>
         } @else if (st.chat.port) {
           <p class='llama-tile__ports'>chat :{{ st.chat.port }}</p>
@@ -47,6 +49,8 @@
       @if (status(); as st2) {
         @if (st2.ok === true && st2.running) {
           <button type='button' class='btn btn-sm btn-outline-secondary' [disabled]='stopDisabled()' (click)='onStop()'>Stop</button>
+        } @else if (st2.ok === true && st2.remote) {
+          <p class='llama-tile__ports'>URL · {{ st2.chat.health === 'ok' ? 'reachable' : 'unreachable' }}</p>
         } @else if (st2.ok === true && !st2.running) {
           <button type='button' class='btn btn-sm btn-primary' [disabled]='startDisabled()' (click)='onStart()'>Start</button>
         }

@@ -30,6 +30,13 @@ def test_validate_allowlist() -> None:
         validate_workspace_encoding('utf-7')
 
 
+def test_validate_language_or_ext_mistaken_for_encoding_defaults_to_utf8() -> None:
+    """Models sometimes pass file type (e.g. css) where a codec name is required."""
+    assert validate_workspace_encoding('css') == 'utf-8'
+    assert validate_workspace_encoding('CSS') == 'utf-8'
+    assert validate_workspace_encoding('html') == 'utf-8'
+
+
 def test_decode_normalizes_newlines() -> None:
     raw = b'a\r\nb\nc'
     text = decode_for_tools(raw, 'utf-8')

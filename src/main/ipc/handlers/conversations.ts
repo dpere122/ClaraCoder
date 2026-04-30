@@ -135,7 +135,24 @@ export function registerConversationsIpc(): void {
     return allMetas;
   });
 
-  ipcMain.handle('load-conversation', async (_event, id: string, workspaceId?: string | null) => {
+  ipcMain.handle('read-conversation-from-disk', async (_event, id: string, workspaceId?: string | null) => {
+    const filePath = await findConversationPath(id, workspaceId ?? null);
+    if (!filePath) {
+      throw new Error('Conversation not found');
+    }
+    const raw = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(raw) as ConversationFile;
+  });
+
+  ipcMain.handle(
+    'load-conversation',
+    async (
+      _event,
+      id: string,
+      workspaceId?: string | null,
+      options?: { skipPythonResync?: boolean },
+    ) => {
+    const skipPythonResync = Boolean(options?.skipPythonResync);
     mainState.activeConversationId = id;
 
     const sw = mainState.settingsWindow;
@@ -151,14 +168,16 @@ export function registerConversationsIpc(): void {
     const raw = await fs.readFile(filePath, 'utf-8');
     const conv: ConversationFile = JSON.parse(raw) as ConversationFile;
 
-    try {
-      await fetch(`${PYTHON_URL}/clear`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: id }),
-      });
-    } catch (err) {
-      console.error('Failed to reset Python session before loading conversation:', err);
+    if (!skipPythonResync) {
+      try {
+        await fetch(`${PYTHON_URL}/clear`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: id }),
+        });
+      } catch (err) {
+        console.error('Failed to reset Python session before loading conversation:', err);
+      }
     }
 
     try {
@@ -167,29 +186,32 @@ export function registerConversationsIpc(): void {
       console.error('Failed to sync workspace context:', err);
     }
 
-    type PyHistoryMsg =
-      | { role: 'user'; content: string | Record<string, unknown>[] }
-      | { role: 'assistant'; content: string };
-    const pyMessages: PyHistoryMsg[] = [];
-    for (const m of conv.messages) {
-      if (m.role === 'user') {
-        pyMessages.push(userMessageToPythonHistoryEntry(m));
-      } else if (m.role === 'assistant') {
-        pyMessages.push({ role: 'assistant', content: m.text });
+    if (!skipPythonResync) {
+      type PyHistoryMsg =
+        | { role: 'user'; content: string | Record<string, unknown>[] }
+        | { role: 'assistant'; content: string };
+      const pyMessages: PyHistoryMsg[] = [];
+      for (const m of conv.messages) {
+        if (m.role === 'user') {
+          pyMessages.push(userMessageToPythonHistoryEntry(m));
+        } else if (m.role === 'assistant') {
+          pyMessages.push({ role: 'assistant', content: m.text });
+        }
       }
-    }
-    try {
-      await fetch(`${PYTHON_URL}/load`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: id, messages: pyMessages }),
-      });
-    } catch (err) {
-      console.error('Failed to sync history with Python:', err);
+      try {
+        await fetch(`${PYTHON_URL}/load`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: id, messages: pyMessages }),
+        });
+      } catch (err) {
+        console.error('Failed to sync history with Python:', err);
+      }
     }
 
     return conv;
-  });
+  },
+  );
 
   ipcMain.handle('save-conversation', async (_event, conv: ConversationFile) => {
     const wsId = conv.workspaceId;

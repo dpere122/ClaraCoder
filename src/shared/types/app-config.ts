@@ -90,6 +90,11 @@ export interface LlmProviderConfig {
   provider: 'openai' | 'lmstudio' | 'llamacpp';
   baseUrl: string;
   apiKey: string;
+  /**
+   * LM Studio: model id for OpenAI-compatible ``POST /v1/embeddings`` (semantic index).
+   * When unset, Python uses ``NEMO_EMBEDDINGS_MODEL`` / defaults.
+   */
+  embeddingsModel?: string;
   models: LlmModelProfile[];
 }
 
@@ -101,7 +106,7 @@ export interface LlamaManagedRuntimeEndpoints {
 
 /** Single resolved row for Python / UI (provider endpoint + one model preset). `id` is the model preset id. */
 export type LlmConnectionConfig = LlmModelProfile &
-  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey'> & {
+  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel'> & {
     /** Effective OpenAI-compatible embeddings base URL (managed llama embedding server); runtime-only from Electron. */
     embeddingsBaseUrl?: string;
   };
@@ -151,7 +156,17 @@ export interface WorkspaceToolsConfig {
 
 /** Root persisted settings for the desktop app (config.json). */
 export interface AppConfig {
+  /**
+   * Incremented in the main process when a breaking layout requires resetting derived state.
+   * Older files omit this field (treated as 0); see `migrateConfig` in load-save.
+   */
+  configSchemaVersion?: number;
   currentWorkspaceId: string | null;
+  /**
+   * When switching back to a workspace, restore the last open conversation in that folder.
+   * Key is `workspaceId`, or the empty string for the “no workspace / general” conversation bucket.
+   */
+  lastActiveConversationByWorkspaceId?: Record<string, string>;
   workspaces: Workspace[];
   themeId: string;
   noWorkspaceThemeId: string;

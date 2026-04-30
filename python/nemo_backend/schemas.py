@@ -165,6 +165,10 @@ class RuntimeConnectionRequest(BaseModel):
         default=True,
         validation_alias=AliasChoices('embeddingsEnabled', 'embeddings_enabled'),
     )
+    embeddingsModel: str = Field(
+        default='',
+        validation_alias=AliasChoices('embeddingsModel', 'embeddings_model'),
+    )
 
     @field_validator('architectureHint', mode='before')
     @classmethod

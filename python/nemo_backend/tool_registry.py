@@ -13,7 +13,7 @@ final project review (without ``approve_project_review`` / ``reject_project_revi
 :mod:`nemo_backend.agents.orchestration.nested_pipeline`.
 
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
-``transfer_staged_file_to_workspace`` / ``approve_staged_workspace_edit`` build a diff and defer the disk write until
+``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
 the user confirms in chat (or returns for re-review) unless auto-apply is on. The phased outer **verify** subgraph
 also binds inspect + ``transfer_staged_file_to_workspace`` so pending drafts can land before pytest/smoke.
 """
@@ -33,12 +33,12 @@ from nemo_backend.delete_tool import (
 from nemo_backend.agents.specialists.review_tools import (
     DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME,
     FORMAT_STAGING_FILE_BLACK_NAME,
+    FORMAT_STAGING_FILE_PRETTIER_NAME,
     LIST_STAGED_EDITS_NAME,
     READ_STAGED_EDIT_NAME,
     REJECT_STAGED_WORKSPACE_EDIT_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
 )
-from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
 from nemo_backend.node_dependency_agent import (
     INSTALL_NPM_PACKAGES_NAME,
@@ -85,7 +85,13 @@ def merge_tools_replace_by_name(
     base_map: dict[str, Any],
     named_layers: list[tuple[str, list[Any]]],
 ) -> tuple[list[Any], dict[str, Any]]:
-    """Later layers override ``base_map`` by tool ``name``; rebuild ``base_tools`` order with replacements applied."""
+    """Later layers override ``base_map`` by tool ``name``; rebuild ``base_tools`` order with replacements applied.
+
+    **Contract:** If a later layer lists a tool with the same ``name`` as an earlier tool, it should normally be the
+    **same callable / LangChain tool object** as the base definition so descriptions and behavior cannot drift. Only
+    replace with a different object when intentionally wrapping the tool; then align the wrapper docstring with the
+    base tool so models do not see two conflicting explanations for one name.
+    """
     out_map = dict(base_map)
     for _label, layer in named_layers:
         for tool in layer:
@@ -110,10 +116,10 @@ def staging_workspace_write_tools(edit_tools_strict: bool) -> list[Any]:
 def hitl_diff_pause_tools() -> frozenset[str]:
     """Tool names that may emit a diff and require human review before the agent continues."""
     names = {t.name for t in staging_workspace_write_tools(runtime_config.tools.edit_tools_strict)}
-    names.add(APPROVE_STAGED_WORKSPACE_EDIT_NAME)
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
     names.add(REJECT_STAGED_WORKSPACE_EDIT_NAME)
     names.add(FORMAT_STAGING_FILE_BLACK_NAME)
+    names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
     names.add(LSP_CREATE_PYTHON_FILE_NAME)
     names.add(LSP_UPDATE_PYTHON_FILE_NAME)
     return frozenset(names)

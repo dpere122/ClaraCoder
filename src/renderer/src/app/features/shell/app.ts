@@ -176,6 +176,11 @@ export class App implements OnInit, OnDestroy {
   /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
   protected readonly autoApplyMode = model(false);
   protected readonly streamingParts = signal<StreamPart[]>([]);
+  /**
+   * Prompt token count from the last completed chat-model step (OpenAI-compatible ``usage`` /
+   * LangChain ``usage_metadata``). Cleared when switching conversations; overrides heuristic estimates.
+   */
+  protected readonly measuredPromptTokens = signal<number | null>(null);
   protected readonly livePlannerProgress = signal<PlannerProgress | null>(null);
   protected readonly settingsWindowOpen = signal(false);
   /** Main window zoom state (frameless window controls). */
@@ -212,6 +217,7 @@ export class App implements OnInit, OnDestroy {
     messages: this.messages(),
     streamingParts: this.streamingParts(),
     workspaceContextText: this.workspaceContextText(),
+    measuredPromptTokens: this.measuredPromptTokens(),
   }));
 
   /** Flattened model presets for the status-bar selector (under the message box). */
@@ -223,10 +229,23 @@ export class App implements OnInit, OnDestroy {
     const opts: Array<{ id: string; label: string }> = [];
     for (const p of c.llmProviders) {
       for (const m of p.models) {
-        opts.push({ id: m.id, label: `${m.name} · ${m.model}` });
+        opts.push({ id: m.id, label: `${p.name} · ${m.name}` });
       }
     }
     return opts;
+  });
+
+  /** Same naming as Settings → Models “Sources”: source display name + preset label (not API model id). */
+  protected readonly activeLlmModelDisplayName = computed(() => {
+    const c = this.appConfig();
+    if (!c?.llmProviders?.length) {
+      return 'No active model';
+    }
+    const loc = findLlmModelLocation(c.llmProviders, c.activeLlmModelId);
+    if (!loc) {
+      return 'No active model';
+    }
+    return `${loc.provider.name} · ${loc.model.name}`;
   });
 
   // Layout
@@ -295,6 +314,18 @@ export class App implements OnInit, OnDestroy {
         }, 0);
       } else {
         this.workspaceContextText.set('');
+      }
+    });
+
+    effect(() => {
+      this.activeConversationId();
+      this.measuredPromptTokens.set(null);
+    });
+
+    this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
+      if (conversationId !== this.activeConversationId()) return;
+      if (inputTokens > 0) {
+        this.measuredPromptTokens.set(inputTokens);
       }
     });
 
@@ -568,6 +599,7 @@ export class App implements OnInit, OnDestroy {
   private async loadConversationsForWorkspace(): Promise<void> {
     const wsId = this.currentWorkspaceId();
     console.log('[App] loadConversationsForWorkspace: wsId:', wsId);
+    const config = await this.electron.loadConfig();
     const list = await this.electron.getConversations(wsId);
     console.log('[App] loadConversationsForWorkspace: got', list.length, 'conversations');
     this.conversations.set(list);
@@ -577,9 +609,18 @@ export class App implements OnInit, OnDestroy {
       console.log('[App] loadConversationsForWorkspace: no conversations, creating new');
       await this.onNewConversation();
     } else {
-      // Load the most recent conversation - use its stored workspaceId
-      const conv = list[0];
-      console.log('[App] loadConversationsForWorkspace: loading conv:', conv.id, 'workspaceId:', conv.workspaceId);
+      const key = wsId ?? '';
+      const remembered = config.lastActiveConversationByWorkspaceId?.[key];
+      const match = remembered ? list.find((c) => c.id === remembered) : undefined;
+      const conv = match ?? list[0];
+      console.log(
+        '[App] loadConversationsForWorkspace: loading conv:',
+        conv.id,
+        'workspaceId:',
+        conv.workspaceId,
+        'restoredFromMemory:',
+        Boolean(remembered && match),
+      );
       await this.loadConversation(conv.id, conv.workspaceId);
     }
   }
@@ -626,6 +667,7 @@ export class App implements OnInit, OnDestroy {
     }
     this.applyTheme(themeToApply);
     await this.refreshConversationList();
+    void this.rememberLastActiveForWorkspace(conv);
   }
 
   onAbortRequested(): void {
@@ -969,8 +1011,32 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  private async loadConversation(id: string, workspaceId?: string | null): Promise<void> {
-    const conv = await this.electron.loadConversation(id, workspaceId);
+  private async rememberLastActiveForWorkspace(conv: Conversation): Promise<void> {
+    const key = conv.workspaceId ?? '';
+    const config = await this.electron.loadConfig();
+    if (config.lastActiveConversationByWorkspaceId?.[key] === conv.id) {
+      return;
+    }
+    const next: AppConfig = {
+      ...config,
+      lastActiveConversationByWorkspaceId: {
+        ...(config.lastActiveConversationByWorkspaceId ?? {}),
+        [key]: conv.id,
+      },
+    };
+    await this.electron.saveConfig(next);
+  }
+
+  private async loadConversation(
+    id: string,
+    workspaceId?: string | null,
+    loadOpts?: { skipPythonResync?: boolean },
+  ): Promise<void> {
+    const skipPython =
+      loadOpts?.skipPythonResync !== undefined
+        ? loadOpts.skipPythonResync
+        : this.pendingIds().has(id);
+    const conv = await this.electron.loadConversation(id, workspaceId, { skipPythonResync: skipPython });
     this.activeConversation = conv;
     this.activeConversationId.set(conv.id);
     this.messages.set(conv.messages);
@@ -998,6 +1064,7 @@ export class App implements OnInit, OnDestroy {
       }
     }
     this.applyTheme(themeToApply);
+    void this.rememberLastActiveForWorkspace(conv);
   }
 
   private async saveCurrentConversation(): Promise<void> {
@@ -1039,7 +1106,7 @@ export class App implements OnInit, OnDestroy {
       // Find the conversation's workspaceId from the list
       const convMeta = this.conversations().find(c => c.id === conversationId);
       const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
-      const conv = await this.electron.loadConversation(conversationId, workspaceId);
+      const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
       if (planner) assistant.planner = planner;
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
@@ -1150,7 +1217,8 @@ export class App implements OnInit, OnDestroy {
     }
 
     await this.saveCurrentConversation();
-    const conv = await this.electron.loadConversation(targetId);
+    const skipTargetPython = this.pendingIds().has(targetId);
+    const conv = await this.electron.readConversationFromDisk(targetId);
 
     if (conv.workspaceId !== this.currentWorkspaceId()) {
       await this.electron.setCurrentWorkspace(conv.workspaceId);
@@ -1161,7 +1229,7 @@ export class App implements OnInit, OnDestroy {
       this.conversations.set(list);
     }
 
-    await this.loadConversation(conv.id, conv.workspaceId);
+    await this.loadConversation(conv.id, conv.workspaceId, { skipPythonResync: skipTargetPython });
   }
 
   protected onChromeFileMenu(ev: MouseEvent): void {

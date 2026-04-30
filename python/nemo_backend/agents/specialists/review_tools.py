@@ -21,9 +21,9 @@ from nemo_backend.agents.specialists.project_review_tools import (
 )
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
 from nemo_backend.diff_payload import build_file_diff_payload
-from nemo_backend.domain import PendingStagedTransferHitl, WorkspaceTestMaterializationEntry
-from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME
-from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path
+from nemo_backend.domain import PendingStagedTransferHitl, SessionState, WorkspaceTestMaterializationEntry
+from nemo_backend.lsp.diagnostics import format_diagnostics_summary, indentation_followup_guidance
+from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.lsp.tools import lsp_get_diagnostics
 from nemo_backend.python_env import ensure_session_python_workspace_env, session_workspace_subprocess_env
@@ -45,6 +45,7 @@ LIST_STAGED_EDITS_NAME = 'list_staged_edits'
 READ_STAGED_EDIT_NAME = 'read_staged_edit'
 SEARCH_STAGED_EDITS_NAME = 'search_staged_edits'
 FORMAT_STAGING_FILE_BLACK_NAME = 'format_staging_file_black'
+FORMAT_STAGING_FILE_PRETTIER_NAME = 'format_staging_file_prettier'
 TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME = 'transfer_staged_file_to_workspace'
 DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME = 'diff_staged_edit_against_baseline'
 RUN_STAGING_OVERLAY_COMMAND_NAME = 'run_staging_overlay_command'
@@ -56,6 +57,7 @@ _MAX_OVERLAY_OUTPUT_CHARS = 120_000
 _MAX_STAGED_UNIFIED_DIFF_LINES = 2500
 _MAX_STAGED_DIFF_CHARS = 480_000
 _READ_FILE_GUTTER_SEP = ' │ '
+_POST_TRANSFER_BATCH_LSP_MAX_CHARS = 14_000
 
 
 def _max_staged_read_chars() -> int:
@@ -176,6 +178,70 @@ def _review_pending_entries(session) -> list[tuple[str, object]]:
     ]
 
 
+def _post_transfer_lsp_section(session: SessionState, *, session_id: str | None) -> str:
+    """After ``workspace_applied`` is set for the path just transferred, either defer LSP or run one batch pass.
+
+    LSP sync runs **once** when every entry in ``pending_edit_stagings`` is transferred, so cross-file checks
+    see the full on-disk batch instead of refreshing after each individual transfer.
+    """
+    remaining = _review_pending_entries(session)
+    if remaining:
+        n = len(remaining)
+        return (
+            '\n\nNote: Workspace LSP refresh is deferred until every staged path in this chain is transferred '
+            f'({n} path(s) still pending `transfer_staged_file_to_workspace`).'
+        )
+    if not session.pending_edit_stagings:
+        return ''
+    managed = [
+        rel
+        for rel in sorted(session.pending_edit_stagings.keys())
+        if is_lsp_managed_path(rel) and lsp_server_for_path(rel)
+    ]
+    if not managed:
+        return (
+            '\n\nPost-transfer LSP: no LSP-managed file extensions in this transferred batch; '
+            'nothing to refresh automatically.'
+        )
+    chunks: list[str] = [
+        '\n\n---',
+        'Post-transfer LSP (all staged paths in this chain are on disk; workspace scope; formatter not re-run):',
+    ]
+    sid = (session_id or '').strip() or None
+    for rel_key in managed:
+        entry = session.pending_edit_stagings.get(rel_key)
+        if entry is None:
+            continue
+        srv = lsp_server_for_path(rel_key) or ''
+        try:
+            diagnostics = sync_session_document(
+                rel_key,
+                str(entry.merged_text),
+                session_id=sid,
+                scope='workspace',
+            )
+        except Exception as exc:
+            logger.warning('workspace LSP batch sync failed path=%s err=%s', rel_key, exc)
+            ls_label = lsp_server_for_path(rel_key) or 'lsp'
+            chunks.append(f'\n{ls_label} LSP sync failed for `{rel_key}`: {exc}.')
+            continue
+        chunks.append(
+            '\n'
+            + format_diagnostics_summary(
+                rel_key,
+                diagnostics,
+                lsp_scope='workspace',
+                analyzed_source='workspace after batch transfer',
+                server_kind=srv,
+            )
+        )
+        steer = indentation_followup_guidance(rel_key, diagnostics, lsp_scope='workspace').strip()
+        if steer:
+            chunks.append('\n' + steer)
+    body = ''.join(chunks)
+    return truncate_text_head_tail(body, _POST_TRANSFER_BATCH_LSP_MAX_CHARS)
+
+
 def _unified_diff_baseline_vs_draft(rel_key: str, old_text: str, merged_text: str) -> tuple[str, bool]:
     """Return (formatted diff body, truncated)."""
     if '\x00' in old_text or '\x00' in merged_text:
@@ -291,8 +357,11 @@ def finalize_staged_transfer_after_hitl(
         entry.old_text = str(entry.merged_text)
         entry.workspace_applied = True
         logger.info('finalize_staged_transfer_after_hitl confirm test_run path=%s', rel_key)
+        lsp_sid = (session_id or current_session_id.get() or '').strip() or None
+        lsp_section = _post_transfer_lsp_section(session, session_id=lsp_sid)
         return (
-            f'User confirmed: staged `{rel_key}` (reviewer test-run materialization) finalized for this chain. '
+            f'User confirmed: staged `{rel_key}` (reviewer test-run materialization) finalized for this chain.'
+            f'{lsp_section} '
             'Continue the nested review / router turn from here.'
         )
 
@@ -313,26 +382,12 @@ def finalize_staged_transfer_after_hitl(
         return f'Tool error after user confirmation: could not write staged file `{rel_key}` into the workspace ({exc}).'
     except Exception as exc:
         return f'Tool error after user confirmation: could not encode staged file `{rel_key}` for the workspace ({exc}).'
-    lsp_note = ''
-    if is_lsp_managed_path(rel_key):
-        try:
-            diagnostics = sync_session_document(
-                rel_key,
-                str(entry.merged_text),
-                session_id=lsp_sid,
-                scope='workspace',
-            )
-            ls_label = lsp_server_for_path(rel_key) or 'lsp'
-            lsp_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
-        except Exception as exc:
-            logger.warning('workspace LSP sync failed after hitl transfer path=%s err=%s', rel_key, exc)
-            ls_label = lsp_server_for_path(rel_key) or 'lsp'
-            lsp_note = f' {ls_label} LSP sync failed: {exc}.'
     entry.old_text = str(entry.merged_text)
     entry.workspace_applied = True
     logger.info('finalize_staged_transfer_after_hitl confirm path=%s', rel_key)
+    lsp_section = _post_transfer_lsp_section(session, session_id=lsp_sid)
     return (
-        f'User confirmed: staged `{rel_key}` written to the real workspace.{lsp_note} '
+        f'User confirmed: staged `{rel_key}` written to the real workspace.{lsp_section} '
         'Continue the nested review / router turn from here.'
     )
 
@@ -364,7 +419,11 @@ def _materialize_staged_python_files(session, overlays: list[tuple[str, object]]
 
 @tool(LIST_STAGED_EDITS_NAME)
 def list_staged_edits() -> str:
-    """List workspace-relative paths currently staged for code review."""
+    """List workspace-relative paths that have a pending staged draft (not yet transferred).
+
+    When: see what is in the staging plane before diff/read/search.
+    Not: disk directory listing (use `list_workspace_directory`); file text (use `read_staged_edit` or diff).
+    Shape: paths are same keys as `relative_path` on other staging tools (POSIX under workspace root)."""
 
     sid = current_session_id.get()
     blocked = mutation_tools_blocked_reason(sid)
@@ -379,11 +438,11 @@ def list_staged_edits() -> str:
 
 @tool(DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME)
 def diff_staged_edit_against_baseline(relative_path: str) -> str:
-    """Unified diff of workspace baseline vs staged draft (git-style line compare).
+    """Unified diff: workspace baseline at stage time vs current staged `merged_text` (git-style).
 
-    Baseline is the workspace snapshot captured when staging started (`old_text`); the draft is current
-    staged merged content (`merged_text`). For new files the baseline is empty. Call once per pending
-    path after `list_staged_edits` before relying on full-file reads."""
+    When: mechanical review of what changed for one pending path; prefer before bulk `read_staged_edit`.
+    Not: on-disk vs disk (use workspace diff elsewhere); full draft text (use `read_staged_edit` if diff truncated or need context).
+    Shape: `relative_path` workspace-relative POSIX; new-file baseline is empty. Empty diff means baseline equals draft—re-read staged content or diagnostics."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -424,10 +483,11 @@ def read_staged_edit(
     end_line: int = 220,
     include_line_numbers: bool = True,
 ) -> str:
-    """Read staged merged content for a workspace-relative path.
+    """Read a **window** of the pending staged merged draft for one path (temp file, not on-disk workspace).
 
-    `start_line`/`end_line` are 1-based inclusive over the staged text. Set `include_line_numbers=false`
-    when you need the exact staged text without the gutter."""
+    When: inspect or copy exact staged text; revise after review; anchor line edits on the draft.
+    Not: on-disk checkpoint (use `read_workspace_file` after transfer or when no staging entry).
+    Shape: `relative_path` workspace-relative POSIX; must exist in `list_staged_edits`. `start_line`/`end_line` **1-based inclusive** over staged logical lines; window capped like `read_workspace_file`. Encoding is the staging entry’s disk encoding (no separate `encoding` arg). Gutter `n │ text` (U+2502) when `include_line_numbers` true—use false for raw lines (e.g. snippet match)."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -463,7 +523,11 @@ def read_staged_edit(
 
 @tool(SEARCH_STAGED_EDITS_NAME)
 def search_staged_edits(query: str, relative_path: str = '', max_matches: int = 20) -> str:
-    """Search staged files with a regex pattern and return matching lines from staging only."""
+    """Grep **pending staging drafts** only (regex; tries ripgrep-style path then Python fallback).
+
+    When: pattern across staged files or one staged file (`relative_path` set).
+    Not: on-disk workspace (use `search_workspace`); discovery without staging (use `retrieve_workspace_semantic`).
+    Shape: optional `relative_path` filters to that staged path; `max_matches` bounded."""
 
     sid = current_session_id.get()
     blocked = mutation_tools_blocked_reason(sid)
@@ -498,10 +562,11 @@ def search_staged_edits(query: str, relative_path: str = '', max_matches: int = 
 
 @tool(FORMAT_STAGING_FILE_BLACK_NAME)
 def format_staging_file_black(relative_path: str) -> str:
-    """Run Black on the staged file for this path (Python only). Updates staged content on disk.
+    """Run Black on the **staged** `.py` draft in place (updates merged staging content).
 
-    Prefer this when LSP or **Post-edit checks** flag indentation or tab/space issues on a staged `.py` draft, then
-    call `lsp_get_diagnostics` with `refresh_active_document=true` to verify."""
+    When: staged Python draft has style/indent issues per diagnostics.
+    Not: arbitrary extensions (`.py` only); formatting workspace disk directly (transfer first or use workspace tools).
+    Shape: `relative_path` workspace-relative POSIX; then `lsp_get_diagnostics` with `refresh_active_document=true` or `read_staged_edit` to verify."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -527,6 +592,53 @@ def format_staging_file_black(relative_path: str) -> str:
     )
 
 
+@tool(FORMAT_STAGING_FILE_PRETTIER_NAME)
+def format_staging_file_prettier(relative_path: str) -> str:
+    """Run Prettier on the **staged** draft in place (updates merged staging content).
+
+    When: staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` draft has style issues per diagnostics.
+    Not: other extensions; formatting workspace disk directly (transfer first or use workspace tools).
+    Shape: `relative_path` workspace-relative POSIX; then `lsp_get_diagnostics` with `refresh_active_document=true`
+    (for TS/JS) or `read_staged_edit` to verify."""
+
+    got = _get_staging_entry(relative_path)
+    if isinstance(got, str):
+        return got
+    session, rel_key = got
+    if not is_prettier_managed_path(rel_key):
+        return (
+            'Tool error: Prettier applies only to staged `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.html`, '
+            '`.htm`, `.css` files.'
+        )
+    try:
+        workspace_root = get_active_workspace_root()
+    except ValueError as exc:
+        return f'Tool error: {exc}'
+    entry = session.pending_edit_stagings[rel_key]
+    path = Path(entry.temp_path)
+    nl: DiskNewline = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
+    ok, detail = edit_staging.run_prettier_on_file(
+        path,
+        workspace_root=workspace_root,
+        relative_posix=rel_key,
+        encoding=entry.disk_encoding,
+        disk_newline=nl,
+    )
+    if not ok:
+        logger.warning('format_staging_file_prettier failed path=%s detail=%s', rel_key, detail)
+        return f'Prettier did not change the file (or failed): {detail}'
+    try:
+        entry.merged_text = edit_staging.read_staging_text(path, entry.disk_encoding)
+    except OSError as exc:
+        return f'Tool error: could not read staging after Prettier ({exc}).'
+    logger.info('format_staging_file_prettier ok path=%s', rel_key)
+    return (
+        f'Prettier formatted staged `{rel_key}`. For `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, call '
+        '`lsp_get_diagnostics` with `refresh_active_document=true` to verify; use `read_staged_edit` before transferring '
+        '(also useful for `.html`/`.htm`/`.css`).'
+    )
+
+
 def _overlay_combined_output(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
     stdout = ''.join(stdout_chunks)
     stderr = ''.join(stderr_chunks)
@@ -537,14 +649,11 @@ def _overlay_combined_output(stdout_chunks: list[str], stderr_chunks: list[str])
 
 @tool(RUN_STAGING_OVERLAY_COMMAND_NAME)
 async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str = '') -> str:
-    """Run a subprocess in an **ephemeral overlay** of the workspace with **pending staged** drafts applied.
+    """Run `command_argv_json` (JSON argv array, no shell) in an ephemeral overlay: workspace + pending staged drafts.
 
-    Requires **Allow staging overlay commands** in Settings → Tools. Pass ``command_argv_json`` as a JSON array of
-    strings (argv for ``exec``, no shell), e.g. ``["npm","test"]`` or ``["python","-m","pytest","tests","-v"]``.
-    Optional ``cwd_relative`` is a path under the overlay root (e.g. ``python`` or ``src/renderer``). Heavy dirs such
-    as ``node_modules`` / ``.venv`` are linked from the real workspace when present. The real workspace files are not
-    modified. You must still call ``transfer_staged_file_to_workspace`` or ``reject_staged_workspace_edit`` to finish review.
-    """
+    When: pytest/npm tests against drafts without writing real workspace (requires Settings → Allow staging overlay commands).
+    Not: substitute for `transfer_staged_file_to_workspace`; real workspace unchanged until transfer/reject flow.
+    Shape: `cwd_relative` optional under overlay root. Heavy dirs linked from workspace. Still finish review with transfer/reject."""
 
     if not getattr(runtime_config.tools, 'allow_staging_overlay_commands', False):
         return (
@@ -742,24 +851,24 @@ def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[d
     return payload, None
 
 
-@tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
-def transfer_staged_file_to_workspace(relative_path: str) -> str:
-    """PASS / approve this staged draft for the current step.
-
-    Call when the staged file correctly satisfies the task step and needs no further code changes from the
-    file-write specialist. When **auto-apply** is off, the real workspace is updated only after the human
-    confirms the transfer in chat (or returns it for re-review). When auto-apply is on, this writes immediately.
-
-    Do not call this if you still want the writer to change the code—use `reject_staged_workspace_edit` instead.
-    """
-
-    got = _get_staging_entry(relative_path)
-    if isinstance(got, str):
-        return got
-    session, rel_key = got
+def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str:
+    """Apply the same path as :func:`transfer_staged_file_to_workspace` after a staging entry is present (tool or inline)."""
+    rel_key = rel_key.strip().replace('\\', '/')
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    blocked = mutation_tools_blocked_reason(sid)
+    if blocked:
+        return blocked
     entry = session.pending_edit_stagings.get(rel_key)
     if not entry:
         return f'Tool error: no staged edit for `{rel_key}`.'
+    if _entry_workspace_applied(entry):
+        return (
+            f'Tool error: staged `{rel_key}` is already approved in the workspace for this chain. '
+            'It is no longer pending review. For follow-up edits, read the live file with `read_workspace_file` and '
+            'then stage the next revision with `stage_workspace_file_overwrite` or `lsp_update_python_file`.'
+        )
 
     if not session.auto_apply_mode:
         if rel_key in session.test_run_materializations:
@@ -768,7 +877,7 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
                 return f'Tool error: {err}'
             session.pending_diff_payload = payload
             session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path=rel_key)
-            logger.info('transfer_staged_file_to_workspace awaiting hitl (test_run) path=%s', rel_key)
+            logger.info('run_staged_transfer_to_workspace awaiting hitl (test_run) path=%s', rel_key)
             return (
                 f'Staged `{rel_key}` is already on disk from the reviewer test run; **human confirmation** is '
                 'required before this chain treats it as approved. A diff card will appear in chat—approve the '
@@ -780,7 +889,7 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
             return f'Tool error: {err}'
         session.pending_diff_payload = payload
         session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path=rel_key)
-        logger.info('transfer_staged_file_to_workspace awaiting hitl path=%s', rel_key)
+        logger.info('run_staged_transfer_to_workspace awaiting hitl path=%s', rel_key)
         return (
             f'Staged `{rel_key}` is ready to land in the real workspace; **human confirmation** is required. '
             'A diff card will appear in chat—approve the transfer to write the workspace, or return for re-review '
@@ -807,49 +916,40 @@ def transfer_staged_file_to_workspace(relative_path: str) -> str:
             return f'Tool error: could not write staged file `{rel_key}` into the workspace ({exc}).'
         except Exception as exc:
             return f'Tool error: could not encode staged file `{rel_key}` for the workspace ({exc}).'
-        lsp_note = ''
-        if is_lsp_managed_path(rel_key):
-            try:
-                diagnostics = sync_session_document(
-                    rel_key,
-                    str(entry.merged_text),
-                    session_id=current_session_id.get(),
-                    scope='workspace',
-                )
-                ls_label = lsp_server_for_path(rel_key) or 'lsp'
-                lsp_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
-            except Exception as exc:
-                logger.warning('workspace LSP sync failed after staged transfer path=%s err=%s', rel_key, exc)
-                ls_label = lsp_server_for_path(rel_key) or 'lsp'
-                lsp_note = f' {ls_label} LSP sync failed: {exc}.'
-        out = f'Approved staged `{rel_key}` into the real workspace.{lsp_note}'
+        out = f'Approved staged `{rel_key}` into the real workspace.'
     entry.old_text = str(entry.merged_text)
     entry.workspace_applied = True
-    logger.info('transfer_staged_file_to_workspace path=%s', rel_key)
+    lsp_section = _post_transfer_lsp_section(session, session_id=current_session_id.get())
+    logger.info('run_staged_transfer_to_workspace path=%s', rel_key)
     return (
         f'Transferred staged `{rel_key}` to the real workspace and kept the staged draft for the current chain. '
-        f'{out} Stop this review turn after calling this tool.'
+        f'{out}{lsp_section} Stop this review turn after calling this tool.'
     )
 
 
-@tool(APPROVE_STAGED_WORKSPACE_EDIT_NAME)
-def approve_staged_workspace_edit(relative_path: str) -> str:
-    """Same as `transfer_staged_file_to_workspace`: PASS / approve the staged draft into the workspace."""
+@tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
+def transfer_staged_file_to_workspace(relative_path: str) -> str:
+    """Approve landing staged draft: writes workspace (or queues HITL diff when auto-apply off).
 
-    return transfer_staged_file_to_workspace.invoke({'relative_path': relative_path})
+    When: draft is correct and should become the on-disk checkpoint for this path.
+    Not: request writer changes (use `reject_staged_workspace_edit` with feedback); reading only (use `read_staged_edit`).
+    Shape: `relative_path` workspace-relative POSIX. After approval, follow-up reads use `read_workspace_file` / LSP on disk.
+    Workspace LSP refresh runs **once** after every staged path in this chain is transferred (not after each file)."""
+
+    got = _get_staging_entry(relative_path)
+    if isinstance(got, str):
+        return got
+    session, rel_key = got
+    return run_staged_transfer_to_workspace(session, rel_key)
 
 
 @tool(REJECT_STAGED_WORKSPACE_EDIT_NAME)
 def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
-    """FAIL / needs revision: block this draft and send the writer concrete fix instructions.
+    """Fail review: block transfer and return concrete `feedback` so the writer can revise the staged draft.
 
-    Use ONLY when the staged code is wrong, incomplete, unsafe, or does not meet the step—so the file-write
-    specialist must produce a new staged version. The `feedback` must describe what is wrong and what to change.
-
-    Do NOT use this tool to summarize successful work, to say changes were applied as requested, or to ask for
-    a human "final approval"—those describe a PASS. For a passing draft call `transfer_staged_file_to_workspace`
-    instead.
-    """
+    When: staged content is wrong, incomplete, or unsafe—needs another staging iteration.
+    Not: pass / ship (use `transfer_staged_file_to_workspace`); generic praise without revision request.
+    Shape: `relative_path` workspace-relative POSIX; `feedback` must say what to fix."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -873,6 +973,7 @@ def code_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
         search_staged_edits,
         lsp_get_diagnostics,
         format_staging_file_black,
+        format_staging_file_prettier,
         run_staging_overlay_command,
         transfer_staged_file_to_workspace,
         reject_staged_workspace_edit,

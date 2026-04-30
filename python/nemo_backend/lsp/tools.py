@@ -195,8 +195,9 @@ def lsp_get_diagnostics(relative_path: str = '', refresh_active_document: bool =
 
     Set ``refresh_active_document=true`` to re-sync before reporting diagnostics: in **workspace** scope this reads the
     on-disk file; in **staging** scope it uses the staged draft text when one exists for the path, otherwise disk.
-    After `format_staging_file_black` on a staged `.py` path, call with ``refresh_active_document=true`` on that path
-    to verify indentation-related diagnostics are gone."""
+    After `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` on a staged
+    `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with ``refresh_active_document=true`` on that path
+    (LSP applies to Python and TS/JS) to verify indentation-related diagnostics are gone where the server supports it."""
 
     enc = validate_workspace_encoding((encoding or '').strip() or 'utf-8')
     rel = normalize_relative_posix_path(relative_path)
@@ -332,10 +333,11 @@ def lsp_create_python_file(
     new_content: str,
     encoding: str = '',
     newline: str = '',
+    land_in_workspace: bool = False,
 ) -> str:
     """Use for new `.py` files or whole-file Python rewrites; routes through staging and code review like `stage_create_file`.
 
-    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file."""
+    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. See `stage_create_file` for `land_in_workspace`."""
 
     return _run_lsp_python_staging_tool(
         stage_create_file,
@@ -344,6 +346,7 @@ def lsp_create_python_file(
             'new_content': new_content,
             'encoding': encoding,
             'newline': newline,
+            'land_in_workspace': land_in_workspace,
         },
         relative_path=relative_path,
     )
@@ -355,10 +358,11 @@ def lsp_update_python_file(
     new_content: str,
     encoding: str = '',
     newline: str = '',
+    land_in_workspace: bool = False,
 ) -> str:
     """Use when the Python file already exists (or has a pending staged draft); supply the full updated file text.
 
-    Overwrites through the staged LSP-aware mutation path (code review before workspace update)."""
+    Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
 
     return _run_lsp_python_staging_tool(
         stage_workspace_file_overwrite,
@@ -367,6 +371,7 @@ def lsp_update_python_file(
             'new_content': new_content,
             'encoding': encoding,
             'newline': newline,
+            'land_in_workspace': land_in_workspace,
         },
         relative_path=relative_path,
     )

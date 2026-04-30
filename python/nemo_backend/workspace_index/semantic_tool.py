@@ -34,17 +34,15 @@ def _hit_score(nws: object) -> float:
 def _header_for_scope(scope: Literal['full', 'checkpoint']) -> list[str]:
     if scope == 'checkpoint':
         return [
-            'Retrieved chunks (**on-disk workspace / checkpoint index only**; staging drafts are not included). '
-            'Verify paths with `read_workspace_file`, LSP, or `search_workspace`:',
+            'Chunks: on-disk workspace / checkpoint index only (no staging).',
+            '1. Treat as hints; verify with `read_workspace_file`, LSP, or `search_workspace`.',
             '',
         ]
     return [
-        'Retrieved chunks (**workspace checkpoint** + optional **`[staging]`** draft index). '
-        'Treat hits as hints—verify by **origin**:',
-        '- **origin=workspace** (default): confirm with `read_workspace_file`, LSP, or `search_workspace` (on-disk text).',
-        '- **origin=staging**: confirm with `read_staged_edit` or `diff_staged_edit_against_baseline` (draft text). '
-        '`read_workspace_file` is the **checkpoint** only; it does **not** show pending drafts until '
-        '`transfer_staged_file_to_workspace` succeeds.',
+        'Chunks: workspace checkpoint + optional staging index.',
+        '1. Treat as hints; check each hit `origin`.',
+        '2. origin=workspace → verify with `read_workspace_file`, LSP, or `search_workspace` (disk).',
+        '3. origin=staging → verify with `read_staged_edit` or `diff_staged_edit_against_baseline` (disk `read_workspace_file` is checkpoint until `transfer_staged_file_to_workspace`).',
         '',
     ]
 
@@ -132,29 +130,19 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
 
 @tool(RETRIEVE_WORKSPACE_SEMANTIC_NAME)
 def retrieve_workspace_semantic(query: str, top_k: int = 8) -> str:
-    """Semantic search over indexed workspace files and nested-edit staging (code, text, PDFs).
+    """Topical semantic retrieval over indexed workspace + nested staging (chunks, not full files).
 
-    Strong choice for **broad discovery** when target paths are unknown; treat hits as hints and verify by **origin**.
-    When a hit is an **LSP-supported** source path (``.py``, ``.ts``, ``.tsx``, ``.js``, ``.jsx``, ``.mjs``, ``.cjs``),
-    follow up with LSP tools on that path (e.g. ``lsp_get_document_symbols``) before relying only on chunks or full reads.
-    Narrow with ``search_workspace`` / ``read_workspace_file`` / LSP for **workspace** hits, or ``read_staged_edit`` /
-    diff tools for **staging** hits (see tool output header).
-
-    The index is stored under the app data directory (not inside the workspace). It refreshes incrementally from the
-    Electron file watcher when embeddings are available; otherwise updates apply on the next call. If the server has no
-    embedding model, the tool returns guidance instead of failing silently.
-    """
+    When: unknown targets or repo-wide “where is X?”; broad discovery before precise reads.
+    Not: exact string search (use `search_workspace` disk or `search_staged_edits` drafts); literal file text (use `read_workspace_file` / `read_staged_edit` after picking a path).
+    Shape: natural-language `query`; `top_k` capped (default 8). Verify every hit by `origin` (see output header). LSP-backed paths (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): prefer LSP on that path before trusting chunks alone. Index lives outside workspace; refreshes from watcher/embeddings when available—otherwise returns guidance if embeddings missing."""
     return _retrieve_semantic_impl(query, top_k, include_nested_staging=True)
 
 
 @tool(RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME)
 def retrieve_workspace_checkpoint_semantic(query: str, top_k: int = 8) -> str:
-    """Semantic search over the **on-disk workspace** index only (no nested staging drafts).
+    """Semantic retrieval over **on-disk workspace index only** (staging drafts excluded).
 
-    Use in **workspace recon** phases where the checkpoint is authoritative. For drafts after staging, use
-    ``read_staged_edit`` or the full ``retrieve_workspace_semantic`` on graphs that include staging in recall.
-
-    Strong for **unknown** targets; for **LSP-supported** candidate paths, prefer LSP tools on those files before
-    treating chunks as sufficient. Results are hints only—verify with ``read_workspace_file``, LSP, or ``search_workspace``.
-    """
+    When: nested recon / checkpoint-authoritative phase; same discovery as full semantic but disk plane only.
+    Not: staging recall (use `retrieve_workspace_semantic` or `read_staged_edit`); exact grep (use `search_workspace`).
+    Shape: same as `retrieve_workspace_semantic`; verify hits with `read_workspace_file`, LSP, or `search_workspace` (see output header)."""
     return _retrieve_semantic_impl(query, top_k, include_nested_staging=False)

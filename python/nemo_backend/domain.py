@@ -187,6 +187,8 @@ class RuntimeConnection:
     embeddings_base_url: str = ''
     #: False when the llama.cpp preset has no embedding server (empty ``llamaCppManaged.embeddingRunCommand``); skips semantic index.
     embeddings_enabled: bool = True
+    #: OpenAI-compatible embeddings model id (Settings → LM Studio); empty uses env default.
+    embeddings_model: str = ''
     #: Optional ``min_p`` (0–1); locals often read it from chat completion ``extra_body``.
     min_p: float | None = None
     #: Optional OpenAI ``presence_penalty`` (-2–2) when set.

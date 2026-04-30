@@ -60,6 +60,7 @@ function connectionToRuntimeWire(
     repeatPenalty: c.repeatPenalty ?? null,
     architectureHint: c.architectureHint,
     embeddingsBaseUrl,
+    embeddingsModel: (c.embeddingsModel ?? '').trim(),
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
   };
 }

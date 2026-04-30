@@ -15,7 +15,10 @@ import type {
   LlamaServerProcessExitEvent,
   LlamaServerStartResult,
   LlamaServerStatusResult,
+  LlamacppManagedListModelsResult,
   LlmStatus,
+  LmStudioListModelsResult,
+  LmStudioMutationResult,
   PlannerProgress,
   TtsStreamPacket,
   Workspace,
@@ -57,6 +60,13 @@ declare global {
       ) => void,
     ) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
+    onMessageTokenUsage?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        usage: { inputTokens: number; outputTokens?: number; totalTokens?: number },
+      ) => void,
+    ) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
     onMessageHarnessCrystal?: (
       callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
@@ -102,7 +112,12 @@ declare global {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
-    loadConversation: (id: string, workspaceId?: string | null) => Promise<Conversation>;
+    readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;
+    loadConversation: (
+      id: string,
+      workspaceId?: string | null,
+      options?: { skipPythonResync?: boolean },
+    ) => Promise<Conversation>;
     saveConversation: (conv: Conversation) => Promise<void>;
     deleteConversation: (id: string, workspaceId?: string | null) => Promise<void>;
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
@@ -120,6 +135,21 @@ declare global {
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
+    llamacppManagedListModels: (payload: {
+      modelId: string;
+      config: AppConfig;
+    }) => Promise<LlamacppManagedListModelsResult>;
+    llamacppOpenAiListModels: (payload: {
+      baseUrl: string;
+      apiKey: string;
+    }) => Promise<LlamacppManagedListModelsResult>;
+    lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
+    lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
+    lmStudioUnloadModel: (payload: {
+      baseUrl: string;
+      instanceId: string;
+      apiKey?: string;
+    }) => Promise<LmStudioMutationResult>;
     getWorkspaces: () => Promise<Workspace[]>;
     addWorkspace: (name: string, path: string) => Promise<Workspace>;
     removeWorkspace: (id: string) => Promise<void>;

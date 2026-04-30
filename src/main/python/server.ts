@@ -3,7 +3,13 @@ import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
-import { getCheckpointDbPath, getLogsDir, getWorkspaceSemanticIndexDir, getWorkspaceStagingDir } from '../paths';
+import {
+  getCheckpointDbPath,
+  getLogsDir,
+  getPythonServerScriptPath,
+  getWorkspaceSemanticIndexDir,
+  getWorkspaceStagingDir,
+} from '../paths';
 import { ingestElectronLog } from '../log-ingest';
 
 export { PYTHON_URL, PYTHON_PORT };
@@ -13,8 +19,7 @@ export { PYTHON_URL, PYTHON_PORT };
  */
 export function startPythonServer(): void {
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-  // Compiled to dist/main/python/*.js — repo root is three levels up.
-  const scriptPath = path.join(__dirname, '..', '..', '..', 'python', 'server.py');
+  const scriptPath = getPythonServerScriptPath();
   const logDir = getLogsDir();
   const stagingDir = getWorkspaceStagingDir();
   const checkpointDb = getCheckpointDbPath();

@@ -3,6 +3,7 @@ import path = require('path');
 import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { buildMenu } from '../menu/application-menu';
+import { resolveAppIconPath } from '../utils/app-icon';
 
 /** Preload bundle lives next to main output: `dist/preload/preload.js`. */
 function preloadPath(): string {
@@ -18,10 +19,13 @@ function rendererIndexHtml(): string {
  * Creates the primary BrowserWindow (dev server URL or static Angular build).
  */
 export function createMainWindow(): void {
+  const icon = resolveAppIconPath();
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
     frame: false,
+    title: 'Clara Coder',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

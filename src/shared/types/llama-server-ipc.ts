@@ -9,9 +9,14 @@ export interface LlamaServerStatusPayload {
   modelId: string;
   chat: { port: number; health: ManagedServerHealthState; lastLog?: string };
   embed?: { port: number; health: ManagedServerHealthState; lastLog?: string };
+  /** Set when the preset has no Start command: ``baseUrl`` in settings is probed; no local Stop. */
+  remote?: boolean;
 }
 
 export type LlamaServerStatusResult = LlamaServerStatusPayload | { ok: false; error: string };
+
+/** ``GET /v1/models`` against a running managed chat ``llama-server`` (main process only). */
+export type LlamacppManagedListModelsResult = { ok: true; models: string[] } | { ok: false; error: string };
 
 /** Which managed ``llama-server`` process a stream belongs to (chat vs embedding). */
 export type LlamaServerStreamKind = 'chat' | 'embed';

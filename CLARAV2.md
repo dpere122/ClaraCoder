@@ -12,16 +12,18 @@ Same as the abstract above: v2 is a deliberate **rewrite** of the agent harness 
 
 ## 2. Current product — what it is
 
-| Layer | Technology | Role |
-|--------|------------|------|
-| Desktop shell | **Electron** 41 (`package.json`) | Main process: IPC, window, spawns Python, manages `llama-server` child processes |
-| UI | **Angular** 21 (`src/renderer/package.json`) | Chat, settings, workspace terminal (xterm), visualization |
-| Backend | **Python 3** + **FastAPI** + **uvicorn** (`python/nemo_backend/main.py`) | Chat SSE, sessions, runtime config, audio, LSP routes, checkpoints |
-| Agent | **LangGraph** + **LangChain** `create_agent`, SQLite checkpointer (`python/requirements.txt`) | Streaming tool agent, nested coding flows |
-| Embeddings / RAG index | **LlamaIndex** + OpenAI-compatible embedding client (`python/nemo_backend/workspace_index/`) | Workspace semantic index under `.nemo/llama_index` |
-| Local LLM | **`llama-server`** (llama.cpp) spawned from TS (`src/main/llama-server-manager.ts`) | Dynamic ports; chat + optional second process for embeddings |
-| Other LLM APIs | **OpenAI** + **LM Studio** (OpenAI-compatible URLs) (`src/shared/types/app-config.ts`, `python/nemo_backend/llm.py`) | Configurable providers alongside `llamacpp` |
-| Terminal | **node-pty** | PTY in Electron main |
+
+| Layer                  | Technology                                                                                                           | Role                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Desktop shell          | **Electron** 41 (`package.json`)                                                                                     | Main process: IPC, window, spawns Python, manages `llama-server` child processes |
+| UI                     | **Angular** 21 (`src/renderer/package.json`)                                                                         | Chat, settings, workspace terminal (xterm), visualization                        |
+| Backend                | **Python 3** + **FastAPI** + **uvicorn** (`python/nemo_backend/main.py`)                                             | Chat SSE, sessions, runtime config, audio, LSP routes, checkpoints               |
+| Agent                  | **LangGraph** + **LangChain** `create_agent`, SQLite checkpointer (`python/requirements.txt`)                        | Streaming tool agent, nested coding flows                                        |
+| Embeddings / RAG index | **LlamaIndex** + OpenAI-compatible embedding client (`python/nemo_backend/workspace_index/`)                         | Workspace semantic index under `.nemo/llama_index`                               |
+| Local LLM              | `**llama-server`** (llama.cpp) spawned from TS (`src/main/llama-server-manager.ts`)                                  | Dynamic ports; chat + optional second process for embeddings                     |
+| Other LLM APIs         | **OpenAI** + **LM Studio** (OpenAI-compatible URLs) (`src/shared/types/app-config.ts`, `python/nemo_backend/llm.py`) | Configurable providers alongside `llamacpp`                                      |
+| Terminal               | **node-pty**                                                                                                         | PTY in Electron main                                                             |
+
 
 Product naming: renderer `package.json` sets `productName: "Clara AI"`; Python README titles the service “Nemo LangChain Backend.”
 
@@ -89,6 +91,8 @@ flowchart LR
   PySync --> Routes
   Angular -->|SSE HTTP| Routes
 ```
+
+
 
 **Routers mounted** in `python/nemo_backend/main.py`: runtime, session, chat, audio, LSP, logs, checkpoint.
 
@@ -203,6 +207,8 @@ stateDiagram-v2
   Finalize --> [*]
 ```
 
+
+
 This replaces the current **multi-graph + nested worker + planner probe** model with something you can **draw on one screen** and test exhaustively.
 
 **Implemented MVP:** `clara-v2/python/clara_backend/harness/graph.py` — LangGraph with ingest → model → tools → finalize; read-only tools in `tools_readonly.py`; abort via `POST /chat/abort` and `asyncio.Event` per session.
@@ -228,13 +234,15 @@ Future: `index/` for LlamaIndex when needed.
 
 ## 13. What to reuse vs rewrite
 
-| Asset | Reuse idea |
-|--------|------------|
-| SSE event shapes / stream parsing concepts | Specify v2 contract; optionally keep similar UX |
-| Workspace safety patterns (path traversal, limits) | Port **ideas**, not every function |
-| Embeddings chunking lessons (`python/nemo_backend/config.py`) | Port constants after measuring v2 tokenizer behavior |
-| `llama-server` spawn + port picking | **Rewrite in Rust** (clearer than TS for Tauri) — see `clara-v2/src-tauri/src/llama_manager.rs` |
-| Angular / Electron IPC | **Replace** with Tauri commands + events |
+
+| Asset                                                         | Reuse idea                                                                                      |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| SSE event shapes / stream parsing concepts                    | Specify v2 contract; optionally keep similar UX                                                 |
+| Workspace safety patterns (path traversal, limits)            | Port **ideas**, not every function                                                              |
+| Embeddings chunking lessons (`python/nemo_backend/config.py`) | Port constants after measuring v2 tokenizer behavior                                            |
+| `llama-server` spawn + port picking                           | **Rewrite in Rust** (clearer than TS for Tauri) — see `clara-v2/src-tauri/src/llama_manager.rs` |
+| Angular / Electron IPC                                        | **Replace** with Tauri commands + events                                                        |
+
 
 ---
 
@@ -257,9 +265,9 @@ Future: `index/` for LlamaIndex when needed.
 
 ## 16. Deliverable checklist for the repo
 
-- [x] Create `CLARAV2.md` at repository root with this full document.
-- [x] Spike: `clara-v2/` — Tauri 2, Rust `llama-server` manager (port pick + optional spawn), FastAPI SSE chat + LangGraph harness.
-- [x] Contracts: `clara-v2/contracts/openapi.yaml`, `ipc-v1.ts`, `ipc_v1.rs`.
-- [x] Phase A agent: read-only tools + `POST /chat/abort`.
+- Create `CLARAV2.md` at repository root with this full document.
+- Spike: `clara-v2/` — Tauri 2, Rust `llama-server` manager (port pick + optional spawn), FastAPI SSE chat + LangGraph harness.
+- Contracts: `clara-v2/contracts/openapi.yaml`, `ipc-v1.ts`, `ipc_v1.rs`.
+- Phase A agent: read-only tools + `POST /chat/abort`.
+- Optionally split “Analysis” vs “v2 Spec” into two files later—only if the team asks.
 
-- [ ] Optionally split “Analysis” vs “v2 Spec” into two files later—only if the team asks.

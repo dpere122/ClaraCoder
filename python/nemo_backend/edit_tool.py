@@ -16,9 +16,14 @@ from langchain_core.tools import tool
 
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import EditStagingEntry, SessionState
-from nemo_backend.edit_staging import format_python_source_str
+from nemo_backend.edit_staging import format_python_source_str, format_source_via_prettier
 from nemo_backend.lsp.diagnostics import post_edit_checks_footer
-from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path, outer_workspace_edit_guard_error
+from nemo_backend.lsp.file_policy import (
+    is_lsp_managed_path,
+    is_prettier_managed_path,
+    lsp_server_for_path,
+    outer_workspace_edit_guard_error,
+)
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
@@ -41,7 +46,6 @@ __all__ = [
     'replace_workspace_snippet',
     'edit_tools_for_strict',
     'finalize_staged_edit',
-    'APPROVE_STAGED_WORKSPACE_EDIT_NAME',
 ]
 
 
@@ -116,11 +120,8 @@ def _finalize_workspace_edit(
     return ' '.join(summary_bits)
 
 
-APPROVE_STAGED_WORKSPACE_EDIT_NAME = 'approve_staged_workspace_edit'
-
-
 def finalize_staged_edit(session: SessionState, rel_display: str, entry: EditStagingEntry) -> str:
-    """Apply a staged merged file through the normal diff/auto-apply path (used by code review approve tool)."""
+    """Apply a staged merged file through the normal diff/auto-apply path (used by code review transfer flow)."""
     nl: DiskNewline = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
     return _finalize_workspace_edit(
         session,
@@ -261,8 +262,24 @@ def _run_edit_tool(
             formatter_lines.append('Formatter (Black): applied before diff/LSP.')
         else:
             formatter_lines.append(f'Formatter (Black): skipped ({err}).')
+    elif is_prettier_managed_path(rel_display):
+        ws_root = get_active_workspace_root()
+        fmt, err = format_source_via_prettier(
+            merged,
+            workspace_root=ws_root,
+            relative_posix=rel_display,
+            source_encoding=disk_enc or 'utf-8',
+        )
+        if fmt is not None:
+            merged = fmt
+            formatter_lines.append('Formatter (Prettier): applied before diff/LSP.')
+        else:
+            formatter_lines.append(f'Formatter (Prettier): skipped ({err}).')
     else:
-        formatter_lines.append('Formatter: (Black applies only to `.py` in workspace edit tools).')
+        formatter_lines.append(
+            'Formatter: no automatic formatter for this extension (Black: `.py`; Prettier: `.ts`, `.tsx`, `.js`, '
+            '`.jsx`, `.mjs`, `.cjs`, `.html`, `.htm`, `.css`).'
+        )
 
     out = _after_merge_workspace_edit(
         session, rel_display, old_text, merged, mode, disk_enc, disk_nl, formatter_lines=formatter_lines

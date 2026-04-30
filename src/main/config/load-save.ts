@@ -19,10 +19,14 @@ import {
   migrateLegacyLlamaCppManagedToCommands,
   type ShellQuotingPlatform,
 } from '../../shared';
+import { PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID } from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
+  APP_CONFIG_SCHEMA_VERSION,
   createDefaultConfig,
+  createPinnedLmStudioProvider,
+  createPinnedLlamaServerUrlProvider,
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
   getDefaultLlmProviders,
@@ -376,6 +380,57 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
   return migrated;
 }
 
+/** One model profile per source; keeps the active preset when collapsing. */
+function collapseExtraModelsPerProvider(providers: LlmProviderConfig[], activeModelId: string): boolean {
+  let migrated = false;
+  for (const p of providers) {
+    if (p.models.length <= 1) {
+      continue;
+    }
+    const picked = p.models.find((m) => m.id === activeModelId) ?? p.models[0];
+    if (!picked) {
+      continue;
+    }
+    p.models = [picked];
+    migrated = true;
+  }
+  return migrated;
+}
+
+/** Ensure one pinned LM Studio provider exists (stable id, ``lmstudio`` only). */
+function ensurePinnedLmStudioProvider(providers: LlmProviderConfig[]): boolean {
+  let migrated = false;
+  const pinnedIdx = providers.findIndex((p) => p.id === PINNED_LM_STUDIO_PROVIDER_ID);
+  if (pinnedIdx >= 0) {
+    const pinned = providers[pinnedIdx]!;
+    if (pinned.provider !== 'lmstudio') {
+      pinned.provider = 'lmstudio';
+      migrated = true;
+    }
+    return migrated;
+  }
+  const firstLmIdx = providers.findIndex((p) => p.provider === 'lmstudio');
+  if (firstLmIdx >= 0) {
+    providers[firstLmIdx]!.id = PINNED_LM_STUDIO_PROVIDER_ID;
+    return true;
+  }
+  const insertAt = providers.length > 0 && providers[0]!.provider === 'openai' ? 1 : 0;
+  providers.splice(insertAt, 0, createPinnedLmStudioProvider());
+  return true;
+}
+
+/** Ensure pinned remote ``llama-server`` URL source exists (next to LM Studio in the list). */
+function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boolean {
+  if (providers.some((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)) {
+    return false;
+  }
+  const lmIdx = providers.findIndex((p) => p.id === PINNED_LM_STUDIO_PROVIDER_ID);
+  const at = lmIdx >= 0 ? lmIdx + 1 : 1;
+  const insert = Math.min(at, providers.length);
+  providers.splice(insert, 0, createPinnedLlamaServerUrlProvider());
+  return true;
+}
+
 /**
  * Normalize older `config.json` shapes to the current schema; mutates a copy when needed.
  */
@@ -435,7 +490,24 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const rawSchema = (newConfig as { configSchemaVersion?: unknown }).configSchemaVersion;
+  const schemaVersion = typeof rawSchema === 'number' && Number.isFinite(rawSchema) ? rawSchema : 0;
+  if (schemaVersion < APP_CONFIG_SCHEMA_VERSION) {
+    newConfig.llmProviders = getDefaultLlmProviders();
+    newConfig.activeLlmModelId = newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai';
+    (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
+    migrated = true;
+  }
+
   if (normalizeLlmProvidersTree(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (ensurePinnedLmStudioProvider(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (ensurePinnedLlamaServerUrlProvider(newConfig.llmProviders)) {
     migrated = true;
   }
 
@@ -456,6 +528,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
 
   if (!findLlmModelLocation(newConfig.llmProviders, newConfig.activeLlmModelId)) {
     newConfig.activeLlmModelId = newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai';
+    migrated = true;
+  }
+
+  if (collapseExtraModelsPerProvider(newConfig.llmProviders, newConfig.activeLlmModelId)) {
     migrated = true;
   }
 
@@ -536,6 +612,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.allowStagingOverlayCommands = false;
       migrated = true;
     }
+  }
+
+  const lab = (newConfig as AppConfig & { lastActiveConversationByWorkspaceId?: unknown })
+    .lastActiveConversationByWorkspaceId;
+  if (!lab || typeof lab !== 'object' || Array.isArray(lab)) {
+    (newConfig as AppConfig).lastActiveConversationByWorkspaceId = {};
+    migrated = true;
   }
 
   const hm = (newConfig as AppConfig & { healthMonitor?: HealthMonitorConfig }).healthMonitor;

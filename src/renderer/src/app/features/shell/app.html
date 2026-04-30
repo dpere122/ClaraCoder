@@ -4,7 +4,7 @@
       <div class='window-chrome'>
         <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHelpMenu($event)'>Help</button>
-        <h1 class='title-glow chrome-title' (dblclick)='onWindowToggleMaximize()'>&gt; Clara AI_</h1>
+        <h1 class='title-glow chrome-title' (dblclick)='onWindowToggleMaximize()'>&gt; Clara Coder_</h1>
         <button type='button' class='chrome-win-btn' (click)='onWindowMinimize()' aria-label='Minimize'>&#8722;</button>
         <button type='button' class='chrome-win-btn' (click)='onWindowToggleMaximize()' [attr.aria-label]='windowMaximized() ? "Restore" : "Maximize"'>
           {{ windowMaximized() ? '⧉' : '▢' }}
@@ -12,7 +12,7 @@
         <button type='button' class='chrome-win-btn chrome-win-close' (click)='onWindowClose()' aria-label='Close'>×</button>
       </div>
     } @else {
-      <h1 class='title-glow title-glow--solo'>&gt; Clara AI_</h1>
+      <h1 class='title-glow title-glow--solo'>&gt; Clara Coder_</h1>
     }
     <app-tools-bar
       class='tools-bar-host'
@@ -90,7 +90,7 @@
         [maxTokens]='contextCapacity().maxTokens'
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
-        [modelName]='activeLlmConnection()?.model || "No active model"'
+        [modelName]='activeLlmModelDisplayName()'
         [modelPresetOptions]='llmModelPresetOptions()'
         [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'
         (activeLlmModelChange)='onActiveLlmModelChange($event)'

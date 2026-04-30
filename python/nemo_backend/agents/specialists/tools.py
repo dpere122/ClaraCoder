@@ -7,7 +7,11 @@ from typing import Any
 from langchain_core.tools import tool
 
 from nemo_backend.delete_tool import batch_delete_workspace_entries, delete_workspace_entry
-from nemo_backend.agents.specialists.review_tools import format_staging_file_black, read_staged_edit
+from nemo_backend.agents.specialists.review_tools import (
+    format_staging_file_black,
+    format_staging_file_prettier,
+    read_staged_edit,
+)
 from nemo_backend.lsp.tools import (
     PYTHON_LSP_READ_TOOLS,
     lsp_create_python_file,
@@ -113,6 +117,7 @@ def staging_author_tools(edit_tools_strict: bool) -> tuple[list[Any], dict[str, 
     t.extend(
         [
             format_staging_file_black,
+            format_staging_file_prettier,
             lsp_get_diagnostics,
         ]
     )

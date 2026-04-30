@@ -66,6 +66,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             architecture_hint=item.architectureHint,
             embeddings_base_url=(item.embeddingsBaseUrl or '').strip(),
             embeddings_enabled=bool(item.embeddingsEnabled),
+            embeddings_model=(item.embeddingsModel or '').strip(),
         )
         for item in request.connections
     ]

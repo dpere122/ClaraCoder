@@ -297,6 +297,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
         'new_content': 'value = 1\n',
         'encoding': '',
         'newline': '',
+        'land_in_workspace': False,
     }
     assert lsp_env.session.lsp_active_scope == 'staging'
 

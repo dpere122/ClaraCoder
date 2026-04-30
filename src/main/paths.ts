@@ -52,3 +52,13 @@ export function getCheckpointDbPath(): string {
 export function getWorkspaceSemanticIndexDir(): string {
   return path.join(getAppDataDir(), 'workspace-semantic-index');
 }
+
+/**
+ * FastAPI entry script: dev (next to repo `python/`) vs packaged (`extraResources/python/`).
+ */
+export function getPythonServerScriptPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'python', 'server.py');
+  }
+  return path.join(__dirname, '..', '..', 'python', 'server.py');
+}

@@ -94,6 +94,7 @@ def test_build_llm_llamacpp_defaults_base_url(
     kwargs = mock_ctor.call_args.kwargs
     assert kwargs.get('base_url') == 'http://127.0.0.1:8080/v1'
     assert kwargs.get('api_key') == 'not-needed'
+    assert kwargs.get('stream_usage') is True
 
 
 @patch('nemo_backend.llm.ChatOpenAI')

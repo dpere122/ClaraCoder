@@ -34,6 +34,12 @@ from nemo_backend.agents.specialists.review_tools import (
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
     code_review_specialist_tools,
 )
+from nemo_backend.staging_edit_tools import (
+    STAGE_CREATE_FILE_NAME,
+    STAGE_LINE_RANGE_EDIT_NAME,
+    STAGE_SNIPPET_EDIT_NAME,
+    STAGE_WORKSPACE_FILE_OVERWRITE_NAME,
+)
 from nemo_backend.agents.orchestration.router_probe_tools import workspace_path_status
 from nemo_backend.project_review_capture import nested_project_review_output_capture
 from nemo_backend.agents.specialists.tools import (
@@ -71,6 +77,16 @@ _CODE_REVIEW_TRANSFER_INCOMPLETE_PREFIX = (
 )
 
 
+_NESTED_STAGE_MOCK_TRANSFER_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        STAGE_CREATE_FILE_NAME,
+        STAGE_WORKSPACE_FILE_OVERWRITE_NAME,
+        STAGE_LINE_RANGE_EDIT_NAME,
+        STAGE_SNIPPET_EDIT_NAME,
+    }
+)
+
+
 def _code_review_needs_decision_followup(result: str) -> bool:
     lower = (result or '').lower()
     return lower.startswith(_CODE_REVIEW_DECISION_MISSING_PREFIX.lower()) or lower.startswith(
@@ -97,10 +113,10 @@ def _maybe_mark_workspace_applied_from_transfer_tool_message(
 ) -> None:
     """Keep ``pending_edit_stagings`` consistent when tests mock ``on_tool_end`` without running real transfer.
 
-    Real ``transfer_staged_file_to_workspace`` already sets ``workspace_applied`` on success. Skip HITL outputs so
-    we do not mark applied while the human still owes confirmation.
+    Real ``transfer_staged_file_to_workspace`` (or stage + ``land_in_workspace``) already set ``workspace_applied`` on
+    success. Skip HITL outputs so we do not mark applied while the human still owes confirmation.
     """
-    if tool_name != TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME:
+    if tool_name != TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME and tool_name not in _NESTED_STAGE_MOCK_TRANSFER_TOOL_NAMES:
         return
     text = (tool_result or '').strip()
     if text.lower().startswith('tool error:'):
@@ -165,7 +181,8 @@ def _build_code_review_instruction(session: SessionState, task_instruction: str)
     decision_hint = (
         '\n\nReviewer decision: `transfer_staged_file_to_workspace` = PASS (draft OK, apply to workspace). '
         '`reject_staged_workspace_edit` = FAIL (draft needs writer fixes—feedback must say what is wrong). '
-        'Do not reject when the draft already satisfies the step.'
+        'Do not reject when the draft already satisfies the step. '
+        'Do **not** instruct the user to apply or approve the diff—you must call the tools yourself.'
     )
     transfer_order = ''
     staged_paths = _pending_code_review_paths(session)
@@ -208,16 +225,6 @@ def _build_auto_code_review_followup_instruction(
         f'{summary}\n\n'
         'Complete the staged review now. If the review rejects the draft, keep the fix inside the same current '
         'step and continue through the nested revision loop until the staged file transfers or a real tool failure occurs.'
-    )
-
-
-def _looks_like_staged_code_review_result(result_text: str) -> bool:
-    lowered = result_text.lower()
-    return (
-        'for code review' in lowered
-        or 'for review' in lowered and 'unchanged' in lowered and 'transfer_staged_file_to_workspace' in lowered
-        or 'workspace file is not updated yet' in lowered
-        or 'updated staged draft' in lowered
     )
 
 
@@ -722,7 +729,6 @@ async def run_planning_nested_stream(
 
     with _suppress_parent_graph_model_token_sse(session):
         async def _run_mutation_specialist_with_auto_review(kind: str, task_instruction: str) -> str:
-            pending_before = set(session.pending_edit_stagings.keys())
             mutation_result = await run_specialist_agent_stream(
                 session, session_id, kind, task_instruction, nested_q, checkpointer
             )
@@ -730,11 +736,11 @@ async def run_planning_nested_stream(
             if lowered.startswith('aborted by user') or lowered.startswith('tool error:'):
                 return mutation_result
             pending_after = set(session.pending_edit_stagings.keys())
-            staged_now = pending_after - pending_before
             if not pending_after:
                 return mutation_result
-            if not staged_now and not _looks_like_staged_code_review_result(mutation_result):
-                return mutation_result
+            # Always chain code review when anything remains staged after a write. Do not key off
+            # "new" paths only: updating an existing staged draft keeps the same relative keys, so
+            # revision rounds must still run review and transfer.
             review_result = await route_code_review_specialist.ainvoke(
                 {
                     'task_instruction': _build_auto_code_review_followup_instruction(

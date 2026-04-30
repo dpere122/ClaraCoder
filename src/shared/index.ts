@@ -11,6 +11,7 @@ export type {
   LlamaServerStartResult,
   LlamaServerStatusPayload,
   LlamaServerStatusResult,
+  LlamacppManagedListModelsResult,
   LlamaServerStreamKind,
   ManagedServerHealthState,
 } from './types/llama-server-ipc';
@@ -57,6 +58,15 @@ export {
   QWEN_PRESET_DEFAULTS,
 } from './types/llm-presets';
 export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
+export {
+  PINNED_LM_STUDIO_PROVIDER_ID,
+  PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  isPinnedLmStudioProviderId,
+  isPinnedLlamaServerUrlProviderId,
+  isPinnedLlmSourceId,
+} from './llm-provider-ids';
+export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
+export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
 export {
   collapseExcessiveAssistantBlankLines,
   gemmaTemplateSanitizeActive,

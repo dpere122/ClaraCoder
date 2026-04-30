@@ -23,6 +23,7 @@ from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
     parse_newline_mode,
     read_file_for_tools,
+    read_file_line_window_for_tools,
     validate_workspace_encoding,
     write_file_to_disk,
 )
@@ -63,6 +64,54 @@ def _read_workspace_file_not_a_file_message(relative_path: str) -> str:
         f'Tool note: `{relative_path}` exists but is not a regular file. '
         'Use `list_workspace_directory` to inspect directories, or pick a file path.'
     )
+
+
+def _read_workspace_plain_text_header(
+    *,
+    rel_display: str,
+    encoding: str,
+    safe_start: int,
+    safe_end: int,
+    cap: int,
+    excerpt: list[str],
+    n_lines: int,
+    include_line_numbers: bool,
+) -> tuple[str, int, int]:
+    """Return (header block, shown_start, shown_end) for plain-text ``read_workspace_file``."""
+
+    if excerpt:
+        shown_start = safe_start
+        shown_end = safe_start + len(excerpt) - 1
+        lines_meta = f'Lines: {shown_start}-{shown_end} (of {n_lines} in file)'
+    else:
+        shown_start = safe_start
+        shown_end = safe_end
+        lines_meta = f'Lines: requested {safe_start}-{safe_end} (of {n_lines} in file)'
+
+    hints: list[str] = []
+    if excerpt and safe_start > 1:
+        hints.append(f'lines 1-{safe_start - 1} omitted above')
+    if excerpt and shown_end < n_lines:
+        hints.append(f'lines {shown_end + 1}-{n_lines} omitted below')
+    if safe_end == safe_start + cap - 1 and n_lines > safe_end:
+        hints.append('further lines omitted by max lines per tool call; narrow the range or call again with a higher start_line')
+
+    hint_block = ''
+    if hints:
+        hint_block = f'\n[Excerpt: {"; ".join(hints)}]'
+
+    if include_line_numbers:
+        header = (
+            f'File: {rel_display}\n'
+            f'Encoding: {encoding}\n'
+            f'{lines_meta}{hint_block}\n'
+            'Format: padded line number, then " │ ", then verbatim file text. '
+            'Everything after " │ " is from disk; leading spaces and tabs there are file indentation, not the gutter.\n\n'
+        )
+    else:
+        header = f'File: {rel_display}\nEncoding: {encoding}\n{lines_meta}{hint_block}\n\n'
+
+    return header, shown_start, shown_end
 
 
 def _format_read_excerpt_with_gutter(excerpt: list[str], line_start: int, line_end: int) -> str:
@@ -162,10 +211,11 @@ def write_workspace_file_utf8(relative_path: str, content: str) -> None:
 
 @tool
 def list_workspace_directory(relative_path: str = '.') -> str:
-    """List files and folders inside a workspace directory. Use relative paths like '.' or 'src/app'.
+    """List immediate children of one workspace directory (names only; dirs end with `/`).
 
-    Omits paths ignored by the workspace root `.gitignore` (simple subset, same as the tree snapshot) and built-in
-    skips (e.g. `node_modules`, `.git`). Use `read_workspace_file` with an explicit path if you need a gitignored file."""
+    When: need subtree layout after the system workspace tree is stale or too coarse.
+    Not: file contents (use `read_workspace_file`); line-level grep across the repo (use `search_workspace`).
+    Shape: `relative_path` workspace-relative POSIX (e.g. `.`, `src/app`); omits `.gitignore` subset and built-in skips (same as `search_workspace`). For gitignored paths, read that path directly with `read_workspace_file`."""
 
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
@@ -321,17 +371,14 @@ def read_workspace_file(
     include_line_numbers: bool = True,
     encoding: str = '',
 ) -> str:
-    """Use to fetch literal file or PDF text from the workspace when LSP tools are not enough.
+    """Read a **window** of literal on-disk workspace text or PDF extract (not staging, not semantic).
 
-    For plain text, ``encoding`` selects the on-disk codec (default from app Settings → Tools), e.g. utf-8, utf-8-sig,
-    utf-16, utf-16-le, utf-16-be, latin-1, cp1252, ascii, mac-roman. Invalid byte sequences are replaced (U+FFFD).
-    ``start_line`` and ``end_line`` are 1-based inclusive line numbers after newline normalization to ``\\n``.
-    For ``.pdf`` files, the same arguments are 1-based inclusive page numbers (``include_line_numbers`` and ``encoding`` are ignored).
-
-    Set ``include_line_numbers`` to false when you need the exact on-disk lines for staged snippet edits or legacy snippet replace tools
-    (old_snippet): when true, each line is ``<n> │ <text>`` (Unicode U+2502)—only ``<text>`` is file content
-    (including its leading spaces and tabs); do not include the gutter in ``old_snippet``.
-    """
+    When: need exact bytes-as-text for a known path; LSP insufficient for spans or non-LSP files.
+    Not: pending drafts (use `read_staged_edit` / diff tools); unknown locations (use `retrieve_workspace_semantic` then verify); line grep across repo (use `search_workspace`).
+    Shape: `relative_path` workspace-relative POSIX; `encoding` empty → Settings → Tools default; codec must pass `validate_workspace_encoding` (invalid bytes → U+FFFD).
+    Lines: plain text `start_line`/`end_line` are **1-based inclusive** after `\\n` normalization; output capped by `maxFileReadLines` (not EOF—widen range or call again; header shows total lines and excerpt hints).
+    PDF: same args are **1-based inclusive page numbers**; `include_line_numbers` and `encoding` ignored.
+    Gutter: if `include_line_numbers` true, lines are `n │ text` (U+2502)—only `text` is file content; use `include_line_numbers=false` for exact lines (e.g. `stage_snippet_edit` `old_snippet`)."""
 
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
@@ -352,33 +399,33 @@ def read_workspace_file(
     safe_start = max(1, start_line)
     cap = _effective_max_file_read_lines()
     safe_end = max(safe_start, min(end_line, safe_start + cap - 1))
-    text = read_file_for_tools(target, enc)
-    lines = text.splitlines()
-    excerpt = lines[safe_start - 1 : safe_end]
+    window = read_file_line_window_for_tools(target, enc, safe_start, safe_end)
+    excerpt = window.excerpt_lines
+    n_lines = window.n_lines
+    header, shown_start, shown_end = _read_workspace_plain_text_header(
+        rel_display=rel_display,
+        encoding=enc,
+        safe_start=safe_start,
+        safe_end=safe_end,
+        cap=cap,
+        excerpt=excerpt,
+        n_lines=n_lines,
+        include_line_numbers=include_line_numbers,
+    )
     if include_line_numbers:
-        body = _format_read_excerpt_with_gutter(excerpt, safe_start, safe_end)
-        header = (
-            f'File: {rel_display}\n'
-            f'Encoding: {enc}\n'
-            f'Lines: {safe_start}-{safe_end}\n'
-            'Format: padded line number, then " │ ", then verbatim file text. '
-            'Everything after " │ " is from disk; leading spaces and tabs there are file indentation, not the gutter.\n\n'
-        )
+        body = _format_read_excerpt_with_gutter(excerpt, shown_start, shown_end) if excerpt else ''
     else:
         body = '\n'.join(excerpt) if excerpt else ''
-        header = f'File: {rel_display}\nEncoding: {enc}\nLines: {safe_start}-{safe_end}\n\n'
     return header + (body if body else '[empty range]')
 
 
 @tool
 def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> str:
-    """Search text files in the workspace for a literal string or regex pattern and return matching lines.
+    """Grep the **on-disk workspace** for a literal or regex (case-insensitive), returning matching lines with path:line.
 
-    ``encoding`` applies to every file scanned in this call (default from Settings → Tools); mixed-encoding trees may need multiple searches.
-    Each hit is ``[path line N] │ …`` where text after `` │ `` is the full line (indentation preserved).
-
-    Skips paths ignored by the workspace root `.gitignore` (simple subset) and built-in heavy/binary paths
-    (same as `list_workspace_directory`). Use `read_workspace_file` on a known path if you must inspect a gitignored file."""
+    When: known needle or pattern across tracked-ish files; need line-precise disk hits.
+    Not: staging drafts (use `search_staged_edits`); fuzzy/topic discovery (use `retrieve_workspace_semantic` then verify).
+    Shape: `encoding` empty → Settings default; one encoding per call—mixed trees may need multiple calls. Hits `[path line N] │ full line` (indent preserved). Same ignore rules as `list_workspace_directory`; for gitignored files read with `read_workspace_file`."""
 
     root = get_active_workspace_root()
     root_resolved = root.resolve()

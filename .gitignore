@@ -1,5 +1,7 @@
 /node_modules
 /dist
+/release
+/release-pack-*
 package-lock.json
 __pycache__/
 *.pyc

@@ -31,6 +31,12 @@ export const THEMES: ThemeOption[] = [
     cssClass: 'theme-kawaii-bow',
     bsTheme: 'light',
   },
+  {
+    id: 'visual-studio',
+    label: 'Visual Studio',
+    cssClass: 'theme-visual-studio',
+    bsTheme: 'light',
+  },
 ];
 
 @Component({

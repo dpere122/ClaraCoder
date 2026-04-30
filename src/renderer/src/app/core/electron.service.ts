@@ -21,6 +21,9 @@ import type {
   LlamaServerProcessExitEvent,
   LlamaServerStartResult,
   LlamaServerStatusResult,
+  LlamacppManagedListModelsResult,
+  LmStudioListModelsResult,
+  LmStudioMutationResult,
   LlmStatus,
   PlannerProgress,
   TtsStreamPacket,
@@ -74,6 +77,14 @@ export interface HarnessCrystalMessage {
 export interface PlannerMessage {
   conversationId: string;
   planner: PlannerProgress;
+}
+
+/** OpenAI-compatible usage from the backend (LangChain ``usage_metadata`` / SDK ``usage``). */
+export interface LlmTokenUsageMessage {
+  conversationId: string;
+  inputTokens: number;
+  outputTokens?: number;
+  totalTokens?: number;
 }
 
 export interface DiffMessage {
@@ -135,6 +146,7 @@ export class ElectronService {
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
   private readonly plannerSubject = new Subject<PlannerMessage>();
+  private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
@@ -167,6 +179,8 @@ export class ElectronService {
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
   readonly planner$ = this.plannerSubject.asObservable();
+  /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
+  readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
@@ -223,6 +237,21 @@ export class ElectronService {
     );
     this.api?.onMessageDone((_event, conversationId) => {
       this.zone.run(() => this.doneSubject.next({ conversationId }));
+    });
+    this.api?.onMessageTokenUsage?.((_event, conversationId, usage) => {
+      const u = usage && typeof usage === 'object' ? usage : {};
+      const inputRaw = (u as { inputTokens?: unknown }).inputTokens;
+      const inputTokens = typeof inputRaw === 'number' && Number.isFinite(inputRaw) ? inputRaw : 0;
+      const outRaw = (u as { outputTokens?: unknown }).outputTokens;
+      const totRaw = (u as { totalTokens?: unknown }).totalTokens;
+      this.zone.run(() =>
+        this.llmTokenUsageSubject.next({
+          conversationId,
+          inputTokens,
+          ...(typeof outRaw === 'number' && Number.isFinite(outRaw) ? { outputTokens: outRaw } : {}),
+          ...(typeof totRaw === 'number' && Number.isFinite(totRaw) ? { totalTokens: totRaw } : {}),
+        }),
+      );
     });
     this.api?.onMessageStatus((_event, conversationId, status) => {
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
@@ -389,8 +418,16 @@ export class ElectronService {
     return this.api?.getConversations(workspaceId) ?? Promise.resolve([]);
   }
 
-  loadConversation(id: string, workspaceId?: string | null): Promise<Conversation> {
-    return this.api!.loadConversation(id, workspaceId);
+  readConversationFromDisk(id: string, workspaceId?: string | null): Promise<Conversation> {
+    return this.api!.readConversationFromDisk(id, workspaceId);
+  }
+
+  loadConversation(
+    id: string,
+    workspaceId?: string | null,
+    options?: { skipPythonResync?: boolean },
+  ): Promise<Conversation> {
+    return this.api!.loadConversation(id, workspaceId, options);
   }
 
   saveConversation(conv: Conversation): Promise<void> {
@@ -527,6 +564,37 @@ export class ElectronService {
 
   llamaServerStatus(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStatusResult> {
     return this.api?.llamaServerStatus(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  llamacppManagedListModels(payload: {
+    modelId: string;
+    config: AppConfig;
+  }): Promise<LlamacppManagedListModelsResult> {
+    return (
+      this.api?.llamacppManagedListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  llamacppOpenAiListModels(payload: { baseUrl: string; apiKey: string }): Promise<LlamacppManagedListModelsResult> {
+    return (
+      this.api?.llamacppOpenAiListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  lmStudioListModels(payload: { baseUrl: string; apiKey?: string }): Promise<LmStudioListModelsResult> {
+    return this.api?.lmStudioListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  lmStudioLoadModel(payload: { baseUrl: string; model: string; apiKey?: string }): Promise<LmStudioMutationResult> {
+    return this.api?.lmStudioLoadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  lmStudioUnloadModel(payload: {
+    baseUrl: string;
+    instanceId: string;
+    apiKey?: string;
+  }): Promise<LmStudioMutationResult> {
+    return this.api?.lmStudioUnloadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   closeSettingsWindow(): void {

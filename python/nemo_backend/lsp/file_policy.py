@@ -11,11 +11,13 @@ __all__ = [
     'LANGUAGE_POLICIES',
     'LEGACY_CODE_REVIEW_EXTENSIONS',
     'CONFIG_CODE_REVIEW_EXTENSIONS',
+    'PRETTIER_MANAGED_SUFFIXES',
     'normalize_relative_posix_path',
     'get_lsp_file_policy',
     'get_python_lsp_policy',
     'lsp_server_for_path',
     'is_lsp_managed_path',
+    'is_prettier_managed_path',
     'is_programming_path',
     'outer_workspace_edit_guard_error',
     'requires_code_review',
@@ -140,12 +142,22 @@ CONFIG_CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 
+# Extensions formatted with Prettier in workspace/staging edit pipelines (stdin-filepath; no LSP requirement).
+PRETTIER_MANAGED_SUFFIXES: frozenset[str] = frozenset(
+    {'.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.html', '.htm', '.css'}
+)
+
+
 def normalize_relative_posix_path(relative_path: str) -> str:
     return relative_path.strip().replace('\\', '/')
 
 
 def _suffix(relative_path: str) -> str:
     return PurePosixPath(normalize_relative_posix_path(relative_path)).suffix.lower()
+
+
+def is_prettier_managed_path(relative_path: str) -> bool:
+    return _suffix(relative_path) in PRETTIER_MANAGED_SUFFIXES
 
 
 def get_lsp_file_policy(relative_path: str) -> LspFilePolicy | None:

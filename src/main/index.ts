@@ -17,6 +17,8 @@ import { killAllWorkspacePtySessions } from './ipc/handlers/workspace-pty';
 import { stopAllManagedLlamaServers } from './llama-server-manager';
 import { mainState } from './state';
 
+app.setName('Clara Coder');
+
 registerPrivilegedNemoTtsScheme();
 registerAllIpc();
 

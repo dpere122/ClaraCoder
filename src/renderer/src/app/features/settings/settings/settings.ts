@@ -9,6 +9,7 @@ import type {
   LlmModelProfile,
   LlmOptimizationPreset,
   LlmProviderConfig,
+  LmStudioModelCard,
   Workspace,
   WorkspaceToolsConfig,
 } from '@shared/index';
@@ -22,6 +23,9 @@ import {
   mergeLlmProviderModel,
   optimizationPresetsForProvider,
   QWEN_PRESET_DEFAULTS,
+  isPinnedLlmSourceId,
+  isPinnedLmStudioProviderId,
+  isPinnedLlamaServerUrlProviderId,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
@@ -43,7 +47,7 @@ export class Settings implements OnInit, OnDestroy {
     {
       id: 'models',
       label: 'Models',
-      description: 'Providers (base URL and API key) with multiple model presets each. Tuning is saved per model; chat uses the active model.',
+      description: 'Sources (LM Studio, llama.cpp, or OpenAI-compatible APIs). The highlighted source is used for chat. Tuning is per source; expand Advanced tuning when needed.',
     },
     {
       id: 'tools',
@@ -90,10 +94,50 @@ export class Settings implements OnInit, OnDestroy {
     }
     return mergeLlmProviderModel(loc.provider, loc.model);
   });
-  protected readonly totalModelCount = computed(() => countLlmModels(this.llmProviders()));
-  protected readonly canDeleteSelectedModel = computed(() => this.totalModelCount() > 1);
-  protected readonly canDeleteSelectedProvider = computed(() => this.llmProviders().length > 1);
+  /** True when the selected model uses a static ``llama-server`` URL (no local Start / managed block). */
+  protected readonly isUrlOnlyLlamacpp = computed(() => {
+    const loc = this.selectedLocation();
+    if (!loc || loc.provider.provider !== 'llamacpp' || !loc.model) {
+      return false;
+    }
+    return !(loc.model.llamaCppManaged?.chatRunCommand ?? '').trim();
+  });
+  protected readonly canDeleteSelectedProvider = computed(() => {
+    const p = this.selectedProvider();
+    if (!p || isPinnedLlmSourceId(p.id)) {
+      return false;
+    }
+    return this.llmProviders().length > 1;
+  });
   protected readonly selectedTabMeta = computed(() => this.tabs.find((tab) => tab.id === this.selectedSettingsTab()) ?? this.tabs[0]);
+  /** Pinned sources first: LM Studio, then remote llama URL; remaining rows keep file order. */
+  protected readonly sourcesOrdered = computed(() => {
+    const list = this.llmProviders();
+    const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
+    const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
+    const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
+    const head: LlmProviderConfig[] = [];
+    if (pinLm) {
+      head.push(pinLm);
+    }
+    if (pinUrl) {
+      head.push(pinUrl);
+    }
+    return [...head, ...rest];
+  });
+  protected readonly lmStudioInventory = signal<LmStudioModelCard[]>([]);
+  protected readonly lmStudioInventoryError = signal<string | null>(null);
+  protected readonly lmStudioListInFlight = signal(false);
+  protected readonly lmStudioMainModelOptions = computed(() =>
+    this.lmStudioInventory().filter((c) => !/embed/i.test(c.type)),
+  );
+  protected readonly lmStudioEmbeddingModelOptions = computed(() =>
+    this.lmStudioInventory().filter((c) => /embed/i.test(c.type)),
+  );
+  protected readonly lmStudioLoadedCards = computed(() => this.lmStudioInventory().filter((c) => c.state === 'loaded'));
+  protected readonly llamacppManagedModelIds = signal<string[]>([]);
+  protected readonly llamacppModelsListError = signal<string | null>(null);
+  protected readonly llamacppModelsListInFlight = signal(false);
 
   private subscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
@@ -179,26 +223,186 @@ export class Settings implements OnInit, OnDestroy {
     await this.electron.setCurrentWorkspace(id);
   }
 
-  protected selectModel(modelId: string): void {
-    this.selectedModelId.set(modelId);
-  }
-
-  protected setActiveModel(modelId: string): void {
-    if (!findLlmModelLocation(this.llmProviders(), modelId)) {
+  protected selectSource(providerId: string): void {
+    const p = this.llmProviders().find((x) => x.id === providerId);
+    const first = p?.models[0];
+    if (!first) {
       return;
     }
-    this.activeLlmModelId.set(modelId);
+    this.selectedModelId.set(first.id);
+    if (p.provider === 'lmstudio') {
+      void this.refreshLmStudioInventory();
+    } else {
+      this.lmStudioInventory.set([]);
+      this.lmStudioInventoryError.set(null);
+    }
+    if (p.provider === 'llamacpp' && !((first.llamaCppManaged?.chatRunCommand ?? '').trim())) {
+      void this.refreshLlamacppUrlModels();
+    } else if (p.provider === 'llamacpp') {
+      void this.refreshLlamacppManagedModels();
+    } else {
+      this.llamacppManagedModelIds.set([]);
+      this.llamacppModelsListError.set(null);
+    }
+  }
+
+  protected activateSource(providerId: string): void {
+    const p = this.llmProviders().find((x) => x.id === providerId);
+    const first = p?.models[0];
+    if (!first) {
+      return;
+    }
+    if (this.activeLlmModelId() === first.id) {
+      return;
+    }
+    this.activeLlmModelId.set(first.id);
     this.markSettingsDirty();
   }
 
+  protected sourceIsSelected(provider: LlmProviderConfig): boolean {
+    return this.selectedProvider()?.id === provider.id;
+  }
+
+  protected async refreshLlamacppManagedModels(): Promise<void> {
+    const p = this.selectedProvider();
+    const m = this.selectedModel();
+    if (!p || p.provider !== 'llamacpp' || !m) {
+      return;
+    }
+    if (!((m.llamaCppManaged?.chatRunCommand ?? '').trim())) {
+      return;
+    }
+    this.llamacppModelsListInFlight.set(true);
+    this.llamacppModelsListError.set(null);
+    try {
+      const cfg = this.buildConfigForPersist();
+      const res = await this.electron.llamacppManagedListModels({ modelId: m.id, config: cfg });
+      if (res.ok) {
+        this.llamacppManagedModelIds.set(res.models);
+      } else {
+        this.llamacppManagedModelIds.set([]);
+        this.llamacppModelsListError.set(res.error);
+      }
+    } catch (e) {
+      this.llamacppManagedModelIds.set([]);
+      this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.llamacppModelsListInFlight.set(false);
+    }
+  }
+
+  protected async refreshLlamacppUrlModels(): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'llamacpp') {
+      return;
+    }
+    this.llamacppModelsListInFlight.set(true);
+    this.llamacppModelsListError.set(null);
+    try {
+      const res = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: p.apiKey || '' });
+      if (res.ok) {
+        this.llamacppManagedModelIds.set(res.models);
+      } else {
+        this.llamacppManagedModelIds.set([]);
+        this.llamacppModelsListError.set(res.error);
+      }
+    } catch (e) {
+      this.llamacppManagedModelIds.set([]);
+      this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.llamacppModelsListInFlight.set(false);
+    }
+  }
+
+  protected isPinnedSource(providerId: string): boolean {
+    return isPinnedLlmSourceId(providerId);
+  }
+
+  protected async refreshLmStudioInventory(): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'lmstudio') {
+      return;
+    }
+    this.lmStudioListInFlight.set(true);
+    this.lmStudioInventoryError.set(null);
+    const res = await this.electron.lmStudioListModels({ baseUrl: p.baseUrl, apiKey: p.apiKey });
+    this.lmStudioListInFlight.set(false);
+    if (res.ok) {
+      this.lmStudioInventory.set(res.models);
+    } else {
+      this.lmStudioInventory.set([]);
+      this.lmStudioInventoryError.set(res.error);
+    }
+  }
+
+  protected lmStudioLoadDisabled(): boolean {
+    const p = this.selectedProvider();
+    const m = this.selectedModel();
+    if (!p || p.provider !== 'lmstudio' || !m) {
+      return true;
+    }
+    const main = (m.model || '').trim();
+    const emb = (p.embeddingsModel || '').trim();
+    const inv = this.lmStudioInventory();
+    const needLoad = (id: string) => {
+      const c = inv.find((x) => x.id === id);
+      return !c || c.state !== 'loaded';
+    };
+    const wantsMain = !!main && needLoad(main);
+    const wantsEmb = !!emb && needLoad(emb);
+    return !wantsMain && !wantsEmb;
+  }
+
+  protected async loadLmStudioSelectedModels(): Promise<void> {
+    const p = this.selectedProvider();
+    const m = this.selectedModel();
+    if (!p || p.provider !== 'lmstudio' || !m) {
+      return;
+    }
+    const keys: string[] = [];
+    const main = (m.model || '').trim();
+    const emb = (p.embeddingsModel || '').trim();
+    if (main) {
+      keys.push(main);
+    }
+    if (emb && emb !== main) {
+      keys.push(emb);
+    }
+    for (const k of keys) {
+      await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: p.apiKey });
+    }
+    await this.refreshLmStudioInventory();
+  }
+
+  protected async unloadLmStudioCard(card: LmStudioModelCard): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'lmstudio' || !card.instanceId) {
+      return;
+    }
+    await this.electron.lmStudioUnloadModel({
+      baseUrl: p.baseUrl,
+      instanceId: card.instanceId,
+      apiKey: p.apiKey,
+    });
+    await this.refreshLmStudioInventory();
+  }
+
   protected addProvider(): void {
-    const nextProvider = this.buildNewProvider(this.llmProviders().length + 1);
+    const idx = this.llmProviders().filter((p) => !isPinnedLlmSourceId(p.id)).length;
+    const nextProvider = this.buildNewLlamacppProvider(idx + 1);
     this.llmProviders.update((p) => [...p, nextProvider]);
-    this.selectedModelId.set(nextProvider.models[0]?.id ?? null);
+    const firstId = nextProvider.models[0]?.id ?? null;
+    this.selectedModelId.set(firstId);
+    if (nextProvider.provider === 'llamacpp' && firstId) {
+      void this.refreshLlamacppManagedModels();
+    }
     this.markSettingsDirty();
   }
 
   protected removeProvider(providerId: string): void {
+    if (isPinnedLlmSourceId(providerId)) {
+      return;
+    }
     if (this.llmProviders().length <= 1) {
       return;
     }
@@ -213,28 +417,6 @@ export class Settings implements OnInit, OnDestroy {
     this.activeLlmModelId.set(nextActive);
     this.selectedModelId.set(nextActive);
     this.markSettingsDirty();
-  }
-
-  protected addModel(providerId: string): void {
-    const provider = this.llmProviders().find((p) => p.id === providerId);
-    if (!provider) {
-      return;
-    }
-    const nextModel = this.buildNewModel(provider.models.length + 1, provider.provider);
-    this.llmProviders.update((providers) =>
-      providers.map((p) => (p.id === providerId ? { ...p, models: [...p.models, nextModel] } : p)),
-    );
-    this.selectedModelId.set(nextModel.id);
-    this.markSettingsDirty();
-  }
-
-  protected removeSelectedModel(): void {
-    const p = this.selectedProvider();
-    const m = this.selectedModel();
-    if (!p || !m) {
-      return;
-    }
-    this.removeModel(p.id, m.id);
   }
 
   protected removeSelectedProvider(): void {
@@ -274,20 +456,6 @@ export class Settings implements OnInit, OnDestroy {
     this.markSettingsDirty();
   }
 
-  protected duplicateModel(providerId: string, model: LlmModelProfile): void {
-    const duplicate: LlmModelProfile = {
-      ...model,
-      id: crypto.randomUUID(),
-      name: `${model.name} Copy`,
-      llamaCppManaged: model.llamaCppManaged ? structuredClone(model.llamaCppManaged) : undefined,
-    };
-    this.llmProviders.update((providers) =>
-      providers.map((p) => (p.id === providerId ? { ...p, models: [...p.models, duplicate] } : p)),
-    );
-    this.selectedModelId.set(duplicate.id);
-    this.markSettingsDirty();
-  }
-
   protected updateSelectedModel(changes: Partial<LlmModelProfile>): void {
     const modelId = this.selectedModelId();
     if (!modelId) {
@@ -301,7 +469,7 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected updateSelectedProvider(
-    changes: Partial<Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey'>>,
+    changes: Partial<Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel'>>,
   ): void {
     const loc = this.selectedLocation();
     if (!loc) {
@@ -314,6 +482,9 @@ export class Settings implements OnInit, OnDestroy {
   protected onProviderKindChange(provider: LlmProviderConfig['provider']): void {
     const loc = this.selectedLocation();
     if (!loc) {
+      return;
+    }
+    if (isPinnedLlmSourceId(loc.provider.id)) {
       return;
     }
     const defaults = this.getProviderDefaults(provider);
@@ -332,6 +503,7 @@ export class Settings implements OnInit, OnDestroy {
     }
     this.applyLlmModelPatch(loc.model.id, {
       model,
+      name: model,
       contextWindowTokens: inferContextWindowTokens(model, loc.provider.provider),
     });
     this.markSettingsDirty();
@@ -639,20 +811,13 @@ export class Settings implements OnInit, OnDestroy {
     this.markSettingsDirty();
   }
 
-  protected isModelActive(modelId: string): boolean {
-    return this.activeLlmModelId() === modelId;
-  }
-
-  protected isProviderHeaderActive(providerId: string): boolean {
-    return this.selectedProvider()?.id === providerId;
+  protected sourceIsActive(provider: LlmProviderConfig): boolean {
+    const activeId = this.activeLlmModelId();
+    return provider.models.some((m) => m.id === activeId);
   }
 
   protected trackProvider(_index: number, provider: LlmProviderConfig): string {
     return provider.id;
-  }
-
-  protected trackModel(_index: number, model: LlmModelProfile): string {
-    return model.id;
   }
 
   protected trackWorkspace(_index: number, workspace: Workspace): string {
@@ -682,14 +847,13 @@ export class Settings implements OnInit, OnDestroy {
     return base;
   }
 
-  private buildNewProvider(index: number): LlmProviderConfig {
-    const provider: LlmProviderConfig['provider'] = 'lmstudio';
-    const defaults = this.getProviderDefaults(provider);
-    const firstModel = this.buildNewModel(1, provider);
+  private buildNewLlamacppProvider(index: number): LlmProviderConfig {
+    const defaults = this.getProviderDefaults('llamacpp');
+    const firstModel = this.buildNewModel(1, 'llamacpp');
     return {
       id: crypto.randomUUID(),
-      name: `Provider ${index}`,
-      provider,
+      name: `Llama Server ${index}`,
+      provider: 'llamacpp',
       baseUrl: defaults.baseUrl,
       apiKey: defaults.apiKey,
       models: [firstModel],
@@ -740,7 +904,11 @@ export class Settings implements OnInit, OnDestroy {
       themeId: this.themeId(),
       noWorkspaceThemeId: this.noWorkspaceThemeId(),
       activeLlmModelId: this.activeLlmModelId(),
-      llmProviders: structuredClone(this.llmProviders()),
+      llmProviders: structuredClone(this.llmProviders()).map((p) =>
+        isPinnedLmStudioProviderId(p.id)
+          ? { ...p, provider: 'lmstudio', apiKey: (p.apiKey && p.apiKey.trim()) || 'lm-studio' }
+          : p,
+      ),
       audioTranscription: {
         provider: this.audioProvider(),
         baseUrl: this.audioBaseUrl(),
@@ -785,7 +953,7 @@ export class Settings implements OnInit, OnDestroy {
 
   private applyProviderPatch(
     providerId: string,
-    changes: Partial<Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey'>>,
+    changes: Partial<Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel'>>,
   ): void {
     this.llmProviders.update((providers) =>
       providers.map((p) => (p.id === providerId ? { ...p, ...changes } : p)),
@@ -846,6 +1014,26 @@ export class Settings implements OnInit, OnDestroy {
       ? currentSelected
       : config.activeLlmModelId;
     this.selectedModelId.set(nextSelected);
+
+    const sid = (nextSelected ?? config.activeLlmModelId) || '';
+    const locAfter = sid ? findLlmModelLocation(config.llmProviders, sid) : null;
+    if (locAfter?.provider.provider === 'lmstudio') {
+      void this.refreshLmStudioInventory();
+    } else {
+      this.lmStudioInventory.set([]);
+      this.lmStudioInventoryError.set(null);
+    }
+
+    if (locAfter?.provider.provider === 'llamacpp' && locAfter.model) {
+      if (!(locAfter.model.llamaCppManaged?.chatRunCommand ?? '').trim()) {
+        void this.refreshLlamacppUrlModels();
+      } else {
+        void this.refreshLlamacppManagedModels();
+      }
+    } else {
+      this.llamacppManagedModelIds.set([]);
+      this.llamacppModelsListError.set(null);
+    }
 
     const themeToApply = currentWorkspace?.themeId || config.noWorkspaceThemeId || config.themeId || 'dark';
     this.applyTheme(themeToApply);

@@ -14,6 +14,7 @@ import type {
   ManagedServerHealthState,
 } from '../shared';
 import { findLlmModelLocation, looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel, prepareManagedLlamaShellCommand } from '../shared';
+import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 
@@ -95,7 +96,8 @@ async function pickPort(): Promise<number> {
 }
 
 /**
- * Effective OpenAI-compatible URLs for each llamacpp model row (sentinel when stopped).
+ * Effective OpenAI-compatible URLs for each **managed** llamacpp model (spawned subprocess).
+ * Skips URL-only rows (no ``chatRunCommand``) so Python uses the persisted provider ``baseUrl``.
  */
 export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<string, LlamaManagedRuntimeEndpoints> {
   const out: Record<string, LlamaManagedRuntimeEndpoints> = {};
@@ -104,6 +106,9 @@ export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<strin
       continue;
     }
     for (const m of p.models) {
+      if (!(m.llamaCppManaged?.chatRunCommand ?? '').trim()) {
+        continue;
+      }
       const st = running.get(m.id);
       if (st) {
         out[m.id] = {
@@ -471,6 +476,51 @@ async function probeOnce(host: string, port: number): Promise<ManagedServerHealt
   return 'error';
 }
 
+function httpPortForDisplay(rootUrl: string): number {
+  try {
+    const u = new URL(rootUrl);
+    if (u.port) {
+      return Number.parseInt(u.port, 10) || 0;
+    }
+    return u.protocol === 'https:' ? 443 : 80;
+  } catch {
+    return 0;
+  }
+}
+
+async function getRemoteLlamacppUrlStatus(modelId: string, openAiV1BaseUrl: string): Promise<LlamaServerStatusResult> {
+  const root = openAiV1BaseToServerRoot(openAiV1BaseUrl);
+  if (!root) {
+    return {
+      ok: true,
+      remote: true,
+      running: false,
+      modelId,
+      chat: { port: 0, health: 'error' },
+    };
+  }
+  const port = httpPortForDisplay(root);
+  try {
+    const res = await fetchWithTimeout(`${root}/health`, 2000);
+    const health: ManagedServerHealthState = res.ok ? 'ok' : 'error';
+    return {
+      ok: true,
+      remote: true,
+      running: false,
+      modelId,
+      chat: { port, health },
+    };
+  } catch {
+    return {
+      ok: true,
+      remote: true,
+      running: false,
+      modelId,
+      chat: { port, health: 'error' },
+    };
+  }
+}
+
 export async function getManagedLlamaStatus(
   modelId: string,
   config: AppConfig,
@@ -482,7 +532,19 @@ export async function getManagedLlamaStatus(
   const m: LlmModelProfile = loc.model;
   const managed = m.llamaCppManaged;
   const st = running.get(modelId);
-  if (!st || !managed) {
+  if (!st) {
+    invalidateManagedStatusCache(modelId);
+    if (!(managed?.chatRunCommand ?? '').trim()) {
+      return getRemoteLlamacppUrlStatus(modelId, loc.provider.baseUrl);
+    }
+    return {
+      ok: true,
+      running: false,
+      modelId,
+      chat: { port: 0, health: 'stopped' },
+    };
+  }
+  if (!managed) {
     invalidateManagedStatusCache(modelId);
     return {
       ok: true,
@@ -518,6 +580,15 @@ export async function getManagedLlamaStatus(
   };
   statusCache = { modelId, at: Date.now(), result: out };
   return out;
+}
+
+/** OpenAI-compatible ``…/v1`` base URL for the managed chat server when it is running; otherwise ``null``. */
+export function getManagedChatOpenAiBaseUrl(modelId: string): string | null {
+  const st = running.get(modelId);
+  if (!st) {
+    return null;
+  }
+  return `http://${st.chatHost}:${st.chatPort}/v1`;
 }
 
 /** True if the active model preset has running managed servers. */

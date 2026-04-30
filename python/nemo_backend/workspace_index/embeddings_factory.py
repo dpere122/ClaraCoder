@@ -148,7 +148,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
             'to a dedicated OpenAI-compatible embeddings API.',
         )
 
-    model = NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small'
+    model = (getattr(connection, 'embeddings_model', None) or '').strip() or (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
     base_url = (connection.base_url or '').strip()
     api_key = (connection.api_key or '').strip()
 

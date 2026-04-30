@@ -10,10 +10,10 @@ import pytest
 
 from nemo_backend.agents.specialists.review_tools import (
     _materialize_staged_python_files,
-    approve_staged_workspace_edit,
     diff_staged_edit_against_baseline,
     finalize_staged_transfer_after_hitl,
     format_staging_file_black,
+    format_staging_file_prettier,
     list_staged_edits,
     read_staged_edit,
     reject_staged_workspace_edit,
@@ -376,6 +376,37 @@ def test_read_format_approve_reject(staging_env) -> None:
     assert Path(session.pending_edit_stagings['z.py'].temp_path).is_file()
 
 
+def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) -> None:
+    session = staging_env.session
+
+    from nemo_backend import edit_staging as _es
+
+    monkeypatch.setattr(
+        'nemo_backend.staging_edit_tools.sync_session_document',
+        lambda *args, **kwargs: [],
+    )
+
+    def _fake_fmt(text: str, **kwargs: object) -> tuple[str | None, str]:
+        del kwargs
+        return 'const x = 1;\n', ''
+
+    monkeypatch.setattr(_es, 'format_source_via_prettier', _fake_fmt)
+
+    stage_create_file.invoke(
+        {
+            'relative_path': 'a.ts',
+            'new_content': 'const x=1\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert session.pending_edit_stagings['a.ts'].merged_text == 'const x = 1;\n'
+
+    out = format_staging_file_prettier.invoke({'relative_path': 'a.ts'})
+    assert 'Prettier' in out
+    assert session.pending_edit_stagings['a.ts'].merged_text == 'const x = 1;\n'
+
+
 def test_follow_up_workspace_overwrite_restarts_from_workspace_file(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
@@ -495,7 +526,7 @@ def test_search_staged_edits_uses_grep_when_available(staging_env, monkeypatch: 
     assert '[multi.py line 2] │ BETA' in hits
 
 
-def test_approve_sets_diff_payload(staging_env) -> None:
+def test_transfer_sets_diff_payload(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'q.py').write_text('n=0\n', encoding='utf-8')
@@ -508,7 +539,7 @@ def test_approve_sets_diff_payload(staging_env) -> None:
         }
     )
     session.auto_apply_mode = False
-    out = approve_staged_workspace_edit.invoke({'relative_path': 'q.py'})
+    out = transfer_staged_file_to_workspace.invoke({'relative_path': 'q.py'})
     assert 'human confirmation' in out.lower()
     assert (ws / 'q.py').read_text(encoding='utf-8') == 'n=0\n'
     assert session.pending_staged_transfer_hitl is not None
@@ -551,6 +582,51 @@ def test_transfer_tool_sets_diff_payload(staging_env) -> None:
     assert session.pending_edit_stagings['transfer.py'].workspace_applied is True
 
 
+def test_stage_create_file_land_in_workspace_sets_hitl(staging_env) -> None:
+    """Same as staging then transfer when auto_apply is off, in one call."""
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'land1.py').write_text('a=0\n', encoding='utf-8')
+    out = stage_create_file.invoke(
+        {
+            'relative_path': 'land1.py',
+            'new_content': 'a = 0\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+            'land_in_workspace': True,
+        }
+    )
+    assert '---' in out
+    assert 'human confirmation' in out.lower()
+    assert (ws / 'land1.py').read_text(encoding='utf-8') == 'a=0\n'
+    assert session.pending_staged_transfer_hitl is not None
+    assert session.pending_staged_transfer_hitl.relative_path == 'land1.py'
+    assert session.pending_diff_payload is not None
+    assert session.pending_diff_payload.get('stagedTransferHitl') is True
+    assert 'land1.py' in session.pending_edit_stagings
+    assert session.pending_edit_stagings['land1.py'].workspace_applied is False
+
+
+def test_stage_create_file_land_in_workspace_auto_apply_writes(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = True
+    (ws / 'land2.py').write_text('z=0\n', encoding='utf-8')
+    out = stage_create_file.invoke(
+        {
+            'relative_path': 'land2.py',
+            'new_content': 'z = 0\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+            'land_in_workspace': True,
+        }
+    )
+    assert 'real workspace' in out.lower()
+    assert (ws / 'land2.py').read_text(encoding='utf-8') == 'z = 0\n'
+    assert session.pending_staged_transfer_hitl is None
+    assert session.pending_edit_stagings['land2.py'].workspace_applied is True
+
+
 def test_transfer_writes_immediately_when_auto_apply(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
@@ -569,6 +645,52 @@ def test_transfer_writes_immediately_when_auto_apply(staging_env) -> None:
     assert (ws / 'auto.py').read_text(encoding='utf-8') == 'z = 0\n'
     assert session.pending_staged_transfer_hitl is None
     assert session.pending_edit_stagings['auto.py'].workspace_applied is True
+
+
+def test_transfer_defers_workspace_lsp_until_all_paths_transferred(staging_env, monkeypatch) -> None:
+    """LSP sync runs once after the last transfer when multiple paths are pending in one chain."""
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = True
+    calls: list[str] = []
+
+    def _fake_sync(rel: str, text: str, *, session_id=None, scope=None):
+        del text, session_id, scope
+        calls.append(rel)
+        return []
+
+    monkeypatch.setattr(
+        'nemo_backend.agents.specialists.review_tools.sync_session_document',
+        _fake_sync,
+    )
+
+    (ws / 'first.py').write_text('x=0\n', encoding='utf-8')
+    (ws / 'second.py').write_text('y=0\n', encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'first.py',
+            'new_content': 'x = 0\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'second.py',
+            'new_content': 'y = 0\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+
+    out1 = transfer_staged_file_to_workspace.invoke({'relative_path': 'first.py'})
+    assert calls == []
+    assert 'deferred' in out1.lower()
+
+    out2 = transfer_staged_file_to_workspace.invoke({'relative_path': 'second.py'})
+    assert set(calls) == {'first.py', 'second.py'}
+    assert len(calls) == 2
+    assert 'Post-transfer LSP' in out2
 
 
 def test_staged_transfer_re_review_skips_disk_write(staging_env) -> None:

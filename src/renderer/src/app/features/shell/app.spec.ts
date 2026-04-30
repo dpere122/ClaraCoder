@@ -8,6 +8,7 @@ function stubElectronApi(): void {
   const noop = (): void => {};
   const defaultConfig = {
     currentWorkspaceId: null as string | null,
+    lastActiveConversationByWorkspaceId: {} as Record<string, string>,
     workspaces: [] as { id: string; name: string; path: string; themeId?: string }[],
     themeId: 'dark',
     noWorkspaceThemeId: 'dark',
@@ -51,6 +52,8 @@ function stubElectronApi(): void {
       defaultWorkspaceEncoding: 'utf-8',
       defaultWorkspaceNewline: 'lf',
       orchestratedMode: false,
+      outerPhasedCodingCycle: false,
+      allowStagingOverlayCommands: false,
     },
     healthMonitor: {
       logLevel: 'info',
@@ -68,7 +71,9 @@ function stubElectronApi(): void {
     onMessageChunk: noop,
     onMessageToolReadChunk: noop,
     onMessageDone: noop,
+    onMessageTokenUsage: noop,
     onMessageStatus: noop,
+    onMessageHarnessCrystal: noop,
     onConfigUpdated: noop,
     onSettingsWindowVisibilityChanged: noop,
     onActiveConversationChanged: noop,
@@ -89,7 +94,13 @@ function stubElectronApi(): void {
     onReady: noop,
     setAlwaysOnTop: noop,
     loadConfig: async () => ({ ...defaultConfig }),
+    saveConfig: async (c: unknown) => c as typeof defaultConfig,
     getConversations: async () => [convMeta],
+    readConversationFromDisk: async () => ({
+      ...convMeta,
+      messages: [],
+      themeId: 'dark',
+    }),
     loadConversation: async () => ({
       ...convMeta,
       messages: [],
@@ -106,6 +117,9 @@ function stubElectronApi(): void {
     windowClose: noop,
     windowIsMaximized: async () => false,
     onWindowMaximizedChanged: noop,
+    lmStudioListModels: async () => ({ ok: false, error: 'stub' }),
+    lmStudioLoadModel: async () => ({ ok: false, error: 'stub' }),
+    lmStudioUnloadModel: async () => ({ ok: false, error: 'stub' }),
   };
 }
 
@@ -124,11 +138,11 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render the Clara title', async () => {
+  it('should render the Clara Coder title', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Clara AI');
+    expect(compiled.querySelector('h1')?.textContent).toContain('Clara Coder');
   });
 
   it('should render the status bar', async () => {

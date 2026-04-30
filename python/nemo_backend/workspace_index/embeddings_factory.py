@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any
 
+from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.embeddings.openai import OpenAIEmbedding
 
@@ -14,12 +16,93 @@ from nemo_backend.config import (
     DEFAULT_LM_STUDIO_BASE_URL,
     NEMO_EMBEDDINGS_API_KEY,
     NEMO_EMBEDDINGS_BASE_URL,
+    NEMO_EMBEDDINGS_MAX_INPUT_TOKENS,
     NEMO_EMBEDDINGS_MODEL,
 )
 from nemo_backend.domain import RuntimeConnection
 from nemo_backend.state import require_openai_api_key
 
 logger = logging.getLogger('nemo.workspace_index.embeddings')
+
+
+def _mean_l2_normalize(vectors: list[list[float]]) -> list[float]:
+    """Average embedding vectors and L2-normalize (common pooled-document convention)."""
+    if not vectors:
+        return []
+    dim = len(vectors[0])
+    acc = [0.0] * dim
+    for v in vectors:
+        for i, x in enumerate(v):
+            acc[i] += x
+    n = float(len(vectors))
+    mean = [x / n for x in acc]
+    norm = math.sqrt(sum(x * x for x in mean)) or 1.0
+    return [x / norm for x in mean]
+
+
+def _chunk_text_for_embedding(text: str, max_tokens: int) -> list[str]:
+    """Split *text* into segments with at most *max_tokens* ``cl100k_base`` tokens each."""
+    import tiktoken
+
+    enc = tiktoken.get_encoding('cl100k_base')
+    ids = enc.encode(text, disallowed_special=())
+    if len(ids) <= max_tokens:
+        return [text]
+    return [enc.decode(ids[i : i + max_tokens]) for i in range(0, len(ids), max_tokens)]
+
+
+class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
+    """``OpenAIEmbedding`` that splits long inputs and mean-pools chunk vectors.
+
+    Local ``llama-server --embedding`` defaults to a small physical batch (``n_ubatch``, often 512). A single
+    request above that limit returns HTTP 500. Index nodes can also exceed the server's tokenizer count versus
+    LlamaIndex's sentence splitter. Chunking here keeps OpenAI-compatible servers stable.
+    """
+
+    _max_chunk_tokens: int = PrivateAttr()
+
+    def __init__(self, max_input_tokens: int | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        cap = int(max_input_tokens) if max_input_tokens is not None else int(NEMO_EMBEDDINGS_MAX_INPUT_TOKENS)
+        self._max_chunk_tokens = max(32, cap)
+
+    def _get_query_embedding(self, query: str) -> list[float]:
+        norm = query.replace('\n', ' ')
+        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
+        if len(chunks) == 1:
+            return super()._get_query_embedding(query)
+        vecs = [super()._get_query_embedding(c) for c in chunks]
+        return _mean_l2_normalize(vecs)
+
+    async def _aget_query_embedding(self, query: str) -> list[float]:
+        norm = query.replace('\n', ' ')
+        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
+        if len(chunks) == 1:
+            return await super()._aget_query_embedding(query)
+        vecs = [await super()._aget_query_embedding(c) for c in chunks]
+        return _mean_l2_normalize(vecs)
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+        norm = text.replace('\n', ' ')
+        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
+        if len(chunks) == 1:
+            return super()._get_text_embedding(text)
+        vecs = [super()._get_text_embedding(c) for c in chunks]
+        return _mean_l2_normalize(vecs)
+
+    async def _aget_text_embedding(self, text: str) -> list[float]:
+        norm = text.replace('\n', ' ')
+        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
+        if len(chunks) == 1:
+            return await super()._aget_text_embedding(text)
+        vecs = [await super()._aget_text_embedding(c) for c in chunks]
+        return _mean_l2_normalize(vecs)
+
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return [self._get_text_embedding(t) for t in texts]
+
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return [await self._aget_text_embedding(t) for t in texts]
 
 
 def normalize_openai_api_base(raw: str) -> str | None:
@@ -47,7 +130,7 @@ def _llamacpp_embeddings_disabled(connection: RuntimeConnection) -> bool:
 
 
 def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding | None, str]:
-    """Construct ``OpenAIEmbedding`` from *connection* settings, or return ``(None, error_message)``.
+    """Construct a token-capped ``OpenAIEmbedding`` wrapper from *connection* settings, or ``(None, error_message)``.
 
     When ``NEMO_EMBEDDINGS_BASE_URL`` is set (see :mod:`nemo_backend.config`), embeddings use that OpenAI-compatible
     base URL instead of the chat connection's ``base_url``—so a dedicated local server (e.g. ``llama-server`` with
@@ -65,7 +148,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
             'to a dedicated OpenAI-compatible embeddings API.',
         )
 
-    model = NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small'
+    model = (getattr(connection, 'embeddings_model', None) or '').strip() or (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
     base_url = (connection.base_url or '').strip()
     api_key = (connection.api_key or '').strip()
 
@@ -117,7 +200,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
         kwargs['api_base'] = api_base
 
     try:
-        embed = OpenAIEmbedding(**kwargs)
+        embed = ChunkPoolingOpenAIEmbedding(**kwargs)
         embed.get_query_embedding('nemo')
     except Exception as exc:
         logger.info('Embedding probe failed: %s', exc)

@@ -16,9 +16,9 @@
           <span>{{ tab.label }}</span>
           <small>
             @if (tab.id === 'models') {
-              {{ totalModelCount() }} model presets
+              {{ llmProviders().length }} sources
             } @else if (tab.id === 'tools') {
-              {{ orchestratedMode() ? 'Orchestrated' : 'Staging default' }} · {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              {{ orchestratedMode() ? 'Orchestrated' : 'Staging default' }}{{ outerPhasedCodingCycle() ? ' · Phased outer' : '' }} · {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
             } @else if (tab.id === 'appearance') {
@@ -55,7 +55,7 @@
         @if (selectedSettingsTab() === 'models') {
           <button type='button' class='action-button action-button--primary' (click)='addProvider()'>
             <lucide-icon name='plus' [size]='17' />
-            Add provider
+            Add source
           </button>
         }
         @if (selectedSettingsTab() === 'workspaces') {
@@ -69,186 +69,89 @@
 
     @if (selectedSettingsTab() === 'models') {
       <div class='settings-pane'>
-        <div class='models-layout'>
-          <div class='models-sidebar'>
+        <div class='models-three-col'>
+          <div class='models-sources'>
             <div class='section-heading'>
               <div>
-                <p class='settings-eyebrow'>Providers</p>
-                <h4>Models</h4>
+                <p class='settings-eyebrow'>Models</p>
+                <h4>Sources</h4>
               </div>
-              <span class='section-count'>{{ totalModelCount() }}</span>
+              <span class='section-count'>{{ llmProviders().length }}</span>
             </div>
 
-            <div class='connection-list'>
-              @for (provider of llmProviders(); track trackProvider($index, provider)) {
-                <div class='provider-block' [class.is-active]='isProviderHeaderActive(provider.id)'>
-                  <div class='provider-block__header'>
-                    <strong>{{ provider.name }}</strong>
-                    <span class='provider-block__kind'>{{ providerKindLabel(provider.provider) }}</span>
-                  </div>
-                  <p class='provider-block__url'>
-                    @if (provider.provider === 'llamacpp') {
-                      Managed servers — use Start in chat sidebar
-                    } @else {
-                      {{ provider.baseUrl || 'Default provider URL' }}
-                    }
-                  </p>
-
-                  <div class='model-sublist'>
-                    @for (m of provider.models; track trackModel($index, m)) {
-                      <button
-                        type='button'
-                        class='model-row'
-                        [class.is-selected]='selectedModelId() === m.id'
-                        (click)='selectModel(m.id)'
-                      >
-                        <div class='model-row__top'>
-                          <span class='model-row__name'>{{ m.name }}</span>
-                          @if (isModelActive(m.id)) {
-                            <span class='pill pill--success'>Active</span>
-                          }
-                        </div>
-                        <span class='model-row__id'>{{ m.model }}</span>
-                      </button>
-                    }
-                  </div>
-
-                  <button type='button' class='action-button action-button--compact' (click)='addModel(provider.id)'>
-                    <lucide-icon name='plus' [size]='14' />
-                    Add model
+            <div class='sources-list'>
+              @for (provider of sourcesOrdered(); track trackProvider($index, provider)) {
+                <div
+                  class='source-row-wrap'
+                  [class.is-selected]='sourceIsSelected(provider)'
+                  [class.is-activated]='sourceIsActive(provider)'
+                >
+                  <label class='source-row__activate' title='Use this source for chat'>
+                    <input
+                      type='radio'
+                      name='settingsChatSource'
+                      [checked]='sourceIsActive(provider)'
+                      (change)='activateSource(provider.id)'
+                      (click)='$event.stopPropagation()'
+                    />
+                  </label>
+                  <button type='button' class='source-row' (click)='selectSource(provider.id)'>
+                    <div class='source-row__body'>
+                      <div class='source-row__top'>
+                        <strong>{{ provider.name }}</strong>
+                      </div>
+                      <span class='source-row__kind'>{{ providerKindLabel(provider.provider) }}</span>
+                    </div>
                   </button>
+                  @if (!isPinnedSource(provider.id)) {
+                    <button
+                      type='button'
+                      class='source-row__remove'
+                      [disabled]='llmProviders().length <= 1'
+                      (click)='removeProvider(provider.id); $event.stopPropagation()'
+                      title='Remove source'
+                    >
+                      <lucide-icon name='x' [size]='16' />
+                    </button>
+                  }
                 </div>
               } @empty {
                 <div class='empty-state'>
-                  <p>No LLM providers saved yet.</p>
+                  <p>No sources configured.</p>
                 </div>
               }
             </div>
 
-            <hr class='settings-divider' />
-
-            <div class='section-heading'>
-              <div>
-                <p class='settings-eyebrow'>How It Works</p>
-                <h4>Tips</h4>
-              </div>
-            </div>
-
-            <div class='info-list'>
-              <div class='info-row'>
-                <strong>Provider</strong>
-                <p>One base URL and API key per provider. Add several model presets underneath to switch quickly without retyping credentials.</p>
-              </div>
-
-              <div class='info-row'>
-                <strong>Model preset</strong>
-                <p>Each preset has its own API model id, optimization template, temperature, and related tuning. Chat always uses the active preset.</p>
-              </div>
-
-              <div class='info-row'>
-                <strong>LM Studio</strong>
-                <p>Local server URL is usually <code>http://127.0.0.1:1234/v1</code> with key <code>lm-studio</code>.</p>
-              </div>
-
-              <div class='info-row'>
-                <strong>llama.cpp</strong>
-                <p>
-                  Use the OpenAI-compatible HTTP server from your llama.cpp build (often <code>llama-server</code>, not the interactive
-                  <code>llama-cli</code>). Default URL is <code>http://127.0.0.1:8080/v1</code>; set the model id to match the server’s loaded model
-                  name.
-                </p>
-              </div>
-            </div>
+            <p class='settings-copy sources-hint'>Click a row to edit; use the radio for chat. Pinned LM Studio and Llama server (URL) cannot be removed. Add sources for more managed <code>llama-server</code> instances.</p>
           </div>
 
           <div class='settings-editor'>
             @if (selectedResolved(); as connection) {
               <div class='settings-editor__header'>
                 <div>
-                  <p class='settings-eyebrow'>Model preset</p>
-                  <h4>{{ selectedModel()?.name }}</h4>
-                  <p class='panel__copy'>Provider <strong>{{ selectedProvider()?.name }}</strong> · saved in <code>config.json</code> and synced to Python.</p>
-                </div>
-
-                <div class='settings-editor__actions'>
-                  @if (selectedProvider(); as p) {
-                    @if (selectedModel(); as sm) {
-                      <button type='button' class='action-button' (click)='duplicateModel(p.id, sm)'>
-                        <lucide-icon name='copy' [size]='16' />
-                        Duplicate preset
-                      </button>
-                    }
-                  }
-
-                  <button
-                    type='button'
-                    class='action-button action-button--danger'
-                    [disabled]='!canDeleteSelectedModel()'
-                    (click)='removeSelectedModel()'
-                  >
-                    <lucide-icon name='trash' [size]='16' />
-                    Delete preset
-                  </button>
-
-                  <button
-                    type='button'
-                    class='action-button action-button--danger'
-                    [disabled]='!canDeleteSelectedProvider()'
-                    (click)='removeSelectedProvider()'
-                  >
-                    <lucide-icon name='trash' [size]='16' />
-                    Delete provider
-                  </button>
+                  <p class='settings-eyebrow'>Source</p>
+                  <h4>{{ selectedProvider()?.name }}</h4>
+                  <p class='panel__copy'>Saved in <code>config.json</code> and synced to Python. Click a row to edit; use the radio on the left to choose which source chat uses.</p>
                 </div>
               </div>
 
               <hr class='settings-divider' />
 
-              <div class='form-section'>
-                <div class='form-section__header'>
-                  <h5>Activation</h5>
-                  <p class='settings-copy'>Choose which model preset powers chat.</p>
-                </div>
-
-                <label class='toggle-row'>
-                  <input
-                    type='radio'
-                    name='activeModel'
-                    [checked]='isModelActive(connection.id)'
-                    (change)='setActiveModel(connection.id)'
-                  />
-                  <span>Use this preset for chat</span>
-                </label>
-              </div>
-
-              <hr class='settings-divider' />
-
-              <div class='form-section'>
-                <div class='form-section__header'>
-                  <h5>Provider</h5>
-                  <p class='settings-copy'>Endpoint shared by every model preset under this provider.</p>
-                </div>
-
-                <div class='form-grid'>
-                  <label class='field field--full'>
-                    <span>Provider name</span>
-                    <input
-                      type='text'
-                      [ngModel]='selectedProvider()!.name'
-                      (ngModelChange)='updateSelectedProvider({ name: $event })'
-                    />
-                  </label>
-
-                  <label class='field'>
-                    <span>Provider type</span>
-                    <select [ngModel]='selectedProvider()!.provider' (ngModelChange)='onProviderKindChange($event)'>
-                      <option value='openai'>OpenAI</option>
-                      <option value='lmstudio'>LM Studio</option>
-                      <option value='llamacpp'>llama.cpp (OpenAI server)</option>
-                    </select>
-                  </label>
-
-                  @if (selectedProvider()!.provider !== 'llamacpp') {
+              @if (connection.provider === 'lmstudio') {
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>LM Studio connection</h5>
+                    <p class='settings-copy'>OpenAI-compatible base URL. Use <strong>Connect</strong> to list models from the local LM Studio API.</p>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Name</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.name'
+                        (ngModelChange)='updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
                     <label class='field field--full'>
                       <span>Base URL</span>
                       <input
@@ -257,75 +160,377 @@
                         (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
                       />
                     </label>
-                  }
-
-                  <label class='field field--full'>
-                    <span>API Key</span>
-                    <input
-                      type='password'
-                      [ngModel]='selectedProvider()!.apiKey'
-                      (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
-                    />
-                  </label>
+                    <div class='field field--full lm-studio-connect-row'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [disabled]='lmStudioListInFlight()'
+                        (click)='refreshLmStudioInventory()'
+                      >
+                        @if (lmStudioListInFlight()) {
+                          Connecting…
+                        } @else {
+                          Connect
+                        }
+                      </button>
+                      @if (lmStudioInventoryError(); as err) {
+                        <span class='lm-studio-status lm-studio-status--err'>{{ err }}</span>
+                      } @else if (lmStudioInventory().length) {
+                        <span class='lm-studio-status lm-studio-status--ok'>{{ lmStudioInventory().length }} models</span>
+                      }
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <hr class='settings-divider' />
-
-              <div class='form-section'>
-                <div class='form-section__header'>
-                  <h5>Preset label &amp; API model</h5>
-                  <p class='settings-copy'>The label is for your lists; the API model id is sent to the server.</p>
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Models in LM Studio</h5>
+                    <p class='settings-copy'>Pick chat and embedding model ids, then load into LM Studio if needed.</p>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Main model (chat)</span>
+                      <select
+                        [ngModel]='selectedModel()!.model'
+                        (ngModelChange)='onModelApiIdChange($event)'
+                      >
+                        @if (selectedModel()?.model && !lmStudioMainModelOptions().some((o) => o.id === selectedModel()!.model)) {
+                          <option [value]='selectedModel()!.model'>{{ selectedModel()!.model }} (current)</option>
+                        }
+                        @for (opt of lmStudioMainModelOptions(); track opt.id) {
+                          <option [value]='opt.id'>{{ opt.id }} — {{ opt.state }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label class='field field--full'>
+                      <span>Embedding model</span>
+                      <select
+                        [ngModel]='selectedProvider()!.embeddingsModel ?? ""'
+                        (ngModelChange)='updateSelectedProvider({ embeddingsModel: $event || undefined })'
+                      >
+                        <option value=''>— None (env default) —</option>
+                        @for (opt of lmStudioEmbeddingModelOptions(); track opt.id) {
+                          <option [value]='opt.id'>{{ opt.id }} — {{ opt.state }}</option>
+                        }
+                      </select>
+                    </label>
+                    <div class='field field--full'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [disabled]='lmStudioLoadDisabled() || lmStudioListInFlight()'
+                        (click)='loadLmStudioSelectedModels()'
+                      >
+                        Load model(s)
+                      </button>
+                      <p class='settings-copy' style='margin-top: 0.35rem'>Disabled when selected models are already loaded.</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div class='form-grid'>
-                  <label class='field field--full'>
-                    <span>Preset name</span>
-                    <input type='text' [ngModel]='selectedModel()!.name' (ngModelChange)='updateSelectedModel({ name: $event })' />
-                  </label>
-
-                  <label class='field field--full'>
-                    <span>Model (API id)</span>
-                    <input type='text' [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)' />
-                  </label>
+                @if (lmStudioLoadedCards().length) {
+                  <hr class='settings-divider' />
+                  <div class='form-section'>
+                    <div class='form-section__header'>
+                      <h5>Loaded models</h5>
+                      <p class='settings-copy'>Unload uses LM Studio’s API (local server only).</p>
+                    </div>
+                    <div class='lm-loaded-grid'>
+                      @for (card of lmStudioLoadedCards(); track card.id) {
+                        <div class='lm-loaded-card'>
+                          <div class='lm-loaded-card__head'>
+                            <strong>{{ card.id }}</strong>
+                            <button
+                              type='button'
+                              class='action-button action-button--compact'
+                              [disabled]='!card.instanceId'
+                              (click)='unloadLmStudioCard(card)'
+                            >
+                              Unload
+                            </button>
+                          </div>
+                          <dl class='lm-loaded-card__meta'>
+                            <div><dt>type</dt><dd>{{ card.type }}</dd></div>
+                            <div><dt>publisher</dt><dd>{{ card.publisher }}</dd></div>
+                            <div><dt>arch</dt><dd>{{ card.arch }}</dd></div>
+                            <div><dt>compat</dt><dd>{{ card.compatibility_type }}</dd></div>
+                            <div><dt>quant</dt><dd>{{ card.quantization }}</dd></div>
+                            <div><dt>state</dt><dd>{{ card.state }}</dd></div>
+                            <div><dt>ctx</dt><dd>{{ card.max_context_length }}</dd></div>
+                          </dl>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
+              } @else if (connection.provider === 'llamacpp' && isUrlOnlyLlamacpp()) {
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Llama server connection</h5>
+                    <p class='settings-copy'>OpenAI-compatible base URL (e.g. <code>http://127.0.0.1:8080/v1</code>). Use <strong>Connect</strong> to list models from a running <code>llama-server</code>.</p>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Name</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.name'
+                        (ngModelChange)='updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>Base URL</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.baseUrl'
+                        (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>API key (optional)</span>
+                      <input
+                        type='password'
+                        [ngModel]='selectedProvider()!.apiKey'
+                        (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
+                      />
+                    </label>
+                    <div class='field field--full lm-studio-connect-row'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [disabled]='llamacppModelsListInFlight()'
+                        (click)='refreshLlamacppUrlModels()'
+                      >
+                        @if (llamacppModelsListInFlight()) {
+                          Connecting…
+                        } @else {
+                          Connect
+                        }
+                      </button>
+                      @if (llamacppModelsListError(); as lerr) {
+                        <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
+                      } @else if (llamacppManagedModelIds().length) {
+                        <span class='lm-studio-status lm-studio-status--ok'>{{ llamacppManagedModelIds().length }} models</span>
+                      }
+                    </div>
+                  </div>
                 </div>
-              </div>
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Models from llama-server</h5>
+                    <p class='settings-copy'>Choose chat and (optional) embedding model ids. Connect above after your server is running to refresh the list.</p>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Main model (chat)</span>
+                      <select
+                        [ngModel]='selectedModel()!.model'
+                        (ngModelChange)='onModelApiIdChange($event)'
+                      >
+                        @if (selectedModel()?.model && !llamacppManagedModelIds().includes(selectedModel()!.model)) {
+                          <option [value]='selectedModel()!.model'>{{ selectedModel()!.model }} (current)</option>
+                        }
+                        @for (id of llamacppManagedModelIds(); track id) {
+                          <option [value]='id'>{{ id }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label class='field field--full'>
+                      <span>Embedding model (optional)</span>
+                      <select
+                        [ngModel]='selectedProvider()!.embeddingsModel ?? ""'
+                        (ngModelChange)='updateSelectedProvider({ embeddingsModel: $event || undefined })'
+                      >
+                        <option value=''>— None (env default) —</option>
+                        @if ((selectedProvider()?.embeddingsModel || "") && !llamacppManagedModelIds().includes((selectedProvider()?.embeddingsModel) || "")) {
+                          <option [value]='selectedProvider()!.embeddingsModel'>{{ selectedProvider()!.embeddingsModel }} (current)</option>
+                        }
+                        @for (id of llamacppManagedModelIds(); track id) {
+                          <option [value]='id'>{{ id }}</option>
+                        }
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              } @else if (connection.provider === 'llamacpp') {
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>llama.cpp source</h5>
+                    <p class='settings-copy'>Start and stop managed <code>llama-server</code> from the chat sidebar. Paste run commands here; refresh models after the chat server is running.</p>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Source name</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.name'
+                        (ngModelChange)='updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>Base URL (when not using local Start / optional)</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.baseUrl'
+                        (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>API key (optional)</span>
+                      <input
+                        type='password'
+                        [ngModel]='selectedProvider()!.apiKey'
+                        (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
+                      />
+                    </label>
+                  </div>
+                </div>
 
-              @if (connection.provider === 'llamacpp' && selectedModel()?.llamaCppManaged; as lm) {
+                @if (selectedModel()?.llamaCppManaged; as lm) {
+                  <hr class='settings-divider' />
+
+                  <div class='form-section'>
+                    <div class='form-section__header'>
+                      <h5>Managed llama-server</h5>
+                      <p class='settings-copy'>
+                        One shell command per process. Each command must include exactly one
+                        <code>{{ managedLlamaPortToken }}</code>
+                        token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
+                        sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code>. Use <code>--host</code> in the command if you bind elsewhere; health
+                        checks use that host.
+                      </p>
+                    </div>
+
+                    <div class='form-grid'>
+                      <label class='field field--full'>
+                        <span>Chat llama-server command</span>
+                        <textarea
+                          rows='4'
+                          [ngModel]='lm.chatRunCommand'
+                          (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
+                          [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0'"
+                        ></textarea>
+                      </label>
+
+                      <label class='field field--full'>
+                        <span>Embedding llama-server command (optional)</span>
+                        <textarea
+                          rows='4'
+                          [ngModel]='lm.embeddingRunCommand'
+                          (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
+                          [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
+                        ></textarea>
+                      </label>
+
+                      <label class='field field--full'>
+                        <span>Hugging Face token (optional)</span>
+                        <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                          Use a <strong>read</strong> token from
+                          <a href='https://huggingface.co/settings/tokens' target='_blank' rel='noopener noreferrer'>huggingface.co/settings/tokens</a>
+                          when <code>-hf</code> pulls hit HTTP 401 (gated or private repos). Clara passes it as
+                          <code>HF_TOKEN</code> / <code>HUGGING_FACE_HUB_TOKEN</code> only for managed Start (chat and embedding
+                          processes). Stored locally in your config like other keys.
+                        </p>
+                        <input
+                          type='password'
+                          autocomplete='off'
+                          spellcheck='false'
+                          [ngModel]='lm.huggingFaceToken ?? ""'
+                          (ngModelChange)='patchLlamaCppManaged({ huggingFaceToken: $event })'
+                          placeholder='hf_...'
+                        />
+                      </label>
+                    </div>
+                  </div>
+                }
+
                 <hr class='settings-divider' />
 
                 <div class='form-section'>
                   <div class='form-section__header'>
-                    <h5>Managed llama-server</h5>
-                    <p class='settings-copy'>
-                      One shell command per process. Each command must include exactly one
-                      <code>{{ managedLlamaPortToken }}</code>
-                      token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
-                      sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code> (the Base URL field above is
-                      unused for managed llama.cpp). Use <code>--host</code> in the command if you bind elsewhere; health
-                      checks use that host.
-                    </p>
+                    <h5>Models from llama-server</h5>
+                    <p class='settings-copy'>Queries <code>GET /v1/models</code> on the running managed chat server (same host/port as in your Start command).</p>
+                  </div>
+                  <div class='form-grid'>
+                    <div class='field field--full llamacpp-models-row'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [disabled]='llamacppModelsListInFlight()'
+                        (click)='refreshLlamacppManagedModels()'
+                      >
+                        @if (llamacppModelsListInFlight()) {
+                          Refreshing…
+                        } @else {
+                          Refresh model list
+                        }
+                      </button>
+                      @if (llamacppModelsListError(); as lerr) {
+                        <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
+                      } @else if (llamacppManagedModelIds().length) {
+                        <span class='lm-studio-status lm-studio-status--ok'>{{ llamacppManagedModelIds().length }} loaded</span>
+                      }
+                    </div>
+                    <label class='field field--full'>
+                      <span>Chat model id</span>
+                      <select [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)'>
+                        @if (selectedModel()?.model && !llamacppManagedModelIds().includes(selectedModel()!.model)) {
+                          <option [value]='selectedModel()!.model'>{{ selectedModel()!.model }} (current)</option>
+                        }
+                        @for (id of llamacppManagedModelIds(); track id) {
+                          <option [value]='id'>{{ id }}</option>
+                        }
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              } @else {
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>OpenAI-compatible source</h5>
+                    <p class='settings-copy'>Endpoint and API key for this source. One chat model id per source.</p>
                   </div>
 
                   <div class='form-grid'>
                     <label class='field field--full'>
-                      <span>Chat llama-server command</span>
-                      <textarea
-                        rows='4'
-                        [ngModel]='lm.chatRunCommand'
-                        (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
-                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0'"
-                      ></textarea>
+                      <span>Source name</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.name'
+                        (ngModelChange)='updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
+
+                    <label class='field'>
+                      <span>Provider type</span>
+                      <select [ngModel]='selectedProvider()!.provider' (ngModelChange)='onProviderKindChange($event)'>
+                        <option value='openai'>OpenAI</option>
+                        <option value='lmstudio'>LM Studio</option>
+                        <option value='llamacpp'>llama.cpp (OpenAI server)</option>
+                      </select>
                     </label>
 
                     <label class='field field--full'>
-                      <span>Embedding llama-server command (optional)</span>
-                      <textarea
-                        rows='4'
-                        [ngModel]='lm.embeddingRunCommand'
-                        (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
-                        [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
-                      ></textarea>
+                      <span>Base URL</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.baseUrl'
+                        (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>API Key</span>
+                      <input
+                        type='password'
+                        [ngModel]='selectedProvider()!.apiKey'
+                        (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
+                      />
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Model (API id)</span>
+                      <input type='text' [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)' />
                     </label>
                   </div>
                 </div>
@@ -333,11 +538,13 @@
 
               <hr class='settings-divider' />
 
-              <div class='form-section'>
-                <div class='form-section__header'>
-                  <h5>Model tuning</h5>
-                  <p class='settings-copy'>Saved only for this preset. Switch presets to use different optimization or sampling.</p>
-                </div>
+              <details class='advanced-tuning'>
+                <summary>Advanced tuning</summary>
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Model tuning</h5>
+                    <p class='settings-copy'>Saved per source. Expand to adjust optimization templates, sampling, and tool-call behavior.</p>
+                  </div>
 
                 <div class='form-grid'>
                   <label class='field field--full'>
@@ -585,6 +792,7 @@
                   </div>
                 </div>
               </div>
+              </details>
 
               <hr class='settings-divider' />
 
@@ -593,7 +801,7 @@
                   @if (connection.provider === 'lmstudio') {
                     LM Studio works well with `http://127.0.0.1:1234/v1`, and the default key can stay `lm-studio` unless your local server expects something else.
                   } @else if (connection.provider === 'llamacpp') {
-                    The app starts <code>llama-server</code> from your preset (sidebar). Use API key only if your server requires auth. Base URL is unused; ports are chosen at Start.
+                    The app starts <code>llama-server</code> from the commands above (sidebar <strong>Start</strong>). Use API key only if your server requires auth. Ports are chosen at Start.
                   } @else {
                     OpenAI providers require a valid API key unless you rely on the backend environment fallback.
                   }
@@ -601,7 +809,7 @@
               </div>
             } @else {
               <div class='empty-state'>
-                <p>Select a model preset to edit tuning and endpoint credentials.</p>
+                <p>Select a source from the list to edit it.</p>
               </div>
             }
           </div>
@@ -643,6 +851,38 @@
                 When on, the main agent can call nested planning tools (<code>plan_and_modify</code>,
                 <code>execute_workspace_mutation</code>). When off (default), use staging edits only—the app is moving
                 toward a new default planning approach.
+              </p>
+            </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='outerPhasedCodingCycle()'
+                  (ngModelChange)='onOuterPhasedCodingCycleChange($event)'
+                />
+                <span>Phased outer coding cycle</span>
+              </label>
+              <p class='settings-copy' style='margin-top: 0.35rem'>
+                When Editor is on, Clara runs a LangGraph <strong>Learn → Write → Verify</strong> loop: read-only discovery,
+                then mutations and nested work, then any pending <strong>staged → workspace</strong> transfers,
+                then pytest/smoke plus LSP diagnostics (bounded retries if checks fail).
+                Off by default.
+              </p>
+            </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='allowStagingOverlayCommands()'
+                  (ngModelChange)='onAllowStagingOverlayCommandsChange($event)'
+                />
+                <span>Allow staging overlay commands</span>
+              </label>
+              <p class='settings-copy' style='margin-top: 0.35rem'>
+                When on, nested code review may run <code>run_staging_overlay_command</code>: a temporary copy of the
+                workspace with staged drafts applied (argv-only subprocess; no shell). Off by default.
               </p>
             </div>
           </div>
@@ -912,6 +1152,7 @@
 
   <footer class='settings-footer'>
     <button type='button' class='action-button action-button--primary settings-close-btn' (click)='closeSettings()'>
+      <lucide-icon name='x' [size]='18' />
       Close
     </button>
   </footer>

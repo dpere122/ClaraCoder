@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  effect,
   ElementRef,
   inject,
   input,
@@ -34,8 +35,11 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   readonly recentOutput = input(false);
   /** Active chat turn: assistant / tools still streaming for the open conversation. */
   readonly llmStreamActive = input(false);
+  /** Increment to retrigger a brief host shake (harness feedback pulse). */
+  readonly shakeNonce = input(0);
 
   protected readonly loadError = signal(false);
+  protected readonly shakeHost = signal(false);
 
   private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('cv');
   private readonly hostRef = viewChild<ElementRef<HTMLDivElement>>('host');
@@ -50,12 +54,39 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private rafId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private disposed = false;
+  private shakeClearTimer: ReturnType<typeof setTimeout> | null = null;
 
   private spinSpeed = 0;
   private bobPhase = 0;
   private bobAmp = 0;
   private baseModelY = 0;
   private cur = { r: 0.78, g: 0.8, b: 0.82, er: 0.04, eg: 0.055, eb: 0.07, ei: 0.06 };
+
+  constructor() {
+    effect((onCleanup) => {
+      const n = this.shakeNonce();
+      if (n <= 0) {
+        return;
+      }
+      if (this.shakeClearTimer != null) {
+        clearTimeout(this.shakeClearTimer);
+        this.shakeClearTimer = null;
+      }
+      this.shakeHost.set(true);
+      this.cdr.markForCheck();
+      this.shakeClearTimer = window.setTimeout(() => {
+        this.shakeHost.set(false);
+        this.shakeClearTimer = null;
+        this.cdr.markForCheck();
+      }, 320);
+      onCleanup(() => {
+        if (this.shakeClearTimer != null) {
+          clearTimeout(this.shakeClearTimer);
+          this.shakeClearTimer = null;
+        }
+      });
+    });
+  }
 
   ngAfterViewInit(): void {
     const canvas = this.canvasRef()?.nativeElement;
@@ -234,7 +265,10 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     const t = performance.now();
     const agg = this.aggregate();
     const targets = crystalVisualTargets(agg);
-    const pulse = agg === 'loading' ? Math.sin(t * 0.003) * targets.loadingPulseAmplitude : 0;
+    const pulse =
+      agg === 'loading' || agg === 'modelDownload' || agg === 'feedbackPositive' || agg === 'feedbackNegative'
+        ? Math.sin(t * 0.003) * targets.loadingPulseAmplitude
+        : 0;
     const targetEi = targets.emissiveIntensity + pulse;
 
     const colorAlpha = expSmoothingAlpha(dt, 0.42);
@@ -256,17 +290,20 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
 
     const llm = this.llmStreamActive();
     const serveOut = this.recentOutput();
-    const targetSpin = (serveOut ? 0.36 : 0) + (llm ? 0.62 : 0);
+    const dl = agg === 'modelDownload';
+    const targetSpin = (dl ? 3.35 : 0) + (serveOut ? 0.36 : 0) + (llm ? 0.62 : 0);
     this.spinSpeed += (targetSpin - this.spinSpeed) * expSmoothingAlpha(dt, 0.28);
 
     let targetBob = 0;
-    if (llm) {
+    if (dl) {
+      targetBob = 0.06;
+    } else if (llm) {
       targetBob = 0.1;
     } else if (serveOut) {
       targetBob = 0.032;
     }
     this.bobAmp += (targetBob - this.bobAmp) * expSmoothingAlpha(dt, 0.24);
-    const bobSpeed = llm ? 4.4 : serveOut ? 2.7 : 0;
+    const bobSpeed = dl ? 3.2 : llm ? 4.4 : serveOut ? 2.7 : 0;
     this.bobPhase += dt * bobSpeed;
 
     if (this.modelRoot) {

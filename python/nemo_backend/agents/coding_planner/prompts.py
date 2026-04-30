@@ -31,22 +31,19 @@ def coding_planner_tool_reference(*, include_lsp_discovery: bool = True) -> str:
         """
         if include_lsp_discovery
         else """
-        - (LSP tools are not available for this task scope—no programming-language source paths were identified. Prefer `retrieve_workspace_semantic` first, then `search_workspace`, `read_workspace_file`, and `list_workspace_directory`; verify each semantic hit by **origin**—workspace hits with reads/search; staging hits with `read_staged_edit` / diff tools, not `read_workspace_file` alone.)
+        - (LSP tools are not available for this task scope—no programming-language source paths were identified; use read/search tools per their descriptions; verify semantic hits by **origin**.)
         """
     )
     return dedent(
         f"""
         Deterministic coding orchestrator (what runs for `plan_and_modify` when the planner is enabled):
-        - **Discovery:** a bounded mini-agent uses read/search tools only: `list_workspace_directory`, `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, and optionally LSP tools below. It ends with a single assistant message starting with `Discovery complete:`.
+        - **Discovery:** bounded mini-agent; routing (semantic vs grep vs disk vs staging vs LSP) follows each bound tool’s description. Ends with one message starting `Discovery complete:`.
         - **Build plan:** a structured LLM call turns the task plus discovery notes into a numbered checklist (build/mutation/verification steps only)—not separate `record_plan` / `execute_plan_step` tools.
         - **Execute:** for each checklist item, the orchestrator composes one nested instruction (routing handoff + context) and runs `run_planning_nested_stream` (nested router → specialists). Staging and **`transfer_staged_file_to_workspace`** apply inside that pipeline.
         - **Final review:** after all steps succeed or loop, the orchestrator runs whole-workspace final project review; on failure it may append a remediation checklist step.
 
-        Discovery-phase tools:
-        - `list_workspace_directory`: when the workspace tree in the prompt is not enough to locate the relevant area.
-        - `retrieve_workspace_semantic`: semantic recall over workspace and staging; verify each hit by **origin**.
-        - `search_workspace` / `read_workspace_file`: gather context before the structured plan is generated.
-        - `ensure_python_workspace_env` (outer/session): workspace `.venv` and dependencies when the task needs Python.
+        Discovery-phase tools (semantics in each tool’s schema, not repeated here):
+        - `list_workspace_directory`, `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, `ensure_python_workspace_env` (outer/session).
         {lsp_lines.strip()}
 
         **Nested pipeline (per checklist step):** the **file-write specialist** uses staging tools; the **code review specialist** diffs staged vs baseline before transfer; **`transfer_staged_file_to_workspace`** commits approved work.
@@ -72,17 +69,22 @@ def build_discovery_system_prompt(
     """Bounded discovery mini-agent: read/search only before structured plan generation."""
     ws = _workspace_hint(session)
     lsp_line = (
-        'Use LSP tools (`lsp_get_document_symbols`, `lsp_hover`, `lsp_find_definition`, `lsp_find_references`, '
-        '`lsp_get_diagnostics`) for Python or TS/JS source when those tools are available.\n'
+        '**LSP-backed source** (`.py`, `.ts`, …): for a concrete path, use LSP tools first (see their descriptions) unless you need a literal span only file reads provide. '
+        'Unknown targets: `retrieve_workspace_semantic` first, then LSP-first on each LSP candidate path.\n'
         if include_lsp_discovery
-        else 'LSP tools are not bound; use `retrieve_workspace_semantic`, `search_workspace`, `read_workspace_file`, '
-        '`list_workspace_directory` only—verify semantic hits by **origin** (staging vs on-disk).\n'
+        else 'LSP tools are not bound; use read/search tools per their descriptions—verify semantic hits by **origin** (staging vs on-disk).\n'
     )
     return (
         'You are the **discovery** sub-phase of the coding orchestrator.\n'
-        '**Allowed:** workspace reads and navigation only (`retrieve_workspace_semantic`, `search_workspace`, '
-        '`read_workspace_file`, `list_workspace_directory`). Semantic recall may include **staging**; verify by **origin** '
-        'in tool output.\n'
+        '**Allowed:** workspace reads and navigation (`retrieve_workspace_semantic`, `search_workspace`, '
+        '`read_workspace_file`, `list_workspace_directory`)'
+        + (
+            ', plus LSP read tools (`lsp_get_document_symbols`, `lsp_hover`, `lsp_find_definition`, '
+            '`lsp_find_references`, `lsp_get_diagnostics`) for Python/TS/JS source.'
+            if include_lsp_discovery
+            else '.'
+        )
+        + ' Semantic recall may include **staging**; verify by **origin** in tool output.\n'
         + lsp_line
         + '**Forbidden in this phase:** staging writes, delegated implementation (nested pipeline), dependency installs, pytest, or summarizing an implementation checklist.\n'
         'Gather the minimum context needed to scope the task. **Do not** draft a numbered implementation checklist, '
@@ -103,11 +105,11 @@ def build_coding_planner_task_prompt(
     cleaned = task_summary.strip() or '(empty task summary)'
     requirements = plan_requirements.strip()
     discovery_line = (
-        '2. Discovery uses read/search/list/LSP tools to gather context before the structured build plan is generated '
-        '(prefer `retrieve_workspace_semantic` first—verify every cited path by **origin**: workspace vs staging).'
+        '2. Discovery follows each bound read/search/list/LSP tool’s description before the structured build plan '
+        '(verify semantic **origin**: workspace vs staging).'
         if include_lsp_discovery
-        else '2. Discovery uses read/search/list tools only (no LSP for this scope) before the structured build plan is generated '
-        '(prefer `retrieve_workspace_semantic` first—verify every cited path by **origin**: workspace vs staging).'
+        else '2. Discovery uses read/search/list tools only (no LSP for this scope) before the structured build plan '
+        '(verify semantic **origin**: workspace vs staging).'
     )
     return dedent(
         f"""

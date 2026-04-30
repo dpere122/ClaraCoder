@@ -3,6 +3,7 @@
  * No Node or Electron imports — safe to import from any compilation unit.
  */
 export type { Workspace } from './types/workspace';
+export { looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel } from './llama-model-download';
 export type {
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -10,6 +11,7 @@ export type {
   LlamaServerStartResult,
   LlamaServerStatusPayload,
   LlamaServerStatusResult,
+  LlamacppManagedListModelsResult,
   LlamaServerStreamKind,
   ManagedServerHealthState,
 } from './types/llama-server-ipc';
@@ -57,6 +59,15 @@ export {
 } from './types/llm-presets';
 export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
 export {
+  PINNED_LM_STUDIO_PROVIDER_ID,
+  PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  isPinnedLmStudioProviderId,
+  isPinnedLlamaServerUrlProviderId,
+  isPinnedLlmSourceId,
+} from './llm-provider-ids';
+export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
+export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
+export {
   collapseExcessiveAssistantBlankLines,
   gemmaTemplateSanitizeActive,
   isPlaceholderThinkingNoise,
@@ -77,6 +88,7 @@ export type {
   StreamPart,
 } from './types/conversation';
 export {
+  auxiliaryTimelineEmbedsToolStatus,
   CLARA_OUTER_BRIEF_STREAM_TAG,
   MOE_AUXILIARY_STREAM_TAG,
   delegatedStreamPartsForDisplay,
@@ -85,10 +97,13 @@ export {
   isMoeAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
+  isToolTrailStatusStreamTag,
   joinAllStreamPartTexts,
   joinPrimaryAssistantStreamText,
   moeStreamPartsForDisplay,
+  multiplexAuxiliaryStreamTimeline,
   otherDelegatedStreamPartsForDisplay,
+  persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
   SHELL_STYLE_TOOL_STREAM_TAGS,
@@ -96,7 +111,10 @@ export {
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
+  toolTrailStatusStreamTag,
+  TOOL_TRAIL_STATUS_STREAM_PREFIX,
 } from './stream-parts';
+export type { PersistedAssistantStreamFields } from './stream-parts';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { normalizePlannerProgress, parseAgentStreamPayload } from './stream-payload';
 export type {

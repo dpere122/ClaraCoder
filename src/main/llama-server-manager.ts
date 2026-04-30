@@ -13,7 +13,8 @@ import type {
   LlamaServerStatusResult,
   ManagedServerHealthState,
 } from '../shared';
-import { findLlmModelLocation, prepareManagedLlamaShellCommand } from '../shared';
+import { findLlmModelLocation, looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel, prepareManagedLlamaShellCommand } from '../shared';
+import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 
@@ -95,7 +96,8 @@ async function pickPort(): Promise<number> {
 }
 
 /**
- * Effective OpenAI-compatible URLs for each llamacpp model row (sentinel when stopped).
+ * Effective OpenAI-compatible URLs for each **managed** llamacpp model (spawned subprocess).
+ * Skips URL-only rows (no ``chatRunCommand``) so Python uses the persisted provider ``baseUrl``.
  */
 export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<string, LlamaManagedRuntimeEndpoints> {
   const out: Record<string, LlamaManagedRuntimeEndpoints> = {};
@@ -104,6 +106,9 @@ export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<strin
       continue;
     }
     for (const m of p.models) {
+      if (!(m.llamaCppManaged?.chatRunCommand ?? '').trim()) {
+        continue;
+      }
       const st = running.get(m.id);
       if (st) {
         out[m.id] = {
@@ -133,6 +138,40 @@ function appendStdout(bucket: StreamBuf, which: StreamKind, chunk: string): void
   }
   const sink = which === 'chat' ? 'lastChatStdout' : 'lastEmbedStdout';
   bucket[sink] = (bucket[sink] + chunk).slice(-2500);
+}
+
+function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
+  const out = which === 'chat' ? bucket.lastChatStdout : bucket.lastEmbedStdout;
+  const err = which === 'chat' ? bucket.lastChatStderr : bucket.lastEmbedStderr;
+  return `${out}\n${err}`.slice(-12_000);
+}
+
+function buildManagedLlamaSpawnEnv(managed: LlamaCppManaged | undefined): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const tok = managed?.huggingFaceToken?.trim();
+  if (tok) {
+    env.HF_TOKEN = tok;
+    env.HUGGING_FACE_HUB_TOKEN = tok;
+  }
+  return env;
+}
+
+function hfWarmHintFromLogs(logBuf: StreamBuf, kind: StreamKind): string {
+  const t = logTailForStream(logBuf, kind).toLowerCase();
+  if (
+    /401|hf_token|hf token|hugging\s*face|gated model|model is private|private or does not exist|provide a valid hf token|invalid credentials/.test(
+      t,
+    )
+  ) {
+    return ' Hugging Face rejected the request (often HTTP 401 for gated or private repos). Set a read token in Clara → Settings → Models → this preset → Hugging Face token (used when you Start managed servers), or set HF_TOKEN in your user environment.';
+  }
+  if (/repository not found|"error":\s*"repository not found"|manifests\//i.test(t)) {
+    return ' Hugging Face returned 404 (unknown repo, branch, or manifest/quantization tag in your chat `-hf` command). Fix chat first: the embedding server starts only after chat is healthy, so a bad chat preset used to abort an embed download mid-way.';
+  }
+  if (/head failed,\s*status:\s*404|no remote preset found/.test(t)) {
+    return ' A remote preset or file returned 404—verify the model id and file name. Some downloads still require a Hugging Face token.';
+  }
+  return '';
 }
 
 function appendStderrQuiet(bucket: StreamBuf, which: StreamKind, chunk: string): void {
@@ -216,50 +255,38 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
 
   const logBuf: StreamBuf = { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
   let embedProc: ChildProcess | undefined;
+  const spawnEnv = buildManagedLlamaSpawnEnv(managed);
 
   try {
-    if (embedBuilt && embedPort != null) {
-      embedProc = spawn(embedBuilt.command, {
-        shell: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: { ...process.env },
-      });
-      attachLlamaStreams(modelId, 'embed', embedProc, logBuf);
-      embedProc.on('error', () => {
-        /* spawn errors surface via exit / health wait */
-      });
-    }
-
+    /**
+     * Start chat first and wait for ``/health`` before spawning embedding.
+     * If chat fails (e.g. wrong ``-hf`` / 404), we must not have started embed yet—otherwise
+     * ``stopManagedLlamaServers`` would kill a long embed download that was never going to be used.
+     */
     const chatProc = spawn(chatBuilt.command, {
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      env: { ...process.env },
+      env: spawnEnv,
     });
     attachLlamaStreams(modelId, 'chat', chatProc, logBuf);
     chatProc.on('error', () => {
       /* spawn errors surface via exit / health wait */
     });
 
-    running.set(modelId, {
-      chatProc,
-      embedProc,
-      chatPort,
-      embedPort,
-      chatHost: chatBuilt.host,
-      embedHost: embedBuilt?.host,
-      logBuf,
-    });
-
     const chatHost = chatBuilt.host;
-    const chatWait = await waitForHealth(chatHost, chatPort, 120_000, chatProc);
+    const chatBudgetMs = managedLlamaCmdUsesHfRemoteModel(chatCmd) ? HEALTH_WAIT_HF_CMD_MS : HEALTH_WAIT_DEFAULT_MS;
+    const chatWait = await waitForHealth(chatHost, chatPort, chatBudgetMs, {
+      proc: chatProc,
+      getLogTail: () => logTailForStream(logBuf, 'chat'),
+      modelId,
+    });
     if (chatWait !== 'ok') {
-      stopManagedLlamaServers(modelId);
+      killProcessTree(chatProc);
       if (chatWait === 'exited') {
         return {
           ok: false,
-          error: shortEarlyExitError('Chat', chatProc),
+          error: shortEarlyExitError('Chat', chatProc, logBuf, 'chat'),
         };
       }
       return {
@@ -268,15 +295,51 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       };
     }
 
-    if (embedProc && embedPort != null && embedBuilt) {
+    running.set(modelId, {
+      chatProc,
+      embedProc: undefined,
+      chatPort,
+      embedPort: undefined,
+      chatHost: chatBuilt.host,
+      embedHost: undefined,
+      logBuf,
+    });
+    invalidateManagedStatusCache(modelId);
+    await syncWithManagedLlamaOverrides(config);
+
+    if (embedBuilt && embedPort != null) {
+      embedProc = spawn(embedBuilt.command, {
+        shell: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+        env: spawnEnv,
+      });
+      attachLlamaStreams(modelId, 'embed', embedProc, logBuf);
+      embedProc.on('error', () => {
+        /* spawn errors surface via exit / health wait */
+      });
+
+      const st = running.get(modelId);
+      if (st) {
+        st.embedProc = embedProc;
+        st.embedPort = embedPort;
+        st.embedHost = embedBuilt.host;
+      }
+      invalidateManagedStatusCache(modelId);
+
       const embHost = embedBuilt.host;
-      const embWait = await waitForHealth(embHost, embedPort, 120_000, embedProc);
+      const embedBudgetMs = managedLlamaCmdUsesHfRemoteModel(embedCmd) ? HEALTH_WAIT_HF_CMD_MS : HEALTH_WAIT_DEFAULT_MS;
+      const embWait = await waitForHealth(embHost, embedPort, embedBudgetMs, {
+        proc: embedProc,
+        getLogTail: () => logTailForStream(logBuf, 'embed'),
+        modelId,
+      });
       if (embWait !== 'ok') {
         stopManagedLlamaServers(modelId);
         if (embWait === 'exited') {
           return {
             ok: false,
-            error: shortEarlyExitError('Embedding', embedProc),
+            error: shortEarlyExitError('Embedding', embedProc, logBuf, 'embed'),
           };
         }
         return {
@@ -287,6 +350,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     }
 
     await syncWithManagedLlamaOverrides(config);
+    sendToRenderer('llama-server-lifecycle', { phase: 'running', modelId });
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -295,12 +359,12 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   }
 }
 
-function shortEarlyExitError(label: string, proc: ChildProcess): string {
+function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBuf, kind: StreamKind): string {
   const code = proc.exitCode;
   const sig = proc.signalCode;
   const why =
     code !== null ? `exit ${code}` : sig != null ? `signal ${sig}` : 'exited unexpectedly';
-  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for stdout; stderr is not mirrored to app logs.`;
+  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for stdout; stderr is not mirrored to app logs.${hfWarmHintFromLogs(logBuf, kind)}`;
 }
 
 function fetchWithTimeout(url: string, ms: number): Promise<Response> {
@@ -315,15 +379,36 @@ function childHasExited(proc: ChildProcess): boolean {
 
 type HealthWait = 'ok' | 'timeout' | 'exited';
 
+interface HealthWaitContext {
+  proc?: ChildProcess;
+  /** Recent stdout+stderr for this stream (used to detect long HF / model downloads). */
+  getLogTail?: () => string;
+  modelId?: string;
+}
+
+const HEALTH_POLL_MS = 500;
+/** Default wait when the command does not look like a remote HF pull. */
+const HEALTH_WAIT_DEFAULT_MS = 120_000;
+/** First-time ``-hf`` pulls can take a long time; keep polling until ready or hard cap. */
+const HEALTH_WAIT_HF_CMD_MS = 50 * 60 * 1000;
+/** Never block longer than this from ``start`` even if logs keep matching download heuristics. */
+const HEALTH_WAIT_HARD_CAP_MS = 58 * 60 * 1000;
+/** When download-like logs appear, extend the soft deadline by this much (capped by hard cap). */
+const HEALTH_EXTEND_ON_DOWNLOAD_MS = 22 * 60 * 1000;
+
 async function waitForHealth(
   host: string,
   port: number,
-  timeoutMs: number,
-  proc?: ChildProcess,
+  initialBudgetMs: number,
+  ctx?: HealthWaitContext,
 ): Promise<HealthWait> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (proc && childHasExited(proc)) {
+  const startedAt = Date.now();
+  const hardCap = startedAt + HEALTH_WAIT_HARD_CAP_MS;
+  let deadline = startedAt + Math.min(initialBudgetMs, HEALTH_WAIT_HARD_CAP_MS);
+  let downloadLifecycleSent = false;
+
+  while (Date.now() < Math.min(deadline, hardCap)) {
+    if (ctx?.proc && childHasExited(ctx.proc)) {
       return 'exited';
     }
     try {
@@ -332,9 +417,19 @@ async function waitForHealth(
         return 'ok';
       }
     } catch {
-      /* still loading */
+      /* still loading or not listening yet */
     }
-    await new Promise((r) => setTimeout(r, 500));
+
+    const tail = ctx?.getLogTail?.() ?? '';
+    if (tail && looksLikeLlamaModelDownload(tail)) {
+      if (!downloadLifecycleSent && ctx?.modelId) {
+        downloadLifecycleSent = true;
+        sendToRenderer('llama-server-lifecycle', { phase: 'downloading', modelId: ctx.modelId });
+      }
+      deadline = Math.min(hardCap, Math.max(deadline, Date.now() + HEALTH_EXTEND_ON_DOWNLOAD_MS));
+    }
+
+    await new Promise((r) => setTimeout(r, HEALTH_POLL_MS));
   }
   return 'timeout';
 }
@@ -381,6 +476,51 @@ async function probeOnce(host: string, port: number): Promise<ManagedServerHealt
   return 'error';
 }
 
+function httpPortForDisplay(rootUrl: string): number {
+  try {
+    const u = new URL(rootUrl);
+    if (u.port) {
+      return Number.parseInt(u.port, 10) || 0;
+    }
+    return u.protocol === 'https:' ? 443 : 80;
+  } catch {
+    return 0;
+  }
+}
+
+async function getRemoteLlamacppUrlStatus(modelId: string, openAiV1BaseUrl: string): Promise<LlamaServerStatusResult> {
+  const root = openAiV1BaseToServerRoot(openAiV1BaseUrl);
+  if (!root) {
+    return {
+      ok: true,
+      remote: true,
+      running: false,
+      modelId,
+      chat: { port: 0, health: 'error' },
+    };
+  }
+  const port = httpPortForDisplay(root);
+  try {
+    const res = await fetchWithTimeout(`${root}/health`, 2000);
+    const health: ManagedServerHealthState = res.ok ? 'ok' : 'error';
+    return {
+      ok: true,
+      remote: true,
+      running: false,
+      modelId,
+      chat: { port, health },
+    };
+  } catch {
+    return {
+      ok: true,
+      remote: true,
+      running: false,
+      modelId,
+      chat: { port, health: 'error' },
+    };
+  }
+}
+
 export async function getManagedLlamaStatus(
   modelId: string,
   config: AppConfig,
@@ -392,7 +532,19 @@ export async function getManagedLlamaStatus(
   const m: LlmModelProfile = loc.model;
   const managed = m.llamaCppManaged;
   const st = running.get(modelId);
-  if (!st || !managed) {
+  if (!st) {
+    invalidateManagedStatusCache(modelId);
+    if (!(managed?.chatRunCommand ?? '').trim()) {
+      return getRemoteLlamacppUrlStatus(modelId, loc.provider.baseUrl);
+    }
+    return {
+      ok: true,
+      running: false,
+      modelId,
+      chat: { port: 0, health: 'stopped' },
+    };
+  }
+  if (!managed) {
     invalidateManagedStatusCache(modelId);
     return {
       ok: true,
@@ -428,6 +580,15 @@ export async function getManagedLlamaStatus(
   };
   statusCache = { modelId, at: Date.now(), result: out };
   return out;
+}
+
+/** OpenAI-compatible ``…/v1`` base URL for the managed chat server when it is running; otherwise ``null``. */
+export function getManagedChatOpenAiBaseUrl(modelId: string): string | null {
+  const st = running.get(modelId);
+  if (!st) {
+    return null;
+  }
+  return `http://${st.chatHost}:${st.chatPort}/v1`;
 }
 
 /** True if the active model preset has running managed servers. */

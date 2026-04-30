@@ -43,8 +43,8 @@ def test_standard_includes_staging_write_tools() -> None:
         'stage_snippet_edit',
     ]
     lsp_mut = {'lsp_create_python_file', 'lsp_update_python_file'}
-    transfer_names = {'approve_staged_workspace_edit', 'transfer_staged_file_to_workspace'}
-    staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black'}
+    transfer_names = {'transfer_staged_file_to_workspace'}
+    staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert hitl_delete_pause_tools() == frozenset(
         {'batch_delete_workspace_entries', 'delete_workspace_entry', 'lsp_delete_python_file'}
@@ -57,8 +57,8 @@ def test_strict_omits_snippet_tool() -> None:
     names = [t.name for t in staging_workspace_write_tools(True)]
     assert names == ['stage_create_file', 'stage_workspace_file_overwrite', 'stage_line_range_edit']
     lsp_mut = {'lsp_create_python_file', 'lsp_update_python_file'}
-    transfer_names = {'approve_staged_workspace_edit', 'transfer_staged_file_to_workspace'}
-    staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black'}
+    transfer_names = {'transfer_staged_file_to_workspace'}
+    staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert 'stage_snippet_edit' not in hitl_diff_pause_tools()
     assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
@@ -138,6 +138,19 @@ def test_outer_agent_tools() -> None:
     assert 'execute_workspace_mutation' not in map_off
 
 
+def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> None:
+    """Later merge layers must re-use the same tool objects as python/node deps and LSP reads (no forked descriptions)."""
+    from nemo_backend.lsp.tools import lsp_get_diagnostics
+    from nemo_backend.node_dependency_agent import install_npm_packages_tool
+    from nemo_backend.python_dependency_agent import install_python_packages_tool
+
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    _tools, mapping = worker_tools_and_map(True)
+    assert mapping['lsp_get_diagnostics'] is lsp_get_diagnostics
+    assert mapping['install_python_packages'] is install_python_packages_tool
+    assert mapping['install_npm_packages'] is install_npm_packages_tool
+
+
 def test_outer_workspace_edit_guard_blocks_code_extensions() -> None:
     assert outer_workspace_edit_guard_error('src/foo.py') is not None
     assert outer_workspace_edit_guard_error('app.tsx') is not None
@@ -177,6 +190,8 @@ def test_code_review_specialist_tools_are_staging_only() -> None:
         'search_staged_edits',
         'lsp_get_diagnostics',
         'format_staging_file_black',
+        'format_staging_file_prettier',
+        'run_staging_overlay_command',
         'transfer_staged_file_to_workspace',
         'reject_staged_workspace_edit',
     }
@@ -275,6 +290,9 @@ def test_write_specialist_tools_unions_create_and_update_surfaces() -> None:
         'stage_workspace_file_overwrite',
         'stage_line_range_edit',
         'stage_snippet_edit',
+        'format_staging_file_black',
+        'format_staging_file_prettier',
+        'lsp_get_diagnostics',
     ]
     tools, tool_map = write_specialist_tools(False)
     assert [t.name for t in tools] == recon_names + author_names

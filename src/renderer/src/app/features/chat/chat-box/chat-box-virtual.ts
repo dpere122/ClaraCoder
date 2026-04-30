@@ -23,6 +23,7 @@ export type ChatRowHeightInput =
         planner?: { steps: readonly unknown[] };
         toolStreams?: readonly unknown[] | null;
         moeStreams?: readonly unknown[] | null;
+        auxiliaryStreamTimeline?: readonly unknown[] | null;
       } | null;
       chainGroups: readonly { rows: readonly unknown[] }[];
       artifacts: readonly { role: string }[];
@@ -60,13 +61,18 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
       }
     }
   }
-  const streams = row.assistant?.toolStreams?.length ?? 0;
-  if (streams > 0) {
-    h += streams * Math.min(200, 80 + linePx * 3);
-  }
-  const moeStreams = row.assistant?.moeStreams?.length ?? 0;
-  if (moeStreams > 0) {
-    h += moeStreams * Math.min(220, 56 + linePx * 4);
+  const timeline = row.assistant?.auxiliaryStreamTimeline?.length ?? 0;
+  if (timeline > 0) {
+    h += Math.min(520, 72 + timeline * Math.min(140, 56 + linePx * 2.5));
+  } else {
+    const streams = row.assistant?.toolStreams?.length ?? 0;
+    if (streams > 0) {
+      h += streams * Math.min(200, 80 + linePx * 3);
+    }
+    const moeStreams = row.assistant?.moeStreams?.length ?? 0;
+    if (moeStreams > 0) {
+      h += moeStreams * Math.min(220, 56 + linePx * 4);
+    }
   }
   for (const art of row.artifacts) {
     if (art.role === 'diff') h += 240;

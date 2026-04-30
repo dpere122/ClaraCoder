@@ -3,6 +3,8 @@
 from nemo_backend.domain import RuntimeConnection
 from nemo_backend.llm_visible_text import (
     gemma_template_sanitize_active_connection,
+    is_auxiliary_reasoning_placeholder_delta,
+    is_placeholder_stream_delta,
     is_placeholder_thinking_noise,
     maybe_sanitize_gemma_visible_assistant_text,
     sanitize_gemma_visible_assistant_text,
@@ -86,3 +88,29 @@ def test_placeholder_thinking_noise_normal_text() -> None:
 
 def test_placeholder_thinking_noise_short_question_marks() -> None:
     assert is_placeholder_thinking_noise('???') is False
+
+
+def test_placeholder_thinking_noise_slash_wall() -> None:
+    assert is_placeholder_thinking_noise('/' * 40) is True
+
+
+def test_placeholder_thinking_noise_url_like_not_noise() -> None:
+    assert is_placeholder_thinking_noise('See https://example.com/foo/bar for details.') is False
+
+
+def test_placeholder_stream_delta_slash_chunk() -> None:
+    assert is_placeholder_stream_delta('/' * 12) is True
+
+
+def test_placeholder_stream_delta_normal_chunk() -> None:
+    assert is_placeholder_stream_delta('Hello world.') is False
+
+
+def test_auxiliary_reasoning_placeholder_single_slash() -> None:
+    assert is_auxiliary_reasoning_placeholder_delta('/') is True
+    assert is_auxiliary_reasoning_placeholder_delta(' / \n / ') is True
+
+
+def test_auxiliary_reasoning_placeholder_keeps_mixed_text() -> None:
+    assert is_auxiliary_reasoning_placeholder_delta('a/b') is False
+    assert is_auxiliary_reasoning_placeholder_delta('step / 2') is False

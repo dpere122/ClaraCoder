@@ -297,6 +297,71 @@ class TestRunPlanningNestedStream:
         release_router.set()
         await task
 
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.run_specialist_agent_stream')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
+    @patch('nemo_backend.agents.orchestration.nested_pipeline.activate_session_lsp_scope')
+    async def test_write_chains_code_review_when_only_existing_staged_paths_change(
+        self,
+        _mock_activate_scope: Any,
+        mock_create: Any,
+        mock_build: Any,
+        mock_run_specialist: Any,
+    ) -> None:
+        """After write, pending keys may match pre-write keys (draft revision); review must still run."""
+        mock_build.return_value = MagicMock()
+        captured_router_tools: list[Any] = []
+        release_router = asyncio.Event()
+        kinds: list[str] = []
+
+        async def _specialist_side_effect(
+            session: SessionState,
+            session_id: str,
+            kind: str,
+            *_a: Any,
+            **_kw: Any,
+        ) -> str:
+            kinds.append(kind)
+            if kind == 'write':
+                return 'Applied in-place edit.'
+            if kind == 'code_review':
+                return 'Reviewer transferred pending paths.'
+            return ''
+
+        mock_run_specialist.side_effect = _specialist_side_effect
+
+        async def _router_stream(*_a: Any, **_kw: Any):
+            await release_router.wait()
+            yield {'event': 'on_chain_start', 'data': {}}
+
+        router_graph = MagicMock()
+        router_graph.astream_events = _router_stream
+
+        def _capture_create(*args: Any, **kwargs: Any) -> Any:
+            if kwargs.get('name') == 'nemo_planning_router':
+                captured_router_tools.extend(args[1])
+                return router_graph
+            return MagicMock()
+
+        mock_create.side_effect = _capture_create
+
+        session = SessionState()
+        session.pending_edit_stagings = {'revise.py': MagicMock()}
+        nested_q: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(run_planning_nested_stream(session, 'sess-1', 'edit task', nested_q, None))
+        await asyncio.sleep(0)
+
+        route_write = next(tool for tool in captured_router_tools if tool.name == 'route_write_specialist')
+        out = await route_write.ainvoke({'task_instruction': 'Update revise.py'})
+
+        assert 'write' in kinds and 'code_review' in kinds
+        assert kinds.index('write') < kinds.index('code_review')
+        assert 'Code review outcome:' in out
+        assert 'Reviewer transferred pending paths.' in out
+
+        release_router.set()
+        await task
+
     @patch('nemo_backend.agents.orchestration.nested_pipeline.build_llm')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.create_agent')
     @patch('nemo_backend.agents.orchestration.nested_pipeline.activate_session_lsp_scope')

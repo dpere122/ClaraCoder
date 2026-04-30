@@ -248,6 +248,39 @@ def test_chat_model_end_emits_moe_sidecar_when_not_streamed() -> None:
     assert '"type": "status"' in lines[1]
 
 
+def test_chat_model_end_emits_token_usage_when_usage_metadata_present() -> None:
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_start',
+            'data': {'input': []},
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    msg = AIMessage(
+        content='Ok.',
+        usage_metadata={'input_tokens': 900, 'output_tokens': 12, 'total_tokens': 912},
+    )
+    lines = sse_lines_for_graph_event(
+        {'event': 'on_chat_model_end', 'data': {'output': msg}},
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    usage_lines = [ln for ln in lines if '"type": "token_usage"' in ln]
+    assert len(usage_lines) == 1
+    assert '900' in usage_lines[0]
+    assert '12' in usage_lines[0]
+
+
 def test_hitl_sse_lines_diff_sentinel_only() -> None:
     from nemo_backend.agent_langgraph import _hitl_sse_lines
     from nemo_backend.domain import SessionState

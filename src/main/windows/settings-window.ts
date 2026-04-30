@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron';
 import path = require('path');
 import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
+import { resolveAppIconPath } from '../utils/app-icon';
 
 function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
@@ -24,6 +25,7 @@ export function createSettingsWindow(): void {
     return;
   }
 
+  const icon = resolveAppIconPath();
   mainState.settingsWindow = new BrowserWindow({
     width: 1440,
     height: 800,
@@ -33,6 +35,8 @@ export function createSettingsWindow(): void {
     resizable: false,
     maximizable: false,
     show: false,
+    title: 'Clara Coder — Settings',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

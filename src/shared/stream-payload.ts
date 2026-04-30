@@ -16,12 +16,20 @@ export type ParsedAgentStreamPayload =
       /** Full or tail replay when live chunks were empty or incomplete (pytest/smoke). */
       outputExcerpt?: string;
     }
+  | {
+      type: 'token_usage';
+      /** Prompt tokens for the completed request (OpenAI ``prompt_tokens`` / LangChain ``input_tokens``). */
+      inputTokens: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    }
   | { type: 'status'; status: LlmStatusPayload }
   | { type: 'planner'; planner: PlannerProgress }
   | { type: 'diff'; diff: FileDiffPayload }
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
-  | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload };
+  | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
+  | { type: 'harness_crystal'; polarity: 'positive' | 'negative' };
 
 type RawAgentStreamPayload = {
   type?: string;
@@ -30,6 +38,10 @@ type RawAgentStreamPayload = {
   label?: string;
   exit_code?: unknown;
   output_excerpt?: unknown;
+  polarity?: string;
+  input_tokens?: unknown;
+  output_tokens?: unknown;
+  total_tokens?: unknown;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
   planner?: PlannerProgress;
   diff?: unknown;
@@ -204,6 +216,34 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
         delta: parsed.delta,
         streamTag: optionalTrimmedString(parsed.stream_tag),
       };
+    }
+
+    if (parsed.type === 'token_usage') {
+      const inputRaw = parsed.input_tokens;
+      if (typeof inputRaw === 'number' && Number.isFinite(inputRaw) && inputRaw >= 0) {
+        const out: {
+          type: 'token_usage';
+          inputTokens: number;
+          outputTokens?: number;
+          totalTokens?: number;
+        } = { type: 'token_usage', inputTokens: Math.floor(inputRaw) };
+        const oraw = parsed.output_tokens;
+        const traw = parsed.total_tokens;
+        if (typeof oraw === 'number' && Number.isFinite(oraw) && oraw >= 0) {
+          out.outputTokens = Math.floor(oraw);
+        }
+        if (typeof traw === 'number' && Number.isFinite(traw) && traw >= 0) {
+          out.totalTokens = Math.floor(traw);
+        }
+        return out;
+      }
+    }
+
+    if (parsed.type === 'harness_crystal') {
+      const pol = parsed.polarity;
+      if (pol === 'positive' || pol === 'negative') {
+        return { type: 'harness_crystal', polarity: pol };
+      }
     }
   } catch {
     // Fall through to plain text chunks.

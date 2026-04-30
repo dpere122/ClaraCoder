@@ -1,7 +1,15 @@
 import type { LlamaServerStatusPayload, LlamaServerStatusResult, ManagedServerHealthState } from '@shared/index';
 
-/** Single hue channel for the crystal (derived from smoothed server status). */
-export type LlamaCrystalAggregate = 'off' | 'loading' | 'ok' | 'error';
+/** Single hue channel for the crystal (derived from smoothed server status or transient harness feedback). */
+export type LlamaCrystalAggregate =
+  | 'off'
+  | 'loading'
+  /** Remote model weights are being fetched (HF / first pull); crystal spins fast. */
+  | 'modelDownload'
+  | 'ok'
+  | 'error'
+  | 'feedbackPositive'
+  | 'feedbackNegative';
 
 const STABLE_OK_MS = 15_000;
 const UNSTABLE_MS = 2_500;
@@ -71,6 +79,13 @@ export function crystalVisualTargets(aggregate: LlamaCrystalAggregate): LlamaCry
         emissiveIntensity: 0.18,
         loadingPulseAmplitude: 0.06,
       };
+    case 'modelDownload':
+      return {
+        baseRgb: [0.62, 0.78, 0.92],
+        emissiveRgb: [0.12, 0.38, 0.62],
+        emissiveIntensity: 0.22,
+        loadingPulseAmplitude: 0.08,
+      };
     case 'ok':
       return {
         baseRgb: [0.72, 0.84, 0.8],
@@ -84,6 +99,20 @@ export function crystalVisualTargets(aggregate: LlamaCrystalAggregate): LlamaCry
         emissiveRgb: [0.35, 0.1, 0.14],
         emissiveIntensity: 0.2,
         loadingPulseAmplitude: 0,
+      };
+    case 'feedbackPositive':
+      return {
+        baseRgb: [0.62, 0.86, 0.78],
+        emissiveRgb: [0.08, 0.55, 0.42],
+        emissiveIntensity: 0.26,
+        loadingPulseAmplitude: 0.04,
+      };
+    case 'feedbackNegative':
+      return {
+        baseRgb: [0.86, 0.74, 0.58],
+        emissiveRgb: [0.55, 0.22, 0.62],
+        emissiveIntensity: 0.24,
+        loadingPulseAmplitude: 0.04,
       };
     default:
       return crystalVisualTargets('off');

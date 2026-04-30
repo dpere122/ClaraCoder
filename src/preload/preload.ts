@@ -44,8 +44,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ) => void,
   ) => ipcRenderer.on('message-tool-exec-complete', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
+  onMessageTokenUsage: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      usage: { inputTokens: number; outputTokens?: number; totalTokens?: number },
+    ) => void,
+  ) => ipcRenderer.on('message-token-usage', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),
+  onMessageHarnessCrystal: (
+    callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
+  ) => ipcRenderer.on('message-harness-crystal', callback),
   onMessagePlanner: (callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void) =>
     ipcRenderer.on('message-planner', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
@@ -107,7 +117,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ) => ipcRenderer.invoke('write-workspace-file', workspaceRoot, relativePath, content, options),
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   getConversations: (workspaceId?: string | null) => ipcRenderer.invoke('get-conversations', workspaceId),
-  loadConversation: (id: string, workspaceId?: string | null) => ipcRenderer.invoke('load-conversation', id, workspaceId),
+  readConversationFromDisk: (id: string, workspaceId?: string | null) =>
+    ipcRenderer.invoke('read-conversation-from-disk', id, workspaceId),
+  loadConversation: (id: string, workspaceId?: string | null, options?: { skipPythonResync?: boolean }) =>
+    ipcRenderer.invoke('load-conversation', id, workspaceId, options),
   saveConversation: (conv: unknown) => ipcRenderer.invoke('save-conversation', conv),
   deleteConversation: (id: string, workspaceId?: string | null) => ipcRenderer.invoke('delete-conversation', id, workspaceId),
   renameConversation: (id: string, title: string, workspaceId?: string | null) =>
@@ -138,6 +151,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   llamaServerStop: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llama-server:stop', payload),
   llamaServerStatus: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llama-server:status', payload),
+  llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>
+    ipcRenderer.invoke('llamacpp-managed:list-models', payload),
+  llamacppOpenAiListModels: (payload: { baseUrl: string; apiKey: string }) =>
+    ipcRenderer.invoke('llamacpp-openai:list-models', payload),
+  lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('lm-studio:list-models', payload),
+  lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) =>
+    ipcRenderer.invoke('lm-studio:load-model', payload),
+  lmStudioUnloadModel: (payload: { baseUrl: string; instanceId: string; apiKey?: string }) =>
+    ipcRenderer.invoke('lm-studio:unload-model', payload),
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
   addWorkspace: (name: string, p: string) => ipcRenderer.invoke('add-workspace', name, p),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),

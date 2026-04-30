@@ -11,6 +11,9 @@
     "setup:python": "python -m pip install -r python/requirements.txt",
     "check:python-deps": "python -m pip install -r python/requirements-dev.txt -q && python -m pip check && cd python && python -m deptry .",
     "build": "tsc -p ./ && npm run build --prefix src/renderer",
+    "pack": "npm run build && node scripts/run-electron-builder.mjs",
+    "pack:dir": "npm run build && node scripts/run-electron-builder.mjs --dir",
+    "render:icon": "python scripts/render_clara_coder_icon.py",
     "start": "electron dist/main/index.js",
     "dev": "concurrently \"npm start --prefix src/renderer\" \"tsc -p ./ --watch --preserveWatchOutput\" \"wait-on http://localhost:4200 && cross-env DEV_SERVER_URL=http://localhost:4200 electronmon dist/main/index.js\"",
     "dev:lmstudio": "cross-env NEMO_LLM_PROVIDER=lmstudio NEMO_AUDIO_PROVIDER=openai npm run dev"
@@ -27,7 +30,6 @@
     ]
   },
   "dependencies": {
-    "electron": "^41.0.4",
     "iconv-lite": "^0.6.3",
     "node-pty": "^1.1.0",
     "systeminformation": "^5.31.5"
@@ -38,7 +40,10 @@
     "@typescript-eslint/parser": "^8.57.3-alpha.2",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
+    "electron": "^41.0.4",
+    "electron-builder": "^26.8.1",
     "electronmon": "^2.0.4",
+    "prettier": "^3.8.1",
     "ts-node": "^10.9.2",
     "typescript": "5.8.3",
     "typescript-language-server": "^5.1.3",

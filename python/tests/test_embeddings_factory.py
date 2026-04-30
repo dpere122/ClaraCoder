@@ -36,7 +36,7 @@ def test_build_embedding_model_skips_llamacpp_when_chat_base_uses_port_zero(monk
     def _no(*_a: object, **_k: object) -> None:
         called.append(True)
 
-    monkeypatch.setattr(ef, 'OpenAIEmbedding', _no)
+    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
 
     emb, err = ef.build_embedding_model(_llamacpp_conn(base_url='http://127.0.0.1:0/v1'))
     assert emb is None
@@ -53,7 +53,7 @@ def test_build_embedding_model_skips_llamacpp_when_embeddings_disabled(monkeypat
     def _no(*_a: object, **_k: object) -> None:
         called.append(True)
 
-    monkeypatch.setattr(ef, 'OpenAIEmbedding', _no)
+    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
 
     emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_enabled=False))
     assert emb is None
@@ -61,7 +61,7 @@ def test_build_embedding_model_skips_llamacpp_when_embeddings_disabled(monkeypat
     assert not called
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.OpenAIEmbedding')
+@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_llamacpp_disabled_still_uses_nemo_embeddings_url(mock_ctor: MagicMock, monkeypatch) -> None:
     from nemo_backend.workspace_index import embeddings_factory as ef
 
@@ -75,7 +75,7 @@ def test_build_embedding_model_llamacpp_disabled_still_uses_nemo_embeddings_url(
     assert emb is mock_inst
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.OpenAIEmbedding')
+@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_respects_nemo_embeddings_base_url(mock_ctor: MagicMock, monkeypatch) -> None:
     from nemo_backend.workspace_index import embeddings_factory as ef
 
@@ -91,7 +91,7 @@ def test_build_embedding_model_respects_nemo_embeddings_base_url(mock_ctor: Magi
     assert kwargs.get('api_base') == 'http://127.0.0.1:9000/v1'
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.OpenAIEmbedding')
+@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_per_connection_embeddings_base_url_over_env(mock_ctor: MagicMock, monkeypatch) -> None:
     from nemo_backend.workspace_index import embeddings_factory as ef
 
@@ -108,7 +108,7 @@ def test_build_embedding_model_per_connection_embeddings_base_url_over_env(mock_
     assert kwargs.get('api_base') == 'http://127.0.0.1:7777/v1'
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.OpenAIEmbedding')
+@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: MagicMock, monkeypatch) -> None:
     from nemo_backend.workspace_index import embeddings_factory as ef
 
@@ -122,3 +122,12 @@ def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: Magic
     assert emb is mock_inst
     kwargs = mock_ctor.call_args.kwargs
     assert kwargs.get('api_key') == 'secret-emb'
+
+
+def test_chunk_text_for_embedding_splits_long_text() -> None:
+    from nemo_backend.workspace_index.embeddings_factory import _chunk_text_for_embedding
+
+    long = ('word ' * 3000).strip()
+    parts = _chunk_text_for_embedding(long, 64)
+    assert len(parts) > 1
+    assert all(p.strip() for p in parts)

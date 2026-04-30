@@ -13,8 +13,9 @@ final project review (without ``approve_project_review`` / ``reject_project_revi
 :mod:`nemo_backend.agents.orchestration.nested_pipeline`.
 
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
-``transfer_staged_file_to_workspace`` / ``approve_staged_workspace_edit`` build a diff and defer the disk write until
-the user confirms in chat (or returns for re-review) unless auto-apply is on.
+``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
+the user confirms in chat (or returns for re-review) unless auto-apply is on. The phased outer **verify** subgraph
+also binds inspect + ``transfer_staged_file_to_workspace`` so pending drafts can land before pytest/smoke.
 """
 
 from __future__ import annotations
@@ -30,11 +31,14 @@ from nemo_backend.delete_tool import (
     delete_workspace_entry,
 )
 from nemo_backend.agents.specialists.review_tools import (
+    DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME,
     FORMAT_STAGING_FILE_BLACK_NAME,
+    FORMAT_STAGING_FILE_PRETTIER_NAME,
+    LIST_STAGED_EDITS_NAME,
+    READ_STAGED_EDIT_NAME,
     REJECT_STAGED_WORKSPACE_EDIT_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
 )
-from nemo_backend.edit_tool import APPROVE_STAGED_WORKSPACE_EDIT_NAME
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
 from nemo_backend.node_dependency_agent import (
     INSTALL_NPM_PACKAGES_NAME,
@@ -57,7 +61,23 @@ from nemo_backend.lsp.tools import (
 from nemo_backend.staging_edit_tools import STAGING_TOOLS
 from nemo_backend.state import runtime_config
 from nemo_backend.workspace_tools import TOOLS, TOOL_MAP
+
 WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)
+
+# Outer phased graph — Verify: land pending staged→workspace transfers, then workspace tests, then LSP reads.
+OUTER_VERIFY_STAGING_TRANSFER_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        LIST_STAGED_EDITS_NAME,
+        DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME,
+        READ_STAGED_EDIT_NAME,
+        TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
+        REJECT_STAGED_WORKSPACE_EDIT_NAME,
+    }
+)
+# Pytest + smoke: used for verify→learn retry when output suggests failure (see ``outer_coding_cycle_graph``).
+OUTER_VERIFY_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
+    {'run_workspace_pytest_tests', 'run_workspace_python_smoke_test'}
+)
 
 
 def merge_tools_replace_by_name(
@@ -65,7 +85,13 @@ def merge_tools_replace_by_name(
     base_map: dict[str, Any],
     named_layers: list[tuple[str, list[Any]]],
 ) -> tuple[list[Any], dict[str, Any]]:
-    """Later layers override ``base_map`` by tool ``name``; rebuild ``base_tools`` order with replacements applied."""
+    """Later layers override ``base_map`` by tool ``name``; rebuild ``base_tools`` order with replacements applied.
+
+    **Contract:** If a later layer lists a tool with the same ``name`` as an earlier tool, it should normally be the
+    **same callable / LangChain tool object** as the base definition so descriptions and behavior cannot drift. Only
+    replace with a different object when intentionally wrapping the tool; then align the wrapper docstring with the
+    base tool so models do not see two conflicting explanations for one name.
+    """
     out_map = dict(base_map)
     for _label, layer in named_layers:
         for tool in layer:
@@ -90,10 +116,10 @@ def staging_workspace_write_tools(edit_tools_strict: bool) -> list[Any]:
 def hitl_diff_pause_tools() -> frozenset[str]:
     """Tool names that may emit a diff and require human review before the agent continues."""
     names = {t.name for t in staging_workspace_write_tools(runtime_config.tools.edit_tools_strict)}
-    names.add(APPROVE_STAGED_WORKSPACE_EDIT_NAME)
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
     names.add(REJECT_STAGED_WORKSPACE_EDIT_NAME)
     names.add(FORMAT_STAGING_FILE_BLACK_NAME)
+    names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
     names.add(LSP_CREATE_PYTHON_FILE_NAME)
     names.add(LSP_UPDATE_PYTHON_FILE_NAME)
     return frozenset(names)
@@ -187,5 +213,54 @@ def worker_tools_and_map(
                 ),
             ],
         )
+    return tools, mapping
+
+
+def outer_phased_learn_tools_and_map() -> tuple[list[Any], dict[str, Any]]:
+    """Read/search + LSP inspection only (Editor phased outer graph — learn node)."""
+    tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
+    mapping: dict[str, Any] = dict(TOOL_MAP)
+    for tool_ in PYTHON_LSP_READ_TOOLS:
+        mapping[tool_.name] = tool_
+    return tools, mapping
+
+
+def outer_phased_write_tools_and_map(
+    *,
+    edit_tools_strict_override: bool | None = None,
+    include_planning_tools: bool | None = None,
+) -> tuple[list[Any], dict[str, Any]]:
+    """Outer phased write node: full ``worker_tools_and_map(apply_mode=True)`` minus verify-only pytest/smoke."""
+    orch = (
+        runtime_config.tools.orchestrated_mode if include_planning_tools is None else include_planning_tools
+    )
+    tools, mapping = worker_tools_and_map(
+        True,
+        edit_tools_strict_override=edit_tools_strict_override,
+        include_planning_tools=orch,
+    )
+    out_tools = [t for t in tools if t.name not in OUTER_VERIFY_ONLY_TOOL_NAMES]
+    out_map = {t.name: t for t in out_tools}
+    return out_tools, out_map
+
+
+def outer_phased_verify_tools_and_map() -> tuple[list[Any], dict[str, Any]]:
+    """Staging inspect + transfer, then pytest/smoke, then LSP reads (transfer tools overlap write phase)."""
+    tools: list[Any] = []
+    mapping: dict[str, Any] = {}
+    _, full_map = worker_tools_and_map(True)
+    for name in sorted(OUTER_VERIFY_STAGING_TRANSFER_TOOL_NAMES):
+        t = full_map.get(name)
+        if t is not None:
+            tools.append(t)
+            mapping[name] = t
+    for name in sorted(OUTER_VERIFY_ONLY_TOOL_NAMES):
+        t = full_map.get(name)
+        if t is not None:
+            tools.append(t)
+            mapping[name] = t
+    for tool_ in PYTHON_LSP_READ_TOOLS:
+        tools.append(tool_)
+        mapping[tool_.name] = tool_
     return tools, mapping
 

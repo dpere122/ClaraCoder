@@ -119,6 +119,19 @@ describe('crystalVisualTargets', () => {
     expect(off.emissiveIntensity).not.toBe(ok.emissiveIntensity);
     expect(ok.loadingPulseAmplitude).toBe(0);
     expect(crystalVisualTargets('loading').loadingPulseAmplitude).toBeGreaterThan(0);
+    const dl = crystalVisualTargets('modelDownload');
+    expect(dl.loadingPulseAmplitude).toBeGreaterThan(crystalVisualTargets('loading').loadingPulseAmplitude);
+    expect(dl.baseRgb[2]).toBeGreaterThan(dl.baseRgb[0]);
+  });
+
+  it('defines harness feedback aggregates distinct from ok and error', () => {
+    const fp = crystalVisualTargets('feedbackPositive');
+    const fn = crystalVisualTargets('feedbackNegative');
+    const ok = crystalVisualTargets('ok');
+    const err = crystalVisualTargets('error');
+    expect(fp.emissiveRgb[1]).toBeGreaterThan(ok.emissiveRgb[1]);
+    expect(fn.emissiveRgb[0]).toBeGreaterThan(err.emissiveRgb[0]);
+    expect(fp.loadingPulseAmplitude).toBeGreaterThan(0);
   });
 });
 

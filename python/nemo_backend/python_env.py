@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
+import subprocess
 import sys
 import threading
 from dataclasses import dataclass, field
@@ -103,40 +105,116 @@ def workspace_python_executable(project_root: Path) -> Path:
     return venv_path / 'bin' / 'python'
 
 
+def _effective_subprocess_timeout_sec(timeout_sec: float | None) -> float:
+    """``timeout_sec`` explicit: use as-is (0 = unlimited). ``None`` = global default."""
+
+    if timeout_sec is not None:
+        return max(0.0, float(timeout_sec))
+    return max(0.0, float(NEMO_SUBPROCESS_TIMEOUT_SEC))
+
+
+async def _terminate_subprocess_tree(proc: asyncio.subprocess.Process) -> None:
+    """Stop the process and any children (npm/yarn often spawn node as a child)."""
+
+    if proc.returncode is not None:
+        return
+    pid = proc.pid
+    if not isinstance(pid, int) or pid <= 0:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        return
+
+    if sys.platform.startswith('win'):
+
+        def _win_kill() -> None:
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            try:
+                subprocess.run(
+                    ['taskkill', '/PID', str(pid), '/T', '/F'],
+                    capture_output=True,
+                    timeout=25,
+                    creationflags=flags,
+                )
+            except (FileNotFoundError, OSError, subprocess.SubprocessError):
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+
+        await asyncio.to_thread(_win_kill)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=12.0)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            pass
+    else:
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=8.0)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            try:
+                if isinstance(pid, int) and pid > 0:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=4.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+
+
 async def _run_subprocess_with_output(
     args: list[str],
     *,
     cwd: Path,
     emit_chunk: Callable[[str], Awaitable[None]] | None = None,
+    timeout_sec: float | None = None,
 ) -> tuple[int | None, str]:
     rendered_cmd = ' '.join(args)
     if emit_chunk is not None:
         await emit_chunk(f'$ {rendered_cmd}\n')
+    limit = _effective_subprocess_timeout_sec(timeout_sec)
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
             cwd=str(cwd),
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
         )
     except OSError as exc:
         return None, f'Command failed to start: {exc}'
     try:
-        if NEMO_SUBPROCESS_TIMEOUT_SEC > 0:
-            output_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=NEMO_SUBPROCESS_TIMEOUT_SEC)
+        if limit > 0:
+            output_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=limit)
         else:
             output_bytes, _ = await proc.communicate()
     except asyncio.TimeoutError:
-        logger.warning('Subprocess timed out after %ss: %s', NEMO_SUBPROCESS_TIMEOUT_SEC, rendered_cmd)
+        label = int(limit) if limit == int(limit) else limit
+        logger.warning('Subprocess timed out after %ss: %s', label, rendered_cmd)
+        await _terminate_subprocess_tree(proc)
         try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except (ProcessLookupError, asyncio.TimeoutError):
-            pass
-        return None, f'Command timed out after {NEMO_SUBPROCESS_TIMEOUT_SEC}s: {rendered_cmd}'
+            output_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            output_bytes = b''
+        msg = (
+            f'Command timed out after {label}s (process tree terminated). '
+            f'For long installs, raise NEMO_SUBPROCESS_TIMEOUT_SEC; for `npm run` scripts, '
+            f'raise NEMO_NPM_SCRIPT_TIMEOUT_SEC.\nCommand: {rendered_cmd}'
+        )
+        return None, msg
     output = output_bytes.decode('utf-8', errors='replace') if output_bytes else ''
     if output and emit_chunk is not None:
         await emit_chunk(output)

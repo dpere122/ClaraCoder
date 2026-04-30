@@ -507,6 +507,74 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-log-level-warning: #f39c12;
 }
 
+/* Microsoft-style light: white tool surfaces, #0078D4 blue chrome and accents, Segoe / Consolas */
+.theme-visual-studio {
+  --t-bg: #ffffff;
+  --t-bg-surface: #f3f3f3;
+  --t-bg-deep: #ececec;
+  --t-panel: #f3f3f3;
+  --t-primary: #1e1e1e;
+  --t-secondary: #0078d4;
+  --t-fg: #1e1e1e;
+  --t-border: #d0d0d0;
+  --t-border-subtle: #e8e8e8;
+  --t-glow: rgba(0, 120, 212, 0.2);
+  --t-glow-soft: rgba(0, 99, 177, 0.1);
+  --t-hover-bg: rgba(0, 120, 212, 0.08);
+  --t-active-bg: rgba(0, 120, 212, 0.12);
+  --t-selection-bg: rgba(0, 120, 212, 0.22);
+  --t-text-muted: #6e6e6e;
+  --t-muted: #6e6e6e;
+  --t-user-bg: #e3f2fd;
+  --t-assistant-bg: #ffffff;
+  --t-assistant-border: #8dbddd;
+  --t-code-bg: #fafafa;
+  --t-code-inline-bg: #e8e8e8;
+  --t-code-text: #1e1e1e;
+  --t-input-bg: #ffffff;
+  --t-input-fg: #1e1e1e;
+  --t-font: 'Segoe UI', 'FiraCode Nerd Font', system-ui, -apple-system, 'Segoe UI Variable', sans-serif;
+  --t-font-mono: 'Cascadia Code', 'Cascadia Mono', 'FiraCode Nerd Font', Consolas, 'Courier New', monospace;
+  --t-titlebar-start: #0e5fa8;
+  --t-titlebar-end: #0063b1;
+  --t-titlebar-text: #ffffff;
+  --t-edge-light: #fafafa;
+  --t-edge-mid: #e0e0e0;
+  --t-edge-dark: #b0b0b0;
+  --t-edge-darkest: #808080;
+  --t-process-a: #0078d4;
+  --t-process-b: #00a4ef;
+  --t-process-c: #8764b8;
+  --t-elev-shadow: 0 10px 28px color-mix(in srgb, var(--t-edge-darkest) 32%, transparent);
+  --t-hljs-keyword: #0000ff;
+  --t-hljs-string: #a31515;
+  --t-hljs-number: #09885a;
+  --t-hljs-comment: #008000;
+  --t-hljs-function: #74531f;
+  --t-hljs-class: #2b91af;
+  --t-hljs-attr: #e50000;
+  --t-hljs-params: #1e1e1e;
+  --t-hljs-property: #1e1e1e;
+  --t-hljs-punctuation: #1e1e1e;
+  --t-hljs-operator: #1e1e1e;
+  --t-hljs-meta: #2b91af;
+  --t-hljs-tag: #2b91af;
+  --t-hljs-name: #1e1e1e;
+  --t-hljs-symbol: #1e1e1e;
+  --t-hljs-selector: #2b91af;
+  --t-log-level-error: #e81123;
+  --t-log-level-warning: #ca5010;
+}
+
+html.theme-visual-studio body {
+  background-image: linear-gradient(180deg, #f0f5fb 0%, #ffffff 28%, #fafafa 100%);
+}
+
+html.theme-visual-studio .terminal-shell,
+html.theme-visual-studio .interactive-output .terminal-shell {
+  background: var(--t-code-bg);
+}
+
 html.theme-kawaii-bow body {
   background-image: radial-gradient(circle at 12% 18%, rgba(255, 182, 222, 0.24) 0%, transparent 42%),
     radial-gradient(circle at 88% 10%, rgba(159, 212, 247, 0.22) 0%, transparent 40%),

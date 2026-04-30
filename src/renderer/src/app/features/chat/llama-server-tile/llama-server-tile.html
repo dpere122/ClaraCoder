@@ -1,6 +1,20 @@
 @if (showTile()) {
   <div class='llama-tile'>
-    <div class='llama-tile__title'>llama.cpp</div>
+    <div class='llama-tile__head'>
+      <div class='llama-tile__title'>llama.cpp</div>
+      <button
+        type='button'
+        class='llama-tile__dock-handle'
+        aria-label='Drag to dock on workspace file tree or conversations column'
+        title='Drag to workspace (file tree) or conversations column'
+        (pointerdown)='onDockHandlePointerDown($event)'
+        (pointermove)='onDockHandlePointerMove($event)'
+        (pointerup)='onDockHandlePointerUp($event)'
+        (pointercancel)='onDockHandlePointerUp($event)'
+      >
+        <lucide-icon name='grip-vertical' [size]='15' />
+      </button>
+    </div>
     @if (status(); as st) {
       @if (st.ok === false) {
         <p class='llama-tile__err'>{{ st.error }}</p>
@@ -13,7 +27,9 @@
             <span [class]='dotClass(st.embed.health)' title='{{ st.embed.health }}'></span>
           }
         </div>
-        @if (!st.running) {
+        @if (st.ok === true && st.remote) {
+          <p class='llama-tile__hint'>Remote llama-server — health from your Settings base URL.</p>
+        } @else if (!st.running) {
           <p class='llama-tile__hint'>Stopped — Start to run this preset&apos;s servers.</p>
         } @else if (st.chat.port) {
           <p class='llama-tile__ports'>chat :{{ st.chat.port }}</p>
@@ -27,11 +43,14 @@
       [aggregate]='crystalAggregate()'
       [recentOutput]='recentOutput()'
       [llmStreamActive]='llmStreamActive()'
+      [shakeNonce]='crystalShakeNonce()'
     />
     <div class='llama-tile__actions'>
       @if (status(); as st2) {
         @if (st2.ok === true && st2.running) {
           <button type='button' class='btn btn-sm btn-outline-secondary' [disabled]='stopDisabled()' (click)='onStop()'>Stop</button>
+        } @else if (st2.ok === true && st2.remote) {
+          <p class='llama-tile__ports'>URL · {{ st2.chat.health === 'ok' ? 'reachable' : 'unreachable' }}</p>
         } @else if (st2.ok === true && !st2.running) {
           <button type='button' class='btn btn-sm btn-primary' [disabled]='startDisabled()' (click)='onStart()'>Start</button>
         }

@@ -1,5 +1,11 @@
 """Construct a LangChain ChatOpenAI client from the active runtime connection.
 
+Uses the ``openai`` Python package (via ``langchain-openai``) against OpenAI-compatible endpoints.
+:class:`~langchain_openai.ChatOpenAI` is configured with ``stream_usage=True`` so streaming runs request
+``stream_options: {include_usage: true}`` and completed assistant turns carry LangChain
+:class:`~langchain_core.messages.AIMessage.usage_metadata` (prompt, completion, and total tokens) where the
+server supports it (OpenAI, LM Studio, recent ``llama-server``, etc.).
+
 Supports OpenAI's API, LM Studio, and llama.cpp’s OpenAI-compatible HTTP server. Streaming is
 enabled for token-by-token :meth:`~langchain_core.language_models.chat_models.BaseChatModel.astream`.
 Optional ``reasoning_effort`` is passed through for models that support it
@@ -79,6 +85,10 @@ def build_llm() -> ChatOpenAI:
         'model': connection.model,
         'temperature': float(connection.temperature),
         'streaming': True,
+        # LangChain passes ``stream_options: {include_usage: true}`` to the OpenAI SDK so streaming
+        # completions include usage chunks (OpenAI + many OpenAI-compatible servers, e.g. llama-server).
+        # Without this, custom ``base_url`` disables stream_usage by default.
+        'stream_usage': True,
     }
     if base_url:
         kwargs['base_url'] = base_url

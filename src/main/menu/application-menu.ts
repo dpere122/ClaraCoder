@@ -60,8 +60,8 @@ function buildHelpMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         if (!mw) return;
         dialog.showMessageBox(mw, {
           type: 'info',
-          title: 'About Nemo Wrapper',
-          message: 'Nemo Wrapper v1.0.0',
+          title: 'About Clara Coder',
+          message: 'Clara Coder v1.0.0',
           detail: 'An AI chat application with speech synthesis and recognition.',
         });
       },

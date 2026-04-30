@@ -1,4 +1,5 @@
-import type { PlannerProgress } from '@shared/index';
+import type { PlannerProgress, StreamPart } from '@shared/index';
+import { persistedAuxiliaryStreamTimeline } from '@shared/index';
 import {
   buildChatDisplayRows,
   filterLiveToolChainGroups,
@@ -201,6 +202,22 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].kind).toBe('assistant-turn');
     if (rows[1].kind !== 'assistant-turn') return;
     expect(rows[1].assistant?.moeStreams).toEqual(moeStreams);
+  });
+
+  it('preserves persisted auxiliaryStreamTimeline on the assistant row', () => {
+    const auxiliaryStreamTimeline: StreamPart[] = [
+      { streamTag: 'moe', label: 'Model reasoning', text: 'think' },
+      { streamTag: 'spec-x-tests', label: 'Pytest', text: 'ok\n' },
+    ];
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Q' },
+      { role: 'assistant', text: 'A.', auxiliaryStreamTimeline },
+    ];
+    const rows = buildChatDisplayRows(messages);
+    expect(rows.length).toBe(2);
+    if (rows[1].kind !== 'assistant-turn') return;
+    expect(rows[1].assistant?.auxiliaryStreamTimeline).toEqual(auxiliaryStreamTimeline);
+    expect(persistedAuxiliaryStreamTimeline(rows[1].assistant)).toEqual(auxiliaryStreamTimeline);
   });
 });
 

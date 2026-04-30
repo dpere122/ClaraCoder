@@ -186,9 +186,13 @@ def tool_calling_and_edit_semantics_suffix(_connection: RuntimeConnection | None
         '**Workspace edits:** Treat the on-disk workspace as the checkpoint. For **every** text path, create or revise '
         'content with `stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, or `stage_snippet_edit` '
         '(when bound), inspect drafts with `list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit`, '
-        'then call `transfer_staged_file_to_workspace` when correct. Do not use legacy direct-to-disk workspace mutators '
+        'then call `transfer_staged_file_to_workspace` when correct. Never ask the user to apply or approve that '
+        'transfer for you—only the tool call counts. Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
         + nested_note
+        + '**LSP file mutations vs staging:** Prefer `lsp_create_python_file` / `lsp_update_python_file` for `.py` only when '
+        'those tools appear in **your** bound tool list (nested file-write specialists). On graphs that bind `stage_*` '
+        'writes only (including the outer Clara agent), use `stage_*` for Python too. '
         + 'For localized edits on existing files, prefer `stage_line_range_edit` or `stage_snippet_edit` over whole-file '
         'rewrites when practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
     )
@@ -206,7 +210,8 @@ def qwen_specific_prompt_suffix() -> str:
     """Qwen-family stability hint (single tool per turn); use with :func:`tool_calling_and_edit_semantics_suffix`."""
     return (
         '\nModel note (Qwen): Prefer one tool call per assistant turn when you can; wait for the tool result '
-        'before issuing the next call.\n'
+        'before issuing the next call. When staging review applies, call `transfer_staged_file_to_workspace` '
+        'yourself—do not ask the user to approve or apply the diff in the UI instead of using the tool.\n'
     )
 
 

@@ -7,6 +7,7 @@ export function mergeLlmProviderModel(provider: LlmProviderConfig, model: LlmMod
     provider: provider.provider,
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
+    embeddingsModel: provider.embeddingsModel,
   };
 }
 

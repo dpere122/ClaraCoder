@@ -10,11 +10,13 @@ import { registerHealthIpc } from './handlers/health';
 import { registerHealthWindowIpc } from '../windows/health-window';
 import { registerWindowChromeIpc } from './handlers/window-chrome';
 import { registerLlamaServerIpc } from './handlers/llama-server';
+import { registerLmStudioIpc } from './handlers/lm-studio';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
   registerChatIpc();
   registerLlamaServerIpc();
+  registerLmStudioIpc();
   registerWindowChromeIpc();
   registerConfigWorkspacesIpc();
   registerAudioTtsIpc();

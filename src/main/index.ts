@@ -17,20 +17,27 @@ import { killAllWorkspacePtySessions } from './ipc/handlers/workspace-pty';
 import { stopAllManagedLlamaServers } from './llama-server-manager';
 import { mainState } from './state';
 
+app.setName('Clara Coder');
+
 registerPrivilegedNemoTtsScheme();
 registerAllIpc();
 
-app.whenReady().then(async () => {
-  startPythonServer();
-  await waitForPython();
-  registerNemoTtsStreamProtocol();
-  const config = await loadConfig();
-  await syncPythonLogLevel(config.healthMonitor.logLevel);
-  setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
-  await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
-  await refreshWorkspaceWatcherForCurrentConfig(config);
-  createMainWindow();
-});
+app
+  .whenReady()
+  .then(async () => {
+    startPythonServer();
+    await waitForPython();
+    registerNemoTtsStreamProtocol();
+    const config = await loadConfig();
+    await syncPythonLogLevel(config.healthMonitor.logLevel);
+    setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+    await refreshWorkspaceWatcherForCurrentConfig(config);
+    createMainWindow();
+  })
+  .catch((err) => {
+    console.error(err);
+  });
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {

@@ -15,9 +15,10 @@ from langchain_core.tools import tool
 from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.edit_tool import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
-from nemo_backend.lsp.file_policy import is_lsp_managed_path, lsp_server_for_path
+from nemo_backend.lsp.diagnostics import post_edit_checks_footer
+from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
-from nemo_backend.partial_workspace_edit import merge_partial_edit
+from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
 from nemo_backend.workspace_text_io import (
     DiskNewline,
@@ -26,7 +27,7 @@ from nemo_backend.workspace_text_io import (
     resolve_newline_for_write,
     validate_workspace_encoding,
 )
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.staging')
 
@@ -101,6 +102,7 @@ def _staging_after_merge(
     disk_newline: DiskNewline,
     *,
     staging_seed_text: str | None = None,
+    land_in_workspace: bool = False,
 ) -> str:
     """Write merged content to staging (all path kinds use the same staging → review → transfer flow)."""
     session_id = current_session_id.get()
@@ -132,9 +134,34 @@ def _staging_after_merge(
     except OSError as exc:
         return f'Tool error: could not write staging file ({exc}).'
 
+    formatter_lines: list[str] = []
     if rel_display.lower().endswith('.py'):
         ok, detail = _edit_staging.run_black_on_file(temp_path, encoding=disk_encoding, disk_newline=disk_newline)
         logger.info('black path=%s ok=%s detail=%s', rel_display, ok, detail)
+        if ok:
+            formatter_lines.append('Formatter (Black): applied to the staged draft.')
+        else:
+            formatter_lines.append(f'Formatter (Black): draft unchanged ({detail}).')
+    elif is_prettier_managed_path(rel_display):
+        ws_root = get_active_workspace_root()
+        ok, detail = _edit_staging.run_prettier_on_file(
+            temp_path,
+            workspace_root=ws_root,
+            relative_posix=rel_display,
+            encoding=disk_encoding,
+            disk_newline=disk_newline,
+        )
+        logger.info('prettier path=%s ok=%s detail=%s', rel_display, ok, detail)
+        if ok:
+            formatter_lines.append('Formatter (Prettier): applied to the staged draft.')
+        else:
+            formatter_lines.append(f'Formatter (Prettier): draft unchanged ({detail}).')
+    else:
+        formatter_lines.append(
+            'Formatter: automatic Black applies only to `.py` drafts; Prettier applies only to `.ts`, `.tsx`, `.js`, '
+            '`.jsx`, `.mjs`, `.cjs`, `.html`, `.htm`, `.css` drafts.'
+        )
+
     try:
         merged_out = _edit_staging.read_staging_text(temp_path, disk_encoding)
     except OSError as exc:
@@ -142,17 +169,32 @@ def _staging_after_merge(
     _edit_staging.write_snapshot_file(session, rel_display, merged_out, disk_encoding, disk_newline)
 
     diagnostics_note = ''
-    diagnostics: list[dict[str, object]] = []
-    if is_lsp_managed_path(rel_display):
+    diagnostics: list[dict[str, Any]] = []
+    srv = lsp_server_for_path(rel_display)
+    if is_lsp_managed_path(rel_display) and srv:
         try:
             diagnostics = sync_session_document(rel_display, merged_out, session_id=session_id, scope='staging')
-            ls_label = lsp_server_for_path(rel_display) or 'lsp'
-            logger.info('%s LSP sync path=%s diagnostics=%s', ls_label, rel_display, len(diagnostics))
-            diagnostics_note = f' {ls_label} LSP diagnostics: {len(diagnostics)} issue(s).'
+            logger.info('%s LSP sync path=%s diagnostics=%s', srv, rel_display, len(diagnostics))
+            diagnostics_note = truncate_text_head_tail(
+                post_edit_checks_footer(
+                    rel_display,
+                    diagnostics,
+                    lsp_scope='staging',
+                    server_kind=srv,
+                    formatter_lines=formatter_lines,
+                ),
+                14_000,
+            )
         except Exception as exc:
-            ls_label = lsp_server_for_path(rel_display) or 'lsp'
-            logger.warning('%s LSP sync failed path=%s err=%s', ls_label, rel_display, exc)
-            diagnostics_note = f' {ls_label} LSP sync failed: {exc}.'
+            logger.warning('%s LSP sync failed path=%s err=%s', srv, rel_display, exc)
+            diagnostics_note = truncate_text_head_tail(
+                '\n---\nPost-edit checks:\n'
+                + '\n'.join(formatter_lines)
+                + f'\nLSP sync failed: {exc}.',
+                14_000,
+            )
+    elif formatter_lines:
+        diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(formatter_lines)
 
     session.pending_edit_stagings[rel_display] = EditStagingEntry(
         temp_path=str(temp_path),
@@ -165,6 +207,13 @@ def _staging_after_merge(
     )
     logger.info('staged for review path=%s', rel_display)
     action = 'Updated staged draft' if had_prior_staging else 'Staged'
+    if land_in_workspace:
+        from nemo_backend.agents.specialists import review_tools as _review_tools
+
+        return (
+            f'{action} `{rel_display}` for review.{diagnostics_note}\n\n'
+            f'---\n\n{_review_tools.run_staged_transfer_to_workspace(session, rel_display)}'
+        )
     return (
         f'{action} `{rel_display}` for review. The workspace file on disk is **unchanged** until '
         f'`transfer_staged_file_to_workspace` succeeds. Inspect the draft with `diff_staged_edit_against_baseline` '
@@ -186,6 +235,7 @@ def _run_staging_tool(
     new_snippet: str = '',
     start_line: int = 0,
     end_line: int = 0,
+    land_in_workspace: bool = False,
 ) -> str:
     """Shared body for staging tools: validate, read, merge, then stage or finalize."""
     blocked = mutation_tools_blocked_reason()
@@ -225,7 +275,7 @@ def _run_staging_tool(
         return f'Tool error: {merge_err}'
     assert merged is not None
 
-    return _staging_after_merge(
+    out = _staging_after_merge(
         session,
         rel_display,
         original_old_text,
@@ -234,7 +284,11 @@ def _run_staging_tool(
         disk_enc,
         disk_nl,
         staging_seed_text=workspace_old_text,
+        land_in_workspace=land_in_workspace,
     )
+    if mode == 'line-range' and start_line > 0 and end_line >= start_line:
+        out += line_range_edit_tool_feedback(base_text, start_line, end_line, new_snippet)
+    return out
 
 
 @tool(STAGE_CREATE_FILE_NAME)
@@ -243,21 +297,20 @@ def stage_create_file(
     new_content: str,
     encoding: str = '',
     newline: str = '',
+    land_in_workspace: bool = False,
 ) -> str:
-    """Use for new files or full-file rewrites; content is staged before the workspace updates.
+    """Stage a **new** file (or full replacement treated as create flow): merged content goes to review, disk unchanged until transfer.
 
-    Parent directories are created when the change is applied after review transfer.
-
-    `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
-    latin-1, cp1252, ascii, mac-roman.
-    `newline` is `lf`, `crlf`, or `preserve` (match existing file endings; new files default to LF).
-
-    Relative paths only (e.g. src/app.ts, docs/readme.md)."""
+    When: path should not rely on existing workspace bytes as old_text baseline in the same way as overwrite (new file or create flow).
+    Not: read on-disk truth for an existing path before edit (use `read_workspace_file` first); inspect draft (use `read_staged_edit` / diff after).
+    Shape: `relative_path` workspace-relative POSIX. `encoding` empty → Settings default; `newline` `lf` / `crlf` / `preserve`. Parents created on transfer.
+    Set `land_in_workspace` true to apply the same transfer step as `transfer_staged_file_to_workspace` in this call (HITL when auto-apply is off; keep false in nested file-write author — code review should run first)."""
 
     return _run_staging_tool(
         relative_path, encoding, newline,
         mode='full-file',
         new_content=new_content or '',
+        land_in_workspace=land_in_workspace,
     )
 
 
@@ -267,17 +320,13 @@ def stage_workspace_file_overwrite(
     new_content: str,
     encoding: str = '',
     newline: str = '',
+    land_in_workspace: bool = False,
 ) -> str:
-    """Use when the file already exists in the workspace (or a staged draft exists) and you have the full revised contents.
+    """Stage a **full-file** replace: seeds from workspace (or prior staged draft), writes merged draft to staging; disk unchanged until transfer.
 
-    Copies the current workspace file into staging, then overwrites the staged file with `new_content`.
-    If the target does not exist yet, use `stage_create_file` instead.
-
-    `encoding` is a text codec (default from app Settings): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
-    latin-1, cp1252, ascii, mac-roman.
-    `newline` is `lf`, `crlf`, or `preserve` (match existing file endings).
-
-    Relative paths only (e.g. src/app.ts)."""
+    When: file exists on disk or a staged draft already exists for this path and you have full revised contents.
+    Not: new path with no disk file and no prior staging (use `stage_create_file`); partial edits (use `stage_line_range_edit` / `stage_snippet_edit`).
+    Shape: same `encoding` / `newline` / relative path rules as `stage_create_file`. Set `land_in_workspace` true to run `transfer_staged_file_to_workspace` in the same call (HITL when auto-apply is off; keep false in nested author before code review)."""
 
     blocked = mutation_tools_blocked_reason()
     if blocked:
@@ -317,6 +366,7 @@ def stage_workspace_file_overwrite(
         disk_enc,
         disk_nl,
         staging_seed_text=staging_seed_text,
+        land_in_workspace=land_in_workspace,
     )
 
 
@@ -329,17 +379,13 @@ def stage_line_range_edit(
     new_content: str = '',
     encoding: str = '',
     newline: str = '',
+    land_in_workspace: bool = False,
 ) -> str:
-    """Replace an inclusive block of lines (1-based) with `new_snippet`; the merged result is staged for review.
+    """Stage replacement of an inclusive **1-based** line range with `new_snippet` (merged into staging copy).
 
-    Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
-
-    `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
-    Use `stage_create_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after the
-    last line, and `1,1` can seed an empty file.
-    See `stage_create_file` for `encoding` and `newline`.
-
-    Relative paths only."""
+    When: localized edit; keep diff small. `new_snippet` may be empty to delete lines. If `new_snippet` empty, `new_content` is used (LM alias).
+    Not: new file (use `stage_create_file`); unique match by context (prefer `stage_snippet_edit`). Append: `start_line=end_line=n+1` after last line; seed empty: `1,1`.
+    Shape: line numbers align with `read_workspace_file` / `read_staged_edit` gutters on the text you matched. Footer in tool output has column/UTF-16 detail for follow-ups. Same `encoding`/`newline` as other stage tools. Optional `land_in_workspace` (see `stage_create_file`)."""
 
     ns = '' if new_snippet is None else new_snippet
     nc = '' if new_content is None else new_content
@@ -350,6 +396,7 @@ def stage_line_range_edit(
         new_snippet=snippet,
         start_line=int(start_line) if start_line else 0,
         end_line=int(end_line) if end_line else 0,
+        land_in_workspace=land_in_workspace,
     )
 
 
@@ -360,21 +407,20 @@ def stage_snippet_edit(
     new_snippet: str = '',
     encoding: str = '',
     newline: str = '',
+    land_in_workspace: bool = False,
 ) -> str:
-    """Search-replace: find `old_snippet` once and replace with `new_snippet`; the merged result is staged for review.
+    """Stage a single unique `old_snippet` → `new_snippet` replace in the staging/workspace merge base.
 
-    Include enough context that the match is unique. Do not paste line-number gutters from `read_workspace_file`
-    output into `old_snippet`; use line-range replace instead.
-    See `stage_create_file` for `encoding` and `newline`.
-    Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
-
-    Relative paths only."""
+    When: change anchored by surrounding context; match must be unique (exact, CRLF-normalized, then gated fuzzy).
+    Not: paste numbered gutters from `read_workspace_file`/`read_staged_edit` into `old_snippet` (use `include_line_numbers=false` or line-range edit).
+    Shape: same `encoding`/`newline`/path as `stage_create_file`. Optional `land_in_workspace` (see `stage_create_file`)."""
 
     return _run_staging_tool(
         relative_path, encoding, newline,
         mode='snippet',
         old_snippet=old_snippet or '',
         new_snippet=new_snippet if new_snippet is not None else '',
+        land_in_workspace=land_in_workspace,
     )
 
 

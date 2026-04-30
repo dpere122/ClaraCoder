@@ -1,0 +1,57 @@
+# Packaging: https://www.electron.build/configuration/configuration
+appId: com.nemo.wrapper
+productName: Clara Coder
+icon: build/icon.png
+
+directories:
+  output: release
+
+# dist/ is gitignored; list it explicitly so it is still shipped.
+files:
+  - dist/**/*
+  - package.json
+  - build/icon.png
+
+# node-pty ships Electron prebuilds; rebuilding needs a full VS toolchain (e.g. Spectre libs on Windows).
+npmRebuild: false
+
+extraResources:
+  - from: python
+    to: python
+    filter:
+      - "**/*"
+      - "!**/.venv/**"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+
+asarUnpack:
+  - "**/node_modules/node-pty/**/*"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-Windows-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.developer-tools
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+linux:
+  target:
+    - AppImage
+  category: Development

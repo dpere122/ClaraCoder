@@ -38,8 +38,16 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
       parsed.exitCode,
       parsed.outputExcerpt,
     );
+  } else if (parsed.type === 'token_usage') {
+    event.reply('message-token-usage', conversationId, {
+      inputTokens: parsed.inputTokens,
+      outputTokens: parsed.outputTokens,
+      totalTokens: parsed.totalTokens,
+    });
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
+  } else if (parsed.type === 'harness_crystal') {
+    event.reply('message-harness-crystal', conversationId, parsed.polarity);
   }
 }
 

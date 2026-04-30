@@ -165,6 +165,10 @@ class RuntimeConnectionRequest(BaseModel):
         default=True,
         validation_alias=AliasChoices('embeddingsEnabled', 'embeddings_enabled'),
     )
+    embeddingsModel: str = Field(
+        default='',
+        validation_alias=AliasChoices('embeddingsModel', 'embeddings_model'),
+    )
 
     @field_validator('architectureHint', mode='before')
     @classmethod
@@ -216,10 +220,28 @@ class RuntimeToolsRequest(BaseModel):
         default=False,
         validation_alias=AliasChoices('orchestratedMode', 'orchestrated_mode'),
     )
+    outerPhasedCodingCycle: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('outerPhasedCodingCycle', 'outer_phased_coding_cycle'),
+    )
+    allowStagingOverlayCommands: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('allowStagingOverlayCommands', 'allow_staging_overlay_commands'),
+    )
 
     @field_validator('orchestratedMode', mode='before')
     @classmethod
     def _normalize_orchestrated(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+    @field_validator('outerPhasedCodingCycle', mode='before')
+    @classmethod
+    def _normalize_outer_phased(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+    @field_validator('allowStagingOverlayCommands', mode='before')
+    @classmethod
+    def _normalize_allow_overlay(cls, v: Any) -> Any:
         return _coerce_boolish(v)
 
 

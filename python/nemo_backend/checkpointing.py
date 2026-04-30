@@ -29,16 +29,27 @@ def default_checkpoint_db_path() -> str:
     return str(Path(tempfile.gettempdir()) / 'nemo-langgraph-checkpoints.sqlite')
 
 
-def outer_agent_thread_id(session_id: str, thread_kind: str, *, apply_mode: bool, orchestrated_mode: bool = False) -> str:
+def outer_agent_thread_id(
+    session_id: str,
+    thread_kind: str,
+    *,
+    apply_mode: bool,
+    orchestrated_mode: bool = False,
+    phased_outer_coding: bool = False,
+) -> str:
     """Stable per-conversation thread id.
 
     ``apply_mode`` keeps read vs editor tool-graph shapes separate. ``orchestrated_mode`` is included so toggling
     Settings → Tools → Orchestrated mode does not reuse LangGraph checkpoints built with a different tool list /
     system prompt (outer agent binds ``plan_and_modify`` only when orchestration is on).
+    ``phased_outer_coding`` isolates the Learn→Write→Verify parent graph from the flat ``create_agent`` outer graph.
     """
     mode = 'apply' if apply_mode else 'read'
     orch = '1' if orchestrated_mode else '0'
-    return f'{session_id}:{thread_kind}:{mode}:orch{orch}'
+    base = f'{session_id}:{thread_kind}:{mode}:orch{orch}'
+    if phased_outer_coding:
+        return f'{base}:ph1'
+    return base
 
 
 async def init_graph_checkpointing() -> None:
@@ -97,10 +108,15 @@ async def delete_outer_threads_for_session(session_id: str, thread_kind: str | N
             legacy_tid = f'{session_id}:{kind}:{"apply" if apply_mode else "read"}'
             await _checkpointer.adelete_thread(legacy_tid)
             for orchestrated_mode in (True, False):
-                tid = outer_agent_thread_id(
-                    session_id, kind, apply_mode=apply_mode, orchestrated_mode=orchestrated_mode
-                )
-                await _checkpointer.adelete_thread(tid)
+                for phased_outer_coding in (True, False):
+                    tid = outer_agent_thread_id(
+                        session_id,
+                        kind,
+                        apply_mode=apply_mode,
+                        orchestrated_mode=orchestrated_mode,
+                        phased_outer_coding=phased_outer_coding,
+                    )
+                    await _checkpointer.adelete_thread(tid)
 
 
 async def delete_outer_thread(session_id: str, thread_kind: str, *, apply_mode: bool) -> None:
@@ -110,7 +126,14 @@ async def delete_outer_thread(session_id: str, thread_kind: str, *, apply_mode: 
     from nemo_backend.state import runtime_config
 
     orch = runtime_config.tools.orchestrated_mode
-    tid = outer_agent_thread_id(session_id, thread_kind, apply_mode=apply_mode, orchestrated_mode=orch)
+    phased = runtime_config.tools.outer_phased_coding_cycle
+    tid = outer_agent_thread_id(
+        session_id,
+        thread_kind,
+        apply_mode=apply_mode,
+        orchestrated_mode=orch,
+        phased_outer_coding=phased,
+    )
     await _checkpointer.adelete_thread(tid)
     legacy_tid = f'{session_id}:{thread_kind}:{"apply" if apply_mode else "read"}'
     if legacy_tid != tid:

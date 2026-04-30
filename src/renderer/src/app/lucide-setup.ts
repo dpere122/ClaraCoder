@@ -13,6 +13,7 @@ import {
   Settings,
   Square,
   Trash,
+  X,
 } from 'lucide-angular';
 
 export function lucideIconConfigFactory(): LucideIconConfig {
@@ -37,6 +38,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
       Settings,
       Square,
       Trash,
+      X,
     }),
   ),
 ];

@@ -201,6 +201,10 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
           this.llamaBacklog = '';
           inst.terminal.clear();
           inst.terminal.writeln('\x1b[90m[Starting llama-server…]\x1b[0m');
+        } else if (ev.phase === 'downloading') {
+          inst.terminal.writeln('\x1b[36m[Downloading model weights…]\x1b[0m');
+        } else if (ev.phase === 'running') {
+          inst.terminal.writeln('\x1b[32m[llama-server ready]\x1b[0m');
         } else if (ev.phase === 'stopped') {
           inst.terminal.writeln('');
           inst.terminal.writeln('\x1b[90m[llama-server stopped]\x1b[0m');

@@ -1,6 +1,6 @@
 """Tests for partial workspace edit merge."""
 
-from nemo_backend.partial_workspace_edit import merge_partial_edit
+from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 
 
 def test_full_file() -> None:
@@ -221,3 +221,19 @@ def test_line_range_past_end_error_suggests_append() -> None:
     assert err is not None
     assert 'append after the last line' in err
     assert 'start_line=end_line=1' in err
+
+
+def test_line_range_edit_tool_feedback_columns_and_lsp() -> None:
+    base = 'aa\n𝕏b\n'
+    fb = line_range_edit_tool_feedback(base, 2, 2, '𝕏B\n')
+    assert 'Replaced inclusive baseline lines: 2–2' in fb
+    assert 'Start of removed span' in fb and '(2, 1)' in fb
+    assert 'End of removed span' in fb and '(2, 3)' in fb
+    assert '"character": 3' in fb
+    assert '𝕏b' in fb and '𝕏B' in fb
+
+
+def test_line_range_edit_tool_feedback_append() -> None:
+    fb = line_range_edit_tool_feedback('only\n', 2, 2, 'two\n')
+    assert 'append after last baseline line' in fb
+    assert '(0, 4)' in fb

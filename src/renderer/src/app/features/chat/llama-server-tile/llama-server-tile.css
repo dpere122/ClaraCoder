@@ -16,12 +16,42 @@ app-llama-server-tile {
   gap: 0.35rem;
 }
 
+.llama-tile__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
 .llama-tile__title {
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--bs-secondary-color);
+}
+
+.llama-tile__dock-handle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0.12rem 0.18rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  cursor: grab;
+}
+
+.llama-tile__dock-handle:hover {
+  border-color: var(--bs-border-color);
+  color: var(--bs-body-color);
+}
+
+.llama-tile__dock-handle:active {
+  cursor: grabbing;
 }
 
 .llama-tile__status {

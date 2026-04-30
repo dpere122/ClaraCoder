@@ -40,7 +40,12 @@ markedInstance.use({ renderer: customRenderer });
 export class MarkdownPipe implements PipeTransform {
   constructor(private sanitizer: DomSanitizer) {}
 
-  transform(value: string): SafeHtml {
+  /**
+   * @param layoutPass Optional monotonic counter (e.g. after `afterNextRender` when a reply finishes);
+   *                    bumps invalidate the pure pipe cache so markdown re-parses once the DOM has settled.
+   */
+  transform(value: string, layoutPass?: number): SafeHtml {
+    void layoutPass;
     const stripped = stripAssistantChannelNoise(value ?? '');
     const normalized = normalizeLooseAtxHeadings(stripped);
     const html = markedInstance.parse(normalized, { async: false }) as string;

@@ -38,6 +38,23 @@ export function isMoeAuxiliaryStreamTag(streamTag: string): boolean {
   return streamTag.trim() === MOE_AUXILIARY_STREAM_TAG;
 }
 
+/** Prefix for synthetic stream tags that mirror `LlmStatus` rows with `source: tool` into the auxiliary timeline. */
+export const TOOL_TRAIL_STATUS_STREAM_PREFIX = 'tool-trail:';
+
+/** Stable multiplex tag for one tool status row (interleaved with `moe` / delegated streams). */
+export function toolTrailStatusStreamTag(statusId: string): string {
+  return `${TOOL_TRAIL_STATUS_STREAM_PREFIX}${encodeURIComponent(statusId)}`;
+}
+
+export function isToolTrailStatusStreamTag(streamTag: string): boolean {
+  return streamTag.trim().startsWith(TOOL_TRAIL_STATUS_STREAM_PREFIX);
+}
+
+/** True when the saved or live auxiliary timeline already includes embedded tool-status segments. */
+export function auxiliaryTimelineEmbedsToolStatus(parts: readonly StreamPart[]): boolean {
+  return parts.some((p) => isToolTrailStatusStreamTag(p.streamTag));
+}
+
 /** In-flight reasoning segments (same shape as tool multiplexing, distinct tag). */
 export function moeStreamPartsForDisplay(
   parts: StreamPart[],
@@ -90,6 +107,37 @@ export function delegatedStreamPartsForDisplay(
   _processingAgentRole: LlmAgentRole | null,
 ): StreamPart[] {
   return parts.filter((p) => !isPrimaryAssistantStreamTag(p.streamTag));
+}
+
+/**
+ * Non-primary multiplex segments in arrival order: reasoning (`moe`), delegated tools, planner
+ * chunks, `worker`, etc. Primary (`agent` / `mgr`) chunks are omitted — the main reply still renders
+ * in its own slot, so wall-clock order vs. primary text can differ if the backend interleaves them.
+ */
+export function multiplexAuxiliaryStreamTimeline(parts: StreamPart[]): StreamPart[] {
+  return parts.filter((p) => !isPrimaryAssistantStreamTag(p.streamTag));
+}
+
+/** Subset of persisted assistant fields used to resolve auxiliary timeline for display. */
+export type PersistedAssistantStreamFields = {
+  auxiliaryStreamTimeline?: StreamPart[];
+  toolStreams?: StreamPart[];
+  moeStreams?: StreamPart[];
+};
+
+/**
+ * Ordered auxiliary stream for the chat UI: prefer {@link PersistedAssistantStreamFields.auxiliaryStreamTimeline}
+ * when present; otherwise legacy merge matching the pre-timeline template (shell tools, then moe).
+ */
+export function persistedAuxiliaryStreamTimeline(
+  assistant: PersistedAssistantStreamFields | null | undefined,
+): StreamPart[] {
+  if (!assistant) return [];
+  const t = assistant.auxiliaryStreamTimeline;
+  if (t?.length) {
+    return t;
+  }
+  return [...(assistant.toolStreams ?? []), ...(assistant.moeStreams ?? [])];
 }
 
 /**

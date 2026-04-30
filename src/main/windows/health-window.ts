@@ -4,6 +4,7 @@ import { mkdirSync } from 'fs';
 import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { getLogsDir } from '../paths';
+import { resolveAppIconPath } from '../utils/app-icon';
 
 function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
@@ -28,6 +29,7 @@ export function createHealthWindow(): void {
     return;
   }
 
+  const icon = resolveAppIconPath();
   mainState.healthWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -35,6 +37,8 @@ export function createHealthWindow(): void {
     resizable: true,
     maximizable: true,
     show: false,
+    title: 'Clara Coder — Health',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

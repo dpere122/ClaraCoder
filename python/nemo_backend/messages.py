@@ -7,14 +7,17 @@ instances and builds the long system prompt (workspace + host + connection hints
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
-from nemo_backend.llm_visible_text import is_placeholder_thinking_noise
+from nemo_backend.llm_visible_text import (
+    is_auxiliary_reasoning_placeholder_delta,
+    is_placeholder_thinking_noise,
+)
 from nemo_backend.model_tuning import combined_model_prompt_suffix
-from nemo_backend.prompt_blocks import python_workspace_playbook, routing_handoff_contract
+from nemo_backend.prompt_blocks import harness_mindset_block, python_workspace_playbook, routing_handoff_contract
 from nemo_backend.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
@@ -41,6 +44,8 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
     """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth."""
     orch = runtime_config.tools.orchestrated_mode
     orch_s = 'on' if orch else 'off'
+    phased = runtime_config.tools.outer_phased_coding_cycle
+    phased_s = 'on' if phased else 'off'
     editor_s = 'on' if apply_mode else 'off'
     auto_s = 'on' if session.auto_apply_mode else 'off'
     overlap = session.active_editor_langgraph_streams > 0
@@ -49,10 +54,17 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
         if overlap
         else ''
     )
+    phased_line = (
+        f'\n- Phased outer coding cycle (Settings → Tools): **{phased_s}** '
+        '(Learn → Write → Verify subgraphs when Editor is on).'
+        if apply_mode
+        else ''
+    )
     return (
         '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
-        f'- Orchestrated mode (backend): **{orch_s}**\n'
+        f'- Orchestrated mode (backend): **{orch_s}**'
+        f'{phased_line}\n'
         f'- Auto-apply (UI): **{auto_s}**'
         f'{overlap_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
@@ -112,19 +124,19 @@ def _reasoning_body(message: AIMessage) -> str:
     r = getattr(message, 'reasoning', None)
     if isinstance(r, str) and r.strip():
         out = r.strip()
-        return '' if is_placeholder_thinking_noise(out) else out
+        return '' if is_auxiliary_reasoning_placeholder_delta(out) else out
     ak = getattr(message, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)
         if isinstance(val, str) and val.strip():
             out = val.strip()
-            return '' if is_placeholder_thinking_noise(out) else out
+            return '' if is_auxiliary_reasoning_placeholder_delta(out) else out
         if isinstance(val, dict):
             for sub in ('summary', 'text', 'content'):
                 s = val.get(sub)
                 if isinstance(s, str) and s.strip():
                     out = s.strip()
-                    return '' if is_placeholder_thinking_noise(out) else out
+                    return '' if is_auxiliary_reasoning_placeholder_delta(out) else out
     return ''
 
 
@@ -232,16 +244,14 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         '- Match shell guidance to the detected host OS; do not assume Bash is available on Windows.\n'
         '- If no workspace is loaded, say that no local files were available.\n'
         '- Read-only inspection: start with the workspace tree in your system instructions above for structure and likely file paths. '
-        'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree. '
-        'Prefer `retrieve_workspace_semantic` first for broad topical recall (**workspace checkpoint + nested staging**), then '
-        '`search_workspace`, `read_workspace_file`, and `list_workspace_directory` as needed—treat semantic hits as hints. '
-        'Each hit lists **origin**: use `read_workspace_file` / LSP / `search_workspace` to confirm **workspace** chunks; '
-        'use `read_staged_edit` or `diff_staged_edit_against_baseline` for **staging** chunks (`read_workspace_file` is the '
-        'on-disk checkpoint until `transfer_staged_file_to_workspace`). For Python and '
-        'TypeScript/JavaScript source (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), prefer the LSP-directed tools '
-        '(`lsp_get_diagnostics`, `lsp_get_document_symbols`, `lsp_hover`, '
-        '`lsp_find_definition`, `lsp_find_references`) over ordinary file reads whenever they provide the needed context. '
-        'For `.pdf` files, `read_workspace_file` treats start_line/end_line as 1-based page numbers (extracted text per page).\n'
+        'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree.\n'
+        '- Discovery / reads (follow each bound tool’s description for details):\n'
+        '  1. Unknown targets → `retrieve_workspace_semantic`, then verify each hit’s `origin`.\n'
+        '  2. origin=workspace → `read_workspace_file` / LSP / `search_workspace` (disk).\n'
+        '  3. origin=staging → `read_staged_edit` or `diff_staged_edit_against_baseline` (not disk `read_workspace_file` until `transfer_staged_file_to_workspace`).\n'
+        '  4. Exact grep: disk → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
+        '  5. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
+        '  6. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
         '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
     )
@@ -267,6 +277,9 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
             'staging-focused specialist tools (`code_review_specialist_*`, etc.). Nested delegation '
             '(`execute_workspace_mutation`, `plan_and_modify`) is **not** bound\u2014use the staging pipeline for '
             '**all** programming-path and structured-config edits.\n'
+            '- **Direct writes on this graph:** Use `stage_*` tools only for files you edit here. '
+            '`lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file` are **not** in this tool list '
+            '(nested specialists bind them). LSP **read** and **diagnostics** tools for supported extensions are available.\n'
             '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
             '**staging** until `transfer_staged_file_to_workspace` succeeds\u2014use `list_staged_edits`, '
             '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
@@ -296,6 +309,10 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         '`stage_workspace_file_overwrite`, `stage_line_range_edit`, and `stage_snippet_edit` when bound) plus review/transfer '
         'tools, and nested delegation: `execute_workspace_mutation` (single focused step, router + specialists only) and '
         '`plan_and_modify` (planner when enabled: discovery, multi-step plan, final project review).\n'
+        '- **Direct writes on this graph:** When you edit files yourself here (outside nested delegation), use `stage_*` only—'
+        '`lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file` are **not** in this tool list; '
+        'nested `execute_workspace_mutation` / `plan_and_modify` runs use them inside specialists. LSP **read** and '
+        '**diagnostics** for supported extensions are available on this graph.\n'
         '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in **staging** '
         'until `transfer_staged_file_to_workspace` succeeds—use `list_staged_edits`, `diff_staged_edit_against_baseline`, '
         'and `read_staged_edit` to inspect drafts.\n'
@@ -330,7 +347,8 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         'before telling the user the change is clean; mention any remaining diagnostics in your summary.\n'
         '- **Incremental mutations:** Prefer `execute_workspace_mutation` (or several calls) for a **single verifiable** '
         'slice; use `plan_and_modify` when you need multi-step discovery, a checklist, or final project review across '
-        'multiple build actions.\n'
+        'multiple build actions. **Choosing nested delegation:** one bounded slice or router handoff → `execute_workspace_mutation`; '
+        'multi-step checklist, planner discovery, or final project review across the repo → `plan_and_modify`.\n'
         '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
         '- After `execute_workspace_mutation` or `plan_and_modify` returns, answer the user with a concise summary of '
         'outcomes (files touched, key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
@@ -340,17 +358,48 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
     )
 
 
-def build_system_prompt(session: SessionState, apply_mode: bool) -> str:
-    """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace."""
+def build_system_prompt(
+    session: SessionState,
+    apply_mode: bool,
+    *,
+    outer_cycle_phase: Literal['learn', 'write', 'verify'] | None = None,
+) -> str:
+    """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace.
+
+    ``outer_cycle_phase`` narrows operational guidance for the phased outer LangGraph subgraphs.
+    """
     workspace_hint = _workspace_hint(session)
+    operational = _outer_agent_operational_block(apply_mode)
+    if outer_cycle_phase == 'learn':
+        operational = _outer_agent_operational_block(False) + (
+            '\n- **Outer coding cycle — Learn phase:** Editor may be on for this conversation, but **only** '
+            'read/search and LSP inspection tools are bound in this subgraph. Do not claim file edits, staging, '
+            'or package installs occurred here.\n'
+        )
+    elif outer_cycle_phase == 'verify':
+        operational = _outer_agent_operational_block(False) + (
+            '\n- **Outer coding cycle — Verify phase:** **Order:** (1) If any staged drafts are still pending, use '
+            '`list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit` as needed, then '
+            '`transfer_staged_file_to_workspace` (or `reject_staged_workspace_edit` if a draft must not ship) so the '
+            'real workspace matches what you will test. (2) Run `run_workspace_pytest_tests` and/or '
+            '`run_workspace_python_smoke_test`. (3) Use LSP read/diagnostic tools on touched paths. '
+            'Do not create new staged content or run nested `plan_and_modify` / `execute_workspace_mutation` here.\n'
+        )
+    elif outer_cycle_phase == 'write':
+        operational = _outer_agent_operational_block(apply_mode) + (
+            '\n- **Outer coding cycle — Write phase:** Mutations, staging, nested delegation, and dependency '
+            'tools are available as bound; verify phase follows automatically with **workspace transfer** (any '
+            'still-pending staged paths) then **pytest, smoke test, and LSP** diagnostics.\n'
+        )
     return (
         'You are Clara, a proactive coding assistant inside an Electron desktop app. '
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
         'Prefer quoting exact file paths, line numbers, commands, and concrete next steps. '
         'Keep answers concise but useful, and explain what you actually inspected.\n\n'
+        f'{harness_mindset_block()}\n\n'
         f'{_connection_line(session)}\n\n'
         f'{_os_hint_line()}\n\n'
-        f'{_outer_agent_operational_block(apply_mode)}'
+        f'{operational}'
         f'{workspace_hint}'
         f'{_model_prompt_suffix()}'
     )

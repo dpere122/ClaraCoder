@@ -50,3 +50,12 @@ def test_sse_delta_drops_placeholder_question_wall() -> None:
 def test_reasoning_delta_drops_placeholder_wall() -> None:
     chunk = AIMessageChunk(content='', additional_kwargs={'reasoning_content': '?' * 40})
     assert aimessage_chunk_reasoning_delta(chunk) == ''
+
+
+def test_reasoning_delta_drops_single_slash_chunks() -> None:
+    chunk = AIMessageChunk(content='', additional_kwargs={'reasoning_content': '/'})
+    assert aimessage_chunk_reasoning_delta(chunk) == ''
+
+
+def test_sse_delta_keeps_single_slash_in_main_content() -> None:
+    assert aimessage_chunk_sse_delta(AIMessageChunk(content='/')) == '/'

@@ -454,7 +454,8 @@ class TestCodingPlannerPrompt:
         assert 'route_project_review_specialist' not in router_prompt
         assert 'Do not attempt a final whole-project review in this router pass' in router_prompt
         assert 'orchestrator runs that after the **full**' in router_prompt
-        assert 'Do not run the workspace test suite from this specialist' in review_prompt
+        assert 'Optional **pre-transfer verification:**' in review_prompt
+        assert 'run_staging_overlay_command' in review_prompt
         assert 'file-write specialist' in review_prompt
         assert 'workspace dependency specialist' in dependency_prompt
         assert 'write a frozen requirements file' in dependency_prompt

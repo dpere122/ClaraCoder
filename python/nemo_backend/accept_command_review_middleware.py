@@ -30,19 +30,17 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
 
         name = str(request.tool_call.get('name') or '')
         sess = get_session(session_id)
+        # Require an active SSE pump (``hitl_sse_queue``), not ``worker_apply_mode``: nested npm/pip
+        # tools run during streamed agent work but ``worker_apply_mode`` is editor-only and could skip HITL.
         if (
-            not sess.worker_apply_mode
+            sess.hitl_sse_queue is None
             or name not in hitl_accept_command_pause_tools()
             or not sess.pending_accept_command_request
             or sess.auto_apply_mode
         ):
             return result
 
-        q = sess.hitl_sse_queue
-        if q is None:
-            return result
-
-        await q.put(('accept_command',))
+        await sess.hitl_sse_queue.put(('accept_command',))
         note = await await_diff_review_note(session_id)
 
         tm: ToolMessage

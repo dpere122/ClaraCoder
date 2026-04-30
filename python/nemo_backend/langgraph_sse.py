@@ -33,6 +33,7 @@ from nemo_backend.llm_interaction_logging import (
 from nemo_backend.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
 from nemo_backend.stream_tags import MOE_AUXILIARY_STREAM_TAG
 from nemo_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
+from nemo_backend.tool_harness_feedback_middleware import pending_harness_crystal_polarity
 
 
 @dataclass
@@ -48,6 +49,36 @@ class GraphStreamState:
     stream_chars: int = 0
     #: True once a ``stream_tag=moe`` chunk was emitted for the current LLM step.
     moe_emitted_this_step: bool = False
+
+
+def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
+    """Build SSE ``token_usage`` body from LangChain :attr:`~langchain_core.messages.AIMessage.usage_metadata`.
+
+    Populated when the chat model uses the OpenAI-compatible API with streaming usage enabled
+    (see :func:`nemo_backend.llm.build_llm`).
+    """
+    raw = getattr(msg, 'usage_metadata', None)
+    if raw is None:
+        return None
+    inp: Any
+    out: Any
+    tot: Any
+    if isinstance(raw, dict):
+        inp = raw.get('input_tokens')
+        out = raw.get('output_tokens')
+        tot = raw.get('total_tokens')
+    else:
+        inp = getattr(raw, 'input_tokens', None)
+        out = getattr(raw, 'output_tokens', None)
+        tot = getattr(raw, 'total_tokens', None)
+    body: dict[str, Any] = {'type': 'token_usage'}
+    if isinstance(inp, int):
+        body['input_tokens'] = inp
+    if isinstance(out, int):
+        body['output_tokens'] = out
+    if isinstance(tot, int):
+        body['total_tokens'] = tot
+    return body if len(body) > 1 else None
 
 
 _FORWARDED_RESULT_TOOL_NAMES = frozenset(
@@ -213,6 +244,9 @@ def _on_chat_model_end(
         stream_chunks=state.stream_chunks,
         stream_chars=state.stream_chars,
     )
+    usage_payload = _token_usage_payload(msg)
+    if usage_payload is not None:
+        lines.insert(0, sse_line(usage_payload))
     if not (msg.tool_calls or []):
         if record_model_end_final_text:
             state.last_final_text = final_assistant_text(msg)
@@ -285,6 +319,10 @@ def _on_tool_end(
             stream_tag=stream_tag,
         )
     )
+    crystal_pol = pending_harness_crystal_polarity.get()
+    if crystal_pol is not None:
+        pending_harness_crystal_polarity.set(None)
+        lines.append(sse_line({'type': 'harness_crystal', 'polarity': crystal_pol}))
     return lines
 
 

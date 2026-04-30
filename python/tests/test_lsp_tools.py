@@ -297,6 +297,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
         'new_content': 'value = 1\n',
         'encoding': '',
         'newline': '',
+        'land_in_workspace': False,
     }
     assert lsp_env.session.lsp_active_scope == 'staging'
 
@@ -358,6 +359,35 @@ def test_clear_session_shuts_down_lsp_state(lsp_env) -> None:
     session = get_session(lsp_env.session_id)
     assert session.lsp_diagnostics == {}
     assert session.workspace_path == ''
+
+
+def test_post_edit_checks_footer_steers_on_indent_diagnostics() -> None:
+    from nemo_backend.lsp.diagnostics import post_edit_checks_footer
+
+    diags = [
+        {
+            'message': 'unexpected indent',
+            'line': 2,
+            'character': 1,
+            'severity': 'error',
+            'severity_value': 1,
+            'code': '',
+            'source': 'Pyright',
+            'end_line': 2,
+            'end_character': 5,
+            'relative_path': 'pkg/x.py',
+        }
+    ]
+    out = post_edit_checks_footer(
+        'pkg/x.py',
+        diags,
+        lsp_scope='staging',
+        server_kind='python',
+        formatter_lines=['Formatter (Black): applied to the staged draft.'],
+    )
+    assert 'Steer (indentation-like diagnostics detected)' in out
+    assert 'format_staging_file_black' in out
+    assert 'refresh_active_document=true' in out
 
 
 def test_python_lsp_events_flow_into_nemo_logging(lsp_env, tmp_path: Path) -> None:

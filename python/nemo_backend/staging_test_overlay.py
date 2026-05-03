@@ -13,7 +13,11 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from nemo_backend.edit_staging import copy_workspace_into_snapshot, get_staging_root
+from nemo_backend.edit_staging import (
+    copy_workspace_mirror,
+    get_active_planner_snapshot_root,
+    get_staging_root,
+)
 from nemo_backend.workspace_text_io import DiskNewline, write_file_resolved
 
 if TYPE_CHECKING:
@@ -125,20 +129,24 @@ def apply_pending_staged_merged_texts(session: SessionState, overlay_root: Path)
     return True, ''
 
 
-def build_staging_test_overlay(
+def build_staging_workspace_overlay(
     session: SessionState,
     workspace_root: Path,
     session_id: str,
     *,
+    overlay_subdir: str,
     extra_dependency_rels: tuple[str, ...] | None = None,
 ) -> tuple[Path | None, Path | None, str]:
     """Return ``(overlay_root, overlay_parent, err)``; ``overlay_parent`` is the uuid folder to rmtree.
 
-    ``overlay_root`` is ``.../uuid/workspace`` — the synthetic workspace root for subprocess ``cwd``.
+    Baseline tree is the active planner snapshot when present, else the live workspace.
+    ``overlay_root`` is ``.../uuid/workspace`` — the synthetic workspace root (LSP rootUri / subprocess cwd).
     """
     ws = workspace_root.resolve()
+    snap = get_active_planner_snapshot_root(session)
+    content_root = snap if snap is not None and snap.is_dir() else ws
     ns = _safe_session_ns(session_id)
-    overlay_parent = get_staging_root() / ns / 'test-overlay' / uuid.uuid4().hex
+    overlay_parent = get_staging_root() / ns / overlay_subdir / uuid.uuid4().hex
     overlay_root = overlay_parent / 'workspace'
     try:
         overlay_root.mkdir(parents=True, exist_ok=True)
@@ -146,7 +154,7 @@ def build_staging_test_overlay(
         return None, None, f'Could not create overlay directory ({exc}).'
 
     try:
-        copy_workspace_into_snapshot(ws, overlay_root)
+        copy_workspace_mirror(content_root, overlay_root, rules_workspace=ws)
         ordered: list[str] = []
         seen: set[str] = set()
         for rel in (*_DEFAULT_LINK_RELS, *(extra_dependency_rels or ())):
@@ -166,10 +174,30 @@ def build_staging_test_overlay(
             return None, None, err2
     except Exception as exc:
         shutil.rmtree(overlay_parent, ignore_errors=True)
-        logger.exception('build_staging_test_overlay failed')
+        logger.exception('build_staging_workspace_overlay failed subdir=%s', overlay_subdir)
         return None, None, str(exc)
 
     return overlay_root, overlay_parent, ''
+
+
+def build_staging_test_overlay(
+    session: SessionState,
+    workspace_root: Path,
+    session_id: str,
+    *,
+    extra_dependency_rels: tuple[str, ...] | None = None,
+) -> tuple[Path | None, Path | None, str]:
+    """Return ``(overlay_root, overlay_parent, err)``; ``overlay_parent`` is the uuid folder to rmtree.
+
+    ``overlay_root`` is ``.../uuid/workspace`` — the synthetic workspace root for subprocess ``cwd``.
+    """
+    return build_staging_workspace_overlay(
+        session,
+        workspace_root,
+        session_id,
+        overlay_subdir='test-overlay',
+        extra_dependency_rels=extra_dependency_rels,
+    )
 
 
 def remove_overlay_parent(overlay_parent: Path | None) -> None:
@@ -179,6 +207,48 @@ def remove_overlay_parent(overlay_parent: Path | None) -> None:
         shutil.rmtree(overlay_parent, ignore_errors=True)
     except OSError:
         pass
+
+
+def clear_lsp_staging_overlay(session: SessionState) -> None:
+    """Remove on-disk LSP overlay and clear session pointers."""
+
+    raw = str(getattr(session, 'lsp_staging_overlay_parent', '') or '').strip()
+    if raw:
+        remove_overlay_parent(Path(raw))
+    session.lsp_staging_overlay_root = ''
+    session.lsp_staging_overlay_parent = ''
+
+
+def ensure_lsp_staging_overlay(session: SessionState, workspace_root: Path, *, session_id: str | None = None) -> Path:
+    """Return the overlay workspace root, refreshing merged staging files on disk."""
+
+    from nemo_backend.state import current_session_id
+
+    sid = (session_id or current_session_id.get() or '').strip()
+    if not sid:
+        raise ValueError('No active session for LSP staging overlay.')
+    ws = workspace_root.resolve()
+    existing = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
+    if existing:
+        root = Path(existing)
+        if root.is_dir():
+            ok, err = apply_pending_staged_merged_texts(session, root)
+            if ok:
+                return root.resolve()
+            logger.warning('lsp staging overlay incremental refresh failed; rebuilding: %s', err)
+            clear_lsp_staging_overlay(session)
+
+    overlay_root, overlay_parent, err_msg = build_staging_workspace_overlay(
+        session,
+        ws,
+        sid,
+        overlay_subdir='lsp-overlay',
+    )
+    if overlay_root is None or err_msg:
+        raise ValueError(err_msg or 'Could not build LSP staging overlay.')
+    session.lsp_staging_overlay_root = str(overlay_root.resolve())
+    session.lsp_staging_overlay_parent = str(overlay_parent.resolve()) if overlay_parent else ''
+    return overlay_root.resolve()
 
 
 def parse_command_argv_json(raw: str) -> tuple[list[str] | None, str]:

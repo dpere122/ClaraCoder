@@ -133,6 +133,10 @@ class SessionState:
     lsp_workspace_root: str = ''
     # Auto-detected TypeScript/Node project root used for typescript-language-server cwd (nested ``package.json``).
     typescript_lsp_resolved_root: str = ''
+    # Ephemeral LSP workspace mirror for staging scope (``.../uuid/workspace``); empty when none.
+    lsp_staging_overlay_root: str = ''
+    # Parent of the overlay workspace folder for ``shutil.rmtree`` teardown.
+    lsp_staging_overlay_parent: str = ''
     # Cached normalized diagnostics keyed by workspace-relative path.
     lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     # Structured project-review failure handoff consumed by the caller to start a brand-new planner graph.
@@ -229,10 +233,6 @@ class RuntimeToolsConfig:
     default_workspace_encoding: str = 'utf-8'
     #: Default newline mode for edit writes: ``lf``, ``crlf``, or ``preserve`` (match existing file when present).
     default_workspace_newline: str = 'lf'
-    #: When True, outer agent binds ``plan_and_modify`` / ``execute_workspace_mutation`` (nested router + planner).
-    orchestrated_mode: bool = False
-    #: When True (Editor on), outer Clara uses a phased LangGraph (Learn → Write → Verify) instead of one flat tool agent.
-    outer_phased_coding_cycle: bool = False
     #: When True, nested code review may call ``run_staging_overlay_command`` (Settings → Tools).
     allow_staging_overlay_commands: bool = False
 

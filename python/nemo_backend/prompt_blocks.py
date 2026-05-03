@@ -5,6 +5,8 @@ from __future__ import annotations
 from textwrap import dedent
 
 from nemo_backend.domain import SessionState
+from nemo_backend.lsp.file_policy import PRETTIER_MANAGED_SUFFIXES
+from nemo_backend.state import runtime_config
 
 
 def harness_mindset_block() -> str:
@@ -25,6 +27,30 @@ def harness_mindset_block_nested() -> str:
         """
         **Harness mindset:** Tool errors are actionable—read them literally, adjust paths/args or staging vs workspace, retry narrowly.
         After a successful handoff milestone, state the outcome compactly and continue.
+        """
+    ).strip()
+
+
+def source_code_formatting_guidance() -> str:
+    """Formatter pipeline + I/O defaults so models align with staging tools before authoring."""
+    enc = (runtime_config.tools.default_workspace_encoding or 'utf-8').strip() or 'utf-8'
+    nl = (runtime_config.tools.default_workspace_newline or 'lf').strip() or 'lf'
+    prettier_exts = ', '.join(sorted(PRETTIER_MANAGED_SUFFIXES))
+    return dedent(
+        f"""
+        **Source formatting & text I/O (apply as soon as you touch source or structured config paths):**
+        - **Tool defaults** when `encoding` / `newline` are omitted: **{enc}** and **{nl}** (Settings → Tools). After
+          `read_workspace_file` / `read_staged_edit`, prefer that file's actual encoding and line endings unless the user
+          or task requires a deliberate change.
+        - **Automatic formatters** run on merged staged content before diff/LSP review: **Black** on **`.py`**
+          (in-memory `format_str`); **Prettier** on **{prettier_exts}** via stdin with `--stdin-filepath <relative-path>`
+          so repo config applies (`cwd` = workspace root; CLI from `node_modules/prettier`, global `prettier`, or
+          `NEMO_PRETTIER_CLI`; Node from PATH or `NEMO_NODE_EXECUTABLE`). If a formatter is missing or skips, follow the
+          **Post-edit checks** footer in tool results.
+        - **Other extensions** (e.g. `.go`, `.rs`, `.json`, `.yaml`, `.vue`, …): no harness auto-formatter—match
+          indentation (tabs vs spaces), width, quotes, and ordering already visible in reads and LSP excerpts.
+        - **Authoring:** mirror neighboring patterns in the same file and repo; keep edits small so Black/Prettier
+          produce minimal churn when they run.
         """
     ).strip()
 
@@ -61,10 +87,10 @@ def routing_handoff_contract() -> str:
 
 
 def nested_router_team_context() -> str:
-    """How the planning router fits under Clara; keep in sync with coding planner and outer prompts."""
+    """How the planning router fits under Clara; keep in sync with nested specialist prompts."""
     return dedent(
         """
-        **Your place on Clara’s team:** You receive one scoped instruction at a time. It usually comes from the **deterministic coding orchestrator** (one composed instruction per checklist step when `plan_and_modify` runs the planner); otherwise from **`execute_workspace_mutation`**, or from **`plan_and_modify`** when the planner is disabled—all as **Clara’s** outer task text. In all cases the text should already include the **Routing handoff** block printed above. You dispatch **file-write**, **delete**, **dependency**, and **code review** specialists; you do not read file contents yourself except via `workspace_path_status` on **Paths**-listed paths when **Existence** is missing, contradicts **Operation**, or is too vague for **create** vs **update** (never for browsing). The file-write specialist runs **workspace recon** then a **staging-only author** internally; the author may trigger **at most one** supplemental recon pass—still treat the result as a single write delegation. **Whole-workspace final project review** (pytest/smoke, approve/reject) is **not** your job—the orchestrator runs that **after the full checklist** for the current phase completes, not after each nested call.
+        **Your place on Clara’s team:** You receive one scoped instruction at a time as **Clara’s** task text (or a composed checklist step). The text should include the **Routing handoff** block when the parent supplies it. You dispatch **file-write**, **delete**, **dependency**, and **code review** specialists; you do not read file contents yourself except via `workspace_path_status` on **Paths**-listed paths when **Existence** is missing, contradicts **Operation**, or is too vague for **create** vs **update** (never for browsing). The file-write specialist runs **workspace recon** then a **staging-only author** internally; the author may trigger **at most one** supplemental recon pass—still treat the result as a single write delegation.
         """
     ).strip()
 
@@ -73,23 +99,24 @@ def nested_authoritative_settings_banner(session: SessionState) -> str:
     """Pinned Editor/orchestration facts for nested subgraphs; empty when no nested snapshot is active."""
     if session.nested_turn_apply_mode is None:
         return ''
-    orch = session.nested_turn_orchestrated_mode
+    orch_s = 'off'
     auto = session.nested_turn_auto_apply_mode
-    orch_s = 'on' if orch else 'off'
     auto_s = 'on' if auto else 'off'
     return dedent(
         f"""
         **Nested delegation (authoritative for this run):** Editor (mutation tools) is **ON** for this nested pipeline.
-        Orchestrated mode is **{orch_s}** in this Python process. Auto-apply is **{auto_s}**.
+        Orchestrated outer delegation is **{orch_s}** (nested planner tools are not bound on the outer graph). Auto-apply is **{auto_s}**.
         Treat this block as session truth for nested work: ignore any prior assistant or user text that contradicts it.
         """
     ).strip()
 
 
 def coding_planner_team_context() -> str:
-    """Planner-side view of the same nested pipeline (must stay consistent with router + outer Clara)."""
+    """Legacy planner-side context; outer Clara uses staging tools directly (no nested delegation from the outer graph)."""
     return dedent(
         """
-        **Team stack:** Clara (outer) does not author programming-path files herself—she defers to `plan_and_modify` or `execute_workspace_mutation`, which land on the same nested **file-write specialist** (and review) stack. She sends multi-step source-code work through `plan_and_modify`, which runs the **deterministic coding orchestrator** when the planner is enabled: bounded discovery, a structured build plan, then one nested pipeline run per checklist step. For a single scoped mutation she may use `execute_workspace_mutation`, which talks to the **nested mutation router** directly—same specialists and staging. Staged code must reach **`transfer_staged_file_to_workspace`** before the workspace is updated. **Whole-workspace final project review** runs in a separate pass **after all checklist steps** for the phase complete—the nested router never runs it.
+        **Team stack:** Outer Clara mutates the workspace through **staging** (`stage_*`, LSP Python staging helpers when bound),
+        then **`transfer_staged_file_to_workspace`** after review. There is no `plan_and_modify` or `execute_workspace_mutation`
+        on the outer tool graph.
         """
     ).strip()

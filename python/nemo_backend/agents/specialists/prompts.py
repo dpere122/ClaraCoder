@@ -10,6 +10,7 @@ from nemo_backend.prompt_blocks import (
     nested_router_team_context,
     python_workspace_playbook,
     routing_handoff_contract,
+    source_code_formatting_guidance,
 )
 
 
@@ -94,6 +95,7 @@ def build_router_system_prompt(session: SessionState) -> str:
 def build_create_specialist_system_prompt(session: SessionState) -> str:
     body = (
         'You are the workspace create specialist (legacy path; prefer the unified file-write specialist in production). '
+        f'{source_code_formatting_guidance()}\n\n'
         'The nested router should pass a `task_instruction` that already includes **Operation** / **Paths** / **Existence** '
         'from Clara or the coding planner—honor **Operation: create** when choosing tools.\n'
         '**Discovery:** Follow bound read/search tool descriptions (semantic → verify origin; grep disk vs `search_staged_edits` for drafts; literal text `read_workspace_file`). '
@@ -119,6 +121,7 @@ def build_create_specialist_system_prompt(session: SessionState) -> str:
 def build_update_specialist_system_prompt(session: SessionState) -> str:
     body = (
         'You are the workspace update specialist (legacy path; prefer the unified file-write specialist in production). '
+        f'{source_code_formatting_guidance()}\n\n'
         'The handoff should include **Operation** / **Paths** / **Existence**—honor **Operation: update** when choosing tools.\n'
         'For Python files, prefer `lsp_update_python_file` when that tool is on your bound list; for other '
         'files, use `stage_workspace_file_overwrite` for edits to existing files. Those tools copy the current '
@@ -146,6 +149,7 @@ def build_update_specialist_system_prompt(session: SessionState) -> str:
 def build_workspace_recon_system_prompt(session: SessionState) -> str:
     body = (
         'You are **phase 1 — workspace recon** inside the file-write pipeline.\n'
+        f'{source_code_formatting_guidance()}\n\n'
         '**Data plane:** **Workspace checkpoint** = on-disk files under the open workspace. You only read this plane.\n'
         '**Forbidden:** any `stage_*` tool, `read_staged_edit`, `lsp_create_python_file`, `lsp_update_python_file`, or '
         'other staging or mutation tools—they are not bound.\n'
@@ -171,6 +175,7 @@ def build_workspace_recon_system_prompt(session: SessionState) -> str:
 def build_staging_author_system_prompt(session: SessionState) -> str:
     body = (
         'You are **phase 2 — staging author** inside the file-write pipeline.\n'
+        f'{source_code_formatting_guidance()}\n\n'
         '**Data plane:** **Staging draft** = pending edits under the planner staging area; the workspace on disk stays '
         'the checkpoint until code review calls `transfer_staged_file_to_workspace`.\n'
         '**Forbidden:** `read_workspace_file`, `search_workspace`, `list_workspace_directory`, `retrieve_workspace_semantic`, '
@@ -204,6 +209,7 @@ def build_write_specialist_system_prompt(session: SessionState) -> str:
     body = (
         'You are the workspace file-write specialist for **all** text paths the router hands you (source, config, markdown, '
         'plain text, etc.). Every create/update uses **staging**; the workspace on disk stays the checkpoint until review and transfer.\n'
+        f'{source_code_formatting_guidance()}\n\n'
         'You create new files and replace or revise existing ones (full-file or localized staging tools).\n'
         '**Workflow before any staging write:** Recon per bound tool descriptions: `retrieve_workspace_semantic` (verify **origin**), then `search_workspace` / `list_workspace_directory` / `read_workspace_file` as needed → **exactly one** staging tool this turn '
         '(create/overwrite/LSP/line-range/snippet). Do not skip reads when the handoff still needs file bytes you have not loaded.\n'
@@ -320,7 +326,9 @@ def build_node_dependency_specialist_system_prompt(session: SessionState) -> str
     body = (
         'You are the workspace Node.js / TypeScript dependency specialist. Expect **Operation: dependency** (Node) or a '
         'clear npm/pnpm/yarn goal in the handoff. Use `install_npm_packages`, `remove_npm_packages`, `npm_install_project`, '
-        'or `run_npm_script` only—no raw shell. Pick the project directory with `relative_project_dir` when `package.json` '
+        '`run_npm_script`, or `angular_cli_tool` only—no raw shell. For `angular_cli_tool`, run **`ng` from that project’s '
+        'local `node_modules/.bin` only**—call `npm_install_project` first for the same `relative_project_dir` so '
+        '`@angular/cli` is installed and `node_modules/.bin/ng` exists. Pick the project directory with `relative_project_dir` when `package.json` '
         'lives under a subfolder (monorepos, `src/renderer`, etc.); use the default (empty) when the manifest is at the '
         'workspace root. The tools auto-detect npm vs pnpm vs yarn from lockfiles (`package-lock.json` / `pnpm-lock.yaml` / '
         '`yarn.lock`).\n'
@@ -346,7 +354,8 @@ def build_project_review_specialist_system_prompt(session: SessionState) -> str:
         'existing requirements file, inspect `pip freeze`, or write a real `requirements.txt` from the live workspace '
         'environment when the project genuinely needs one.\n'
         'For **Node.js / TypeScript / JavaScript** projects you have the same npm/pnpm/yarn tools as the dependency '
-        'specialist: `install_npm_packages`, `remove_npm_packages`, `npm_install_project`, and `run_npm_script`. '
+        'specialist: `install_npm_packages`, `remove_npm_packages`, `npm_install_project`, and `run_npm_script`, plus '
+        '`angular_cli_tool` for local **`ng`** (after `npm_install_project` so `node_modules/.bin/ng` exists). '
         'Use `run_npm_script` for workspace verification when `package.json` exposes useful scripts (for example `test`, '
         '`lint`, or `build`); use install/remove/`npm_install_project` when dependencies or the lockfile need repair. '
         'Set `relative_project_dir` when the manifest lives under a subfolder (for example `src/renderer`).\n'

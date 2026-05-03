@@ -146,8 +146,7 @@ function isClaraOnlyToolChainGroup(group: ToolChainGroup): boolean {
 
 /**
  * Coding-planner checklist UX: hide nested `planner` / Clara-brief noise until `planReady`.
- * Nested router + specialists (`planning`, `spec-*`) are used by `execute_workspace_mutation` and
- * `execute_plan_step` — they never get a planner checklist, so they must not wait on `planReady`
+ * Nested router + specialists (`planning`, `spec-*`) never get a planner checklist, so they must not wait on `planReady`
  * (otherwise the live tool chain vanishes while the model works).
  */
 function nestedGroupWaitsForPlanReady(group: ToolChainGroup, planner: PlannerProgress | null): boolean {

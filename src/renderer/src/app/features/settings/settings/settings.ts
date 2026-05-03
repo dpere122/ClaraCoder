@@ -42,6 +42,12 @@ type SettingsTab = 'appearance' | 'models' | 'tools' | 'audio' | 'workspaces';
 export class Settings implements OnInit, OnDestroy {
   /** Shown in managed llama-server tips and placeholders (must match Electron substitution token). */
   protected readonly managedLlamaPortToken = '{{PORT}}';
+  /**
+   * Non-empty default so new llamacpp sources open the managed llama-server editor (not URL-only).
+   * Matches the Settings placeholder; user replaces org/model with their HF id or switches to -m path.
+   */
+  private static readonly newManagedLlamacppChatCommand =
+    'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
   protected readonly selectedSettingsTab = signal<SettingsTab>('models');
   protected readonly tabs: Array<{ id: SettingsTab; label: string; description: string }> = [
     {
@@ -75,8 +81,6 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly maxSearchResults = signal(40);
   protected readonly defaultWorkspaceEncoding = signal('utf-8');
   protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
-  protected readonly orchestratedMode = signal(false);
-  protected readonly outerPhasedCodingCycle = signal(false);
   protected readonly allowStagingOverlayCommands = signal(false);
   protected readonly selectedLocation = computed(() => {
     const modelId = this.selectedModelId();
@@ -724,12 +728,6 @@ export class Settings implements OnInit, OnDestroy {
       const nl = changes.defaultWorkspaceNewline;
       this.defaultWorkspaceNewline.set(nl === 'crlf' || nl === 'preserve' ? nl : 'lf');
     }
-    if (changes.orchestratedMode !== undefined) {
-      this.orchestratedMode.set(!!changes.orchestratedMode);
-    }
-    if (changes.outerPhasedCodingCycle !== undefined) {
-      this.outerPhasedCodingCycle.set(!!changes.outerPhasedCodingCycle);
-    }
     if (changes.allowStagingOverlayCommands !== undefined) {
       this.allowStagingOverlayCommands.set(!!changes.allowStagingOverlayCommands);
     }
@@ -770,16 +768,6 @@ export class Settings implements OnInit, OnDestroy {
   protected onDefaultWorkspaceNewlineChange(value: string): void {
     const v = value === 'crlf' || value === 'preserve' ? value : 'lf';
     this.defaultWorkspaceNewline.set(v);
-    this.markSettingsDirty();
-  }
-
-  protected onOrchestratedModeChange(enabled: boolean): void {
-    this.orchestratedMode.set(!!enabled);
-    this.markSettingsDirty();
-  }
-
-  protected onOuterPhasedCodingCycleChange(enabled: boolean): void {
-    this.outerPhasedCodingCycle.set(!!enabled);
     this.markSettingsDirty();
   }
 
@@ -842,7 +830,10 @@ export class Settings implements OnInit, OnDestroy {
       planRetryAttemptsCount: 2,
     };
     if (providerKind === 'llamacpp') {
-      base.llamaCppManaged = defaultLlamaCppManaged();
+      base.llamaCppManaged = {
+        ...defaultLlamaCppManaged(),
+        chatRunCommand: Settings.newManagedLlamacppChatCommand,
+      };
     }
     return base;
   }
@@ -921,8 +912,6 @@ export class Settings implements OnInit, OnDestroy {
         maxSearchResults: this.maxSearchResults(),
         defaultWorkspaceEncoding: this.defaultWorkspaceEncoding(),
         defaultWorkspaceNewline: this.defaultWorkspaceNewline(),
-        orchestratedMode: this.orchestratedMode(),
-        outerPhasedCodingCycle: this.outerPhasedCodingCycle(),
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
       },
     };
@@ -1003,8 +992,6 @@ export class Settings implements OnInit, OnDestroy {
     this.defaultWorkspaceNewline.set(
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
-    this.orchestratedMode.set(!!wt.orchestratedMode);
-    this.outerPhasedCodingCycle.set(!!(wt.outerPhasedCodingCycle ?? false));
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
 
     const currentSelected = this.selectedModelId();

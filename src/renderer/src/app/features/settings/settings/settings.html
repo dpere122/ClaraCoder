@@ -18,7 +18,7 @@
             @if (tab.id === 'models') {
               {{ llmProviders().length }} sources
             } @else if (tab.id === 'tools') {
-              {{ orchestratedMode() ? 'Orchestrated' : 'Staging default' }}{{ outerPhasedCodingCycle() ? ' · Phased outer' : '' }} · {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
             } @else if (tab.id === 'appearance') {
@@ -836,39 +836,6 @@
                   <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
                 </select>
               </label>
-            </div>
-
-            <div class='field field--full'>
-              <label class='toggle-row'>
-                <input
-                  type='checkbox'
-                  [ngModel]='orchestratedMode()'
-                  (ngModelChange)='onOrchestratedModeChange($event)'
-                />
-                <span>Orchestrated mode</span>
-              </label>
-              <p class='settings-copy' style='margin-top: 0.35rem'>
-                When on, the main agent can call nested planning tools (<code>plan_and_modify</code>,
-                <code>execute_workspace_mutation</code>). When off (default), use staging edits only—the app is moving
-                toward a new default planning approach.
-              </p>
-            </div>
-
-            <div class='field field--full'>
-              <label class='toggle-row'>
-                <input
-                  type='checkbox'
-                  [ngModel]='outerPhasedCodingCycle()'
-                  (ngModelChange)='onOuterPhasedCodingCycleChange($event)'
-                />
-                <span>Phased outer coding cycle</span>
-              </label>
-              <p class='settings-copy' style='margin-top: 0.35rem'>
-                When Editor is on, Clara runs a LangGraph <strong>Learn → Write → Verify</strong> loop: read-only discovery,
-                then mutations and nested work, then any pending <strong>staged → workspace</strong> transfers,
-                then pytest/smoke plus LSP diagnostics (bounded retries if checks fail).
-                Off by default.
-              </p>
             </div>
 
             <div class='field field--full'>

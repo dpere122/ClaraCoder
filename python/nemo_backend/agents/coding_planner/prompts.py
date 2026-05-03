@@ -16,6 +16,7 @@ from nemo_backend.prompt_blocks import (
     coding_planner_team_context,
     python_workspace_playbook,
     routing_handoff_contract,
+    source_code_formatting_guidance,
 )
 
 
@@ -91,6 +92,7 @@ def build_discovery_system_prompt(
         'to-do list, or step-by-step build plan here—that happens in a later phase. When done, send a **single** final '
         'assistant message (no tools) starting with `Discovery complete:` summarizing only facts: relevant paths, '
         'symbols, constraints, and open questions. No re-planning or alternatives after that line.\n\n'
+        f'{source_code_formatting_guidance()}\n\n'
         f'{ws.strip()}'
     )
 
@@ -178,6 +180,7 @@ def build_coding_planner_system_prompt(
         'remediation steps may be appended and re-executed in the nested pipeline.\n'
         '6. **Summarize.** When `plan_and_modify` returns, Clara summarizes for the user in plain language.\n\n'
         f'{python_workspace_playbook()}\n\n'
+        f'{source_code_formatting_guidance()}\n\n'
         '## Rules\n'
         '- Checklist steps are build/mutation/test/verification only.\n'
         '- Prefer targeted `plan_and_modify` task text over vague handoffs; list every path the nested team must touch.\n'

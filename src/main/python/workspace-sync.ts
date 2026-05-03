@@ -92,8 +92,6 @@ export async function syncRuntimeConfigToPython(
           maxSearchResults: config.workspaceTools.maxSearchResults,
           defaultWorkspaceEncoding: config.workspaceTools.defaultWorkspaceEncoding,
           defaultWorkspaceNewline: config.workspaceTools.defaultWorkspaceNewline,
-          orchestratedMode: config.workspaceTools.orchestratedMode ?? false,
-          outerPhasedCodingCycle: config.workspaceTools.outerPhasedCodingCycle ?? false,
           allowStagingOverlayCommands: config.workspaceTools.allowStagingOverlayCommands ?? false,
         },
       }),

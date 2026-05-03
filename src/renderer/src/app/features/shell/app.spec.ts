@@ -51,8 +51,6 @@ function stubElectronApi(): void {
       maxSearchResults: 40,
       defaultWorkspaceEncoding: 'utf-8',
       defaultWorkspaceNewline: 'lf',
-      orchestratedMode: false,
-      outerPhasedCodingCycle: false,
       allowStagingOverlayCommands: false,
     },
     healthMonitor: {

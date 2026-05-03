@@ -269,9 +269,9 @@ def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env)
 
     diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
 
-    assert diag_text.startswith('LSP context: scope=staging; analyzed=staged_draft')
+    assert diag_text.startswith('LSP context: scope=staging; analyzed=overlay_workspace')
     assert 'No LSP diagnostics for `pkg/mod.py`.' in diag_text
-    assert 'In staging scope, Python import resolution' in diag_text
+    assert 'Staging analysis uses a mirror workspace' in diag_text
     assert staging_manager._client is not None
     assert list(staging_manager._client.docs.values()) == ['value = "done"\nprint(value)\n']
 

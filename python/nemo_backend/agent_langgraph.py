@@ -1,7 +1,6 @@
 """LangGraph-based tool agent via ``langchain.agents.create_agent``.
 
-Standard Clara uses read/search plus optional ``execute_workspace_mutation`` / ``plan_and_modify``; nested
-router/specialists stream on a side queue while those tools run. Per-connection ``parallel_tool_calls`` is applied via
+Standard Clara uses read/search plus staging and LSP tools when Editor is on. Per-connection ``parallel_tool_calls`` is applied via
 :class:`~nemo_backend.parallel_tool_middleware.ConnectionParallelToolCallsMiddleware`.
 Diff-review pauses use :class:`~nemo_backend.diff_review_middleware.DiffReviewAfterToolMiddleware`
 plus a multiplexed event pump so diffs emit while the graph waits on ``POST /chat/agent-continue``.
@@ -25,10 +24,7 @@ from nemo_backend.accept_command import accept_command_sse_payload
 from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
 from nemo_backend.agents.specialists.review_tools import rollback_test_run_materializations
 from nemo_backend.checkpointing import get_graph_checkpointer, outer_agent_thread_id
-from nemo_backend.agents.planning.nested_middleware import (
-    NESTED_WORKER_STREAM_END,
-    PlanningNestedWorkerMiddleware,
-)
+from nemo_backend.agents.planning.nested_middleware import NESTED_WORKER_STREAM_END
 from nemo_backend.config import MAX_AGENT_STEPS
 from nemo_backend.copy_review_middleware import CopyReviewAfterToolMiddleware
 from nemo_backend.copy_tool import copy_confirm_sse_payload
@@ -51,8 +47,7 @@ from nemo_backend.messages import (
     compose_outer_turn_human_content,
     session_to_messages,
 )
-from nemo_backend.outer_coding_cycle_graph import build_outer_phased_coding_cycle_graph
-from nemo_backend.state import get_session, runtime_config
+from nemo_backend.state import get_session
 from nemo_backend.tool_registry import worker_tools_and_map
 
 logger = logging.getLogger('nemo.agent.langgraph')
@@ -66,10 +61,7 @@ def build_nemo_single_outer_graph(
     extra_middleware: list[Any] | None = None,
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible)."""
-    tools, _ = worker_tools_and_map(
-        apply_mode,
-        include_planning_tools=runtime_config.tools.orchestrated_mode,
-    )
+    tools, _ = worker_tools_and_map(apply_mode)
     system_prompt = build_system_prompt(session, apply_mode)
     core_middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
     if extra_middleware:
@@ -96,15 +88,6 @@ def _default_outer_graph_builder(
     extra_middleware: list[Any] | None,
 ) -> Any:
     return build_nemo_single_outer_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
-
-
-def _phased_outer_coding_graph_builder(
-    llm: Any,
-    session: SessionState,
-    apply_mode: bool,
-    extra_middleware: list[Any] | None,
-) -> Any:
-    return build_outer_phased_coding_cycle_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
 
 
 def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
@@ -313,17 +296,12 @@ async def _stream_langgraph_tool_agent(
 
     _graph_make = outer_graph_builder or _default_outer_graph_builder
     graph = _graph_make(llm, session, apply_mode, extra_middleware)
-    phased_outer = bool(apply_mode and runtime_config.tools.outer_phased_coding_cycle)
     thread_id = outer_agent_thread_id(
         cfg.session_id,
         cfg.thread_kind,
         apply_mode=apply_mode,
-        orchestrated_mode=runtime_config.tools.orchestrated_mode,
-        phased_outer_coding=phased_outer,
     )
     rec_lim = MAX_AGENT_STEPS
-    if phased_outer:
-        rec_lim = min(MAX_AGENT_STEPS * 2, 2500)
     config: RunnableConfig = {
         'configurable': {'thread_id': thread_id},
         'recursion_limit': rec_lim,
@@ -489,9 +467,7 @@ async def stream_single_agent_langgraph(
     outcome: LangGraphWorkerOutcome,
     resume_checkpoint_id: str | None = None,
 ) -> AsyncIterator[str]:
-    """Clara: full chat + user turn; nested router/specialists stream during ``plan_and_modify``."""
-    nested_q: asyncio.Queue = asyncio.Queue()
-
+    """Clara: full chat + user turn via the outer tool graph."""
     cfg = AgentGraphConfig(
         session_id=session_id,
         graph_name='nemo_single',
@@ -511,18 +487,12 @@ async def stream_single_agent_langgraph(
         done_detail='Complete',
     )
 
-    use_phased = bool(apply_mode and runtime_config.tools.outer_phased_coding_cycle)
-    outer_builder = _phased_outer_coding_graph_builder if use_phased else None
-
     async for line in _stream_langgraph_tool_agent(
         session,
         apply_mode,
         user_message,
         cfg=cfg,
         outcome=outcome,
-        extra_middleware=[PlanningNestedWorkerMiddleware(get_graph_checkpointer())],
-        nested_planning_queue=nested_q,
         resume_checkpoint_id=resume_checkpoint_id,
-        outer_graph_builder=outer_builder,
     ):
         yield line

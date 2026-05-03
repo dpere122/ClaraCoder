@@ -19,6 +19,7 @@ from nemo_backend.lsp.tools import (
     lsp_get_diagnostics,
     lsp_update_python_file,
 )
+from nemo_backend.angular_cli_tool import angular_cli_tool
 from nemo_backend.node_dependency_agent import (
     install_npm_packages_tool,
     npm_install_project_tool,
@@ -150,12 +151,13 @@ def dependency_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
 
 
 def node_dependency_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
-    """Node/npm/pnpm/Yarn — same tools as :func:`nemo_backend.node_dependency_agent.node_dependency_tools`."""
+    """Node/npm/pnpm/Yarn plus local ``angular_cli_tool`` (same npm tools as :func:`nemo_backend.node_dependency_agent.node_dependency_tools`, plus Angular CLI)."""
 
     t = [
         install_npm_packages_tool,
         remove_npm_packages_tool,
         npm_install_project_tool,
         run_npm_script_tool,
+        angular_cli_tool,
     ]
     return t, {tool_.name: tool_ for tool_ in t}

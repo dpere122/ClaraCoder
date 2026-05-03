@@ -585,22 +585,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.defaultWorkspaceNewline = 'lf';
       migrated = true;
     }
-    const orchRaw = (wt as unknown as { orchestratedMode?: unknown }).orchestratedMode;
-    if (typeof orchRaw === 'string') {
-      const s = orchRaw.trim().toLowerCase();
-      wt.orchestratedMode = s === 'true' || s === '1' || s === 'yes' || s === 'on';
-      migrated = true;
-    } else if (typeof orchRaw !== 'boolean') {
-      wt.orchestratedMode = false;
+    if ('orchestratedMode' in wt) {
+      delete (wt as { orchestratedMode?: boolean }).orchestratedMode;
       migrated = true;
     }
-    const phasedRaw = (wt as unknown as { outerPhasedCodingCycle?: unknown }).outerPhasedCodingCycle;
-    if (typeof phasedRaw === 'string') {
-      const s = phasedRaw.trim().toLowerCase();
-      wt.outerPhasedCodingCycle = s === 'true' || s === '1' || s === 'yes' || s === 'on';
-      migrated = true;
-    } else if (typeof phasedRaw !== 'boolean') {
-      wt.outerPhasedCodingCycle = false;
+    if ('outerPhasedCodingCycle' in wt) {
+      delete (wt as { outerPhasedCodingCycle?: boolean }).outerPhasedCodingCycle;
       migrated = true;
     }
     const overlayRaw = (wt as unknown as { allowStagingOverlayCommands?: unknown }).allowStagingOverlayCommands;

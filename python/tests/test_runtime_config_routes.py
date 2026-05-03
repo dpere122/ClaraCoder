@@ -7,7 +7,7 @@ from copy import deepcopy
 from starlette.testclient import TestClient
 
 
-def _payload(orchestrated: bool, *, allow_overlay: bool = False, outer_phased: bool = False) -> dict:
+def _payload(*, allow_overlay: bool = False) -> dict:
     conn = {
         'id': 'x',
         'name': 't',
@@ -43,8 +43,6 @@ def _payload(orchestrated: bool, *, allow_overlay: bool = False, outer_phased: b
             'maxSearchResults': 40,
             'defaultWorkspaceEncoding': 'utf-8',
             'defaultWorkspaceNewline': 'lf',
-            'orchestratedMode': orchestrated,
-            'outerPhasedCodingCycle': outer_phased,
             'allowStagingOverlayCommands': allow_overlay,
         },
     }
@@ -53,30 +51,24 @@ def _payload(orchestrated: bool, *, allow_overlay: bool = False, outer_phased: b
 def test_runtime_config_updates_imported_runtime_config_references() -> None:
     from nemo_backend.main import app
     from nemo_backend import state
-    from nemo_backend import agent_langgraph, messages, model_tuning
+    from nemo_backend import messages, model_tuning
 
     orig = deepcopy(state.runtime_config)
     try:
         with TestClient(app) as client:
-            r = client.post('/runtime-config', json=_payload(True, allow_overlay=True))
+            r = client.post('/runtime-config', json=_payload(allow_overlay=True))
             assert r.status_code == 200
-            assert r.json()['orchestratedMode'] is True
+            assert r.json()['ok'] is True
 
-            assert state.runtime_config.tools.orchestrated_mode is True
             assert state.runtime_config.tools.allow_staging_overlay_commands is True
-            assert messages.runtime_config.tools.orchestrated_mode is True
-            assert model_tuning.runtime_config.tools.orchestrated_mode is True
-            assert agent_langgraph.runtime_config.tools.orchestrated_mode is True
+            assert messages.runtime_config.tools.allow_staging_overlay_commands is True
+            assert model_tuning.runtime_config.tools.allow_staging_overlay_commands is True
 
-            r_ph = client.post('/runtime-config', json=_payload(False, outer_phased=True))
-            assert r_ph.status_code == 200
-            assert state.runtime_config.tools.outer_phased_coding_cycle is True
-
-            r2 = client.post('/runtime-config', json=_payload(False))
+            r2 = client.post('/runtime-config', json=_payload(allow_overlay=False))
             assert r2.status_code == 200
-            assert r2.json()['orchestratedMode'] is False
-            assert messages.runtime_config.tools.orchestrated_mode is False
-            assert state.runtime_config.tools.outer_phased_coding_cycle is False
+            assert r2.json()['ok'] is True
+            assert state.runtime_config.tools.allow_staging_overlay_commands is False
+            assert messages.runtime_config.tools.allow_staging_overlay_commands is False
     finally:
         state.runtime_config.active_connection_id = orig.active_connection_id
         state.runtime_config.connections = orig.connections

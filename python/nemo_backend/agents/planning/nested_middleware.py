@@ -34,7 +34,6 @@ from nemo_backend.state import (
     get_active_connection,
     get_session,
     mutation_tools_blocked_reason,
-    runtime_config,
 )
 from nemo_backend.agents.planning.tool import NESTED_OUTER_MUTATION_TOOL_NAMES, PLAN_AND_MODIFY_NAME
 
@@ -150,7 +149,7 @@ class PlanningNestedWorkerMiddleware(AgentMiddleware):
                 prepare_new_planner_graph_session(sess, session_id)
                 sess.nested_turn_apply_mode = True
                 sess.nested_turn_auto_apply_mode = bool(sess.auto_apply_mode)
-                sess.nested_turn_orchestrated_mode = bool(runtime_config.tools.orchestrated_mode)
+                sess.nested_turn_orchestrated_mode = False
                 if route_via_coding_planner and NEMO_CODING_PLANNER_ENABLED:
                     logger.info(
                         'plan_and_modify intercepted — routing through coding planner '

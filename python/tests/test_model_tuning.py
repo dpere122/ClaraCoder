@@ -119,29 +119,11 @@ def test_combined_suffix_gemma_sparse_expert_hint() -> None:
     assert 'transfer_staged_file_to_workspace' in s
 
 
-def test_combined_suffix_generic_mentions_nested_pipeline_for_code() -> None:
-    saved_tools = state.runtime_config.tools
-    try:
-        state.runtime_config.tools = replace(saved_tools, orchestrated_mode=True)
-        c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
-        s = combined_model_prompt_suffix(c)
-        assert 'execute_workspace_mutation' in s
-        assert 'plan_and_modify' in s
-    finally:
-        state.runtime_config.tools = saved_tools
-
-
-def test_combined_suffix_generic_without_orchestration_skips_nested_tool_names() -> None:
-    saved_tools = state.runtime_config.tools
-    try:
-        state.runtime_config.tools = replace(saved_tools, orchestrated_mode=False)
-        c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
-        s = combined_model_prompt_suffix(c)
-        assert 'execute_workspace_mutation' not in s
-        assert 'plan_and_modify' not in s
-        assert 'Orchestrated mode is off' in s
-    finally:
-        state.runtime_config.tools = saved_tools
+def test_combined_suffix_generic_mentions_staging_transfer() -> None:
+    c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
+    s = combined_model_prompt_suffix(c)
+    assert 'transfer_staged_file_to_workspace' in s
+    assert 'Nested delegation' in s or 'nested delegation' in s.lower()
 
 
 def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_model() -> None:

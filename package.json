@@ -4,8 +4,9 @@
   "description": "",
   "main": "dist/main/index.js",
   "scripts": {
-    "postinstall": "electron-rebuild -f -w node-pty || exit 0",
-    "rebuild:pty": "electron-rebuild -f -w node-pty",
+    "postinstall": "node scripts/rebuild-native.mjs",
+    "rebuild:pty": "electron-rebuild -f -o node-pty",
+    "rebuild:sqlite": "electron-rebuild -f -o better-sqlite3",
     "test": "echo \"Error: no test specified\" && exit 1",
     "init:tsconfig": "npx create-tsconfig @typescript-eslint/parser --project=src/main/index.ts",
     "setup:python": "python -m pip install -r python/requirements.txt",
@@ -30,12 +31,14 @@
     ]
   },
   "dependencies": {
+    "better-sqlite3": "^12.9.0",
     "iconv-lite": "^0.6.3",
     "node-pty": "^1.1.0",
     "systeminformation": "^5.31.5"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.0",
     "@typescript-eslint/parser": "^8.57.3-alpha.2",
     "concurrently": "^9.2.1",

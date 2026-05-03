@@ -37,8 +37,6 @@ _SUCCESS_FOOTER = (
 _MILESTONE_TOOL_NAMES = frozenset(
     {
         'transfer_staged_file_to_workspace',
-        'plan_and_modify',
-        'execute_workspace_mutation',
         'run_workspace_pytest_tests',
         'run_workspace_python_smoke_test',
         'run_staging_overlay_command',

@@ -107,6 +107,7 @@ def test_outer_agent_tools() -> None:
         'lsp_get_document_symbols',
     }
     edit_names = {t.name for t in staging_workspace_write_tools(False)}
+    lsp_py_mut_names = {'lsp_create_python_file', 'lsp_update_python_file', 'lsp_delete_python_file'}
     dep_names = {t.name for t in python_dependency_tools()[0]}
     node_dep_names = {t.name for t in node_dependency_tools()[0]}
     env_names = {ensure_python_workspace_env_tool.name}
@@ -117,8 +118,9 @@ def test_outer_agent_tools() -> None:
     tools_on, map_on = worker_tools_and_map(True)
     assert {t.name for t in tools_on} == (
         read_names
-        | {'copy_workspace_files', 'plan_and_modify', 'execute_workspace_mutation'}
+        | {'copy_workspace_files'}
         | edit_names
+        | lsp_py_mut_names
         | dep_names
         | node_dep_names
         | env_names
@@ -127,10 +129,6 @@ def test_outer_agent_tools() -> None:
         | outer_verify_names
     )
     assert map_on.keys() == {t.name for t in tools_on}
-
-    tools_no_plan, map_no_plan = worker_tools_and_map(True, include_planning_tools=False)
-    assert 'plan_and_modify' not in map_no_plan
-    assert 'execute_workspace_mutation' not in map_no_plan
 
     tools_off, map_off = worker_tools_and_map(False)
     assert {t.name for t in tools_off} == read_names
@@ -173,7 +171,7 @@ def test_apply_workspace_full_file_rejects_python_path(tmp_path) -> None:
             {'relative_path': 'a.py', 'new_content': 'x = 1\n', 'encoding': 'utf-8', 'newline': 'lf'}
         )
         assert 'Tool error:' in out
-        assert 'execute_workspace_mutation' in out or 'plan_and_modify' in out
+        assert 'stage_' in out or 'transfer_staged_file_to_workspace' in out
     finally:
         current_session_id.reset(token)
 

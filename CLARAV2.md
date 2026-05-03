@@ -98,7 +98,7 @@ flowchart LR
 
 **Chat path:** `python/nemo_backend/routes_chat.py` → `python/nemo_backend/agent.py` `stream_agent_reply` → LangGraph streaming → **SSE** (`status`, `chunk`, `[DONE]`).
 
-**Configuration surface:** Large set of env-tuned limits and feature flags in `python/nemo_backend/config.py` (outer phased graph, coding planner, discovery limits, embeddings chunking, edit diff limits, etc.).
+**Configuration surface:** Large set of env-tuned limits and feature flags in `python/nemo_backend/config.py` (coding planner, discovery limits, embeddings chunking, edit diff limits, etc.).
 
 ---
 
@@ -106,11 +106,11 @@ flowchart LR
 
 The codebase evolved into a **multi-layer** system:
 
-1. **Outer “phased” LangGraph** — Learn → Write → Verify with optional retry (`python/nemo_backend/outer_coding_cycle_graph.py`): separate `create_agent` subgraphs, filtered tool sets, middleware per phase.
+1. **Outer LangGraph tool agent** — Single `create_agent` graph (`python/nemo_backend/agent_langgraph.py`): full worker tool list, checkpointing, nested-planning middleware when orchestration is on.
 2. **Coding planner** — Optional graph between “Clara” and router/specialists (`python/nemo_backend/config.py` `NEMO_CODING_PLANNER_ENABLED`, probe/fast-path flags).
 3. **Nested pipelines** — `plan_and_modify`, `execute_workspace_mutation`, router + specialists (`python/README.md`).
 4. **Human-in-the-loop** — Stream pauses; `python/nemo_backend/routes_chat.py` `POST /chat/agent-continue` branches for delete/copy/accept-command/staged transfer.
-5. **Many middlewares** — Diff/copy/delete/accept reviews, empty-response nudges, parallel tool calls, harness feedback, etc. (imports in outer graph file).
+5. **Many middlewares** — Diff/copy/delete/accept reviews, empty-response nudges, parallel tool calls, harness feedback, etc. (wired in `agent_langgraph.py`).
 
 **Properties:** Powerful for complex coding tasks, but **high coupling**, many **environment toggles**, and **several continuation surfaces** (checkpoints + HITL). This is the main **roadblock to “simple first”**: new contributors and new features pay a **complexity tax** before the core harness is stable.
 

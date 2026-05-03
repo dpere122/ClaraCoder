@@ -139,15 +139,6 @@ export interface WorkspaceToolsConfig {
   /** Default newline mode for edit writes when tools omit `newline`. */
   defaultWorkspaceNewline: 'lf' | 'crlf' | 'preserve';
   /**
-   * When true, binds nested delegation tools (`plan_and_modify`, `execute_workspace_mutation`).
-   * When false (default), the outer agent uses staging tools only—a future default planner may replace this path.
-   */
-  orchestratedMode: boolean;
-  /**
-   * When true (Editor on), Python binds the phased outer LangGraph: Learn → Write → Verify instead of one flat tool loop.
-   */
-  outerPhasedCodingCycle?: boolean;
-  /**
    * When true, nested code review may call `run_staging_overlay_command` (ephemeral workspace mirror + argv subprocess).
    * Default false for safety. Optional on disk until migrated.
    */

@@ -209,8 +209,7 @@ def outer_workspace_edit_guard_error(relative_workspace_path: str) -> str | None
     if not requires_code_review(relative_workspace_path):
         return None
     return (
-        'Tool error: code-review extensions (.py, .ts, .js, .json, .yaml, etc.) must be edited through '
-        '`execute_workspace_mutation` or `plan_and_modify` (nested staging and code review), or through the same '
+        'Tool error: code-review extensions (.py, .ts, .js, .json, .yaml, etc.) must be edited through the '
         'staging pipeline (`stage_create_file` / `stage_workspace_file_overwrite` / `stage_line_range_edit` / '
         '`stage_snippet_edit`, then `transfer_staged_file_to_workspace`) when those tools are on your graph—not '
         'legacy direct-to-disk workspace mutators.'

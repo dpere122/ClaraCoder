@@ -172,13 +172,8 @@ def llm_optional_kwargs(connection: RuntimeConnection) -> dict[str, Any]:
 def tool_calling_and_edit_semantics_suffix(_connection: RuntimeConnection | None = None) -> str:
     """Tool channel and staged workspace edit semantics; appended for every model."""
     nested_note = (
-        'For nested code mutations, prefer `execute_workspace_mutation` or `plan_and_modify` when you need the '
-        'router/specialists pipeline instead of hand-rolling the same steps. '
-        if runtime_config.tools.orchestrated_mode
-        else (
-            'Orchestrated mode is off: nested delegation tools are not bound—use staging (`stage_*`) and '
-            '`transfer_staged_file_to_workspace` for source and structured-config paths. '
-        )
+        'Nested delegation (`plan_and_modify`, `execute_workspace_mutation`) is not available—use staging (`stage_*`) '
+        'and `transfer_staged_file_to_workspace` for source and structured-config paths. '
     )
     return (
         '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
@@ -190,9 +185,9 @@ def tool_calling_and_edit_semantics_suffix(_connection: RuntimeConnection | None
         'transfer for you—only the tool call counts. Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
         + nested_note
-        + '**LSP file mutations vs staging:** Prefer `lsp_create_python_file` / `lsp_update_python_file` for `.py` only when '
-        'those tools appear in **your** bound tool list (nested file-write specialists). On graphs that bind `stage_*` '
-        'writes only (including the outer Clara agent), use `stage_*` for Python too. '
+        + '**LSP file mutations vs staging:** For `.py`, prefer `lsp_create_python_file` / `lsp_update_python_file` / '
+        '`lsp_delete_python_file` when those tools appear in **your** bound tool list (outer Clara with Editor on). '
+        'If they are not on your graph, use `stage_*` for Python. '
         + 'For localized edits on existing files, prefer `stage_line_range_edit` or `stage_snippet_edit` over whole-file '
         'rewrites when practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
     )

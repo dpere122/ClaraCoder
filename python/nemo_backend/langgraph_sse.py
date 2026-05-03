@@ -83,8 +83,6 @@ def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
 
 _FORWARDED_RESULT_TOOL_NAMES = frozenset(
     {
-        'execute_workspace_mutation',
-        'plan_and_modify',
         'route_code_review_specialist',
         'route_write_specialist',
         'route_delete_specialist',

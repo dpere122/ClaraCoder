@@ -7,12 +7,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from nemo_backend.agent_langgraph import _phased_outer_coding_graph_builder, build_nemo_single_outer_graph
-from nemo_backend.agents.planning.nested_middleware import PlanningNestedWorkerMiddleware
-from nemo_backend.checkpointing import get_graph_checkpointer, outer_agent_thread_id
+from nemo_backend.agent_langgraph import build_nemo_single_outer_graph
+from nemo_backend.checkpointing import outer_agent_thread_id
 from nemo_backend.llm import build_llm
 from nemo_backend.schemas import CheckpointForkRequest
-from nemo_backend.state import get_session, runtime_config
+from nemo_backend.state import get_session
 
 logger = logging.getLogger('nemo.http.checkpoint')
 
@@ -20,28 +19,18 @@ router = APIRouter(prefix='/checkpoint', tags=['checkpoint'])
 
 
 def _outer_config(session_id: str, *, apply_mode: bool) -> dict[str, Any]:
-    phased = bool(apply_mode and runtime_config.tools.outer_phased_coding_cycle)
     return {
         'configurable': {
             'thread_id': outer_agent_thread_id(
                 session_id,
                 'single',
                 apply_mode=apply_mode,
-                orchestrated_mode=runtime_config.tools.orchestrated_mode,
-                phased_outer_coding=phased,
             ),
         }
     }
 
 
 def _outer_graph_for_checkpoint(llm: Any, session: Any, apply_mode: bool) -> Any:
-    if apply_mode and runtime_config.tools.outer_phased_coding_cycle:
-        return _phased_outer_coding_graph_builder(
-            llm,
-            session,
-            apply_mode,
-            [PlanningNestedWorkerMiddleware(get_graph_checkpointer())],
-        )
     return build_nemo_single_outer_graph(llm, session, apply_mode)
 
 

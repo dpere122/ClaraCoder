@@ -7,7 +7,7 @@ instances and builds the long system prompt (workspace + host + connection hints
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
@@ -17,7 +17,11 @@ from nemo_backend.llm_visible_text import (
     is_placeholder_thinking_noise,
 )
 from nemo_backend.model_tuning import combined_model_prompt_suffix
-from nemo_backend.prompt_blocks import harness_mindset_block, python_workspace_playbook, routing_handoff_contract
+from nemo_backend.prompt_blocks import (
+    harness_mindset_block,
+    routing_handoff_contract,
+    source_code_formatting_guidance,
+)
 from nemo_backend.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
@@ -42,10 +46,6 @@ def session_to_messages(session: SessionState) -> list[BaseMessage]:
 
 def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> str:
     """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth."""
-    orch = runtime_config.tools.orchestrated_mode
-    orch_s = 'on' if orch else 'off'
-    phased = runtime_config.tools.outer_phased_coding_cycle
-    phased_s = 'on' if phased else 'off'
     editor_s = 'on' if apply_mode else 'off'
     auto_s = 'on' if session.auto_apply_mode else 'off'
     overlap = session.active_editor_langgraph_streams > 0
@@ -54,17 +54,9 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
         if overlap
         else ''
     )
-    phased_line = (
-        f'\n- Phased outer coding cycle (Settings → Tools): **{phased_s}** '
-        '(Learn → Write → Verify subgraphs when Editor is on).'
-        if apply_mode
-        else ''
-    )
     return (
         '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
-        f'- Orchestrated mode (backend): **{orch_s}**'
-        f'{phased_line}\n'
         f'- Auto-apply (UI): **{auto_s}**'
         f'{overlap_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
@@ -263,134 +255,53 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
             '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
             'If the user wants patches or deletes from chat, ask them to enable Editor in the toolbar.\n'
         )
-    orchestrated = runtime_config.tools.orchestrated_mode
-    if not orchestrated:
-        return (
-            base
-            + '- **Backend (authoritative):** Orchestrated mode is **OFF** in this Python process (`POST /runtime-config`); '
-            '`plan_and_modify` / `execute_workspace_mutation` are not bound. Do not claim orchestration is on, and ignore any '
-            'stale prior assistant text that disagrees.\n'
-            + '- Editor mode is on (**Orchestrated mode off** in Settings → Tools): you have read/search tools, '
-            '`copy_workspace_files`, `delete_workspace_entry` and `batch_delete_workspace_entries`, **staged** '
-            'create/update tools (`stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, '
-            'and `stage_snippet_edit` when bound), review/transfer tools, dependency installs, workspace tests, and '
-            'staging-focused specialist tools (`code_review_specialist_*`, etc.). Nested delegation '
-            '(`execute_workspace_mutation`, `plan_and_modify`) is **not** bound\u2014use the staging pipeline for '
-            '**all** programming-path and structured-config edits.\n'
-            '- **Direct writes on this graph:** Use `stage_*` tools only for files you edit here. '
-            '`lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file` are **not** in this tool list '
-            '(nested specialists bind them). LSP **read** and **diagnostics** tools for supported extensions are available.\n'
-            '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
-            '**staging** until `transfer_staged_file_to_workspace` succeeds\u2014use `list_staged_edits`, '
-            '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
-            '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage changes, run review/diagnostics '
-            'on drafts, then **`transfer_staged_file_to_workspace`**\u2014same as other text files.\n'
-            '- **All other text files** (e.g. .md, .txt): same staging tools and **`transfer_staged_file_to_workspace`** '
-            'after review.\n'
-            '- **Python dependencies** and **Node/npm** tools are available when you need them without nested routing.\n'
-            '- **Workspace verification:** you may call `run_workspace_pytest_tests` or `run_workspace_python_smoke_test` '
-            'for Python checks.\n'
-            '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
-            '- Read and inspect relevant files before editing. Prefer **small, verifiable** staging steps; refresh anchors '
-            'from `read_staged_edit` or diff tools between dependent edits.\n'
-            '- **After** transferring touched **Python or TS/JS** paths, call `lsp_get_diagnostics` '
-            '(use `refresh_active_document=true` to re-read the on-disk file in workspace scope) before claiming the change is clean.\n'
-            '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
-            '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
-        )
     return (
         base
-        + '- **Backend (authoritative):** Orchestrated mode is **ON** in this Python process; `plan_and_modify` and '
-        '`execute_workspace_mutation` are bound when Editor mode is on. Do not claim they are missing, and ignore any stale '
-        'prior assistant text that disagrees.\n'
-        + '- Editor mode is on: you have read/search tools, `copy_workspace_files`, `delete_workspace_entry` and '
-        '`batch_delete_workspace_entries` (any workspace path; non-empty dirs need `recursive=true`; the UI may ask '
-        'for confirmation when auto-apply is off), **staged** create/update tools (`stage_create_file`, '
-        '`stage_workspace_file_overwrite`, `stage_line_range_edit`, and `stage_snippet_edit` when bound) plus review/transfer '
-        'tools, and nested delegation: `execute_workspace_mutation` (single focused step, router + specialists only) and '
-        '`plan_and_modify` (planner when enabled: discovery, multi-step plan, final project review).\n'
-        '- **Direct writes on this graph:** When you edit files yourself here (outside nested delegation), use `stage_*` only—'
-        '`lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file` are **not** in this tool list; '
-        'nested `execute_workspace_mutation` / `plan_and_modify` runs use them inside specialists. LSP **read** and '
-        '**diagnostics** for supported extensions are available on this graph.\n'
-        '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in **staging** '
-        'until `transfer_staged_file_to_workspace` succeeds—use `list_staged_edits`, `diff_staged_edit_against_baseline`, '
-        'and `read_staged_edit` to inspect drafts.\n'
-        '- **Source code and structured config** (code-review extensions such as .py, .ts, .js, .json, .yaml, .xml, .toml, '
-        '.go, .rs, etc.): prefer `execute_workspace_mutation` or `plan_and_modify` so the nested router runs discover, '
-        'stage, and code review before the workspace updates. If you edit those paths yourself on this graph, use the '
-        'same staging tools then **`transfer_staged_file_to_workspace`**—do not use legacy direct-to-disk workspace mutators.\n'
-        '- **All other text files** (e.g. .md, .txt): use the same staging tools and **`transfer_staged_file_to_workspace`** '
-        'after review; the workspace on disk stays the checkpoint until transfer.\n'
-        '- **Python dependencies** (`install_python_packages`, `remove_python_packages`, requirements/freeze tools, etc.), '
-        '**Node/npm** (`install_npm_packages`, `npm_install_project`, `run_npm_script`, …), '
-        'and **staging review** (`list_staged_edits`, `diff_staged_edit_against_baseline`, `transfer_staged_file_to_workspace`, '
-        '`reject_staged_workspace_edit`, …) are available on this agent when you need them without delegating through '
-        '`execute_workspace_mutation` / `plan_and_modify`.\n'
+        + '- **Backend (authoritative):** Editor mode is **ON**; staging and mutation tools below are bound.\n'
+        + '- You have read/search tools, `copy_workspace_files`, `delete_workspace_entry` and `batch_delete_workspace_entries`, '
+        '**staged** create/update tools (`stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, '
+        'and `stage_snippet_edit` when bound), Python LSP staging mutators (`lsp_create_python_file`, '
+        '`lsp_update_python_file`, `lsp_delete_python_file`) for `.py`, review/transfer tools, dependency installs, '
+        'workspace tests, and staging-focused specialist tools (`code_review_specialist_*`, etc.). '
+        'Use the **staging pipeline** for all programming-path and structured-config edits.\n'
+        '- **Direct writes on this graph:** Use `stage_*` for staged edits on any path; for `.py` you may also use '
+        '`lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file` (same staging/review path). '
+        'LSP **read** and **diagnostics** tools for supported extensions are available.\n'
+        '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
+        '**staging** until `transfer_staged_file_to_workspace` succeeds—use `list_staged_edits`, '
+        '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
+        '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage changes, run review/diagnostics '
+        'on drafts, then **`transfer_staged_file_to_workspace`**—same as other text files.\n'
+        '- **All other text files** (e.g. .md, .txt): same staging tools and **`transfer_staged_file_to_workspace`** '
+        'after review.\n'
+        '- **Python dependencies**, **Node/npm** tools, and **`angular_cli_tool`** (local `node_modules/.bin/ng` only—run '
+        '`npm_install_project` for that folder first when `@angular/cli` is not yet installed) are available when you need them.\n'
         '- **Workspace verification:** you may call `run_workspace_pytest_tests` or `run_workspace_python_smoke_test` '
-        'directly for quick Python checks before or after nested work. Pass/fail gating for planner-driven tasks still '
-        'belongs to `plan_and_modify` and the nested `run_final_project_review` flow—not to ad-hoc outer verification alone.\n'
+        'for Python checks.\n'
         '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
-        'Read and inspect relevant files first. For `execute_workspace_mutation` and `plan_and_modify`, use a clear '
-        '`task_summary`: after discovery, put the **Routing handoff** block first (same contract as nested and '
-        'orchestrator-composed step instructions), then goal, constraints, acceptance hints, and the **minimum** context (paths, symbols, '
-        'short excerpts) so the nested router and specialists do not repeat your reads. For code steps, nested review '
-        'compares workspace baseline vs staged draft with a mechanical diff tool before approval; list every code path '
-        'the step must touch so each can be transferred after review.\n'
-        f'{routing_handoff_contract()}\n'
-        '- **Inspect–integrate–mutate–verify (nested source work):** Before delegating, base **Existence** on tools, not '
-        'only the user message—for **update** (or when a path might already exist), use `read_workspace_file` and/or LSP '
-        'reads on those paths first so you augment or replace real content, not a guess. When adding I/O, config, '
-        'logging, or helpers, use `search_workspace` to find existing patterns and reuse them when they fit.\n'
-        '- **After** `execute_workspace_mutation` or `plan_and_modify` returns, for each touched **Python or TS/JS** path you '
-        'care about, call `lsp_get_diagnostics` (use `refresh_active_document=true` to re-read the on-disk file in workspace scope) '
-        'before telling the user the change is clean; mention any remaining diagnostics in your summary.\n'
-        '- **Incremental mutations:** Prefer `execute_workspace_mutation` (or several calls) for a **single verifiable** '
-        'slice; use `plan_and_modify` when you need multi-step discovery, a checklist, or final project review across '
-        'multiple build actions. **Choosing nested delegation:** one bounded slice or router handoff → `execute_workspace_mutation`; '
-        'multi-step checklist, planner discovery, or final project review across the repo → `plan_and_modify`.\n'
+        '- Read and inspect relevant files before editing. Prefer **small, verifiable** staging steps; refresh anchors '
+        'from `read_staged_edit` or diff tools between dependent edits.\n'
+        '- **After** transferring touched **Python or TS/JS** paths, call `lsp_get_diagnostics` '
+        '(use `refresh_active_document=true` to re-read the on-disk file in workspace scope) before claiming the change is clean.\n'
         '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
-        '- After `execute_workspace_mutation` or `plan_and_modify` returns, answer the user with a concise summary of '
-        'outcomes (files touched, key edits or findings). Do not paste raw nested output or token-by-token detail.\n'
-        '- If the tool result ends with **Notes for Clara**, treat that block as authoritative handoffs from the '
-        'planner and review specialists (checklist, code review outcomes, final review). Fold them into your reply '
-        'to the user in plain language.\n'
+        '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
+        f'{routing_handoff_contract()}\n'
+        '- **Inspect–integrate–mutate–verify:** Base **Existence** on tools—for **update** (or when a path might already exist), '
+        'use `read_workspace_file` and/or LSP reads on those paths first so you augment or replace real content, not a guess. '
+        'When adding I/O, config, logging, or helpers, use `search_workspace` to find existing patterns and reuse them when they fit.\n'
     )
 
 
 def build_system_prompt(
     session: SessionState,
     apply_mode: bool,
-    *,
-    outer_cycle_phase: Literal['learn', 'write', 'verify'] | None = None,
 ) -> str:
-    """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace.
-
-    ``outer_cycle_phase`` narrows operational guidance for the phased outer LangGraph subgraphs.
-    """
+    """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace."""
     workspace_hint = _workspace_hint(session)
     operational = _outer_agent_operational_block(apply_mode)
-    if outer_cycle_phase == 'learn':
-        operational = _outer_agent_operational_block(False) + (
-            '\n- **Outer coding cycle — Learn phase:** Editor may be on for this conversation, but **only** '
-            'read/search and LSP inspection tools are bound in this subgraph. Do not claim file edits, staging, '
-            'or package installs occurred here.\n'
-        )
-    elif outer_cycle_phase == 'verify':
-        operational = _outer_agent_operational_block(False) + (
-            '\n- **Outer coding cycle — Verify phase:** **Order:** (1) If any staged drafts are still pending, use '
-            '`list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit` as needed, then '
-            '`transfer_staged_file_to_workspace` (or `reject_staged_workspace_edit` if a draft must not ship) so the '
-            'real workspace matches what you will test. (2) Run `run_workspace_pytest_tests` and/or '
-            '`run_workspace_python_smoke_test`. (3) Use LSP read/diagnostic tools on touched paths. '
-            'Do not create new staged content or run nested `plan_and_modify` / `execute_workspace_mutation` here.\n'
-        )
-    elif outer_cycle_phase == 'write':
-        operational = _outer_agent_operational_block(apply_mode) + (
-            '\n- **Outer coding cycle — Write phase:** Mutations, staging, nested delegation, and dependency '
-            'tools are available as bound; verify phase follows automatically with **workspace transfer** (any '
-            'still-pending staged paths) then **pytest, smoke test, and LSP** diagnostics.\n'
-        )
+    formatting_early = (
+        f'{source_code_formatting_guidance()}\n\n' if (session.workspace_path or '').strip() else ''
+    )
     return (
         'You are Clara, a proactive coding assistant inside an Electron desktop app. '
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
@@ -400,6 +311,7 @@ def build_system_prompt(
         f'{_connection_line(session)}\n\n'
         f'{_os_hint_line()}\n\n'
         f'{operational}'
+        f'{formatting_early}'
         f'{workspace_hint}'
         f'{_model_prompt_suffix()}'
     )

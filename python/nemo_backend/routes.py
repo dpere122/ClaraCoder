@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException
 
 from nemo_backend.domain import RuntimeAudioConfig, RuntimeConnection, RuntimeHostConfig, RuntimeToolsConfig
 from nemo_backend.schemas import RuntimeConfigRequest
-from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 from nemo_backend import state
 
@@ -19,29 +18,18 @@ router = APIRouter()
 
 @router.get('/health')
 async def health() -> dict[str, str | bool]:
-    """Liveness probe: confirms the process is up and reports active model metadata.
-
-    ``orchestratedMode`` mirrors ``POST /runtime-config`` tools block (Settings → Tools); use it to verify the
-    backend matches the UI when debugging nested ``plan_and_modify`` availability.
-    """
+    """Liveness probe: confirms the process is up and reports active model metadata."""
     connection = state.get_active_connection()
     return {
         'status': 'ok',
         'provider': connection.provider,
         'model': connection.model,
-        'orchestratedMode': state.runtime_config.tools.orchestrated_mode,
     }
 
 
 @router.post('/runtime-config')
 async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
-    """Replace LLM connections, transcription settings, and host metadata from the UI.
-
-    Returns ``orchestratedMode`` so clients can confirm the value applied after parsing
-    (handles ``orchestrated_mode`` / string ``\"true\"`` aliases). When orchestration
-    toggles, LangGraph outer checkpoints for all sessions are cleared so prompts/tools
-    cannot stay stuck on a prior mode.
-    """
+    """Replace LLM connections, transcription settings, and host metadata from the UI."""
     connections = [
         RuntimeConnection(
             id=item.id,
@@ -92,26 +80,10 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             max_search_results=request.tools.maxSearchResults,
             default_workspace_encoding=default_enc,
             default_workspace_newline=nl,
-            orchestrated_mode=request.tools.orchestratedMode,
-            outer_phased_coding_cycle=request.tools.outerPhasedCodingCycle,
             allow_staging_overlay_commands=request.tools.allowStagingOverlayCommands,
         )
     else:
         tools_cfg = prev_tools
-
-    orch_flipped = tools_cfg.orchestrated_mode != prev_tools.orchestrated_mode
-    phased_flipped = tools_cfg.outer_phased_coding_cycle != prev_tools.outer_phased_coding_cycle
-    if orch_flipped or phased_flipped:
-        for sid in list(state.sessions.keys()):
-            await delete_outer_threads_for_session(sid)
-        logger.info(
-            'orchestrated_mode %s -> %s, outer_phased_coding_cycle %s -> %s: cleared outer LangGraph checkpoints for %d session(s)',
-            prev_tools.orchestrated_mode,
-            tools_cfg.orchestrated_mode,
-            prev_tools.outer_phased_coding_cycle,
-            tools_cfg.outer_phased_coding_cycle,
-            len(state.sessions),
-        )
 
     # Mutate in place so modules that imported ``runtime_config`` keep seeing live values.
     cfg = state.runtime_config
@@ -132,12 +104,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     )
     cfg.tools = tools_cfg
     logger.info(
-        'POST /runtime-config applied orchestrated_mode=%s (tools payload: %s)',
-        state.runtime_config.tools.orchestrated_mode,
+        'POST /runtime-config applied (tools payload: %s)',
         'yes' if request.tools is not None else 'no',
     )
-    return {
-        'ok': True,
-        'orchestratedMode': state.runtime_config.tools.orchestrated_mode,
-        'outerPhasedCodingCycle': state.runtime_config.tools.outer_phased_coding_cycle,
-    }
+    return {'ok': True}

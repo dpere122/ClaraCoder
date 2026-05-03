@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, existsSync } from 'fs';
 import path = require('path');
-import DatabaseConstructor from 'better-sqlite3';
+/** CJS interop: default import compiles to `.default`, which better-sqlite3 does not set. */
+import DatabaseConstructor = require('better-sqlite3');
 import type { ConversationFile, ConversationMeta, ConversationSummary } from '../shared';
 import { FIRST_THEME_ID } from './constants';
 import {

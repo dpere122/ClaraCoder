@@ -278,16 +278,23 @@ def clear_session_staging_dir(session_id: str) -> None:
         pass
 
 
-def copy_workspace_into_snapshot(workspace_root: Path, snapshot_root: Path) -> None:
-    """Materialize an ignored-aware workspace mirror under ``snapshot_root``."""
-    workspace_root = workspace_root.resolve()
-    snapshot_root = snapshot_root.resolve()
-    ignore_rules = get_workspace_ignore_rules_cached(workspace_root)
-    snapshot_root.mkdir(parents=True, exist_ok=True)
+def copy_workspace_mirror(
+    content_root: Path,
+    dest_root: Path,
+    *,
+    rules_workspace: Path,
+) -> None:
+    """Copy from ``content_root`` into ``dest_root`` using ignore rules from ``rules_workspace`` (same relative paths)."""
 
-    for dirpath, dirnames, filenames in os.walk(workspace_root, topdown=True):
+    content_root = content_root.resolve()
+    dest_root = dest_root.resolve()
+    rules_workspace = rules_workspace.resolve()
+    ignore_rules = get_workspace_ignore_rules_cached(rules_workspace)
+    dest_root.mkdir(parents=True, exist_ok=True)
+
+    for dirpath, dirnames, filenames in os.walk(content_root, topdown=True):
         src_dir = Path(dirpath)
-        rel_dir_raw = src_dir.relative_to(workspace_root).as_posix()
+        rel_dir_raw = src_dir.relative_to(content_root).as_posix()
         rel_dir = '' if rel_dir_raw == '.' else rel_dir_raw
 
         kept_dirs: list[str] = []
@@ -296,7 +303,7 @@ def copy_workspace_into_snapshot(workspace_root: Path, snapshot_root: Path) -> N
             if should_ignore_workspace_entry(dirname, rel_path, ignore_rules):
                 continue
             kept_dirs.append(dirname)
-            (snapshot_root / rel_path).mkdir(parents=True, exist_ok=True)
+            (dest_root / rel_path).mkdir(parents=True, exist_ok=True)
         dirnames[:] = kept_dirs
 
         for filename in filenames:
@@ -304,19 +311,21 @@ def copy_workspace_into_snapshot(workspace_root: Path, snapshot_root: Path) -> N
             if should_ignore_workspace_entry(filename, rel_path, ignore_rules):
                 continue
             source = src_dir / filename
-            target = snapshot_root / rel_path
+            target = dest_root / rel_path
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 copy2(source, target)
             except OSError as exc:
-                # Windows: junctions / reparse points / transient locks under .venv often make
-                # copy2 fail with FileNotFoundError (WinError 3). One bad file must not abort
-                # the whole planner snapshot (plan_and_modify).
                 logger.warning(
-                    'workspace snapshot: skipped copy (unreadable or uncopyable) rel=%s err=%s',
+                    'workspace mirror: skipped copy (unreadable or uncopyable) rel=%s err=%s',
                     rel_path,
                     exc,
                 )
+
+
+def copy_workspace_into_snapshot(workspace_root: Path, snapshot_root: Path) -> None:
+    """Materialize an ignored-aware workspace mirror under ``snapshot_root``."""
+    copy_workspace_mirror(workspace_root, snapshot_root, rules_workspace=workspace_root)
 
 
 def begin_planner_graph_staging_session(session: object, session_id: str, workspace_root: Path) -> str:

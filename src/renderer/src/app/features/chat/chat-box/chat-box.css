@@ -427,7 +427,7 @@ app-chat-box .tool-trail-name {
   opacity: 0.7;
 }
 
-/* --- Clara outer briefs (planner / review handoffs during plan_and_modify) --- */
+/* --- Clara outer briefs (planner / review handoffs from nested runs) --- */
 
 app-chat-box .clara-outer-brief {
   margin: 0.35rem 0 0.5rem;

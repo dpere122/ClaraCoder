@@ -14,13 +14,8 @@ from starlette.testclient import TestClient
 def test_outer_agent_thread_id_modes() -> None:
     from nemo_backend.checkpointing import outer_agent_thread_id
 
-    assert outer_agent_thread_id('conv-1', 'single', apply_mode=True) == 'conv-1:single:apply:orch0'
-    assert outer_agent_thread_id('conv-1', 'single', apply_mode=False) == 'conv-1:single:read:orch0'
-    assert outer_agent_thread_id('conv-1', 'single', apply_mode=True, orchestrated_mode=True) == 'conv-1:single:apply:orch1'
-    assert (
-        outer_agent_thread_id('conv-1', 'single', apply_mode=True, orchestrated_mode=True, phased_outer_coding=True)
-        == 'conv-1:single:apply:orch1:ph1'
-    )
+    assert outer_agent_thread_id('conv-1', 'single', apply_mode=True) == 'conv-1:single:apply'
+    assert outer_agent_thread_id('conv-1', 'single', apply_mode=False) == 'conv-1:single:read'
 
 
 @pytest.mark.asyncio(loop_scope='function')

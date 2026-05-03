@@ -8,8 +8,10 @@ from nemo_backend.domain import SessionState
 
 ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY = 'python_dependency'
 ACCEPT_COMMAND_KIND_NODE_DEPENDENCY = 'node_dependency'
+ACCEPT_COMMAND_KIND_ANGULAR_CLI = 'angular_cli'
 
 __all__ = [
+    'ACCEPT_COMMAND_KIND_ANGULAR_CLI',
     'ACCEPT_COMMAND_KIND_NODE_DEPENDENCY',
     'ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY',
     'accept_command_sse_payload',
@@ -60,4 +62,8 @@ async def execute_pending_accept_command_decision(
         from nemo_backend.node_dependency_agent import execute_pending_node_dependency_request
 
         return await execute_pending_node_dependency_request(session, pending)
+    if kind == ACCEPT_COMMAND_KIND_ANGULAR_CLI:
+        from nemo_backend.angular_cli_tool import execute_pending_angular_cli_request
+
+        return await execute_pending_angular_cli_request(session, pending)
     return f'Command confirmation failed: unsupported request kind `{kind or "unknown"}`.'

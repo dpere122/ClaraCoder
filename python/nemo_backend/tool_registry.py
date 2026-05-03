@@ -2,11 +2,12 @@
 
 **Outer agent** — workspace reads/search (including ``retrieve_workspace_semantic`` for checkpoint + staging recall; nested write recon uses ``retrieve_workspace_checkpoint_semantic``); ``copy_workspace_files``; ``delete_workspace_entry`` and
 ``batch_delete_workspace_entries`` (any path, with HITL when auto-apply is off); staged create/update tools
-(``stage_create_file``, ``stage_workspace_file_overwrite``, ``stage_line_range_edit``, optional ``stage_snippet_edit``)
-plus the same staging review/transfer tools as nested graphs; plus ``execute_workspace_mutation`` and ``plan_and_modify``
-when Editor is on. Nested router + specialists handle staged mutations (``plan_and_modify`` may run the planner first). When Editor is on, the outer tool list also
+(``stage_create_file``, ``stage_workspace_file_overwrite``, ``stage_line_range_edit``, optional ``stage_snippet_edit``);
+Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``);
+plus the same staging review/transfer tools as nested graphs. When Editor is on, the outer tool list also
 includes the same **Python dependency** and **code-review specialist** tool surfaces as the nested graphs (merge by
-name with the existing ``python_dependency_tools`` / LSP read tools), plus **workspace pytest/smoke** tools shared with
+name with the existing ``python_dependency_tools`` / LSP read tools), plus **local Angular CLI** (``angular_cli_tool``)
+and **workspace pytest/smoke** tools shared with
 final project review (without ``approve_project_review`` / ``reject_project_review`` on the standard outer graph).
 
 **Nested executor** — router and specialist subgraphs bind create/update/delete tools in
@@ -14,15 +15,13 @@ final project review (without ``approve_project_review`` / ``reject_project_revi
 
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
 ``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
-the user confirms in chat (or returns for re-review) unless auto-apply is on. The phased outer **verify** subgraph
-also binds inspect + ``transfer_staged_file_to_workspace`` so pending drafts can land before pytest/smoke.
+the user confirms in chat (or returns for re-review) unless auto-apply is on.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from nemo_backend.agents.planning.tool import PLANNING_TOOLS
 from nemo_backend.copy_tool import COPY_WORKSPACE_FILES_NAME, copy_workspace_files
 from nemo_backend.delete_tool import (
     BATCH_DELETE_WORKSPACE_ENTRIES_NAME,
@@ -31,15 +30,13 @@ from nemo_backend.delete_tool import (
     delete_workspace_entry,
 )
 from nemo_backend.agents.specialists.review_tools import (
-    DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME,
     FORMAT_STAGING_FILE_BLACK_NAME,
     FORMAT_STAGING_FILE_PRETTIER_NAME,
-    LIST_STAGED_EDITS_NAME,
-    READ_STAGED_EDIT_NAME,
     REJECT_STAGED_WORKSPACE_EDIT_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
 )
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
+from nemo_backend.angular_cli_tool import ANGULAR_CLI_TOOL_NAME, angular_cli_tool
 from nemo_backend.node_dependency_agent import (
     INSTALL_NPM_PACKAGES_NAME,
     NPM_INSTALL_PROJECT_NAME,
@@ -56,6 +53,7 @@ from nemo_backend.lsp.tools import (
     LSP_CREATE_PYTHON_FILE_NAME,
     LSP_DELETE_PYTHON_FILE_NAME,
     LSP_UPDATE_PYTHON_FILE_NAME,
+    PYTHON_LSP_MUTATION_TOOLS,
     PYTHON_LSP_READ_TOOLS,
 )
 from nemo_backend.staging_edit_tools import STAGING_TOOLS
@@ -63,21 +61,6 @@ from nemo_backend.state import runtime_config
 from nemo_backend.workspace_tools import TOOLS, TOOL_MAP
 
 WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)
-
-# Outer phased graph — Verify: land pending staged→workspace transfers, then workspace tests, then LSP reads.
-OUTER_VERIFY_STAGING_TRANSFER_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        LIST_STAGED_EDITS_NAME,
-        DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME,
-        READ_STAGED_EDIT_NAME,
-        TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
-        REJECT_STAGED_WORKSPACE_EDIT_NAME,
-    }
-)
-# Pytest + smoke: used for verify→learn retry when output suggests failure (see ``outer_coding_cycle_graph``).
-OUTER_VERIFY_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
-    {'run_workspace_pytest_tests', 'run_workspace_python_smoke_test'}
-)
 
 
 def merge_tools_replace_by_name(
@@ -143,6 +126,7 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
             REMOVE_NPM_PACKAGES_NAME,
             NPM_INSTALL_PROJECT_NAME,
             RUN_NPM_SCRIPT_NAME,
+            ANGULAR_CLI_TOOL_NAME,
         }
     )
 
@@ -151,13 +135,10 @@ def worker_tools_and_map(
     apply_mode: bool,
     *,
     edit_tools_strict_override: bool | None = None,
-    include_planning_tools: bool = True,
 ) -> tuple[list[Any], dict[str, Any]]:
-    """Tools for the outer Clara agent: reads; plus direct copy and nested mutation tools when Editor is on.
+    """Tools for the outer Clara agent: reads; plus direct copy, staging writes, and Python LSP staging mutators when Editor is on.
 
     ``edit_tools_strict_override`` — when set, drives :func:`staging_workspace_write_tools` instead of runtime Settings.
-
-    ``include_planning_tools`` — when ``False``, omits ``plan_and_modify`` and ``execute_workspace_mutation``.
     """
     tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
     mapping: dict[str, Any] = dict(TOOL_MAP)
@@ -176,10 +157,8 @@ def worker_tools_and_map(
         node_dep_tools, node_dep_map = node_dependency_tools()
         tools.extend(node_dep_tools)
         mapping.update(node_dep_map)
-        if include_planning_tools:
-            tools.extend(PLANNING_TOOLS)
-            for t in PLANNING_TOOLS:
-                mapping[t.name] = t
+        tools.append(angular_cli_tool)
+        mapping[angular_cli_tool.name] = angular_cli_tool
         edit_strict = (
             edit_tools_strict_override
             if edit_tools_strict_override is not None
@@ -188,6 +167,9 @@ def worker_tools_and_map(
         edit_tools = staging_workspace_write_tools(edit_strict)
         tools.extend(edit_tools)
         for t in edit_tools:
+            mapping[t.name] = t
+        tools.extend(PYTHON_LSP_MUTATION_TOOLS)
+        for t in PYTHON_LSP_MUTATION_TOOLS:
             mapping[t.name] = t
         tools.append(delete_workspace_entry)
         mapping[DELETE_WORKSPACE_ENTRY_NAME] = delete_workspace_entry
@@ -213,54 +195,5 @@ def worker_tools_and_map(
                 ),
             ],
         )
-    return tools, mapping
-
-
-def outer_phased_learn_tools_and_map() -> tuple[list[Any], dict[str, Any]]:
-    """Read/search + LSP inspection only (Editor phased outer graph — learn node)."""
-    tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
-    mapping: dict[str, Any] = dict(TOOL_MAP)
-    for tool_ in PYTHON_LSP_READ_TOOLS:
-        mapping[tool_.name] = tool_
-    return tools, mapping
-
-
-def outer_phased_write_tools_and_map(
-    *,
-    edit_tools_strict_override: bool | None = None,
-    include_planning_tools: bool | None = None,
-) -> tuple[list[Any], dict[str, Any]]:
-    """Outer phased write node: full ``worker_tools_and_map(apply_mode=True)`` minus verify-only pytest/smoke."""
-    orch = (
-        runtime_config.tools.orchestrated_mode if include_planning_tools is None else include_planning_tools
-    )
-    tools, mapping = worker_tools_and_map(
-        True,
-        edit_tools_strict_override=edit_tools_strict_override,
-        include_planning_tools=orch,
-    )
-    out_tools = [t for t in tools if t.name not in OUTER_VERIFY_ONLY_TOOL_NAMES]
-    out_map = {t.name: t for t in out_tools}
-    return out_tools, out_map
-
-
-def outer_phased_verify_tools_and_map() -> tuple[list[Any], dict[str, Any]]:
-    """Staging inspect + transfer, then pytest/smoke, then LSP reads (transfer tools overlap write phase)."""
-    tools: list[Any] = []
-    mapping: dict[str, Any] = {}
-    _, full_map = worker_tools_and_map(True)
-    for name in sorted(OUTER_VERIFY_STAGING_TRANSFER_TOOL_NAMES):
-        t = full_map.get(name)
-        if t is not None:
-            tools.append(t)
-            mapping[name] = t
-    for name in sorted(OUTER_VERIFY_ONLY_TOOL_NAMES):
-        t = full_map.get(name)
-        if t is not None:
-            tools.append(t)
-            mapping[name] = t
-    for tool_ in PYTHON_LSP_READ_TOOLS:
-        tools.append(tool_)
-        mapping[tool_.name] = tool_
     return tools, mapping
 

@@ -301,7 +301,7 @@ describe('filterLiveToolChainGroups', () => {
     expect(filterLiveToolChainGroups(groups, planner)).toEqual([groups[0], groups[2]]);
   });
 
-  it('shows nested planning/specialist tool rows even when plan is not ready (execute_workspace_mutation path)', () => {
+  it('shows nested planning/specialist tool rows even when plan is not ready (router-only nested path)', () => {
     const planningGroup: ToolChainGroup = {
       key: 'planning-router',
       toolCallCount: 1,
@@ -321,7 +321,7 @@ describe('filterLiveToolChainGroups', () => {
     expect(filterLiveToolChainGroups([groups[0], planningGroup], plannerNotReady)).toEqual([groups[0], planningGroup]);
   });
 
-  it('shows Clara-only groups when planner progress is absent (e.g. router-only plan_and_modify)', () => {
+  it('shows Clara-only groups when planner progress is absent (e.g. router-only nested run)', () => {
     const claraGroup: ToolChainGroup = {
       key: 'clara',
       toolCallCount: 0,

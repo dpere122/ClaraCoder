@@ -307,7 +307,7 @@ def apply_workspace_full_file(
     For small localized changes on existing files, prefer `replace_workspace_line_range`.
 
     Relative paths only (e.g. docs/readme.md). Do not use for code-review extensions (.py, .ts, .js, .json, …)—use
-    `execute_workspace_mutation` or `plan_and_modify` for those. The user applies changes in the UI unless auto-apply is enabled."""
+    the staging tools (`stage_*`, then `transfer_staged_file_to_workspace`) for those. The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(
         relative_path, encoding, newline,
@@ -337,7 +337,7 @@ def replace_workspace_line_range(
     verbatim removed/inserted excerpts).
     See `apply_workspace_full_file` for `encoding` and `newline`.
 
-    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source and structured-config files.
+    Relative paths only. Not for code-review extensions—use the staging tools (`stage_*`, then `transfer_staged_file_to_workspace`) for source and structured-config files.
     The user applies changes in the UI unless auto-apply is enabled."""
 
     ns = '' if new_snippet is None else new_snippet
@@ -367,7 +367,7 @@ def replace_workspace_snippet(
     See `apply_workspace_full_file` for `encoding` and `newline`.
     Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
 
-    Relative paths only. Not for code-review extensions—use `execute_workspace_mutation` or `plan_and_modify` for source and structured-config files.
+    Relative paths only. Not for code-review extensions—use the staging tools (`stage_*`, then `transfer_staged_file_to_workspace`) for source and structured-config files.
     The user applies changes in the UI unless auto-apply is enabled."""
 
     return _run_edit_tool(

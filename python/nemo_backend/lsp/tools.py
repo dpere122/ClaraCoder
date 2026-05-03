@@ -6,6 +6,8 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from pathlib import Path
+
 from nemo_backend.delete_tool import delete_workspace_entry
 from nemo_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
 from nemo_backend.lsp.file_policy import get_python_lsp_policy, lsp_server_for_path, normalize_relative_posix_path
@@ -167,17 +169,16 @@ def _run_lsp_python_staging_tool(tool_obj: Any, payload: dict[str, Any], *, rela
 def _sync_active_document_for_diagnostics(
     relative_path: str, *, encoding: str, server: LspServerKind
 ) -> tuple[list[dict[str, Any]], str]:
+    sid = (current_session_id.get() or '').strip()
     manager = get_session_lsp_manager(server=server)
-    if getattr(manager, 'scope', 'workspace') == 'staging':
-        sid = (current_session_id.get() or '').strip()
-        if sid:
-            session = get_session(sid)
-            entry = session.pending_edit_stagings.get(relative_path)
-            if entry is not None and not getattr(entry, 'workspace_applied', False):
-                rows = manager.sync_document(relative_path, str(entry.merged_text))
-                return rows, 'staged_draft'
+    if getattr(manager, 'scope', 'workspace') == 'staging' and sid:
+        session = get_session(sid)
+        from nemo_backend.staging_test_overlay import ensure_lsp_staging_overlay
+
+        ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=sid)
     rows = manager.sync_workspace_document(relative_path, encoding=encoding)
-    return rows, 'workspace_file'
+    analyzed = 'overlay_workspace' if getattr(manager, 'scope', 'workspace') == 'staging' else 'workspace_file'
+    return rows, analyzed
 
 
 def _session_lsp_scope_label(session_id: str | None) -> str:
@@ -194,7 +195,8 @@ def lsp_get_diagnostics(relative_path: str = '', refresh_active_document: bool =
     Works for Python (`.py`) and TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`).
 
     Set ``refresh_active_document=true`` to re-sync before reporting diagnostics: in **workspace** scope this reads the
-    on-disk file; in **staging** scope it uses the staged draft text when one exists for the path, otherwise disk.
+    on-disk file; in **staging** scope the server uses the **materialized overlay** (pending drafts on disk in a mirror
+    tree) so cross-file resolution matches staged peers.
     After `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` on a staged
     `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with ``refresh_active_document=true`` on that path
     (LSP applies to Python and TS/JS) to verify indentation-related diagnostics are gone where the server supports it."""

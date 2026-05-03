@@ -398,7 +398,18 @@ def _resolve_session_and_root(session_id: str | None) -> tuple[str, SessionState
     return sid, session, Path(session.workspace_path).resolve()
 
 
+def _effective_lsp_workspace_root(session: SessionState, scope: str, *, session_id: str) -> Path:
+    desired = _normalize_lsp_scope(scope)
+    if desired == 'workspace':
+        return Path(session.workspace_path).resolve()
+    from nemo_backend.staging_test_overlay import ensure_lsp_staging_overlay
+
+    return ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=session_id)
+
+
 def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> None:
+    from nemo_backend.staging_test_overlay import clear_lsp_staging_overlay
+
     sid, session, _workspace_root = _resolve_session_and_root(session_id)
     desired_scope = _normalize_lsp_scope(scope)
     with _MANAGERS_LOCK:
@@ -410,6 +421,8 @@ def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> 
     session.lsp_workspace_root = ''
     session.typescript_lsp_resolved_root = ''
     session.lsp_diagnostics.clear()
+    if desired_scope == 'workspace':
+        clear_lsp_staging_overlay(session)
 
 
 def get_session_lsp_manager(
@@ -419,13 +432,14 @@ def get_session_lsp_manager(
     scope: str | None = None,
     server: LspServerKind = 'python',
 ) -> SessionWorkspaceLspManager:
-    sid, session, workspace_root = _resolve_session_and_root(session_id)
+    sid, session, _real_ws = _resolve_session_and_root(session_id)
     desired_scope = _normalize_lsp_scope(scope or session.lsp_active_scope)
+    effective_root = _effective_lsp_workspace_root(session, desired_scope, session_id=sid)
     key = (sid, server)
     with _MANAGERS_LOCK:
         manager = _SESSION_MANAGERS.get(key)
         if manager is not None and (
-            manager.workspace_root != workspace_root or manager.scope != desired_scope
+            manager.workspace_root != effective_root or manager.scope != desired_scope
         ):
             manager.shutdown()
             _SESSION_MANAGERS.pop(key, None)
@@ -434,7 +448,7 @@ def get_session_lsp_manager(
             manager = SessionWorkspaceLspManager(
                 session_id=sid,
                 session=session,
-                workspace_root=workspace_root,
+                workspace_root=effective_root,
                 scope=desired_scope,
                 server_kind=server,
                 client_factory=client_factory,
@@ -445,19 +459,36 @@ def get_session_lsp_manager(
 
 
 def shutdown_session_lsp(session_id: str) -> None:
+    from nemo_backend.staging_test_overlay import clear_lsp_staging_overlay
+
     with _MANAGERS_LOCK:
         keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == session_id]
         managers = [_SESSION_MANAGERS.pop(k) for k in keys]
     for mgr in managers:
         mgr.shutdown()
+    try:
+        session = get_session(session_id)
+        clear_lsp_staging_overlay(session)
+    except Exception as exc:
+        logger.warning('clear LSP staging overlay failed session=%s err=%s', session_id, exc)
 
 
 def shutdown_all_lsp_managers() -> None:
+    from nemo_backend.staging_test_overlay import clear_lsp_staging_overlay
+
     with _MANAGERS_LOCK:
         items = list(_SESSION_MANAGERS.items())
         _SESSION_MANAGERS.clear()
+    cleared_sessions: set[str] = set()
     for _key, manager in items:
         manager.shutdown()
+        sid = manager.session_id
+        if sid not in cleared_sessions:
+            cleared_sessions.add(sid)
+            try:
+                clear_lsp_staging_overlay(get_session(sid))
+            except Exception as exc:
+                logger.warning('clear LSP staging overlay failed session=%s err=%s', sid, exc)
 
 
 def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
@@ -469,9 +500,13 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
         ts = _SESSION_MANAGERS.get((sid, 'typescript'))
     diag_count = sum(len(v) for v in session.lsp_diagnostics.values())
     active_scope = session.lsp_active_scope or 'workspace'
+    real_ws = str(workspace_root)
+    overlay_raw = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
+    reported_root = overlay_raw if active_scope == 'staging' and overlay_raw else real_ws
     return {
         'sessionId': sid,
-        'workspaceRoot': str(workspace_root),
+        'workspaceRoot': reported_root,
+        'realWorkspaceRoot': real_ws,
         'typescriptProjectRoot': session.typescript_lsp_resolved_root or None,
         'activeLspScope': active_scope,
         'cachedDiagnostics': diag_count,

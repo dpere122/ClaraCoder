@@ -17,7 +17,7 @@ from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.edit_tool import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
 from nemo_backend.lsp.diagnostics import post_edit_checks_footer
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
-from nemo_backend.lsp.manager import sync_session_document
+from nemo_backend.lsp.manager import get_session_lsp_manager
 from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
 from nemo_backend.workspace_text_io import (
@@ -168,12 +168,24 @@ def _staging_after_merge(
         return f'Tool error: could not read staging file ({exc}).'
     _edit_staging.write_snapshot_file(session, rel_display, merged_out, disk_encoding, disk_newline)
 
+    session.pending_edit_stagings[rel_display] = EditStagingEntry(
+        temp_path=str(temp_path),
+        old_text=original_old_text,
+        merged_text=merged_out,
+        disk_encoding=disk_encoding,
+        disk_newline=disk_newline,
+        edit_mode=mode,
+        workspace_applied=False,
+    )
+
     diagnostics_note = ''
     diagnostics: list[dict[str, Any]] = []
     srv = lsp_server_for_path(rel_display)
     if is_lsp_managed_path(rel_display) and srv:
         try:
-            diagnostics = sync_session_document(rel_display, merged_out, session_id=session_id, scope='staging')
+            enc_lsp = validate_workspace_encoding(disk_encoding or 'utf-8')
+            lsp_manager = get_session_lsp_manager(session_id, scope='staging', server=srv)
+            diagnostics = lsp_manager.sync_workspace_document(rel_display, encoding=enc_lsp)
             logger.info('%s LSP sync path=%s diagnostics=%s', srv, rel_display, len(diagnostics))
             diagnostics_note = truncate_text_head_tail(
                 post_edit_checks_footer(
@@ -196,15 +208,6 @@ def _staging_after_merge(
     elif formatter_lines:
         diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(formatter_lines)
 
-    session.pending_edit_stagings[rel_display] = EditStagingEntry(
-        temp_path=str(temp_path),
-        old_text=original_old_text,
-        merged_text=merged_out,
-        disk_encoding=disk_encoding,
-        disk_newline=disk_newline,
-        edit_mode=mode,
-        workspace_applied=False,
-    )
     logger.info('staged for review path=%s', rel_display)
     action = 'Updated staged draft' if had_prior_staging else 'Staged'
     if land_in_workspace:

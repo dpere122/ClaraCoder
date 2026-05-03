@@ -216,28 +216,10 @@ class RuntimeToolsRequest(BaseModel):
     maxSearchResults: int = Field(default=40, ge=1, le=200)
     defaultWorkspaceEncoding: str = 'utf-8'
     defaultWorkspaceNewline: Literal['lf', 'crlf', 'preserve'] = 'lf'
-    orchestratedMode: bool = Field(
-        default=False,
-        validation_alias=AliasChoices('orchestratedMode', 'orchestrated_mode'),
-    )
-    outerPhasedCodingCycle: bool = Field(
-        default=False,
-        validation_alias=AliasChoices('outerPhasedCodingCycle', 'outer_phased_coding_cycle'),
-    )
     allowStagingOverlayCommands: bool = Field(
         default=False,
         validation_alias=AliasChoices('allowStagingOverlayCommands', 'allow_staging_overlay_commands'),
     )
-
-    @field_validator('orchestratedMode', mode='before')
-    @classmethod
-    def _normalize_orchestrated(cls, v: Any) -> Any:
-        return _coerce_boolish(v)
-
-    @field_validator('outerPhasedCodingCycle', mode='before')
-    @classmethod
-    def _normalize_outer_phased(cls, v: Any) -> Any:
-        return _coerce_boolish(v)
 
     @field_validator('allowStagingOverlayCommands', mode='before')
     @classmethod

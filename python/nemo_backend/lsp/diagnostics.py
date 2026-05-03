@@ -195,8 +195,15 @@ def format_diagnostics_summary(
             bits.append(f'scope={lsp_scope}')
         if analyzed_source:
             bits.append(f'analyzed={analyzed_source}')
+        if (lsp_scope or '').strip().lower() == 'staging':
+            doc_note = (
+                f'the materialized staging overlay file URI for `{rel_display}` '
+                f'(other project files use the same overlay; heavy dirs may be symlinked from the real workspace).'
+            )
+        else:
+            doc_note = f'the workspace file URI for `{rel_display}`.'
         prelude.append(
-            f"LSP context: {'; '.join(bits)} (document buffer uses the workspace file URI for `{rel_display}`)."
+            f"LSP context: {'; '.join(bits)} (document buffer uses {doc_note})"
         )
 
     if not diagnostics:
@@ -221,7 +228,8 @@ def format_diagnostics_summary(
 
     if server_kind == 'python' and lsp_scope == 'staging':
         text += (
-            '\n\nNote: In staging scope, Python import resolution for other modules may still follow on-disk siblings '
-            'unless those files were synced in this LSP session.'
+            '\n\nNote: Staging analysis uses a mirror workspace with pending drafts on disk; imports resolve against '
+            'that mirror (symlinked dependency dirs such as `node_modules` point at the real workspace). '
+            'Paths never transferred into staging are unchanged copies from the planner snapshot or live workspace baseline.'
         )
     return text

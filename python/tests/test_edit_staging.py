@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -38,56 +36,6 @@ from nemo_backend.staging_edit_tools import (
 )
 from nemo_backend.search_backend import SearchLineMatch
 from nemo_backend.state import current_session_id, get_session, runtime_config
-
-
-@pytest.fixture()
-def staging_env():
-    saved_staging = os.environ.get('NEMO_STAGING_DIR')
-    saved_tools = runtime_config.tools
-
-    td = tempfile.TemporaryDirectory()
-    td_path = Path(td.name)
-    staging_root = td_path / 'staging'
-    staging_root.mkdir(parents=True)
-    os.environ['NEMO_STAGING_DIR'] = str(staging_root)
-
-    workspace = td_path / 'ws'
-    workspace.mkdir()
-
-    session_id = 'test-staging-session'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.workspace_path = str(workspace.resolve())
-    session.pending_edit_stagings.clear()
-    session.pending_diff_payload = None
-    session.auto_apply_mode = False
-    session.worker_apply_mode = True
-    session.abort_event.clear()
-    session.planning_nested_events_q = None
-
-    runtime_config.tools = RuntimeToolsConfig(
-        edit_tools_strict=False,
-        max_file_read_lines=400,
-        max_search_results=40,
-    )
-
-    class _Env:
-        pass
-
-    env = _Env()
-    env.staging_root = staging_root  # type: ignore[attr-defined]
-    env.workspace = workspace  # type: ignore[attr-defined]
-    env.session = session  # type: ignore[attr-defined]
-
-    yield env
-
-    current_session_id.reset(token)
-    if saved_staging is None:
-        os.environ.pop('NEMO_STAGING_DIR', None)
-    else:
-        os.environ['NEMO_STAGING_DIR'] = saved_staging
-    runtime_config.tools = saved_tools
-    td.cleanup()
 
 
 def test_get_staging_root_uses_env(staging_env) -> None:
@@ -381,9 +329,13 @@ def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) ->
 
     from nemo_backend import edit_staging as _es
 
+    class _FakeLspMgr:
+        def sync_workspace_document(self, relative_path: str, *, encoding: str = 'utf-8') -> list:
+            return []
+
     monkeypatch.setattr(
-        'nemo_backend.staging_edit_tools.sync_session_document',
-        lambda *args, **kwargs: [],
+        'nemo_backend.staging_edit_tools.get_session_lsp_manager',
+        lambda *args, **kwargs: _FakeLspMgr(),
     )
 
     def _fake_fmt(text: str, **kwargs: object) -> tuple[str | None, str]:

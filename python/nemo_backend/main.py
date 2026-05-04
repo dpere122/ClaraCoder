@@ -23,6 +23,7 @@ from nemo_backend.routes_lsp import router as lsp_router
 from nemo_backend.routes import router as runtime_router
 from nemo_backend.routes_audio import router as audio_router
 from nemo_backend.routes_chat import router as chat_router
+from nemo_backend.routes_conversation_title import router as conversation_title_router
 from nemo_backend.routes_checkpoint import router as checkpoint_router
 from nemo_backend.routes_session import router as session_router
 
@@ -41,6 +42,7 @@ app = FastAPI(title='Nemo LangChain Backend', lifespan=_lifespan)
 app.include_router(runtime_router)
 app.include_router(session_router)
 app.include_router(chat_router)
+app.include_router(conversation_title_router)
 app.include_router(audio_router)
 app.include_router(lsp_router)
 app.include_router(log_router)

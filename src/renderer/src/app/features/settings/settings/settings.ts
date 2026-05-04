@@ -1,4 +1,5 @@
 import { Component, OnDestroy, OnInit, computed, signal } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import type {
@@ -10,17 +11,22 @@ import type {
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
+  MonacoWorkspaceEditorSettings,
+  MonacoWorkspaceEditorThemeId,
   Workspace,
   WorkspaceToolsConfig,
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
+  MONACO_WORKSPACE_EDITOR_THEME_IDS,
   defaultLlamaCppManaged,
+  defaultMonacoWorkspaceEditorSettings,
   GEMMA_PRESET_DEFAULTS,
   countLlmModels,
   findLlmModelLocation,
   inferContextWindowTokens,
   mergeLlmProviderModel,
+  normalizeMonacoWorkspaceEditorSettings,
   optimizationPresetsForProvider,
   QWEN_PRESET_DEFAULTS,
   isPinnedLlmSourceId,
@@ -28,14 +34,36 @@ import {
   isPinnedLlamaServerUrlProviderId,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
+import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog';
+import { unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
+import { FontControl } from '../../layout/font-control/font-control';
+import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import { LucideAngularModule } from 'lucide-angular';
 
-type SettingsTab = 'appearance' | 'models' | 'tools' | 'audio' | 'workspaces';
+type SettingsTab = 'general' | 'appearance' | 'models' | 'tools' | 'monaco' | 'audio' | 'workspaces';
+
+const TALK_SILENCE_THRESHOLD_MIN = 0.5;
+const TALK_SILENCE_THRESHOLD_MAX = 5;
+const TALK_SILENCE_THRESHOLD_STEP = 0.5;
+
+const MONACO_EDITOR_THEME_LABELS: Record<MonacoWorkspaceEditorThemeId, string> = {
+  'clara-monaco': 'Clara (matches app)',
+  vs: 'VS Light',
+  'vs-dark': 'VS Dark',
+  'hc-black': 'High contrast dark',
+  'hc-light': 'High contrast light',
+};
+
+interface TalkAudioInputDevice {
+  deviceId: string;
+  label: string;
+}
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, DecimalPipe, FontControl, ThemedConfirmDialogComponent],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })
@@ -51,6 +79,11 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly selectedSettingsTab = signal<SettingsTab>('models');
   protected readonly tabs: Array<{ id: SettingsTab; label: string; description: string }> = [
     {
+      id: 'general',
+      label: 'General',
+      description: 'Chat font size and other global preferences.',
+    },
+    {
       id: 'models',
       label: 'Models',
       description: 'Sources (LM Studio, llama.cpp, or OpenAI-compatible APIs). The highlighted source is used for chat. Tuning is per source; expand Advanced tuning when needed.',
@@ -60,11 +93,22 @@ export class Settings implements OnInit, OnDestroy {
       label: 'Tools',
       description: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
     },
-    { id: 'audio', label: 'Audio', description: 'Speech-to-text provider and transcription defaults.' },
+    {
+      id: 'monaco',
+      label: 'Editor',
+      description: 'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
+    },
+    { id: 'audio', label: 'Audio', description: 'Transcription, talk-mode microphone, assistant TTS voice, and end-of-speech timing.' },
     { id: 'appearance', label: 'Appearance', description: 'Global and no-workspace theme defaults.' },
     { id: 'workspaces', label: 'Workspaces', description: 'Attached folders, active project, and per-workspace themes.' },
   ];
+  /** Options for `audioTranscription.ttsVoiceId` (same list as chat TTS). */
+  protected readonly ttsVoiceChoices = VOICE_OPTIONS;
   protected readonly themes: ThemeOption[] = THEMES;
+  protected readonly monacoEditorThemeSelectOptions = MONACO_WORKSPACE_EDITOR_THEME_IDS.map((id) => ({
+    id,
+    label: MONACO_EDITOR_THEME_LABELS[id],
+  }));
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspace = signal<Workspace | null>(null);
   protected readonly themeId = signal('dark');
@@ -76,6 +120,13 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly audioBaseUrl = signal('');
   protected readonly audioModel = signal('gpt-4o-mini-transcribe');
   protected readonly audioApiKey = signal('');
+  protected readonly talkInputDeviceId = signal('default');
+  protected readonly talkSilenceThresholdSeconds = signal(2);
+  protected readonly talkAudioInputDevices = signal<TalkAudioInputDevice[]>([]);
+  protected readonly talkAudioInputsLoadError = signal('');
+  protected readonly chatFontSizeRem = signal(0.9);
+  protected readonly monacoWorkspaceEditor = signal<MonacoWorkspaceEditorSettings>(defaultMonacoWorkspaceEditorSettings());
+  protected readonly ttsVoiceId = signal('en-US-AriaNeural');
   protected readonly editToolsMode = signal<'standard' | 'strict'>('standard');
   protected readonly maxFileReadLines = signal(400);
   protected readonly maxSearchResults = signal(40);
@@ -148,7 +199,10 @@ export class Settings implements OnInit, OnDestroy {
   /** True after any local edit; we persist only on close (or teardown) instead of debouncing every keystroke. */
   private settingsDirty = false;
 
-  constructor(private electron: ElectronService) {}
+  constructor(
+    private electron: ElectronService,
+    private themedConfirm: ThemedConfirmDialogService,
+  ) {}
 
   async ngOnInit(): Promise<void> {
     const config = await this.electron.loadConfig();
@@ -169,6 +223,9 @@ export class Settings implements OnInit, OnDestroy {
 
   protected selectTab(tab: SettingsTab): void {
     this.selectedSettingsTab.set(tab);
+    if (tab === 'audio') {
+      void this.refreshTalkAudioInputs();
+    }
   }
 
   protected async closeSettings(): Promise<void> {
@@ -224,6 +281,13 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected async selectWorkspace(id: string | null): Promise<void> {
+    const unsaved = await this.electron.getWorkspaceMonacoUnsavedPaths();
+    if (unsaved.length > 0) {
+      const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
+      if (!proceed) {
+        return;
+      }
+    }
     await this.electron.setCurrentWorkspace(id);
   }
 
@@ -708,7 +772,74 @@ export class Settings implements OnInit, OnDestroy {
     if (changes.apiKey !== undefined) {
       this.audioApiKey.set(changes.apiKey);
     }
+    if (changes.talkInputDeviceId !== undefined) {
+      this.talkInputDeviceId.set(changes.talkInputDeviceId || 'default');
+    }
+    if (changes.talkSilenceThresholdSeconds !== undefined) {
+      const v = changes.talkSilenceThresholdSeconds;
+      const n = typeof v === 'number' && !Number.isNaN(v) ? v : TALK_SILENCE_THRESHOLD_MIN;
+      const clamped = Math.min(
+        TALK_SILENCE_THRESHOLD_MAX,
+        Math.max(TALK_SILENCE_THRESHOLD_MIN, n),
+      );
+      this.talkSilenceThresholdSeconds.set(+clamped.toFixed(1));
+    }
+    if (changes.ttsVoiceId !== undefined) {
+      const s = typeof changes.ttsVoiceId === 'string' ? changes.ttsVoiceId.trim() : '';
+      this.ttsVoiceId.set(s || 'en-US-AriaNeural');
+    }
     this.markSettingsDirty();
+  }
+
+  protected onChatFontSizeRemChange(rem: number): void {
+    const n = typeof rem === 'number' && !Number.isNaN(rem) ? rem : 0.9;
+    const clamped = Math.min(1.6, Math.max(0.6, +n.toFixed(1)));
+    this.chatFontSizeRem.set(clamped);
+    this.markSettingsDirty();
+  }
+
+  protected onTalkInputDeviceIdChange(deviceId: string): void {
+    this.updateAudioSettings({ talkInputDeviceId: deviceId || 'default' });
+  }
+
+  protected decreaseTalkSilenceThreshold(): void {
+    const next = Math.max(
+      TALK_SILENCE_THRESHOLD_MIN,
+      +(this.talkSilenceThresholdSeconds() - TALK_SILENCE_THRESHOLD_STEP).toFixed(1),
+    );
+    this.updateAudioSettings({ talkSilenceThresholdSeconds: next });
+  }
+
+  protected increaseTalkSilenceThreshold(): void {
+    const next = Math.min(
+      TALK_SILENCE_THRESHOLD_MAX,
+      +(this.talkSilenceThresholdSeconds() + TALK_SILENCE_THRESHOLD_STEP).toFixed(1),
+    );
+    this.updateAudioSettings({ talkSilenceThresholdSeconds: next });
+  }
+
+  private async refreshTalkAudioInputs(): Promise<void> {
+    try {
+      const temp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      temp.getTracks().forEach((t) => t.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices
+        .filter((d) => d.kind === 'audioinput')
+        .map((d, i) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Microphone ${i + 1}`,
+        }));
+      const sel = this.talkInputDeviceId();
+      const valid = sel === 'default' || inputs.some((d) => d.deviceId === sel);
+      if (!valid && inputs.length) {
+        this.updateAudioSettings({ talkInputDeviceId: 'default' });
+      }
+      this.talkAudioInputDevices.set(inputs);
+      this.talkAudioInputsLoadError.set(inputs.length ? '' : 'No microphone detected');
+    } catch {
+      this.talkAudioInputDevices.set([]);
+      this.talkAudioInputsLoadError.set('Microphone permission is required to list inputs');
+    }
   }
 
   protected updateWorkspaceTools(changes: Partial<WorkspaceToolsConfig>): void {
@@ -774,6 +905,26 @@ export class Settings implements OnInit, OnDestroy {
   protected onAllowStagingOverlayCommandsChange(enabled: boolean): void {
     this.allowStagingOverlayCommands.set(!!enabled);
     this.markSettingsDirty();
+  }
+
+  protected patchMonaco(patch: Partial<MonacoWorkspaceEditorSettings>): void {
+    const merged = { ...this.monacoWorkspaceEditor(), ...patch };
+    this.monacoWorkspaceEditor.set(normalizeMonacoWorkspaceEditorSettings(merged).settings);
+    this.markSettingsDirty();
+  }
+
+  protected monacoEditorThemeLabel(id: MonacoWorkspaceEditorThemeId): string {
+    return MONACO_EDITOR_THEME_LABELS[id];
+  }
+
+  protected parseMonacoFloat(raw: string | number, fallback: number): number {
+    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    return Number.isNaN(n) ? fallback : n;
+  }
+
+  protected parseMonacoInt(raw: string | number, fallback: number): number {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    return Number.isNaN(n) ? fallback : n;
   }
 
   protected onAudioProviderChange(provider: 'openai' | 'disabled' | 'google'): void {
@@ -890,6 +1041,7 @@ export class Settings implements OnInit, OnDestroy {
     const base = structuredClone(this.configSnapshot);
     return {
       ...base,
+      chatFontSizeRem: this.chatFontSizeRem(),
       workspaces: this.workspaces(),
       currentWorkspaceId: this.currentWorkspace()?.id ?? base.currentWorkspaceId,
       themeId: this.themeId(),
@@ -905,6 +1057,9 @@ export class Settings implements OnInit, OnDestroy {
         baseUrl: this.audioBaseUrl(),
         model: this.audioModel(),
         apiKey: this.audioApiKey(),
+        talkInputDeviceId: this.talkInputDeviceId(),
+        talkSilenceThresholdSeconds: this.talkSilenceThresholdSeconds(),
+        ttsVoiceId: this.ttsVoiceId(),
       },
       workspaceTools: {
         editToolsMode: this.editToolsMode(),
@@ -914,6 +1069,7 @@ export class Settings implements OnInit, OnDestroy {
         defaultWorkspaceNewline: this.defaultWorkspaceNewline(),
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
       },
+      monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
   }
 
@@ -966,6 +1122,15 @@ export class Settings implements OnInit, OnDestroy {
       this.noWorkspaceThemeId.set(config.noWorkspaceThemeId || config.themeId || 'dark');
       const themeToApply = currentWorkspace?.themeId || config.noWorkspaceThemeId || config.themeId || 'dark';
       this.applyTheme(themeToApply);
+      const at = config.audioTranscription;
+      this.ttsVoiceId.set(at?.ttsVoiceId?.trim() || 'en-US-AriaNeural');
+      const cfs = config.chatFontSizeRem;
+      this.chatFontSizeRem.set(
+        typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
+      );
+      this.monacoWorkspaceEditor.set(
+        normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
+      );
       return;
     }
 
@@ -982,6 +1147,27 @@ export class Settings implements OnInit, OnDestroy {
     this.audioBaseUrl.set(config.audioTranscription.baseUrl);
     this.audioModel.set(config.audioTranscription.model);
     this.audioApiKey.set(config.audioTranscription.apiKey);
+    const at = config.audioTranscription;
+    this.talkInputDeviceId.set(at.talkInputDeviceId ?? 'default');
+    const thr = at.talkSilenceThresholdSeconds;
+    this.talkSilenceThresholdSeconds.set(
+      typeof thr === 'number' && !Number.isNaN(thr)
+        ? Math.min(
+            TALK_SILENCE_THRESHOLD_MAX,
+            Math.max(TALK_SILENCE_THRESHOLD_MIN, +thr.toFixed(1)),
+          )
+        : 2,
+    );
+    this.ttsVoiceId.set(at.ttsVoiceId?.trim() || 'en-US-AriaNeural');
+
+    const cfs = config.chatFontSizeRem;
+    this.chatFontSizeRem.set(
+      typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
+    );
+
+    this.monacoWorkspaceEditor.set(
+      normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
+    );
 
     const wt = config.workspaceTools;
     this.editToolsMode.set(wt.editToolsMode === 'strict' ? 'strict' : 'standard');

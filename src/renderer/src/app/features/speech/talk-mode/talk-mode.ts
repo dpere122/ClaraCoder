@@ -1,29 +1,22 @@
-import { Component, effect, model, NgZone, OnDestroy, OnInit, output, signal, ViewEncapsulation } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { Component, effect, input, model, NgZone, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
 import { ElectronService } from '../../../core/electron.service';
 import { TalkUiState } from '../../../core/talk-ui-state';
-import { LucideAngularModule } from 'lucide-angular';
 
-const MIN_THRESHOLD = 0.5;
-const MAX_THRESHOLD = 5.0;
-const STEP = 0.5;
 const SILENCE_RMS = 0.015;
-
-export interface AudioDevice {
-  deviceId: string;
-  label: string;
-}
 
 @Component({
   selector: 'app-talk-mode',
-  imports: [DecimalPipe, LucideAngularModule],
+  imports: [],
   templateUrl: './talk-mode.html',
   styleUrl: './talk-mode.css',
   encapsulation: ViewEncapsulation.None
 })
-export class TalkMode implements OnInit, OnDestroy {
+export class TalkMode implements OnDestroy {
   readonly talkEnabled = model(false);
-  readonly silenceThreshold = signal(2.0);
+  /** MediaDevices input id from Settings → Audio, or ``"default"``. */
+  readonly talkInputDeviceId = input<string>('default');
+  /** Seconds of silence after speech before sending audio for transcription. */
+  readonly talkSilenceThresholdSec = input<number>(2);
   readonly listening = signal(false);
   readonly currentTranscript = model('');
   readonly promptCaptured = output<string>();
@@ -31,15 +24,11 @@ export class TalkMode implements OnInit, OnDestroy {
   readonly recordingBegan = output<void>();
   /** Fired when a capture cycle ends (after transcription or empty audio). */
   readonly talkCaptureFinished = output<{ hadSpeech: boolean }>();
-  readonly audioDevices = signal<AudioDevice[]>([]);
-  readonly selectedDeviceId = signal('default');
-  readonly statusMessage = signal('');
+  /** Shown in the composer status row (errors, “no speech”, etc.). */
+  readonly statusMessage = model('');
 
   private audioContext: AudioContext | null = null;
   private processorNode: ScriptProcessorNode | null = null;
-  private deviceChangeHandler = () => {
-    void this.loadDevices();
-  };
   private micStream: MediaStream | null = null;
   private pcmChunks: Float32Array[] = [];
   private hasVoice = false;
@@ -53,84 +42,25 @@ export class TalkMode implements OnInit, OnDestroy {
   ) {
     effect(() => {
       const enabled = this.talkEnabled();
+      const _device = this.talkInputDeviceId();
       if (enabled) {
-        this.startCapture();
+        void this.startCapture();
       } else {
         this.stopCapture();
       }
     });
   }
 
-  async ngOnInit(): Promise<void> {
-    await this.loadDevices();
-    navigator.mediaDevices?.addEventListener('devicechange', this.deviceChangeHandler);
-  }
-
   ngOnDestroy(): void {
     this.stopCapture();
-    navigator.mediaDevices?.removeEventListener('devicechange', this.deviceChangeHandler);
-  }
-
-  toggle(): void {
-    this.talkEnabled.set(!this.talkEnabled());
-  }
-
-  decreaseThreshold(): void {
-    const next = Math.max(MIN_THRESHOLD, +(this.silenceThreshold() - STEP).toFixed(1));
-    this.silenceThreshold.set(next);
-  }
-
-  increaseThreshold(): void {
-    const next = Math.min(MAX_THRESHOLD, +(this.silenceThreshold() + STEP).toFixed(1));
-    this.silenceThreshold.set(next);
-  }
-
-  onDeviceChange(event: Event): void {
-    const id = (event.target as HTMLSelectElement).value;
-    this.selectedDeviceId.set(id);
-    if (this.talkEnabled()) {
-      this.stopCapture();
-      this.startCapture();
-    }
-  }
-
-  private async loadDevices(): Promise<void> {
-    try {
-      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      tempStream.getTracks().forEach(t => t.stop());
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const inputs = devices
-        .filter(d => d.kind === 'audioinput')
-        .map((d, i) => ({
-          deviceId: d.deviceId,
-          label: d.label || `Microphone ${i + 1}`
-        }));
-      this.zone.run(() => {
-        this.audioDevices.set(inputs);
-        const selectedId = this.selectedDeviceId();
-        const hasSelectedDevice = selectedId === 'default' || inputs.some((device) => device.deviceId === selectedId);
-        if (!hasSelectedDevice) {
-          this.selectedDeviceId.set('default');
-        }
-        if (!inputs.length) {
-          this.statusMessage.set('No microphone detected');
-        } else if (this.statusMessage() === 'No microphone detected') {
-          this.statusMessage.set('');
-        }
-      });
-    } catch (err) {
-      console.error('Failed to enumerate audio devices:', err);
-      this.zone.run(() => this.statusMessage.set('Microphone permission is required'));
-    }
   }
 
   private async startCapture(): Promise<void> {
     this.stopCapture();
 
+    const deviceId = this.talkInputDeviceId();
     const constraints: MediaStreamConstraints = {
-      audio: this.selectedDeviceId() !== 'default'
-        ? { deviceId: { exact: this.selectedDeviceId() } }
-        : true
+      audio: deviceId !== 'default' ? { deviceId: { exact: deviceId } } : true
     };
 
     try {
@@ -177,6 +107,7 @@ export class TalkMode implements OnInit, OnDestroy {
       const buf = event.inputBuffer;
       const rms = this.maxChannelRms(buf);
       const input = this.getMonoPcm(buf);
+      const silenceThresholdSec = this.talkSilenceThresholdSec();
 
       if (rms > SILENCE_RMS) {
         if (!this.hasVoice && !this.transcribing) {
@@ -196,7 +127,7 @@ export class TalkMode implements OnInit, OnDestroy {
         this.pcmChunks.push(input);
       }
 
-      if (this.hasVoice && this.silentMs >= this.silenceThreshold() * 1000 && !this.transcribing) {
+      if (this.hasVoice && this.silentMs >= silenceThresholdSec * 1000 && !this.transcribing) {
         this.transcribing = true;
         this.zone.run(() => {
           this.talkUi.capturing.set(false);

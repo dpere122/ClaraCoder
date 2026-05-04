@@ -22,6 +22,17 @@ function broadcastConfig(config: AppConfig): void {
  * Config persistence, workspace CRUD, always-on-top, menu refresh, and workspace context push to Python.
  */
 export function registerConfigWorkspacesIpc(): void {
+  ipcMain.on('workspace-monaco-unsaved-paths', (event, paths: unknown) => {
+    if (!mainState.mainWindow || event.sender !== mainState.mainWindow.webContents) {
+      return;
+    }
+    mainState.monacoWorkspaceUnsavedPaths = Array.isArray(paths)
+      ? paths.filter((p): p is string => typeof p === 'string')
+      : [];
+  });
+
+  ipcMain.handle('get-workspace-monaco-unsaved-paths', () => [...(mainState.monacoWorkspaceUnsavedPaths ?? [])]);
+
   ipcMain.handle('get-recent-conversations', (_event, limit: number) => getRecentConversations(limit));
 
   ipcMain.handle('refresh-menu', () => {
@@ -89,6 +100,10 @@ export function registerConfigWorkspacesIpc(): void {
 
   ipcMain.handle('set-current-workspace', async (_event, id: string | null) => {
     const config = await loadConfig();
+    if (id === config.currentWorkspaceId) {
+      return;
+    }
+
     config.currentWorkspaceId = id;
     await saveConfig(config);
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));

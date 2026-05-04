@@ -1,7 +1,7 @@
 @if (showTile()) {
   <div class='llama-tile'>
     <div class='llama-tile__head'>
-      <div class='llama-tile__title'>llama.cpp</div>
+      <div class='llama-tile__title'>Model Status</div>
       <button
         type='button'
         class='llama-tile__dock-handle'
@@ -19,20 +19,10 @@
       @if (st.ok === false) {
         <p class='llama-tile__err'>{{ st.error }}</p>
       } @else {
-        <div class='llama-tile__status'>
-          <span class='llama-tile__lbl'>Chat</span>
-          <span [class]='dotClass(st.chat.health)' title='{{ st.chat.health }}'></span>
-          @if (st.embed) {
-            <span class='llama-tile__lbl'>Emb</span>
-            <span [class]='dotClass(st.embed.health)' title='{{ st.embed.health }}'></span>
-          }
-        </div>
         @if (st.ok === true && st.remote) {
           <p class='llama-tile__hint'>Remote llama-server — health from your Settings base URL.</p>
         } @else if (!st.running) {
           <p class='llama-tile__hint'>Stopped — Start to run this preset&apos;s servers.</p>
-        } @else if (st.chat.port) {
-          <p class='llama-tile__ports'>chat :{{ st.chat.port }}</p>
         }
       }
     }
@@ -44,6 +34,7 @@
       [recentOutput]='recentOutput()'
       [llmStreamActive]='llmStreamActive()'
       [shakeNonce]='crystalShakeNonce()'
+      [embedLoaded]='embedModelReady()'
     />
     <div class='llama-tile__actions'>
       @if (status(); as st2) {

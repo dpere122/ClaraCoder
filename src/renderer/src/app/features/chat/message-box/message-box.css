@@ -39,13 +39,62 @@
   font-style: italic;
 }
 
+.input-group {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.input-group .btn-voice {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  padding: 0.375rem 0.5rem;
+  background-color: transparent;
+  border: 1px solid var(--t-border);
+  border-right: none;
+  border-radius: 0.35rem 0 0 0.35rem;
+  color: var(--t-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.input-group .btn-voice:hover {
+  background-color: var(--t-hover-bg);
+  color: var(--t-fg);
+}
+
+.input-group .btn-voice--active {
+  color: var(--t-primary);
+  border-color: var(--t-primary);
+  box-shadow: 0 0 0 1px var(--t-primary);
+  z-index: 1;
+}
+
+.input-group .btn-voice:focus-visible {
+  outline: 2px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
 .input-group .form-control {
+  border-radius: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   background-color: var(--t-input-bg, var(--t-bg));
   border: 1px solid var(--t-border);
   color: var(--t-input-fg, var(--t-primary));
   caret-color: var(--t-input-fg, var(--t-primary));
   font-family: inherit;
   font-size: 0.9rem;
+}
+
+.input-group .form-control + .btn,
+.input-group .form-control + .btn-abort {
+  border-radius: 0 0.35rem 0.35rem 0;
 }
 
 .input-group .form-control::placeholder {
@@ -95,4 +144,9 @@
 :host ::ng-deep .stop-icon svg {
   fill: currentColor;
   stroke: none;
+}
+
+:host ::ng-deep .voice-mic-icon svg {
+  stroke: currentColor;
+  fill: none;
 }

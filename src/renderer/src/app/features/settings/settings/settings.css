@@ -4,6 +4,16 @@
   font-size: 13px;
 }
 
+.settings-general-font {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.settings-general-font app-font-control .font-control {
+  margin-top: 0;
+}
+
 .temperature-row {
   display: flex;
   align-items: center;
@@ -142,6 +152,64 @@
 .audio-provider-note {
   margin: 14px 0 0;
   max-width: 42rem;
+}
+
+.settings-voice-device-select {
+  width: 100%;
+  max-width: 42rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--t-fg);
+  background-color: color-mix(in srgb, var(--t-bg) 92%, var(--t-primary) 4%);
+  border: 1px solid color-mix(in srgb, var(--t-border) 85%, var(--t-primary) 12%);
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.settings-voice-device-select:focus {
+  outline: none;
+  border-color: var(--t-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-primary) 35%, transparent);
+}
+
+.settings-voice-hint {
+  margin-top: 0.25rem;
+  color: var(--t-log-level-warning, #f0ad4e);
+}
+
+.settings-voice-threshold {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.settings-voice-threshold button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--t-border) 85%, transparent);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--t-bg-surface) 90%, transparent);
+  color: var(--t-secondary);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.settings-voice-threshold button:hover {
+  border-color: var(--t-primary);
+  color: var(--t-primary);
+}
+
+.settings-voice-threshold-value {
+  min-width: 3.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--t-secondary);
+  font-size: 0.9rem;
 }
 
 .settings-copy,

@@ -54,41 +54,6 @@ app-llama-server-tile {
   cursor: grabbing;
 }
 
-.llama-tile__status {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  font-size: 0.75rem;
-}
-
-.llama-tile__lbl {
-  color: var(--bs-secondary-color);
-}
-
-.llama-tile__dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.llama-tile__dot--ok {
-  background: var(--bs-success);
-}
-
-.llama-tile__dot--loading {
-  background: var(--bs-warning);
-}
-
-.llama-tile__dot--off {
-  background: var(--bs-secondary);
-}
-
-.llama-tile__dot--err {
-  background: var(--bs-danger);
-}
-
 .llama-tile__ports {
   font-size: 0.68rem;
   color: var(--bs-secondary-color);

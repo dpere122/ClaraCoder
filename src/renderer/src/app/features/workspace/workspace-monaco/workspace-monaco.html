@@ -1,0 +1,6 @@
+<div class="workspace-monaco-host">
+  @if (loadError()) {
+    <div class="workspace-monaco-error" role="alert">{{ loadError() }}</div>
+  }
+  <div #editorHost class="workspace-monaco-editor" aria-label="Workspace file editor"></div>
+</div>

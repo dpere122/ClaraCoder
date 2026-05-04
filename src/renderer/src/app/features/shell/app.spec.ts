@@ -64,6 +64,7 @@ function stubElectronApi(): void {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     workspaceId: null as string | null,
+    customTitle: false,
   };
   (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
     onMessageChunk: noop,
@@ -105,6 +106,7 @@ function stubElectronApi(): void {
       themeId: 'dark',
     }),
     saveConversation: async () => noop(),
+    maybeAutoTitleConversation: async () => ({ ok: false as const, reason: 'not_due' as const }),
     setWorkspaceContext: async () => noop(),
     syncAutoApplyMode: async () => ({ ok: true }),
     abortTtsStream: noop,
@@ -118,6 +120,10 @@ function stubElectronApi(): void {
     lmStudioListModels: async () => ({ ok: false, error: 'stub' }),
     lmStudioLoadModel: async () => ({ ok: false, error: 'stub' }),
     lmStudioUnloadModel: async () => ({ ok: false, error: 'stub' }),
+    setCurrentWorkspace: async () => {},
+    getWorkspaceMonacoUnsavedPaths: async () => [],
+    reportWorkspaceMonacoUnsavedPaths: noop,
+    readWorkspaceFile: async () => ({ ok: false as const, error: 'stub' }),
   };
 }
 

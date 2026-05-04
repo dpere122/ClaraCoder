@@ -9,7 +9,13 @@ import type {
   Workspace,
   WorkspaceToolsConfig,
 } from '../../shared';
-import { defaultLlamaCppManaged, inferContextWindowTokens, PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID } from '../../shared';
+import {
+  defaultLlamaCppManaged,
+  defaultMonacoWorkspaceEditorSettings,
+  inferContextWindowTokens,
+  PINNED_LM_STUDIO_PROVIDER_ID,
+  PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+} from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` should reset LLM sources to defaults (see `migrateConfig`). */
@@ -154,6 +160,9 @@ export function getDefaultAudioTranscription(): AudioTranscriptionConfig {
     baseUrl: process.env.OPENAI_BASE_URL || '',
     model: process.env.NEMO_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe',
     apiKey: '',
+    talkInputDeviceId: 'default',
+    talkSilenceThresholdSeconds: 2,
+    ttsVoiceId: 'en-US-AriaNeural',
   };
 }
 
@@ -190,6 +199,8 @@ export function createDefaultConfig(): AppConfig {
     audioTranscription: getDefaultAudioTranscription(),
     workspaceTools: getDefaultWorkspaceTools(),
     healthMonitor: getDefaultHealthMonitor(),
+    chatFontSizeRem: 0.9,
+    monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
   };
 }
 

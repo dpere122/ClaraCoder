@@ -20,37 +20,136 @@
     </div>
   </div>
 
-  @if (currentWorkspaceId()) {
-    <div class='file-tree'>
-      @if (lastWorkspaceChange()) {
-        <p class='workspace-change-indicator'>Updated: {{ lastWorkspaceChange() }}</p>
-      }
-      @if (loadError()) {
-        <p class='empty-hint'>{{ loadError() }}</p>
-      } @else {
-        @for (node of flatTree(); track node.path) {
-          <div
-            class='tree-node'
-            [style.padding-left.rem]='0.5 + node.depth * 1'
-            [class.is-directory]='node.isDirectory'
-            (click)='onTreeNodeClick(node)'
-          >
-            @if (node.isDirectory) {
-              <lucide-icon
-                class='node-chevron'
-                [name]="node.expanded ? 'chevron-down' : 'chevron-right'"
-                [size]='12'
-              />
-              <lucide-icon name='folder' class='folder-icon' [size]='14' />
-            } @else {
-              <span class='node-chevron-spacer'></span>
-              <lucide-icon name='file-text' class='file-icon' [size]='14' />
-            }
-            <span class='node-name'>{{ node.name }}</span>
-          </div>
-        } @empty {
-          <p class='empty-hint'>// No files found.</p>
+  <div class='workspace-body'>
+    @if (currentWorkspaceId()) {
+      <div class='file-tree' (contextmenu)='onFileTreePaneContextMenu($event)'>
+        @if (lastWorkspaceChange()) {
+          <p class='workspace-change-indicator'>Updated: {{ lastWorkspaceChange() }}</p>
         }
+        @if (loadError()) {
+          <p class='empty-hint'>{{ loadError() }}</p>
+        } @else {
+          @if (pendingCreate(); as pc) {
+            <div class='workspace-create-inline' tabindex='-1' (focusout)='onPendingCreateFocusOut($event)'>
+              <span class='workspace-create-label'>
+                New {{ pc.kind === 'file' ? 'file' : 'folder' }}
+              </span>
+              <input
+                type='text'
+                class='workspace-create-input'
+                spellcheck='false'
+                autocomplete='off'
+                [value]='pendingCreateDraft()'
+                (input)='onPendingCreateDraftInput($event)'
+                (keydown)='onPendingCreateKeydown($event)'
+              />
+              <div class='workspace-create-actions'>
+                <button type='button' class='workspace-create-btn primary' (click)='submitPendingCreate()'>
+                  Create
+                </button>
+                <button type='button' class='workspace-create-btn' (click)='cancelPendingCreate()'>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          }
+          @for (node of flatTree(); track node.path) {
+            <div
+              class='tree-node'
+              [class.is-renaming]='inlineRenamePath() === node.path'
+              [style.padding-left.rem]='0.5 + node.depth * 1'
+              [class.is-directory]='node.isDirectory'
+              (click)='onTreeNodeClick(node)'
+              (dblclick)='onTreeNodeDoubleClick(node)'
+              (contextmenu)='onTreeNodeContextMenu($event, node)'
+            >
+              @if (inlineRenamePath() === node.path) {
+                <span class='node-chevron-spacer'></span>
+                @if (node.isDirectory) {
+                  <lucide-icon name='folder' class='folder-icon' [size]='14' />
+                } @else {
+                  <lucide-icon name='file-text' class='file-icon' [size]='14' />
+                }
+                <input
+                  type='text'
+                  class='tree-node-rename-input'
+                  spellcheck='false'
+                  autocomplete='off'
+                  [value]='inlineRenameDraft()'
+                  (input)='onRenameDraftInput($event)'
+                  (keydown)='onRenameInputKeydown($event)'
+                  (blur)='onRenameInputBlur()'
+                  (click)='$event.stopPropagation()'
+                  (mousedown)='$event.stopPropagation()'
+                />
+              } @else {
+                @if (node.isDirectory) {
+                  <lucide-icon
+                    class='node-chevron'
+                    [name]="node.expanded ? 'chevron-down' : 'chevron-right'"
+                    [size]='12'
+                  />
+                  <lucide-icon name='folder' class='folder-icon' [size]='14' />
+                } @else {
+                  <span class='node-chevron-spacer'></span>
+                  <lucide-icon name='file-text' class='file-icon' [size]='14' />
+                }
+                <span class='node-name'>{{ node.name }}</span>
+              }
+            </div>
+          } @empty {
+            <p class='empty-hint'>// No files found.</p>
+          }
+        }
+      </div>
+    }
+  </div>
+
+  <div class='workspace-theme-footer'>
+    <app-theme-selector />
+  </div>
+
+  @if (contextMenuVisible()) {
+    <div
+      class='workspace-context-menu'
+      role='menu'
+      [style.left.px]='contextMenuX()'
+      [style.top.px]='contextMenuY()'
+    >
+      <button
+        type='button'
+        class='workspace-context-menu-item'
+        role='menuitem'
+        (mousedown)='onContextMenuItemMousedown($event); onContextMenuNewFile()'
+      >
+        New file…
+      </button>
+      <button
+        type='button'
+        class='workspace-context-menu-item'
+        role='menuitem'
+        (mousedown)='onContextMenuItemMousedown($event); onContextMenuNewFolder()'
+      >
+        New folder…
+      </button>
+      @if (contextMenuNode()) {
+        <div class='workspace-context-menu-sep' role='separator'></div>
+        <button
+          type='button'
+          class='workspace-context-menu-item'
+          role='menuitem'
+          (mousedown)='onContextMenuItemMousedown($event); onContextMenuRename()'
+        >
+          Rename…
+        </button>
+        <button
+          type='button'
+          class='workspace-context-menu-item danger'
+          role='menuitem'
+          (mousedown)='onContextMenuItemMousedown($event); onContextMenuDelete()'
+        >
+          Delete…
+        </button>
       }
     </div>
   }

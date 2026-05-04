@@ -1,0 +1,22 @@
+.workspace-monaco-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-monaco-error {
+  flex-shrink: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--t-log-level-error, #f88);
+  border-bottom: 1px solid var(--t-border-subtle, #333);
+}
+
+.workspace-monaco-editor {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}

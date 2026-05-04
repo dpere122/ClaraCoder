@@ -1,9 +1,10 @@
-import { Component, effect, input, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, effect, HostListener, input, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { Subscription } from 'rxjs';
+import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
+import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 
 type WorkspaceChangeKind = 'created' | 'updated' | 'deleted' | 'renamed' | 'unknown';
 
@@ -27,7 +28,7 @@ interface FlatNode {
 
 @Component({
   selector: 'app-workspace',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [LucideAngularModule, ThemeSelector],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -38,21 +39,52 @@ export class WorkspaceComponent implements OnDestroy {
 
   readonly workspaceChanged = output<string | null>();
   readonly addWorkspace = output<void>();
+  /** User double-clicked a file in the tree (absolute path on disk). */
+  readonly workspaceFileOpen = output<{ absolutePath: string }>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   protected readonly loadError = signal('');
   protected readonly lastWorkspaceChange = signal<string>('');
+
+  protected readonly contextMenuVisible = signal(false);
+  protected readonly contextMenuX = signal(0);
+  protected readonly contextMenuY = signal(0);
+  /** Absolute directory path where "New file" / "New folder" should be created. */
+  protected readonly contextMenuTargetDir = signal<string | null>(null);
+  /** Tree node under the pointer when the menu opened (null = empty pane / root area). */
+  protected readonly contextMenuNode = signal<FlatNode | null>(null);
+
+  /** Inline rename: absolute path of the row being edited (null = not renaming). */
+  protected readonly inlineRenamePath = signal<string | null>(null);
+  protected readonly inlineRenameDraft = signal<string>('');
+  protected readonly inlineRenameOriginalName = signal<string>('');
+
+  /** Inline “new file / new folder” name (replaces `window.prompt`, which is unreliable in Electron). */
+  protected readonly pendingCreate = signal<{ kind: 'file' | 'folder'; parentDir: string } | null>(null);
+  protected readonly pendingCreateDraft = signal<string>('');
 
   private tree: FileNode[] = [];
   private workspaceSubscription: Subscription | null = null;
   private workspaceFilesChangedSubscription: Subscription | null = null;
   private pendingWorkspaceId: string | undefined = undefined;
   private loadRequestId = 0;
+  /** After closing the context menu, ignore tree clicks briefly (avoids click-through toggling a folder). */
+  private treeInteractionSuppressUntil = 0;
+  /** Skip one blur-driven commit while programmatically focusing the rename field. */
+  private renameSkipBlurCommit = false;
+  private renameBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCreateSkipBlurCancel = false;
+  private lastEffectWorkspaceId: string | null | undefined = undefined;
 
   constructor(private electron: ElectronService) {
     effect(() => {
       const wsId = this.currentWorkspaceId();
       const workspaces = this.workspaces();
+      if (this.lastEffectWorkspaceId !== undefined && this.lastEffectWorkspaceId !== (wsId ?? null)) {
+        this.cancelInlineRename();
+        this.cancelPendingCreate();
+      }
+      this.lastEffectWorkspaceId = wsId ?? null;
       void this.loadWorkspaceFromConfig(wsId, workspaces);
     });
 
@@ -75,6 +107,9 @@ export class WorkspaceComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.workspaceSubscription?.unsubscribe();
     this.workspaceFilesChangedSubscription?.unsubscribe();
+    if (this.renameBlurTimer !== null) {
+      clearTimeout(this.renameBlurTimer);
+    }
   }
 
   get currentWorkspaceName(): string {
@@ -90,6 +125,347 @@ export class WorkspaceComponent implements OnDestroy {
 
   onAddWorkspace(): void {
     this.addWorkspace.emit();
+  }
+
+  onContextMenuItemMousedown(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  onTreeNodeContextMenu(event: MouseEvent, node: FlatNode): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.loadError() || !this.currentWorkspaceId()) {
+      return;
+    }
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!ws?.path) {
+      return;
+    }
+    const targetDir = node.isDirectory ? node.path : parentDirectoryPath(node.path);
+    this.openContextMenuAt(event.clientX, event.clientY, targetDir, node);
+  }
+
+  onFileTreePaneContextMenu(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.tree-node')) {
+      return;
+    }
+    event.preventDefault();
+    if (this.loadError() || !this.currentWorkspaceId()) {
+      return;
+    }
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!ws?.path) {
+      return;
+    }
+    this.openContextMenuAt(event.clientX, event.clientY, ws.path, null);
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(ev: MouseEvent): void {
+    if (!this.contextMenuVisible()) {
+      return;
+    }
+    const inside = ev
+      .composedPath()
+      .some((n) => n instanceof HTMLElement && n.classList.contains('workspace-context-menu'));
+    if (inside) {
+      return;
+    }
+    this.closeContextMenu();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeCloseContextMenu(): void {
+    if (this.pendingCreate()) {
+      this.cancelPendingCreate();
+      return;
+    }
+    if (this.inlineRenamePath()) {
+      this.cancelInlineRename();
+      return;
+    }
+    if (this.contextMenuVisible()) {
+      this.closeContextMenu();
+    }
+  }
+
+  onContextMenuNewFile(): void {
+    const dir = this.contextMenuTargetDir();
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    this.closeContextMenu();
+    if (!dir || !ws?.path) {
+      return;
+    }
+    this.beginPendingCreate('file', dir);
+  }
+
+  onContextMenuNewFolder(): void {
+    const dir = this.contextMenuTargetDir();
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    this.closeContextMenu();
+    if (!dir || !ws?.path) {
+      return;
+    }
+    this.beginPendingCreate('folder', dir);
+  }
+
+  onPendingCreateDraftInput(event: Event): void {
+    const v = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.pendingCreateDraft.set(v);
+  }
+
+  onPendingCreateKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.submitPendingCreate();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelPendingCreate();
+    }
+  }
+
+  onPendingCreateFocusOut(event: FocusEvent): void {
+    if (this.pendingCreateSkipBlurCancel) {
+      return;
+    }
+    const next = event.relatedTarget as Node | null;
+    const host = event.currentTarget as HTMLElement;
+    if (next && host.contains(next)) {
+      return;
+    }
+    setTimeout(() => {
+      if (this.pendingCreateSkipBlurCancel || !this.pendingCreate()) {
+        return;
+      }
+      const active = document.activeElement;
+      if (active && host.contains(active)) {
+        return;
+      }
+      this.cancelPendingCreate();
+    }, 0);
+  }
+
+  cancelPendingCreate(): void {
+    this.pendingCreate.set(null);
+    this.pendingCreateDraft.set('');
+  }
+
+  async submitPendingCreate(): Promise<void> {
+    const p = this.pendingCreate();
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    const draft = this.pendingCreateDraft().trim();
+    if (!p || !ws?.path) {
+      this.cancelPendingCreate();
+      return;
+    }
+    if (!draft) {
+      window.alert('Enter a name.');
+      return;
+    }
+    if (!isSafeNewFileRelativeName(draft)) {
+      window.alert('Invalid name.');
+      return;
+    }
+    try {
+      const res =
+        p.kind === 'file'
+          ? await this.electron.createWorkspaceFile(ws.path, p.parentDir, draft)
+          : await this.electron.createWorkspaceFolder(ws.path, p.parentDir, draft);
+      if (!res.ok) {
+        window.alert(res.error ?? 'Failed to create.');
+        return;
+      }
+      this.cancelPendingCreate();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  private beginPendingCreate(kind: 'file' | 'folder', parentDir: string): void {
+    this.cancelInlineRename();
+    this.treeInteractionSuppressUntil = Date.now() + 600;
+    this.pendingCreate.set({ kind, parentDir });
+    this.pendingCreateDraft.set(kind === 'file' ? 'untitled.txt' : 'New folder');
+    this.schedulePendingCreateFocus();
+  }
+
+  private schedulePendingCreateFocus(): void {
+    this.pendingCreateSkipBlurCancel = true;
+    setTimeout(() => {
+      const el = document.querySelector('app-workspace .workspace-create-inline .workspace-create-input');
+      if (el instanceof HTMLInputElement) {
+        el.focus();
+        el.select();
+      }
+      setTimeout(() => {
+        this.pendingCreateSkipBlurCancel = false;
+      }, 0);
+    }, 0);
+  }
+
+  onContextMenuRename(): void {
+    const node = this.contextMenuNode();
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!node || !ws?.path) {
+      this.closeContextMenu();
+      return;
+    }
+    this.beginInlineRename(node);
+  }
+
+  private beginInlineRename(node: FlatNode): void {
+    this.treeInteractionSuppressUntil = Date.now() + 600;
+    this.inlineRenamePath.set(node.path);
+    this.inlineRenameOriginalName.set(node.name);
+    this.inlineRenameDraft.set(node.name);
+    this.closeContextMenu();
+    this.scheduleRenameInputFocus();
+  }
+
+  onRenameDraftInput(event: Event): void {
+    const v = (event.target as HTMLInputElement | null)?.value ?? '';
+    this.inlineRenameDraft.set(v);
+  }
+
+  cancelInlineRename(): void {
+    if (this.renameBlurTimer !== null) {
+      clearTimeout(this.renameBlurTimer);
+      this.renameBlurTimer = null;
+    }
+    this.inlineRenamePath.set(null);
+    this.inlineRenameOriginalName.set('');
+    this.inlineRenameDraft.set('');
+  }
+
+  onRenameInputKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.commitInlineRename();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelInlineRename();
+    }
+  }
+
+  onRenameInputBlur(): void {
+    if (this.renameSkipBlurCommit) {
+      return;
+    }
+    if (this.renameBlurTimer !== null) {
+      clearTimeout(this.renameBlurTimer);
+    }
+    this.renameBlurTimer = setTimeout(() => {
+      this.renameBlurTimer = null;
+      void this.commitInlineRename();
+    }, 0);
+  }
+
+  async commitInlineRename(): Promise<void> {
+    const targetPath = this.inlineRenamePath();
+    if (!targetPath) {
+      return;
+    }
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    const draftRaw = this.inlineRenameDraft();
+    const original = this.inlineRenameOriginalName();
+    const trimmed = draftRaw.trim();
+
+    if (!ws?.path) {
+      this.cancelInlineRename();
+      return;
+    }
+    if (trimmed === '' || trimmed === original) {
+      this.cancelInlineRename();
+      return;
+    }
+    if (!isSafeRenameBasename(trimmed)) {
+      window.alert('Invalid name (use a single file or folder name, no path separators).');
+      this.refocusRenameInput();
+      return;
+    }
+
+    const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
+    if (!res.ok) {
+      window.alert(res.error ?? 'Failed to rename.');
+      this.refocusRenameInput();
+      return;
+    }
+    this.cancelInlineRename();
+  }
+
+  private scheduleRenameInputFocus(): void {
+    this.renameSkipBlurCommit = true;
+    setTimeout(() => {
+      const el = document.querySelector(
+        'app-workspace .tree-node.is-renaming input.tree-node-rename-input',
+      );
+      if (el instanceof HTMLInputElement) {
+        el.focus();
+        el.select();
+      }
+      setTimeout(() => {
+        this.renameSkipBlurCommit = false;
+      }, 0);
+    }, 0);
+  }
+
+  private refocusRenameInput(): void {
+    this.renameSkipBlurCommit = true;
+    setTimeout(() => {
+      const el = document.querySelector(
+        'app-workspace .tree-node.is-renaming input.tree-node-rename-input',
+      );
+      if (el instanceof HTMLInputElement) {
+        el.focus();
+        el.select();
+      }
+      setTimeout(() => {
+        this.renameSkipBlurCommit = false;
+      }, 0);
+    }, 0);
+  }
+
+  async onContextMenuDelete(): Promise<void> {
+    const node = this.contextMenuNode();
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    this.closeContextMenu();
+    if (!node || !ws?.path) {
+      return;
+    }
+    const kind = node.isDirectory ? 'folder' : 'file';
+    const extra = node.isDirectory ? ' and everything inside it' : '';
+    if (!window.confirm(`Delete ${kind} "${node.name}"${extra}? This cannot be undone.`)) {
+      return;
+    }
+    const res = await this.electron.deleteWorkspaceEntry(ws.path, node.path);
+    if (!res.ok) {
+      window.alert(res.error ?? 'Failed to delete.');
+    }
+  }
+
+  private openContextMenuAt(
+    clientX: number,
+    clientY: number,
+    targetDirAbs: string,
+    node: FlatNode | null,
+  ): void {
+    this.contextMenuTargetDir.set(targetDirAbs);
+    this.contextMenuNode.set(node);
+    this.contextMenuX.set(clientX);
+    this.contextMenuY.set(clientY);
+    this.contextMenuVisible.set(true);
+  }
+
+  private closeContextMenu(): void {
+    this.contextMenuVisible.set(false);
+    this.contextMenuTargetDir.set(null);
+    this.contextMenuNode.set(null);
   }
 
   private async loadWorkspaceFromConfig(wsId = this.currentWorkspaceId(), workspaces = this.workspaces()): Promise<void> {
@@ -144,10 +520,29 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   async onTreeNodeClick(node: FlatNode): Promise<void> {
+    if (Date.now() < this.treeInteractionSuppressUntil) {
+      return;
+    }
+    if (this.inlineRenamePath() === node.path) {
+      return;
+    }
     if (!node.isDirectory) {
       return;
     }
     await this.toggleFolder(node);
+  }
+
+  onTreeNodeDoubleClick(node: FlatNode): void {
+    if (Date.now() < this.treeInteractionSuppressUntil) {
+      return;
+    }
+    if (this.inlineRenamePath() === node.path) {
+      return;
+    }
+    if (node.isDirectory) {
+      return;
+    }
+    this.workspaceFileOpen.emit({ absolutePath: node.path });
   }
 
   async toggleFolder(node: FlatNode): Promise<void> {
@@ -265,4 +660,39 @@ export class WorkspaceComponent implements OnDestroy {
     }
     return `${pathLabel} ${kindLabel} (+${moreCount} more)`;
   }
+}
+
+function parentDirectoryPath(filePath: string): string {
+  const trimmed = filePath.replace(/[/\\]+$/, '');
+  const m = trimmed.match(/^(.+)[\\/][^\\/]+$/);
+  return m ? m[1] : trimmed;
+}
+
+function isSafeNewFileRelativeName(name: string): boolean {
+  const parts = normalizePathSlashes(name)
+    .split('/')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    return false;
+  }
+  for (const p of parts) {
+    if (p === '..' || p === '.') {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Single path segment only (rename in same folder). */
+function isSafeRenameBasename(name: string): boolean {
+  const parts = normalizePathSlashes(name)
+    .split('/')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length !== 1) {
+    return false;
+  }
+  const p = parts[0];
+  return p !== '..' && p !== '.';
 }

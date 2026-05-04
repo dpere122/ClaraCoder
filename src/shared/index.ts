@@ -27,8 +27,15 @@ export type {
   GemmaThinkingMode,
   AudioTranscriptionConfig,
   AppConfig,
+  MonacoWorkspaceEditorSettings,
+  MonacoWorkspaceEditorThemeId,
   WorkspaceToolsConfig,
   HealthMonitorConfig,
+} from './types/app-config';
+export {
+  MONACO_WORKSPACE_EDITOR_THEME_IDS,
+  defaultMonacoWorkspaceEditorSettings,
+  normalizeMonacoWorkspaceEditorSettings,
 } from './types/app-config';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export {
@@ -85,6 +92,7 @@ export type {
   ConversationFileMessage,
   ConversationSummary,
   DiffReviewStatus,
+  MaybeAutoTitleResult,
   StreamPart,
 } from './types/conversation';
 export {

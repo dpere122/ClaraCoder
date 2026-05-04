@@ -1,21 +1,9 @@
 <div class="speech-module">
-  <label class="speech-label">Speech</label>
-  <button
-    class="speech-toggle"
-    [class.active]="speechEnabled()"
-    (click)="toggle()"
-    [attr.aria-pressed]="speechEnabled()"
-    title="Toggle text-to-speech"
-  >
-    <span class="toggle-track">
-      <span class="toggle-thumb"></span>
-    </span>
-  </button>
   <select
     class="voice-select"
     [value]="selectedVoice()"
     (change)="onVoiceChange($event)"
-    title="Select voice"
+    title="Assistant voice (spoken replies)"
   >
     @for (v of voices; track v.id) {
       <option [value]="v.id" [selected]="v.id === selectedVoice()">{{ v.label }}</option>

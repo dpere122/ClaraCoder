@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -32,13 +32,22 @@ import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
 import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
 import { LlamaServerTile } from '../chat/llama-server-tile/llama-server-tile';
-import { ToolsBar } from '../layout/tools-bar/tools-bar';
+import { TalkMode } from '../speech/talk-mode/talk-mode';
 import { buildContextCapacitySnapshot } from '../status/context-capacity/context-capacity.utils';
 import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
+import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
+import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
+import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
+import {
+  unsavedCloseFileTabPrompt,
+  unsavedWorkspaceSwitchPrompt,
+} from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
+import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
+import { LucideAngularModule } from 'lucide-angular';
 import { THEMES } from '../layout/theme-selector/theme-selector';
 
 const DEFAULT_REASONING_STREAM_LABEL = 'Model reasoning';
@@ -46,6 +55,20 @@ const DEFAULT_REASONING_STREAM_LABEL = 'Model reasoning';
 const LLAMA_SERVER_DOCK_STORAGE_KEY = 'nemo.llamaServerDock';
 
 type LlamaServerDockSide = 'conversations' | 'workspace';
+
+interface ChatFileTab {
+  relativePath: string;
+}
+
+function chatFileTabId(relativePath: string): string {
+  return `file:${normalizePathSlashes(relativePath)}`;
+}
+
+function chatFileTabBasename(relativePath: string): string {
+  const n = normalizePathSlashes(relativePath);
+  const i = n.lastIndexOf('/');
+  return i >= 0 ? n.slice(i + 1) : n;
+}
 
 function readLlamaServerDockFromStorage(): LlamaServerDockSide {
   try {
@@ -144,10 +167,13 @@ function markToolExecStreamComplete(
     MessageBox,
     ConversationManager,
     LlamaServerTile,
-    ToolsBar,
+    TalkMode,
+    LucideAngularModule,
     WorkspaceComponent,
+    WorkspaceMonacoComponent,
     WorkspaceTerminalDockComponent,
     StatusBarComponent,
+    ThemedConfirmDialogComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
@@ -167,6 +193,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly speechEnabled = model(false);
   protected readonly selectedVoice = model('en-US-AriaNeural');
   protected readonly talkStatus = model('');
+  /** Errors / hints from talk capture (shown in composer status row). */
+  protected readonly talkModeDetailStatus = model('');
   protected readonly talkEnabled = model(false);
   /**
    * Editor mode: when true, the backend binds edit/write tools (`apply_mode`). When false, read/search only.
@@ -205,6 +233,32 @@ export class App implements OnInit, OnDestroy {
     return this.workspaces().find(w => w.id === id) ?? null;
   });
   protected readonly currentWorkspacePath = computed(() => this.currentWorkspace()?.path?.trim() ?? '');
+  /** Open file tabs (paths relative to current workspace). */
+  protected readonly fileTabs = signal<ChatFileTab[]>([]);
+  /** Relative paths with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
+  protected readonly monacoUnsavedPaths = signal<ReadonlySet<string>>(new Set());
+  /** `conversation` or `file:<relativePath>`. */
+  protected readonly activeMainTabId = signal<string>('conversation');
+
+  protected readonly conversationTabTitle = computed(() => {
+    const id = this.activeConversationId();
+    if (!id) {
+      return 'Chat';
+    }
+    const t = this.conversations().find((c) => c.id === id)?.title?.trim();
+    return t || 'Chat';
+  });
+
+  protected readonly openFileRelativePaths = computed(() => this.fileTabs().map((t) => t.relativePath));
+
+  protected readonly activeFileRelativePath = computed(() => {
+    const tabId = this.activeMainTabId();
+    if (!tabId.startsWith('file:')) {
+      return null;
+    }
+    return tabId.slice(5);
+  });
+
   protected readonly activeLlmConnection = computed(() => {
     const config = this.appConfig();
     if (!config) {
@@ -272,6 +326,7 @@ export class App implements OnInit, OnDestroy {
     protected readonly electron: ElectronService,
     private zone: NgZone,
     protected readonly tts: TtsPlaybackService,
+    private readonly themedConfirm: ThemedConfirmDialogService,
   ) {
     this.electron.windowMaximized$
       .pipe(takeUntilDestroyed())
@@ -279,6 +334,12 @@ export class App implements OnInit, OnDestroy {
 
     effect(() => {
       if (!this.speechEnabled()) this.tts.invalidateSpeechPipeline();
+    });
+
+    effect(() => {
+      if (!this.talkEnabled()) {
+        this.speechEnabled.set(false);
+      }
     });
 
     effect(() => {
@@ -297,6 +358,14 @@ export class App implements OnInit, OnDestroy {
       if (!this.editorMode()) {
         this.autoApplyMode.set(false);
       }
+    });
+
+    effect(() => {
+      this.currentWorkspaceId();
+      untracked(() => {
+        this.fileTabs.set([]);
+        this.activeMainTabId.set('conversation');
+      });
     });
 
     effect(() => {
@@ -331,6 +400,12 @@ export class App implements OnInit, OnDestroy {
 
     this.electron.config$.subscribe((config) => {
       this.appConfig.set(config);
+      const cfs = config.chatFontSizeRem;
+      const nextFs =
+        typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9;
+      this.fontSize.set(nextFs);
+      const v = config.audioTranscription?.ttsVoiceId?.trim();
+      this.selectedVoice.set(v || 'en-US-AriaNeural');
       // Resolve theme: workspace theme > noWorkspaceThemeId > dark
       let themeToApply = config.noWorkspaceThemeId || 'dark';
       if (config.currentWorkspaceId) {
@@ -511,7 +586,9 @@ export class App implements OnInit, OnDestroy {
         ) {
           this.pushMessage('assistant', text, planner, toolStreams, moeStreams, auxiliaryStreamTimeline);
           if (this.speechEnabled() && text.trim()) void this.tts.speakText(text, this.selectedVoice());
-          this.autoSave();
+          void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
+            console.error('[App] persist assistant / auto-title failed', err),
+          );
         }
       } else {
         const parts = this.backgroundStreamParts.get(conversationId) ?? [];
@@ -552,7 +629,9 @@ export class App implements OnInit, OnDestroy {
             toolStreams,
             moeStreams,
             auxiliaryStreamTimeline,
-          );
+          )
+            .then(() => this.applyMaybeAutoTitleFromMain(conversationId))
+            .catch((err) => console.error('[App] background save / auto-title failed', err));
         }
       }
     });
@@ -843,10 +922,15 @@ export class App implements OnInit, OnDestroy {
     await this.electron.renameConversation(event.id, event.title, convWorkspaceId);
     if (this.activeConversation && this.activeConversation.id === event.id) {
       this.activeConversation.title = event.title;
+      this.activeConversation.customTitle = true;
       console.log('[App] Updated activeConversation.title to:', event.title);
     }
     // Update the list in place so the sidebar title changes immediately.
-    this.updateConversationMeta(event.id, { title: event.title, updatedAt: new Date().toISOString() });
+    this.updateConversationMeta(event.id, {
+      title: event.title,
+      updatedAt: new Date().toISOString(),
+      customTitle: true,
+    });
   }
 
   onLlamaServerDockChange(target: LlamaServerDockSide): void {
@@ -923,6 +1007,14 @@ export class App implements OnInit, OnDestroy {
     // Save current conversation before switching
     await this.saveCurrentConversation();
 
+    const unsaved = [...this.monacoUnsavedPaths()];
+    if (unsaved.length > 0) {
+      const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
+      if (!proceed) {
+        return;
+      }
+    }
+
     await this.electron.setCurrentWorkspace(workspaceId);
     this.currentWorkspaceId.set(workspaceId);
     // Refresh config to get updated workspaces
@@ -948,6 +1040,76 @@ export class App implements OnInit, OnDestroy {
       // Auto-select the new workspace
       await this.onWorkspaceChanged(config.workspaces[config.workspaces.length - 1].id);
     }
+  }
+
+  protected openOrFocusFileTab(relativePath: string): void {
+    const root = this.currentWorkspacePath().trim();
+    if (!root) {
+      return;
+    }
+    const norm = normalizePathSlashes(relativePath);
+    if (!norm) {
+      return;
+    }
+    const id = chatFileTabId(norm);
+    const tabs = this.fileTabs();
+    if (!tabs.some((t) => normalizePathSlashes(t.relativePath) === norm)) {
+      this.fileTabs.update((ts) => [...ts, { relativePath: norm }]);
+    }
+    this.activeMainTabId.set(id);
+  }
+
+  protected selectMainTab(tabId: string): void {
+    this.activeMainTabId.set(tabId);
+  }
+
+  protected async closeMainFileTab(event: MouseEvent, tabId: string): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    if (tabId === 'conversation' || !tabId.startsWith('file:')) {
+      return;
+    }
+    const norm = normalizePathSlashes(tabId.slice(5));
+    if (this.fileTabIsUnsaved(norm)) {
+      const discard = await this.themedConfirm.open(unsavedCloseFileTabPrompt(norm));
+      if (!discard) {
+        return;
+      }
+    }
+    if (this.activeMainTabId() === tabId) {
+      this.activeMainTabId.set('conversation');
+    }
+    this.fileTabs.update((ts) => ts.filter((t) => normalizePathSlashes(t.relativePath) !== norm));
+  }
+
+  protected onWorkspaceFileOpen(payload: { absolutePath: string }): void {
+    const root = this.currentWorkspacePath().trim();
+    if (!root) {
+      return;
+    }
+    const rel = workspaceRelativePathIfUnderRoot(root, payload.absolutePath);
+    if (rel === null || rel === '') {
+      return;
+    }
+    this.openOrFocusFileTab(rel);
+  }
+
+  protected fileTabIdForPath(relativePath: string): string {
+    return chatFileTabId(relativePath);
+  }
+
+  protected fileTabBasenameForPath(relativePath: string): string {
+    return chatFileTabBasename(relativePath);
+  }
+
+  protected onMonacoUnsavedPathsChange(paths: readonly string[]): void {
+    const next = new Set(paths.map((p) => normalizePathSlashes(p)));
+    this.monacoUnsavedPaths.set(next);
+    this.electron.reportWorkspaceMonacoUnsavedPaths([...next]);
+  }
+
+  protected fileTabIsUnsaved(relativePath: string): boolean {
+    return this.monacoUnsavedPaths().has(normalizePathSlashes(relativePath));
   }
 
   private async syncWorkspaceContext(workspacePath: string): Promise<void> {
@@ -1094,6 +1256,27 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  private async persistActiveAssistantTurnThenMaybeAutoTitle(conversationId: string): Promise<void> {
+    await this.saveCurrentConversation();
+    const id = this.activeConversationId();
+    if (id) this.bumpConversation(id);
+    await this.applyMaybeAutoTitleFromMain(conversationId);
+  }
+
+  private async applyMaybeAutoTitleFromMain(conversationId: string): Promise<void> {
+    try {
+      const r = await this.electron.maybeAutoTitleConversation(conversationId);
+      if (r.ok) {
+        if (this.activeConversation?.id === conversationId) {
+          this.activeConversation.title = r.title;
+        }
+        this.updateConversationMeta(conversationId, { title: r.title, updatedAt: r.updatedAt });
+      }
+    } catch {
+      // ignore IPC failures
+    }
+  }
+
   private async saveMessageToConversation(
     conversationId: string,
     text: string,
@@ -1180,6 +1363,13 @@ export class App implements OnInit, OnDestroy {
     this.conversations.set(list);
   }
 
+  protected toggleVoice(): void {
+    const on = this.talkEnabled() && this.speechEnabled();
+    const next = !on;
+    this.talkEnabled.set(next);
+    this.speechEnabled.set(next);
+  }
+
   protected onTalkRecordingBegan(): void {
     this.tts.onTalkRecordingBegan(this.talkEnabled(), this.speechEnabled());
   }
@@ -1221,6 +1411,13 @@ export class App implements OnInit, OnDestroy {
     const conv = await this.electron.readConversationFromDisk(targetId);
 
     if (conv.workspaceId !== this.currentWorkspaceId()) {
+      const unsaved = [...this.monacoUnsavedPaths()];
+      if (unsaved.length > 0) {
+        const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
+        if (!proceed) {
+          return;
+        }
+      }
       await this.electron.setCurrentWorkspace(conv.workspaceId);
       const config = await this.electron.loadConfig();
       this.workspaces.set(config.workspaces);
@@ -1246,6 +1443,10 @@ export class App implements OnInit, OnDestroy {
 
   protected onWindowMinimize(): void {
     this.electron.windowMinimize();
+  }
+
+  protected togglePinned(): void {
+    this.pinned.set(!this.pinned());
   }
 
   protected onWindowToggleMaximize(): void {

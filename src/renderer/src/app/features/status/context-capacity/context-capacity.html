@@ -21,6 +21,24 @@
       } @else {
         <span class="context-capacity__model">{{ modelName() }}</span>
       }
+      <div class="context-capacity__editor-tools">
+        <app-editor-mode [(editorMode)]="editorMode" />
+        @if (editorMode()) {
+          <label class="context-capacity__auto-apply-label">Auto apply</label>
+          <button
+            type="button"
+            class="context-capacity__auto-apply-toggle"
+            [class.context-capacity__auto-apply-toggle--on]="autoApplyMode()"
+            (click)="toggleAutoApply()"
+            [attr.aria-pressed]="autoApplyMode()"
+            title="Accept proposed edits immediately without side-by-side review in chat"
+          >
+            <span class="context-capacity__auto-apply-track">
+              <span class="context-capacity__auto-apply-thumb"></span>
+            </span>
+          </button>
+        }
+      </div>
     </div>
     <div class="context-capacity__metrics">
       <span>{{ formatCompact(usedTokens()) }} / {{ formatCompact(maxTokens()) }} tokens</span>

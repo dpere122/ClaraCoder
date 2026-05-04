@@ -6,6 +6,7 @@ import { registerConversationsIpc } from './handlers/conversations';
 import { registerFsIpc } from './handlers/fs-handlers';
 import { registerScriptsIpc } from './handlers/scripts';
 import { registerWorkspacePtyIpc } from './handlers/workspace-pty';
+import { registerWorkspaceReadIpc } from './handlers/workspace-read';
 import { registerWorkspaceWriteIpc } from './handlers/workspace-write';
 import { registerHealthIpc } from './handlers/health';
 import { registerHealthWindowIpc } from '../windows/health-window';
@@ -26,6 +27,7 @@ export function registerAllIpc(): void {
   registerFsIpc();
   registerScriptsIpc();
   registerWorkspacePtyIpc();
+  registerWorkspaceReadIpc();
   registerWorkspaceWriteIpc();
   registerHealthIpc();
   registerHealthWindowIpc();

@@ -117,6 +117,21 @@ export interface AudioTranscriptionConfig {
   baseUrl: string;
   model: string;
   apiKey: string;
+  /**
+   * MediaDevices ``deviceId`` for talk-mode capture, or ``"default"`` for browser default.
+   * Client-only; ignored by the transcription API runtime.
+   */
+  talkInputDeviceId?: string;
+  /**
+   * Seconds of silence after speech before an utterance is sent for transcription (talk mode).
+   * Client-only; ignored by the transcription API runtime.
+   */
+  talkSilenceThresholdSeconds?: number;
+  /**
+   * Azure-style neural voice id for assistant TTS in the chat window.
+   * Client-only; ignored by the transcription API runtime.
+   */
+  ttsVoiceId?: string;
 }
 
 /** Health window: backend log verbosity (Python `nemo` logger + uvicorn noise). */
@@ -145,6 +160,223 @@ export interface WorkspaceToolsConfig {
   allowStagingOverlayCommands?: boolean;
 }
 
+/** Built-in Monaco themes plus the app-defined `clara-monaco` (CSS-variable aligned). */
+export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['clara-monaco', 'vs', 'vs-dark', 'hc-black', 'hc-light'] as const;
+export type MonacoWorkspaceEditorThemeId = (typeof MONACO_WORKSPACE_EDITOR_THEME_IDS)[number];
+
+/**
+ * JSON-serializable subset of Monaco `IEditorOptions` for the in-app workspace file editor.
+ * Empty `fontFamily` means the renderer uses its built-in CSS font stack.
+ */
+export interface MonacoWorkspaceEditorSettings {
+  /** Color theme for the workspace file editor (`clara-monaco` follows app tokens). */
+  theme: MonacoWorkspaceEditorThemeId;
+  fontSize: number;
+  lineHeight: number;
+  /** When empty, the app uses its default monospace stack (CSS variables). */
+  fontFamily: string;
+  wordWrap: 'on' | 'off' | 'wordWrapColumn' | 'bounded';
+  wordWrapColumn: number;
+  minimapEnabled: boolean;
+  minimapMaxColumn: number;
+  minimapRenderCharacters: boolean;
+  minimapShowSlider: 'always' | 'mouseover';
+  scrollBeyondLastLine: boolean;
+  smoothScrolling: boolean;
+  renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
+  renderLineHighlight: 'all' | 'line' | 'none' | 'gutter';
+  renderControlCharacters: boolean;
+  lineNumbers: 'on' | 'off' | 'relative' | 'interval';
+  glyphMargin: boolean;
+  folding: boolean;
+  guidesIndentation: boolean;
+  guidesBracketPairs: boolean;
+  bracketPairColorizationEnabled: boolean;
+  tabSize: number;
+  insertSpaces: boolean;
+  detectIndentation: boolean;
+  cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
+  cursorStyle: 'line' | 'block' | 'underline' | 'line-thin' | 'block-outline' | 'underline-thin';
+  cursorWidth: number;
+  formatOnPaste: boolean;
+  formatOnType: boolean;
+  quickSuggestions: boolean;
+  autoClosingBrackets: 'always' | 'languageDefined' | 'beforeWhitespace' | 'never';
+  autoClosingQuotes: 'always' | 'languageDefined' | 'beforeWhitespace' | 'never';
+  acceptSuggestionOnEnter: 'on' | 'off' | 'smart';
+  paddingTop: number;
+  paddingBottom: number;
+}
+
+export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSettings {
+  return {
+    theme: 'clara-monaco',
+    fontSize: 13,
+    lineHeight: 0,
+    fontFamily: '',
+    wordWrap: 'on',
+    wordWrapColumn: 80,
+    minimapEnabled: true,
+    minimapMaxColumn: 120,
+    minimapRenderCharacters: true,
+    minimapShowSlider: 'mouseover',
+    scrollBeyondLastLine: false,
+    smoothScrolling: false,
+    renderWhitespace: 'selection',
+    renderLineHighlight: 'all',
+    renderControlCharacters: false,
+    lineNumbers: 'on',
+    glyphMargin: true,
+    folding: true,
+    guidesIndentation: true,
+    guidesBracketPairs: true,
+    bracketPairColorizationEnabled: true,
+    tabSize: 4,
+    insertSpaces: true,
+    detectIndentation: true,
+    cursorBlinking: 'blink',
+    cursorStyle: 'line',
+    cursorWidth: 0,
+    formatOnPaste: false,
+    formatOnType: false,
+    quickSuggestions: true,
+    autoClosingBrackets: 'languageDefined',
+    autoClosingQuotes: 'languageDefined',
+    acceptSuggestionOnEnter: 'on',
+    paddingTop: 0,
+    paddingBottom: 0,
+  };
+}
+
+/** Coerce unknown JSON to valid settings; merge missing keys from defaults. */
+export function normalizeMonacoWorkspaceEditorSettings(raw: unknown): {
+  settings: MonacoWorkspaceEditorSettings;
+  migrated: boolean;
+} {
+  const base = defaultMonacoWorkspaceEditorSettings();
+  let migrated = false;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { settings: base, migrated: true };
+  }
+  const o = raw as Record<string, unknown>;
+  const pickFloat = (key: keyof MonacoWorkspaceEditorSettings, min: number, max: number, fallback: number): number => {
+    const v = o[key as string];
+    if (typeof v !== 'number' || Number.isNaN(v)) {
+      migrated = true;
+      return fallback;
+    }
+    const c = Math.min(max, Math.max(min, v));
+    if (c !== v) migrated = true;
+    return c;
+  };
+  const pickInt = (key: keyof MonacoWorkspaceEditorSettings, min: number, max: number, fallback: number): number => {
+    const v = o[key as string];
+    if (typeof v !== 'number' || Number.isNaN(v)) {
+      migrated = true;
+      return fallback;
+    }
+    const n = Math.round(v);
+    const c = Math.min(max, Math.max(min, n));
+    if (c !== n || c !== v) migrated = true;
+    return c;
+  };
+  const pickBool = (key: keyof MonacoWorkspaceEditorSettings, fallback: boolean): boolean => {
+    const v = o[key as string];
+    if (typeof v === 'boolean') return v;
+    migrated = true;
+    return fallback;
+  };
+  const pickStr = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const v = o[key];
+    if (typeof v !== 'string') {
+      migrated = true;
+      return fallback;
+    }
+    const t = allowed.includes(v as T) ? (v as T) : fallback;
+    if (t !== v) migrated = true;
+    return t;
+  };
+
+  const ff = o['fontFamily'];
+  const fontFamily = typeof ff === 'string' ? ff : '';
+  if (typeof ff !== 'string') migrated = true;
+
+  const settings: MonacoWorkspaceEditorSettings = {
+    theme: pickStr('theme', MONACO_WORKSPACE_EDITOR_THEME_IDS, base.theme),
+    fontSize: pickFloat('fontSize', 8, 48, base.fontSize),
+    lineHeight: pickFloat('lineHeight', 0, 64, base.lineHeight),
+    fontFamily,
+    wordWrap: pickStr('wordWrap', ['on', 'off', 'wordWrapColumn', 'bounded'] as const, base.wordWrap),
+    wordWrapColumn: pickInt('wordWrapColumn', 1, 500, base.wordWrapColumn),
+    minimapEnabled: pickBool('minimapEnabled', base.minimapEnabled),
+    minimapMaxColumn: pickInt('minimapMaxColumn', 1, 200, base.minimapMaxColumn),
+    minimapRenderCharacters: pickBool('minimapRenderCharacters', base.minimapRenderCharacters),
+    minimapShowSlider: pickStr('minimapShowSlider', ['always', 'mouseover'] as const, base.minimapShowSlider),
+    scrollBeyondLastLine: pickBool('scrollBeyondLastLine', base.scrollBeyondLastLine),
+    smoothScrolling: pickBool('smoothScrolling', base.smoothScrolling),
+    renderWhitespace: pickStr(
+      'renderWhitespace',
+      ['none', 'boundary', 'selection', 'trailing', 'all'] as const,
+      base.renderWhitespace,
+    ),
+    renderLineHighlight: pickStr(
+      'renderLineHighlight',
+      ['all', 'line', 'none', 'gutter'] as const,
+      base.renderLineHighlight,
+    ),
+    renderControlCharacters: pickBool('renderControlCharacters', base.renderControlCharacters),
+    lineNumbers: pickStr('lineNumbers', ['on', 'off', 'relative', 'interval'] as const, base.lineNumbers),
+    glyphMargin: pickBool('glyphMargin', base.glyphMargin),
+    folding: pickBool('folding', base.folding),
+    guidesIndentation: pickBool('guidesIndentation', base.guidesIndentation),
+    guidesBracketPairs: pickBool('guidesBracketPairs', base.guidesBracketPairs),
+    bracketPairColorizationEnabled: pickBool('bracketPairColorizationEnabled', base.bracketPairColorizationEnabled),
+    tabSize: pickInt('tabSize', 1, 32, base.tabSize),
+    insertSpaces: pickBool('insertSpaces', base.insertSpaces),
+    detectIndentation: pickBool('detectIndentation', base.detectIndentation),
+    cursorBlinking: pickStr(
+      'cursorBlinking',
+      ['blink', 'smooth', 'phase', 'expand', 'solid'] as const,
+      base.cursorBlinking,
+    ),
+    cursorStyle: pickStr(
+      'cursorStyle',
+      ['line', 'block', 'underline', 'line-thin', 'block-outline', 'underline-thin'] as const,
+      base.cursorStyle,
+    ),
+    cursorWidth: pickInt('cursorWidth', 0, 10, base.cursorWidth),
+    formatOnPaste: pickBool('formatOnPaste', base.formatOnPaste),
+    formatOnType: pickBool('formatOnType', base.formatOnType),
+    quickSuggestions: pickBool('quickSuggestions', base.quickSuggestions),
+    autoClosingBrackets: pickStr(
+      'autoClosingBrackets',
+      ['always', 'languageDefined', 'beforeWhitespace', 'never'] as const,
+      base.autoClosingBrackets,
+    ),
+    autoClosingQuotes: pickStr(
+      'autoClosingQuotes',
+      ['always', 'languageDefined', 'beforeWhitespace', 'never'] as const,
+      base.autoClosingQuotes,
+    ),
+    acceptSuggestionOnEnter: pickStr(
+      'acceptSuggestionOnEnter',
+      ['on', 'off', 'smart'] as const,
+      base.acceptSuggestionOnEnter,
+    ),
+    paddingTop: pickInt('paddingTop', 0, 200, base.paddingTop),
+    paddingBottom: pickInt('paddingBottom', 0, 200, base.paddingBottom),
+  };
+
+  for (const k of Object.keys(base) as (keyof MonacoWorkspaceEditorSettings)[]) {
+    if (!(k in o)) {
+      migrated = true;
+      break;
+    }
+  }
+
+  return { settings, migrated };
+}
+
 /** Root persisted settings for the desktop app (config.json). */
 export interface AppConfig {
   /**
@@ -167,4 +399,8 @@ export interface AppConfig {
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
   healthMonitor: HealthMonitorConfig;
+  /** Chat message font size in `rem` (e.g. 0.9). Client-only UI preference. */
+  chatFontSizeRem?: number;
+  /** Workspace Monaco editor options (client-only). */
+  monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
 }

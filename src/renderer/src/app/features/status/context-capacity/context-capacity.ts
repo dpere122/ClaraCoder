@@ -1,5 +1,6 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { EditorMode } from '../../layout/editor-mode/editor-mode';
 
 export interface LlmModelPresetOption {
   id: string;
@@ -8,7 +9,7 @@ export interface LlmModelPresetOption {
 
 @Component({
   selector: 'app-context-capacity',
-  imports: [FormsModule],
+  imports: [FormsModule, EditorMode],
   templateUrl: './context-capacity.html',
   styleUrl: './context-capacity.css',
 })
@@ -22,6 +23,8 @@ export class ContextCapacityComponent {
   readonly activeLlmModelId = input('');
   readonly activeLlmModelChange = output<string>();
   readonly usedPercentage = input(0);
+  readonly editorMode = model(true);
+  readonly autoApplyMode = model(false);
 
   private static readonly circleRadius = 16;
   private static readonly circleCircumference = 2 * Math.PI * ContextCapacityComponent.circleRadius;
@@ -57,5 +60,9 @@ export class ContextCapacityComponent {
 
   protected formatFull(value: number): string {
     return ContextCapacityComponent.fullNumber.format(Math.max(0, value));
+  }
+
+  toggleAutoApply(): void {
+    this.autoApplyMode.set(!this.autoApplyMode());
   }
 }

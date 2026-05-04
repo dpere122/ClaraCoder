@@ -15,12 +15,22 @@ import {
   deleteConversationById,
   getConversationById,
   getConversationMetas,
+  updateAutoConversationTitle,
   updateConversationTheme,
-  updateConversationTitle,
+  updateConversationTitleAndLock,
   upsertConversation,
 } from '../../conversations-db';
 
 type UserChatRow = Extract<ConversationFileMessage, { role: 'user' }>;
+
+function assistantMessageCount(messages: ConversationFile['messages']): number {
+  return messages.filter((m) => m.role === 'assistant').length;
+}
+
+/** Keep in sync with `nemo_backend.conversation_title_cadence.should_refresh_auto_title`. */
+function shouldRunAutoTitle(assistantCount: number): boolean {
+  return assistantCount === 1 || (assistantCount > 0 && assistantCount % 25 === 0);
+}
 
 /** Map a saved user row to Python session history (plain string or OpenAI-style multimodal list). */
 function userMessageToPythonHistoryEntry(m: UserChatRow): { role: 'user'; content: string | Record<string, unknown>[] } {
@@ -143,8 +153,48 @@ export function registerConversationsIpc(): void {
   ipcMain.handle('rename-conversation', async (_event, id: string, title: string, _workspaceId?: string | null) => {
     console.log('[Main] rename-conversation called:', { id, title, workspaceId: _workspaceId });
     const updatedAt = new Date().toISOString();
-    updateConversationTitle(id, title, updatedAt);
+    updateConversationTitleAndLock(id, title, updatedAt);
     console.log('[Main] Rename successful (SQLite)');
+  });
+
+  ipcMain.handle('maybe-auto-title-conversation', async (_event, id: string) => {
+    const conv = getConversationById(id);
+    if (!conv) {
+      return { ok: false as const, reason: 'not_found' as const };
+    }
+    if (conv.customTitle) {
+      return { ok: false as const, reason: 'locked' as const };
+    }
+    const n = assistantMessageCount(conv.messages);
+    if (!shouldRunAutoTitle(n)) {
+      return { ok: false as const, reason: 'not_due' as const };
+    }
+    try {
+      const res = await fetch(`${PYTHON_URL}/conversation/suggest-title`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: id }),
+      });
+      if (!res.ok) {
+        console.error('[Main] maybe-auto-title: Python returned', res.status);
+        return { ok: false as const, reason: 'python_error' as const };
+      }
+      const data = (await res.json()) as { title?: string };
+      const raw = (data.title ?? '').trim().replace(/\s+/g, ' ');
+      const safe = raw.replace(/[\r\n]+/g, ' ').slice(0, 120);
+      if (!safe) {
+        return { ok: false as const, reason: 'empty_title' as const };
+      }
+      const updatedAt = new Date().toISOString();
+      const changed = updateAutoConversationTitle(id, safe, updatedAt);
+      if (!changed) {
+        return { ok: false as const, reason: 'locked' as const };
+      }
+      return { ok: true as const, title: safe, updatedAt };
+    } catch (err) {
+      console.error('[Main] maybe-auto-title failed:', err);
+      return { ok: false as const, reason: 'fetch_failed' as const };
+    }
   });
 
   ipcMain.handle('new-conversation', async (_event, workspaceId: string | null) => {
@@ -166,6 +216,7 @@ export function registerConversationsIpc(): void {
       messages: [],
       workspaceId,
       themeId: FIRST_THEME_ID,
+      customTitle: false,
     };
 
     if (workspaceId) {

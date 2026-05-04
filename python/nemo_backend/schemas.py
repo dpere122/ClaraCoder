@@ -107,6 +107,12 @@ class ClearRequest(BaseModel):
     session_id: str
 
 
+class SuggestConversationTitleRequest(BaseModel):
+    """Body for POST /conversation/suggest-title: derive a short title from session history."""
+
+    session_id: str
+
+
 class WorkspaceFileChangesPayload(BaseModel):
     """Debounced filesystem batch from the Electron workspace watcher (optional)."""
 

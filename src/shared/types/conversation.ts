@@ -30,6 +30,8 @@ export interface ConversationMeta {
   createdAt: string;
   updatedAt: string;
   workspaceId: string | null;
+  /** When true, the user renamed the title; the app will not overwrite it with model-generated titles. */
+  customTitle: boolean;
 }
 
 /** One message in the chat UI (user/assistant text or tool chain row). */
@@ -147,7 +149,17 @@ export interface ConversationFile {
   messages: ConversationFileMessage[];
   workspaceId: string | null;
   themeId: string;
+  /** When true, the user renamed the title; the app will not overwrite it with model-generated titles. */
+  customTitle: boolean;
 }
+
+/** Result of IPC `maybe-auto-title-conversation` (model-generated sidebar title). */
+export type MaybeAutoTitleResult =
+  | { ok: true; title: string; updatedAt: string }
+  | {
+      ok: false;
+      reason: 'not_found' | 'locked' | 'not_due' | 'python_error' | 'empty_title' | 'fetch_failed';
+    };
 
 /** Minimal fields for “recent conversations” menu aggregation. */
 export interface ConversationSummary {

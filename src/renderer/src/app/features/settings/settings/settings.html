@@ -17,12 +17,16 @@
           <small>
             @if (tab.id === 'models') {
               {{ llmProviders().length }} sources
+            } @else if (tab.id === 'general') {
+              {{ chatFontSizeRem() | number: '1.1-1' }} rem
             } @else if (tab.id === 'tools') {
               {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
             } @else if (tab.id === 'appearance') {
               Theme defaults
+            } @else if (tab.id === 'monaco') {
+              {{ monacoEditorThemeLabel(monacoWorkspaceEditor().theme) }} · {{ monacoWorkspaceEditor().fontSize }}px
             } @else {
               {{ workspaces().length }} available
             }
@@ -66,6 +70,26 @@
         }
       </div>
     </header>
+
+    @if (selectedSettingsTab() === 'general') {
+      <div class='settings-pane'>
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Chat appearance</h5>
+            <p class='settings-copy'>Font size for message text in the chat area.</p>
+          </div>
+          <div class='form-grid'>
+            <div class='field field--full settings-general-font'>
+              <span>Chat font size</span>
+              <app-font-control
+                [fontSize]='chatFontSizeRem()'
+                (fontSizeChange)='onChatFontSizeRemChange($event)'
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    }
 
     @if (selectedSettingsTab() === 'models') {
       <div class='settings-pane'>
@@ -946,6 +970,464 @@
       </div>
     }
 
+    @if (selectedSettingsTab() === 'monaco') {
+      <div class='settings-pane'>
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Color theme</h5>
+            <p class='settings-copy'>Monaco color theme for workspace files. Clara tracks the app's code colors; VS and high-contrast themes are Monaco's built-ins.</p>
+          </div>
+          <div class='form-grid'>
+            <label class='field field--full'>
+              <span>Theme</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().theme'
+                (ngModelChange)='patchMonaco({ theme: $event })'
+              >
+                @for (opt of monacoEditorThemeSelectOptions; track opt.id) {
+                  <option [value]='opt.id'>{{ opt.label }}</option>
+                }
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Typography</h5>
+            <p class='settings-copy'>Font size and line height for workspace files. Leave font family empty to use the app default monospace stack.</p>
+          </div>
+          <div class='form-grid'>
+            <label class='field'>
+              <span>Font size (px)</span>
+              <input
+                type='number'
+                min='8'
+                max='48'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().fontSize'
+                (ngModelChange)='patchMonaco({ fontSize: parseMonacoFloat($event, monacoWorkspaceEditor().fontSize) })'
+              />
+            </label>
+            <label class='field'>
+              <span>Line height (0 = default)</span>
+              <input
+                type='number'
+                min='0'
+                max='64'
+                step='0.5'
+                [ngModel]='monacoWorkspaceEditor().lineHeight'
+                (ngModelChange)='patchMonaco({ lineHeight: parseMonacoFloat($event, monacoWorkspaceEditor().lineHeight) })'
+              />
+            </label>
+            <label class='field field--full'>
+              <span>Font family (optional)</span>
+              <input
+                type='text'
+                [ngModel]='monacoWorkspaceEditor().fontFamily'
+                (ngModelChange)='patchMonaco({ fontFamily: $event })'
+                placeholder='App default (CSS stack)'
+              />
+            </label>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Word wrap and minimap</h5>
+            <p class='settings-copy'>Control wrapping and the code minimap.</p>
+          </div>
+          <div class='form-grid'>
+            <label class='field field--full'>
+              <span>Word wrap</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().wordWrap'
+                (ngModelChange)='patchMonaco({ wordWrap: $event })'
+              >
+                <option value='off'>Off</option>
+                <option value='on'>On</option>
+                <option value='wordWrapColumn'>Wrap at column</option>
+                <option value='bounded'>Bounded</option>
+              </select>
+            </label>
+            <label class='field'>
+              <span>Wrap column</span>
+              <input
+                type='number'
+                min='1'
+                max='500'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().wordWrapColumn'
+                (ngModelChange)='patchMonaco({ wordWrapColumn: parseMonacoInt($event, monacoWorkspaceEditor().wordWrapColumn) })'
+              />
+            </label>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().minimapEnabled'
+                  (ngModelChange)='patchMonaco({ minimapEnabled: $event })'
+                />
+                <span>Enable minimap</span>
+              </label>
+            </div>
+            <label class='field'>
+              <span>Minimap max column</span>
+              <input
+                type='number'
+                min='1'
+                max='200'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().minimapMaxColumn'
+                (ngModelChange)='patchMonaco({ minimapMaxColumn: parseMonacoInt($event, monacoWorkspaceEditor().minimapMaxColumn) })'
+              />
+            </label>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().minimapRenderCharacters'
+                  (ngModelChange)='patchMonaco({ minimapRenderCharacters: $event })'
+                />
+                <span>Minimap render characters</span>
+              </label>
+            </div>
+            <label class='field field--full'>
+              <span>Minimap slider</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().minimapShowSlider'
+                (ngModelChange)='patchMonaco({ minimapShowSlider: $event })'
+              >
+                <option value='mouseover'>Show on mouseover</option>
+                <option value='always'>Always</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Display</h5>
+            <p class='settings-copy'>Scrolling, whitespace, line numbers, and folding.</p>
+          </div>
+          <div class='form-grid'>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().scrollBeyondLastLine'
+                  (ngModelChange)='patchMonaco({ scrollBeyondLastLine: $event })'
+                />
+                <span>Scroll beyond last line</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().smoothScrolling'
+                  (ngModelChange)='patchMonaco({ smoothScrolling: $event })'
+                />
+                <span>Smooth scrolling</span>
+              </label>
+            </div>
+            <label class='field field--full'>
+              <span>Render whitespace</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().renderWhitespace'
+                (ngModelChange)='patchMonaco({ renderWhitespace: $event })'
+              >
+                <option value='none'>None</option>
+                <option value='boundary'>Boundary</option>
+                <option value='selection'>Selection</option>
+                <option value='trailing'>Trailing</option>
+                <option value='all'>All</option>
+              </select>
+            </label>
+            <label class='field field--full'>
+              <span>Render line highlight</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().renderLineHighlight'
+                (ngModelChange)='patchMonaco({ renderLineHighlight: $event })'
+              >
+                <option value='all'>All</option>
+                <option value='line'>Line</option>
+                <option value='gutter'>Gutter</option>
+                <option value='none'>None</option>
+              </select>
+            </label>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().renderControlCharacters'
+                  (ngModelChange)='patchMonaco({ renderControlCharacters: $event })'
+                />
+                <span>Render control characters</span>
+              </label>
+            </div>
+            <label class='field field--full'>
+              <span>Line numbers</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().lineNumbers'
+                (ngModelChange)='patchMonaco({ lineNumbers: $event })'
+              >
+                <option value='on'>On</option>
+                <option value='off'>Off</option>
+                <option value='relative'>Relative</option>
+                <option value='interval'>Interval</option>
+              </select>
+            </label>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().glyphMargin'
+                  (ngModelChange)='patchMonaco({ glyphMargin: $event })'
+                />
+                <span>Glyph margin</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().folding'
+                  (ngModelChange)='patchMonaco({ folding: $event })'
+                />
+                <span>Code folding</span>
+              </label>
+            </div>
+            <label class='field'>
+              <span>Padding top (px)</span>
+              <input
+                type='number'
+                min='0'
+                max='200'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().paddingTop'
+                (ngModelChange)='patchMonaco({ paddingTop: parseMonacoInt($event, monacoWorkspaceEditor().paddingTop) })'
+              />
+            </label>
+            <label class='field'>
+              <span>Padding bottom (px)</span>
+              <input
+                type='number'
+                min='0'
+                max='200'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().paddingBottom'
+                (ngModelChange)='patchMonaco({ paddingBottom: parseMonacoInt($event, monacoWorkspaceEditor().paddingBottom) })'
+              />
+            </label>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Guides and indentation</h5>
+            <p class='settings-copy'>Indent guides, bracket guides, and tab behavior.</p>
+          </div>
+          <div class='form-grid'>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().guidesIndentation'
+                  (ngModelChange)='patchMonaco({ guidesIndentation: $event })'
+                />
+                <span>Indentation guides</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().guidesBracketPairs'
+                  (ngModelChange)='patchMonaco({ guidesBracketPairs: $event })'
+                />
+                <span>Bracket pair guides</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().bracketPairColorizationEnabled'
+                  (ngModelChange)='patchMonaco({ bracketPairColorizationEnabled: $event })'
+                />
+                <span>Bracket pair colorization</span>
+              </label>
+            </div>
+            <label class='field'>
+              <span>Tab size</span>
+              <input
+                type='number'
+                min='1'
+                max='32'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().tabSize'
+                (ngModelChange)='patchMonaco({ tabSize: parseMonacoInt($event, monacoWorkspaceEditor().tabSize) })'
+              />
+            </label>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().insertSpaces'
+                  (ngModelChange)='patchMonaco({ insertSpaces: $event })'
+                />
+                <span>Insert spaces</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().detectIndentation'
+                  (ngModelChange)='patchMonaco({ detectIndentation: $event })'
+                />
+                <span>Detect indentation from content</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Cursor</h5>
+            <p class='settings-copy'>Cursor blink, style, and width (0 = default width).</p>
+          </div>
+          <div class='form-grid'>
+            <label class='field field--full'>
+              <span>Cursor blinking</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().cursorBlinking'
+                (ngModelChange)='patchMonaco({ cursorBlinking: $event })'
+              >
+                <option value='blink'>Blink</option>
+                <option value='smooth'>Smooth</option>
+                <option value='phase'>Phase</option>
+                <option value='expand'>Expand</option>
+                <option value='solid'>Solid</option>
+              </select>
+            </label>
+            <label class='field field--full'>
+              <span>Cursor style</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().cursorStyle'
+                (ngModelChange)='patchMonaco({ cursorStyle: $event })'
+              >
+                <option value='line'>Line</option>
+                <option value='block'>Block</option>
+                <option value='underline'>Underline</option>
+                <option value='line-thin'>Line thin</option>
+                <option value='block-outline'>Block outline</option>
+                <option value='underline-thin'>Underline thin</option>
+              </select>
+            </label>
+            <label class='field'>
+              <span>Cursor width</span>
+              <input
+                type='number'
+                min='0'
+                max='10'
+                step='1'
+                [ngModel]='monacoWorkspaceEditor().cursorWidth'
+                (ngModelChange)='patchMonaco({ cursorWidth: parseMonacoInt($event, monacoWorkspaceEditor().cursorWidth) })'
+              />
+            </label>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Editing and suggestions</h5>
+            <p class='settings-copy'>Formatting, auto-close pairs, and IntelliSense-style suggestions.</p>
+          </div>
+          <div class='form-grid'>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().formatOnPaste'
+                  (ngModelChange)='patchMonaco({ formatOnPaste: $event })'
+                />
+                <span>Format on paste</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().formatOnType'
+                  (ngModelChange)='patchMonaco({ formatOnType: $event })'
+                />
+                <span>Format on type</span>
+              </label>
+            </div>
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().quickSuggestions'
+                  (ngModelChange)='patchMonaco({ quickSuggestions: $event })'
+                />
+                <span>Quick suggestions</span>
+              </label>
+            </div>
+            <label class='field field--full'>
+              <span>Auto-closing brackets</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().autoClosingBrackets'
+                (ngModelChange)='patchMonaco({ autoClosingBrackets: $event })'
+              >
+                <option value='always'>Always</option>
+                <option value='languageDefined'>Language defined</option>
+                <option value='beforeWhitespace'>Before whitespace</option>
+                <option value='never'>Never</option>
+              </select>
+            </label>
+            <label class='field field--full'>
+              <span>Auto-closing quotes</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().autoClosingQuotes'
+                (ngModelChange)='patchMonaco({ autoClosingQuotes: $event })'
+              >
+                <option value='always'>Always</option>
+                <option value='languageDefined'>Language defined</option>
+                <option value='beforeWhitespace'>Before whitespace</option>
+                <option value='never'>Never</option>
+              </select>
+            </label>
+            <label class='field field--full'>
+              <span>Accept suggestion on Enter</span>
+              <select
+                [ngModel]='monacoWorkspaceEditor().acceptSuggestionOnEnter'
+                (ngModelChange)='patchMonaco({ acceptSuggestionOnEnter: $event })'
+              >
+                <option value='on'>On</option>
+                <option value='off'>Off</option>
+                <option value='smart'>Smart</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+    }
+
     @if (selectedSettingsTab() === 'audio') {
       <div class='settings-pane'>
           <div class='form-section'>
@@ -1009,6 +1491,79 @@
                   [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
                   (ngModelChange)='updateAudioSettings({ apiKey: $event })'
                 />
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Voice capture (talk mode)</h5>
+              <p class='settings-copy'>
+                Microphone used when voice mode is on in the chat composer. After you stop speaking, the app waits this many
+                seconds of silence (0.5–5) before sending the clip for transcription.
+              </p>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field field--full'>
+                <span>Microphone input</span>
+                <select
+                  [ngModel]='talkInputDeviceId()'
+                  (ngModelChange)='onTalkInputDeviceIdChange($event)'
+                  title='Select microphone for talk mode'
+                  class='settings-voice-device-select'
+                >
+                  <option value='default'>Default system microphone</option>
+                  @for (d of talkAudioInputDevices(); track d.deviceId) {
+                    <option [value]='d.deviceId'>{{ d.label }}</option>
+                  }
+                </select>
+              </label>
+              @if (talkAudioInputsLoadError()) {
+                <p class='settings-copy settings-voice-hint'>{{ talkAudioInputsLoadError() }}</p>
+              }
+
+              <div class='field field--full'>
+                <span>Silence before sending</span>
+                <div class='settings-voice-threshold'>
+                  <button type='button' (click)='decreaseTalkSilenceThreshold()' title='Decrease silence threshold'>
+                    <lucide-icon name='minus' [size]='14' />
+                  </button>
+                  <span class='settings-voice-threshold-value' title='Silence threshold (seconds)'>
+                    {{ talkSilenceThresholdSeconds() | number: '1.1-1' }}s
+                  </span>
+                  <button type='button' (click)='increaseTalkSilenceThreshold()' title='Increase silence threshold'>
+                    <lucide-icon name='plus' [size]='14' />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Assistant voice (spoken replies)</h5>
+              <p class='settings-copy'>
+                Neural voice used when voice mode is on in the chat composer and the assistant speaks the reply.
+              </p>
+            </div>
+            <div class='form-grid'>
+              <label class='field field--full'>
+                <span>TTS voice</span>
+                <select
+                  [ngModel]='ttsVoiceId()'
+                  (ngModelChange)='updateAudioSettings({ ttsVoiceId: $event })'
+                  class='settings-voice-device-select'
+                  title='Assistant TTS voice'
+                >
+                  @for (v of ttsVoiceChoices; track v.id) {
+                    <option [value]='v.id'>{{ v.label }}</option>
+                  }
+                </select>
               </label>
             </div>
           </div>
@@ -1123,4 +1678,5 @@
       Close
     </button>
   </footer>
+  <app-themed-confirm-dialog />
 </div>

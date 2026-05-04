@@ -5,6 +5,17 @@
         <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHelpMenu($event)'>Help</button>
         <h1 class='title-glow chrome-title' (dblclick)='onWindowToggleMaximize()'>&gt; Clara Coder_</h1>
+        <button
+          type='button'
+          class='chrome-win-btn chrome-pin-btn'
+          [class.chrome-pin-btn--active]='pinned()'
+          (click)='togglePinned()'
+          [attr.aria-pressed]='pinned()'
+          [attr.aria-label]='pinned() ? "Unpin window" : "Pin window on top"'
+          title='Pin window on top'
+        >
+          <lucide-icon name='pin' [size]='16' class='chrome-pin-icon'></lucide-icon>
+        </button>
         <button type='button' class='chrome-win-btn' (click)='onWindowMinimize()' aria-label='Minimize'>&#8722;</button>
         <button type='button' class='chrome-win-btn' (click)='onWindowToggleMaximize()' [attr.aria-label]='windowMaximized() ? "Restore" : "Maximize"'>
           {{ windowMaximized() ? '⧉' : '▢' }}
@@ -14,21 +25,6 @@
     } @else {
       <h1 class='title-glow title-glow--solo'>&gt; Clara Coder_</h1>
     }
-    <app-tools-bar
-      class='tools-bar-host'
-      [(fontSize)]='fontSize'
-      [(speechEnabled)]='speechEnabled'
-      [(selectedVoice)]='selectedVoice'
-      [(talkEnabled)]='talkEnabled'
-      [(currentTranscript)]='talkStatus'
-      [(editorMode)]='editorMode'
-      [(autoApplyMode)]='autoApplyMode'
-      [(pinned)]='pinned'
-      [activeConversationId]='activeConversationId()'
-      (promptCaptured)='onMessageSent($event)'
-      (recordingBegan)='onTalkRecordingBegan()'
-      (talkCaptureFinished)='onTalkCaptureFinished($event)'
-    />
   </div>
 
   <div class='app-content'>
@@ -38,6 +34,7 @@
         [currentWorkspaceId]='currentWorkspaceId()'
         (workspaceChanged)='onWorkspaceChanged($event)'
         (addWorkspace)='onAddWorkspace()'
+        (workspaceFileOpen)='onWorkspaceFileOpen($event)'
       />
       @if (llamaServerDock() === 'workspace') {
         <app-llama-server-tile
@@ -53,22 +50,77 @@
     <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
 
     <div class='chat-area d-flex flex-column overflow-hidden py-3 px-4'>
-      <app-chat-box
-        class='chat-box-host flex-grow-1 overflow-hidden mb-1'
-        [messages]='messages()'
-        [conversationId]='activeConversationId()'
-        [loading]='loading()'
-        [processingToolsActive]='processingToolsActive()'
-        [ttsLoading]='tts.ttsLoading()'
-        [streamingParts]='streamingParts()'
-        [livePlannerProgress]='livePlannerProgress()'
-        [fontSize]='fontSize()'
-        (sendResponse)='onSendResponse($event)'
-        (diffReviewFinished)='onDiffReviewFinished($event)'
-        (acceptCommandFinished)='onAcceptCommandFinished($event)'
-        (copyReviewFinished)='onCopyReviewFinished($event)'
-        (deleteReviewFinished)='onDeleteReviewFinished($event)'
-      />
+      <div class='chat-main-tabs chat-box-host flex-grow-1 overflow-hidden mb-1 d-flex flex-column min-h-0'>
+        <div class='chat-main-tab-strip' role='tablist' aria-label='Chat and files'>
+          <button
+            type='button'
+            class='chat-main-tab chat-main-tab--conversation'
+            role='tab'
+            [attr.aria-selected]='activeMainTabId() === "conversation"'
+            [class.chat-main-tab--active]='activeMainTabId() === "conversation"'
+            (click)='selectMainTab("conversation")'
+          >
+            <span class='chat-main-tab-label'>{{ conversationTabTitle() }}</span>
+          </button>
+          @for (tab of fileTabs(); track tab.relativePath) {
+            <button
+              type='button'
+              class='chat-main-tab'
+              role='tab'
+              [attr.aria-selected]='activeMainTabId() === fileTabIdForPath(tab.relativePath)'
+              [class.chat-main-tab--active]='activeMainTabId() === fileTabIdForPath(tab.relativePath)'
+              (click)='selectMainTab(fileTabIdForPath(tab.relativePath))'
+            >
+              <span class='chat-main-tab-label'>{{ fileTabBasenameForPath(tab.relativePath) }}</span>
+              @if (fileTabIsUnsaved(tab.relativePath)) {
+                <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
+              }
+              <span
+                class='chat-main-tab-close'
+                role='presentation'
+                (click)='closeMainFileTab($event, fileTabIdForPath(tab.relativePath))'
+                title='Close tab'
+              >&times;</span>
+            </button>
+          }
+        </div>
+        <div class='chat-main-tab-panels flex-grow-1 min-h-0 d-flex flex-column'>
+          <div
+            class='chat-main-tab-panel chat-main-tab-panel--chat'
+            [class.chat-main-tab-panel--hidden]='activeMainTabId() !== "conversation"'
+          >
+            <app-chat-box
+              class='chat-main-inner-host d-flex flex-column h-100 overflow-hidden'
+              [messages]='messages()'
+              [conversationId]='activeConversationId()'
+              [loading]='loading()'
+              [processingToolsActive]='processingToolsActive()'
+              [ttsLoading]='tts.ttsLoading()'
+              [streamingParts]='streamingParts()'
+              [livePlannerProgress]='livePlannerProgress()'
+              [fontSize]='fontSize()'
+              (sendResponse)='onSendResponse($event)'
+              (diffReviewFinished)='onDiffReviewFinished($event)'
+              (acceptCommandFinished)='onAcceptCommandFinished($event)'
+              (copyReviewFinished)='onCopyReviewFinished($event)'
+              (deleteReviewFinished)='onDeleteReviewFinished($event)'
+            />
+          </div>
+          <div
+            class='chat-main-tab-panel chat-main-tab-panel--monaco'
+            [class.chat-main-tab-panel--hidden]='!activeMainTabId().startsWith("file:")'
+          >
+            <app-workspace-monaco
+              class='chat-main-inner-host d-flex h-100 min-h-0'
+              [workspacePath]='currentWorkspacePath()'
+              [relativePath]='activeFileRelativePath()'
+              [openFileRelativePaths]='openFileRelativePaths()'
+              [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
+              (unsavedPathsChange)='onMonacoUnsavedPathsChange($event)'
+            />
+          </div>
+        </div>
+      </div>
 
       <app-workspace-terminal-dock
         class='workspace-terminal-dock-host'
@@ -76,13 +128,29 @@
         [appConfig]='appConfig()'
       />
 
-      <app-message-box
-        class='message-box-host'
-        [talkStatus]='talkStatus()'
-        [loading]='loading()'
-        (messageSent)='onMessageSent($event)'
-        (abortRequested)='onAbortRequested()'
-      />
+      <div class='composer-row'>
+        <app-talk-mode
+          class='composer-talk composer-talk--hidden'
+          [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
+          [talkSilenceThresholdSec]='appConfig()?.audioTranscription?.talkSilenceThresholdSeconds ?? 2'
+          [(talkEnabled)]='talkEnabled'
+          [(currentTranscript)]='talkStatus'
+          [(statusMessage)]='talkModeDetailStatus'
+          (promptCaptured)='onMessageSent($event)'
+          (recordingBegan)='onTalkRecordingBegan()'
+          (talkCaptureFinished)='onTalkCaptureFinished($event)'
+        />
+        <app-message-box
+          class='message-box-host'
+          [voiceActive]='talkEnabled() && speechEnabled()'
+          (voiceToggle)='toggleVoice()'
+          [talkStatus]='talkStatus()'
+          [talkDetail]='talkModeDetailStatus()'
+          [loading]='loading()'
+          (messageSent)='onMessageSent($event)'
+          (abortRequested)='onAbortRequested()'
+        />
+      </div>
 
       <app-status-bar
         class='status-bar-host'
@@ -94,6 +162,8 @@
         [modelPresetOptions]='llmModelPresetOptions()'
         [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'
         (activeLlmModelChange)='onActiveLlmModelChange($event)'
+        [(editorMode)]='editorMode'
+        [(autoApplyMode)]='autoApplyMode'
       />
     </div>
 
@@ -122,4 +192,5 @@
   </div>
 
   <div class='app-modal-scrim' aria-hidden='true'></div>
+  <app-themed-confirm-dialog />
 </div>

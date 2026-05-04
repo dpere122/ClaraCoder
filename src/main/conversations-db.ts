@@ -17,6 +17,10 @@ type SqliteDatabase = InstanceType<typeof DatabaseConstructor>;
 
 let db: SqliteDatabase | null = null;
 
+function customTitleFromSqlite(v: number | undefined | null): boolean {
+  return v === 1;
+}
+
 function rowToConversationFile(row: ConversationRow): ConversationFile {
   let messages: ConversationFile['messages'];
   try {
@@ -32,6 +36,7 @@ function rowToConversationFile(row: ConversationRow): ConversationFile {
     messages,
     workspaceId: row.workspace_id,
     themeId: row.theme_id || FIRST_THEME_ID,
+    customTitle: customTitleFromSqlite(row.custom_title),
   };
 }
 
@@ -43,6 +48,7 @@ interface ConversationRow {
   updated_at: string;
   theme_id: string;
   messages_json: string;
+  custom_title: number;
 }
 
 interface SummaryRow {
@@ -71,6 +77,17 @@ function migrateSchema(database: SqliteDatabase): void {
   `);
 }
 
+/** Add custom_title when upgrading from older DBs (idempotent). */
+function migrateCustomTitleColumn(database: SqliteDatabase): void {
+  const cols = database.prepare('PRAGMA table_info(conversations)').all() as { name: string }[];
+  if (cols.some((c) => c.name === 'custom_title')) {
+    return;
+  }
+  database.exec(
+    'ALTER TABLE conversations ADD COLUMN custom_title INTEGER NOT NULL DEFAULT 0',
+  );
+}
+
 function isMigrated(database: SqliteDatabase): boolean {
   const row = database
     .prepare('SELECT value FROM schema_meta WHERE key = ?')
@@ -85,8 +102,8 @@ function importLegacyJsonIfNeeded(database: SqliteDatabase): void {
 
   const insert = database.prepare(
     `INSERT OR REPLACE INTO conversations
-      (id, workspace_id, title, created_at, updated_at, theme_id, messages_json)
-     VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json)`,
+      (id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title)
+     VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json, @custom_title)`,
   );
 
   const importFile = (filePath: string, folderWorkspaceId: string | null): void => {
@@ -108,6 +125,7 @@ function importLegacyJsonIfNeeded(database: SqliteDatabase): void {
         updated_at: typeof conv.updatedAt === 'string' ? conv.updatedAt : new Date().toISOString(),
         theme_id: typeof conv.themeId === 'string' ? conv.themeId : FIRST_THEME_ID,
         messages_json: JSON.stringify(conv.messages),
+        custom_title: conv.customTitle ? 1 : 0,
       });
     } catch {
       // skip malformed files
@@ -162,6 +180,7 @@ export function openConversationsDb(): void {
   const database = new DatabaseConstructor(getConversationsDbPath());
   database.pragma('journal_mode = WAL');
   migrateSchema(database);
+  migrateCustomTitleColumn(database);
   importLegacyJsonIfNeeded(database);
   db = database;
 }
@@ -180,7 +199,7 @@ export function getConversationMetas(workspaceId: string | null): ConversationMe
     workspaceId === null
       ? (database
           .prepare(
-            `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json
+            `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title
              FROM conversations
              WHERE workspace_id IS NULL
              ORDER BY updated_at DESC`,
@@ -188,7 +207,7 @@ export function getConversationMetas(workspaceId: string | null): ConversationMe
           .all() as ConversationRow[])
       : (database
           .prepare(
-            `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json
+            `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title
              FROM conversations
              WHERE workspace_id = ?
              ORDER BY updated_at DESC`,
@@ -201,6 +220,7 @@ export function getConversationMetas(workspaceId: string | null): ConversationMe
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     workspaceId: r.workspace_id,
+    customTitle: customTitleFromSqlite(r.custom_title),
   }));
 }
 
@@ -208,7 +228,7 @@ export function getConversationById(id: string): ConversationFile | null {
   const database = getDb();
   const row = database
     .prepare(
-      `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json
+      `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title
        FROM conversations WHERE id = ?`,
     )
     .get(id) as ConversationRow | undefined;
@@ -218,10 +238,13 @@ export function getConversationById(id: string): ConversationFile | null {
 export function upsertConversation(conv: ConversationFile): void {
   const database = getDb();
   const existing = database
-    .prepare('SELECT theme_id FROM conversations WHERE id = ?')
-    .get(conv.id) as { theme_id: string } | undefined;
+    .prepare('SELECT theme_id, custom_title FROM conversations WHERE id = ?')
+    .get(conv.id) as { theme_id: string; custom_title: number } | undefined;
   if (existing) {
     conv.themeId = existing.theme_id || FIRST_THEME_ID;
+    if (existing.custom_title === 1) {
+      conv.customTitle = true;
+    }
   } else if (!conv.themeId) {
     conv.themeId = FIRST_THEME_ID;
   }
@@ -229,15 +252,16 @@ export function upsertConversation(conv: ConversationFile): void {
   database
     .prepare(
       `INSERT INTO conversations
-        (id, workspace_id, title, created_at, updated_at, theme_id, messages_json)
-       VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json)
+        (id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title)
+       VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json, @custom_title)
        ON CONFLICT(id) DO UPDATE SET
          workspace_id = excluded.workspace_id,
          title = excluded.title,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at,
          theme_id = excluded.theme_id,
-         messages_json = excluded.messages_json`,
+         messages_json = excluded.messages_json,
+         custom_title = excluded.custom_title`,
     )
     .run({
       id: conv.id,
@@ -247,6 +271,7 @@ export function upsertConversation(conv: ConversationFile): void {
       updated_at: conv.updatedAt,
       theme_id: conv.themeId,
       messages_json: JSON.stringify(conv.messages),
+      custom_title: conv.customTitle ? 1 : 0,
     });
 }
 
@@ -258,6 +283,23 @@ export function updateConversationTitle(id: string, title: string, updatedAt: st
   getDb()
     .prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?')
     .run(title, updatedAt, id);
+}
+
+/** User rename: persist title and lock against model auto-title updates. */
+export function updateConversationTitleAndLock(id: string, title: string, updatedAt: string): void {
+  getDb()
+    .prepare('UPDATE conversations SET title = ?, updated_at = ?, custom_title = 1 WHERE id = ?')
+    .run(title, updatedAt, id);
+}
+
+/** Model-suggested title only when not user-locked. */
+export function updateAutoConversationTitle(id: string, title: string, updatedAt: string): boolean {
+  const res = getDb()
+    .prepare(
+      'UPDATE conversations SET title = ?, updated_at = ? WHERE id = ? AND custom_title = 0',
+    )
+    .run(title, updatedAt, id);
+  return res.changes > 0;
 }
 
 export function updateConversationTheme(id: string, themeId: string, updatedAt: string): void {

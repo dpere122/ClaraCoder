@@ -5,6 +5,7 @@ import type {
   CopyConfirmPayload,
   Conversation,
   ConversationMeta,
+  MaybeAutoTitleResult,
   DeleteConfirmPayload,
   FileDiffPayload,
   FileEntry,
@@ -110,6 +111,29 @@ declare global {
       content: string,
       options?: WorkspaceFileWriteOptions,
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    createWorkspaceFile?: (
+      workspaceRoot: string,
+      absoluteParentDir: string,
+      fileName: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    createWorkspaceFolder?: (
+      workspaceRoot: string,
+      absoluteParentDir: string,
+      folderName: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    deleteWorkspaceEntry?: (
+      workspaceRoot: string,
+      absolutePath: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    renameWorkspaceEntry?: (
+      workspaceRoot: string,
+      absolutePath: string,
+      newName: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    readWorkspaceFile?: (
+      workspaceRoot: string,
+      relativePath: string,
+    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;
@@ -121,6 +145,7 @@ declare global {
     saveConversation: (conv: Conversation) => Promise<void>;
     deleteConversation: (id: string, workspaceId?: string | null) => Promise<void>;
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
+    maybeAutoTitleConversation: (id: string) => Promise<MaybeAutoTitleResult>;
     newConversation: (workspaceId: string | null) => Promise<Conversation>;
     startTtsStream: (text: string, voice: string, seq: number) => Promise<{ ok: boolean }>;
     registerTtsStreamUrl: (text: string, voice: string) => Promise<{ url: string }>;
@@ -154,6 +179,8 @@ declare global {
     addWorkspace: (name: string, path: string) => Promise<Workspace>;
     removeWorkspace: (id: string) => Promise<void>;
     setCurrentWorkspace: (id: string | null) => Promise<void>;
+    getWorkspaceMonacoUnsavedPaths: () => Promise<string[]>;
+    reportWorkspaceMonacoUnsavedPaths: (paths: string[]) => void;
     getCurrentWorkspace: () => Promise<Workspace | null>;
     setConversationTheme: (id: string, themeId: string) => Promise<void>;
     setWorkspaceTheme: (workspaceId: string, themeId: string) => Promise<void>;

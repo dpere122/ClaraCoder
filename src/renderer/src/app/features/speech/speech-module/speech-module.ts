@@ -23,13 +23,8 @@ export const VOICE_OPTIONS: VoiceOption[] = [
   encapsulation: ViewEncapsulation.None
 })
 export class SpeechModule {
-  readonly speechEnabled = model(false);
   readonly selectedVoice = model('en-US-AriaNeural');
   readonly voices = VOICE_OPTIONS;
-
-  toggle(): void {
-    this.speechEnabled.set(!this.speechEnabled());
-  }
 
   onVoiceChange(event: Event): void {
     this.selectedVoice.set((event.target as HTMLSelectElement).value);

@@ -25,6 +25,7 @@ import type {
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
+  MaybeAutoTitleResult,
   PlannerProgress,
   TtsStreamPacket,
   Workspace,
@@ -410,6 +411,59 @@ export class ElectronService {
     );
   }
 
+  createWorkspaceFile(
+    workspaceRoot: string,
+    absoluteParentDir: string,
+    fileName: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.createWorkspaceFile?.(workspaceRoot, absoluteParentDir, fileName) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  createWorkspaceFolder(
+    workspaceRoot: string,
+    absoluteParentDir: string,
+    folderName: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.createWorkspaceFolder?.(workspaceRoot, absoluteParentDir, folderName) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  deleteWorkspaceEntry(
+    workspaceRoot: string,
+    absolutePath: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.deleteWorkspaceEntry?.(workspaceRoot, absolutePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  renameWorkspaceEntry(
+    workspaceRoot: string,
+    absolutePath: string,
+    newName: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.renameWorkspaceEntry?.(workspaceRoot, absolutePath, newName) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  readWorkspaceFile(
+    workspaceRoot: string,
+    relativePath: string,
+  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string }> {
+    return (
+      this.api?.readWorkspaceFile?.(workspaceRoot, relativePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   setAlwaysOnTop(pinned: boolean): void {
     this.api?.setAlwaysOnTop(pinned);
   }
@@ -442,6 +496,13 @@ export class ElectronService {
     return this.api?.renameConversation(id, title, workspaceId) ?? Promise.resolve();
   }
 
+  maybeAutoTitleConversation(id: string): Promise<MaybeAutoTitleResult> {
+    return (
+      this.api?.maybeAutoTitleConversation?.(id) ??
+      Promise.resolve({ ok: false, reason: 'fetch_failed' } as const)
+    );
+  }
+
   newConversation(workspaceId: string | null): Promise<Conversation> {
     return this.api!.newConversation(workspaceId);
   }
@@ -460,6 +521,14 @@ export class ElectronService {
 
   setCurrentWorkspace(id: string | null): Promise<void> {
     return this.api?.setCurrentWorkspace(id) ?? Promise.resolve();
+  }
+
+  getWorkspaceMonacoUnsavedPaths(): Promise<string[]> {
+    return this.api?.getWorkspaceMonacoUnsavedPaths?.() ?? Promise.resolve([]);
+  }
+
+  reportWorkspaceMonacoUnsavedPaths(paths: readonly string[]): void {
+    this.api?.reportWorkspaceMonacoUnsavedPaths?.([...paths]);
   }
 
   getCurrentWorkspace(): Promise<Workspace | null> {

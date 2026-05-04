@@ -17,6 +17,7 @@ import {
   inferContextWindowTokens,
   isLegacyLlamaCppManagedShape,
   migrateLegacyLlamaCppManagedToCommands,
+  normalizeMonacoWorkspaceEditorSettings,
   type ShellQuotingPlatform,
 } from '../../shared';
 import { PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID } from '../../shared';
@@ -556,6 +557,33 @@ export function migrateConfig(config: AppConfig): AppConfig {
       audio.apiKey = '';
       migrated = true;
     }
+    if (audio.talkInputDeviceId === undefined || typeof audio.talkInputDeviceId !== 'string') {
+      audio.talkInputDeviceId = 'default';
+      migrated = true;
+    }
+    const thr = audio.talkSilenceThresholdSeconds;
+    if (typeof thr !== 'number' || Number.isNaN(thr) || thr < 0.5 || thr > 5) {
+      audio.talkSilenceThresholdSeconds = 2;
+      migrated = true;
+    }
+    const ttsV = audio.ttsVoiceId;
+    if (typeof ttsV !== 'string' || !ttsV.trim()) {
+      audio.ttsVoiceId = 'en-US-AriaNeural';
+      migrated = true;
+    }
+  }
+
+  const cfs = (newConfig as AppConfig).chatFontSizeRem;
+  if (typeof cfs !== 'number' || Number.isNaN(cfs) || cfs < 0.6 || cfs > 1.6) {
+    (newConfig as AppConfig).chatFontSizeRem = 0.9;
+    migrated = true;
+  }
+
+  const monacoPrev = (newConfig as AppConfig).monacoWorkspaceEditor;
+  const { settings: monacoNorm, migrated: monacoMigrated } = normalizeMonacoWorkspaceEditorSettings(monacoPrev);
+  if (monacoMigrated || monacoPrev === undefined) {
+    (newConfig as AppConfig).monacoWorkspaceEditor = monacoNorm;
+    migrated = true;
   }
 
   const wtRaw = (newConfig as AppConfig & { workspaceTools?: WorkspaceToolsConfig }).workspaceTools;

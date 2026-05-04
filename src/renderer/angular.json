@@ -21,15 +21,15 @@
             "baseHref": "./",
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
+            "loader": {
+              ".ttf": "file",
+              ".woff": "file",
+              ".woff2": "file"
+            },
             "assets": [
               {
                 "glob": "**/*",
                 "input": "public"
-              },
-              {
-                "glob": "**/*",
-                "input": "assets/crystal_model",
-                "output": "/assets/crystal-model/"
               }
             ],
             "styles": [
@@ -40,6 +40,7 @@
               "node_modules/ngx-spinner/animations/ball-clip-rotate-pulse.css",
               "node_modules/ngx-spinner/animations/ball-pulse-sync.css",
               "node_modules/@xterm/xterm/css/xterm.css",
+              "node_modules/monaco-editor/min/vs/editor/editor.main.css",
               "src/styles.css"
             ]
           },
@@ -48,13 +49,13 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "2MB",
-                  "maximumError": "3MB"
+                  "maximumWarning": "3MB",
+                  "maximumError": "4MB"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "15kB"
+                  "maximumWarning": "6kB",
+                  "maximumError": "20kB"
                 }
               ],
               "outputHashing": "all"
@@ -74,7 +75,8 @@
               "buildTarget": "renderer:build:production"
             },
             "development": {
-              "buildTarget": "renderer:build:development"
+              "buildTarget": "renderer:build:development",
+              "prebundle": false
             }
           },
           "defaultConfiguration": "development"

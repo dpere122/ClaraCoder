@@ -73,6 +73,15 @@ export class LlamaServerTile {
     return llamaCrystalAggregateFromPayload(st);
   });
 
+  /** Embedding managed server is present on status and healthy. */
+  protected readonly embedModelReady = computed(() => {
+    const st = this.status();
+    if (!st || st.ok !== true) {
+      return false;
+    }
+    return st.embed != null && st.embed.health === 'ok';
+  });
+
   constructor() {
     this.destroyRef.onDestroy(() => {
       if (this.harnessCrystalClearTimer != null) {
@@ -348,13 +357,6 @@ export class LlamaServerTile {
     if (p === 'stop' && (!raw.ok || !raw.running)) {
       this.inflight.set(null);
     }
-  }
-
-  protected dotClass(health: string): string {
-    if (health === 'ok') return 'llama-tile__dot llama-tile__dot--ok';
-    if (health === 'loading') return 'llama-tile__dot llama-tile__dot--loading';
-    if (health === 'stopped') return 'llama-tile__dot llama-tile__dot--off';
-    return 'llama-tile__dot llama-tile__dot--err';
   }
 
   protected startDisabled(): boolean {

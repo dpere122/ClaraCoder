@@ -115,6 +115,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     content: string,
     options?: WorkspaceFileWriteOptions,
   ) => ipcRenderer.invoke('write-workspace-file', workspaceRoot, relativePath, content, options),
+  createWorkspaceFile: (workspaceRoot: string, absoluteParentDir: string, fileName: string) =>
+    ipcRenderer.invoke('create-workspace-file', workspaceRoot, absoluteParentDir, fileName),
+  createWorkspaceFolder: (workspaceRoot: string, absoluteParentDir: string, folderName: string) =>
+    ipcRenderer.invoke('create-workspace-folder', workspaceRoot, absoluteParentDir, folderName),
+  deleteWorkspaceEntry: (workspaceRoot: string, absolutePath: string) =>
+    ipcRenderer.invoke('delete-workspace-entry', workspaceRoot, absolutePath),
+  renameWorkspaceEntry: (workspaceRoot: string, absolutePath: string, newName: string) =>
+    ipcRenderer.invoke('rename-workspace-entry', workspaceRoot, absolutePath, newName),
+  readWorkspaceFile: (workspaceRoot: string, relativePath: string) =>
+    ipcRenderer.invoke('read-workspace-file', workspaceRoot, relativePath),
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   getConversations: (workspaceId?: string | null) => ipcRenderer.invoke('get-conversations', workspaceId),
   readConversationFromDisk: (id: string, workspaceId?: string | null) =>
@@ -125,6 +135,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteConversation: (id: string, workspaceId?: string | null) => ipcRenderer.invoke('delete-conversation', id, workspaceId),
   renameConversation: (id: string, title: string, workspaceId?: string | null) =>
     ipcRenderer.invoke('rename-conversation', id, title, workspaceId),
+  maybeAutoTitleConversation: (id: string) => ipcRenderer.invoke('maybe-auto-title-conversation', id),
   newConversation: (workspaceId: string | null) => ipcRenderer.invoke('new-conversation', workspaceId),
   startTtsStream: (text: string, voice: string, seq: number) =>
     ipcRenderer.invoke('tts-stream-start', { text, voice, seq }),
@@ -163,7 +174,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
   addWorkspace: (name: string, p: string) => ipcRenderer.invoke('add-workspace', name, p),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),
+  getWorkspaceMonacoUnsavedPaths: () => ipcRenderer.invoke('get-workspace-monaco-unsaved-paths'),
   setCurrentWorkspace: (id: string | null) => ipcRenderer.invoke('set-current-workspace', id),
+  reportWorkspaceMonacoUnsavedPaths: (paths: string[]) => ipcRenderer.send('workspace-monaco-unsaved-paths', paths),
   getCurrentWorkspace: () => ipcRenderer.invoke('get-current-workspace'),
   setConversationTheme: (id: string, themeId: string) => ipcRenderer.invoke('set-conversation-theme', id, themeId),
   setWorkspaceTheme: (workspaceId: string, themeId: string) =>

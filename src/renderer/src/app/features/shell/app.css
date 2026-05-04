@@ -90,6 +90,26 @@
   color: #fff;
 }
 
+.chrome-pin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chrome-pin-btn .chrome-pin-icon {
+  display: flex;
+  color: var(--t-text-muted);
+}
+
+.chrome-pin-btn.chrome-pin-btn--active .chrome-pin-icon {
+  color: var(--t-primary);
+}
+
+:host ::ng-deep .chrome-pin-icon svg {
+  stroke: currentColor;
+  fill: none;
+}
+
 .app-content {
   display: flex;
   flex: 1;
@@ -223,6 +243,126 @@ body.llama-dock-drag--active {
   overflow: hidden;
 }
 
+.chat-main-tabs {
+  gap: 0.25rem;
+}
+
+.chat-main-tab-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--t-border-subtle, #333);
+  margin-bottom: 0.25rem;
+}
+
+.chat-main-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 12rem;
+  flex: 0 1 12rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--t-border-subtle, #333);
+  border-radius: 4px 4px 0 0;
+  background: var(--t-bg-deep, #111);
+  color: var(--t-fg, #eee);
+  font-size: 0.78rem;
+  font-family: var(--t-font-mono, monospace);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.chat-main-tab--active {
+  border-bottom-color: transparent;
+  background: var(--t-bg-surface, #1a1a1a);
+  color: var(--t-primary, #0f0);
+}
+
+/* Conversation tab: distinct accent from file tabs (files stay primary green). */
+.chat-main-tab--conversation {
+  margin-inline-end: 0.35rem;
+}
+
+.chat-main-tab--conversation:not(.chat-main-tab--active) {
+  background: color-mix(in srgb, var(--t-process-a) 7%, var(--t-bg-deep, #111));
+  border-color: color-mix(in srgb, var(--t-process-a) 32%, var(--t-border-subtle, #333));
+  color: color-mix(in srgb, var(--t-process-a) 78%, var(--t-text-muted, #888));
+}
+
+.chat-main-tab--active.chat-main-tab--conversation {
+  background: color-mix(in srgb, var(--t-process-a) 14%, var(--t-bg-surface, #1a1a1a));
+  border-color: color-mix(in srgb, var(--t-process-a) 42%, var(--t-border-subtle, #333));
+  color: var(--t-process-a, #41ffc9);
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--t-process-a) 75%, transparent);
+}
+
+.chat-main-tab-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.chat-main-tab-unsaved {
+  flex-shrink: 0;
+  font-size: 0.55rem;
+  line-height: 1;
+  color: var(--t-warn, #e8b931);
+  opacity: 0.95;
+  margin-top: -0.35rem;
+}
+
+.chat-main-tab-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 2px;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.chat-main-tab-close:hover {
+  opacity: 1;
+  background: var(--t-hover-bg, #333);
+}
+
+.chat-main-tab-panels {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-main-tab-panel {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-main-tab-panel--hidden {
+  display: none !important;
+}
+
+.chat-main-inner-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
 .workspace-terminal-dock-host {
   flex-shrink: 0;
   min-height: 0;
@@ -232,15 +372,34 @@ body.llama-dock-drag--active {
   flex-shrink: 0;
 }
 
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.composer-talk {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 28rem);
+}
+
+.composer-talk--hidden {
+  display: none !important;
+}
+
+.composer-row .message-box-host {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
 .status-bar-host {
   flex-shrink: 0;
   width: 100%;
-}
-
-.tools-bar-host {
-  display: block;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
 }
 
 .title-glow {

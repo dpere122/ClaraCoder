@@ -30,6 +30,81 @@
   align-items: center;
 }
 
+.context-capacity__editor-tools {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  margin-left: 0.15rem;
+}
+
+/* Auto-apply switch: scoped names + resets so Bootstrap `button` / `.active` rules do not flatten the pill. */
+.context-capacity__auto-apply-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+.context-capacity__auto-apply-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 0;
+  cursor: pointer;
+  outline: none;
+  box-shadow: none;
+  appearance: none;
+  vertical-align: middle;
+}
+
+.context-capacity__auto-apply-toggle:focus-visible .context-capacity__auto-apply-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--t-primary) 45%, transparent);
+}
+
+.context-capacity__auto-apply-track {
+  display: block;
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 0.55rem;
+  background-color: var(--t-border);
+  transition: background-color 0.2s;
+  position: relative;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.context-capacity__auto-apply-toggle--on .context-capacity__auto-apply-track {
+  background-color: var(--t-primary);
+}
+
+.context-capacity__auto-apply-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.1rem - 4px);
+  height: calc(1.1rem - 4px);
+  border-radius: 50%;
+  background-color: var(--t-bg);
+  transition: transform 0.2s;
+  box-sizing: border-box;
+}
+
+.context-capacity__auto-apply-toggle--on .context-capacity__auto-apply-thumb {
+  transform: translateX(calc(2rem - 1.1rem));
+}
+
+.context-capacity__auto-apply-toggle:hover .context-capacity__auto-apply-track {
+  box-shadow: 0 0 4px var(--t-glow);
+}
+
 .context-capacity__label {
   font-size: 0.75rem;
   font-weight: 600;

@@ -20,6 +20,14 @@ app-workspace .workspace-header {
   padding: 0 0.6rem 0.6rem;
   border-bottom: 1px solid var(--t-border-subtle);
   margin-bottom: 0.5rem;
+  flex-shrink: 0;
+}
+
+app-workspace .workspace-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 app-workspace .workspace-select {
@@ -86,6 +94,35 @@ app-workspace .file-tree {
   overflow-y: auto;
 }
 
+app-workspace .workspace-theme-footer {
+  flex-shrink: 0;
+  padding: 0.55rem 0.6rem 0;
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--t-border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+app-workspace .workspace-theme-footer app-theme-selector {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+app-workspace .workspace-theme-footer app-theme-selector .theme-selector {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+app-workspace .workspace-theme-footer app-theme-selector .theme-dropdown {
+  width: auto;
+  min-width: 10rem;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 app-workspace .workspace-change-indicator {
   margin: 0 0.5rem 0.4rem;
   padding: 0.35rem 0.45rem;
@@ -111,6 +148,34 @@ app-workspace .tree-node {
 
 app-workspace .tree-node.is-directory {
   cursor: pointer;
+}
+
+app-workspace .tree-node.is-renaming {
+  cursor: default;
+  user-select: text;
+}
+
+app-workspace .tree-node.is-renaming.is-directory {
+  cursor: text;
+}
+
+app-workspace .tree-node-rename-input {
+  flex: 1 1 auto;
+  min-width: 2.5rem;
+  margin: 0;
+  padding: 0 0.2rem;
+  font: inherit;
+  font-size: inherit;
+  line-height: 1.25;
+  color: var(--t-primary);
+  background: var(--t-bg);
+  border: 1px solid var(--t-primary);
+  border-radius: 2px;
+  outline: none;
+}
+
+app-workspace .tree-node-rename-input:focus {
+  border-color: var(--t-primary);
 }
 
 app-workspace .tree-node:hover {
@@ -157,5 +222,115 @@ app-workspace .empty-hint {
   text-align: center;
   padding: 1rem 0.5rem;
   margin: 0;
+}
+
+app-workspace .workspace-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 9rem;
+  padding: 0.2rem 0;
+  margin: 0;
+  border: 1px solid var(--t-border);
+  border-radius: 4px;
+  background: var(--t-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+app-workspace .workspace-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+app-workspace .workspace-context-menu-item:hover {
+  background: var(--t-hover-bg);
+}
+
+app-workspace .workspace-context-menu-sep {
+  height: 1px;
+  margin: 0.2rem 0.35rem;
+  background: var(--t-border-subtle);
+}
+
+app-workspace .workspace-context-menu-item.danger {
+  color: var(--t-danger, #c44);
+}
+
+app-workspace .workspace-context-menu-item.danger:hover {
+  background: var(--t-hover-bg);
+  color: var(--t-danger, #d55);
+}
+
+app-workspace .workspace-create-inline {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0 0.5rem 0.5rem;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid var(--t-border);
+  border-radius: 4px;
+  background: var(--t-bg);
+  outline: none;
+}
+
+app-workspace .workspace-create-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--t-text-muted);
+}
+
+app-workspace .workspace-create-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.25;
+  color: var(--t-primary);
+  background: var(--t-bg-deep);
+  border: 1px solid var(--t-border);
+  border-radius: 3px;
+  outline: none;
+}
+
+app-workspace .workspace-create-input:focus {
+  border-color: var(--t-primary);
+}
+
+app-workspace .workspace-create-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+app-workspace .workspace-create-btn {
+  padding: 0.25rem 0.55rem;
+  font: inherit;
+  font-size: 0.72rem;
+  border-radius: 3px;
+  border: 1px solid var(--t-border);
+  background: var(--t-bg-deep);
+  color: var(--t-secondary);
+  cursor: pointer;
+}
+
+app-workspace .workspace-create-btn.primary {
+  border-color: var(--t-primary);
+  color: var(--t-primary);
+  background: var(--t-bg);
+}
+
+app-workspace .workspace-create-btn:hover {
+  background: var(--t-hover-bg);
 }
 

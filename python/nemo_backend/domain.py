@@ -85,6 +85,8 @@ class SessionState:
     python_workspace_bin_path: str = ''
     # Most recent workspace Python environment status summary.
     python_workspace_env_summary: str = ''
+    # Selected interpreter id from discovery (``app-backend``, ``dot-venv``, …); drives Jedi env + LSP metadata.
+    python_interpreter_choice_id: str = ''
     # Set by workspace edit tools; consumed by SSE diff event after tool success.
     pending_diff_payload: dict | None = None
     # Staged transfer awaiting human confirm (``transfer_staged_file_to_workspace`` / approve when auto_apply off).
@@ -120,6 +122,7 @@ class SessionState:
     # Set when the client requests an abort; the streaming generator checks this to bail out early.
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
     # LangGraph manager only: nested planning graph events merged into the manager SSE loop during plan_and_modify.
+    # Outer ``/chat/stream`` runs also allocate this queue so subprocess tools (pytest, overlay, …) can emit ``tool_exec_*`` SSE.
     planning_nested_events_q: asyncio.Queue | None = None
     # Set while nested planning runs; SSE loop signals after it consumes the nested stream end sentinel.
     planning_nested_done_event: asyncio.Event | None = None

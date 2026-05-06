@@ -23,7 +23,7 @@
   --t-code-text: #c8e6c8;
   --t-input-bg: var(--t-bg);
   --t-input-fg: var(--t-primary);
-  --t-font: 'FiraCode Nerd Font', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #0d1a0d;
   --t-titlebar-end: #003b00;
   --t-titlebar-text: #00ff41;
@@ -135,7 +135,7 @@ lucide-icon svg {
   --t-code-bg: #ebe5d9;
   --t-code-inline-bg: #e5ddd0;
   --t-code-text: #3d2b1f;
-  --t-font: 'FiraCode Nerd Font', 'Georgia', 'Palatino Linotype', 'Book Antiqua', 'Palatino', serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #d8c8b2;
   --t-titlebar-end: #c5b399;
   --t-titlebar-text: #2c1810;
@@ -189,7 +189,7 @@ lucide-icon svg {
   --t-code-bg: #16110e;
   --t-code-inline-bg: #2a211c;
   --t-code-text: #f6ead8;
-  --t-font: 'FiraCode Nerd Font', 'Georgia', 'Palatino Linotype', 'Book Antiqua', 'Palatino', serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #3a2a20;
   --t-titlebar-end: #241913;
   --t-titlebar-text: #f3e6d0;
@@ -250,7 +250,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #000000;
   --t-input-bg: #ffffff;
   --t-input-fg: #000000;
-  --t-font: 'FiraCode Nerd Font', 'Tahoma', 'MS Sans Serif', 'Segoe UI', sans-serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #000080;
   --t-titlebar-end: #1084d0;
   --t-titlebar-text: #ffffff;
@@ -306,7 +306,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #ddd8cc;
   --t-input-bg: #191c17;
   --t-input-fg: #d2cdc2;
-  --t-font: 'FiraCode Nerd Font', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #2a3024;
   --t-titlebar-end: #1a1e17;
   --t-titlebar-text: #d2cdc2;
@@ -362,7 +362,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #dce5f2;
   --t-input-bg: #070a10;
   --t-input-fg: #e2e8f4;
-  --t-font: 'FiraCode Nerd Font', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #0d1522;
   --t-titlebar-end: #070a10;
   --t-titlebar-text: #e2e8f4;
@@ -419,7 +419,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #dceaf8;
   --t-input-bg: #050a12;
   --t-input-fg: #d2e4f8;
-  --t-font: 'FiraCode Nerd Font', 'Segoe UI', 'Tahoma', system-ui, -apple-system, sans-serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #0c2848;
   --t-titlebar-end: #050a12;
   --t-titlebar-text: #b8ecff;
@@ -488,7 +488,7 @@ html.theme-ps2 .interactive-output .terminal-shell {
   --t-code-text: #eaf0e4;
   --t-input-bg: #0e110d;
   --t-input-fg: #dfe8d8;
-  --t-font: 'FiraCode Nerd Font', 'Segoe UI', 'Tahoma', system-ui, -apple-system, sans-serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #283420;
   --t-titlebar-end: #0e110d;
   --t-titlebar-text: #f2e8c8;
@@ -557,7 +557,7 @@ html.theme-halo3 .interactive-output .terminal-shell {
   --t-code-text: #3a3228;
   --t-input-bg: #fffdf8;
   --t-input-fg: #3a3228;
-  --t-font: 'FiraCode Nerd Font', 'Segoe UI', Georgia, 'Palatino Linotype', serif;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #3d78b8;
   --t-titlebar-end: #285a94;
   --t-titlebar-text: #fdf8ee;
@@ -626,8 +626,8 @@ html.theme-phantom-hourglass .interactive-output .terminal-shell {
   --t-code-text: #4a3545;
   --t-input-bg: #ffffff;
   --t-input-fg: #5a3d52;
-  --t-font: 'M PLUS Rounded 1c', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --t-font-mono: 'FiraCode Nerd Font', 'Cascadia Code', 'Consolas', monospace;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #ffb7d5;
   --t-titlebar-end: #9fd4f7;
   --t-titlebar-text: #5a2d45;
@@ -684,8 +684,8 @@ html.theme-phantom-hourglass .interactive-output .terminal-shell {
   --t-code-text: #1e1e1e;
   --t-input-bg: #ffffff;
   --t-input-fg: #1e1e1e;
-  --t-font: 'Segoe UI', 'FiraCode Nerd Font', system-ui, -apple-system, 'Segoe UI Variable', sans-serif;
-  --t-font-mono: 'Cascadia Code', 'Cascadia Mono', 'FiraCode Nerd Font', Consolas, 'Courier New', monospace;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #0e5fa8;
   --t-titlebar-end: #0063b1;
   --t-titlebar-text: #ffffff;
@@ -941,7 +941,7 @@ app-shell > router-outlet + * {
 
 .terminal-placeholder {
   color: var(--t-text-muted);
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.8rem;
 }
 
@@ -956,7 +956,7 @@ app-shell > router-outlet + * {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.82rem;
   color: var(--t-code-text);
 }

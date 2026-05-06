@@ -4,6 +4,7 @@
  */
 import { Injectable, NgZone } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
+import { mergeStreamBatchQueue, type StreamBatchItem } from './stream-batch';
 import type {
   AcceptCommandPayload,
   AppConfig,
@@ -16,6 +17,7 @@ import type {
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
@@ -27,6 +29,7 @@ import type {
   LlmStatus,
   MaybeAutoTitleResult,
   PlannerProgress,
+  PythonInterpreterListItem,
   TtsStreamPacket,
   Workspace,
   WorkspaceContextSyncExtras,
@@ -135,6 +138,69 @@ export interface ConversationWorkspaceChangedMessage {
   workspacePath: string;
 }
 
+export interface LspEditorIRangePayload {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+
+export interface LspEditorLocationPayload {
+  relativePath: string;
+  range: LspEditorIRangePayload;
+}
+
+export interface LspEditorDocumentSymbolPayload {
+  name: string;
+  kind?: number;
+  detail?: string;
+  range: LspEditorIRangePayload;
+  selectionRange: LspEditorIRangePayload;
+  children?: LspEditorDocumentSymbolPayload[];
+}
+
+export interface LspEditorFlatSymbolPayload {
+  name: string;
+  kind?: number;
+  containerName?: string;
+  relativePath: string;
+  range: LspEditorIRangePayload;
+}
+
+export interface LspEditorTextEditPayload {
+  range: LspEditorIRangePayload;
+  newText: string;
+}
+
+export interface LspEditorCompletionItemPayload {
+  label: string;
+  kind?: number;
+  detail?: string;
+  documentation?: string | { value: string; isTrusted?: boolean };
+  filterText?: string;
+  sortText?: string;
+  insertText?: string;
+  insertTextFormat?: number;
+  textEdit?: LspEditorTextEditPayload;
+  additionalTextEdits?: LspEditorTextEditPayload[];
+}
+
+export interface LspWorkspaceEditPayload {
+  changes: Record<string, LspEditorTextEditPayload[]>;
+}
+
+export interface LspSemanticTokensLegendPayload {
+  tokenTypes: string[];
+  tokenModifiers: string[];
+  supported: boolean;
+}
+
+export interface LspSemanticTokensFullPayload {
+  legend: { tokenTypes: string[]; tokenModifiers: string[] };
+  data: number[];
+  resultId: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ElectronService {
   private static ttsPacketListenerWired = false;
@@ -205,6 +271,38 @@ export class ElectronService {
   readonly ttsStream$: Observable<TtsStreamPacket> = this.ttsStreamSubject.asObservable();
   readonly healthLogRecord$ = this.healthLogRecordSubject.asObservable();
 
+  /** Coalesce high-frequency chat/tool stream IPC within one animation frame (ordering preserved). */
+  private streamBatchQueue: StreamBatchItem[] = [];
+  private streamBatchRaf: number | null = null;
+
+  private enqueueStreamBatchItem(item: StreamBatchItem): void {
+    this.streamBatchQueue.push(item);
+    if (this.streamBatchRaf != null) {
+      return;
+    }
+    this.streamBatchRaf = requestAnimationFrame(() => this.flushStreamBatch());
+  }
+
+  private flushStreamBatch(): void {
+    this.streamBatchRaf = null;
+    const raw = this.streamBatchQueue;
+    this.streamBatchQueue = [];
+    const merged = mergeStreamBatchQueue(raw);
+    this.zone.run(() => {
+      for (const item of merged) {
+        if (item.kind === 'chunk') {
+          this.chunkSubject.next(item.msg);
+        } else if (item.kind === 'toolRead') {
+          this.toolReadChunkSubject.next(item.msg);
+        } else if (item.kind === 'toolExec') {
+          this.toolExecChunkSubject.next(item.msg);
+        } else {
+          this.toolExecCompleteSubject.next(item.msg);
+        }
+      }
+    });
+  }
+
   private get api(): ElectronAPI | undefined {
     return window.electronAPI;
   }
@@ -215,25 +313,29 @@ export class ElectronService {
 
   constructor(private zone: NgZone) {
     this.api?.onMessageChunk((_event, conversationId, delta, streamTag) => {
-      this.zone.run(() => this.chunkSubject.next({ conversationId, delta, streamTag }));
+      this.enqueueStreamBatchItem({ kind: 'chunk', msg: { conversationId, delta, streamTag } });
     });
     this.api?.onMessageToolReadChunk((_event, conversationId, delta) => {
-      this.zone.run(() => this.toolReadChunkSubject.next({ conversationId, delta }));
+      this.enqueueStreamBatchItem({ kind: 'toolRead', msg: { conversationId, delta } });
     });
     this.api?.onMessageToolExecChunk?.((_event, conversationId, delta, streamTag, label) => {
-      this.zone.run(() => this.toolExecChunkSubject.next({ conversationId, delta, streamTag, label }));
+      this.enqueueStreamBatchItem({
+        kind: 'toolExec',
+        msg: { conversationId, delta, streamTag, label },
+      });
     });
     this.api?.onMessageToolExecComplete?.(
       (_event, conversationId, streamTag, label, exitCode, outputExcerpt) => {
-        this.zone.run(() =>
-          this.toolExecCompleteSubject.next({
+        this.enqueueStreamBatchItem({
+          kind: 'toolExecComplete',
+          msg: {
             conversationId,
             streamTag,
             label,
             exitCode,
             outputExcerpt,
-          }),
-        );
+          },
+        });
       },
     );
     this.api?.onMessageDone((_event, conversationId) => {
@@ -535,12 +637,12 @@ export class ElectronService {
     return this.api?.getCurrentWorkspace() ?? Promise.resolve(null);
   }
 
-  async startTtsStreamRequest(text: string, voice: string, seq: number): Promise<void> {
-    await (this.api?.startTtsStream(text, voice, seq) ?? Promise.resolve({ ok: true }));
+  async startTtsStreamRequest(text: string, voice: string, speed: number, seq: number): Promise<void> {
+    await (this.api?.startTtsStream(text, voice, speed, seq) ?? Promise.resolve({ ok: true }));
   }
 
-  registerTtsStreamUrl(text: string, voice: string): Promise<{ url: string }> {
-    return this.api?.registerTtsStreamUrl(text, voice) ?? Promise.resolve({ url: '' });
+  registerTtsStreamUrl(text: string, voice: string, speed: number): Promise<{ url: string }> {
+    return this.api?.registerTtsStreamUrl(text, voice, speed) ?? Promise.resolve({ url: '' });
   }
 
   abortTtsStream(): void {
@@ -570,6 +672,39 @@ export class ElectronService {
     extras?: WorkspaceContextSyncExtras,
   ): Promise<void> {
     await (this.api?.setWorkspaceContext?.(sessionId, workspacePath, workspaceContext, extras) ?? Promise.resolve());
+  }
+
+  listPythonInterpreters(
+    sessionId: string,
+  ): Promise<
+    | { ok: true; interpreters: PythonInterpreterListItem[]; activeInterpreterId: string | null }
+    | {
+        ok: false;
+        error: string;
+        interpreters: PythonInterpreterListItem[];
+        activeInterpreterId: string | null;
+      }
+  > {
+    return (
+      this.api?.listPythonInterpreters?.(sessionId) ??
+      Promise.resolve({
+        ok: false as const,
+        error: 'API not available',
+        interpreters: [],
+        activeInterpreterId: null,
+      })
+    );
+  }
+
+  applyWorkspacePythonInterpreter(payload: {
+    workspaceId: string;
+    sessionId: string;
+    interpreterId: string;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.applyWorkspacePythonInterpreter?.(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
   }
 
   setConversationTheme(id: string, themeId: string): Promise<void> {
@@ -716,6 +851,161 @@ export class ElectronService {
 
   healthMetrics(): Promise<HealthMetricsSnapshot | null> {
     return this.api?.healthMetrics() ?? Promise.resolve(null);
+  }
+
+  getLspDashboardStatus(
+    sessionId: string,
+  ): Promise<{ ok: true; status: LspDashboardStatus } | { ok: false; error: string }> {
+    return (
+      this.api?.getLspDashboardStatus?.(sessionId) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  /** Starts LSP if needed and opens/syncs the file from disk (Python ``/lsp/diagnostics`` warm path). */
+  warmLspForActiveFile(
+    sessionId: string,
+    relativePath: string,
+    encoding?: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.warmLspForActiveFile?.(sessionId, relativePath, encoding) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  /** Workspace Monaco hover via Python ``POST /lsp/hover`` (1-based line/column). */
+  lspEditorHover(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+  ): Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorHover?.(sessionId, relativePath, line, character, documentText) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorDefinition(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+  ): Promise<
+    | { ok: true; locations: LspEditorLocationPayload[] }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorDefinition?.(sessionId, relativePath, line, character, documentText) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorReferences(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    includeDeclaration: boolean,
+  ): Promise<
+    | { ok: true; locations: LspEditorLocationPayload[] }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorReferences?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        documentText,
+        includeDeclaration,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorDocumentSymbols(
+    sessionId: string,
+    relativePath: string,
+    documentText: string,
+  ): Promise<
+    | {
+        ok: true;
+        hierarchical: LspEditorDocumentSymbolPayload[];
+        flat: LspEditorFlatSymbolPayload[];
+      }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorDocumentSymbols?.(sessionId, relativePath, documentText) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorCompletion(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    triggerKind: number,
+    triggerCharacter: string | null,
+  ): Promise<
+    | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[] }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorCompletion?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        documentText,
+        triggerKind,
+        triggerCharacter,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorRename(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    newName: string,
+  ): Promise<
+    | { ok: true; workspaceEdit: LspWorkspaceEditPayload | null }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorRename?.(sessionId, relativePath, line, character, documentText, newName) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorSemanticTokensLegend(
+    sessionId: string,
+    server: 'python' | 'typescript',
+  ): Promise<{ ok: true; legend: LspSemanticTokensLegendPayload } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorSemanticTokensLegend?.(sessionId, server) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorSemanticTokensFull(
+    sessionId: string,
+    relativePath: string,
+    documentText: string,
+  ): Promise<{ ok: true; payload: LspSemanticTokensFullPayload } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorSemanticTokensFull?.(sessionId, relativePath, documentText) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
   }
 
   healthLogsRecent(limit: number): Promise<HealthLogRecord[]> {

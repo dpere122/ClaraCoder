@@ -13,7 +13,7 @@ FastAPI service used by the Nemo / Clara Electron app. It runs a LangChain agent
 - **Sessions** — `POST /clear`, `POST /load`, and `POST /workspace-context` sync chat history and workspace metadata from the renderer.
 - **Runtime config (`POST /runtime-config`)** — LLM connections, active connection, transcription provider, and optional host OS hints for the system prompt.
 - **Transcription (`POST /transcribe`)** — WAV upload; **OpenAI** speech API, **Google Web Speech** (no key, network required), or **disabled**.
-- **TTS (`POST /tts`)** — Streams MPEG audio via **edge-tts**.
+- **TTS (`POST /tts`)** — Streams **WAV** audio from local **[Kokoro-82M](https://pypi.org/project/kokoro/)** (`kokoro` package). Requires PyTorch and related deps from `requirements.txt`. For English OOD fallback, install **espeak-ng** (see Kokoro README; Windows users can use the espeak-ng MSI).
 - **Health (`GET /health`)** — Process liveness and current model id.
 
 ## Setup
@@ -161,4 +161,4 @@ Inside the nested planning flow, staged code review no longer runs pytest. Final
 
 ## Dependencies
 
-See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, edge-tts, SpeechRecognition, diff-match-patch, pypdf, Black, Jedi Language Server.
+See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, kokoro (+ torch), soundfile, SpeechRecognition, diff-match-patch, pypdf, pillow, Black, Jedi Language Server.

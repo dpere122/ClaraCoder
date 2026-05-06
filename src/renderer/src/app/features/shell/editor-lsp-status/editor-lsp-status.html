@@ -1,0 +1,14 @@
+@if (electron.isElectron) {
+  <div
+    class="editor-lsp-status"
+    [class.editor-lsp-status--ok]="vm().tone === 'ok'"
+    [class.editor-lsp-status--warn]="vm().tone === 'warn'"
+    [class.editor-lsp-status--error]="vm().tone === 'error'"
+    [class.editor-lsp-status--muted]="vm().tone === 'muted'"
+    [class.editor-lsp-status--pending]="vm().tone === 'pending'"
+    [attr.title]="vm().title"
+    role="status"
+  >
+    <span class="editor-lsp-status__label">{{ vm().text }}</span>
+  </div>
+}

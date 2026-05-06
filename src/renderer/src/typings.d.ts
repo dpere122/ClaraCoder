@@ -5,12 +5,12 @@ import type {
   CopyConfirmPayload,
   Conversation,
   ConversationMeta,
-  MaybeAutoTitleResult,
   DeleteConfirmPayload,
   FileDiffPayload,
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
@@ -20,13 +20,24 @@ import type {
   LlmStatus,
   LmStudioListModelsResult,
   LmStudioMutationResult,
+  MaybeAutoTitleResult,
   PlannerProgress,
+  PythonInterpreterListItem,
   TtsStreamPacket,
   Workspace,
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
 } from '../../shared/index';
+import type {
+  LspEditorCompletionItemPayload,
+  LspEditorDocumentSymbolPayload,
+  LspEditorFlatSymbolPayload,
+  LspEditorLocationPayload,
+  LspSemanticTokensFullPayload,
+  LspSemanticTokensLegendPayload,
+  LspWorkspaceEditPayload,
+} from './app/core/electron.service';
 
 export {};
 
@@ -147,8 +158,8 @@ declare global {
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
     maybeAutoTitleConversation: (id: string) => Promise<MaybeAutoTitleResult>;
     newConversation: (workspaceId: string | null) => Promise<Conversation>;
-    startTtsStream: (text: string, voice: string, seq: number) => Promise<{ ok: boolean }>;
-    registerTtsStreamUrl: (text: string, voice: string) => Promise<{ url: string }>;
+    startTtsStream: (text: string, voice: string, speed: number, seq: number) => Promise<{ ok: boolean }>;
+    registerTtsStreamUrl: (text: string, voice: string, speed: number) => Promise<{ url: string }>;
     abortTtsStream: () => Promise<{ ok: boolean }>;
     onTtsStreamPacket: (callback: (packet: TtsStreamPacket) => void) => void;
     transcribe: (audio: ArrayBuffer) => Promise<string>;
@@ -254,8 +265,95 @@ declare global {
       workspaceContext: string,
       extras?: WorkspaceContextSyncExtras,
     ) => Promise<void>;
+    listPythonInterpreters?: (
+      sessionId: string,
+    ) => Promise<
+      | { ok: true; interpreters: PythonInterpreterListItem[]; activeInterpreterId: string | null }
+      | {
+          ok: false;
+          error: string;
+          interpreters: PythonInterpreterListItem[];
+          activeInterpreterId: string | null;
+        }
+    >;
+    applyWorkspacePythonInterpreter?: (payload: {
+      workspaceId: string;
+      sessionId: string;
+      interpreterId: string;
+    }) => Promise<{ ok: true } | { ok: false; error: string }>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
+    getLspDashboardStatus: (
+      sessionId: string,
+    ) => Promise<{ ok: true; status: LspDashboardStatus } | { ok: false; error: string }>;
+    warmLspForActiveFile?: (
+      sessionId: string,
+      relativePath: string,
+      encoding?: string,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+    lspEditorHover?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+    ) => Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }>;
+    lspEditorDefinition?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+    ) => Promise<{ ok: true; locations: LspEditorLocationPayload[] } | { ok: false; error: string }>;
+    lspEditorReferences?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+      includeDeclaration: boolean,
+    ) => Promise<{ ok: true; locations: LspEditorLocationPayload[] } | { ok: false; error: string }>;
+    lspEditorDocumentSymbols?: (
+      sessionId: string,
+      relativePath: string,
+      documentText: string,
+    ) => Promise<
+      | {
+          ok: true;
+          hierarchical: LspEditorDocumentSymbolPayload[];
+          flat: LspEditorFlatSymbolPayload[];
+        }
+      | { ok: false; error: string }
+    >;
+    lspEditorCompletion?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+      triggerKind: number,
+      triggerCharacter: string | null,
+    ) => Promise<
+      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[] }
+      | { ok: false; error: string }
+    >;
+    lspEditorRename?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+      newName: string,
+    ) => Promise<{ ok: true; workspaceEdit: LspWorkspaceEditPayload | null } | { ok: false; error: string }>;
+    lspEditorSemanticTokensLegend?: (
+      sessionId: string,
+      server: 'python' | 'typescript',
+    ) => Promise<{ ok: true; legend: LspSemanticTokensLegendPayload } | { ok: false; error: string }>;
+    lspEditorSemanticTokensFull?: (
+      sessionId: string,
+      relativePath: string,
+      documentText: string,
+    ) => Promise<{ ok: true; payload: LspSemanticTokensFullPayload } | { ok: false; error: string }>;
     healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
     healthSetLogLevel: (level: string) => Promise<{ ok: boolean }>;
     healthLogsSubscribe: () => void;

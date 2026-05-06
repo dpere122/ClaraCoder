@@ -94,6 +94,56 @@ app-workspace .file-tree {
   overflow-y: auto;
 }
 
+app-workspace .workspace-interpreter-footer {
+  flex-shrink: 0;
+  padding: 0.55rem 0.6rem 0.45rem;
+  border-top: 1px solid var(--t-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+app-workspace .workspace-interpreter-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--t-text-muted);
+}
+
+app-workspace .workspace-interpreter-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.6rem;
+  background: var(--t-bg);
+  border: 1px solid var(--t-border);
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+}
+
+app-workspace .workspace-interpreter-select:focus {
+  border-color: var(--t-primary);
+}
+
+app-workspace .workspace-interpreter-select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+app-workspace .workspace-interpreter-select option {
+  background: var(--t-bg-deep);
+  color: var(--t-primary);
+}
+
+app-workspace .workspace-interpreter-error {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--t-danger, #c44);
+}
+
 app-workspace .workspace-theme-footer {
   flex-shrink: 0;
   padding: 0.55rem 0.6rem 0;

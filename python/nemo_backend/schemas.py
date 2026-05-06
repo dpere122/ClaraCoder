@@ -131,13 +131,37 @@ class WorkspaceContextRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices('workspace_file_changes', 'workspaceFileChanges'),
     )
+    python_interpreter_id: str = Field(
+        default='',
+        validation_alias=AliasChoices('python_interpreter_id', 'pythonInterpreterId'),
+    )
+
+
+class PythonInterpreterSelectRequest(BaseModel):
+    """Apply a discovered Python interpreter for LSP and workspace tools."""
+
+    session_id: str
+    interpreter_id: str = Field(validation_alias=AliasChoices('interpreter_id', 'interpreterId'))
 
 
 class TtsRequest(BaseModel):
-    """Body for POST /tts: text and Edge TTS voice name."""
+    """Body for POST /tts: text, Kokoro voice id, and speech speed."""
 
     text: str
-    voice: str
+    voice: str = Field(default='af_heart', min_length=2, max_length=48)
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        validation_alias=AliasChoices('speed', 'speechSpeed'),
+    )
+
+    @field_validator('text')
+    @classmethod
+    def _tts_text_nonempty(cls, v: str) -> str:
+        if not (v or '').strip():
+            raise ValueError('text must not be empty')
+        return v
 
 
 class RuntimeConnectionRequest(BaseModel):

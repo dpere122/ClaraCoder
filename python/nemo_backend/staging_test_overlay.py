@@ -18,6 +18,7 @@ from nemo_backend.edit_staging import (
     get_active_planner_snapshot_root,
     get_staging_root,
 )
+from nemo_backend.lsp.typescript_project_root import package_node_modules_link_rels
 from nemo_backend.workspace_text_io import DiskNewline, write_file_resolved
 
 if TYPE_CHECKING:
@@ -157,7 +158,8 @@ def build_staging_workspace_overlay(
         copy_workspace_mirror(content_root, overlay_root, rules_workspace=ws)
         ordered: list[str] = []
         seen: set[str] = set()
-        for rel in (*_DEFAULT_LINK_RELS, *(extra_dependency_rels or ())):
+        auto_nm = package_node_modules_link_rels(ws)
+        for rel in (*_DEFAULT_LINK_RELS, *auto_nm, *(extra_dependency_rels or ())):
             rel_clean = rel.strip().replace('\\', '/').strip('/')
             if not rel_clean or rel_clean in seen:
                 continue

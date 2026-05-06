@@ -19,9 +19,8 @@ import type { DiffRow, DiffReviewStatus, FileDiffPayload } from '@shared/index';
 import hljs from 'highlight.js';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { ElectronService } from '../../../core/electron.service';
 import { LucideAngularModule } from 'lucide-angular';
-import { changeHunkOrderFromRows, rebuildFileWithAcceptedHunks } from '../diff-rebuild';
+import { PendingDiffReviewService } from '../pending-diff-review.service';
 
 type DiffListItem = { t: 'h'; hunkIndex: number } | { t: 'r'; row: DiffRow };
 
@@ -49,20 +48,21 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     summary?: string;
   }>();
 
-  private readonly electron = inject(ElectronService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly pendingDiff = inject(PendingDiffReviewService);
 
   readonly searchQuery = signal('');
   /** Full-screen overlay for the pending diff (toolbar “Expand”). */
   readonly diffExpanded = signal(false);
   readonly collapsedHunks = signal<Set<number>>(new Set());
-  readonly applying = signal(false);
   readonly applyMessage = signal('');
   readonly stacked = signal(typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches);
-  readonly acceptedHunks = signal<Set<number>>(new Set());
-  readonly skippedHunks = signal<Set<number>>(new Set());
-  private agentContinueSent = false;
-  private payloadEffectSig = '';
+
+  /** Shared with Monaco: same proposal identity shares accept/skip progress. */
+  private readonly session = computed(() => this.pendingDiff.sessionFor(this.payload()));
+  readonly acceptedHunks = computed(() => this.session().accepted());
+  readonly skippedHunks = computed(() => this.session().skipped());
+  readonly applying = computed(() => this.session().applying());
 
   readonly leftVp = viewChild<CdkVirtualScrollViewport>('leftVp');
   readonly rightVp = viewChild<CdkVirtualScrollViewport>('rightVp');
@@ -73,30 +73,28 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   /** Invalidates in-flight scroll retries when a newer scroll is scheduled. */
   private scrollGeneration = 0;
   private lastPayloadSigForScroll = '';
+  private lastPayloadKeyForExpand = '';
   private readonly destroy$ = new Subject<void>();
+  private stackedMediaQuery: MediaQueryList | null = null;
+  private readonly onStackedMediaChange = (): void => {
+    if (this.stackedMediaQuery) {
+      this.stacked.set(this.stackedMediaQuery.matches);
+    }
+  };
 
-  readonly changeHunkOrder = computed(() => changeHunkOrderFromRows(this.payload().rows));
+  readonly changeHunkOrder = computed(() => this.pendingDiff.changeHunkOrder(this.payload()));
 
   /** Code-review staged file awaiting human gate before writing the real workspace. */
   readonly isStagedTransferHitl = computed(() => !!this.payload().stagedTransferHitl);
 
-  readonly incrementalOk = computed(() => {
-    if (this.isStagedTransferHitl()) {
-      return false;
-    }
-    return !this.payload().truncated && this.payload().rows.length > 0;
-  });
+  readonly incrementalOk = computed(() => this.pendingDiff.incrementalOk(this.payload()));
 
   /** Optional feedback when returning a staged transfer to the review / writer path. */
   readonly reReviewFeedback = signal('');
 
-  readonly currentFocusHunk = computed((): number | null => {
-    const order = this.changeHunkOrder();
-    const acc = this.acceptedHunks();
-    const sk = this.skippedHunks();
-    const next = order.find((h) => !acc.has(h) && !sk.has(h));
-    return next ?? null;
-  });
+  readonly currentFocusHunk = computed((): number | null =>
+    this.pendingDiff.currentFocusHunk(this.payload(), this.acceptedHunks(), this.skippedHunks()),
+  );
 
   readonly changeProgressLabel = computed(() => {
     const order = this.changeHunkOrder();
@@ -147,13 +145,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     });
 
     effect(() => {
-      const p = this.payload();
-      const sig = `${p.relativePath}|${p.baseSha256 ?? ''}|${p.rows.length}|${p.fullNewContent.length}`;
-      if (sig !== this.payloadEffectSig) {
-        this.payloadEffectSig = sig;
-        this.acceptedHunks.set(new Set());
-        this.skippedHunks.set(new Set());
-        this.agentContinueSent = false;
+      const key = this.pendingDiff.sessionKey(this.payload());
+      if (key !== this.lastPayloadKeyForExpand) {
+        this.lastPayloadKeyForExpand = key;
         this.diffExpanded.set(false);
       }
     });
@@ -192,8 +186,8 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     });
 
     if (typeof window !== 'undefined') {
-      const mq = window.matchMedia('(max-width: 900px)');
-      mq.addEventListener('change', () => this.stacked.set(mq.matches));
+      this.stackedMediaQuery = window.matchMedia('(max-width: 900px)');
+      this.stackedMediaQuery.addEventListener('change', this.onStackedMediaChange);
     }
   }
 
@@ -208,6 +202,8 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.stackedMediaQuery?.removeEventListener('change', this.onStackedMediaChange);
+    this.stackedMediaQuery = null;
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -386,250 +382,67 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     await this.copyText(text);
   }
 
-  private async writeWorkspace(content: string): Promise<boolean> {
-    const ws = await this.electron.getCurrentWorkspace();
-    if (!ws?.path) {
-      this.flashMessage('No workspace open.', 3000);
-      return false;
-    }
-    const p = this.payload();
-    const encoding = p.diskEncoding ?? 'utf-8';
-    const newline = p.diskNewline === 'crlf' ? 'crlf' : 'lf';
-    const res = await this.electron.writeWorkspaceFile(ws.path, p.relativePath, content, {
-      encoding,
-      newline,
-    });
-    if (!res.ok) {
-      this.flashMessage(res.error ?? 'Write failed.', 4000);
-      return false;
-    }
-    return true;
-  }
-
-  private async resumeAgent(
-    note: string,
-    stagedTransferAction?: 'confirm' | 're_review',
-  ): Promise<boolean> {
-    const id = this.conversationId();
-    if (!id?.trim()) {
-      this.flashMessage('No conversation id.', 3000);
-      return false;
-    }
-    const res = await this.electron.notifyAgentContinue(
-      id,
-      note,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      stagedTransferAction,
-    );
-    if (!res.ok) {
-      this.flashMessage(res.error ?? 'Could not resume assistant.', 5000);
-      return false;
-    }
-    return true;
-  }
-
-  private async finishReview(
-    status: 'complete' | 'cancelled',
-    summary: string,
-    note: string,
-    stagedTransferAction?: 'confirm' | 're_review',
-  ): Promise<void> {
-    if (this.agentContinueSent) return;
-    this.agentContinueSent = true;
-    const ok = await this.resumeAgent(note, stagedTransferAction);
-    if (!ok) {
-      this.agentContinueSent = false;
-      return;
-    }
-    this.diffReviewFinished.emit({
-      relativePath: this.payload().relativePath,
-      status,
-      summary,
-    });
-  }
-
-  private async maybeCompleteReview(): Promise<void> {
-    if (this.agentContinueSent) return;
-    const order = this.changeHunkOrder();
-    const acc = this.acceptedHunks();
-    const sk = this.skippedHunks();
-    if (!order.every((h) => acc.has(h) || sk.has(h))) return;
-
-    const path = this.payload().relativePath;
-    const allSkipped = order.length > 0 && order.every((h) => sk.has(h));
-
-    let msg: string;
-    let summary: string;
-    if (allSkipped) {
-      summary = 'All changes skipped';
-      msg = [
-        'The user skipped all proposed edits for file',
-        `\`${path}\`.`,
-        'Please continue from here.',
-      ].join(' ');
-    } else {
-      summary = 'Complete';
-      msg = [
-        'I finished reviewing the proposed edit for file',
-        `\`${path}\`.`,
-        'The workspace file on disk reflects the accepted changes. Please continue from here.',
-      ].join(' ');
-    }
-    this.flashMessage('Review complete. Resuming assistant…', 3500);
-    await this.finishReview('complete', summary, msg);
-  }
+  private readonly finishEmit = (e: {
+    relativePath: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }): void => {
+    this.diffReviewFinished.emit(e);
+  };
 
   async acceptCurrentChange(): Promise<void> {
-    if (this.applying()) return;
-    const order = this.changeHunkOrder();
-    const focus = this.currentFocusHunk();
-    if (!this.incrementalOk()) {
-      await this.applyAllAtOnce();
-      return;
-    }
-    if (focus == null) {
-      await this.applyAllAtOnce();
-      return;
-    }
-
-    this.applying.set(true);
-    this.applyMessage.set('');
-    try {
-      const next = new Set(this.acceptedHunks());
-      next.add(focus);
-      const body = rebuildFileWithAcceptedHunks(this.payload().rows, next);
-      const ok = await this.writeWorkspace(body);
-      if (!ok) return;
-
-      this.acceptedHunks.set(next);
-
-      const sk = this.skippedHunks();
-      const allResolved = order.every((h) => next.has(h) || sk.has(h));
-      if (allResolved) {
-        const p = this.payload();
-        const allSk = order.every((h) => sk.has(h));
-        if (!allSk && body !== p.fullNewContent) {
-          const fix = await this.writeWorkspace(p.fullNewContent);
-          if (!fix) return;
-        }
-        await this.maybeCompleteReview();
-      } else {
-        this.flashMessage('Saved. Next change highlighted.', 2200);
-      }
-    } finally {
-      this.applying.set(false);
-    }
+    await this.pendingDiff.acceptCurrentChange(
+      this.payload(),
+      this.conversationId(),
+      (msg, ms) => this.flashMessage(msg, ms),
+      this.finishEmit,
+    );
   }
 
   async skipCurrentChange(): Promise<void> {
-    if (this.applying()) return;
-    const order = this.changeHunkOrder();
-    const focus = this.currentFocusHunk();
-    if (!this.incrementalOk() || focus == null) return;
-
-    this.applying.set(true);
-    this.applyMessage.set('');
-    try {
-      const sk = new Set(this.skippedHunks());
-      sk.add(focus);
-      this.skippedHunks.set(sk);
-
-      const acc = this.acceptedHunks();
-      const body = rebuildFileWithAcceptedHunks(this.payload().rows, acc);
-      const ok = await this.writeWorkspace(body);
-      if (!ok) {
-        sk.delete(focus);
-        this.skippedHunks.set(sk);
-        return;
-      }
-
-      const allResolved = order.every((h) => acc.has(h) || sk.has(h));
-      if (allResolved) {
-        const p = this.payload();
-        const allSk = order.every((h) => sk.has(h));
-        if (!allSk && body !== p.fullNewContent) {
-          const fix = await this.writeWorkspace(p.fullNewContent);
-          if (!fix) return;
-        }
-        await this.maybeCompleteReview();
-      } else {
-        this.flashMessage('Skipped. Next change highlighted.', 2200);
-      }
-    } finally {
-      this.applying.set(false);
-    }
+    await this.pendingDiff.skipCurrentChange(
+      this.payload(),
+      this.conversationId(),
+      (msg, ms) => this.flashMessage(msg, ms),
+      this.finishEmit,
+    );
   }
 
   async approveStagedTransferHitl(): Promise<void> {
-    if (this.applying() || this.agentContinueSent) return;
-    this.applying.set(true);
-    this.applyMessage.set('');
-    try {
-      this.flashMessage('Approving workspace transfer…', 3500);
-      await this.finishReview('complete', 'Workspace transfer approved', '', 'confirm');
-    } finally {
-      this.applying.set(false);
-    }
+    await this.pendingDiff.approveStagedTransferHitl(
+      this.payload(),
+      this.conversationId(),
+      (msg, ms) => this.flashMessage(msg, ms),
+      this.finishEmit,
+    );
   }
 
   async returnStagedTransferForReReview(): Promise<void> {
-    if (this.applying() || this.agentContinueSent) return;
-    this.applying.set(true);
-    this.applyMessage.set('');
-    try {
-      const fb = this.reReviewFeedback().trim();
-      this.flashMessage('Returning for re-review…', 3500);
-      await this.finishReview('cancelled', 'Returned for re-review', fb || '(no details)', 're_review');
-    } finally {
-      this.applying.set(false);
-    }
+    await this.pendingDiff.returnStagedTransferForReReview(
+      this.payload(),
+      this.conversationId(),
+      this.reReviewFeedback(),
+      (msg, ms) => this.flashMessage(msg, ms),
+      this.finishEmit,
+    );
   }
 
   async applyAllAtOnce(): Promise<void> {
-    if (this.applying()) return;
-    if (this.isStagedTransferHitl()) {
-      await this.approveStagedTransferHitl();
-      return;
-    }
-    this.applying.set(true);
-    this.applyMessage.set('');
-    try {
-      const ok = await this.writeWorkspace(this.payload().fullNewContent);
-      if (!ok) return;
-      const order = this.changeHunkOrder();
-      this.acceptedHunks.set(new Set(order));
-      this.skippedHunks.set(new Set());
-      await this.maybeCompleteReview();
-    } finally {
-      this.applying.set(false);
-    }
+    await this.pendingDiff.applyAllAtOnce(
+      this.payload(),
+      this.conversationId(),
+      (msg, ms) => this.flashMessage(msg, ms),
+      this.finishEmit,
+    );
   }
 
   async cancelProposal(): Promise<void> {
-    if (this.applying() || this.agentContinueSent) return;
-    if (this.isStagedTransferHitl()) {
-      this.flashMessage('Returning for re-review…', 3500);
-      await this.finishReview(
-        'cancelled',
-        'Returned for re-review',
-        '(user dismissed the transfer card without approving)',
-        're_review',
-      );
-      return;
-    }
-    const path = this.payload().relativePath;
-    const msg = [
-      'The user cancelled applying the proposed edits for file',
-      `\`${path}\`.`,
-      'Those edits were not applied. Please continue from here.',
-    ].join(' ');
-    this.flashMessage('Cancelled. Resuming assistant…', 3500);
-    await this.finishReview('cancelled', 'Cancelled', msg);
+    await this.pendingDiff.cancelProposal(
+      this.payload(),
+      this.conversationId(),
+      (msg, ms) => this.flashMessage(msg, ms),
+      this.finishEmit,
+    );
   }
 
   @HostListener('keydown', ['$event'])

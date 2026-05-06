@@ -1,9 +1,13 @@
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import {
   afterNextRender,
   Component,
+  computed,
   DestroyRef,
   effect,
   ElementRef,
+  HostListener,
   inject,
   input,
   NgZone,
@@ -14,11 +18,19 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type * as Monaco from 'monaco-editor';
-import type { MonacoWorkspaceEditorSettings, WorkspaceFilesChangedMessage } from '@shared/index';
+import {
+  lspServerKindForWorkspaceRelativePath,
+  type FileDiffPayload,
+  type MonacoWorkspaceEditorSettings,
+  type WorkspaceFilesChangedMessage,
+} from '@shared/index';
 import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { PendingDiffReviewService } from '../../diff/pending-diff-review.service';
+import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
+import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript',
@@ -72,6 +84,7 @@ const EXT_TO_LANG: Record<string, string> = {
 @Component({
   selector: 'app-workspace-monaco',
   standalone: true,
+  imports: [CommonModule, FormsModule],
   templateUrl: './workspace-monaco.html',
   styleUrl: './workspace-monaco.css',
 })
@@ -79,6 +92,7 @@ export class WorkspaceMonacoComponent {
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
+  private readonly pendingDiffReview = inject(PendingDiffReviewService);
 
   /** Absolute workspace root (empty when none). */
   readonly workspacePath = input<string>('');
@@ -88,24 +102,74 @@ export class WorkspaceMonacoComponent {
   readonly openFileRelativePaths = input<readonly string[]>([]);
   /** Persisted Monaco options from app config (optional until loaded). */
   readonly editorSettings = input<MonacoWorkspaceEditorSettings | null | undefined>(undefined);
+  /** Pending diff for this path from the shell (same artifact as chat review). */
+  readonly pendingDiffPayload = input<FileDiffPayload | null>(null);
+  readonly conversationId = input<string | null>(null);
+  /** After cross-file go-to-definition: reveal cursor once this path is the active editor model. */
+  readonly pendingEditorReveal = input<{ relativePath: string; line: number; column: number } | null>(null);
 
   /** Relative paths whose buffer differs from the last disk-synced version (unsaved). */
   readonly unsavedPathsChange = output<readonly string[]>();
+  readonly diffReviewFinished = output<{
+    relativePath: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  /** Cross-file definition navigation (shell opens/focuses tab; optional reveal via {@link pendingEditorReveal}). */
+  readonly navigateWorkspaceFile = output<{ relativePath: string; line: number; column: number }>();
+  readonly pendingEditorRevealHandled = output<void>();
 
   protected readonly loadError = signal('');
+  protected readonly applyMessage = signal('');
+  /** Notes when returning a staged transfer for re-review (matches chat diff card). */
+  protected readonly reReviewFeedback = signal('');
+  /** Block inline diff until the buffer matches disk (policy: save or revert first). */
+  protected readonly pendingDiffBlockedByDirty = computed(() => {
+    const pending = this.pendingDiffPayload();
+    const rel = this.relativePath()?.trim();
+    if (!pending || !rel?.trim()) {
+      return false;
+    }
+    if (normalizePathSlashes(pending.relativePath) !== normalizePathSlashes(rel)) {
+      return false;
+    }
+    const key = normalizePathSlashes(rel);
+    const model = this.modelByPath.get(key);
+    const synced = this.diskSyncedAltVersionByPath.get(key);
+    return !!(model && synced !== undefined && model.getAlternativeVersionId() !== synced);
+  });
+
+  protected readonly monacoDiffActive = computed(() => {
+    const pending = this.pendingDiffPayload();
+    const rel = this.relativePath()?.trim();
+    if (!pending || !rel?.trim()) {
+      return false;
+    }
+    if (normalizePathSlashes(pending.relativePath) !== normalizePathSlashes(rel)) {
+      return false;
+    }
+    return !this.pendingDiffBlockedByDirty();
+  });
 
   private readonly editorHost = viewChild.required<ElementRef<HTMLElement>>('editorHost');
+  private readonly diffHost = viewChild.required<ElementRef<HTMLElement>>('diffHost');
 
   private monaco: typeof Monaco | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+  private diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
+  private diffOriginalModel: Monaco.editor.ITextModel | null = null;
+  private diffModifiedModel: Monaco.editor.ITextModel | null = null;
+  /** Matches {@link PendingDiffReviewService.sessionKey} for the mounted diff surface. */
+  private diffMountedPayloadKey = '';
+
   private readonly editorReady = signal(false);
-  /** After app theme switches, Monaco can keep stale font/layout metrics (broken mouse hit-testing); refresh when `:root` tokens change. */
   private uiThemeObserver: MutationObserver | null = null;
   private themeRefreshRaf: number | null = null;
   private readonly modelByPath = new Map<string, Monaco.editor.ITextModel>();
-  /** `getAlternativeVersionId()` after last load from disk or successful save; used to skip reload when the buffer is dirty. */
   private readonly diskSyncedAltVersionByPath = new Map<string, number>();
   private readonly modelDirtyDisposables = new Map<string, Monaco.IDisposable>();
+  private lspHoverDisposables: Monaco.IDisposable[] = [];
+  private lspLanguageDisposable: Monaco.IDisposable | null = null;
 
   constructor() {
     afterNextRender(() => void this.bootstrapEditor());
@@ -136,14 +200,29 @@ export class WorkspaceMonacoComponent {
       const rel = this.relativePath();
       const root = this.workspacePath()?.trim();
       const ready = this.editorReady();
-      if (!ready || !this.editor || !this.monaco) {
+      const diffOn = this.monacoDiffActive();
+      const pending = this.pendingDiffPayload();
+      const ed = this.editor;
+      const monacoApi = this.monaco;
+      if (!ready || !ed || !monacoApi) {
         return;
       }
       if (!rel?.trim() || !root) {
         untracked(() => this.loadError.set(''));
         return;
       }
-      void untracked(() => this.syncActiveModel(root, rel.trim()));
+      const key = normalizePathSlashes(rel.trim());
+      if (diffOn && pending) {
+        const s = this.pendingDiffReview.sessionFor(pending);
+        s.accepted();
+        s.skipped();
+        untracked(() => void this.mountOrUpdateDiffEditor(root, key, pending));
+      } else {
+        untracked(() => {
+          this.disposeDiffSurface();
+          void this.syncActiveModel(root, rel.trim());
+        });
+      }
     });
 
     effect(() => {
@@ -156,7 +235,12 @@ export class WorkspaceMonacoComponent {
       }
       const { settings } = normalizeMonacoWorkspaceEditorSettings(cfg == null ? undefined : cfg);
       untracked(() => {
-        ed.updateOptions(monacoWorkspaceSettingsToEditorOptions(settings));
+        const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
+        ed.updateOptions(mapped);
+        if (this.diffEditor) {
+          const { theme: _t, ...diffOpts } = mapped as Record<string, unknown>;
+          this.diffEditor.updateOptions(diffOpts as Monaco.editor.IDiffEditorConstructionOptions);
+        }
         if (settings.theme === 'clara-monaco') {
           this.defineClaraTheme(monacoApi);
         }
@@ -176,13 +260,41 @@ export class WorkspaceMonacoComponent {
       });
     }
 
+    effect(() => {
+      const pending = this.pendingEditorReveal();
+      const rel = this.relativePath()?.trim();
+      const ready = this.editorReady();
+      const ed = this.editor;
+      const diffOn = this.monacoDiffActive();
+      if (!pending || !rel?.trim() || !ready || !ed || diffOn) {
+        return;
+      }
+      if (normalizePathSlashes(rel) !== normalizePathSlashes(pending.relativePath)) {
+        return;
+      }
+      untracked(() => {
+        requestAnimationFrame(() => {
+          ed.setPosition({ lineNumber: pending.line, column: pending.column });
+          ed.revealLineInCenter(pending.line);
+          this.zone.run(() => this.pendingEditorRevealHandled.emit());
+        });
+      });
+    });
+
     this.destroyRef.onDestroy(() => {
+      for (const d of this.lspHoverDisposables) {
+        d.dispose();
+      }
+      this.lspHoverDisposables = [];
+      this.lspLanguageDisposable?.dispose();
+      this.lspLanguageDisposable = null;
       if (this.themeRefreshRaf != null) {
         cancelAnimationFrame(this.themeRefreshRaf);
         this.themeRefreshRaf = null;
       }
       this.uiThemeObserver?.disconnect();
       this.uiThemeObserver = null;
+      this.disposeDiffSurface();
       for (const m of this.modelByPath.values()) {
         m.dispose();
       }
@@ -194,6 +306,134 @@ export class WorkspaceMonacoComponent {
     });
   }
 
+  private readonly finishEmit = (e: {
+    relativePath: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }): void => {
+    this.diffReviewFinished.emit(e);
+  };
+
+  private flashApplyMessage(msg: string, ms: number): void {
+    this.applyMessage.set(msg);
+    setTimeout(() => this.applyMessage.set(''), ms);
+  }
+
+  protected async onAcceptCurrentChange(): Promise<void> {
+    const p = this.pendingDiffPayload();
+    if (!p) return;
+    await this.pendingDiffReview.acceptCurrentChange(
+      p,
+      this.conversationId(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.finishEmit,
+    );
+  }
+
+  protected async onSkipCurrentChange(): Promise<void> {
+    const p = this.pendingDiffPayload();
+    if (!p) return;
+    await this.pendingDiffReview.skipCurrentChange(
+      p,
+      this.conversationId(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.finishEmit,
+    );
+  }
+
+  protected async onApplyAllAtOnce(): Promise<void> {
+    const p = this.pendingDiffPayload();
+    if (!p) return;
+    await this.pendingDiffReview.applyAllAtOnce(
+      p,
+      this.conversationId(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.finishEmit,
+    );
+  }
+
+  protected async onCancelProposal(): Promise<void> {
+    const p = this.pendingDiffPayload();
+    if (!p) return;
+    await this.pendingDiffReview.cancelProposal(
+      p,
+      this.conversationId(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.finishEmit,
+    );
+  }
+
+  protected async onApproveStagedTransfer(): Promise<void> {
+    const p = this.pendingDiffPayload();
+    if (!p) return;
+    await this.pendingDiffReview.approveStagedTransferHitl(
+      p,
+      this.conversationId(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.finishEmit,
+    );
+  }
+
+  protected async onReturnStagedForReReview(): Promise<void> {
+    const p = this.pendingDiffPayload();
+    if (!p) return;
+    await this.pendingDiffReview.returnStagedTransferForReReview(
+      p,
+      this.conversationId(),
+      this.reReviewFeedback(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.finishEmit,
+    );
+  }
+
+  @HostListener('keydown', ['$event'])
+  protected onKeydown(ev: KeyboardEvent): void {
+    if (!this.monacoDiffActive()) {
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+      ev.preventDefault();
+      void this.onAcceptCurrentChange();
+    }
+  }
+
+  protected readonly applying = computed(() => {
+    const p = this.pendingDiffPayload();
+    if (!p) return false;
+    return this.pendingDiffReview.sessionFor(p).applying();
+  });
+
+  protected readonly incrementalOk = computed(() => {
+    const p = this.pendingDiffPayload();
+    if (!p) return false;
+    return this.pendingDiffReview.incrementalOk(p);
+  });
+
+  protected readonly isStagedTransferHitl = computed(() => !!this.pendingDiffPayload()?.stagedTransferHitl);
+
+  protected readonly changeHunkOrder = computed(() => {
+    const p = this.pendingDiffPayload();
+    if (!p) return [] as number[];
+    return this.pendingDiffReview.changeHunkOrder(p);
+  });
+
+  protected readonly changeProgressLabel = computed(() => {
+    const p = this.pendingDiffPayload();
+    if (!p) return '';
+    const order = this.pendingDiffReview.changeHunkOrder(p);
+    if (order.length === 0) return '';
+    const s = this.pendingDiffReview.sessionFor(p);
+    const acc = s.accepted();
+    const sk = s.skipped();
+    const done = order.filter((h) => acc.has(h) || sk.has(h)).length;
+    const next = order.find((h) => !acc.has(h) && !sk.has(h));
+    if (next == null) {
+      return `${done} / ${order.length} changes (done)`;
+    }
+    const at = order.indexOf(next) + 1;
+    return `Change ${at} of ${order.length} (${done} resolved)`;
+  });
+
   private scheduleMonacoRefreshAfterUiThemeChange(): void {
     if (this.themeRefreshRaf != null) {
       cancelAnimationFrame(this.themeRefreshRaf);
@@ -201,11 +441,13 @@ export class WorkspaceMonacoComponent {
     this.themeRefreshRaf = requestAnimationFrame(() => {
       this.themeRefreshRaf = null;
       this.refreshMonacoAfterUiThemeChange();
-      requestAnimationFrame(() => this.editor?.layout());
+      requestAnimationFrame(() => {
+        this.editor?.layout();
+        this.diffEditor?.layout();
+      });
     });
   }
 
-  /** Re-sync Monaco with updated CSS variables / layout after the shell theme changes. */
   private refreshMonacoAfterUiThemeChange(): void {
     const ed = this.editor;
     const monacoApi = this.monaco;
@@ -214,12 +456,18 @@ export class WorkspaceMonacoComponent {
     }
     const cfg = this.editorSettings();
     const { settings } = normalizeMonacoWorkspaceEditorSettings(cfg == null ? undefined : cfg);
-    ed.updateOptions(monacoWorkspaceSettingsToEditorOptions(settings));
+    const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
+    ed.updateOptions(mapped);
+    if (this.diffEditor) {
+      const { theme: _t, ...diffOpts } = mapped as Record<string, unknown>;
+      this.diffEditor.updateOptions(diffOpts as Monaco.editor.IDiffEditorConstructionOptions);
+    }
     if (settings.theme === 'clara-monaco') {
       this.defineClaraTheme(monacoApi);
     }
     monacoApi.editor.setTheme(settings.theme);
     ed.layout();
+    this.diffEditor?.layout();
   }
 
   private workspaceRootsEqual(a: string, b: string): boolean {
@@ -310,6 +558,76 @@ export class WorkspaceMonacoComponent {
     return found?.id ?? 'plaintext';
   }
 
+  /**
+   * Monaco resolves semantic token styles via {@link StandaloneTheme.getTokenStyleMetadata}
+   * → {@link TokenTheme._match} on the selector ``${type}.${modifier.join('.')}``.
+   * Standalone Monaco does **not** apply {@link IStandaloneThemeData.semanticTokenColors}; only
+   * {@link IStandaloneThemeData.rules} participates in that trie (see monaco-editor#1833).
+   */
+  private claraSemanticTokenRules(): Monaco.editor.ITokenThemeRule[] {
+    const cs = getComputedStyle(document.documentElement);
+    const pick = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+    const hex = (css: string, fb: string) => {
+      const raw = (css.trim() || fb).trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+        return raw.slice(1);
+      }
+      if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+        const r = raw[1];
+        const g = raw[2];
+        const b = raw[3];
+        return `${r}${r}${g}${g}${b}${b}`;
+      }
+      return fb.replace(/^#/, '');
+    };
+    const fg = hex(pick('--t-code-text', '#d4d4d4'), 'd4d4d4');
+    const accent = hex(pick('--t-primary', '#00ff41'), '00ff41');
+    const typeTone = hex(pick('--t-code-type', '#4EC9B0'), '4EC9B0');
+    const paramTone = hex(pick('--t-code-param', '#9CDCFE'), '9CDCFE');
+    const enumTone = hex(pick('--t-code-enum', '#4FC1FF'), '4FC1FF');
+    const kw = hex(pick('--t-code-keyword', '#569CD6'), '569CD6');
+    const str = hex(pick('--t-code-string', '#CE9178'), 'CE9178');
+    const num = hex(pick('--t-code-number', '#B5CEA8'), 'B5CEA8');
+    const mut = hex(pick('--t-text-muted', '#808080'), '808080');
+    const rules: Monaco.editor.ITokenThemeRule[] = [
+      { token: 'namespace', foreground: typeTone },
+      { token: 'type', foreground: typeTone },
+      { token: 'class', foreground: typeTone },
+      { token: 'enum', foreground: typeTone },
+      { token: 'interface', foreground: typeTone },
+      { token: 'struct', foreground: typeTone },
+      { token: 'typeParameter', foreground: typeTone },
+      { token: 'parameter', foreground: paramTone },
+      { token: 'variable', foreground: fg },
+      { token: 'property', foreground: paramTone },
+      { token: 'enumMember', foreground: enumTone },
+      { token: 'decorator', foreground: accent },
+      { token: 'event', foreground: fg },
+      { token: 'function', foreground: accent },
+      { token: 'method', foreground: accent },
+      { token: 'member', foreground: accent },
+      { token: 'macro', foreground: accent },
+      { token: 'keyword', foreground: kw },
+      { token: 'modifier', foreground: kw },
+      { token: 'comment', foreground: mut },
+      { token: 'string', foreground: str },
+      { token: 'number', foreground: num },
+      { token: 'regexp', foreground: 'D16969' },
+      { token: 'operator', foreground: fg },
+      { token: 'label', foreground: fg },
+      // TS / Py modifiers (selector is type + '.' + sorted modifier names)
+      { token: 'variable.readonly', foreground: mut },
+      { token: 'property.readonly', foreground: mut },
+      { token: 'parameter.readonly', foreground: mut },
+      { token: 'variable.defaultLibrary', foreground: enumTone },
+      { token: 'function.defaultLibrary', foreground: enumTone },
+      { token: 'method.defaultLibrary', foreground: enumTone },
+      { token: 'function.async', foreground: accent },
+      { token: 'method.async', foreground: accent },
+    ];
+    return rules;
+  }
+
   private defineClaraTheme(monacoApi: typeof Monaco): void {
     const cs = getComputedStyle(document.documentElement);
     const pick = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
@@ -317,16 +635,19 @@ export class WorkspaceMonacoComponent {
     const fg = pick('--t-code-text', '#d4d4d4');
     const line = pick('--t-border-subtle', '#333333');
     const selection = pick('--t-selection-bg', '#264f78');
+    const accent = pick('--t-primary', '#00ff41');
+    const typeTone = pick('--t-code-type', '#4EC9B0');
+    const paramTone = pick('--t-code-param', '#9CDCFE');
     monacoApi.editor.defineTheme('clara-monaco', {
       base: 'vs-dark',
       inherit: true,
-      rules: [],
+      rules: this.claraSemanticTokenRules(),
       colors: {
         'editor.background': bg,
         'editor.foreground': fg,
         'editorLineNumber.foreground': pick('--t-text-muted', '#858585'),
         'editor.lineHighlightBackground': pick('--t-hover-bg', '#ffffff0c'),
-        'editorCursor.foreground': pick('--t-primary', '#00ff41'),
+        'editorCursor.foreground': accent,
         'editor.selectionBackground': selection,
         'editor.inactiveSelectionBackground': selection + '99',
         'editorWhitespace.foreground': line,
@@ -343,16 +664,202 @@ export class WorkspaceMonacoComponent {
     const host = this.editorHost().nativeElement;
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
     const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
-    this.editor = monacoApi.editor.create(host, {
+    // Monaco standalone only honors the dotted global-style key (see monaco-editor#1833);
+    // `semanticHighlighting: true` is ignored and semantic tokens are never painted.
+    const editorOptions = {
       ...mapped,
       theme: settings.theme,
       automaticLayout: true,
-    });
+      'semanticHighlighting.enabled': true,
+    } as Monaco.editor.IStandaloneEditorConstructionOptions & {
+      'semanticHighlighting.enabled'?: boolean;
+    };
+    this.editor = monacoApi.editor.create(host, editorOptions);
     this.editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
       void this.saveCurrent();
     });
+    this.registerWorkspaceLspHoverProviders(monacoApi);
+    this.lspLanguageDisposable?.dispose();
+
+    let initialSemanticLegends:
+      | {
+          python: Monaco.languages.SemanticTokensLegend;
+          typescript: Monaco.languages.SemanticTokensLegend;
+        }
+      | undefined;
+    const convId = this.conversationId()?.trim();
+    if (this.electron.isElectron && convId) {
+      const py = await this.electron.lspEditorSemanticTokensLegend(convId, 'python');
+      const ts = await this.electron.lspEditorSemanticTokensLegend(convId, 'typescript');
+      initialSemanticLegends = {
+        python: {
+          tokenTypes: py.ok ? py.legend.tokenTypes : [],
+          tokenModifiers: py.ok ? py.legend.tokenModifiers : [],
+        },
+        typescript: {
+          tokenTypes: ts.ok ? ts.legend.tokenTypes : [],
+          tokenModifiers: ts.ok ? ts.legend.tokenModifiers : [],
+        },
+      };
+    }
+
+    this.lspLanguageDisposable = registerWorkspaceMonacoLsp({
+      monacoApi,
+      electron: this.electron,
+      getConversationId: () => this.conversationId()?.trim() ?? null,
+      getWorkspaceRelativePathForModel: (m) => this.workspaceRelativePathForModel(m),
+      onNavigateToWorkspaceFile: (p) => this.navigateWorkspaceFile.emit(p),
+      initialSemanticLegends,
+    });
     this.editorReady.set(true);
     this.emitDirtyPaths();
+  }
+
+  private workspaceRelativePathForModel(model: Monaco.editor.ITextModel): string | undefined {
+    for (const [k, m] of this.modelByPath) {
+      if (m === model) {
+        return k;
+      }
+    }
+    return undefined;
+  }
+
+  /** Bridges Monaco hover to the session LSP (Python / TS); models use ``clara-workspace`` URIs only. */
+  private registerWorkspaceLspHoverProviders(monacoApi: typeof Monaco): void {
+    for (const d of this.lspHoverDisposables) {
+      d.dispose();
+    }
+    this.lspHoverDisposables = [];
+    if (!this.electron.isElectron) {
+      return;
+    }
+    const langs = ['python', 'typescript', 'javascript'] as const;
+    for (const lang of langs) {
+      this.lspHoverDisposables.push(
+        monacoApi.languages.registerHoverProvider(lang, {
+          provideHover: (model, position) => this.provideWorkspaceLspHover(model, position),
+        }),
+      );
+    }
+  }
+
+  private async provideWorkspaceLspHover(
+    model: Monaco.editor.ITextModel,
+    position: Monaco.Position,
+  ): Promise<Monaco.languages.Hover | null> {
+    if (!this.electron.isElectron) {
+      return null;
+    }
+    if (model.uri.scheme !== 'clara-workspace') {
+      return null;
+    }
+    let relKey: string | undefined;
+    for (const [k, m] of this.modelByPath) {
+      if (m === model) {
+        relKey = k;
+        break;
+      }
+    }
+    if (!relKey || !lspServerKindForWorkspaceRelativePath(relKey)) {
+      return null;
+    }
+    const sessionId = this.conversationId()?.trim();
+    if (!sessionId) {
+      return null;
+    }
+    const res = await this.electron.lspEditorHover(
+      sessionId,
+      relKey,
+      position.lineNumber,
+      position.column,
+      model.getValue(),
+    );
+    if (!res.ok || !res.markdown?.trim()) {
+      return null;
+    }
+    return {
+      contents: [{ value: res.markdown, isTrusted: true }],
+    };
+  }
+
+  private disposeDiffSurface(): void {
+    this.diffEditor?.dispose();
+    this.diffEditor = null;
+    if (this.diffOriginalModel && !this.diffOriginalModel.isDisposed()) {
+      this.diffOriginalModel.dispose();
+    }
+    this.diffOriginalModel = null;
+    if (this.diffModifiedModel && !this.diffModifiedModel.isDisposed()) {
+      this.diffModifiedModel.dispose();
+    }
+    this.diffModifiedModel = null;
+    this.diffMountedPayloadKey = '';
+  }
+
+  private async mountOrUpdateDiffEditor(workspaceRoot: string, key: string, payload: FileDiffPayload): Promise<void> {
+    const monacoApi = this.monaco;
+    if (!monacoApi) {
+      return;
+    }
+    const payloadKey = this.pendingDiffReview.sessionKey(payload);
+    const wsModel = await this.getOrCreateWorkspaceModel(workspaceRoot, key);
+    const baseline =
+      typeof payload.fullOriginalContent === 'string'
+        ? payload.fullOriginalContent
+        : (wsModel?.getValue() ?? '');
+    if (!baseline && !wsModel) {
+      this.loadError.set('Failed to load original text for diff.');
+      return;
+    }
+
+    const session = this.pendingDiffReview.sessionFor(payload);
+    const modifiedText = mergedContentForDiffPreview(payload, session.accepted(), session.skipped());
+    const lang = this.languageIdForPath(monacoApi, key);
+    const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
+    const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
+
+    const host = this.diffHost().nativeElement;
+
+    if (!this.diffEditor || this.diffMountedPayloadKey !== payloadKey) {
+      this.disposeDiffSurface();
+      this.diffMountedPayloadKey = payloadKey;
+      this.diffEditor = monacoApi.editor.createDiffEditor(host, {
+        ...mapped,
+        theme: settings.theme,
+        automaticLayout: true,
+        readOnly: true,
+        renderSideBySide: true,
+      });
+      if (settings.theme === 'clara-monaco') {
+        this.defineClaraTheme(monacoApi);
+      }
+      monacoApi.editor.setTheme(settings.theme);
+
+      this.diffOriginalModel = monacoApi.editor.createModel(
+        baseline,
+        lang,
+        monacoApi.Uri.parse(`clara-diff-org://${encodeURI(key)}`),
+      );
+      this.diffModifiedModel = monacoApi.editor.createModel(
+        modifiedText,
+        lang,
+        monacoApi.Uri.parse(`clara-diff-mod://${encodeURI(key)}`),
+      );
+      this.diffEditor.setModel({
+        original: this.diffOriginalModel,
+        modified: this.diffModifiedModel,
+      });
+    } else {
+      if (this.diffOriginalModel && !this.diffOriginalModel.isDisposed() && this.diffOriginalModel.getValue() !== baseline) {
+        this.diffOriginalModel.setValue(baseline);
+      }
+      if (this.diffModifiedModel && !this.diffModifiedModel.isDisposed() && this.diffModifiedModel.getValue() !== modifiedText) {
+        this.diffModifiedModel.setValue(modifiedText);
+      }
+    }
+
+    this.diffEditor.layout();
+    this.loadError.set('');
   }
 
   private ensureModelDirtyListener(key: string, model: Monaco.editor.ITextModel): void {
@@ -379,6 +886,32 @@ export class WorkspaceMonacoComponent {
     this.zone.run(() => this.unsavedPathsChange.emit(list));
   }
 
+  /**
+   * Loads or creates the workspace text model for {@param relativeKey} without attaching the standalone editor.
+   */
+  private async getOrCreateWorkspaceModel(workspaceRoot: string, relativeKey: string): Promise<Monaco.editor.ITextModel | null> {
+    const monacoApi = this.monaco;
+    if (!monacoApi) {
+      return null;
+    }
+    let model = this.modelByPath.get(relativeKey);
+    if (!model || model.isDisposed()) {
+      this.loadError.set('');
+      const res = await this.electron.readWorkspaceFile(workspaceRoot, relativeKey);
+      if (!res.ok || res.content === undefined) {
+        this.loadError.set(res.error ?? 'Failed to read file.');
+        return null;
+      }
+      const lang = this.languageIdForPath(monacoApi, relativeKey);
+      const uri = monacoApi.Uri.parse(`clara-workspace:///${encodeURI(relativeKey)}`);
+      model = monacoApi.editor.createModel(res.content, lang, uri);
+      this.modelByPath.set(relativeKey, model);
+      this.diskSyncedAltVersionByPath.set(relativeKey, model.getAlternativeVersionId());
+    }
+    this.ensureModelDirtyListener(relativeKey, model);
+    return model;
+  }
+
   private async syncActiveModel(workspaceRoot: string, relativePath: string): Promise<void> {
     const monacoApi = this.monaco;
     const ed = this.editor;
@@ -386,23 +919,17 @@ export class WorkspaceMonacoComponent {
       return;
     }
     const key = normalizePathSlashes(relativePath);
-    let model = this.modelByPath.get(key);
+    const model = await this.getOrCreateWorkspaceModel(workspaceRoot, key);
     if (!model) {
-      this.loadError.set('');
-      const res = await this.electron.readWorkspaceFile(workspaceRoot, key);
-      if (!res.ok || res.content === undefined) {
-        this.loadError.set(res.error ?? 'Failed to read file.');
-        return;
-      }
-      const lang = this.languageIdForPath(monacoApi, key);
-      const uri = monacoApi.Uri.parse(`clara-workspace:///${encodeURI(key)}`);
-      model = monacoApi.editor.createModel(res.content, lang, uri);
-      this.modelByPath.set(key, model);
-      this.diskSyncedAltVersionByPath.set(key, model.getAlternativeVersionId());
+      return;
     }
-    this.ensureModelDirtyListener(key, model);
     this.loadError.set('');
     ed.setModel(model);
+    // Models are created before attach; toggling semantic highlighting after `setModel`
+    // ensures the feature attaches (monaco-editor#1833 / configuration event ordering).
+    ed.updateOptions({
+      'semanticHighlighting.enabled': true,
+    } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
     ed.focus();
     this.emitDirtyPaths();
   }

@@ -2,13 +2,237 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import asyncio
+from typing import Any
 
-from nemo_backend.lsp.file_policy import lsp_server_for_path
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from nemo_backend.lsp.editor_monaco import (
+    serialize_completion_result,
+    serialize_document_symbols_payload,
+    serialize_locations_payload,
+    serialize_rename_workspace_edit,
+    serialize_semantic_tokens_payload,
+)
+from nemo_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from nemo_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, list_session_diagnostics
+from nemo_backend.lsp.tools import _format_hover_contents
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 
 router = APIRouter()
+
+
+def _lsp_diagnostics_sync(
+    session_id: str,
+    enc: str,
+    rel: str,
+    refresh_disk: bool,
+) -> dict[str, object]:
+    if rel:
+        server = lsp_server_for_path(rel)
+        if not server:
+            raise ValueError(f'No LSP integration for `{rel}`.')
+        manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+        if refresh_disk:
+            manager.sync_workspace_document(rel, encoding=enc)
+        diagnostics = manager.get_diagnostics(rel)
+        return {'sessionId': session_id, 'relativePath': rel, 'diagnostics': diagnostics, 'server': server}
+    diagnostics = list_session_diagnostics(session_id, scope='workspace')
+    return {'sessionId': session_id, 'diagnostics': diagnostics}
+
+
+def _lsp_semantic_tokens_legend_sync(session_id: str, srv: str) -> dict[str, Any]:
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=srv)
+    if srv == 'typescript' and manager.should_skip_typescript_cold_start_without_seed():
+        return {'tokenTypes': [], 'tokenModifiers': [], 'supported': False}
+    manager.ensure_started()
+    leg = manager.semantic_tokens_legend
+    if leg is None:
+        return {'tokenTypes': [], 'tokenModifiers': [], 'supported': False}
+    return {
+        'tokenTypes': list(leg.get('tokenTypes') or []),
+        'tokenModifiers': list(leg.get('tokenModifiers') or []),
+        'supported': True,
+    }
+
+
+def _lsp_editor_hover_sync(
+    session_id: str,
+    relative_path: str,
+    line: int,
+    character: int,
+    document_text: str | None,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    if document_text is not None:
+        manager.sync_document(rel, document_text)
+    result = manager.hover(rel, line, character)
+    raw_contents = result.get('contents') if isinstance(result, dict) else None
+    if raw_contents is None:
+        return {'markdown': None}
+    text = _format_hover_contents(raw_contents).strip()
+    return {'markdown': text or None}
+
+
+def _maybe_sync_buffer(manager: Any, rel: str, document_text: str | None) -> None:
+    if document_text is not None:
+        manager.sync_document(rel, document_text)
+
+
+def _lsp_editor_definition_sync(
+    session_id: str,
+    relative_path: str,
+    line: int,
+    character: int,
+    document_text: str | None,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    _maybe_sync_buffer(manager, rel, document_text)
+    raw = manager.definition(rel, line, character)
+    locations = serialize_locations_payload(manager, raw)
+    return {'locations': locations}
+
+
+def _lsp_editor_references_sync(
+    session_id: str,
+    relative_path: str,
+    line: int,
+    character: int,
+    document_text: str | None,
+    include_declaration: bool,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    _maybe_sync_buffer(manager, rel, document_text)
+    raw = manager.references(rel, line, character, include_declaration=include_declaration)
+    locations = serialize_locations_payload(manager, raw)
+    return {'locations': locations}
+
+
+def _lsp_editor_document_symbols_sync(
+    session_id: str,
+    relative_path: str,
+    document_text: str | None,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    _maybe_sync_buffer(manager, rel, document_text)
+    raw = manager.document_symbols(rel)
+    return serialize_document_symbols_payload(manager, raw)
+
+
+def _lsp_editor_completion_sync(
+    session_id: str,
+    relative_path: str,
+    line: int,
+    character: int,
+    document_text: str | None,
+    trigger_kind: int,
+    trigger_character: str | None,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    _maybe_sync_buffer(manager, rel, document_text)
+    tc = trigger_character
+    raw = manager.completion(
+        rel,
+        line,
+        character,
+        trigger_kind=int(trigger_kind),
+        trigger_character=tc if tc not in (None, '') else None,
+    )
+    return serialize_completion_result(manager, raw)
+
+
+def _lsp_editor_rename_sync(
+    session_id: str,
+    relative_path: str,
+    line: int,
+    character: int,
+    document_text: str | None,
+    new_name: str,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    _maybe_sync_buffer(manager, rel, document_text)
+    raw = manager.rename(rel, line, character, new_name)
+    if raw is None:
+        return {'workspaceEdit': None}
+    payload = serialize_rename_workspace_edit(manager, raw)
+    return {'workspaceEdit': payload}
+
+
+def _lsp_semantic_tokens_full_sync(
+    session_id: str,
+    relative_path: str,
+    document_text: str | None,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    _maybe_sync_buffer(manager, rel, document_text)
+    raw = manager.semantic_tokens_full(rel)
+    return serialize_semantic_tokens_payload(manager, raw)
+
+
+class LspEditorHoverBody(BaseModel):
+    relative_path: str = Field(..., min_length=1)
+    line: int = Field(..., ge=1)
+    character: int = Field(..., ge=1)
+    document_text: str | None = None
+
+
+class LspEditorPositionBody(BaseModel):
+    relative_path: str = Field(..., min_length=1)
+    line: int = Field(..., ge=1)
+    character: int = Field(..., ge=1)
+    document_text: str | None = None
+
+
+class LspEditorReferencesBody(LspEditorPositionBody):
+    include_declaration: bool = False
+
+
+class LspEditorDocumentSymbolsBody(BaseModel):
+    relative_path: str = Field(..., min_length=1)
+    document_text: str | None = None
+
+
+class LspEditorCompletionBody(LspEditorPositionBody):
+    trigger_kind: int = Field(default=1, ge=1, le=3)
+    trigger_character: str | None = None
+
+
+class LspEditorRenameBody(LspEditorPositionBody):
+    new_name: str = Field(..., min_length=1)
+
+
+class LspSemanticTokensFullBody(BaseModel):
+    relative_path: str = Field(..., min_length=1)
+    document_text: str | None = None
 
 
 @router.get('/lsp/diagnostics')
@@ -29,17 +253,20 @@ async def lsp_diagnostics(
         enc = validate_workspace_encoding(encoding)
         rel = (relative_path or '').strip().replace('\\', '/')
         refresh_disk = refresh_active_document or refresh_from_workspace
-        if rel:
-            server = lsp_server_for_path(rel)
-            if not server:
-                raise ValueError(f'No LSP integration for `{rel}`.')
-            manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-            if refresh_disk:
-                manager.sync_workspace_document(rel, encoding=enc)
-            diagnostics = manager.get_diagnostics(rel)
-            return {'sessionId': session_id, 'relativePath': rel, 'diagnostics': diagnostics, 'server': server}
-        diagnostics = list_session_diagnostics(session_id, scope='workspace')
-        return {'sessionId': session_id, 'diagnostics': diagnostics}
+        return await asyncio.to_thread(_lsp_diagnostics_sync, session_id, enc, rel, refresh_disk)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get('/lsp/semantic-tokens-legend')
+async def lsp_semantic_tokens_legend(session_id: str, server: str) -> dict[str, Any]:
+    """Return cached semantic token legend after ensuring the server process is started."""
+
+    try:
+        srv = (server or '').strip().lower()
+        if srv not in ('python', 'typescript'):
+            raise ValueError('server must be "python" or "typescript".')
+        return await asyncio.to_thread(_lsp_semantic_tokens_legend_sync, session_id, srv)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -50,5 +277,163 @@ async def lsp_status(session_id: str) -> dict[str, object]:
 
     try:
         return get_lsp_dashboard_status(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/hover')
+async def lsp_editor_hover(
+    session_id: str,
+    body: LspEditorHoverBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """Workspace-editor hover: sync buffer (optional), then ``textDocument/hover``.
+
+    Positions are **1-based** line and column (Monaco-compatible). When ``document_text``
+    is sent, the LSP sees the in-memory buffer; otherwise the file is synced from disk.
+    """
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_editor_hover_sync,
+            session_id,
+            body.relative_path,
+            body.line,
+            body.character,
+            body.document_text,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/definition')
+async def lsp_editor_definition(
+    session_id: str,
+    body: LspEditorPositionBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """Workspace go-to-definition (``textDocument/definition``); positions are 1-based."""
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_editor_definition_sync,
+            session_id,
+            body.relative_path,
+            body.line,
+            body.character,
+            body.document_text,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/references')
+async def lsp_editor_references(
+    session_id: str,
+    body: LspEditorReferencesBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """Workspace find references (``textDocument/references``); positions are 1-based."""
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_editor_references_sync,
+            session_id,
+            body.relative_path,
+            body.line,
+            body.character,
+            body.document_text,
+            body.include_declaration,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/document-symbols')
+async def lsp_editor_document_symbols(
+    session_id: str,
+    body: LspEditorDocumentSymbolsBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """Document outline symbols (``textDocument/documentSymbol``)."""
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_editor_document_symbols_sync,
+            session_id,
+            body.relative_path,
+            body.document_text,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/completion')
+async def lsp_editor_completion(
+    session_id: str,
+    body: LspEditorCompletionBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """IntelliSense (``textDocument/completion``)."""
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_editor_completion_sync,
+            session_id,
+            body.relative_path,
+            body.line,
+            body.character,
+            body.document_text,
+            body.trigger_kind,
+            body.trigger_character,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/rename')
+async def lsp_editor_rename(
+    session_id: str,
+    body: LspEditorRenameBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """Rename symbol (``textDocument/rename``) → workspace-relative edit groups."""
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_editor_rename_sync,
+            session_id,
+            body.relative_path,
+            body.line,
+            body.character,
+            body.document_text,
+            body.new_name,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/lsp/semantic-tokens/full')
+async def lsp_semantic_tokens_full(
+    session_id: str,
+    body: LspSemanticTokensFullBody,
+    encoding: str = 'utf-8',
+) -> dict[str, Any]:
+    """Workspace semantic highlighting (``textDocument/semanticTokens/full``)."""
+
+    try:
+        validate_workspace_encoding(encoding)
+        return await asyncio.to_thread(
+            _lsp_semantic_tokens_full_sync,
+            session_id,
+            body.relative_path,
+            body.document_text,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

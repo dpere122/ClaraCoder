@@ -65,7 +65,7 @@
             </div>
           }
 
-          @for (artifact of row.artifacts; track $index) {
+          @for (artifact of row.artifacts; track artifactTrackKey(artifact)) {
             @if (artifact.role === 'diff') {
               <div class="turn-artifact turn-artifact--diff">
                 <div class="diff-msg-header small text-secondary mb-2">
@@ -202,7 +202,7 @@
             <app-auxiliary-stream-panel [parts]="liveAuxiliaryTimeline()" [live]="true" />
           </div>
         }
-        @for (artifact of liveTurn.artifacts; track $index) {
+        @for (artifact of liveTurn.artifacts; track artifactTrackKey(artifact)) {
           @if (artifact.role === 'diff') {
             <div class="turn-artifact turn-artifact--diff">
               <div class="diff-msg-header small text-secondary mb-2">

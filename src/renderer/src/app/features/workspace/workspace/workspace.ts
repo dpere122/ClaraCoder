@@ -1,6 +1,6 @@
 import { Component, effect, HostListener, input, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import type { Workspace } from '@shared/index';
+import type { PythonInterpreterListItem, Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { Subscription } from 'rxjs';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
@@ -36,6 +36,8 @@ interface FlatNode {
 export class WorkspaceComponent implements OnDestroy {
   readonly workspaces = input<Workspace[]>([]);
   readonly currentWorkspaceId = input<string | null>(null);
+  /** Active chat session id — Python LSP / interpreter APIs key off this. */
+  readonly activeConversationId = input<string | null>(null);
 
   readonly workspaceChanged = output<string | null>();
   readonly addWorkspace = output<void>();
@@ -63,6 +65,13 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly pendingCreate = signal<{ kind: 'file' | 'folder'; parentDir: string } | null>(null);
   protected readonly pendingCreateDraft = signal<string>('');
 
+  /** Python interpreter choices for Jedi/LSP (workspace discovery). */
+  protected readonly pythonInterpreterRows = signal<PythonInterpreterListItem[]>([]);
+  protected readonly pythonInterpreterSelectedId = signal('');
+  protected readonly pythonInterpreterLoading = signal(false);
+  protected readonly pythonInterpreterError = signal('');
+  private pythonInterpreterLoadRequestId = 0;
+
   private tree: FileNode[] = [];
   private workspaceSubscription: Subscription | null = null;
   private workspaceFilesChangedSubscription: Subscription | null = null;
@@ -76,7 +85,7 @@ export class WorkspaceComponent implements OnDestroy {
   private pendingCreateSkipBlurCancel = false;
   private lastEffectWorkspaceId: string | null | undefined = undefined;
 
-  constructor(private electron: ElectronService) {
+  constructor(protected electron: ElectronService) {
     effect(() => {
       const wsId = this.currentWorkspaceId();
       const workspaces = this.workspaces();
@@ -86,6 +95,19 @@ export class WorkspaceComponent implements OnDestroy {
       }
       this.lastEffectWorkspaceId = wsId ?? null;
       void this.loadWorkspaceFromConfig(wsId, workspaces);
+    });
+
+    effect(() => {
+      const sid = this.activeConversationId();
+      const wid = this.currentWorkspaceId();
+      const wss = this.workspaces();
+      if (!this.electron.isElectron || !sid || !wid) {
+        this.pythonInterpreterRows.set([]);
+        this.pythonInterpreterSelectedId.set('');
+        this.pythonInterpreterError.set('');
+        return;
+      }
+      void this.loadPythonInterpreters(sid, wid, wss);
     });
 
     this.workspaceSubscription = this.electron.workspaceChanged$.subscribe((workspaceId) => {
@@ -121,6 +143,87 @@ export class WorkspaceComponent implements OnDestroy {
     const select = event.target as HTMLSelectElement;
     const value = select.value;
     this.workspaceChanged.emit(value || null);
+  }
+
+  async onPythonInterpreterChange(event: Event): Promise<void> {
+    const select = event.target as HTMLSelectElement;
+    const interpreterId = select.value;
+    const wid = this.currentWorkspaceId();
+    const sid = this.activeConversationId();
+    if (!wid || !sid || !interpreterId) {
+      return;
+    }
+    const prev = this.pythonInterpreterSelectedId();
+    if (interpreterId === prev) {
+      return;
+    }
+    this.pythonInterpreterLoading.set(true);
+    this.pythonInterpreterError.set('');
+    try {
+      const res = await this.electron.applyWorkspacePythonInterpreter({
+        workspaceId: wid,
+        sessionId: sid,
+        interpreterId,
+      });
+      if (!res.ok) {
+        this.pythonInterpreterError.set(res.error);
+        select.value = prev;
+        return;
+      }
+      this.pythonInterpreterSelectedId.set(interpreterId);
+    } catch (e) {
+      this.pythonInterpreterError.set(e instanceof Error ? e.message : String(e));
+      select.value = prev;
+    } finally {
+      this.pythonInterpreterLoading.set(false);
+    }
+  }
+
+  private async loadPythonInterpreters(
+    sessionId: string,
+    workspaceId: string,
+    workspaces: Workspace[],
+  ): Promise<void> {
+    const req = ++this.pythonInterpreterLoadRequestId;
+    this.pythonInterpreterLoading.set(true);
+    this.pythonInterpreterError.set('');
+    try {
+      const res = await this.electron.listPythonInterpreters(sessionId);
+      if (req !== this.pythonInterpreterLoadRequestId) {
+        return;
+      }
+      const rows = res.interpreters ?? [];
+      this.pythonInterpreterRows.set(rows);
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      const saved = (ws?.pythonInterpreterId ?? '').trim();
+      let pick = '';
+      if (saved && rows.some((r) => r.id === saved)) {
+        pick = saved;
+      } else if (
+        res.ok &&
+        res.activeInterpreterId &&
+        rows.some((r) => r.id === res.activeInterpreterId)
+      ) {
+        pick = res.activeInterpreterId;
+      } else if (rows.length > 0) {
+        pick = rows[0].id;
+      }
+      this.pythonInterpreterSelectedId.set(pick);
+      if (!res.ok && res.error) {
+        this.pythonInterpreterError.set(res.error);
+      }
+    } catch (e) {
+      if (req !== this.pythonInterpreterLoadRequestId) {
+        return;
+      }
+      this.pythonInterpreterRows.set([]);
+      this.pythonInterpreterSelectedId.set('');
+      this.pythonInterpreterError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (req === this.pythonInterpreterLoadRequestId) {
+        this.pythonInterpreterLoading.set(false);
+      }
+    }
   }
 
   onAddWorkspace(): void {
@@ -280,6 +383,7 @@ export class WorkspaceComponent implements OnDestroy {
         return;
       }
       this.cancelPendingCreate();
+      await this.reloadPreservingExpansion(ws.path);
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     }
@@ -397,6 +501,7 @@ export class WorkspaceComponent implements OnDestroy {
       return;
     }
     this.cancelInlineRename();
+    await this.reloadPreservingExpansion(ws.path);
   }
 
   private scheduleRenameInputFocus(): void {
@@ -446,7 +551,9 @@ export class WorkspaceComponent implements OnDestroy {
     const res = await this.electron.deleteWorkspaceEntry(ws.path, node.path);
     if (!res.ok) {
       window.alert(res.error ?? 'Failed to delete.');
+      return;
     }
+    await this.reloadPreservingExpansion(ws.path);
   }
 
   private openContextMenuAt(

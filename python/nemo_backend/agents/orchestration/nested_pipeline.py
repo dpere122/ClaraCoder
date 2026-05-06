@@ -59,6 +59,7 @@ from nemo_backend.llm import build_llm
 from nemo_backend.lsp.manager import activate_session_lsp_scope
 from nemo_backend.messages import final_assistant_text, stringify_content
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.state import get_active_connection, get_session, runtime_config
 from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 
@@ -339,6 +340,7 @@ def _write_specialist_middleware() -> list[Any]:
     return prepend_harness_feedback_middleware(
         [
             ConnectionParallelToolCallsMiddleware(),
+            PseudoToolXmlMiddleware(),
             EmptyResponseNudgeMiddleware(),
             AcceptCommandReviewAfterToolMiddleware(),
             DiffReviewAfterToolMiddleware(),
@@ -511,6 +513,7 @@ async def run_specialist_agent_stream(
         middleware=prepend_harness_feedback_middleware(
             [
                 ConnectionParallelToolCallsMiddleware(),
+                PseudoToolXmlMiddleware(),
                 EmptyResponseNudgeMiddleware(),
                 AcceptCommandReviewAfterToolMiddleware(),
                 DiffReviewAfterToolMiddleware(),
@@ -881,6 +884,7 @@ async def run_planning_nested_stream(
             middleware=prepend_harness_feedback_middleware(
                 [
                     ConnectionParallelToolCallsMiddleware(),
+                    PseudoToolXmlMiddleware(),
                     EmptyResponseNudgeMiddleware(),
                     AcceptCommandReviewAfterToolMiddleware(),
                     DiffReviewAfterToolMiddleware(),

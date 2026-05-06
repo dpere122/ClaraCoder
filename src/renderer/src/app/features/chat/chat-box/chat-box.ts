@@ -305,6 +305,11 @@ export class ChatBox implements OnDestroy {
   private readonly toolPhaseSynonymIndex = signal(0);
   private chatDestroyed = false;
   private convScrollTimeout: ReturnType<typeof setTimeout> | null = null;
+  private chatScrollResizeObserver: ResizeObserver | null = null;
+  private readonly onSendResponseDom: EventListener = ((event: Event) => {
+    const detail = (event as CustomEvent<string>).detail;
+    this.sendResponse.emit(typeof detail === 'string' ? detail : String(detail ?? ''));
+  }) as EventListener;
 
   readonly messages = input<ChatMessage[]>([]);
   readonly conversationId = input<string | null>(null);
@@ -348,6 +353,17 @@ export class ChatBox implements OnDestroy {
     return rows;
   });
 
+  /** Row heights padded with estimates when measurement lags (keeps virtual window from rendering all rows). */
+  readonly rowHeightsAligned = computed(() => {
+    const rows = this.persistedRows();
+    const h = this.rowHeights();
+    const fs = this.fontSize();
+    if (rows.length === h.length) {
+      return h;
+    }
+    return rows.map((r, i) => (i < h.length ? h[i]! : estimateChatRowHeight(r, fs)));
+  });
+
   /**
    * Fingerprint of the latest persisted assistant reply (length + tail) so we can re-run markdown
    * after the view commits — avoids a one-frame plain / stale pipe edge when the stream lands.
@@ -374,11 +390,11 @@ export class ChatBox implements OnDestroy {
   readonly virtualWindow = computed(() => {
     const rows = this.persistedRows();
     const n = rows.length;
-    const h = this.rowHeights();
+    const h = this.rowHeightsAligned();
     const st = this.scrollTopSig();
     const vh = this.viewportHeightSig() || 480;
 
-    if (n < CHAT_VIRTUAL_THRESHOLD || h.length !== n) {
+    if (n < CHAT_VIRTUAL_THRESHOLD) {
       return {
         slots: rows.map((row, index) => ({ index, row })),
         topSpacer: 0,
@@ -457,9 +473,11 @@ export class ChatBox implements OnDestroy {
         const elScroll = this.chatScroll()?.nativeElement;
         if (!elScroll) return;
         this.viewportHeightSig.set(elScroll.clientHeight);
-        new ResizeObserver(() => {
+        this.chatScrollResizeObserver?.disconnect();
+        this.chatScrollResizeObserver = new ResizeObserver(() => {
           this.viewportHeightSig.set(elScroll.clientHeight);
-        }).observe(elScroll);
+        });
+        this.chatScrollResizeObserver.observe(elScroll);
       },
       { injector: this.inj },
     );
@@ -544,9 +562,7 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    this.el.nativeElement.addEventListener('send-response', ((event: CustomEvent) => {
-      this.sendResponse.emit(event.detail);
-    }) as EventListener);
+    this.el.nativeElement.addEventListener('send-response', this.onSendResponseDom);
 
     effect(() => {
       const loading = this.loading();
@@ -604,6 +620,9 @@ export class ChatBox implements OnDestroy {
 
   ngOnDestroy(): void {
     this.chatDestroyed = true;
+    this.el.nativeElement.removeEventListener('send-response', this.onSendResponseDom);
+    this.chatScrollResizeObserver?.disconnect();
+    this.chatScrollResizeObserver = null;
     if (this.convScrollTimeout != null) {
       clearTimeout(this.convScrollTimeout);
       this.convScrollTimeout = null;
@@ -632,6 +651,24 @@ export class ChatBox implements OnDestroy {
 
   isLastPersistedRow(index: number): boolean {
     return index === this.persistedRows().length - 1;
+  }
+
+  /** Stable keys for `\@for` over artifacts (avoid `$index` reuse bugs). */
+  protected artifactTrackKey(artifact: ArtifactMessage): string {
+    switch (artifact.role) {
+      case 'diff': {
+        const p = artifact.payload;
+        return `diff:${p.relativePath}|${p.baseSha256 ?? ''}|${p.rows.length}|${p.fullNewContent.length}`;
+      }
+      case 'accept_command':
+        return `accept:${artifact.payload.requestId}`;
+      case 'copy_confirm':
+        return `copy:${artifact.payload.requestId}`;
+      case 'delete_confirm':
+        return `del:${artifact.payload.requestId}`;
+      default:
+        return 'artifact';
+    }
   }
 
   private scheduleMeasureVisibleRows(): void {

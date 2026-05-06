@@ -11,11 +11,75 @@ import type {
   FileDiffPayload,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  LspDashboardStatus,
   PlannerProgress,
   TtsStreamPacket,
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
 } from '../shared';
+
+interface LspEditorIRangeIpc {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+
+interface LspEditorLocationIpc {
+  relativePath: string;
+  range: LspEditorIRangeIpc;
+}
+
+interface LspEditorDocumentSymbolIpc {
+  name: string;
+  kind?: number;
+  detail?: string;
+  range: LspEditorIRangeIpc;
+  selectionRange: LspEditorIRangeIpc;
+  children?: LspEditorDocumentSymbolIpc[];
+}
+
+interface LspEditorFlatSymbolIpc {
+  name: string;
+  kind?: number;
+  containerName?: string;
+  relativePath: string;
+  range: LspEditorIRangeIpc;
+}
+
+interface LspEditorTextEditIpc {
+  range: LspEditorIRangeIpc;
+  newText: string;
+}
+
+interface LspEditorCompletionItemIpc {
+  label: string;
+  kind?: number;
+  detail?: string;
+  documentation?: string | { value: string; isTrusted?: boolean };
+  filterText?: string;
+  sortText?: string;
+  insertText?: string;
+  insertTextFormat?: number;
+  textEdit?: LspEditorTextEditIpc;
+  additionalTextEdits?: LspEditorTextEditIpc[];
+}
+
+interface LspWorkspaceEditIpc {
+  changes: Record<string, LspEditorTextEditIpc[]>;
+}
+
+interface LspSemanticTokensLegendIpc {
+  tokenTypes: string[];
+  tokenModifiers: string[];
+  supported: boolean;
+}
+
+interface LspSemanticTokensFullIpc {
+  legend: { tokenTypes: string[]; tokenModifiers: string[] };
+  data: number[];
+  resultId: string | null;
+}
 
 contextBridge.exposeInMainWorld('electronAPI', {
   onReady: () => ipcRenderer.send('ready'),
@@ -137,10 +201,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('rename-conversation', id, title, workspaceId),
   maybeAutoTitleConversation: (id: string) => ipcRenderer.invoke('maybe-auto-title-conversation', id),
   newConversation: (workspaceId: string | null) => ipcRenderer.invoke('new-conversation', workspaceId),
-  startTtsStream: (text: string, voice: string, seq: number) =>
-    ipcRenderer.invoke('tts-stream-start', { text, voice, seq }),
-  registerTtsStreamUrl: (text: string, voice: string) =>
-    ipcRenderer.invoke('tts-stream-register', { text, voice }),
+  startTtsStream: (text: string, voice: string, speed: number, seq: number) =>
+    ipcRenderer.invoke('tts-stream-start', { text, voice, speed, seq }),
+  registerTtsStreamUrl: (text: string, voice: string, speed: number) =>
+    ipcRenderer.invoke('tts-stream-register', { text, voice, speed }),
   abortTtsStream: () => ipcRenderer.invoke('tts-stream-abort'),
   onTtsStreamPacket: (callback: (packet: TtsStreamPacket) => void) => {
     ipcRenderer.on('tts-stream-packet', (_event, packet) => callback(packet));
@@ -156,6 +220,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     workspaceContext: string,
     extras?: WorkspaceContextSyncExtras,
   ) => ipcRenderer.invoke('set-workspace-context', sessionId, workspacePath, workspaceContext, extras),
+  listPythonInterpreters: (sessionId: string) => ipcRenderer.invoke('list-python-interpreters', sessionId),
+  applyWorkspacePythonInterpreter: (payload: {
+    workspaceId: string;
+    sessionId: string;
+    interpreterId: string;
+  }) => ipcRenderer.invoke('apply-workspace-python-interpreter', payload),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
   llamaServerStart: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llama-server:start', payload),
@@ -228,6 +298,101 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onLlamaServerLifecycle: (callback: (event: unknown, data: unknown) => void) =>
     ipcRenderer.on('llama-server-lifecycle', callback),
   healthMetrics: () => ipcRenderer.invoke('health-metrics') as Promise<HealthMetricsSnapshot>,
+  getLspDashboardStatus: (sessionId: string) =>
+    ipcRenderer.invoke('get-lsp-dashboard-status', sessionId) as Promise<
+      { ok: true; status: LspDashboardStatus } | { ok: false; error: string }
+    >,
+  warmLspForActiveFile: (sessionId: string, relativePath: string, encoding?: string) =>
+    ipcRenderer.invoke('warm-lsp-for-active-file', sessionId, relativePath, encoding) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
+  lspEditorHover: (
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+  ) =>
+    ipcRenderer.invoke('lsp-editor-hover', sessionId, relativePath, line, character, documentText) as Promise<
+      { ok: true; markdown: string | null } | { ok: false; error: string }
+    >,
+  lspEditorDefinition: (
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+  ) =>
+    ipcRenderer.invoke('lsp-editor-definition', sessionId, relativePath, line, character, documentText) as Promise<
+      | { ok: true; locations: LspEditorLocationIpc[] }
+      | { ok: false; error: string }
+    >,
+  lspEditorReferences: (
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    includeDeclaration: boolean,
+  ) =>
+    ipcRenderer.invoke(
+      'lsp-editor-references',
+      sessionId,
+      relativePath,
+      line,
+      character,
+      documentText,
+      includeDeclaration,
+    ) as Promise<{ ok: true; locations: LspEditorLocationIpc[] } | { ok: false; error: string }>,
+  lspEditorDocumentSymbols: (sessionId: string, relativePath: string, documentText: string) =>
+    ipcRenderer.invoke('lsp-editor-document-symbols', sessionId, relativePath, documentText) as Promise<
+      | { ok: true; hierarchical: LspEditorDocumentSymbolIpc[]; flat: LspEditorFlatSymbolIpc[] }
+      | { ok: false; error: string }
+    >,
+  lspEditorCompletion: (
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    triggerKind: number,
+    triggerCharacter: string | null,
+  ) =>
+    ipcRenderer.invoke(
+      'lsp-editor-completion',
+      sessionId,
+      relativePath,
+      line,
+      character,
+      documentText,
+      triggerKind,
+      triggerCharacter,
+    ) as Promise<
+      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemIpc[] }
+      | { ok: false; error: string }
+    >,
+  lspEditorRename: (
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    newName: string,
+  ) =>
+    ipcRenderer.invoke('lsp-editor-rename', sessionId, relativePath, line, character, documentText, newName) as Promise<
+      | { ok: true; workspaceEdit: LspWorkspaceEditIpc | null }
+      | { ok: false; error: string }
+    >,
+  lspEditorSemanticTokensLegend: (sessionId: string, server: 'python' | 'typescript') =>
+    ipcRenderer.invoke('lsp-editor-semantic-tokens-legend', sessionId, server) as Promise<
+      | { ok: true; legend: LspSemanticTokensLegendIpc }
+      | { ok: false; error: string }
+    >,
+  lspEditorSemanticTokensFull: (sessionId: string, relativePath: string, documentText: string) =>
+    ipcRenderer.invoke('lsp-editor-semantic-tokens-full', sessionId, relativePath, documentText) as Promise<
+      | { ok: true; payload: LspSemanticTokensFullIpc }
+      | { ok: false; error: string }
+    >,
   healthLogsRecent: (limit: number) =>
     ipcRenderer.invoke('health-logs-recent', limit) as Promise<{ records: HealthLogRecord[] }>,
   healthSetLogLevel: (level: string) => ipcRenderer.invoke('health-set-log-level', level) as Promise<{ ok: boolean }>,

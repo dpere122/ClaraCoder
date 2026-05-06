@@ -10,11 +10,13 @@ import type {
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
+  DEFAULT_KOKORO_TTS_VOICE,
   defaultLlamaCppManaged,
   defaultMonacoWorkspaceEditorSettings,
   inferContextWindowTokens,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 
@@ -162,7 +164,8 @@ export function getDefaultAudioTranscription(): AudioTranscriptionConfig {
     apiKey: '',
     talkInputDeviceId: 'default',
     talkSilenceThresholdSeconds: 2,
-    ttsVoiceId: 'en-US-AriaNeural',
+    ttsVoice: DEFAULT_KOKORO_TTS_VOICE,
+    ttsSpeechSpeed: TTS_SPEECH_SPEED_DEFAULT,
   };
 }
 

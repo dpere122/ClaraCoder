@@ -129,9 +129,57 @@ export async function syncWorkspaceContextToPython(
       kinds: extras.workspaceFileChanges.kinds ?? [],
     };
   }
+  const pyInterp = (extras?.pythonInterpreterId ?? '').trim();
+  if (pyInterp) {
+    body.python_interpreter_id = pyInterp;
+  }
   await fetch(`${PYTHON_URL}/workspace-context`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+/** Discovered interpreters for the session workspace (LSP analysis env). */
+export async function fetchPythonInterpretersFromPython(sessionId: string): Promise<{
+  interpreters: Array<{
+    id: string;
+    label: string;
+    pythonExecutable: string;
+    venvPath: string;
+  }>;
+  activeInterpreterId: string | null;
+}> {
+  const u = new URL(`${PYTHON_URL}/session/python-interpreters`);
+  u.searchParams.set('session_id', sessionId);
+  const response = await fetch(u.toString());
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Python interpreters list failed (${response.status}): ${detail}`);
+  }
+  return response.json() as Promise<{
+    interpreters: Array<{
+      id: string;
+      label: string;
+      pythonExecutable: string;
+      venvPath: string;
+    }>;
+    activeInterpreterId: string | null;
+  }>;
+}
+
+/** Apply interpreter selection and restart the Python LSP server subprocess for this session. */
+export async function postPythonInterpreterSelection(sessionId: string, interpreterId: string): Promise<void> {
+  const response = await fetch(`${PYTHON_URL}/session/python-interpreter`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      interpreter_id: interpreterId,
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Python interpreter apply failed (${response.status}): ${detail}`);
+  }
 }

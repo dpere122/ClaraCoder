@@ -1,19 +1,24 @@
 import { Component, model, ViewEncapsulation } from '@angular/core';
+import { DEFAULT_KOKORO_TTS_VOICE } from '@shared/index';
 
 export interface VoiceOption {
   id: string;
   label: string;
 }
 
+/** Kokoro (local TTS) voices — American ``af_*`` / ``am_*``, British ``bf_*`` / ``bm_*``. */
 export const VOICE_OPTIONS: VoiceOption[] = [
-  { id: 'en-US-AriaNeural', label: 'Aria (US)' },
-  { id: 'en-US-JennyNeural', label: 'Jenny (US)' },
-  { id: 'en-US-GuyNeural', label: 'Guy (US)' },
-  { id: 'en-US-DavisNeural', label: 'Davis (US)' },
-  { id: 'en-GB-SoniaNeural', label: 'Sonia (UK)' },
-  { id: 'en-GB-RyanNeural', label: 'Ryan (UK)' },
-  { id: 'en-AU-NatashaNeural', label: 'Natasha (AU)' },
-  { id: 'en-AU-WilliamNeural', label: 'William (AU)' },
+  { id: 'af_heart', label: 'American • Heart (default)' },
+  { id: 'af_bella', label: 'American • Bella' },
+  { id: 'af_nicole', label: 'American • Nicole' },
+  { id: 'af_sarah', label: 'American • Sarah' },
+  { id: 'af_sky', label: 'American • Sky' },
+  { id: 'am_adam', label: 'American • Adam' },
+  { id: 'am_michael', label: 'American • Michael' },
+  { id: 'bf_emma', label: 'British • Emma' },
+  { id: 'bf_isabella', label: 'British • Isabella' },
+  { id: 'bm_george', label: 'British • George' },
+  { id: 'bm_lewis', label: 'British • Lewis' },
 ];
 
 @Component({
@@ -23,7 +28,7 @@ export const VOICE_OPTIONS: VoiceOption[] = [
   encapsulation: ViewEncapsulation.None
 })
 export class SpeechModule {
-  readonly selectedVoice = model('en-US-AriaNeural');
+  readonly selectedVoice = model(DEFAULT_KOKORO_TTS_VOICE);
   readonly voices = VOICE_OPTIONS;
 
   onVoiceChange(event: Event): void {

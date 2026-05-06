@@ -90,6 +90,24 @@ def test_validate_ng_args_accepts_build_flags() -> None:
     assert out == ['build', '--configuration=production']
 
 
+def test_validate_ng_args_rejects_non_exiting_ng_modes() -> None:
+    for ng_args, needle in [
+        (['serve'], 'does not exit'),
+        (['run', 'demo:serve'], 'does not exit'),
+        (['build', '--watch'], '`--watch`'),
+        (['build', '--watch=true'], 'watch mode'),
+    ]:
+        out, err = validate_ng_args(ng_args)
+        assert out is None and err is not None
+        assert needle in err
+
+
+def test_validate_ng_args_accepts_watch_false() -> None:
+    out, err = validate_ng_args(['build', '--watch=false'])
+    assert err is None
+    assert out == ['build', '--watch=false']
+
+
 def test_resolve_local_ng_only_under_node_modules(tmp_path: Path) -> None:
     (tmp_path / 'package.json').write_text('{}', encoding='utf-8')
     assert resolve_local_ng_executable(tmp_path) is None

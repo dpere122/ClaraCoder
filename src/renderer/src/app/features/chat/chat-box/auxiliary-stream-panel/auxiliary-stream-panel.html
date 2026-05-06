@@ -17,7 +17,7 @@
     [class.auxiliary-stream-panel__viewport--peek]="!expanded()"
     [class.auxiliary-stream-panel__viewport--full]="expanded()"
   >
-    @for (part of parts(); track $index) {
+    @for (part of parts(); track trackPartId(part, $index)) {
       @if (isMoe(part.streamTag)) {
         <pre class="llm-moe-body auxiliary-stream-panel__moe">{{ part.text }}</pre>
       } @else if (isToolTrailStatus(part.streamTag)) {

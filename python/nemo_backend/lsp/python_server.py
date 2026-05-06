@@ -6,10 +6,9 @@ import logging
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
-
-from nemo_backend.python_env import resolve_python_workspace_root, workspace_python_executable
 
 logger = logging.getLogger('nemo.lsp.manager')
 
@@ -37,15 +36,57 @@ def _adjacent_jedi_language_server_command(python_executable: Path) -> list[str]
 
 
 def _python_module_fallback_command(python_executable: Path) -> list[str]:
-    return [str(python_executable), '-m', 'jedi_language_server.cli']
+    """Spawn jedi-language-server via ``cli()`` — ``-m jedi_language_server.cli`` does **not** call it."""
+
+    return [
+        str(python_executable),
+        '-u',
+        '-c',
+        'from jedi_language_server.cli import cli; cli()',
+    ]
+
+
+def _can_import_jedi_language_server(python_executable: Path) -> bool:
+    """True if this interpreter can import the ``jedi_language_server`` package."""
+
+    cmd = [str(python_executable), '-c', 'import jedi_language_server']
+    try:
+        if sys.platform == 'win32':
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=30,
+                check=False,
+                creationflags=flags,
+            )
+        else:
+            proc = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
+        return proc.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _resolve_jedi_command_for_interpreter(python_executable: Path) -> list[str] | None:
+    """Return a spawn argv for jedi-language-server, or None if not installed for this interpreter."""
+
+    adjacent = _adjacent_jedi_language_server_command(python_executable)
+    if adjacent is not None:
+        return adjacent
+    if _can_import_jedi_language_server(python_executable):
+        return _python_module_fallback_command(python_executable)
+    return None
 
 
 def build_python_lsp_command(workspace_root: Path) -> list[str]:
     """Return the command used to spawn the Python LSP server.
 
-    `NEMO_PYTHON_LSP_COMMAND` may override the default. When unset, Nemo uses the
-    installed `jedi-language-server` console script from the selected interpreter's
-    environment, falling back to `python -m jedi_language_server.cli` when needed.
+    The server **always** runs on the Nemo backend interpreter so workspace folders can be
+    removed without losing ``jedi-language-server``. Analysis environment (installed packages,
+    docstrings) comes from ``initializationOptions.workspace.environmentPath`` / session
+    Python paths, not from which interpreter launches the subprocess.
+
+    ``NEMO_PYTHON_LSP_COMMAND`` may override argv entirely.
     """
 
     raw = os.environ.get('NEMO_PYTHON_LSP_COMMAND', '').strip()
@@ -54,16 +95,14 @@ def build_python_lsp_command(workspace_root: Path) -> list[str]:
         logger.info('python LSP command override workspace=%s command=%s', workspace_root, cmd)
         return cmd
 
-    project_root, _project_root_label = resolve_python_workspace_root(workspace_root)
-    python_executable = workspace_python_executable(project_root) if project_root is not None else None
-    if python_executable is not None and python_executable.is_file():
-        cmd = _adjacent_jedi_language_server_command(python_executable) or _python_module_fallback_command(
-            python_executable
-        )
-        logger.info('python LSP command workspace-venv workspace=%s command=%s', workspace_root, cmd)
+    backend_python = Path(sys.executable)
+    cmd = _resolve_jedi_command_for_interpreter(backend_python)
+    if cmd is not None:
+        logger.info('python LSP command nemo-backend workspace=%s command=%s', workspace_root, cmd)
         return cmd
 
-    default_python = Path(sys.executable)
-    cmd = _adjacent_jedi_language_server_command(default_python) or _python_module_fallback_command(default_python)
-    logger.info('python LSP command default workspace=%s command=%s', workspace_root, cmd)
-    return cmd
+    logger.warning(
+        'python LSP jedi-language-server missing on backend interpreter; blind module fallback workspace=%s',
+        workspace_root,
+    )
+    return _python_module_fallback_command(backend_python)

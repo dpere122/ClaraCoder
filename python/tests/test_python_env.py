@@ -53,6 +53,26 @@ async def test_run_subprocess_with_output_times_out_and_kills(tmp_path: Path, mo
 
 
 @pytest.mark.asyncio
+async def test_run_subprocess_with_output_emit_chunk_streams_live(tmp_path: Path) -> None:
+    """emit_chunk path streams decoded stdout incrementally (used by workspace bootstrap/tools)."""
+    chunks: list[str] = []
+
+    async def emit(s: str) -> None:
+        chunks.append(s)
+
+    code, out = await _run_subprocess_with_output(
+        [sys.executable, '-c', 'print("hello"); print("world")'],
+        cwd=tmp_path,
+        emit_chunk=emit,
+        timeout_sec=60.0,
+    )
+    assert code == 0
+    assert 'hello' in out and 'world' in out
+    joined = ''.join(chunks)
+    assert 'hello' in joined and 'world' in joined
+
+
+@pytest.mark.asyncio
 async def test_run_subprocess_with_output_uses_isolated_session_and_devnull(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -75,7 +95,19 @@ async def test_run_subprocess_with_output_uses_isolated_session_and_devnull(tmp_
     assert captured.get('start_new_session') is True
 
 
-def test_build_python_lsp_command_prefers_workspace_venv(tmp_path: Path) -> None:
+def test_build_python_lsp_command_uses_backend_interpreter(tmp_path: Path) -> None:
+    """LSP subprocess always uses the Nemo backend Python so the server survives workspace removal."""
+
+    workspace_root = tmp_path / 'workspace'
+    workspace_root.mkdir()
+
+    command = build_python_lsp_command(workspace_root)
+
+    assert command[0] == str(Path(sys.executable))
+    assert command[1:] == ['-u', '-c', 'from jedi_language_server.cli import cli; cli()']
+
+
+def test_build_python_lsp_command_falls_back_to_backend_when_workspace_has_no_jedi(tmp_path: Path) -> None:
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
     python_executable = workspace_python_executable(workspace_root)
@@ -84,10 +116,11 @@ def test_build_python_lsp_command_prefers_workspace_venv(tmp_path: Path) -> None
 
     command = build_python_lsp_command(workspace_root)
 
-    assert command == [str(python_executable), '-m', 'jedi_language_server.cli']
+    assert command[0] == str(Path(sys.executable))
+    assert command[1:] == ['-u', '-c', 'from jedi_language_server.cli import cli; cli()']
 
 
-def test_build_python_lsp_command_prefers_adjacent_jedi_script(tmp_path: Path) -> None:
+def test_build_python_lsp_command_ignores_workspace_adjacent_jedi(tmp_path: Path) -> None:
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
     python_executable = workspace_python_executable(workspace_root)
@@ -97,16 +130,14 @@ def test_build_python_lsp_command_prefers_adjacent_jedi_script(tmp_path: Path) -
     if sys.platform.startswith('win'):
         script_path = python_executable.parent / 'jedi-language-server.exe'
         script_path.write_text('', encoding='utf-8')
-        expected = [str(script_path)]
     else:
         script_path = python_executable.parent / 'jedi-language-server'
         script_path.write_text('#!/bin/sh\n', encoding='utf-8')
         script_path.chmod(0o755)
-        expected = [str(script_path)]
 
     command = build_python_lsp_command(workspace_root)
 
-    assert command == expected
+    assert command[0] == str(Path(sys.executable))
 
 
 def test_resolve_python_workspace_root_accepts_simple_python_workspace(tmp_path: Path) -> None:

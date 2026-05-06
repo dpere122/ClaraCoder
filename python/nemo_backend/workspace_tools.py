@@ -15,7 +15,6 @@ from pathlib import Path
 logger = logging.getLogger('nemo.tools.workspace')
 
 from langchain_core.tools import tool
-from pypdf import PdfReader
 
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
 from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
@@ -248,6 +247,13 @@ def list_workspace_directory(relative_path: str = '.') -> str:
 
 def _read_workspace_pdf(path: Path, rel_display: str, start_page: int, end_page: int) -> str:
     """Extract text from PDF pages ``start_page``–``end_page`` (1-based, inclusive)."""
+    try:
+        from pypdf import PdfReader
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(
+            'PDF reading needs Pillow + pypdf. From your venv run: pip install pillow pypdf '
+            f'(detail: {exc})'
+        ) from exc
     try:
         reader = PdfReader(str(path))
     except Exception as exc:

@@ -5,7 +5,7 @@ import { mainState } from '../state';
 import { PYTHON_URL } from '../python/server';
 
 /**
- * Registers `registerStreamProtocol('nemo-tts')` to stream MP3 from Python `/tts` into `<audio>` / MSE.
+ * Registers `registerStreamProtocol('nemo-tts')` to stream WAV from Python `/tts` into `<audio>`.
  */
 export function registerNemoTtsStreamProtocol(): void {
   protocol.registerStreamProtocol('nemo-tts', (request, callback) => {
@@ -37,7 +37,7 @@ export function registerNemoTtsStreamProtocol(): void {
     callback({
       statusCode: 200,
       headers: {
-        'Content-Type': 'audio/mpeg',
+        'Content-Type': 'audio/wav',
         'Cache-Control': 'no-store',
       },
       data: pass,
@@ -49,7 +49,7 @@ export function registerNemoTtsStreamProtocol(): void {
         const res = await fetch(`${PYTHON_URL}/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: entry.text, voice: entry.voice }),
+          body: JSON.stringify({ text: entry.text, voice: entry.voice, speed: entry.speed }),
           signal,
         });
         if (!res.ok || !res.body) {
@@ -88,9 +88,9 @@ export function registerNemoTtsStreamProtocol(): void {
   });
 }
 
-/** `tts-stream-register` stores text/voice under this id for the next `nemo-tts://` fetch. */
-export function registerTtsStreamToken(text: string, voice: string): string {
+/** `tts-stream-register` stores text/voice/speed under this id for the next `nemo-tts://` fetch. */
+export function registerTtsStreamToken(text: string, voice: string, speed: number): string {
   const id = randomUUID();
-  mainState.ttsStreamTokens.set(id, { text, voice });
+  mainState.ttsStreamTokens.set(id, { text, voice, speed });
   return id;
 }

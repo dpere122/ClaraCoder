@@ -15,6 +15,29 @@
   border-bottom: 1px solid var(--t-border-subtle, #333);
 }
 
+.workspace-monaco-pane {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.workspace-monaco-pane--hidden {
+  display: none !important;
+}
+
+.workspace-monaco-diff-toolbar {
+  flex-shrink: 0;
+  background: var(--t-panel-bg, var(--bs-body-bg, #1e1e1e));
+}
+
+.workspace-monaco-diff-blocked {
+  flex-shrink: 0;
+}
+
+.workspace-monaco-diff {
+  flex: 1;
+}
+
 .workspace-monaco-editor {
   flex: 1;
   min-height: 0;

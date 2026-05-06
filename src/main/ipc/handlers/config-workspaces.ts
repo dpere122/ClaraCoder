@@ -6,7 +6,7 @@ import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
 import { loadConfig, migrateConfig, saveConfig } from '../../config/load-save';
 import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
-import { syncRuntimeConfigToPython, syncWorkspaceContextToPython } from '../../python/workspace-sync';
+import { syncRuntimeConfigToPython, syncWorkspaceContextToPython, fetchPythonInterpretersFromPython, postPythonInterpreterSelection } from '../../python/workspace-sync';
 import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
 import { getRecentConversations } from '../../menu/recent-conversations';
 import { buildMenu } from '../../menu/application-menu';
@@ -49,6 +49,51 @@ export function registerConfigWorkspacesIpc(): void {
       extras?: WorkspaceContextSyncExtras,
     ) => {
       await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext, extras);
+    },
+  );
+
+  ipcMain.handle('list-python-interpreters', async (_event, sessionId: string) => {
+    try {
+      const data = await fetchPythonInterpretersFromPython(sessionId);
+      return { ok: true as const, ...data };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false as const,
+        error: msg,
+        interpreters: [] as Array<{
+          id: string;
+          label: string;
+          pythonExecutable: string;
+          venvPath: string;
+        }>,
+        activeInterpreterId: null as string | null,
+      };
+    }
+  });
+
+  ipcMain.handle(
+    'apply-workspace-python-interpreter',
+    async (
+      _event,
+      payload: { workspaceId: string; sessionId: string; interpreterId: string },
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        await postPythonInterpreterSelection(payload.sessionId, payload.interpreterId);
+        const config = await loadConfig();
+        const workspace = config.workspaces.find((w) => w.id === payload.workspaceId);
+        if (!workspace) {
+          return { ok: false, error: 'Workspace not found in config.' };
+        }
+        workspace.pythonInterpreterId = payload.interpreterId;
+        await saveConfig(config);
+        await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+        broadcastConfig(config);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
     },
   );
 

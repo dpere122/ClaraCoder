@@ -96,7 +96,7 @@ app-chat-box .assistant-md {
 }
 
 .assistant-bubble code {
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   background-color: var(--t-code-inline-bg);
   color: var(--t-primary);
   padding: 0.15em 0.4em;
@@ -361,7 +361,7 @@ app-chat-box .streaming-delegated-block {
 app-chat-box .streaming-delegated-label {
   padding: 0.35rem 0.6rem;
   font-size: 0.72rem;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   color: var(--t-text-muted);
   border-bottom: 1px solid var(--t-border-subtle);
 }
@@ -423,7 +423,7 @@ app-chat-box .tool-trail-sep {
 }
 
 app-chat-box .tool-trail-name {
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   opacity: 0.7;
 }
 
@@ -478,7 +478,7 @@ app-chat-box .clara-outer-brief-chip {
 app-chat-box .clara-outer-brief-body {
   margin: 0;
   padding: 0.35rem 0.15rem 0.1rem;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.74rem;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -499,7 +499,7 @@ app-chat-box .tool-trail-collapse {
 app-chat-box .tool-trail-summary {
   cursor: pointer;
   font-size: 0.73rem;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   color: var(--t-text-muted);
   user-select: none;
   list-style: none;
@@ -605,7 +605,7 @@ app-chat-box .talk-voice-label {
 }
 
 app-chat-box .processing-text {
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.82em;
   color: var(--t-secondary);
   text-shadow: 0 0 4px var(--t-glow-soft);
@@ -648,7 +648,7 @@ app-chat-box .llm-moe-summary::-webkit-details-marker {
 app-chat-box .llm-moe-body {
   margin: 0.4rem 0 0;
   padding: 0.45rem 0.5rem;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--t-secondary);

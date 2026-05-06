@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pypdf import PdfReader
-
 logger = logging.getLogger('nemo.workspace_index.read')
 
 
@@ -26,6 +24,11 @@ def read_file_for_index(path: Path, *, max_bytes: int) -> str:
 
 
 def _read_pdf_text(path: Path, *, max_bytes: int) -> str:
+    try:
+        from pypdf import PdfReader
+    except (ImportError, AttributeError) as exc:
+        logger.debug('index pdf import failed (install pillow): path=%s err=%s', path, exc)
+        return ''
     try:
         reader = PdfReader(str(path))
     except Exception as exc:

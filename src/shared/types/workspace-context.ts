@@ -35,4 +35,14 @@ export interface WorkspaceFileChangesForSync {
 export interface WorkspaceContextSyncExtras {
   workspaceId?: string;
   workspaceFileChanges?: WorkspaceFileChangesForSync;
+  /** When set, applies this interpreter to the session (LSP env); persisted per workspace in config. */
+  pythonInterpreterId?: string;
+}
+
+/** One row from `GET /session/python-interpreters`. */
+export interface PythonInterpreterListItem {
+  id: string;
+  label: string;
+  pythonExecutable: string;
+  venvPath: string;
 }

@@ -33,7 +33,11 @@ export type {
   HealthMonitorConfig,
 } from './types/app-config';
 export {
+  DEFAULT_KOKORO_TTS_VOICE,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
+  TTS_SPEECH_SPEED_DEFAULT,
+  TTS_SPEECH_SPEED_MAX,
+  TTS_SPEECH_SPEED_MIN,
   defaultMonacoWorkspaceEditorSettings,
   normalizeMonacoWorkspaceEditorSettings,
 } from './types/app-config';
@@ -114,6 +118,7 @@ export {
   persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
+  READ_TOOL_PREVIEW_STREAM_TAG,
   SHELL_STYLE_TOOL_STREAM_TAGS,
   shellDelegatedStreamPartsForDisplay,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
@@ -140,6 +145,9 @@ export type { TtsStreamPacket } from './types/tts';
 export type { HostOsInfo } from './types/host-os';
 export type { ScriptLaunchPlan } from './types/script';
 export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
+export type { LspDashboardServerEntry, LspDashboardStatus } from './types/lsp-dashboard';
+export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
+export type { LspServerKind } from './lsp-file-policy';
 export type { AcceptCommandPayload } from './types/accept-command';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';
@@ -150,5 +158,6 @@ export type {
   WorkspaceChangeRecord,
   WorkspaceContextSyncExtras,
   WorkspaceFileChangesForSync,
+  PythonInterpreterListItem,
 } from './types/workspace-context';
 export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';

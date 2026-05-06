@@ -4,6 +4,7 @@ import path = require('path');
 const syncFs = require('fs');
 import type {
   AppConfig,
+  AudioTranscriptionConfig,
   HealthMonitorConfig,
   LlamaCppManaged,
   LlmConnectionConfig,
@@ -13,11 +14,15 @@ import type {
 } from '../../shared';
 import {
   defaultLlamaCppManaged,
+  DEFAULT_KOKORO_TTS_VOICE,
   findLlmModelLocation,
   inferContextWindowTokens,
   isLegacyLlamaCppManagedShape,
   migrateLegacyLlamaCppManagedToCommands,
   normalizeMonacoWorkspaceEditorSettings,
+  TTS_SPEECH_SPEED_DEFAULT,
+  TTS_SPEECH_SPEED_MAX,
+  TTS_SPEECH_SPEED_MIN,
   type ShellQuotingPlatform,
 } from '../../shared';
 import { PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID } from '../../shared';
@@ -566,9 +571,27 @@ export function migrateConfig(config: AppConfig): AppConfig {
       audio.talkSilenceThresholdSeconds = 2;
       migrated = true;
     }
-    const ttsV = audio.ttsVoiceId;
-    if (typeof ttsV !== 'string' || !ttsV.trim()) {
-      audio.ttsVoiceId = 'en-US-AriaNeural';
+    const atRecord = audio as AudioTranscriptionConfig & { ttsVoiceId?: string };
+    if (atRecord.ttsVoice === undefined && typeof atRecord.ttsVoiceId === 'string') {
+      const legacy = atRecord.ttsVoiceId.trim();
+      const isEdgeOrEmpty =
+        !legacy || /neural/i.test(legacy) || /^en-/i.test(legacy) || /^[a-z]{2}-[A-Z]{2}-/.test(legacy);
+      atRecord.ttsVoice = isEdgeOrEmpty ? DEFAULT_KOKORO_TTS_VOICE : legacy;
+      delete atRecord.ttsVoiceId;
+      migrated = true;
+    }
+    const tv = atRecord.ttsVoice;
+    if (typeof tv !== 'string' || !tv.trim()) {
+      atRecord.ttsVoice = DEFAULT_KOKORO_TTS_VOICE;
+      migrated = true;
+    }
+    const tsp = atRecord.ttsSpeechSpeed;
+    if (typeof tsp !== 'number' || Number.isNaN(tsp) || tsp < TTS_SPEECH_SPEED_MIN || tsp > TTS_SPEECH_SPEED_MAX) {
+      atRecord.ttsSpeechSpeed = TTS_SPEECH_SPEED_DEFAULT;
+      migrated = true;
+    }
+    if ('ttsVoiceId' in atRecord) {
+      delete atRecord.ttsVoiceId;
       migrated = true;
     }
   }

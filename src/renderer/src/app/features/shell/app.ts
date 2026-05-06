@@ -8,6 +8,7 @@ import type {
   AppConfig,
   Conversation,
   ConversationMeta,
+  FileDiffPayload,
   LlmStatus,
   PlannerProgress,
   StreamPart,
@@ -15,6 +16,7 @@ import type {
 } from '@shared/index';
 import {
   collapseExcessiveAssistantBlankLines,
+  DEFAULT_KOKORO_TTS_VOICE,
   delegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
   findLlmModelLocation,
@@ -23,10 +25,14 @@ import {
   isShellStyleToolStreamTag,
   multiplexAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
+  READ_TOOL_PREVIEW_STREAM_TAG,
   resolveActiveLlmConnection,
   stripAssistantChannelNoise,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   toolTrailStatusStreamTag,
+  TTS_SPEECH_SPEED_DEFAULT,
+  TTS_SPEECH_SPEED_MAX,
+  TTS_SPEECH_SPEED_MIN,
 } from '@shared/index';
 import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
 import { MessageBox } from '../chat/message-box/message-box';
@@ -38,9 +44,11 @@ import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
+import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
+import { PendingDiffReviewService } from '../diff/pending-diff-review.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import {
   unsavedCloseFileTabPrompt,
@@ -132,31 +140,47 @@ function markToolExecStreamComplete(
   outputExcerpt?: string,
 ): StreamPart[] {
   const t = streamTag?.trim();
-  if (!t) {
-    return parts;
-  }
   const next = parts.map((p) => ({ ...p }));
   const ex = outputExcerpt?.trim();
-  for (let i = next.length - 1; i >= 0; i--) {
-    if (next[i].streamTag.trim() === t) {
-      let text = next[i].text;
-      if (ex) {
-        const head = ex.slice(0, Math.min(160, ex.length));
-        if (!text.trim()) {
-          text = ex;
-        } else if (!text.includes(head)) {
-          text = `${text.endsWith('\n') ? text : `${text}\n`}\n${ex}`;
-        }
+
+  let targetIdx = -1;
+  if (t) {
+    for (let i = next.length - 1; i >= 0; i--) {
+      if (next[i].streamTag.trim() === t) {
+        targetIdx = i;
+        break;
       }
-      next[i] = {
-        ...next[i],
-        text,
-        runComplete: true,
-        ...(exitCode !== undefined ? { exitCode } : {}),
-      };
-      break;
+    }
+  } else {
+    for (let i = next.length - 1; i >= 0; i--) {
+      if (next[i].runComplete) continue;
+      const tag = next[i].streamTag?.trim() ?? '';
+      if (tag.startsWith('spec-') || isShellStyleToolStreamTag(tag)) {
+        targetIdx = i;
+        break;
+      }
     }
   }
+
+  if (targetIdx < 0) {
+    return parts;
+  }
+
+  let text = next[targetIdx].text;
+  if (ex) {
+    const head = ex.slice(0, Math.min(160, ex.length));
+    if (!text.trim()) {
+      text = ex;
+    } else if (!text.includes(head)) {
+      text = `${text.endsWith('\n') ? text : `${text}\n`}\n${ex}`;
+    }
+  }
+  next[targetIdx] = {
+    ...next[targetIdx],
+    text,
+    runComplete: true,
+    ...(exitCode !== undefined ? { exitCode } : {}),
+  };
   return next;
 }
 
@@ -172,6 +196,7 @@ function markToolExecStreamComplete(
     WorkspaceComponent,
     WorkspaceMonacoComponent,
     WorkspaceTerminalDockComponent,
+    EditorLspStatusComponent,
     StatusBarComponent,
     ThemedConfirmDialogComponent,
   ],
@@ -191,7 +216,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly activeConversationId = signal<string | null>(null);
   protected readonly fontSize = model(0.9);
   protected readonly speechEnabled = model(false);
-  protected readonly selectedVoice = model('en-US-AriaNeural');
+  protected readonly selectedVoice = model(DEFAULT_KOKORO_TTS_VOICE);
+  protected readonly ttsSpeechSpeed = signal(TTS_SPEECH_SPEED_DEFAULT);
   protected readonly talkStatus = model('');
   /** Errors / hints from talk capture (shown in composer status row). */
   protected readonly talkModeDetailStatus = model('');
@@ -237,6 +263,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly fileTabs = signal<ChatFileTab[]>([]);
   /** Relative paths with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
   protected readonly monacoUnsavedPaths = signal<ReadonlySet<string>>(new Set());
+  /** One-shot scroll target after cross-file go-to-definition from Monaco. */
+  protected readonly monacoRevealPending = signal<{
+    relativePath: string;
+    line: number;
+    column: number;
+  } | null>(null);
   /** `conversation` or `file:<relativePath>`. */
   protected readonly activeMainTabId = signal<string>('conversation');
 
@@ -257,6 +289,25 @@ export class App implements OnInit, OnDestroy {
       return null;
     }
     return tabId.slice(5);
+  });
+
+  /** Latest pending file diff for the currently focused editor tab (Monaco inline review). */
+  protected readonly pendingDiffForActiveEditor = computed((): FileDiffPayload | null => {
+    const path = this.activeFileRelativePath();
+    if (!path?.trim()) {
+      return null;
+    }
+    const norm = normalizePathSlashes(path.trim());
+    const msgs = this.messages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'diff' && (m.reviewStatus ?? 'pending') === 'pending') {
+        if (normalizePathSlashes(m.payload.relativePath) === norm) {
+          return m.payload;
+        }
+      }
+    }
+    return null;
   });
 
   protected readonly activeLlmConnection = computed(() => {
@@ -327,6 +378,7 @@ export class App implements OnInit, OnDestroy {
     private zone: NgZone,
     protected readonly tts: TtsPlaybackService,
     private readonly themedConfirm: ThemedConfirmDialogService,
+    private readonly pendingDiffReview: PendingDiffReviewService,
   ) {
     this.electron.windowMaximized$
       .pipe(takeUntilDestroyed())
@@ -391,6 +443,11 @@ export class App implements OnInit, OnDestroy {
       this.measuredPromptTokens.set(null);
     });
 
+    effect(() => {
+      this.activeConversationId();
+      untracked(() => this.pendingDiffReview.clearAllSessions());
+    });
+
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
       if (conversationId !== this.activeConversationId()) return;
       if (inputTokens > 0) {
@@ -398,14 +455,20 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.config$.subscribe((config) => {
+    this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
       this.appConfig.set(config);
       const cfs = config.chatFontSizeRem;
       const nextFs =
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9;
       this.fontSize.set(nextFs);
-      const v = config.audioTranscription?.ttsVoiceId?.trim();
-      this.selectedVoice.set(v || 'en-US-AriaNeural');
+      const at = config.audioTranscription;
+      this.selectedVoice.set(at?.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
+      const sp = at?.ttsSpeechSpeed;
+      this.ttsSpeechSpeed.set(
+        typeof sp === 'number' && !Number.isNaN(sp)
+          ? Math.min(TTS_SPEECH_SPEED_MAX, Math.max(TTS_SPEECH_SPEED_MIN, sp))
+          : TTS_SPEECH_SPEED_DEFAULT,
+      );
       // Resolve theme: workspace theme > noWorkspaceThemeId > dark
       let themeToApply = config.noWorkspaceThemeId || 'dark';
       if (config.currentWorkspaceId) {
@@ -419,11 +482,11 @@ export class App implements OnInit, OnDestroy {
       this.currentWorkspaceId.set(config.currentWorkspaceId);
     });
 
-    this.electron.settingsWindowVisibility$.subscribe((isOpen) => {
+    this.electron.settingsWindowVisibility$.pipe(takeUntilDestroyed()).subscribe((isOpen) => {
       this.settingsWindowOpen.set(isOpen);
     });
 
-    this.electron.chunk$.subscribe(({ conversationId, delta, streamTag }) => {
+    this.electron.chunk$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, delta, streamTag }) => {
       const toolRunInProgress = this.toolRunIds().size > 0;
       if (shouldIgnoreWhitespaceOnlyModelChunkDuringTool(delta, toolRunInProgress)) {
         return;
@@ -436,7 +499,22 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.toolExecChunk$.subscribe(({ conversationId, delta, streamTag, label }) => {
+    this.electron.toolReadChunk$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, delta }) => {
+      const label = 'File read preview';
+      if (conversationId === this.activeConversationId()) {
+        this.streamingParts.update((prev) =>
+          appendStreamPart(prev, READ_TOOL_PREVIEW_STREAM_TAG, delta, label),
+        );
+      } else {
+        const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+        this.backgroundStreamParts.set(
+          conversationId,
+          appendStreamPart(prev, READ_TOOL_PREVIEW_STREAM_TAG, delta, label),
+        );
+      }
+    });
+
+    this.electron.toolExecChunk$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, delta, streamTag, label }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) => appendStreamPart(prev, streamTag, delta, label ?? ''));
       } else {
@@ -445,7 +523,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.toolExecComplete$.subscribe(({ conversationId, streamTag, exitCode, outputExcerpt }) => {
+    this.electron.toolExecComplete$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, streamTag, exitCode, outputExcerpt }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) =>
           markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt),
@@ -459,7 +537,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.planner$.subscribe(({ conversationId, planner }) => {
+    this.electron.planner$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, planner }) => {
       if (conversationId === this.activeConversationId()) {
         this.livePlannerProgress.set(planner);
       } else {
@@ -467,7 +545,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.diff$.subscribe(({ conversationId, diff }) => {
+    this.electron.diff$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, diff }) => {
       if (conversationId !== this.activeConversationId()) return;
       if (diff.version !== 1 || !Array.isArray(diff.rows)) return;
       this.messages.update((prev) => [
@@ -480,7 +558,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.acceptCommand$.subscribe(({ conversationId, payload }) => {
+    this.electron.acceptCommand$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
       if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       this.messages.update((prev) => [
@@ -493,7 +571,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.copyConfirm$.subscribe(({ conversationId, payload }) => {
+    this.electron.copyConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
       if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId || !Array.isArray(payload.copies) || payload.copies.length === 0) return;
       this.messages.update((prev) => [
@@ -506,7 +584,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.deleteConfirm$.subscribe(({ conversationId, payload }) => {
+    this.electron.deleteConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
       if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId) return;
       const batchOk = Array.isArray(payload.entries) && payload.entries.length > 0;
@@ -522,7 +600,7 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.llmStatus$.subscribe(({ conversationId, status }) => {
+    this.electron.llmStatus$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, status }) => {
       if (conversationId !== this.activeConversationId()) return;
       const src = (status.source ?? 'agent').toLowerCase();
       if (src === 'tool') {
@@ -547,7 +625,7 @@ export class App implements OnInit, OnDestroy {
       this.upsertChainMessage(status);
     });
 
-    this.electron.done$.subscribe(({ conversationId }) => {
+    this.electron.done$.pipe(takeUntilDestroyed()).subscribe(({ conversationId }) => {
       this.removePending(conversationId);
       if (conversationId === this.activeConversationId()) {
         const parts = this.streamingParts();
@@ -585,7 +663,9 @@ export class App implements OnInit, OnDestroy {
           (auxiliaryStreamTimeline?.length ?? 0) > 0
         ) {
           this.pushMessage('assistant', text, planner, toolStreams, moeStreams, auxiliaryStreamTimeline);
-          if (this.speechEnabled() && text.trim()) void this.tts.speakText(text, this.selectedVoice());
+          if (this.speechEnabled() && text.trim()) {
+            void this.tts.speakText(text, this.selectedVoice(), this.ttsSpeechSpeed());
+          }
           void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
             console.error('[App] persist assistant / auto-title failed', err),
           );
@@ -636,11 +716,11 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.openWorkspace$.subscribe((workspacePath) => {
+    this.electron.openWorkspace$.pipe(takeUntilDestroyed()).subscribe((workspacePath) => {
       void this.handleOpenWorkspace(workspacePath);
     });
 
-    this.electron.openConversation$.subscribe((conversationId) => {
+    this.electron.openConversation$.pipe(takeUntilDestroyed()).subscribe((conversationId) => {
       void this.handleOpenConversation(conversationId);
     });
   }
@@ -1059,6 +1139,19 @@ export class App implements OnInit, OnDestroy {
     this.activeMainTabId.set(id);
   }
 
+  protected onWorkspaceMonacoNavigate(payload: { relativePath: string; line: number; column: number }): void {
+    this.openOrFocusFileTab(payload.relativePath);
+    this.monacoRevealPending.set({
+      relativePath: normalizePathSlashes(payload.relativePath),
+      line: payload.line,
+      column: payload.column,
+    });
+  }
+
+  protected onMonacoRevealHandled(): void {
+    this.monacoRevealPending.set(null);
+  }
+
   protected selectMainTab(tabId: string): void {
     this.activeMainTabId.set(tabId);
   }
@@ -1124,8 +1217,11 @@ export class App implements OnInit, OnDestroy {
         return;
       }
       this.workspaceContextText.set(tree);
+      const ws = this.currentWorkspace();
+      const pyId = (ws?.pythonInterpreterId ?? '').trim();
       await this.electron.setWorkspaceContext(convId, workspacePath, tree, {
         workspaceId: this.currentWorkspaceId() ?? '',
+        ...(pyId ? { pythonInterpreterId: pyId } : {}),
       });
     } catch (err) {
       console.error('[App] Failed to sync workspace context:', err);

@@ -1,0 +1,41 @@
+.editor-lsp-status {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(22rem, 42vw);
+  padding: 0.2rem 0.45rem;
+  margin-left: auto;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-family: var(--t-font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  color: var(--t-text-muted, #888);
+  border: 1px solid transparent;
+}
+
+.editor-lsp-status__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-lsp-status--ok {
+  color: color-mix(in srgb, var(--t-primary, #0f0) 82%, var(--t-text-muted, #888));
+  border-color: color-mix(in srgb, var(--t-primary, #0f0) 28%, var(--t-border-subtle, #333));
+}
+
+.editor-lsp-status--warn {
+  color: color-mix(in srgb, var(--t-log-level-warn, #fa0) 85%, var(--t-fg, #eee));
+  border-color: color-mix(in srgb, var(--t-log-level-warn, #fa0) 35%, var(--t-border-subtle, #333));
+}
+
+.editor-lsp-status--error {
+  color: color-mix(in srgb, var(--t-log-level-error, #f66) 88%, var(--t-fg, #eee));
+  border-color: color-mix(in srgb, var(--t-log-level-error, #f66) 38%, var(--t-border-subtle, #333));
+}
+
+.editor-lsp-status--muted,
+.editor-lsp-status--pending {
+  opacity: 0.92;
+}

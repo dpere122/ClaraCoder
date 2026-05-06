@@ -111,6 +111,14 @@ export type LlmConnectionConfig = LlmModelProfile &
     embeddingsBaseUrl?: string;
   };
 
+/** Default Kokoro voice when assistant speech is enabled (American English). */
+export const DEFAULT_KOKORO_TTS_VOICE = 'af_heart';
+
+/** Bounds for Settings → Audio → assistant speech speed (sent to Kokoro ``speed``). */
+export const TTS_SPEECH_SPEED_MIN = 0.5;
+export const TTS_SPEECH_SPEED_MAX = 2;
+export const TTS_SPEECH_SPEED_DEFAULT = 1;
+
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
   provider: 'openai' | 'disabled' | 'google';
@@ -128,8 +136,16 @@ export interface AudioTranscriptionConfig {
    */
   talkSilenceThresholdSeconds?: number;
   /**
-   * Azure-style neural voice id for assistant TTS in the chat window.
-   * Client-only; ignored by the transcription API runtime.
+   * Kokoro voice id for assistant TTS (e.g. ``af_heart``).
+   * Client-only; sent to the local Python ``POST /tts`` endpoint.
+   */
+  ttsVoice?: string;
+  /**
+   * Assistant TTS speed multiplier (0.5–2). Client-only; forwarded to Kokoro.
+   */
+  ttsSpeechSpeed?: number;
+  /**
+   * @deprecated Replaced by {@link AudioTranscriptionConfig.ttsVoice} (Kokoro). Migrated on load.
    */
   ttsVoiceId?: string;
 }

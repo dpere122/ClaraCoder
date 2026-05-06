@@ -29,7 +29,11 @@ from nemo_backend.python_dependency_agent import (
     write_frozen_python_requirements_file_tool,
 )
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
-from nemo_backend.python_env import ensure_session_python_workspace_env, session_workspace_subprocess_env
+from nemo_backend.python_env import (
+    _terminate_subprocess_tree,
+    ensure_session_python_workspace_env,
+    session_workspace_subprocess_env,
+)
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
@@ -291,7 +295,15 @@ def _build_smoke_result(
 
 
 async def _terminate_process(proc: asyncio.subprocess.Process) -> int | None:
+    """Terminate the subprocess tree (npm/pytest often spawn children).
+
+    Falls back to terminate/kill when ``pid`` is absent (tests use lightweight mocks).
+    """
     if proc.returncode is not None:
+        return proc.returncode
+    pid = getattr(proc, 'pid', None)
+    if isinstance(pid, int) and pid > 0:
+        await _terminate_subprocess_tree(proc)
         return proc.returncode
     try:
         proc.terminate()

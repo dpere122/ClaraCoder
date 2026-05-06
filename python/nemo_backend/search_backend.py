@@ -21,6 +21,8 @@ _GREP_SAFE_ENCODINGS = frozenset(
     }
 )
 _MAX_GREP_COMMAND_CHARS = 24_000
+# Avoid hung backend when grep blocks on huge trees or pathological I/O.
+_GREP_SUBPROCESS_TIMEOUT_SEC = 120.0
 
 
 @dataclass(frozen=True)
@@ -74,9 +76,13 @@ def run_grep_line_search(
                 capture_output=True,
                 text=False,
                 check=False,
+                timeout=_GREP_SUBPROCESS_TIMEOUT_SEC,
             )
         except OSError as exc:
             logger.debug('grep search launch failed err=%s', exc)
+            return None
+        except subprocess.TimeoutExpired as exc:
+            logger.debug('grep search timed out err=%s', exc)
             return None
         if proc.returncode not in {0, 1}:
             stderr = proc.stderr.decode('utf-8', errors='replace').strip()

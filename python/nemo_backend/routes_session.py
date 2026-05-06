@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 
 from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
@@ -17,10 +17,17 @@ from nemo_backend.workspace_index.lifecycle import (
     invalidate_staging_index_disk,
     invalidate_workspace_index_disk,
 )
+from nemo_backend.lsp.manager import shutdown_session_python_lsp
 from nemo_backend.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
+from nemo_backend.python_interpreter_select import (
+    apply_python_interpreter_entry,
+    discover_workspace_python_interpreters,
+    find_interpreter_entry_by_id,
+)
 from nemo_backend.schemas import (
     ClearRequest,
     LoadRequest,
+    PythonInterpreterSelectRequest,
     SessionAutoApplyRequest,
     WorkspaceContextRequest,
 )
@@ -112,7 +119,20 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
         sess.semantic_index_pending.clear()
         clear_session_python_workspace_env(sess)
         return {'ok': True}
-    if workspace_path_changed or not sess.python_workspace_python_executable:
+
+    interp = (request.python_interpreter_id or '').strip()
+    if interp:
+        entry = find_interpreter_entry_by_id(Path(new_path), interp)
+        if entry is not None:
+            apply_python_interpreter_entry(sess, Path(new_path), entry)
+            shutdown_session_python_lsp(request.session_id)
+        else:
+            logger.warning(
+                'unknown python_interpreter_id=%r for workspace session=%s',
+                interp,
+                request.session_id,
+            )
+    elif workspace_path_changed or not sess.python_workspace_python_executable:
         result = await ensure_session_python_workspace_env(
             sess,
             allow_workspace_root_fallback=False,
@@ -126,6 +146,36 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
                 result.project_root_label or '(none)',
             )
     return {'ok': True}
+
+
+@router.get('/session/python-interpreters')
+async def list_python_interpreters(session_id: str = Query(...)) -> dict[str, Any]:
+    """Discover Python interpreters under the session workspace (for editor picker)."""
+
+    sess = state.get_session(session_id)
+    wp = (sess.workspace_path or '').strip()
+    if not wp:
+        return {'interpreters': [], 'activeInterpreterId': None}
+    rows = discover_workspace_python_interpreters(Path(wp))
+    active = (sess.python_interpreter_choice_id or '').strip() or None
+    return {'interpreters': rows, 'activeInterpreterId': active}
+
+
+@router.post('/session/python-interpreter')
+async def select_python_interpreter(request: PythonInterpreterSelectRequest) -> dict[str, Any]:
+    """Apply interpreter selection and restart the Python LSP subprocess."""
+
+    sess = state.get_session(request.session_id)
+    wp = (sess.workspace_path or '').strip()
+    if not wp:
+        raise HTTPException(status_code=400, detail='No workspace attached.')
+    root = Path(wp)
+    entry = find_interpreter_entry_by_id(root, request.interpreter_id)
+    if entry is None:
+        raise HTTPException(status_code=400, detail='Unknown interpreter id.')
+    apply_python_interpreter_entry(sess, root, entry)
+    shutdown_session_python_lsp(request.session_id)
+    return {'ok': True, 'interpreterId': entry['id']}
 
 
 @router.post('/session/auto-apply')

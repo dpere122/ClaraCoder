@@ -32,6 +32,41 @@ _PENDING_ANGULAR_CLI_RUN = 'angular_cli_run'
 _ARG_TOKEN_RE = re.compile(r'^[A-Za-z0-9@._/:+=,\-]+$')
 _FORBIDDEN_SUBPROCESS_CHARS = frozenset(";|&$`\n\r<>()`")
 
+# These never finish under our captured subprocess (stdin/stdout pipes); they look like a hung agent until timeout.
+_NG_NON_TERMINATING_FIRST = frozenset({'serve'})
+
+
+def _ng_args_imply_endless_process(ng_args: list[str]) -> str | None:
+    """Return an error if ``ng`` would run until killed (serve / watch / run …:serve)."""
+
+    if not ng_args:
+        return None
+    head = ng_args[0]
+    if head in _NG_NON_TERMINATING_FIRST:
+        return (
+            f'Tool error: `ng {head}` does not exit (dev server). The agent would block until timeout. '
+            'Use `ng build` or another finite command, or run the dev server from the app terminal outside the agent.'
+        )
+    if head == 'run' and any(':serve' in part for part in ng_args[1:]):
+        return (
+            'Tool error: `ng run …:serve` does not exit (dev-server target). '
+            'Use `ng build` or run serve manually in a terminal.'
+        )
+    for a in ng_args:
+        if a == '--watch':
+            return (
+                'Tool error: `ng` was invoked with `--watch`, which does not exit. '
+                'Omit watch mode or use a finite command (e.g. `ng build` without `--watch`).'
+            )
+        if a.startswith('--watch='):
+            val = a.split('=', 1)[1].strip().lower()
+            if val not in ('false', '0', 'no'):
+                return (
+                    'Tool error: `ng` watch mode (`--watch=…`) does not exit unless set to false. '
+                    'Use `--watch=false` for one-shot builds or pick a command without watch.'
+                )
+    return None
+
 
 def _npm_script_timeout_sec() -> float | None:
     if NEMO_NPM_SCRIPT_TIMEOUT_SEC > 0:
@@ -90,6 +125,9 @@ def validate_ng_args(ng_args: object) -> tuple[list[str] | None, str | None]:
         if not _ARG_TOKEN_RE.match(s):
             return None, f'Tool error: `ng_args[{i}]` has unsupported characters (use alphanumeric and `@._/:+=,-` only).'
         out.append(s)
+    endless = _ng_args_imply_endless_process(out)
+    if endless:
+        return None, endless
     return out, None
 
 
@@ -229,6 +267,7 @@ async def angular_cli_tool(ng_args: list[str], relative_project_dir: str = '') -
     ``@angular/cli`` (so ``node_modules/.bin/ng`` exists). Run ``npm_install_project`` for that directory first if needed.
 
     Pass ``ng_args`` as the arguments **after** ``ng`` (e.g. ``["version"]``, ``["build","--configuration=production"]``).
+    Do **not** use ``serve``, ``run …:serve``, or watch mode (``--watch`` unless ``--watch=false``)—those never exit and will stall the agent.
     Use ``relative_project_dir`` when the app lives under a subfolder (same rules as npm tools).
     """
 

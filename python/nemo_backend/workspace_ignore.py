@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections import OrderedDict
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -60,7 +61,8 @@ SEARCH_SKIP_SUFFIXES: frozenset[str] = frozenset(
     }
 )
 
-_gitignore_cache: dict[str, tuple[int | float, list[str]]] = {}
+_MAX_GITIGNORE_CACHE_ENTRIES = 256
+_gitignore_cache: OrderedDict[str, tuple[int | float, list[str]]] = OrderedDict()
 
 
 def normalize_context_path(target_path: str) -> str:
@@ -91,9 +93,13 @@ def get_workspace_ignore_rules_cached(root: Path) -> list[str]:
         mtime_key = -1
     cached = _gitignore_cache.get(key_base)
     if cached is not None and cached[0] == mtime_key:
+        _gitignore_cache.move_to_end(key_base)
         return cached[1]
     rules = load_workspace_ignore_rules(root_resolved)
     _gitignore_cache[key_base] = (mtime_key, rules)
+    _gitignore_cache.move_to_end(key_base)
+    while len(_gitignore_cache) > _MAX_GITIGNORE_CACHE_ENTRIES:
+        _gitignore_cache.popitem(last=False)
     return rules
 
 

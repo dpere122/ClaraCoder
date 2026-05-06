@@ -1,0 +1,210 @@
+"""HTTP route tests for Monaco LSP endpoints (blocking work runs off the event loop)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from starlette.testclient import TestClient
+
+from nemo_backend.domain import RuntimeToolsConfig
+from nemo_backend.lsp.manager import get_session_lsp_manager, shutdown_all_lsp_managers
+from nemo_backend.state import current_session_id, get_session, runtime_config
+
+
+class _FakeLspClient:
+    def __init__(self, *, command, workspace_root, notification_handler):
+        self.command = command
+        self.workspace_root = workspace_root
+        self.notification_handler = notification_handler
+        self.docs: dict[str, str] = {}
+        self.closed = False
+        self.initialized = False
+
+    def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
+        del root_uri, process_id, capabilities, initialization_options
+        self.initialized = True
+        return {
+            'capabilities': {
+                'semanticTokensProvider': {
+                    'legend': {'tokenTypes': ['keyword'], 'tokenModifiers': ['declaration']},
+                },
+            },
+        }
+
+    def request(self, method, params, *, timeout_s=10.0):
+        del timeout_s
+        uri = params['textDocument']['uri']
+        if method == 'textDocument/hover':
+            return {'contents': 'hover: value'}
+        if method == 'textDocument/definition':
+            return [{'uri': uri, 'range': {'start': {'line': 0, 'character': 4}}}]
+        if method == 'textDocument/references':
+            return [{'uri': uri, 'range': {'start': {'line': 0, 'character': 0}}}]
+        if method == 'textDocument/documentSymbol':
+            return [
+                {
+                    'name': 'value',
+                    'kind': 13,
+                    'range': {'start': {'line': 0, 'character': 0}, 'end': {'line': 0, 'character': 5}},
+                    'selectionRange': {'start': {'line': 0, 'character': 4}, 'end': {'line': 0, 'character': 5}},
+                    'children': [],
+                }
+            ]
+        if method == 'textDocument/completion':
+            return {'items': [{'label': 'fakeItem', 'kind': 1}], 'isIncomplete': False}
+        if method == 'textDocument/rename':
+            return None
+        if method == 'textDocument/semanticTokens/full':
+            return {'data': [0, 0, 2, 0, 1], 'resultId': None}
+        if method == 'shutdown':
+            self.closed = True
+            return {}
+        raise AssertionError(f'unexpected LSP method: {method}')
+
+    def notify(self, method, params):
+        if method == 'initialized':
+            return
+        if method == 'exit':
+            self.closed = True
+            return
+        if method == 'textDocument/didClose':
+            uri = params['textDocument']['uri']
+            self.docs.pop(uri, None)
+            self.notification_handler('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': []})
+            return
+        if method not in ('textDocument/didOpen', 'textDocument/didChange'):
+            raise AssertionError(f'unexpected LSP notification: {method}')
+        if method == 'textDocument/didOpen':
+            uri = params['textDocument']['uri']
+            text = params['textDocument']['text']
+        else:
+            uri = params['textDocument']['uri']
+            text = params['contentChanges'][0]['text']
+        self.docs[uri] = text
+        diagnostics = []
+        if 'TODO' in text:
+            diagnostics.append(
+                {
+                    'range': {
+                        'start': {'line': 0, 'character': 0},
+                        'end': {'line': 0, 'character': 4},
+                    },
+                    'severity': 2,
+                    'source': 'fake-lsp',
+                    'code': 'TODO',
+                    'message': 'Found TODO marker',
+                }
+            )
+        self.notification_handler('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': diagnostics})
+
+    def shutdown(self):
+        self.closed = True
+
+
+@pytest.fixture()
+def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    saved_tools = runtime_config.tools
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    shutdown_all_lsp_managers()
+
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    pkg = workspace / 'pkg'
+    pkg.mkdir()
+    sample = pkg / 'mod.py'
+    sample.write_text('value = "TODO"\nprint(value)\n', encoding='utf-8')
+
+    session_id = 'lsp-http-session'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.workspace_path = str(workspace.resolve())
+    session.worker_apply_mode = True
+    session.auto_apply_mode = True
+    session.lsp_diagnostics.clear()
+    session.lsp_active_scope = 'workspace'
+    session.lsp_workspace_root = ''
+
+    factory = lambda *, command, workspace_root, notification_handler: _FakeLspClient(
+        command=command,
+        workspace_root=workspace_root,
+        notification_handler=notification_handler,
+    )
+
+    real_get = get_session_lsp_manager
+
+    def _inject(*args, **kwargs):
+        kwargs.setdefault('client_factory', factory)
+        return real_get(*args, **kwargs)
+
+    monkeypatch.setattr('nemo_backend.routes_lsp.get_session_lsp_manager', _inject)
+
+    from nemo_backend.main import app
+
+    yield SimpleNamespace(app=app, session_id=session_id, sample_path='pkg/mod.py')
+
+    current_session_id.reset(token)
+    shutdown_all_lsp_managers()
+    runtime_config.tools = saved_tools
+
+
+def test_lsp_hover_http_route(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(
+            f'/lsp/hover?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+            },
+        )
+    assert r.status_code == 200
+    assert r.json()['markdown']
+
+
+def test_lsp_definition_http_route(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(
+            f'/lsp/definition?session_id={lsp_http_env.session_id}',
+            json={'relative_path': lsp_http_env.sample_path, 'line': 1, 'character': 1},
+        )
+    assert r.status_code == 200
+    assert r.json()['locations']
+
+
+def test_lsp_completion_http_route(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(
+            f'/lsp/completion?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+                'trigger_kind': 1,
+            },
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get('items')
+    assert body['items'][0].get('label') == 'fakeItem'
+
+
+def test_lsp_semantic_tokens_legend_http_route(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=python',
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get('supported') is True
+    assert 'keyword' in data.get('tokenTypes', [])
+
+
+def test_lsp_hover_bad_extension_returns_400(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(
+            f'/lsp/hover?session_id={lsp_http_env.session_id}',
+            json={'relative_path': 'pkg/readme.xyz', 'line': 1, 'character': 1},
+        )
+    assert r.status_code == 400

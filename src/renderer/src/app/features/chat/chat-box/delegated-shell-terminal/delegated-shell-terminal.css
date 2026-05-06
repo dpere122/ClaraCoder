@@ -4,6 +4,12 @@
   background: transparent;
 }
 
+/** Bound vertical growth on huge pytest/logs output so layout stays responsive. */
+.delegated-shell-terminal-details .terminal-shell-body {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
 .delegated-shell-terminal-summary {
   cursor: pointer;
   list-style: none;

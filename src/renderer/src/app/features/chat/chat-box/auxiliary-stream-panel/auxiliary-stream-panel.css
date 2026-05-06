@@ -109,7 +109,7 @@ app-chat-box app-auxiliary-stream-panel .llm-moe-body.auxiliary-stream-panel__mo
   border: none;
   border-radius: 0;
   background: transparent;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.74rem;
   line-height: 1.5;
   color: color-mix(in srgb, var(--t-secondary) 88%, transparent);
@@ -140,7 +140,7 @@ app-auxiliary-stream-panel .streaming-delegated-text {
   max-height: none;
   overflow: visible;
   border: none;
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.72rem;
   line-height: 1.45;
   color: color-mix(in srgb, var(--t-secondary) 85%, transparent);

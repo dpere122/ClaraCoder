@@ -23,6 +23,9 @@ _ACTIVE_PROCESS_PYTHON_BIN_PATH = ''
 
 logger = logging.getLogger('nemo.python_env')
 
+# Cap retained bytes from subprocess stdout when streaming or buffering (avoid OOM on huge CI logs).
+_MAX_SUBPROCESS_CAPTURE_BYTES = 2 * 1024 * 1024
+
 
 @dataclass
 class PythonWorkspaceEnvResult:
@@ -196,11 +199,62 @@ async def _run_subprocess_with_output(
         )
     except OSError as exc:
         return None, f'Command failed to start: {exc}'
+
+    async def _communicate_buffered() -> tuple[int | None, str]:
+        try:
+            if limit > 0:
+                output_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=limit)
+            else:
+                output_bytes, _ = await proc.communicate()
+        except asyncio.TimeoutError:
+            raise
+        out = output_bytes.decode('utf-8', errors='replace') if output_bytes else ''
+        return proc.returncode, out
+
+    async def _stream_stdout_bounded() -> bytes:
+        """Read merged stdout+stderr while optionally emitting live chunks; cap retained size."""
+        chunks: list[bytes] = []
+        total = 0
+        assert proc.stdout is not None
+        while True:
+            block = await proc.stdout.read(65536)
+            if not block:
+                break
+            if total < _MAX_SUBPROCESS_CAPTURE_BYTES:
+                take = block[: _MAX_SUBPROCESS_CAPTURE_BYTES - total]
+                chunks.append(take)
+                total += len(take)
+            if emit_chunk is not None:
+                text = block.decode('utf-8', errors='replace')
+                if text:
+                    await emit_chunk(text)
+        return b''.join(chunks)
+
+    async def _gather_stream_exit() -> tuple[int | None, str]:
+        """Stream stdout until EOF while waiting for process exit (stderr merged into stdout)."""
+        stream_task = asyncio.create_task(_stream_stdout_bounded())
+        wait_task = asyncio.create_task(proc.wait())
+        try:
+            if limit > 0:
+                await asyncio.wait_for(asyncio.gather(stream_task, wait_task), timeout=limit)
+            else:
+                await asyncio.gather(stream_task, wait_task)
+        except asyncio.TimeoutError:
+            for task in (stream_task, wait_task):
+                if not task.done():
+                    task.cancel()
+            raise
+        captured = stream_task.result() if stream_task.done() else b''
+        code = wait_task.result() if wait_task.done() else proc.returncode
+        text = captured.decode('utf-8', errors='replace') if captured else ''
+        return code, text
+
     try:
-        if limit > 0:
-            output_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=limit)
-        else:
-            output_bytes, _ = await proc.communicate()
+        if emit_chunk is None:
+            code, output = await _communicate_buffered()
+            return code, output
+        code, output = await _gather_stream_exit()
+        return code, output
     except asyncio.TimeoutError:
         label = int(limit) if limit == int(limit) else limit
         logger.warning('Subprocess timed out after %ss: %s', label, rendered_cmd)
@@ -214,11 +268,10 @@ async def _run_subprocess_with_output(
             f'For long installs, raise NEMO_SUBPROCESS_TIMEOUT_SEC; for `npm run` scripts, '
             f'raise NEMO_NPM_SCRIPT_TIMEOUT_SEC.\nCommand: {rendered_cmd}'
         )
+        partial = output_bytes.decode('utf-8', errors='replace') if output_bytes else ''
+        if partial:
+            msg = f'{msg}\n\nPartial output:\n{truncate_text(partial, 40_000)}'
         return None, msg
-    output = output_bytes.decode('utf-8', errors='replace') if output_bytes else ''
-    if output and emit_chunk is not None:
-        await emit_chunk(output)
-    return proc.returncode, output
 
 
 async def _python_module_available(python_executable: Path, module_name: str, *, cwd: Path) -> bool:
@@ -387,6 +440,7 @@ def clear_session_python_workspace_env(session: SessionState) -> None:
     session.python_workspace_python_executable = ''
     session.python_workspace_bin_path = ''
     session.python_workspace_env_summary = ''
+    session.python_interpreter_choice_id = ''
 
 
 def apply_session_python_workspace_env(session: SessionState, result: PythonWorkspaceEnvResult) -> None:

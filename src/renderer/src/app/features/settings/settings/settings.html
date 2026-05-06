@@ -1548,22 +1548,35 @@
             <div class='form-section__header'>
               <h5>Assistant voice (spoken replies)</h5>
               <p class='settings-copy'>
-                Neural voice used when voice mode is on in the chat composer and the assistant speaks the reply.
+                Local Kokoro voices when voice mode is on in the chat composer and the assistant speaks the reply.
+                Requires Kokoro dependencies in the Python environment (see backend README).
               </p>
             </div>
             <div class='form-grid'>
               <label class='field field--full'>
                 <span>TTS voice</span>
                 <select
-                  [ngModel]='ttsVoiceId()'
-                  (ngModelChange)='updateAudioSettings({ ttsVoiceId: $event })'
+                  [ngModel]='ttsVoice()'
+                  (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
                   class='settings-voice-device-select'
-                  title='Assistant TTS voice'
+                  title='Assistant TTS voice (Kokoro)'
                 >
                   @for (v of ttsVoiceChoices; track v.id) {
                     <option [value]='v.id'>{{ v.label }}</option>
                   }
                 </select>
+              </label>
+              <label class='field field--full'>
+                <span>Speech speed ({{ ttsSpeechSpeed() | number: '1.2-2' }}×)</span>
+                <input
+                  type='range'
+                  [min]='ttsSpeechSpeedMin'
+                  [max]='ttsSpeechSpeedMax'
+                  [step]='ttsSpeechSpeedStep'
+                  [ngModel]='ttsSpeechSpeed()'
+                  (ngModelChange)='onTtsSpeechSpeedInput($event)'
+                  title='Kokoro speech speed multiplier'
+                />
               </label>
             </div>
           </div>

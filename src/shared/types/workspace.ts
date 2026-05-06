@@ -8,4 +8,6 @@ export interface Workspace {
   path: string;
   createdAt: string;
   themeId: string;
+  /** Stable id from Python discovery (`app-backend`, `.venv`, …); drives Jedi/LSP analysis env. */
+  pythonInterpreterId?: string;
 }

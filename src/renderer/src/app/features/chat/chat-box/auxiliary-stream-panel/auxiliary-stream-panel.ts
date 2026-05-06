@@ -38,6 +38,10 @@ export class AuxiliaryStreamPanelComponent {
   readonly isShellTool = isShellStyleToolStreamTag;
   readonly isToolTrailStatus = isToolTrailStatusStreamTag;
 
+  trackPartId(part: StreamPart, index: number): string {
+    return `${part.streamTag}:${part.label}:${index}`;
+  }
+
   constructor() {
     effect(() => {
       this.parts();

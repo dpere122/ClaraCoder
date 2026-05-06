@@ -14,7 +14,7 @@
 }
 
 .planner-panel-title {
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.76rem;
   color: var(--t-primary);
   letter-spacing: 0.02em;
@@ -50,7 +50,7 @@
 }
 
 .planner-step-state {
-  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.68rem;
   color: var(--t-text-muted);
   text-transform: capitalize;

@@ -139,3 +139,36 @@ def test_iter_workspace_search_files_prunes(workspace_session: Path) -> None:
     rels = {p.relative_to(root.resolve()).as_posix() for p in paths}
     assert 'top.txt' in rels
     assert all(not r.startswith('big/') for r in rels)
+
+
+def test_gitignore_cache_evicts_oldest_when_over_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import nemo_backend.workspace_ignore as wi
+
+    monkeypatch.setattr(wi, '_MAX_GITIGNORE_CACHE_ENTRIES', 2)
+    wi._gitignore_cache.clear()
+    r1 = tmp_path / 'g1'
+    r1.mkdir()
+    r2 = tmp_path / 'g2'
+    r2.mkdir()
+    r3 = tmp_path / 'g3'
+    r3.mkdir()
+    (r1 / '.gitignore').write_text('a\n', encoding='utf-8')
+    (r2 / '.gitignore').write_text('b\n', encoding='utf-8')
+    (r3 / '.gitignore').write_text('c\n', encoding='utf-8')
+    get_workspace_ignore_rules_cached(r1)
+    get_workspace_ignore_rules_cached(r2)
+    assert len(wi._gitignore_cache) == 2
+    get_workspace_ignore_rules_cached(r3)
+    assert len(wi._gitignore_cache) == 2
+    assert str(r1.resolve()) not in wi._gitignore_cache
+    assert get_workspace_ignore_rules_cached(r3) == ['c']
+
+
+def test_search_workspace_falls_back_when_grep_returns_none(workspace_session: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = workspace_session
+    (root / 'keep.py').write_text('needle here\n', encoding='utf-8')
+
+    monkeypatch.setattr('nemo_backend.workspace_tools.run_grep_line_search', lambda *a, **k: None)
+
+    out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})
+    assert 'keep.py' in out

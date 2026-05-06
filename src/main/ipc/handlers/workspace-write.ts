@@ -2,8 +2,14 @@ import { ipcMain } from 'electron';
 import { promises as fs } from 'fs';
 import path = require('path');
 
-import type { WorkspaceFileWriteOptions } from '../../../shared';
+import type { WorkspaceChangeKind, WorkspaceFileWriteOptions } from '../../../shared';
 import { encodeWorkspaceFileContent, normalizeWorkspaceEncoding } from '../../utils/workspace-file-encoding';
+import { mainState } from '../../state';
+import {
+  isAbsolutePathWithinWorkspaceRoot,
+  resolveExistingOrResolvedPath,
+  resolveSafeWorkspacePath,
+} from '../../utils/workspace-safe-path';
 
 function isSameWorkspaceRootPath(root: string, candidate: string): boolean {
   const a = path.normalize(root);
@@ -16,12 +22,28 @@ function isSameWorkspaceRootPath(root: string, candidate: string): boolean {
   }
   return false;
 }
-import {
-  isAbsolutePathWithinWorkspaceRoot,
-  resolveExistingOrResolvedPath,
-  resolveSafeWorkspacePath,
-} from '../../utils/workspace-safe-path';
 
+function emitWorkspaceFilesChanged(
+  workspaceRoot: string,
+  absolutePath: string,
+  kind: WorkspaceChangeKind,
+): void {
+  const watcher = mainState.activeWorkspaceWatcher;
+  if (!watcher) {
+    return;
+  }
+  if (!isSameWorkspaceRootPath(workspaceRoot, watcher.workspacePath)) {
+    return;
+  }
+  const rel = path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/');
+  const relPath = rel && rel !== '' ? rel : '.';
+  mainState.mainWindow?.webContents.send('workspace-files-changed', {
+    workspaceId: watcher.workspaceId,
+    workspacePath: watcher.workspacePath,
+    paths: [relPath],
+    kinds: [kind],
+  });
+}
 /** Write a text file under an open workspace (used after user confirms a proposed diff). */
 export function registerWorkspaceWriteIpc(): void {
   ipcMain.handle(
@@ -55,6 +77,7 @@ export function registerWorkspaceWriteIpc(): void {
         await fs.mkdir(path.dirname(abs), { recursive: true });
         const buf = encodeWorkspaceFileContent(content, encoding, newline);
         await fs.writeFile(abs, buf);
+        emitWorkspaceFilesChanged(workspaceRoot.trim(), abs, 'updated');
         return { ok: true as const, path: abs };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -102,6 +125,7 @@ export function registerWorkspaceWriteIpc(): void {
       try {
         await fs.mkdir(path.dirname(absFile), { recursive: true });
         await fs.writeFile(absFile, '');
+        emitWorkspaceFilesChanged(root, absFile, 'created');
         return { ok: true as const, path: absFile };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -158,6 +182,7 @@ export function registerWorkspaceWriteIpc(): void {
 
       try {
         await fs.mkdir(absFolder, { recursive: true });
+        emitWorkspaceFilesChanged(root, absFolder, 'created');
         return { ok: true as const, path: absFolder };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -196,6 +221,7 @@ export function registerWorkspaceWriteIpc(): void {
       } else {
         await fs.unlink(target);
       }
+      emitWorkspaceFilesChanged(root, target, 'deleted');
       return { ok: true as const, path: target };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -256,6 +282,7 @@ export function registerWorkspaceWriteIpc(): void {
 
       try {
         await fs.rename(source, dest);
+        emitWorkspaceFilesChanged(root, dest, 'renamed');
         return { ok: true as const, path: dest };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.lsp.typescript_project_root import resolve_typescript_project_root
+from nemo_backend.lsp.typescript_project_root import (
+    package_node_modules_link_rels,
+    resolve_typescript_project_root,
+)
 
 
 def _touch_ts_package(root: Path) -> None:
@@ -75,3 +78,49 @@ def test_resolve_falls_back_to_workspace_when_no_packages(tmp_path: Path, monkey
     ws.mkdir()
     got = resolve_typescript_project_root(ws, seed_relative_path=None)
     assert got.resolve() == ws.resolve()
+
+
+def test_resolve_plain_js_package_with_node_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Packages without a typescript devDependency still count once node_modules is populated."""
+
+    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    ws = tmp_path / 'ws'
+    app = ws / 'lib'
+    app.mkdir(parents=True)
+    (app / 'package.json').write_text('{"name":"lib","dependencies":{"lodash":"^4"}}', encoding='utf-8')
+    nm = app / 'node_modules' / 'lodash'
+    nm.mkdir(parents=True)
+    (nm / 'package.json').write_text('{}', encoding='utf-8')
+    (app / 'index.js').write_text('export {}', encoding='utf-8')
+
+    got = resolve_typescript_project_root(ws, seed_relative_path='lib/index.js')
+    assert got.resolve() == app.resolve()
+
+
+def test_resolve_discovers_deep_nested_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Discovery depth must exceed shallow monorepo layouts (previously capped at 6)."""
+
+    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    ws = tmp_path / 'ws'
+    deep = ws / 'a' / 'b' / 'c' / 'd' / 'e' / 'f' / 'app'
+    deep.mkdir(parents=True)
+    _touch_ts_package(deep)
+
+    got = resolve_typescript_project_root(ws, seed_relative_path=None)
+    assert got.resolve() == deep.resolve()
+
+
+def test_package_node_modules_link_rels(tmp_path: Path) -> None:
+    ws = tmp_path / 'w'
+    r1 = ws / 'src' / 'renderer'
+    r1.mkdir(parents=True)
+    (r1 / 'package.json').write_text('{"name":"r"}', encoding='utf-8')
+    (r1 / 'node_modules' / 'x').mkdir(parents=True)
+    r2 = ws / 'pkg'
+    r2.mkdir(parents=True)
+    (r2 / 'package.json').write_text('{"name":"p"}', encoding='utf-8')
+    (r2 / 'node_modules' / 'y').mkdir(parents=True)
+
+    got = package_node_modules_link_rels(ws)
+    assert 'pkg/node_modules' in got
+    assert 'src/renderer/node_modules' in got

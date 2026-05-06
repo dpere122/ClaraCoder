@@ -63,7 +63,14 @@ class JsonRpcLspClient:
             self._stderr_thread = threading.Thread(target=self._read_stderr_loop, name='nemo-lsp-stderr', daemon=True)
             self._stderr_thread.start()
 
-    def initialize(self, *, root_uri: str, process_id: int | None, capabilities: dict[str, Any]) -> dict[str, Any]:
+    def initialize(
+        self,
+        *,
+        root_uri: str,
+        process_id: int | None,
+        capabilities: dict[str, Any],
+        initialization_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         self.start()
         result = self.request(
             'initialize',
@@ -73,7 +80,7 @@ class JsonRpcLspClient:
                 'rootUri': root_uri,
                 'workspaceFolders': [{'uri': root_uri, 'name': self._workspace_root.name}],
                 'capabilities': capabilities,
-                'initializationOptions': {},
+                'initializationOptions': dict(initialization_options or {}),
                 'trace': 'off',
             },
             timeout_s=self._startup_timeout_s,
@@ -105,7 +112,8 @@ class JsonRpcLspClient:
             raise RuntimeError(
                 f"LSP request failed for {method!r}: {error.get('message') or 'unknown error'}"
             )
-        return response.get('result') or {}
+        # Preserve JSON ``null`` results (e.g. ``textDocument/rename`` unsupported).
+        return response.get('result')
 
     def notify(self, method: str, params: dict[str, Any]) -> None:
         self._send_message({'jsonrpc': '2.0', 'method': method, 'params': params})
@@ -239,8 +247,12 @@ class JsonRpcLspClient:
             headers[name.strip()] = value.strip()
 
     def _handle_message(self, payload: dict[str, Any]) -> None:
-        if 'id' in payload:
-            req_id = int(payload['id'])
+        msg_id = payload.get('id')
+        if msg_id is not None and 'method' in payload:
+            self._reply_to_server_request(payload)
+            return
+        if msg_id is not None:
+            req_id = int(msg_id)
             with self._lock:
                 wait_q = self._pending.pop(req_id, None)
             if wait_q is not None:
@@ -253,6 +265,28 @@ class JsonRpcLspClient:
                 self._notification_handler(method, params)
             except Exception as exc:
                 logger.warning('lsp notification handler failed workspace=%s method=%s err=%s', self._workspace_root, method, exc)
+
+    def _reply_to_server_request(self, payload: dict[str, Any]) -> None:
+        """Answer server-initiated JSON-RPC requests so the language server does not hang."""
+
+        req_id = payload.get('id')
+        method = str(payload.get('method') or '')
+        if req_id is None:
+            return
+        result: Any = None
+        if method == 'workspace/semanticTokens/refresh':
+            result = None
+        else:
+            logger.debug('lsp unhandled server request workspace=%s method=%s', self._workspace_root, method)
+        try:
+            self._send_message({'jsonrpc': '2.0', 'id': req_id, 'result': result})
+        except Exception as exc:
+            logger.warning(
+                'lsp failed to reply to server request workspace=%s method=%s err=%s',
+                self._workspace_root,
+                method,
+                exc,
+            )
 
     def _stderr_summary_locked(self) -> str:
         summary = ' | '.join(self._stderr_tail)

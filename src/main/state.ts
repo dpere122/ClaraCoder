@@ -27,7 +27,7 @@ export const mainState = {
   activeProcesses: new Map<string, ScriptProcess>(),
   /** Relative paths with unsaved edits in the main window workspace Monaco editor (main window only). */
   monacoWorkspaceUnsavedPaths: [] as string[],
-  /** One-shot TTS payloads for `nemo-tts://` stream URLs (MP3 + MSE quirks in Chromium). */
-  ttsStreamTokens: new Map<string, { text: string; voice: string }>(),
+  /** One-shot TTS payloads for `nemo-tts://` stream URLs (WAV from local Kokoro). */
+  ttsStreamTokens: new Map<string, { text: string; voice: string; speed: number }>(),
   ttsAbort: null as AbortController | null,
 };

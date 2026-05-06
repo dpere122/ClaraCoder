@@ -9,7 +9,11 @@ from pathlib import Path
 
 logger = logging.getLogger('nemo.lsp.typescript_project_root')
 
-__all__ = ['resolve_typescript_project_root', 'workspace_has_typescript_tooling']
+__all__ = [
+    'package_node_modules_link_rels',
+    'resolve_typescript_project_root',
+    'workspace_has_typescript_tooling',
+]
 
 _SKIP_WALK_DIRS = frozenset(
     {
@@ -67,14 +71,61 @@ def _package_json_declares_typescript(project: Path) -> bool:
     return False
 
 
+def _has_nonempty_node_modules(project: Path) -> bool:
+    """True when ``project/node_modules`` exists and is non-empty (npm/yarn install has been run)."""
+
+    nm = project / 'node_modules'
+    if not nm.is_dir():
+        return False
+    try:
+        return next(nm.iterdir(), None) is not None
+    except OSError:
+        return False
+
+
 def _is_node_project_root(project: Path) -> bool:
     if not (project / 'package.json').is_file():
         return False
-    return _has_typescript_tooling(project) or _package_json_declares_typescript(project)
+    return (
+        _has_typescript_tooling(project)
+        or _package_json_declares_typescript(project)
+        or _has_nonempty_node_modules(project)
+    )
+
+
+def package_node_modules_link_rels(session_workspace: Path, *, max_depth: int = 16) -> tuple[str, ...]:
+    """``package.json`` directories that have ``node_modules``, as relative POSIX paths to that ``node_modules``.
+
+    Used to symlink real dependency trees into staging workspace mirrors (mirrors skip ``node_modules`` copies).
+    """
+
+    session_workspace = Path(session_workspace).resolve()
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    for dirpath, dirnames, filenames in os.walk(session_workspace):
+        d = Path(dirpath)
+        depth = 0 if d == session_workspace else len(d.relative_to(session_workspace).parts)
+        if depth > max_depth:
+            dirnames[:] = []
+            continue
+        dirnames[:] = [x for x in dirnames if x not in _SKIP_WALK_DIRS]
+        if 'package.json' not in filenames:
+            continue
+        nm = d / 'node_modules'
+        if not nm.is_dir():
+            continue
+        rel = nm.relative_to(session_workspace).as_posix()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        ordered.append(rel)
+
+    return tuple(sorted(ordered, key=len))
 
 
 def _walk_up_from_seed(session_workspace: Path, relative_path: str) -> Path | None:
-    """Walk parents from the file path until we find package.json + TS tooling under session_workspace."""
+    """Walk parents from the file path until we find a Node package root under ``session_workspace``."""
 
     session_workspace = session_workspace.resolve()
     rel = relative_path.strip().replace('\\', '/')
@@ -102,8 +153,8 @@ def _walk_up_from_seed(session_workspace: Path, relative_path: str) -> Path | No
     return None
 
 
-def _discover_deepest_project(session_workspace: Path, *, max_depth: int = 6) -> Path | None:
-    """Pick the deepest directory under session_workspace that looks like a TS package."""
+def _discover_deepest_project(session_workspace: Path, *, max_depth: int = 16) -> Path | None:
+    """Pick the deepest directory under session_workspace that looks like a Node / TS package."""
 
     session_workspace = session_workspace.resolve()
     best: Path | None = None
@@ -151,7 +202,7 @@ def resolve_typescript_project_root(
     Priority:
 
     1. ``NEMO_TYPESCRIPT_LSP_PROJECT_ROOT`` (absolute path or path relative to the session workspace).
-    2. Walk upward from ``seed_relative_path`` (first opened/synced file) for ``package.json`` + TS tooling.
+    2. Walk upward from ``seed_relative_path`` (first opened/synced file) for a Node package root.
     3. Discover the **deepest** matching project under the workspace (limited depth, skips ``node_modules`` dirs).
     4. Fall back to ``session_workspace_root``.
     """
@@ -182,7 +233,7 @@ def resolve_typescript_project_root(
         return session_workspace_root
 
     logger.warning(
-        'typescript project root fallback to session workspace (no package.json + typescript signal): %s',
+        'typescript project root fallback to session workspace (no recognizable Node package): %s',
         session_workspace_root,
     )
     return session_workspace_root

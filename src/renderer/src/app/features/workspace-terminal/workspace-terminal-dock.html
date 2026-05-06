@@ -52,15 +52,15 @@
           @if (hasWorkspace()) {
             <button type="button" class="workspace-terminal-dock__tab-add" (click)="addTab()" title="New terminal">+</button>
           }
-          @if (showLlamaServerTab()) {
+          @for (llamaTab of llamaTabs(); track llamaTab.id) {
             <div
               class="workspace-terminal-dock__tab workspace-terminal-dock__tab--llama"
-              [class.workspace-terminal-dock__tab--active]="llamaServerTabId === activeTabId()"
+              [class.workspace-terminal-dock__tab--active]="llamaTab.id === activeTabId()"
               role="tab"
-              [attr.aria-selected]="llamaServerTabId === activeTabId()"
-              (click)="selectTab(llamaServerTabId)"
+              [attr.aria-selected]="llamaTab.id === activeTabId()"
+              (click)="selectTab(llamaTab.id)"
             >
-              <span class="workspace-terminal-dock__tab-title">llama.cpp server</span>
+              <span class="workspace-terminal-dock__tab-title">{{ llamaTab.title }}</span>
             </div>
           }
         </div>
@@ -74,11 +74,11 @@
             role="tabpanel"
           ></div>
         }
-        @if (showLlamaServerTab()) {
+        @for (llamaTab of llamaTabs(); track llamaTab.id) {
           <div
             class="workspace-terminal-dock__pane"
-            [class.workspace-terminal-dock__pane--hidden]="llamaServerTabId !== activeTabId()"
-            [id]="hostDomId(llamaServerTabId)"
+            [class.workspace-terminal-dock__pane--hidden]="llamaTab.id !== activeTabId()"
+            [id]="hostDomId(llamaTab.id)"
             role="tabpanel"
           ></div>
         }

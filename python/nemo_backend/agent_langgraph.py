@@ -33,6 +33,7 @@ from nemo_backend.delete_review_middleware import DeleteReviewAfterToolMiddlewar
 from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from nemo_backend.planner_graph_session import cleanup_planner_graph_session
 from nemo_backend.domain import SessionState
@@ -63,7 +64,11 @@ def build_nemo_single_outer_graph(
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible)."""
     tools, _ = worker_tools_and_map(apply_mode)
     system_prompt = build_system_prompt(session, apply_mode)
-    core_middleware: list[Any] = [ConnectionParallelToolCallsMiddleware(), EmptyResponseNudgeMiddleware()]
+    core_middleware: list[Any] = [
+        ConnectionParallelToolCallsMiddleware(),
+        PseudoToolXmlMiddleware(),
+        EmptyResponseNudgeMiddleware(),
+    ]
     if extra_middleware:
         core_middleware.extend(extra_middleware)
     core_middleware.append(AcceptCommandReviewAfterToolMiddleware())
@@ -342,22 +347,24 @@ async def _stream_langgraph_tool_agent(
         session.active_editor_langgraph_streams += 1
     session.worker_apply_mode = session.active_editor_langgraph_streams > 0
     session.hitl_sse_queue = hitl_q
-    if nested_planning_queue is not None:
-        session.planning_nested_events_q = nested_planning_queue
+    # Subprocess / nested tool streaming (pytest, smoke, overlay, plan_and_modify) shares one queue.
+    # Outer chat streams always allocate a queue so project-review tools can emit tool_exec_* SSE.
+    nested_stream_q = nested_planning_queue if nested_planning_queue is not None else asyncio.Queue()
+    session.planning_nested_events_q = nested_stream_q
 
-    queue_labels: tuple[str, ...]
-    queues: tuple[asyncio.Queue, ...]
-    if nested_planning_queue is not None:
-        queues = (events_q, hitl_q, nested_planning_queue)
-        queue_labels = ('ev', 'hitl', 'nested')
-    else:
-        queues = (events_q, hitl_q)
-        queue_labels = ('ev', 'hitl')
+    queues = (events_q, hitl_q, nested_stream_q)
+    queue_labels = ('ev', 'hitl', 'nested')
 
     try:
         try:
             while True:
-                kind, item = await _race_stream_inputs(*queues, labels=queue_labels, abort_event=session.abort_event)
+                try:
+                    item = hitl_q.get_nowait()
+                    kind = 'hitl'
+                except asyncio.QueueEmpty:
+                    kind, item = await _race_stream_inputs(
+                        *queues, labels=queue_labels, abort_event=session.abort_event
+                    )
 
                 if kind == 'abort':
                     outcome.mark_aborted(partial_text=main_state.partial_stream_text)

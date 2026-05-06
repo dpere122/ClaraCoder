@@ -1,5 +1,6 @@
-import { Component, OnInit, signal, ViewEncapsulation } from '@angular/core';
+import { Component, DestroyRef, OnInit, signal, ViewEncapsulation } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { AppConfig } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 
@@ -62,13 +63,16 @@ export class ThemeSelector implements OnInit {
   protected readonly themes = THEMES;
   protected readonly themeLabel = signal('Workspace Theme');
 
-  constructor(private electron: ElectronService) {}
+  constructor(
+    private electron: ElectronService,
+    private destroyRef: DestroyRef,
+  ) {}
 
   async ngOnInit(): Promise<void> {
     const config = await this.electron.loadConfig();
     this.syncFromConfig(config);
 
-    this.electron.config$.subscribe((nextConfig) => {
+    this.electron.config$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((nextConfig: AppConfig) => {
       this.syncFromConfig(nextConfig);
     });
   }

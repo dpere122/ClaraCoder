@@ -36,8 +36,8 @@ class _FakeLspClient:
         self.closed = False
         self.initialized = False
 
-    def initialize(self, *, root_uri, process_id, capabilities):
-        del root_uri, process_id, capabilities
+    def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
+        del root_uri, process_id, capabilities, initialization_options
         self.initialized = True
         return {'capabilities': {}}
 

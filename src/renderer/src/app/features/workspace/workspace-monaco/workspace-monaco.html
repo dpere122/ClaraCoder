@@ -2,5 +2,96 @@
   @if (loadError()) {
     <div class="workspace-monaco-error" role="alert">{{ loadError() }}</div>
   }
-  <div #editorHost class="workspace-monaco-editor" aria-label="Workspace file editor"></div>
+  @if (pendingDiffBlockedByDirty()) {
+    <div
+      class="workspace-monaco-diff-blocked alert alert-warning py-2 px-3 mb-0 rounded-0 border-start-0 border-end-0 border-top-0 small"
+      role="status"
+    >
+      Save or revert unsaved changes before reviewing this proposal in the editor.
+    </div>
+  }
+  @if (monacoDiffActive()) {
+    <div class="workspace-monaco-diff-toolbar border-bottom px-2 py-2 d-flex flex-wrap align-items-center gap-2">
+      <span class="small text-secondary me-1">Pending edit</span>
+      @if (pendingDiffPayload(); as dp) {
+        <code class="small">{{ dp.relativePath }}</code>
+      }
+      @if (pendingDiffPayload()?.truncated) {
+        <span class="badge text-bg-warning">
+          {{
+            isStagedTransferHitl()
+              ? 'Truncated — review carefully'
+              : 'Truncated — use “Accept entire diff once” only'
+          }}
+        </span>
+      }
+      @if (!isStagedTransferHitl() && changeProgressLabel()) {
+        <span class="small">{{ changeProgressLabel() }}</span>
+      }
+      @if (isStagedTransferHitl()) {
+        <span class="badge text-bg-info">Staged → workspace</span>
+        <button
+          type="button"
+          class="btn btn-sm btn-success"
+          [disabled]="applying()"
+          (click)="onApproveStagedTransfer()"
+        >
+          Approve transfer
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-primary"
+          [disabled]="applying()"
+          (click)="onReturnStagedForReReview()"
+        >
+          Return for re-review
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="applying()" (click)="onCancelProposal()">
+          Cancel
+        </button>
+        <div class="w-100"></div>
+        <label class="form-label small text-secondary mb-0 w-100" for="monaco-staged-rereview-notes">
+          Notes for code review / writer (optional)
+        </label>
+        <textarea
+          id="monaco-staged-rereview-notes"
+          class="form-control form-control-sm w-100"
+          rows="2"
+          [ngModel]="reReviewFeedback()"
+          (ngModelChange)="reReviewFeedback.set($event)"
+          placeholder="What should change before this lands in the workspace?"
+        ></textarea>
+      } @else {
+        @if (incrementalOk() && changeHunkOrder().length > 0) {
+          <button type="button" class="btn btn-sm btn-success" [disabled]="applying()" (click)="onAcceptCurrentChange()">
+            Accept
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" [disabled]="applying()" (click)="onSkipCurrentChange()">
+            Skip
+          </button>
+        }
+        <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="applying()" (click)="onApplyAllAtOnce()">
+          Accept entire diff once
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="applying()" (click)="onCancelProposal()">
+          Cancel
+        </button>
+      }
+      @if (applyMessage()) {
+        <span class="small text-secondary" role="status">{{ applyMessage() }}</span>
+      }
+    </div>
+  }
+  <div
+    #editorHost
+    class="workspace-monaco-editor workspace-monaco-pane"
+    [class.workspace-monaco-pane--hidden]="monacoDiffActive()"
+    aria-label="Workspace file editor"
+  ></div>
+  <div
+    #diffHost
+    class="workspace-monaco-diff workspace-monaco-pane"
+    [class.workspace-monaco-pane--hidden]="!monacoDiffActive()"
+    aria-label="Proposed edit diff"
+  ></div>
 </div>

@@ -61,6 +61,7 @@ from nemo_backend.lsp.tools import (
 )
 from nemo_backend.messages import final_assistant_text
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.python_env import ensure_session_python_workspace_env
 from nemo_backend.state import get_active_connection
 from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
@@ -149,8 +150,9 @@ async def run_discovery_subagent(
         name='nemo_coding_planner_discovery',
         middleware=prepend_harness_feedback_middleware(
             [
-                EmptyResponseNudgeMiddleware(),
                 ConnectionParallelToolCallsMiddleware(),
+                PseudoToolXmlMiddleware(),
+                EmptyResponseNudgeMiddleware(),
                 AcceptCommandReviewAfterToolMiddleware(),
                 DiffReviewAfterToolMiddleware(),
                 DeleteReviewAfterToolMiddleware(),

@@ -9,6 +9,7 @@ Or use the repo-level :file:`python/server.py` shim (same port) for Electron.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from fastapi import FastAPI
 
 from nemo_backend.app_logging import configure_logging
 from nemo_backend.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
+from nemo_backend.lsp.manager import shutdown_all_lsp_managers
 from nemo_backend.log_routes import router as log_router
 from nemo_backend.routes_lsp import router as lsp_router
 from nemo_backend.routes import router as runtime_router
@@ -30,11 +32,17 @@ from nemo_backend.routes_session import router as session_router
 _raw_log = os.environ.get('NEMO_LOG_DIR', '').strip()
 configure_logging(Path(_raw_log) if _raw_log else None)
 
+_logger = logging.getLogger('nemo.main')
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_graph_checkpointing()
     yield
+    try:
+        shutdown_all_lsp_managers()
+    except Exception:
+        _logger.exception('LSP manager shutdown failed during app lifespan cleanup')
     await shutdown_graph_checkpointing()
 
 

@@ -19,7 +19,7 @@ function ipcAudioPayloadToBuffer(payload: unknown): Buffer {
 
 /**
  * - `transcribe` — POST WAV bytes to Python `/transcribe`.
- * - `tts-stream-start` / `abort` — stream MP3 chunks over IPC (`tts-stream-packet`).
+ * - `tts-stream-start` / `abort` — stream WAV chunks over IPC (`tts-stream-packet`).
  * - `tts-stream-register` — reserve a `nemo-tts://` URL backed by protocol handler.
  */
 export function registerAudioTtsIpc(): void {
@@ -63,8 +63,8 @@ export function registerAudioTtsIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.handle('tts-stream-start', async (event, payload: { text: string; voice: string; seq: number }) => {
-    const { text, voice, seq } = payload;
+  ipcMain.handle('tts-stream-start', async (event, payload: { text: string; voice: string; speed: number; seq: number }) => {
+    const { text, voice, speed, seq } = payload;
     mainState.ttsAbort?.abort();
     mainState.ttsAbort = new AbortController();
     const signal = mainState.ttsAbort.signal;
@@ -76,7 +76,7 @@ export function registerAudioTtsIpc(): void {
         const res = await fetch(`${PYTHON_URL}/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice }),
+          body: JSON.stringify({ text, voice, speed }),
           signal,
         });
         if (!res.ok) {
@@ -126,8 +126,8 @@ export function registerAudioTtsIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.handle('tts-stream-register', (_event, payload: { text: string; voice: string }) => {
-    const id = registerTtsStreamToken(payload.text, payload.voice);
+  ipcMain.handle('tts-stream-register', (_event, payload: { text: string; voice: string; speed: number }) => {
+    const id = registerTtsStreamToken(payload.text, payload.voice, payload.speed);
     return { url: `nemo-tts://electron/stream/${id}` };
   });
 }

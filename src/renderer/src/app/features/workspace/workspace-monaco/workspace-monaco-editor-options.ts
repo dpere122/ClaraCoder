@@ -2,7 +2,7 @@ import type * as Monaco from 'monaco-editor';
 import type { MonacoWorkspaceEditorSettings } from '@shared/index';
 
 /** Used when fontFamily is left blank; follows `--t-font-mono`, which themes override with different stacks. */
-const DEFAULT_MONO_FONT = "var(--t-font-mono, 'Cascadia Code', Consolas, monospace)";
+const DEFAULT_MONO_FONT = "var(--t-font-mono, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace)";
 
 function fontSpecUsesCssVariables(spec: string): boolean {
   return /\bvar\s*\(/i.test(spec.trim());

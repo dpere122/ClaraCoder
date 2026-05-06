@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
@@ -16,7 +16,7 @@ from nemo_backend.tool_registry import hitl_accept_command_pause_tools
 
 
 class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
-    """Emit accept-command SSE (via queue), await agent-continue, then append optional HumanMessage."""
+    """Emit accept-command SSE (via queue), await agent-continue, then fold output into the tool message."""
 
     async def awrap_tool_call(
         self,
@@ -24,6 +24,8 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
         result = await handler(request)
+        if isinstance(result, Command):
+            return result
         session_id = current_session_id.get()
         if not session_id:
             return result
@@ -53,5 +55,7 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
                 name=name,
             )
         if note:
-            return Command(update={'messages': [tm, HumanMessage(content=note)]})
+            base = stringify_content(tm.content).strip()
+            merged = f'{base}\n\n---\n{note}'.strip() if base else note.strip()
+            return ToolMessage(content=merged, tool_call_id=tm.tool_call_id, name=tm.name)
         return tm

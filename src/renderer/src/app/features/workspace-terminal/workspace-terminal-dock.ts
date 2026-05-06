@@ -15,18 +15,18 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type {
   AppConfig,
+  LlamaServerStreamKind,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
 } from '@shared/index';
-import { resolveActiveLlmConnection } from '@shared/index';
+import { findLlmModelLocation, resolveActiveLlmConnection } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
 import { buildXtermThemeFromCssVars } from './xterm-theme-from-css';
 
-/** Stable id for the read-only llama.cpp server log tab (not a PTY). */
-const LLAMA_SERVER_TAB_ID = 'managed-llama-server-tab';
-
-const LLAMA_XTERM_SESSION = 'llama-log';
+/** Prefix for read-only llama.cpp server log tabs (not PTYs). */
+const LLAMA_SERVER_TAB_PREFIX = 'managed-llama-server-tab';
+const LLAMA_XTERM_SESSION_PREFIX = 'llama-log';
 
 interface PtyTerminalTab {
   readonly id: string;
@@ -39,6 +39,13 @@ interface MergedTab {
   kind: 'pty';
   sessionId: string | null;
   title: string;
+}
+
+interface LlamaTerminalTab {
+  readonly id: string;
+  readonly modelId: string;
+  readonly stream: LlamaServerStreamKind;
+  readonly title: string;
 }
 
 interface XtermInstance {
@@ -58,14 +65,16 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly xterms = new Map<string, XtermInstance>();
+  /** PTY session id → shell tab id (avoids scanning every chunk). */
+  private readonly ptySessionToTabId = new Map<string, string>();
+  /** Pending llama bytes keyed by llama tab id until xterm mounts. */
+  private readonly llamaBacklogByTab = new Map<string, string>();
   private readonly spawningTabs = new Set<string>();
   private resizeObserver: ResizeObserver | null = null;
   private resizeRaf = 0;
   private panelDrag: { startY: number; startH: number } | null = null;
   private panelDragListenersActive = false;
   private destroyed = false;
-  /** If IPC arrives before the llama xterm mounts, hold bytes here and flush after mount. */
-  private llamaBacklog = '';
   private static readonly LLAMA_BACKLOG_MAX = 400_000;
 
   private readonly boundPanelDragMove = (e: MouseEvent) => this.onResizeHandleMove(e);
@@ -78,6 +87,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   readonly expanded = signal(false);
   readonly panelHeightPx = signal(260);
   readonly ptyTabs = signal<PtyTerminalTab[]>([]);
+  readonly llamaTabs = signal<LlamaTerminalTab[]>([]);
   readonly activeTabId = signal<string | null>(null);
 
   private lastWorkspacePath = '';
@@ -104,48 +114,51 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   );
 
   readonly tabStripCount = computed(() => {
-    let n = this.ptyTabs().length;
-    if (this.showLlamaServerTab()) {
-      n += 1;
-    }
-    return n;
+    return this.ptyTabs().length + this.llamaTabs().length;
   });
 
   readonly allManagedTabIds = computed((): string[] => {
     const ids = this.ptyTabs().map((t) => t.id);
-    if (this.showLlamaServerTab()) {
-      ids.push(LLAMA_SERVER_TAB_ID);
-    }
+    ids.push(...this.llamaTabs().map((t) => t.id));
     return ids;
   });
-
-  protected readonly llamaServerTabId = LLAMA_SERVER_TAB_ID;
 
   constructor() {
     this.electron.workspacePtyData$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((msg) => {
       if (this.destroyed) {
         return;
       }
-      for (const inst of this.xterms.values()) {
-        if (inst.sessionId === msg.sessionId) {
-          inst.terminal.write(msg.data);
+      const tabId = this.ptySessionToTabId.get(msg.sessionId);
+      const inst = tabId ? this.xterms.get(tabId) : undefined;
+      if (inst && inst.sessionId === msg.sessionId) {
+        inst.terminal.write(msg.data);
+        return;
+      }
+      for (const i of this.xterms.values()) {
+        if (i.sessionId === msg.sessionId) {
+          i.terminal.write(msg.data);
           break;
         }
       }
     });
 
     this.electron.workspacePtyExit$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((msg) => {
-      if (this.destroyed) {
-        return;
-      }
-      for (const [tabId, inst] of [...this.xterms.entries()]) {
-        if (inst.sessionId === msg.sessionId) {
-          inst.terminal.writeln('');
-          inst.terminal.writeln(`\x1b[90m[Exit code ${msg.exitCode}]\x1b[0m`);
-          this.disposeXterm(tabId);
-          break;
-        }
-      }
+    if (this.destroyed) {
+      return;
+    }
+    const tabIdHint = this.ptySessionToTabId.get(msg.sessionId);
+    const preferred = tabIdHint != null ? this.xterms.get(tabIdHint) : undefined;
+    const entry =
+      preferred?.sessionId === msg.sessionId
+        ? ([tabIdHint!, preferred] as const)
+        : [...this.xterms.entries()].find(([, inst]) => inst.sessionId === msg.sessionId);
+    if (entry) {
+      const [tabId, inst] = entry;
+      inst.terminal.writeln('');
+      inst.terminal.writeln(`\x1b[90m[Exit code ${msg.exitCode}]\x1b[0m`);
+      this.ptySessionToTabId.delete(msg.sessionId);
+      this.disposeXterm(tabId);
+    }
       this.ptyTabs.update((list) =>
         list.map((t) => {
           if (t.sessionId !== msg.sessionId) {
@@ -162,7 +175,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       if (this.destroyed || msg.modelId !== this.activeLlmModelId()) {
         return;
       }
-      this.writeLlamaServerChunk(msg);
+      this.writeLlamaServerChunk(msg.modelId, msg.stream, msg.data);
     });
 
     this.electron.llamaServerProcessExit$
@@ -171,20 +184,19 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         if (this.destroyed || msg.modelId !== this.activeLlmModelId()) {
           return;
         }
-        const inst = this.xterms.get(LLAMA_SERVER_TAB_ID);
-        if (!inst) {
-          return;
-        }
-        inst.terminal.writeln('');
-        const bits = [
-          msg.code != null ? `code ${msg.code}` : null,
-          msg.signal ? `signal ${msg.signal}` : null,
-        ]
-          .filter(Boolean)
-          .join(', ');
-        inst.terminal.writeln(
-          `\x1b[31m[${msg.stream} process ended${bits ? ` (${bits})` : ''}]\x1b[0m`,
-        );
+        const tabId = this.llamaTabId(msg.modelId, msg.stream);
+        this.withLlamaTerminal(tabId, (inst) => {
+          inst.terminal.writeln('');
+          const bits = [
+            msg.code != null ? `code ${msg.code}` : null,
+            msg.signal ? `signal ${msg.signal}` : null,
+          ]
+            .filter(Boolean)
+            .join(', ');
+          inst.terminal.writeln(
+            `\x1b[31m[${msg.stream} process ended${bits ? ` (${bits})` : ''}]\x1b[0m`,
+          );
+        });
       });
 
     this.electron.llamaServerLifecycle$
@@ -193,21 +205,39 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         if (this.destroyed || ev.modelId !== this.activeLlmModelId()) {
           return;
         }
-        const inst = this.xterms.get(LLAMA_SERVER_TAB_ID);
-        if (!inst) {
+        const llamaTabIds = this.llamaTabs()
+          .filter((t) => t.modelId === ev.modelId)
+          .map((t) => t.id);
+        if (llamaTabIds.length === 0) {
           return;
         }
         if (ev.phase === 'starting') {
-          this.llamaBacklog = '';
-          inst.terminal.clear();
-          inst.terminal.writeln('\x1b[90m[Starting llama-server…]\x1b[0m');
+          for (const tabId of llamaTabIds) {
+            this.llamaBacklogByTab.delete(tabId);
+            this.withLlamaTerminal(tabId, (inst) => {
+              inst.terminal.clear();
+              inst.terminal.writeln('\x1b[90m[Starting llama-server…]\x1b[0m');
+            });
+          }
         } else if (ev.phase === 'downloading') {
-          inst.terminal.writeln('\x1b[36m[Downloading model weights…]\x1b[0m');
+          for (const tabId of llamaTabIds) {
+            this.withLlamaTerminal(tabId, (inst) => {
+              inst.terminal.writeln('\x1b[36m[Downloading model weights…]\x1b[0m');
+            });
+          }
         } else if (ev.phase === 'running') {
-          inst.terminal.writeln('\x1b[32m[llama-server ready]\x1b[0m');
+          for (const tabId of llamaTabIds) {
+            this.withLlamaTerminal(tabId, (inst) => {
+              inst.terminal.writeln('\x1b[32m[llama-server ready]\x1b[0m');
+            });
+          }
         } else if (ev.phase === 'stopped') {
-          inst.terminal.writeln('');
-          inst.terminal.writeln('\x1b[90m[llama-server stopped]\x1b[0m');
+          for (const tabId of llamaTabIds) {
+            this.withLlamaTerminal(tabId, (inst) => {
+              inst.terminal.writeln('');
+              inst.terminal.writeln('\x1b[90m[llama-server stopped]\x1b[0m');
+            });
+          }
         }
       });
 
@@ -260,6 +290,13 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         untracked(() => this.activeTabId.set(ids[0] ?? null));
       }
     });
+
+    effect(() => {
+      this.showLlamaServerTab();
+      this.activeLlmModelId();
+      this.appConfig();
+      untracked(() => this.syncLlamaTabsForActiveModel());
+    });
   }
 
   ngOnDestroy(): void {
@@ -292,7 +329,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       }
     }
     for (const inst of this.xterms.values()) {
-      if (inst.sessionId && inst.sessionId !== LLAMA_XTERM_SESSION) {
+      if (inst.sessionId && !inst.sessionId.startsWith(LLAMA_XTERM_SESSION_PREFIX)) {
         ids.add(inst.sessionId);
       }
     }
@@ -327,8 +364,8 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     if (this.expanded()) {
       if (this.ptyTabs().length === 0 && this.hasWorkspace()) {
         this.addTab();
-      } else if (this.ptyTabs().length === 0 && this.showLlamaServerTab() && !this.hasWorkspace()) {
-        this.activeTabId.set(LLAMA_SERVER_TAB_ID);
+      } else if (this.ptyTabs().length === 0 && this.llamaTabs().length > 0 && !this.hasWorkspace()) {
+        this.activeTabId.set(this.llamaTabs()[0]!.id);
       }
     }
   }
@@ -345,7 +382,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
   async closeTab(tabId: string, ev?: Event): Promise<void> {
     ev?.stopPropagation();
-    if (tabId === LLAMA_SERVER_TAB_ID) {
+    if (this.isLlamaTabId(tabId)) {
       return;
     }
     const tab = this.ptyTabs().find((t) => t.id === tabId);
@@ -355,9 +392,9 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     this.disposeXterm(tabId);
     const remaining = this.ptyTabs().filter((t) => t.id !== tabId);
     if (remaining.length === 0) {
-      if (this.showLlamaServerTab()) {
+      if (this.llamaTabs().length > 0) {
         this.ptyTabs.set([]);
-        this.activeTabId.set(LLAMA_SERVER_TAB_ID);
+        this.activeTabId.set(this.llamaTabs()[0]!.id);
         this.queueSafe(() => {
           this.observeActiveHostResize();
           void this.ensureActiveTabSession();
@@ -445,13 +482,13 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     for (const id of [...this.xterms.keys()]) {
-      if (id !== LLAMA_SERVER_TAB_ID) {
+      if (!this.isLlamaTabId(id)) {
         this.disposeXterm(id);
       }
     }
     this.ptyTabs.set([]);
-    const llama = this.showLlamaServerTab();
-    this.activeTabId.set(llama ? LLAMA_SERVER_TAB_ID : null);
+    const firstLlamaTabId = this.llamaTabs()[0]?.id ?? null;
+    this.activeTabId.set(firstLlamaTabId);
     if (this.expanded() && this.hasWorkspace()) {
       this.addTab();
     }
@@ -461,12 +498,12 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     if (this.destroyed || !this.expanded() || !this.hasDockPanelContent() || !this.electron.isElectron) {
       return;
     }
-    this.queueSafe(() => this.mountLlamaXtermIfNeeded());
+    this.queueSafe(() => this.mountLlamaXtermsIfNeeded());
     const tabId = this.activeTabId();
     if (!tabId) {
       return;
     }
-    if (tabId === LLAMA_SERVER_TAB_ID) {
+    if (this.isLlamaTabId(tabId)) {
       return;
     }
     const path = this.workspacePath().trim();
@@ -505,49 +542,52 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     }
   }
 
-  private mountLlamaXtermIfNeeded(): void {
-    if (this.destroyed || !this.showLlamaServerTab()) {
+  private mountLlamaXtermsIfNeeded(): void {
+    if (this.destroyed || this.llamaTabs().length === 0) {
       return;
     }
-    const host = document.getElementById(this.hostDomId(LLAMA_SERVER_TAB_ID));
-    if (!host || this.xterms.has(LLAMA_SERVER_TAB_ID)) {
-      return;
+    for (const tab of this.llamaTabs()) {
+      const host = document.getElementById(this.hostDomId(tab.id));
+      if (!host || this.xterms.has(tab.id)) {
+        continue;
+      }
+      const terminal = new Terminal({
+        cursorBlink: false,
+        disableStdin: true,
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
+        fontSize: 13,
+        theme: buildXtermThemeFromCssVars(getComputedStyle(document.documentElement)),
+      });
+      const fit = new FitAddon();
+      terminal.loadAddon(fit);
+      this.bindXtermCtrlShiftCopy(terminal);
+      terminal.open(host);
+      terminal.onData(() => {
+        /* read-only log */
+      });
+      if (this.destroyed) {
+        terminal.dispose();
+        return;
+      }
+      this.xterms.set(tab.id, { terminal, fit, sessionId: this.llamaSessionId(tab) });
+      fit.fit();
+      const backlog = this.llamaBacklogByTab.get(tab.id);
+      if (backlog) {
+        terminal.write(backlog);
+        this.llamaBacklogByTab.delete(tab.id);
+      }
     }
-    const terminal = new Terminal({
-      cursorBlink: false,
-      disableStdin: true,
-      fontFamily: "'Fira Code', 'Cascadia Code', Consolas, monospace",
-      fontSize: 13,
-      theme: buildXtermThemeFromCssVars(getComputedStyle(document.documentElement)),
-    });
-    const fit = new FitAddon();
-    terminal.loadAddon(fit);
-    this.bindXtermCtrlShiftCopy(terminal);
-    terminal.open(host);
-    terminal.onData(() => {
-      /* read-only log */
-    });
-    if (this.destroyed) {
-      terminal.dispose();
-      return;
-    }
-    this.xterms.set(LLAMA_SERVER_TAB_ID, { terminal, fit, sessionId: LLAMA_XTERM_SESSION });
-    fit.fit();
-    if (this.llamaBacklog) {
-      terminal.write(this.llamaBacklog);
-      this.llamaBacklog = '';
-    }
-    terminal.focus();
   }
 
-  private writeLlamaServerChunk(msg: LlamaServerOutputEvent): void {
-    const data = msg.data;
-    const inst = this.xterms.get(LLAMA_SERVER_TAB_ID);
+  private writeLlamaServerChunk(modelId: string, stream: LlamaServerStreamKind, data: string): void {
+    const tabId = this.llamaTabId(modelId, stream);
+    const inst = this.xterms.get(tabId);
     if (inst) {
       inst.terminal.write(data);
       return;
     }
-    this.llamaBacklog = (this.llamaBacklog + data).slice(-WorkspaceTerminalDockComponent.LLAMA_BACKLOG_MAX);
+    const pending = this.llamaBacklogByTab.get(tabId) ?? '';
+    this.llamaBacklogByTab.set(tabId, (pending + data).slice(-WorkspaceTerminalDockComponent.LLAMA_BACKLOG_MAX));
   }
 
   private mountPtyXtermIfNeeded(tabId: string, sessionId: string): void {
@@ -564,7 +604,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     }
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: "'Fira Code', 'Cascadia Code', Consolas, monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
       fontSize: 13,
       theme: buildXtermThemeFromCssVars(getComputedStyle(document.documentElement)),
     });
@@ -587,19 +627,25 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     this.xterms.set(tabId, { terminal, fit, sessionId });
+    this.ptySessionToTabId.set(sessionId, tabId);
     fit.fit();
     const dims = fit.proposeDimensions();
     if (dims?.cols && dims?.rows) {
       void this.electron.workspacePtyResize(sessionId, dims.cols, dims.rows);
     }
-    terminal.focus();
   }
 
   private disposeXterm(tabId: string): void {
     const inst = this.xterms.get(tabId);
     if (inst) {
+      if (inst.sessionId && !inst.sessionId.startsWith(LLAMA_XTERM_SESSION_PREFIX)) {
+        this.ptySessionToTabId.delete(inst.sessionId);
+      }
       inst.terminal.dispose();
       this.xterms.delete(tabId);
+    }
+    if (this.isLlamaTabId(tabId)) {
+      this.llamaBacklogByTab.delete(tabId);
     }
   }
 
@@ -618,7 +664,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     try {
       inst.fit.fit();
       const dims = inst.fit.proposeDimensions();
-      if (dims?.cols && dims?.rows && tabId !== LLAMA_SERVER_TAB_ID) {
+      if (dims?.cols && dims?.rows && !this.isLlamaTabId(tabId)) {
         void this.electron.workspacePtyResize(inst.sessionId, dims.cols, dims.rows);
       }
     } catch {
@@ -657,6 +703,67 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       }
     });
     this.resizeObserver.observe(host);
+  }
+
+  private syncLlamaTabsForActiveModel(): void {
+    const cfg = this.appConfig();
+    const modelId = this.activeLlmModelId();
+    if (!cfg || !this.showLlamaServerTab() || !modelId) {
+      this.llamaTabs.set([]);
+      this.pruneLlamaResources(new Set<string>());
+      return;
+    }
+    const loc = findLlmModelLocation(cfg.llmProviders, modelId);
+    const embedCommand = loc?.model.llamaCppManaged?.embeddingRunCommand?.trim() ?? '';
+    const streams: LlamaServerStreamKind[] = ['chat'];
+    if (embedCommand) {
+      streams.push('embed');
+    }
+    const nextTabs = streams.map((stream) => ({
+      id: this.llamaTabId(modelId, stream),
+      modelId,
+      stream,
+      title: stream === 'chat' ? 'llama.cpp chat server' : 'llama.cpp embed server',
+    }));
+    const activeId = this.activeTabId();
+    const nextIds = new Set(nextTabs.map((t) => t.id));
+    this.llamaTabs.set(nextTabs);
+    this.pruneLlamaResources(nextIds);
+    if (activeId && this.isLlamaTabId(activeId) && !nextIds.has(activeId)) {
+      this.activeTabId.set(this.ptyTabs()[0]?.id ?? nextTabs[0]?.id ?? null);
+    }
+  }
+
+  private pruneLlamaResources(activeLlamaTabIds: Set<string>): void {
+    for (const tabId of [...this.xterms.keys()]) {
+      if (this.isLlamaTabId(tabId) && !activeLlamaTabIds.has(tabId)) {
+        this.disposeXterm(tabId);
+      }
+    }
+    for (const tabId of [...this.llamaBacklogByTab.keys()]) {
+      if (!activeLlamaTabIds.has(tabId)) {
+        this.llamaBacklogByTab.delete(tabId);
+      }
+    }
+  }
+
+  private withLlamaTerminal(tabId: string, fn: (inst: XtermInstance) => void): void {
+    const inst = this.xterms.get(tabId);
+    if (inst) {
+      fn(inst);
+    }
+  }
+
+  private llamaTabId(modelId: string, stream: LlamaServerStreamKind): string {
+    return `${LLAMA_SERVER_TAB_PREFIX}-${modelId}-${stream}`;
+  }
+
+  private llamaSessionId(tab: LlamaTerminalTab): string {
+    return `${LLAMA_XTERM_SESSION_PREFIX}:${tab.modelId}:${tab.stream}`;
+  }
+
+  private isLlamaTabId(tabId: string): boolean {
+    return tabId.startsWith(`${LLAMA_SERVER_TAB_PREFIX}-`);
   }
 
   hostDomId(tabId: string): string {

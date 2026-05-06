@@ -7,6 +7,8 @@ instances and builds the long system prompt (workspace + host + connection hints
 from __future__ import annotations
 
 import re
+import json
+import xml.etree.ElementTree as ET
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -27,6 +29,15 @@ from nemo_backend.state import get_active_connection, runtime_config
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
 _RE_PSEUDO_FUNCTION_TAG = re.compile(r'<\s*function\s*=', re.IGNORECASE)
 _RE_PSEUDO_PARAMETER_TAG = re.compile(r'<\s*parameter\s*=', re.IGNORECASE)
+_RE_FUNCTION_EQ_TAG = re.compile(
+    r'<\s*function\s*=\s*(?:"(?P<dq>[^"]+)"|\'(?P<sq>[^\']+)\'|(?P<bare>[^\s>/]+))\s*(?P<self>/?)\s*>',
+    re.IGNORECASE,
+)
+_RE_PARAMETER_EQ_TAG = re.compile(
+    r'<\s*parameter\s*=\s*(?:"(?P<dq>[^"]+)"|\'(?P<sq>[^\']+)\'|(?P<bare>[^\s>/]+))\s*(?P<self>/?)\s*>',
+    re.IGNORECASE,
+)
+_RE_JSON_LIKE = re.compile(r'^\s*[\[{"]')
 
 
 def session_to_messages(session: SessionState) -> list[BaseMessage]:
@@ -173,6 +184,144 @@ def text_uses_pseudo_tool_markup(text: str) -> bool:
     if _RE_PSEUDO_PARAMETER_TAG.search(text):
         return True
     return False
+
+
+def _normalize_pseudo_tool_xml(text: str) -> str:
+    def _replace_function(match: re.Match[str]) -> str:
+        name = (match.group('dq') or match.group('sq') or match.group('bare') or '').strip()
+        self_close = bool((match.group('self') or '').strip())
+        end = ' />' if self_close else '>'
+        return f'<function name="{name}"{end}'
+
+    def _replace_parameter(match: re.Match[str]) -> str:
+        name = (match.group('dq') or match.group('sq') or match.group('bare') or '').strip()
+        self_close = bool((match.group('self') or '').strip())
+        end = ' />' if self_close else '>'
+        return f'<parameter name="{name}"{end}'
+
+    out = _RE_FUNCTION_EQ_TAG.sub(_replace_function, text)
+    out = _RE_PARAMETER_EQ_TAG.sub(_replace_parameter, out)
+    return out
+
+
+def _coerce_argument_value(raw: str) -> Any:
+    value = raw.strip()
+    if not value:
+        return ''
+    if not _RE_JSON_LIKE.match(value):
+        return value
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return value
+    return parsed
+
+
+def _json_args_from_text(raw: str) -> tuple[str, dict[str, Any]]:
+    payload = raw.strip()
+    if not payload:
+        return '', {}
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return '', {}
+    if not isinstance(data, dict):
+        return '', {}
+    name = str(data.get('name') or data.get('function') or data.get('tool') or '').strip()
+    args = data.get('arguments')
+    if not isinstance(args, dict):
+        args = data.get('args')
+    if not isinstance(args, dict):
+        args = data.get('input')
+    if not isinstance(args, dict):
+        args = {}
+    return name, dict(args)
+
+
+def _parse_argument_nodes(node: ET.Element) -> dict[str, Any]:
+    args: dict[str, Any] = {}
+    for param in node.findall('.//parameter'):
+        key = str(param.get('name') or '').strip()
+        if not key:
+            continue
+        args[key] = _coerce_argument_value(''.join(param.itertext()))
+    for container_name in ('arguments', 'args', 'input'):
+        for container in node.findall(f'.//{container_name}'):
+            text = ''.join(container.itertext()).strip()
+            if not text:
+                continue
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                args.update(parsed)
+    return args
+
+
+def _parse_tool_call_node(node: ET.Element) -> tuple[str, dict[str, Any]]:
+    tag = node.tag.lower()
+    if tag == 'function':
+        name = str(node.get('name') or '').strip()
+        args = _parse_argument_nodes(node)
+        if not args:
+            _unused_name, json_args = _json_args_from_text(''.join(node.itertext()))
+            args = json_args
+        return name, args
+
+    if tag != 'tool_call':
+        return '', {}
+
+    nested_fn = node.find('./function')
+    if nested_fn is not None:
+        name, args = _parse_tool_call_node(nested_fn)
+        if args:
+            return name, args
+        merged = _parse_argument_nodes(node)
+        if merged:
+            return name, merged
+        return name, {}
+
+    direct_name = str(node.get('name') or node.get('function') or '').strip()
+    direct_args = _parse_argument_nodes(node)
+    if direct_name and direct_args:
+        return direct_name, direct_args
+    json_name, json_args = _json_args_from_text(''.join(node.itertext()))
+    if json_name:
+        return json_name, json_args
+    return direct_name, direct_args
+
+
+def extract_pseudo_tool_calls(text: str) -> list[dict[str, Any]]:
+    """Best-effort conversion of pseudo XML tool syntax into LangChain-style ``tool_calls``."""
+    if not text_uses_pseudo_tool_markup(text):
+        return []
+    normalized = _normalize_pseudo_tool_xml(text)
+    try:
+        root = ET.fromstring(f'<root>{normalized}</root>')
+    except ET.ParseError:
+        return []
+
+    parent_by_child: dict[ET.Element, ET.Element] = {child: parent for parent in root.iter() for child in parent}
+    out: list[dict[str, Any]] = []
+    for node in root.iter():
+        tag = node.tag.lower()
+        if tag == 'function' and parent_by_child.get(node, root).tag.lower() == 'tool_call':
+            continue
+        if tag not in ('tool_call', 'function'):
+            continue
+        name, args = _parse_tool_call_node(node)
+        tool_name = name.strip()
+        if not tool_name:
+            continue
+        out.append(
+            {
+                'name': tool_name,
+                'args': args if isinstance(args, dict) else {},
+                'id': f'xml-tool-{len(out) + 1}',
+            }
+        )
+    return out
 
 
 _STAGING_TREE_SECTION_MARKER = '\n\nNested edit staging tree ('

@@ -118,6 +118,9 @@ export function multiplexAuxiliaryStreamTimeline(parts: StreamPart[]): StreamPar
   return parts.filter((p) => !isPrimaryAssistantStreamTag(p.streamTag));
 }
 
+/** Multiplex tag for live read-tool file preview (backend `tool_read_chunk` channel). */
+export const READ_TOOL_PREVIEW_STREAM_TAG = 'spec-read-preview';
+
 /** Subset of persisted assistant fields used to resolve auxiliary timeline for display. */
 export type PersistedAssistantStreamFields = {
   auxiliaryStreamTimeline?: StreamPart[];

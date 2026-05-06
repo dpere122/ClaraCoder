@@ -1,4 +1,4 @@
-import { AfterViewChecked, Directive, ElementRef, NgZone, inject, OnDestroy } from '@angular/core';
+import { AfterViewInit, Directive, ElementRef, NgZone, inject, OnDestroy } from '@angular/core';
 import { ElectronService } from '../../../core/electron.service';
 import { Subscription } from 'rxjs';
 
@@ -16,7 +16,7 @@ interface InteractiveProcess {
 @Directive({
   selector: '[appRunButton]',
 })
-export class RunButtonDirective implements AfterViewChecked, OnDestroy {
+export class RunButtonDirective implements AfterViewInit, OnDestroy {
   private readonly elementRef: ElementRef;
   private readonly electron = inject(ElectronService);
   private readonly zone = inject(NgZone);
@@ -44,7 +44,7 @@ export class RunButtonDirective implements AfterViewChecked, OnDestroy {
     });
   }
 
-  ngAfterViewChecked(): void {
+  ngAfterViewInit(): void {
     this.attachHandlers();
   }
 

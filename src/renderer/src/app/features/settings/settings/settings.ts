@@ -18,7 +18,11 @@ import type {
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
+  DEFAULT_KOKORO_TTS_VOICE,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
+  TTS_SPEECH_SPEED_DEFAULT,
+  TTS_SPEECH_SPEED_MAX,
+  TTS_SPEECH_SPEED_MIN,
   defaultLlamaCppManaged,
   defaultMonacoWorkspaceEditorSettings,
   GEMMA_PRESET_DEFAULTS,
@@ -47,6 +51,12 @@ type SettingsTab = 'general' | 'appearance' | 'models' | 'tools' | 'monaco' | 'a
 const TALK_SILENCE_THRESHOLD_MIN = 0.5;
 const TALK_SILENCE_THRESHOLD_MAX = 5;
 const TALK_SILENCE_THRESHOLD_STEP = 0.5;
+
+function clampTtsSpeechSpeed(raw: unknown): number {
+  const n = typeof raw === 'number' && !Number.isNaN(raw) ? raw : TTS_SPEECH_SPEED_DEFAULT;
+  const c = Math.min(TTS_SPEECH_SPEED_MAX, Math.max(TTS_SPEECH_SPEED_MIN, n));
+  return +c.toFixed(2);
+}
 
 const MONACO_EDITOR_THEME_LABELS: Record<MonacoWorkspaceEditorThemeId, string> = {
   'clara-monaco': 'Clara (matches app)',
@@ -98,11 +108,11 @@ export class Settings implements OnInit, OnDestroy {
       label: 'Editor',
       description: 'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
     },
-    { id: 'audio', label: 'Audio', description: 'Transcription, talk-mode microphone, assistant TTS voice, and end-of-speech timing.' },
+    { id: 'audio', label: 'Audio', description: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.' },
     { id: 'appearance', label: 'Appearance', description: 'Global and no-workspace theme defaults.' },
     { id: 'workspaces', label: 'Workspaces', description: 'Attached folders, active project, and per-workspace themes.' },
   ];
-  /** Options for `audioTranscription.ttsVoiceId` (same list as chat TTS). */
+  /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   protected readonly ttsVoiceChoices = VOICE_OPTIONS;
   protected readonly themes: ThemeOption[] = THEMES;
   protected readonly monacoEditorThemeSelectOptions = MONACO_WORKSPACE_EDITOR_THEME_IDS.map((id) => ({
@@ -126,7 +136,8 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly talkAudioInputsLoadError = signal('');
   protected readonly chatFontSizeRem = signal(0.9);
   protected readonly monacoWorkspaceEditor = signal<MonacoWorkspaceEditorSettings>(defaultMonacoWorkspaceEditorSettings());
-  protected readonly ttsVoiceId = signal('en-US-AriaNeural');
+  protected readonly ttsVoice = signal(DEFAULT_KOKORO_TTS_VOICE);
+  protected readonly ttsSpeechSpeed = signal(TTS_SPEECH_SPEED_DEFAULT);
   protected readonly editToolsMode = signal<'standard' | 'strict'>('standard');
   protected readonly maxFileReadLines = signal(400);
   protected readonly maxSearchResults = signal(40);
@@ -784,9 +795,12 @@ export class Settings implements OnInit, OnDestroy {
       );
       this.talkSilenceThresholdSeconds.set(+clamped.toFixed(1));
     }
-    if (changes.ttsVoiceId !== undefined) {
-      const s = typeof changes.ttsVoiceId === 'string' ? changes.ttsVoiceId.trim() : '';
-      this.ttsVoiceId.set(s || 'en-US-AriaNeural');
+    if (changes.ttsVoice !== undefined) {
+      const s = typeof changes.ttsVoice === 'string' ? changes.ttsVoice.trim() : '';
+      this.ttsVoice.set(s || DEFAULT_KOKORO_TTS_VOICE);
+    }
+    if (changes.ttsSpeechSpeed !== undefined) {
+      this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(changes.ttsSpeechSpeed));
     }
     this.markSettingsDirty();
   }
@@ -808,6 +822,14 @@ export class Settings implements OnInit, OnDestroy {
       +(this.talkSilenceThresholdSeconds() - TALK_SILENCE_THRESHOLD_STEP).toFixed(1),
     );
     this.updateAudioSettings({ talkSilenceThresholdSeconds: next });
+  }
+
+  protected readonly ttsSpeechSpeedMin = TTS_SPEECH_SPEED_MIN;
+  protected readonly ttsSpeechSpeedMax = TTS_SPEECH_SPEED_MAX;
+  protected readonly ttsSpeechSpeedStep = 0.05;
+
+  protected onTtsSpeechSpeedInput(value: number): void {
+    this.updateAudioSettings({ ttsSpeechSpeed: clampTtsSpeechSpeed(value) });
   }
 
   protected increaseTalkSilenceThreshold(): void {
@@ -1059,7 +1081,8 @@ export class Settings implements OnInit, OnDestroy {
         apiKey: this.audioApiKey(),
         talkInputDeviceId: this.talkInputDeviceId(),
         talkSilenceThresholdSeconds: this.talkSilenceThresholdSeconds(),
-        ttsVoiceId: this.ttsVoiceId(),
+        ttsVoice: this.ttsVoice(),
+        ttsSpeechSpeed: this.ttsSpeechSpeed(),
       },
       workspaceTools: {
         editToolsMode: this.editToolsMode(),
@@ -1123,7 +1146,8 @@ export class Settings implements OnInit, OnDestroy {
       const themeToApply = currentWorkspace?.themeId || config.noWorkspaceThemeId || config.themeId || 'dark';
       this.applyTheme(themeToApply);
       const at = config.audioTranscription;
-      this.ttsVoiceId.set(at?.ttsVoiceId?.trim() || 'en-US-AriaNeural');
+      this.ttsVoice.set(at?.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
+      this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(at?.ttsSpeechSpeed));
       const cfs = config.chatFontSizeRem;
       this.chatFontSizeRem.set(
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
@@ -1158,7 +1182,8 @@ export class Settings implements OnInit, OnDestroy {
           )
         : 2,
     );
-    this.ttsVoiceId.set(at.ttsVoiceId?.trim() || 'en-US-AriaNeural');
+    this.ttsVoice.set(at.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
+    this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(at.ttsSpeechSpeed));
 
     const cfs = config.chatFontSizeRem;
     this.chatFontSizeRem.set(

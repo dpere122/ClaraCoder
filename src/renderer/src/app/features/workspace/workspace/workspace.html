@@ -105,6 +105,25 @@
     }
   </div>
 
+  @if (electron.isElectron && currentWorkspaceId()) {
+    <div class='workspace-interpreter-footer'>
+      <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Interpreter</label>
+      <select
+        id='workspace-python-interpreter'
+        class='workspace-interpreter-select'
+        [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
+        (change)='onPythonInterpreterChange($event)'
+      >
+        @for (opt of pythonInterpreterRows(); track opt.id) {
+          <option [value]='opt.id' [selected]='opt.id === pythonInterpreterSelectedId()'>{{ opt.label }}</option>
+        }
+      </select>
+      @if (pythonInterpreterError()) {
+        <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
+      }
+    </div>
+  }
+
   <div class='workspace-theme-footer'>
     <app-theme-selector />
   </div>

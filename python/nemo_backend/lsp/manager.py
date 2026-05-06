@@ -14,6 +14,10 @@ from nemo_backend.domain import SessionState
 from nemo_backend.lsp.client import JsonRpcLspClient
 from nemo_backend.lsp.diagnostics import normalize_lsp_diagnostics
 from nemo_backend.lsp.file_policy import get_lsp_file_policy, lsp_server_for_path, normalize_relative_posix_path
+from nemo_backend.lsp.jedi_init_options import (
+    build_jedi_initialization_options,
+    jedi_environment_path_for_workspace,
+)
 from nemo_backend.lsp.python_server import build_python_lsp_command
 from nemo_backend.lsp.typescript_project_root import resolve_typescript_project_root
 from nemo_backend.lsp.typescript_server import build_typescript_lsp_command
@@ -32,6 +36,7 @@ __all__ = [
     'get_session_lsp_manager',
     'get_lsp_dashboard_status',
     'shutdown_session_lsp',
+    'shutdown_session_python_lsp',
     'shutdown_all_lsp_managers',
     'list_session_diagnostics',
     'sync_session_document',
@@ -75,9 +80,30 @@ def _workspace_capabilities() -> dict[str, Any]:
             'hover': {'contentFormat': ['markdown', 'plaintext']},
             'definition': {'linkSupport': True},
             'references': {},
+            'completion': {
+                'dynamicRegistration': False,
+                'completionItem': {
+                    'snippetSupport': True,
+                    'documentationFormat': ['markdown', 'plaintext'],
+                },
+            },
+            'rename': {'dynamicRegistration': False, 'prepareSupport': False},
             'documentSymbol': {
                 'hierarchicalDocumentSymbolSupport': True,
                 'symbolKind': {'valueSet': list(range(1, 27))},
+            },
+            'semanticTokens': {
+                'dynamicRegistration': False,
+                'requests': {
+                    'range': False,
+                    'full': {'delta': False},
+                },
+                'tokenTypes': [],
+                'tokenModifiers': [],
+                'formats': ['relative'],
+                'overlappingTokenSupport': False,
+                'multilineTokenSupport': True,
+                'serverCancelSupport': False,
             },
             'publishDiagnostics': {'relatedInformation': True},
             'synchronization': {'didSave': True, 'dynamicRegistration': False},
@@ -85,7 +111,32 @@ def _workspace_capabilities() -> dict[str, Any]:
         'workspace': {
             'workspaceFolders': True,
             'didChangeWatchedFiles': {'dynamicRegistration': False},
+            'semanticTokens': {'refreshSupport': True},
         },
+    }
+
+
+def _extract_semantic_tokens_legend(init_result: Any) -> dict[str, list[str]] | None:
+    """Parse ``capabilities.semanticTokensProvider.legend`` from ``initialize`` result."""
+
+    if not isinstance(init_result, dict):
+        return None
+    caps = init_result.get('capabilities')
+    if not isinstance(caps, dict):
+        return None
+    stp = caps.get('semanticTokensProvider')
+    if not isinstance(stp, dict):
+        return None
+    legend = stp.get('legend')
+    if not isinstance(legend, dict):
+        return None
+    tt = legend.get('tokenTypes')
+    tm = legend.get('tokenModifiers')
+    if not isinstance(tt, list) or not isinstance(tm, list):
+        return None
+    return {
+        'tokenTypes': [str(x) for x in tt],
+        'tokenModifiers': [str(x) for x in tm],
     }
 
 
@@ -116,6 +167,8 @@ class SessionWorkspaceLspManager:
         #: Effective cwd / LSP rootUri for typescript-language-server (nested package); ``None`` until first start.
         self._typescript_project_root: Path | None = None
         self._last_typescript_seed: str = ''
+        #: From ``initialize`` response (``semanticTokensProvider.legend``); ``None`` if unsupported.
+        self._semantic_tokens_legend: dict[str, list[str]] | None = None
 
     def _build_command(self) -> list[str]:
         if self.server_kind == 'python':
@@ -128,6 +181,16 @@ class SessionWorkspaceLspManager:
         if policy is None or policy.lsp_server != self.server_kind:
             return None
         return policy
+
+    def should_skip_typescript_cold_start_without_seed(self) -> bool:
+        """Avoid spawning typescript-language-server before any TS/JS path is known.
+
+        Without a seed path, project-root discovery often falls back to the session workspace,
+        which binds the wrong ``tsconfig.json`` for nested packages; Monaco prefetch must not
+        lock the server to that root before ``sync_document`` runs.
+        """
+
+        return self.server_kind == 'typescript' and not (self._last_typescript_seed or '').strip()
 
     def ensure_started(self) -> None:
         with self._lock:
@@ -154,11 +217,18 @@ class SessionWorkspaceLspManager:
                 workspace_root=lsp_cwd,
                 notification_handler=self._handle_notification,
             )
-            client.initialize(
+            # jedi-language-server: semantic tokens off by default; workspace.environmentPath
+            # aligns Jedi with the workspace venv so library hovers resolve installed packages.
+            init_opts: dict[str, Any] = {}
+            if self.server_kind == 'python':
+                init_opts = build_jedi_initialization_options(self.session, self.workspace_root)
+            init_result = client.initialize(
                 root_uri=_path_to_uri(lsp_cwd),
                 process_id=os.getpid(),
                 capabilities=_workspace_capabilities(),
+                initialization_options=init_opts,
             )
+            self._semantic_tokens_legend = _extract_semantic_tokens_legend(init_result)
             self._client = client
             self.session.lsp_workspace_root = str(self.workspace_root)
             self.session.lsp_active_scope = self.scope
@@ -175,6 +245,7 @@ class SessionWorkspaceLspManager:
         with self._lock:
             client = self._client
             self._client = None
+            self._semantic_tokens_legend = None
             tracked = list(self._doc_versions.keys())
             self._doc_versions.clear()
             self._diag_generation.clear()
@@ -211,6 +282,26 @@ class SessionWorkspaceLspManager:
             raise ValueError(f'LSP sync is not supported for `{rel}` on {self.server_kind} server.')
         if self.server_kind == 'typescript':
             self._last_typescript_seed = rel
+            desired_root = resolve_typescript_project_root(
+                self.workspace_root,
+                seed_relative_path=self._last_typescript_seed,
+            )
+            with self._lock:
+                running = self._client is not None
+                cur_root = self._typescript_project_root
+            if running and cur_root is not None:
+                try:
+                    mismatch = desired_root.resolve() != cur_root.resolve()
+                except OSError:
+                    mismatch = True
+                if mismatch:
+                    logger.info(
+                        'typescript LSP project root changed %s -> %s; restarting server session=%s',
+                        cur_root,
+                        desired_root,
+                        self.session_id,
+                    )
+                    self.shutdown()
         self.ensure_started()
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
@@ -326,6 +417,48 @@ class SessionWorkspaceLspManager:
         rel = self._ensure_workspace_synced(relative_path)
         params = {'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))}}
         return self._require_client().request('textDocument/documentSymbol', params, timeout_s=8.0)
+
+    def completion(
+        self,
+        relative_path: str,
+        line: int,
+        character: int,
+        *,
+        trigger_kind: int = 1,
+        trigger_character: str | None = None,
+    ) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        uri = _path_to_uri(normalize_relative_path(self.workspace_root, rel))
+        ctx: dict[str, Any] = {'triggerKind': max(1, min(3, int(trigger_kind)))}
+        if trigger_character is not None and trigger_character != '':
+            ctx['triggerCharacter'] = trigger_character
+        params = {
+            'textDocument': {'uri': uri},
+            'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
+            'context': ctx,
+        }
+        return self._require_client().request('textDocument/completion', params, timeout_s=15.0)
+
+    def rename(self, relative_path: str, line: int, character: int, new_name: str) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        uri = _path_to_uri(normalize_relative_path(self.workspace_root, rel))
+        params = {
+            'textDocument': {'uri': uri},
+            'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
+            'newName': str(new_name),
+        }
+        return self._require_client().request('textDocument/rename', params, timeout_s=25.0)
+
+    def semantic_tokens_full(self, relative_path: str) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))}}
+        return self._require_client().request('textDocument/semanticTokens/full', params, timeout_s=20.0)
+
+    @property
+    def semantic_tokens_legend(self) -> dict[str, list[str]] | None:
+        """Cached legend from the language server's ``initialize`` response (may be ``None``)."""
+
+        return self._semantic_tokens_legend
 
     def _ensure_workspace_synced(self, relative_path: str) -> str:
         rel = normalize_relative_posix_path(relative_path)
@@ -458,6 +591,19 @@ def get_session_lsp_manager(
         return manager
 
 
+def shutdown_session_python_lsp(session_id: str) -> None:
+    """Stop only the Python language-server manager for this session (e.g. after interpreter change)."""
+
+    sid = (session_id or '').strip()
+    if not sid:
+        return
+    with _MANAGERS_LOCK:
+        key = (sid, 'python')
+        manager = _SESSION_MANAGERS.pop(key, None)
+    if manager is not None:
+        manager.shutdown()
+
+
 def shutdown_session_lsp(session_id: str) -> None:
     from nemo_backend.staging_test_overlay import clear_lsp_staging_overlay
 
@@ -503,6 +649,15 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
     real_ws = str(workspace_root)
     overlay_raw = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
     reported_root = overlay_raw if active_scope == 'staging' and overlay_raw else real_ws
+    ts_root_str = (session.typescript_lsp_resolved_root or '').strip()
+    if ts_root_str:
+        ts_base = Path(ts_root_str).resolve()
+    else:
+        ts_base = resolve_typescript_project_root(workspace_root, seed_relative_path=None)
+    node_modules_present = (ts_base / 'node_modules').is_dir()
+    py_env_path = jedi_environment_path_for_workspace(session, workspace_root)
+    py_interp = (session.python_workspace_python_executable or '').strip() or None
+
     return {
         'sessionId': sid,
         'workspaceRoot': reported_root,
@@ -511,6 +666,9 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
         'activeLspScope': active_scope,
         'cachedDiagnostics': diag_count,
         'diagnosticsCacheNote': 'Session-scoped cache only; clears when LSP scope changes (workspace vs staging).',
+        'pythonEnvironmentPath': py_env_path,
+        'pythonInterpreterPath': py_interp,
+        'nodeModulesPresent': node_modules_present,
         'servers': {
             'python': {'initialized': py is not None and py.is_client_running()},
             'typescript': {'initialized': ts is not None and ts.is_client_running()},

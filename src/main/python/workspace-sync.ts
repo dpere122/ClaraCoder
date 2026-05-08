@@ -20,12 +20,13 @@ function embeddingsEnabledForWire(
   if (c.provider !== 'llamacpp') {
     return true;
   }
-  if (!(c.llamaCppManaged?.embeddingRunCommand ?? '').trim()) {
-    return false;
-  }
   const managedEmb = (llamaOverride?.embeddingsBaseUrl ?? '').trim();
   const staticEmb = (c.embeddingsBaseUrl ?? '').trim();
-  return !!(managedEmb || staticEmb);
+  if ((c.llamaCppManaged?.embeddingRunCommand ?? '').trim()) {
+    return !!(managedEmb || staticEmb);
+  }
+  // URL-only / static llama-server: no managed embedding process; enable when a chat or embeddings base URL is set.
+  return !!(c.baseUrl ?? '').trim() || !!staticEmb;
 }
 
 /** One row for ``POST /runtime-config`` (camelCase keys match Pydantic). */

@@ -146,7 +146,7 @@
               }
             </div>
 
-            <p class='settings-copy sources-hint'>Click a row to edit; use the radio for chat. Pinned LM Studio and Llama server (URL) cannot be removed. Add sources for more managed <code>llama-server</code> instances.</p>
+            <p class='settings-copy sources-hint'>Built-in sources: LM Studio, remote llama-server (LAN), and managed llama-server on this machine (pinned; chat command required). Use <strong>Add source</strong> for more managed <code>llama-server</code> instances. Click a row to edit; use the radio for chat.</p>
           </div>
 
           <div class='settings-editor'>
@@ -291,7 +291,7 @@
                 <div class='form-section'>
                   <div class='form-section__header'>
                     <h5>Llama server connection</h5>
-                    <p class='settings-copy'>OpenAI-compatible base URL (e.g. <code>http://127.0.0.1:8080/v1</code>). Use <strong>Connect</strong> to list models from a running <code>llama-server</code>.</p>
+                    <p class='settings-copy'>Chat completions base URL (e.g. <code>http://192.168.1.10:8080/v1</code>) and optional separate embeddings base URL (e.g. <code>http://192.168.1.10:8081/v1</code>). Use <strong>Connect</strong> to list models from the chat server.</p>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
@@ -303,11 +303,19 @@
                       />
                     </label>
                     <label class='field field--full'>
-                      <span>Base URL</span>
+                      <span>Base URL (chat)</span>
                       <input
                         type='text'
                         [ngModel]='selectedProvider()!.baseUrl'
                         (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>Embeddings base URL</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.embeddingsBaseUrl ?? ""'
+                        (ngModelChange)='updateSelectedProvider({ embeddingsBaseUrl: $event || undefined })'
                       />
                     </label>
                     <label class='field field--full'>
@@ -380,7 +388,12 @@
                 <div class='form-section'>
                   <div class='form-section__header'>
                     <h5>llama.cpp source</h5>
-                    <p class='settings-copy'>Start and stop managed <code>llama-server</code> from the chat sidebar. Paste run commands here; refresh models after the chat server is running.</p>
+                    <p class='settings-copy'>
+                      Start and stop managed <code>llama-server</code> from the chat sidebar. Paste run commands here; refresh models after the chat server is running.
+                      @if (isPinnedLocalManagedLlamaSource()) {
+                        <span> The chat run command below is required for this source (it does not switch to URL-only mode).</span>
+                      }
+                    </p>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
@@ -389,14 +402,6 @@
                         type='text'
                         [ngModel]='selectedProvider()!.name'
                         (ngModelChange)='updateSelectedProvider({ name: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>Base URL (when not using local Start / optional)</span>
-                      <input
-                        type='text'
-                        [ngModel]='selectedProvider()!.baseUrl'
-                        (ngModelChange)='updateSelectedProvider({ baseUrl: $event })'
                       />
                     </label>
                     <label class='field field--full'>

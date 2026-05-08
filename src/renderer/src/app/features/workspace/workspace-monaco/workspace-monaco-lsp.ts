@@ -1,9 +1,11 @@
 import type * as Monaco from 'monaco-editor';
 import type { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
-import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
-
-const LSP_LANGS = ['python', 'typescript', 'javascript'] as const;
+import {
+  LSP_MONACO_LANGUAGE_IDS,
+  lspServerIdForMonacoLanguageId,
+  lspServerKindForWorkspaceRelativePath,
+} from '@shared/index';
 
 export interface WorkspaceMonacoLspNavigatePayload {
   readonly relativePath: string;
@@ -20,14 +22,7 @@ export interface RegisterWorkspaceMonacoLspOptions {
   /** Cross-file go-to-definition / reveal cursor after tab switch. */
   readonly onNavigateToWorkspaceFile: (payload: WorkspaceMonacoLspNavigatePayload) => void;
   /** Prefetched from ``GET /lsp/semantic-tokens-legend`` so ``getLegend()`` is valid on first paint. */
-  readonly initialSemanticLegends?: {
-    readonly python: Monaco.languages.SemanticTokensLegend;
-    readonly typescript: Monaco.languages.SemanticTokensLegend;
-  };
-}
-
-function serverKindForLang(lang: (typeof LSP_LANGS)[number]): 'python' | 'typescript' {
-  return lang === 'python' ? 'python' : 'typescript';
+  readonly initialSemanticLegends?: Readonly<Record<string, Monaco.languages.SemanticTokensLegend>>;
 }
 
 function wireRange(api: typeof Monaco, r: Monaco.IRange): Monaco.Range {
@@ -60,8 +55,12 @@ function mapWorkspaceEdit(
   return { edits };
 }
 
+function emptyLegend(): Monaco.languages.SemanticTokensLegend {
+  return { tokenTypes: [], tokenModifiers: [] };
+}
+
 /**
- * Registers workspace-scoped LSP providers (Python + TS/JS) on the standalone editor.
+ * Registers workspace-scoped LSP providers on the standalone editor.
  * Models must use the ``clara-workspace`` URI scheme (see ``WorkspaceMonacoComponent``).
  */
 export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptions): Monaco.IDisposable {
@@ -75,9 +74,21 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
   } = opts;
   const disposables: Monaco.IDisposable[] = [];
 
-  const legends: Record<'python' | 'typescript', Monaco.languages.SemanticTokensLegend> = {
-    python: initialSemanticLegends?.python ?? { tokenTypes: [], tokenModifiers: [] },
-    typescript: initialSemanticLegends?.typescript ?? { tokenTypes: [], tokenModifiers: [] },
+  const legends: Record<string, Monaco.languages.SemanticTokensLegend> = {};
+  const init = initialSemanticLegends ?? {};
+  for (const key of Object.keys(init)) {
+    legends[key] = {
+      tokenTypes: [...(init[key]?.tokenTypes ?? [])],
+      tokenModifiers: [...(init[key]?.tokenModifiers ?? [])],
+    };
+  }
+
+  const legendForMonacoLang = (monacoLang: string): Monaco.languages.SemanticTokensLegend => {
+    const sid = lspServerIdForMonacoLanguageId(monacoLang);
+    if (sid && legends[sid]) {
+      return legends[sid]!;
+    }
+    return emptyLegend();
   };
 
   const canRun = (model: Monaco.editor.ITextModel): boolean => {
@@ -100,7 +111,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     return fn(sessionId, rel, model.getValue());
   };
 
-  for (const lang of LSP_LANGS) {
+  for (const lang of LSP_MONACO_LANGUAGE_IDS) {
     disposables.push(
       api.languages.registerDefinitionProvider(lang, {
         provideDefinition: async (model, position) => {
@@ -276,7 +287,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
     disposables.push(
       api.languages.registerDocumentSemanticTokensProvider(lang, {
-        getLegend: () => legends[serverKindForLang(lang)],
+        getLegend: () => legendForMonacoLang(lang),
         provideDocumentSemanticTokens: async (model, _lastResultId, _token) => {
           if (!canRun(model)) {
             return null;

@@ -306,6 +306,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('warm-lsp-for-active-file', sessionId, relativePath, encoding) as Promise<
       { ok: true } | { ok: false; error: string }
     >,
+  warmLspServer: (sessionId: string, server: string) =>
+    ipcRenderer.invoke('warm-lsp-server', sessionId, server) as Promise<{ ok: true } | { ok: false; error: string }>,
   lspEditorHover: (
     sessionId: string,
     relativePath: string,
@@ -383,7 +385,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       | { ok: true; workspaceEdit: LspWorkspaceEditIpc | null }
       | { ok: false; error: string }
     >,
-  lspEditorSemanticTokensLegend: (sessionId: string, server: 'python' | 'typescript') =>
+  lspEditorSemanticTokensLegend: (sessionId: string, server: string) =>
     ipcRenderer.invoke('lsp-editor-semantic-tokens-legend', sessionId, server) as Promise<
       | { ok: true; legend: LspSemanticTokensLegendIpc }
       | { ok: false; error: string }

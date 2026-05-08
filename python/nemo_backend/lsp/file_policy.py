@@ -96,6 +96,14 @@ LANGUAGE_POLICIES: dict[str, LspFilePolicy] = {
         use_lsp=True,
         requires_review=True,
     ),
+    '.gd': LspFilePolicy(
+        extension='.gd',
+        language_id='gdscript',
+        language_label='GDScript',
+        lsp_server='gdscript',
+        use_lsp=True,
+        requires_review=True,
+    ),
 }
 
 # Extensions that require nested code review but are not served by an integrated LSP yet.
@@ -174,7 +182,7 @@ def get_python_lsp_policy(relative_path: str) -> LspFilePolicy | None:
 
 
 def lsp_server_for_path(relative_path: str) -> str | None:
-    """Return ``python`` or ``typescript`` for paths with an integrated LSP, else None."""
+    """Return registered ``lsp_server`` id for paths with an integrated LSP, else ``None``."""
 
     policy = get_lsp_file_policy(relative_path)
     if policy is not None and policy.use_lsp:

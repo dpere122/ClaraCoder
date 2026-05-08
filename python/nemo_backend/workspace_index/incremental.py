@@ -8,18 +8,23 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
-from nemo_backend.config import NEMO_EMBEDDINGS_MODEL, NEMO_LLAMA_INDEX_MAX_FILES
+from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
 from nemo_backend.domain import SessionState
 from nemo_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from nemo_backend.workspace_index.index_build import (
     DOC_REF_STAGING,
     DOC_REF_WORKSPACE,
+    manifest_embedding_model_id,
     load_or_rebuild_staging_index,
     load_or_rebuild_workspace_index,
     nodes_from_file_for_staging,
     nodes_from_file_for_workspace,
     write_staging_manifest,
     write_workspace_manifest,
+)
+from nemo_backend.workspace_index.lifecycle import (
+    invalidate_fingerprint_cache_for_root,
+    invalidate_fingerprint_cache_for_staging,
 )
 from nemo_backend.workspace_index.paths import staging_index_persist_dir, workspace_index_persist_dir
 from nemo_backend.workspace_index.staging_fingerprint import staging_content_fingerprint
@@ -129,13 +134,39 @@ def flush_semantic_index_patches(
     workspace_root: Path,
     workspace_id: str,
     embed_model: Any,
+    *,
+    embedding_model_id: str | None = None,
 ) -> None:
     """Apply queued watcher updates to persisted workspace + staging indexes."""
     batch = list(sess.semantic_index_pending)
-    sess.semantic_index_pending.clear()
     if not batch:
         return
+    sess.semantic_index_pending.clear()
+    mid = manifest_embedding_model_id(embedding_model_id)
+    try:
+        _flush_semantic_index_patches_impl(
+            session_id,
+            sess,
+            workspace_root,
+            workspace_id,
+            embed_model,
+            mid,
+            batch,
+        )
+    except Exception:
+        sess.semantic_index_pending = batch + sess.semantic_index_pending
+        raise
 
+
+def _flush_semantic_index_patches_impl(
+    session_id: str,
+    sess: SessionState,
+    workspace_root: Path,
+    workspace_id: str,
+    embed_model: Any,
+    manifest_embedding_model: str,
+    batch: list[tuple[str, str]],
+) -> None:
     from nemo_backend.edit_staging import get_staging_root
 
     sid = (session_id or '').strip()
@@ -164,6 +195,7 @@ def flush_semantic_index_patches(
                 workspace_id,
                 embed_model,
                 fingerprint_override=None,
+                embedding_model_id=manifest_embedding_model,
             )
             if w_err or w_index is None:
                 logger.debug('skip workspace incremental: %s', w_err or 'no index')
@@ -190,12 +222,14 @@ def flush_semantic_index_patches(
                     workspace_root=root,
                     workspace_id=workspace_id,
                     workspace_fingerprint=fp,
-                    embedding_model=NEMO_EMBEDDINGS_MODEL,
+                    embedding_model=manifest_embedding_model,
                 )
-
+                invalidate_fingerprint_cache_for_root(root)
     if staging_hits and sid and s_lock:
         with s_lock:
-            s_index, s_err = load_or_rebuild_staging_index(sid, graph_id, embed_model)
+            s_index, s_err = load_or_rebuild_staging_index(
+                sid, graph_id, embed_model, embedding_model_id=manifest_embedding_model
+            )
             if s_err:
                 logger.debug('skip staging incremental: %s', s_err)
             elif s_index is None:
@@ -225,5 +259,6 @@ def flush_semantic_index_patches(
                     session_id=sid,
                     graph_id=graph_id,
                     staging_fingerprint=sfp,
-                    embedding_model=NEMO_EMBEDDINGS_MODEL,
+                    embedding_model=manifest_embedding_model,
                 )
+                invalidate_fingerprint_cache_for_staging(sid, graph_id)

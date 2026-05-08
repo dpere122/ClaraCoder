@@ -124,6 +124,31 @@ def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: Magic
     assert kwargs.get('api_key') == 'secret-emb'
 
 
+def test_resolve_embedding_model_id_prefers_connection_field() -> None:
+    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+
+    conn = _llamacpp_conn(embeddings_model='custom-emb-id')
+    assert resolve_embedding_model_id(conn) == 'custom-emb-id'
+
+
+@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
+def test_build_embedding_model_skips_probe_within_ttl(mock_ctor: MagicMock, monkeypatch) -> None:
+    from nemo_backend.workspace_index import embeddings_factory as ef
+
+    ef._embedding_probe_ok_mono.clear()
+    mock_inst = MagicMock()
+    mock_ctor.return_value = mock_inst
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
+
+    conn = _llamacpp_conn()
+    emb1, err1 = ef.build_embedding_model(conn)
+    assert err1 == '' and emb1 is mock_inst
+    emb2, err2 = ef.build_embedding_model(conn)
+    assert err2 == '' and emb2 is mock_inst
+    assert mock_inst.get_query_embedding.call_count == 1
+
+
 def test_chunk_text_for_embedding_splits_long_text() -> None:
     from nemo_backend.workspace_index.embeddings_factory import _chunk_text_for_embedding
 

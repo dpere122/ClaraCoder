@@ -4,7 +4,7 @@
     <span class="talk-status-text">{{ talkStatus() || talkDetail() }}</span>
   </div>
 }
-<div class="input-group">
+<div class="input-group" (mousedown)="onComposerMouseDown($event)">
   <button
     type="button"
     class="btn btn-voice"
@@ -17,6 +17,7 @@
     <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
   </button>
   <input
+    #messageInput
     type="text"
     class="form-control"
     [ngModel]="userInput()"

@@ -17,6 +17,7 @@ from nemo_backend.lsp.editor_monaco import (
 )
 from nemo_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from nemo_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, list_session_diagnostics
+from nemo_backend.lsp.registry import lsp_server_id_is_registered
 from nemo_backend.lsp.tools import _format_hover_contents
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 
@@ -44,7 +45,7 @@ def _lsp_diagnostics_sync(
 
 def _lsp_semantic_tokens_legend_sync(session_id: str, srv: str) -> dict[str, Any]:
     manager = get_session_lsp_manager(session_id, scope='workspace', server=srv)
-    if srv == 'typescript' and manager.should_skip_typescript_cold_start_without_seed():
+    if manager.should_defer_semantic_tokens_legend_without_document_seed():
         return {'tokenTypes': [], 'tokenModifiers': [], 'supported': False}
     manager.ensure_started()
     leg = manager.semantic_tokens_legend
@@ -264,8 +265,8 @@ async def lsp_semantic_tokens_legend(session_id: str, server: str) -> dict[str, 
 
     try:
         srv = (server or '').strip().lower()
-        if srv not in ('python', 'typescript'):
-            raise ValueError('server must be "python" or "typescript".')
+        if not lsp_server_id_is_registered(srv):
+            raise ValueError(f'Unknown LSP server id: {srv!r}.')
         return await asyncio.to_thread(_lsp_semantic_tokens_legend_sync, session_id, srv)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -277,6 +278,25 @@ async def lsp_status(session_id: str) -> dict[str, object]:
 
     try:
         return get_lsp_dashboard_status(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _lsp_warm_server_sync(session_id: str, server: str) -> dict[str, str]:
+    srv = (server or '').strip().lower()
+    if not lsp_server_id_is_registered(srv):
+        raise ValueError(f'Unknown LSP server id: {srv!r}.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=srv)
+    manager.ensure_started()
+    return {'sessionId': session_id, 'server': srv}
+
+
+@router.post('/lsp/warm-server')
+async def lsp_warm_server(session_id: str, server: str) -> dict[str, str]:
+    """Start the given language-server subprocess if needed (no document sync)."""
+
+    try:
+        return await asyncio.to_thread(_lsp_warm_server_sync, session_id, server)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

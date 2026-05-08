@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
 from nemo_backend.planner_graph_session import cleanup_planner_graph_session
-from nemo_backend.workspace_index.embeddings_factory import build_embedding_model
+from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes, flush_semantic_index_patches
 from nemo_backend.workspace_index.lifecycle import (
     invalidate_staging_index_disk,
@@ -111,6 +111,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
                     Path(new_path),
                     sess.workspace_id,
                     embed_model,
+                    embedding_model_id=resolve_embedding_model_id(conn),
                 )
         except Exception:
             logger.debug('semantic index flush after workspace-context failed', exc_info=True)

@@ -25,7 +25,11 @@ import {
   TTS_SPEECH_SPEED_MIN,
   type ShellQuotingPlatform,
 } from '../../shared';
-import { PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID } from '../../shared';
+import {
+  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  PINNED_LM_STUDIO_PROVIDER_ID,
+  PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+} from '../../shared';
 import { FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
@@ -33,6 +37,7 @@ import {
   createDefaultConfig,
   createPinnedLmStudioProvider,
   createPinnedLlamaServerUrlProvider,
+  createPinnedLocalManagedLlamaProvider,
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
   getDefaultLlmProviders,
@@ -63,6 +68,8 @@ function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
     optimizationPreset,
     maxOutputTokens,
     planRetryAttemptsCount,
+    embeddingsModel,
+    embeddingsBaseUrl,
   } = row;
   const modelProfile: LlmModelProfile = {
     id: modelId,
@@ -84,12 +91,17 @@ function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
     maxOutputTokens,
     planRetryAttemptsCount,
   };
+  const embBase = (embeddingsBaseUrl ?? '').trim();
   return {
     id: randomUUID(),
     name: rowName,
     provider,
     baseUrl,
     apiKey,
+    ...(typeof embeddingsModel === 'string' && embeddingsModel.trim()
+      ? { embeddingsModel: embeddingsModel.trim() }
+      : {}),
+    ...(embBase ? { embeddingsBaseUrl: embBase } : {}),
     models: [modelProfile],
   };
 }
@@ -437,6 +449,106 @@ function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boo
   return true;
 }
 
+/** Ensure pinned managed local ``llama-server`` row exists (after LM Studio + remote URL). */
+function ensurePinnedLocalManagedLlamaProvider(providers: LlmProviderConfig[]): boolean {
+  if (providers.some((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)) {
+    return false;
+  }
+  const urlIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  const at = urlIdx >= 0 ? urlIdx + 1 : providers.length;
+  providers.splice(at, 0, createPinnedLocalManagedLlamaProvider());
+  return true;
+}
+
+/**
+ * Ensure the three pinned sources exist in order (LM Studio, remote URL, local managed),
+ * preserving user data where possible. Additional non-pinned sources are kept after them.
+ */
+function migrateLlmProvidersToThreePinnedSources(
+  providers: LlmProviderConfig[],
+  activeModelId: string,
+): { providers: LlmProviderConfig[]; activeModelId: string } {
+  const pool = structuredClone(providers) as LlmProviderConfig[];
+  const absorbedIds = new Set<string>();
+
+  const lm =
+    pool.find((p) => p.id === PINNED_LM_STUDIO_PROVIDER_ID) ??
+    pool.find((p) => p.provider === 'lmstudio') ??
+    createPinnedLmStudioProvider();
+  lm.id = PINNED_LM_STUDIO_PROVIDER_ID;
+  lm.provider = 'lmstudio';
+
+  const used = new Set<string>([lm.id]);
+
+  let local: LlmProviderConfig;
+  const localPinned = pool.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+  if (localPinned) {
+    local = localPinned;
+  } else {
+    const cand = pool.find(
+      (p) =>
+        !used.has(p.id) &&
+        p.provider === 'llamacpp' &&
+        (p.models?.[0]?.llamaCppManaged?.chatRunCommand ?? '').trim(),
+    );
+    if (cand) {
+      absorbedIds.add(cand.id);
+      local = structuredClone(cand) as LlmProviderConfig;
+    } else {
+      local = createPinnedLocalManagedLlamaProvider();
+    }
+  }
+  local.id = PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID;
+  if (!local.name?.trim()) {
+    local.name = 'Llama server (local)';
+  }
+  local.provider = 'llamacpp';
+  used.add(local.id);
+
+  let url: LlmProviderConfig;
+  const urlPinned = pool.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  if (urlPinned) {
+    url = urlPinned;
+  } else {
+    const cand = pool.find(
+      (p) =>
+        !used.has(p.id) &&
+        p.provider === 'llamacpp' &&
+        !(p.models?.[0]?.llamaCppManaged?.chatRunCommand ?? '').trim(),
+    );
+    if (cand) {
+      absorbedIds.add(cand.id);
+      url = structuredClone(cand) as LlmProviderConfig;
+    } else {
+      url = createPinnedLlamaServerUrlProvider();
+    }
+  }
+  url.id = PINNED_LLAMA_SERVER_URL_PROVIDER_ID;
+  if (!url.name?.trim()) {
+    url.name = 'Llama server (URL)';
+  }
+  url.provider = 'llamacpp';
+  if (!(url.embeddingsBaseUrl ?? '').trim()) {
+    url.embeddingsBaseUrl =
+      process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
+  }
+
+  const pinnedTriple = [lm, url, local];
+  const pinnedIdSet = new Set([
+    PINNED_LM_STUDIO_PROVIDER_ID,
+    PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+    PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  ]);
+  const extras = pool.filter((p) => !pinnedIdSet.has(p.id) && !absorbedIds.has(p.id));
+  const out = [...pinnedTriple, ...extras];
+  let nextActive = activeModelId;
+  if (!findLlmModelLocation(out, nextActive)) {
+    const fallback = lm.models[0]?.id ?? out[0]!.models[0]!.id;
+    nextActive = findLlmModelLocation(out, fallback)?.model.id ?? fallback;
+  }
+  return { providers: out, activeModelId: nextActive };
+}
+
 /**
  * Normalize older `config.json` shapes to the current schema; mutates a copy when needed.
  */
@@ -499,8 +611,18 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const rawSchema = (newConfig as { configSchemaVersion?: unknown }).configSchemaVersion;
   const schemaVersion = typeof rawSchema === 'number' && Number.isFinite(rawSchema) ? rawSchema : 0;
   if (schemaVersion < APP_CONFIG_SCHEMA_VERSION) {
-    newConfig.llmProviders = getDefaultLlmProviders();
-    newConfig.activeLlmModelId = newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai';
+    if (schemaVersion < 2) {
+      newConfig.llmProviders = getDefaultLlmProviders();
+      newConfig.activeLlmModelId =
+        newConfig.llmProviders[0]?.models[0]?.id ?? 'default-lmstudio';
+    } else if (schemaVersion < 3) {
+      const m = migrateLlmProvidersToThreePinnedSources(
+        newConfig.llmProviders,
+        newConfig.activeLlmModelId,
+      );
+      newConfig.llmProviders = m.providers;
+      newConfig.activeLlmModelId = m.activeModelId;
+    }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
@@ -517,6 +639,28 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  if (ensurePinnedLocalManagedLlamaProvider(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  const wantOrder = [
+    PINNED_LM_STUDIO_PROVIDER_ID,
+    PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+    PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  ];
+  const hasAllPins = wantOrder.every((id) => newConfig.llmProviders.some((p) => p.id === id));
+  const firstThreeOrdered = wantOrder.every((id, i) => newConfig.llmProviders[i]?.id === id);
+  const needsThreeSourceReshape =
+    newConfig.llmProviders.length < 3 || !hasAllPins || !firstThreeOrdered;
+  if (needsThreeSourceReshape) {
+    const m = migrateLlmProvidersToThreePinnedSources(
+      newConfig.llmProviders,
+      newConfig.activeLlmModelId,
+    );
+    newConfig.llmProviders = m.providers;
+    newConfig.activeLlmModelId = m.activeModelId;
+    migrated = true;
+  }
   if (newConfig.activeLlmModelId === undefined || newConfig.activeLlmModelId === '') {
     const legacyActive =
       typeof rawLlm.activeLlmConnectionId === 'string' && rawLlm.activeLlmConnectionId
@@ -525,7 +669,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
     newConfig.activeLlmModelId =
       legacyActive && findLlmModelLocation(newConfig.llmProviders, legacyActive)
         ? legacyActive
-        : (newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai');
+        : (newConfig.llmProviders[0]?.models[0]?.id ?? 'default-lmstudio');
     migrated = true;
   }
 
@@ -533,7 +677,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
   delete (newConfig as { activeLlmConnectionId?: unknown }).activeLlmConnectionId;
 
   if (!findLlmModelLocation(newConfig.llmProviders, newConfig.activeLlmModelId)) {
-    newConfig.activeLlmModelId = newConfig.llmProviders[0]?.models[0]?.id ?? 'default-openai';
+    newConfig.activeLlmModelId = newConfig.llmProviders[0]?.models[0]?.id ?? 'default-lmstudio';
     migrated = true;
   }
 

@@ -95,6 +95,11 @@ export interface LlmProviderConfig {
    * When unset, Python uses ``NEMO_EMBEDDINGS_MODEL`` / defaults.
    */
   embeddingsModel?: string;
+  /**
+   * Optional OpenAI-compatible base URL (``.../v1``) for embeddings when it differs from ``baseUrl``
+   * (e.g. remote ``llama-server`` chat on :8080 and embeddings on :8081).
+   */
+  embeddingsBaseUrl?: string;
   models: LlmModelProfile[];
 }
 
@@ -106,10 +111,7 @@ export interface LlamaManagedRuntimeEndpoints {
 
 /** Single resolved row for Python / UI (provider endpoint + one model preset). `id` is the model preset id. */
 export type LlmConnectionConfig = LlmModelProfile &
-  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel'> & {
-    /** Effective OpenAI-compatible embeddings base URL (managed llama embedding server); runtime-only from Electron. */
-    embeddingsBaseUrl?: string;
-  };
+  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>;
 
 /** Default Kokoro voice when assistant speech is enabled (American English). */
 export const DEFAULT_KOKORO_TTS_VOICE = 'af_heart';

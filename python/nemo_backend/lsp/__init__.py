@@ -1,4 +1,4 @@
-"""Workspace LSP framework for Nemo (Python + TypeScript/JavaScript)."""
+"""Workspace LSP framework for Nemo (pluggable language servers)."""
 
 from nemo_backend.lsp.manager import get_session_lsp_manager, shutdown_session_lsp
 

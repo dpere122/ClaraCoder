@@ -18,7 +18,8 @@ export interface LspDashboardStatus {
   pythonInterpreterPath?: string | null;
   /** ``node_modules`` exists under the resolved TS project root (discovered or last LSP root). */
   nodeModulesPresent?: boolean;
-  servers: {
+  /** Per registered LSP server; always includes at least ``python`` and ``typescript``. */
+  servers: Record<string, LspDashboardServerEntry> & {
     python: LspDashboardServerEntry;
     typescript: LspDashboardServerEntry;
   };

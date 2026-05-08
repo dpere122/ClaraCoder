@@ -729,7 +729,7 @@ export class ElectronService {
       workspaces: [],
       themeId: 'dark',
       noWorkspaceThemeId: 'dark',
-      activeLlmModelId: 'default-openai',
+      activeLlmModelId: 'default-lmstudio',
       llmProviders: [],
       audioTranscription: {
         provider: 'openai',
@@ -874,6 +874,13 @@ export class ElectronService {
     );
   }
 
+  /** Start the given LSP subprocess if needed (``POST /lsp/warm-server``; no document open). */
+  warmLspServer(sessionId: string, server: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.warmLspServer?.(sessionId, server) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
   /** Workspace Monaco hover via Python ``POST /lsp/hover`` (1-based line/column). */
   lspEditorHover(
     sessionId: string,
@@ -989,7 +996,7 @@ export class ElectronService {
 
   lspEditorSemanticTokensLegend(
     sessionId: string,
-    server: 'python' | 'typescript',
+    server: string,
   ): Promise<{ ok: true; legend: LspSemanticTokensLegendPayload } | { ok: false; error: string }> {
     return (
       this.api?.lspEditorSemanticTokensLegend?.(sessionId, server) ??

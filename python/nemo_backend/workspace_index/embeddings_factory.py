@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import time
 from typing import Any
 
 from llama_index.core.bridge.pydantic import PrivateAttr
@@ -23,6 +24,36 @@ from nemo_backend.domain import RuntimeConnection
 from nemo_backend.state import require_openai_api_key
 
 logger = logging.getLogger('nemo.workspace_index.embeddings')
+
+# Skip redundant probe HTTP calls when the same connection signature succeeded recently.
+_EMBEDDING_PROBE_TTL_SEC = 120.0
+_embedding_probe_ok_mono: dict[str, float] = {}
+_EMBEDDING_PROBE_CACHE_MAX = 64
+
+
+def resolve_embedding_model_id(connection: RuntimeConnection) -> str:
+    """Effective OpenAI-compatible embeddings model id (matches :func:`build_embedding_model`)."""
+    return (
+        (getattr(connection, 'embeddings_model', None) or '').strip()
+        or (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
+    )
+
+
+def _prune_embedding_probe_cache(now: float) -> None:
+    ttl = _EMBEDDING_PROBE_TTL_SEC
+    stale = [k for k, ts in _embedding_probe_ok_mono.items() if (now - ts) >= ttl]
+    for k in stale:
+        _embedding_probe_ok_mono.pop(k, None)
+    while len(_embedding_probe_ok_mono) > _EMBEDDING_PROBE_CACHE_MAX:
+        oldest = min(_embedding_probe_ok_mono.items(), key=lambda kv: kv[1])[0]
+        _embedding_probe_ok_mono.pop(oldest, None)
+
+
+def _embedding_probe_signature(connection: RuntimeConnection, *, model: str, api_base: str | None) -> str:
+    """Stable key for probe skip — must change when embedding endpoint or model identity changes."""
+    ab = (api_base or '').strip()
+    conn_emb = (getattr(connection, 'embeddings_base_url', None) or '').strip()
+    return f'{connection.provider}\0{model}\0{ab}\0{conn_emb}'
 
 
 def _mean_l2_normalize(vectors: list[list[float]]) -> list[float]:
@@ -70,7 +101,7 @@ class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
         norm = query.replace('\n', ' ')
         chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
         if len(chunks) == 1:
-            return super()._get_query_embedding(query)
+            return super()._get_query_embedding(norm)
         vecs = [super()._get_query_embedding(c) for c in chunks]
         return _mean_l2_normalize(vecs)
 
@@ -78,7 +109,7 @@ class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
         norm = query.replace('\n', ' ')
         chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
         if len(chunks) == 1:
-            return await super()._aget_query_embedding(query)
+            return await super()._aget_query_embedding(norm)
         vecs = [await super()._aget_query_embedding(c) for c in chunks]
         return _mean_l2_normalize(vecs)
 
@@ -148,7 +179,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
             'to a dedicated OpenAI-compatible embeddings API.',
         )
 
-    model = (getattr(connection, 'embeddings_model', None) or '').strip() or (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
+    model = resolve_embedding_model_id(connection)
     base_url = (connection.base_url or '').strip()
     api_key = (connection.api_key or '').strip()
 
@@ -199,9 +230,17 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
     if api_base:
         kwargs['api_base'] = api_base
 
+    probe_key = _embedding_probe_signature(connection, model=model, api_base=api_base)
+    now = time.monotonic()
+    _prune_embedding_probe_cache(now)
+    probe_hit = _embedding_probe_ok_mono.get(probe_key)
+    skip_probe = probe_hit is not None and (now - probe_hit) < _EMBEDDING_PROBE_TTL_SEC
+
     try:
         embed = ChunkPoolingOpenAIEmbedding(**kwargs)
-        embed.get_query_embedding('nemo')
+        if not skip_probe:
+            embed.get_query_embedding('nemo')
+            _embedding_probe_ok_mono[probe_key] = time.monotonic()
     except Exception as exc:
         logger.info('Embedding probe failed: %s', exc)
         hint = (

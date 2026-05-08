@@ -23,8 +23,8 @@ import {
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
-  defaultLlamaCppManaged,
   defaultMonacoWorkspaceEditorSettings,
+  defaultLlamaCppManaged,
   GEMMA_PRESET_DEFAULTS,
   countLlmModels,
   findLlmModelLocation,
@@ -35,6 +35,7 @@ import {
   QWEN_PRESET_DEFAULTS,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
+  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
@@ -81,8 +82,7 @@ export class Settings implements OnInit, OnDestroy {
   /** Shown in managed llama-server tips and placeholders (must match Electron substitution token). */
   protected readonly managedLlamaPortToken = '{{PORT}}';
   /**
-   * Non-empty default so new llamacpp sources open the managed llama-server editor (not URL-only).
-   * Matches the Settings placeholder; user replaces org/model with their HF id or switches to -m path.
+   * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
   private static readonly newManagedLlamacppChatCommand =
     'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
@@ -96,7 +96,8 @@ export class Settings implements OnInit, OnDestroy {
     {
       id: 'models',
       label: 'Models',
-      description: 'Sources (LM Studio, llama.cpp, or OpenAI-compatible APIs). The highlighted source is used for chat. Tuning is per source; expand Advanced tuning when needed.',
+      description:
+        'LM Studio, remote llama-server (LAN), and local managed llama-server are built in. Add sources for more managed instances. The highlighted source is used for chat.',
     },
     {
       id: 'tools',
@@ -124,7 +125,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly themeId = signal('dark');
   protected readonly noWorkspaceThemeId = signal('dark');
   protected readonly llmProviders = signal<LlmProviderConfig[]>([]);
-  protected readonly activeLlmModelId = signal('default-openai');
+  protected readonly activeLlmModelId = signal('default-lmstudio');
   protected readonly selectedModelId = signal<string | null>(null);
   protected readonly audioProvider = signal<'openai' | 'disabled' | 'google'>('openai');
   protected readonly audioBaseUrl = signal('');
@@ -160,13 +161,21 @@ export class Settings implements OnInit, OnDestroy {
     }
     return mergeLlmProviderModel(loc.provider, loc.model);
   });
-  /** True when the selected model uses a static ``llama-server`` URL (no local Start / managed block). */
+  /** True when the selected row is URL-only llamacpp (not the pinned local managed source). */
   protected readonly isUrlOnlyLlamacpp = computed(() => {
     const loc = this.selectedLocation();
     if (!loc || loc.provider.provider !== 'llamacpp' || !loc.model) {
       return false;
     }
+    if (isPinnedLlamaCppLocalProviderId(loc.provider.id)) {
+      return false;
+    }
     return !(loc.model.llamaCppManaged?.chatRunCommand ?? '').trim();
+  });
+  /** Pinned on-machine managed llama row (always managed UI, never URL-only). */
+  protected readonly isPinnedLocalManagedLlamaSource = computed(() => {
+    const id = this.selectedProvider()?.id;
+    return !!id && isPinnedLlamaCppLocalProviderId(id);
   });
   protected readonly canDeleteSelectedProvider = computed(() => {
     const p = this.selectedProvider();
@@ -176,11 +185,12 @@ export class Settings implements OnInit, OnDestroy {
     return this.llmProviders().length > 1;
   });
   protected readonly selectedTabMeta = computed(() => this.tabs.find((tab) => tab.id === this.selectedSettingsTab()) ?? this.tabs[0]);
-  /** Pinned sources first: LM Studio, then remote llama URL; remaining rows keep file order. */
+  /** Pinned sources first: LM Studio, remote llama URL, local managed llama; remaining rows keep file order. */
   protected readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
+    const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -188,6 +198,9 @@ export class Settings implements OnInit, OnDestroy {
     }
     if (pinUrl) {
       head.push(pinUrl);
+    }
+    if (pinLocal) {
+      head.push(pinLocal);
     }
     return [...head, ...rest];
   });
@@ -315,10 +328,14 @@ export class Settings implements OnInit, OnDestroy {
       this.lmStudioInventory.set([]);
       this.lmStudioInventoryError.set(null);
     }
-    if (p.provider === 'llamacpp' && !((first.llamaCppManaged?.chatRunCommand ?? '').trim())) {
-      void this.refreshLlamacppUrlModels();
-    } else if (p.provider === 'llamacpp') {
-      void this.refreshLlamacppManagedModels();
+    if (p.provider === 'llamacpp') {
+      const urlOnly =
+        !isPinnedLlamaCppLocalProviderId(p.id) && !((first.llamaCppManaged?.chatRunCommand ?? '').trim());
+      if (urlOnly) {
+        void this.refreshLlamacppUrlModels();
+      } else {
+        void this.refreshLlamacppManagedModels();
+      }
     } else {
       this.llamacppManagedModelIds.set([]);
       this.llamacppModelsListError.set(null);
@@ -548,7 +565,9 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected updateSelectedProvider(
-    changes: Partial<Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel'>>,
+    changes: Partial<
+      Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>
+    >,
   ): void {
     const loc = this.selectedLocation();
     if (!loc) {
@@ -1121,7 +1140,9 @@ export class Settings implements OnInit, OnDestroy {
 
   private applyProviderPatch(
     providerId: string,
-    changes: Partial<Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel'>>,
+    changes: Partial<
+      Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>
+    >,
   ): void {
     this.llmProviders.update((providers) =>
       providers.map((p) => (p.id === providerId ? { ...p, ...changes } : p)),

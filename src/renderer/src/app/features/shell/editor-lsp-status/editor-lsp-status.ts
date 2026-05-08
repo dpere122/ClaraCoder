@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import type { LspDashboardStatus } from '@shared/index';
-import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
+import { LSP_SEMANTIC_LEGEND_SERVER_IDS, lspServerKindForWorkspaceRelativePath } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 
 @Component({
@@ -14,12 +14,26 @@ export class EditorLspStatusComponent {
 
   /** Active conversation (maps to Python ``session_id`` for LSP). */
   readonly conversationId = input<string | null>(null);
-  /** When set, status reflects the integrated LSP for this path (``.py`` / TS/JS). */
+  /** When set, status reflects the integrated LSP for this path (``.py`` / TS/JS / ``.gd``). */
   readonly activeFileRelativePath = input<string | null>(null);
 
   protected readonly dashboard = signal<LspDashboardStatus | null>(null);
   protected readonly fetchError = signal('');
   protected readonly loading = signal(false);
+
+  /** User-chosen server (dropdown); synced from active file when that file has an integrated LSP. */
+  protected readonly selectedServerId = signal<string>('python');
+
+  protected readonly serverIds = LSP_SEMANTIC_LEGEND_SERVER_IDS;
+
+  /** LSP server implied by the active tab's path, when any. */
+  protected readonly fileInferredServerId = computed(() => {
+    const path = this.activeFileRelativePath()?.trim();
+    if (!path) {
+      return null as string | null;
+    }
+    return lspServerKindForWorkspaceRelativePath(path.replace(/\\/g, '/'));
+  });
 
   constructor() {
     effect((onCleanup) => {
@@ -32,6 +46,14 @@ export class EditorLspStatusComponent {
       void this.refreshDashboard();
       const timer = window.setInterval(() => void this.refreshDashboard(), 5000);
       onCleanup(() => clearInterval(timer));
+    });
+
+    /** Keep dropdown aligned with the active file's integrated server when applicable. */
+    effect(() => {
+      const inferred = this.fileInferredServerId();
+      if (inferred) {
+        untracked(() => this.selectedServerId.set(inferred));
+      }
     });
 
     /** Start LSP / didOpen current file from disk so dashboard shows ``running`` (otherwise servers stay cold). */
@@ -52,6 +74,24 @@ export class EditorLspStatusComponent {
         }
       });
     });
+  }
+
+  protected serverLabel(id: string): string {
+    return serverDisplayName(id);
+  }
+
+  protected onServerChange(serverId: string): void {
+    this.selectedServerId.set(serverId);
+    const conv = this.conversationId()?.trim();
+    if (!this.electron.isElectron || !conv) {
+      return;
+    }
+    void (async () => {
+      const r = await this.electron.warmLspServer(conv, serverId);
+      if (r.ok) {
+        await this.refreshDashboard();
+      }
+    })();
   }
 
   private async refreshDashboard(): Promise<void> {
@@ -77,6 +117,8 @@ export class EditorLspStatusComponent {
   /** Single-line indicator + tooltip for tab strip. */
   protected readonly vm = computed(() => {
     const path = this.activeFileRelativePath();
+    const selected = this.selectedServerId();
+    const fileKind = this.fileInferredServerId();
     const d = this.dashboard();
     const err = this.fetchError();
     const busy = this.loading();
@@ -96,36 +138,42 @@ export class EditorLspStatusComponent {
     }
 
     if (!path?.trim()) {
-      const py = d.servers.python.initialized;
-      const ts = d.servers.typescript.initialized;
       const n = d.cachedDiagnostics ?? 0;
       const hints = dependencyDocHints(d);
-      const baseTitle = `Workspace · Python ${py ? 'running' : 'stopped'} · TypeScript/JS ${ts ? 'running' : 'stopped'} · ${n} diagnostic(s) cached`;
+      const { text: srvText, titleLines } = runningServersSummary(d);
+      const selRunning = Boolean(d.servers[selected]?.initialized);
+      const baseTitle = `Workspace · ${titleLines.join(' · ')} · ${n} diagnostic(s) cached\n\nDropdown focus: ${serverDisplayName(selected)} — ${selRunning ? 'running' : 'stopped'}`;
       return {
-        text: `LSP · Py ${py ? '●' : '○'} · TS ${ts ? '●' : '○'}`,
+        text: `LSP · ${srvText}`,
         tone: 'muted' as const,
         title: hints ? `${baseTitle}\n\n${hints}` : baseTitle,
       };
     }
 
-    const kind = lspServerKindForWorkspaceRelativePath(path);
     const base = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path;
-    if (!kind) {
+    if (!fileKind) {
+      const selRunning = Boolean(d.servers[selected]?.initialized);
+      const hints = dependencyDocHints(d);
+      const baseTitle = `No integrated LSP for \`${base}\`.\n\nDropdown: ${serverDisplayName(selected)} — ${selRunning ? 'running' : 'stopped'}`;
       return {
         text: `No LSP · ${base}`,
         tone: 'muted' as const,
-        title: 'Integrated LSP is only available for Python and TypeScript/JavaScript files.',
+        title: hints ? `${baseTitle}\n\n${hints}` : baseTitle,
       };
     }
 
-    const running = kind === 'python' ? d.servers.python.initialized : d.servers.typescript.initialized;
-    const name = kind === 'python' ? 'Python' : 'TS/JS';
+    const running = Boolean(d.servers[selected]?.initialized);
+    const name = serverDisplayName(selected);
     const hints = dependencyDocHints(d);
-    const baseTitle = `${name} language server · ${running ? 'subprocess connected' : 'not running'}`;
+    const mismatch = fileKind !== selected;
+    const baseTitle = `${name} language server · ${running ? 'subprocess connected' : 'not running'} · file \`${base}\``;
+    const extra = mismatch
+      ? `\n\nActive for this file: ${serverDisplayName(fileKind)}. Your dropdown selection only changes which server you inspect / warm here.`
+      : '\n\nSelection matches the active file’s language server.';
     return {
       text: `${name} · ${running ? 'running' : 'stopped'}`,
       tone: running ? ('ok' as const) : ('warn' as const),
-      title: hints ? `${baseTitle}\n\n${hints}` : baseTitle,
+      title: hints ? `${baseTitle}${extra}\n\n${hints}` : `${baseTitle}${extra}`,
     };
   });
 }
@@ -136,6 +184,42 @@ function truncate(s: string, max: number): string {
     return t;
   }
   return `${t.slice(0, Math.max(0, max - 1))}…`;
+}
+
+const DASHBOARD_SERVER_ORDER = ['python', 'typescript', 'gdscript'] as const;
+
+const SERVER_SHORT: Record<string, string> = {
+  python: 'Py',
+  typescript: 'TS',
+  gdscript: 'GD',
+};
+
+function serverDisplayName(kind: string): string {
+  if (kind === 'python') {
+    return 'Python';
+  }
+  if (kind === 'gdscript') {
+    return 'GDScript';
+  }
+  if (kind === 'typescript') {
+    return 'TS/JS';
+  }
+  return kind;
+}
+
+function runningServersSummary(d: LspDashboardStatus): { text: string; titleLines: string[] } {
+  const parts: string[] = [];
+  const titleLines: string[] = [];
+  for (const id of DASHBOARD_SERVER_ORDER) {
+    const ent = d.servers[id];
+    if (!ent) {
+      continue;
+    }
+    const short = SERVER_SHORT[id] ?? id.slice(0, 3);
+    parts.push(`${short} ${ent.initialized ? '●' : '○'}`);
+    titleLines.push(`${serverDisplayName(id)} ${ent.initialized ? 'running' : 'stopped'}`);
+  }
+  return { text: parts.join(' · '), titleLines };
 }
 
 function dependencyDocHints(status: LspDashboardStatus): string {

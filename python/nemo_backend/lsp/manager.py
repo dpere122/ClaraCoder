@@ -1,4 +1,4 @@
-"""Session-scoped LSP managers (Python + TypeScript/JavaScript) and diagnostics cache."""
+"""Session-scoped LSP managers and diagnostics cache (pluggable server backends)."""
 
 from __future__ import annotations
 
@@ -7,27 +7,26 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from nemo_backend.domain import SessionState
 from nemo_backend.lsp.client import JsonRpcLspClient
 from nemo_backend.lsp.diagnostics import normalize_lsp_diagnostics
 from nemo_backend.lsp.file_policy import get_lsp_file_policy, lsp_server_for_path, normalize_relative_posix_path
-from nemo_backend.lsp.jedi_init_options import (
-    build_jedi_initialization_options,
-    jedi_environment_path_for_workspace,
+from nemo_backend.lsp.jedi_init_options import jedi_environment_path_for_workspace
+from nemo_backend.lsp.registry import (
+    LspServerKind,
+    get_lsp_server_plugin,
+    iter_registered_lsp_server_ids,
 )
-from nemo_backend.lsp.python_server import build_python_lsp_command
+from nemo_backend.lsp.server_plugin import LspServerPlugin
 from nemo_backend.lsp.typescript_project_root import resolve_typescript_project_root
-from nemo_backend.lsp.typescript_server import build_typescript_lsp_command
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_text_io import read_file_for_tools, validate_workspace_encoding
 from nemo_backend.workspace_tools import normalize_relative_path
 
 logger = logging.getLogger('nemo.lsp.manager')
-
-LspServerKind = Literal['python', 'typescript']
 
 __all__ = [
     'PythonLspManager',
@@ -36,15 +35,17 @@ __all__ = [
     'get_session_lsp_manager',
     'get_lsp_dashboard_status',
     'shutdown_session_lsp',
+    'shutdown_session_lsp_server',
     'shutdown_session_python_lsp',
     'shutdown_all_lsp_managers',
     'list_session_diagnostics',
     'sync_session_document',
     'close_session_document',
+    'LspServerKind',
 ]
 
 _MANAGERS_LOCK = threading.RLock()
-_SESSION_MANAGERS: dict[tuple[str, LspServerKind], SessionWorkspaceLspManager] = {}
+_SESSION_MANAGERS: dict[tuple[str, str], SessionWorkspaceLspManager] = {}
 _VALID_LSP_SCOPES = frozenset({'workspace', 'staging'})
 
 
@@ -141,7 +142,7 @@ def _extract_semantic_tokens_legend(init_result: Any) -> dict[str, list[str]] | 
 
 
 class SessionWorkspaceLspManager:
-    """Owns one language-server process (Python or TypeScript) for a session/workspace/scope tuple."""
+    """Owns one language-server subprocess for a session/workspace/scope/server tuple."""
 
     def __init__(
         self,
@@ -150,61 +151,46 @@ class SessionWorkspaceLspManager:
         session: SessionState,
         workspace_root: Path,
         scope: str,
-        server_kind: LspServerKind,
+        server_kind: str,
         client_factory: Any | None = None,
     ) -> None:
         self.session_id = session_id
         self.session = session
         self.workspace_root = Path(workspace_root).resolve()
         self.scope = _normalize_lsp_scope(scope)
-        self.server_kind: LspServerKind = server_kind
+        self.server_kind = (server_kind or '').strip()
+        self._plugin: LspServerPlugin = get_lsp_server_plugin(self.server_kind)
+        self._plugin_state: Any = self._plugin.create_state()
         self._client_factory = client_factory
         self._client: JsonRpcLspClient | None = None
         self._lock = threading.RLock()
         self._diag_cond = threading.Condition(self._lock)
         self._doc_versions: dict[str, int] = {}
         self._diag_generation: dict[str, int] = {}
-        #: Effective cwd / LSP rootUri for typescript-language-server (nested package); ``None`` until first start.
-        self._typescript_project_root: Path | None = None
-        self._last_typescript_seed: str = ''
-        #: From ``initialize`` response (``semanticTokensProvider.legend``); ``None`` if unsupported.
         self._semantic_tokens_legend: dict[str, list[str]] | None = None
 
-    def _build_command(self) -> list[str]:
-        if self.server_kind == 'python':
-            return build_python_lsp_command(self.workspace_root)
-        root = self._typescript_project_root or self.workspace_root
-        return build_typescript_lsp_command(root)
+    def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
+        """True when legend prefetch must not spawn the server (TypeScript without a seed path)."""
 
-    def _policy(self, rel: str) -> Any:
-        policy = get_lsp_file_policy(rel)
-        if policy is None or policy.lsp_server != self.server_kind:
-            return None
-        return policy
+        return self._plugin.should_defer_semantic_tokens_legend_without_document_seed(self._plugin_state)
 
     def should_skip_typescript_cold_start_without_seed(self) -> bool:
-        """Avoid spawning typescript-language-server before any TS/JS path is known.
+        """Backward-compatible alias for routes/tests."""
 
-        Without a seed path, project-root discovery often falls back to the session workspace,
-        which binds the wrong ``tsconfig.json`` for nested packages; Monaco prefetch must not
-        lock the server to that root before ``sync_document`` runs.
-        """
-
-        return self.server_kind == 'typescript' and not (self._last_typescript_seed or '').strip()
+        return self.should_defer_semantic_tokens_legend_without_document_seed()
 
     def ensure_started(self) -> None:
         with self._lock:
             if self._client is not None:
                 return
-            lsp_cwd = self.workspace_root
-            if self.server_kind == 'typescript':
-                self._typescript_project_root = resolve_typescript_project_root(
-                    self.workspace_root,
-                    seed_relative_path=self._last_typescript_seed or None,
-                )
-                lsp_cwd = self._typescript_project_root
-                self.session.typescript_lsp_resolved_root = str(self._typescript_project_root)
-            command = self._build_command()
+            bundle = self._plugin.compute_start_params(
+                session=self.session,
+                workspace_root=self.workspace_root,
+                state=self._plugin_state,
+            )
+            lsp_cwd = bundle.lsp_cwd
+            command = bundle.command
+            init_opts = dict(bundle.init_options or {})
             factory = self._client_factory or (
                 lambda *, command, workspace_root, notification_handler: JsonRpcLspClient(
                     command,
@@ -217,11 +203,6 @@ class SessionWorkspaceLspManager:
                 workspace_root=lsp_cwd,
                 notification_handler=self._handle_notification,
             )
-            # jedi-language-server: semantic tokens off by default; workspace.environmentPath
-            # aligns Jedi with the workspace venv so library hovers resolve installed packages.
-            init_opts: dict[str, Any] = {}
-            if self.server_kind == 'python':
-                init_opts = build_jedi_initialization_options(self.session, self.workspace_root)
             init_result = client.initialize(
                 root_uri=_path_to_uri(lsp_cwd),
                 process_id=os.getpid(),
@@ -230,6 +211,12 @@ class SessionWorkspaceLspManager:
             )
             self._semantic_tokens_legend = _extract_semantic_tokens_legend(init_result)
             self._client = client
+            self._plugin.on_after_client_started(
+                session=self.session,
+                workspace_root=self.workspace_root,
+                state=self._plugin_state,
+                lsp_cwd=lsp_cwd,
+            )
             self.session.lsp_workspace_root = str(self.workspace_root)
             self.session.lsp_active_scope = self.scope
             logger.info(
@@ -262,6 +249,7 @@ class SessionWorkspaceLspManager:
                     self.scope,
                     exc,
                 )
+        self._plugin.after_shutdown(self.session, self._plugin_state)
         my_key = (self.session_id, self.server_kind)
         with _MANAGERS_LOCK:
             any_remaining = any(
@@ -271,37 +259,22 @@ class SessionWorkspaceLspManager:
             self.session.lsp_workspace_root = ''
             if self.session.lsp_active_scope == self.scope:
                 self.session.lsp_active_scope = 'workspace'
-        if self.server_kind == 'typescript':
-            self.session.typescript_lsp_resolved_root = ''
-            self._typescript_project_root = None
 
     def sync_document(self, relative_path: str, text: str) -> list[dict[str, Any]]:
         rel = normalize_relative_posix_path(relative_path)
         policy = self._policy(rel)
         if policy is None:
             raise ValueError(f'LSP sync is not supported for `{rel}` on {self.server_kind} server.')
-        if self.server_kind == 'typescript':
-            self._last_typescript_seed = rel
-            desired_root = resolve_typescript_project_root(
-                self.workspace_root,
-                seed_relative_path=self._last_typescript_seed,
-            )
-            with self._lock:
-                running = self._client is not None
-                cur_root = self._typescript_project_root
-            if running and cur_root is not None:
-                try:
-                    mismatch = desired_root.resolve() != cur_root.resolve()
-                except OSError:
-                    mismatch = True
-                if mismatch:
-                    logger.info(
-                        'typescript LSP project root changed %s -> %s; restarting server session=%s',
-                        cur_root,
-                        desired_root,
-                        self.session_id,
-                    )
-                    self.shutdown()
+        with self._lock:
+            running = self._client is not None
+        if self._plugin.on_before_sync_document(
+            session=self.session,
+            workspace_root=self.workspace_root,
+            relative_posix_path=rel,
+            state=self._plugin_state,
+            client_running=running,
+        ):
+            self.shutdown()
         self.ensure_started()
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
@@ -456,9 +429,13 @@ class SessionWorkspaceLspManager:
 
     @property
     def semantic_tokens_legend(self) -> dict[str, list[str]] | None:
-        """Cached legend from the language server's ``initialize`` response (may be ``None``)."""
-
         return self._semantic_tokens_legend
+
+    def _policy(self, rel: str) -> Any:
+        policy = get_lsp_file_policy(rel)
+        if policy is None or policy.lsp_server != self.server_kind:
+            return None
+        return policy
 
     def _ensure_workspace_synced(self, relative_path: str) -> str:
         rel = normalize_relative_posix_path(relative_path)
@@ -563,12 +540,14 @@ def get_session_lsp_manager(
     *,
     client_factory: Any | None = None,
     scope: str | None = None,
-    server: LspServerKind = 'python',
+    server: str = 'python',
 ) -> SessionWorkspaceLspManager:
     sid, session, _real_ws = _resolve_session_and_root(session_id)
+    server_id = (server or '').strip()
+    get_lsp_server_plugin(server_id)  # validate early
     desired_scope = _normalize_lsp_scope(scope or session.lsp_active_scope)
     effective_root = _effective_lsp_workspace_root(session, desired_scope, session_id=sid)
-    key = (sid, server)
+    key = (sid, server_id)
     with _MANAGERS_LOCK:
         manager = _SESSION_MANAGERS.get(key)
         if manager is not None and (
@@ -583,7 +562,7 @@ def get_session_lsp_manager(
                 session=session,
                 workspace_root=effective_root,
                 scope=desired_scope,
-                server_kind=server,
+                server_kind=server_id,
                 client_factory=client_factory,
             )
             _SESSION_MANAGERS[key] = manager
@@ -591,17 +570,23 @@ def get_session_lsp_manager(
         return manager
 
 
-def shutdown_session_python_lsp(session_id: str) -> None:
-    """Stop only the Python language-server manager for this session (e.g. after interpreter change)."""
+def shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
+    """Stop the language-server manager for one server id on this session."""
 
     sid = (session_id or '').strip()
     if not sid:
         return
+    key = (sid, (server_id or '').strip())
     with _MANAGERS_LOCK:
-        key = (sid, 'python')
         manager = _SESSION_MANAGERS.pop(key, None)
     if manager is not None:
         manager.shutdown()
+
+
+def shutdown_session_python_lsp(session_id: str) -> None:
+    """Stop only the Python language-server manager for this session (e.g. after interpreter change)."""
+
+    shutdown_session_lsp_server(session_id, 'python')
 
 
 def shutdown_session_lsp(session_id: str) -> None:
@@ -642,8 +627,10 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
 
     sid, session, workspace_root = _resolve_session_and_root(session_id)
     with _MANAGERS_LOCK:
-        py = _SESSION_MANAGERS.get((sid, 'python'))
-        ts = _SESSION_MANAGERS.get((sid, 'typescript'))
+        servers_payload: dict[str, dict[str, bool]] = {}
+        for srv_id in iter_registered_lsp_server_ids():
+            mgr = _SESSION_MANAGERS.get((sid, srv_id))
+            servers_payload[srv_id] = {'initialized': mgr is not None and mgr.is_client_running()}
     diag_count = sum(len(v) for v in session.lsp_diagnostics.values())
     active_scope = session.lsp_active_scope or 'workspace'
     real_ws = str(workspace_root)
@@ -669,10 +656,7 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
         'pythonEnvironmentPath': py_env_path,
         'pythonInterpreterPath': py_interp,
         'nodeModulesPresent': node_modules_present,
-        'servers': {
-            'python': {'initialized': py is not None and py.is_client_running()},
-            'typescript': {'initialized': ts is not None and ts.is_client_running()},
-        },
+        'servers': servers_payload,
     }
 
 

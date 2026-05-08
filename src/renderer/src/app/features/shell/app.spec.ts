@@ -12,7 +12,7 @@ function stubElectronApi(): void {
     workspaces: [] as { id: string; name: string; path: string; themeId?: string }[],
     themeId: 'dark',
     noWorkspaceThemeId: 'dark',
-    activeLlmModelId: 'default-openai',
+    activeLlmModelId: 'default-lmstudio',
     llmProviders: [
       {
         id: 'prov-test',

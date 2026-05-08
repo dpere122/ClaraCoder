@@ -1,4 +1,4 @@
-import { Component, input, output, signal } from '@angular/core';
+import { Component, ElementRef, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 
@@ -18,6 +18,7 @@ export class MessageBox {
   readonly messageSent = output<string>();
   readonly abortRequested = output<void>();
   protected readonly userInput = signal('');
+  private readonly messageInputEl = viewChild<ElementRef<HTMLInputElement>>('messageInput');
 
   onVoiceButtonClick(): void {
     this.voiceToggle.emit();
@@ -29,9 +30,30 @@ export class MessageBox {
     if (!msg) return;
     this.messageSent.emit(msg);
     this.userInput.set('');
+    this.focusInput();
   }
 
   abort(): void {
     this.abortRequested.emit();
+  }
+
+  onComposerMouseDown(event: MouseEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+    queueMicrotask(() => this.focusInput());
+  }
+
+  private focusInput(): void {
+    const input = this.messageInputEl()?.nativeElement;
+    if (!input || input === document.activeElement) {
+      return;
+    }
+    // Blur stale terminal/xterm focus first so keyboard events route back to composer.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== input) {
+      active.blur();
+    }
+    input.focus({ preventScroll: true });
   }
 }

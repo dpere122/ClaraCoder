@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import type { LspDashboardStatus } from '../../../shared';
+import { isSemanticLegendServerId } from '../../../shared/lsp-registry';
 import { PYTHON_URL } from '../../python/server';
 
 interface LspEditorIRangeWire {
@@ -149,6 +150,33 @@ export function registerLspStatusIpc(): void {
           return { ok: false, error: detail };
         }
         await res.json();
+        return { ok: true };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'warm-lsp-server',
+    async (
+      _event,
+      sessionId: unknown,
+      server: unknown,
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      const srv = typeof server === 'string' ? server.trim().toLowerCase() : '';
+      if (!sid || !isSemanticLegendServerId(srv)) {
+        return { ok: false, error: 'Missing session or invalid LSP server id.' };
+      }
+      try {
+        const params = new URLSearchParams({ session_id: sid, server: srv });
+        const res = await fetch(`${PYTHON_URL}/lsp/warm-server?${params.toString()}`, { method: 'POST' });
+        if (!res.ok) {
+          const detail = (await res.text()).trim() || `HTTP ${res.status}`;
+          return { ok: false, error: detail };
+        }
         return { ok: true };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -437,8 +465,8 @@ export function registerLspStatusIpc(): void {
     ): Promise<{ ok: true; legend: LspSemanticTokensLegendWire } | { ok: false; error: string }> => {
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const srv = typeof server === 'string' ? server.trim().toLowerCase() : '';
-      if (!sid || (srv !== 'python' && srv !== 'typescript')) {
-        return { ok: false, error: 'Missing session or invalid server (python|typescript).' };
+      if (!sid || !isSemanticLegendServerId(srv)) {
+        return { ok: false, error: 'Missing session or invalid LSP server id for semantic legend.' };
       }
       try {
         const params = new URLSearchParams({

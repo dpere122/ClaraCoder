@@ -15,7 +15,7 @@ from llama_index.core.node_parser import SentenceSplitter
 from nemo_backend.config import NEMO_EMBEDDINGS_MODEL, NEMO_LLAMA_INDEX_MAX_FILE_BYTES, NEMO_LLAMA_INDEX_MAX_FILES
 from nemo_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from nemo_backend.workspace_index.index_read import read_file_for_index
-from nemo_backend.workspace_index.lifecycle import invalidate_fingerprint_cache_for_root
+from nemo_backend.workspace_index.lifecycle import invalidate_fingerprint_cache_for_root, invalidate_fingerprint_cache_for_staging
 from nemo_backend.workspace_index.paths import staging_index_persist_dir, workspace_index_persist_dir
 from nemo_backend.workspace_index.staging_fingerprint import staging_content_fingerprint
 from nemo_backend.workspace_index.staging_walk import iter_staging_index_files
@@ -199,10 +199,17 @@ def _collect_staging_nodes(session_id: str, graph_id: str) -> list[Any]:
     return nodes
 
 
+def manifest_embedding_model_id(embedding_model_id: str | None) -> str:
+    """Normalize manifest/rebuild model id (matches :func:`~nemo_backend.workspace_index.embeddings_factory.resolve_embedding_model_id`)."""
+    return (embedding_model_id or '').strip() or NEMO_EMBEDDINGS_MODEL
+
+
 def build_fresh_workspace_index(
     workspace_root: Path,
     workspace_id: str,
     embed_model: BaseEmbedding,
+    *,
+    embedding_model_id: str | None = None,
 ) -> tuple[VectorStoreIndex | None, str]:
     root = workspace_root.resolve()
     pdir = workspace_index_persist_dir(workspace_id, root)
@@ -218,12 +225,13 @@ def build_fresh_workspace_index(
 
     index = VectorStoreIndex(nodes, embed_model=embed_model, show_progress=False)
     index.storage_context.persist(persist_dir=str(pdir))
+    mid = manifest_embedding_model_id(embedding_model_id)
     write_workspace_manifest(
         pdir,
         workspace_root=root,
         workspace_id=workspace_id,
         workspace_fingerprint=fp,
-        embedding_model=NEMO_EMBEDDINGS_MODEL,
+        embedding_model=mid,
     )
     invalidate_fingerprint_cache_for_root(root)
     logger.info('Workspace semantic index built at %s (%s nodes)', pdir, len(nodes))
@@ -236,13 +244,14 @@ def load_or_rebuild_workspace_index(
     embed_model: BaseEmbedding,
     *,
     fingerprint_override: str | None = None,
+    embedding_model_id: str | None = None,
 ) -> tuple[VectorStoreIndex | None, str]:
     root = workspace_root.resolve()
     pdir = workspace_index_persist_dir(workspace_id, root)
     fp = fingerprint_override
     if fp is None:
         fp = workspace_content_fingerprint(root, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
-    model = NEMO_EMBEDDINGS_MODEL
+    model = manifest_embedding_model_id(embedding_model_id)
     manifest = read_manifest(pdir)
 
     def _needs_rebuild() -> bool:
@@ -262,14 +271,14 @@ def load_or_rebuild_workspace_index(
         return False
 
     if _needs_rebuild():
-        return build_fresh_workspace_index(root, workspace_id, embed_model)
+        return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
 
     try:
         storage_context = StorageContext.from_defaults(persist_dir=str(pdir))
         index = load_index_from_storage(storage_context, embed_model=embed_model)
     except Exception as exc:
         logger.warning('Failed to load workspace semantic index, rebuilding: %s', exc)
-        return build_fresh_workspace_index(root, workspace_id, embed_model)
+        return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
 
     return index, ''
 
@@ -278,6 +287,8 @@ def build_fresh_staging_index(
     session_id: str,
     graph_id: str,
     embed_model: BaseEmbedding,
+    *,
+    embedding_model_id: str | None = None,
 ) -> tuple[VectorStoreIndex | None, str]:
     sid = (session_id or '').strip()
     if not sid:
@@ -295,13 +306,15 @@ def build_fresh_staging_index(
 
     index = VectorStoreIndex(nodes, embed_model=embed_model, show_progress=False)
     index.storage_context.persist(persist_dir=str(pdir))
+    mid = manifest_embedding_model_id(embedding_model_id)
     write_staging_manifest(
         pdir,
         session_id=sid,
         graph_id=graph_id,
         staging_fingerprint=fp,
-        embedding_model=NEMO_EMBEDDINGS_MODEL,
+        embedding_model=mid,
     )
+    invalidate_fingerprint_cache_for_staging(sid, graph_id)
     logger.info('Staging semantic index built at %s (%s nodes)', pdir, len(nodes))
     return index, ''
 
@@ -312,6 +325,7 @@ def load_or_rebuild_staging_index(
     embed_model: BaseEmbedding,
     *,
     fingerprint_override: str | None = None,
+    embedding_model_id: str | None = None,
 ) -> tuple[VectorStoreIndex | None, str]:
     sid = (session_id or '').strip()
     if not sid:
@@ -320,7 +334,7 @@ def load_or_rebuild_staging_index(
     fp = fingerprint_override
     if fp is None:
         fp = staging_content_fingerprint(sid, graph_id, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
-    model = NEMO_EMBEDDINGS_MODEL
+    model = manifest_embedding_model_id(embedding_model_id)
     manifest = read_manifest(pdir)
 
     def _needs_rebuild() -> bool:
@@ -341,14 +355,14 @@ def load_or_rebuild_staging_index(
         return False
 
     if _needs_rebuild():
-        return build_fresh_staging_index(sid, graph_id, embed_model)
+        return build_fresh_staging_index(sid, graph_id, embed_model, embedding_model_id=model)
 
     try:
         storage_context = StorageContext.from_defaults(persist_dir=str(pdir))
         index = load_index_from_storage(storage_context, embed_model=embed_model)
     except Exception as exc:
         logger.warning('Failed to load staging semantic index, rebuilding: %s', exc)
-        return build_fresh_staging_index(sid, graph_id, embed_model)
+        return build_fresh_staging_index(sid, graph_id, embed_model, embedding_model_id=model)
 
     return index, ''
 
@@ -373,7 +387,12 @@ def _collect_nodes(workspace_root: Path) -> list[Any]:
     return _collect_workspace_nodes(workspace_root)
 
 
-def build_fresh_index(workspace_root: Path, embed_model: BaseEmbedding) -> tuple[VectorStoreIndex | None, str]:
+def build_fresh_index(
+    workspace_root: Path,
+    embed_model: BaseEmbedding,
+    *,
+    embedding_model_id: str | None = None,
+) -> tuple[VectorStoreIndex | None, str]:
     """Build workspace index only (no workspace_id); for tests under legacy path layout."""
     from nemo_backend.workspace_index.paths import index_persist_dir as legacy_index_persist_dir
 
@@ -391,7 +410,8 @@ def build_fresh_index(workspace_root: Path, embed_model: BaseEmbedding) -> tuple
 
     index = VectorStoreIndex(nodes, embed_model=embed_model, show_progress=False)
     index.storage_context.persist(persist_dir=str(pdir))
-    write_manifest(pdir, workspace_root=root, fingerprint=fp, embedding_model=NEMO_EMBEDDINGS_MODEL)
+    mid = manifest_embedding_model_id(embedding_model_id)
+    write_manifest(pdir, workspace_root=root, fingerprint=fp, embedding_model=mid)
     invalidate_fingerprint_cache_for_root(root)
     logger.info('Workspace semantic index built at %s (%s nodes)', pdir, len(nodes))
     return index, ''
@@ -402,6 +422,7 @@ def load_or_rebuild_index(
     embed_model: BaseEmbedding,
     *,
     fingerprint_override: str | None = None,
+    embedding_model_id: str | None = None,
 ) -> tuple[VectorStoreIndex | None, str]:
     """Load/rebuild using legacy in-workspace persist dir (tests)."""
     from nemo_backend.workspace_index.paths import index_persist_dir as legacy_index_persist_dir
@@ -411,7 +432,7 @@ def load_or_rebuild_index(
     fp = fingerprint_override
     if fp is None:
         fp = workspace_content_fingerprint(root, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
-    model = NEMO_EMBEDDINGS_MODEL
+    model = manifest_embedding_model_id(embedding_model_id)
     manifest = read_manifest(pdir)
 
     def _needs_rebuild() -> bool:
@@ -431,13 +452,13 @@ def load_or_rebuild_index(
         return False
 
     if _needs_rebuild():
-        return build_fresh_index(root, embed_model)
+        return build_fresh_index(root, embed_model, embedding_model_id=model)
 
     try:
         storage_context = StorageContext.from_defaults(persist_dir=str(pdir))
         index = load_index_from_storage(storage_context, embed_model=embed_model)
     except Exception as exc:
         logger.warning('Failed to load semantic index, rebuilding: %s', exc)
-        return build_fresh_index(root, embed_model)
+        return build_fresh_index(root, embed_model, embedding_model_id=model)
 
     return index, ''

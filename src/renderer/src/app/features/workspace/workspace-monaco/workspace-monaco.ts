@@ -19,6 +19,8 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type * as Monaco from 'monaco-editor';
 import {
+  LSP_MONACO_LANGUAGE_IDS,
+  LSP_SEMANTIC_LEGEND_SERVER_IDS,
   lspServerKindForWorkspaceRelativePath,
   type FileDiffPayload,
   type MonacoWorkspaceEditorSettings,
@@ -51,6 +53,7 @@ const EXT_TO_LANG: Record<string, string> = {
   md: 'markdown',
   mdx: 'markdown',
   py: 'python',
+  gd: 'gdscript',
   yml: 'yaml',
   yaml: 'yaml',
   xml: 'xml',
@@ -681,26 +684,17 @@ export class WorkspaceMonacoComponent {
     this.registerWorkspaceLspHoverProviders(monacoApi);
     this.lspLanguageDisposable?.dispose();
 
-    let initialSemanticLegends:
-      | {
-          python: Monaco.languages.SemanticTokensLegend;
-          typescript: Monaco.languages.SemanticTokensLegend;
-        }
-      | undefined;
+    let initialSemanticLegends: Record<string, Monaco.languages.SemanticTokensLegend> | undefined;
     const convId = this.conversationId()?.trim();
     if (this.electron.isElectron && convId) {
-      const py = await this.electron.lspEditorSemanticTokensLegend(convId, 'python');
-      const ts = await this.electron.lspEditorSemanticTokensLegend(convId, 'typescript');
-      initialSemanticLegends = {
-        python: {
-          tokenTypes: py.ok ? py.legend.tokenTypes : [],
-          tokenModifiers: py.ok ? py.legend.tokenModifiers : [],
-        },
-        typescript: {
-          tokenTypes: ts.ok ? ts.legend.tokenTypes : [],
-          tokenModifiers: ts.ok ? ts.legend.tokenModifiers : [],
-        },
-      };
+      initialSemanticLegends = {};
+      for (const sid of LSP_SEMANTIC_LEGEND_SERVER_IDS) {
+        const res = await this.electron.lspEditorSemanticTokensLegend(convId, sid);
+        initialSemanticLegends[sid] = {
+          tokenTypes: res.ok ? res.legend.tokenTypes : [],
+          tokenModifiers: res.ok ? res.legend.tokenModifiers : [],
+        };
+      }
     }
 
     this.lspLanguageDisposable = registerWorkspaceMonacoLsp({
@@ -724,7 +718,7 @@ export class WorkspaceMonacoComponent {
     return undefined;
   }
 
-  /** Bridges Monaco hover to the session LSP (Python / TS); models use ``clara-workspace`` URIs only. */
+  /** Bridges Monaco hover to the session LSP; models use ``clara-workspace`` URIs only. */
   private registerWorkspaceLspHoverProviders(monacoApi: typeof Monaco): void {
     for (const d of this.lspHoverDisposables) {
       d.dispose();
@@ -733,8 +727,7 @@ export class WorkspaceMonacoComponent {
     if (!this.electron.isElectron) {
       return;
     }
-    const langs = ['python', 'typescript', 'javascript'] as const;
-    for (const lang of langs) {
+    for (const lang of LSP_MONACO_LANGUAGE_IDS) {
       this.lspHoverDisposables.push(
         monacoApi.languages.registerHoverProvider(lang, {
           provideHover: (model, position) => this.provideWorkspaceLspHover(model, position),

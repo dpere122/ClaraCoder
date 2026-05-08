@@ -1,14 +1,36 @@
 @if (electron.isElectron) {
   <div
-    class="editor-lsp-status"
-    [class.editor-lsp-status--ok]="vm().tone === 'ok'"
-    [class.editor-lsp-status--warn]="vm().tone === 'warn'"
-    [class.editor-lsp-status--error]="vm().tone === 'error'"
-    [class.editor-lsp-status--muted]="vm().tone === 'muted'"
-    [class.editor-lsp-status--pending]="vm().tone === 'pending'"
-    [attr.title]="vm().title"
-    role="status"
+    class="editor-lsp-status__shell"
+    [class.editor-lsp-status__shell--file-sync]="
+      !!fileInferredServerId() && fileInferredServerId() === selectedServerId()
+    "
+    [class.editor-lsp-status__shell--file-mismatch]="
+      !!fileInferredServerId() && fileInferredServerId() !== selectedServerId()
+    "
   >
-    <span class="editor-lsp-status__label">{{ vm().text }}</span>
+    <label class="visually-hidden" for="editor-lsp-server-select">Language server</label>
+    <select
+      id="editor-lsp-server-select"
+      class="editor-lsp-status__select"
+      [value]="selectedServerId()"
+      (change)="onServerChange($any($event.target).value)"
+      title="Choose which integrated language server to inspect and warm (starts subprocess if needed)"
+    >
+      @for (id of serverIds; track id) {
+        <option [value]="id">{{ serverLabel(id) }}</option>
+      }
+    </select>
+    <div
+      class="editor-lsp-status"
+      [class.editor-lsp-status--ok]="vm().tone === 'ok'"
+      [class.editor-lsp-status--warn]="vm().tone === 'warn'"
+      [class.editor-lsp-status--error]="vm().tone === 'error'"
+      [class.editor-lsp-status--muted]="vm().tone === 'muted'"
+      [class.editor-lsp-status--pending]="vm().tone === 'pending'"
+      [attr.title]="vm().title"
+      role="status"
+    >
+      <span class="editor-lsp-status__label">{{ vm().text }}</span>
+    </div>
   </div>
 }

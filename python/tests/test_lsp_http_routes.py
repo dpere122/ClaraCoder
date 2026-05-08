@@ -208,3 +208,45 @@ def test_lsp_hover_bad_extension_returns_400(lsp_http_env) -> None:
             json={'relative_path': 'pkg/readme.xyz', 'line': 1, 'character': 1},
         )
     assert r.status_code == 400
+
+
+def test_lsp_semantic_tokens_legend_unknown_server_returns_400(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=not-a-server',
+        )
+    assert r.status_code == 400
+
+
+def test_lsp_semantic_tokens_legend_gdscript_with_default_bridge_uses_injected_client(
+    lsp_http_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With fake LSP client injection, gdscript server starts like python (default argv is stdio bridge)."""
+
+    monkeypatch.delenv('NEMO_GDSCRIPT_LSP_COMMAND', raising=False)
+    with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=gdscript',
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get('supported') is True
+    assert 'keyword' in data.get('tokenTypes', [])
+
+
+def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None:
+    from nemo_backend.lsp.manager import get_lsp_dashboard_status
+
+    st = get_lsp_dashboard_status(lsp_http_env.session_id)
+    servers = st.get('servers') or {}
+    assert servers.get('python', {}).get('initialized') is False
+    assert servers.get('typescript', {}).get('initialized') is False
+    assert servers.get('gdscript', {}).get('initialized') is False
+
+
+def test_lsp_warm_server_http_route(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(f'/lsp/warm-server?session_id={lsp_http_env.session_id}&server=python')
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get('server') == 'python'

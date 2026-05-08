@@ -70,9 +70,11 @@ export {
 } from './types/llm-presets';
 export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
 export {
+  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   isPinnedLmStudioProviderId,
+  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedLlmSourceId,
 } from './llm-provider-ids';
@@ -148,6 +150,12 @@ export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions }
 export type { LspDashboardServerEntry, LspDashboardStatus } from './types/lsp-dashboard';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
 export type { LspServerKind } from './lsp-file-policy';
+export {
+  LSP_EXTENSION_TO_SERVER,
+  LSP_MONACO_LANGUAGE_IDS,
+  LSP_SEMANTIC_LEGEND_SERVER_IDS,
+  lspServerIdForMonacoLanguageId,
+} from './lsp-file-policy';
 export type { AcceptCommandPayload } from './types/accept-command';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';

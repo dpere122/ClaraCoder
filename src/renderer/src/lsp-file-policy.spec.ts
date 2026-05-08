@@ -14,6 +14,10 @@ describe('lspServerKindForWorkspaceRelativePath', () => {
     expect(lspServerKindForWorkspaceRelativePath('x.mjs')).toBe('typescript');
   });
 
+  it('returns gdscript for .gd', () => {
+    expect(lspServerKindForWorkspaceRelativePath('game/Main.gd')).toBe('gdscript');
+  });
+
   it('returns null for unsupported extensions', () => {
     expect(lspServerKindForWorkspaceRelativePath('readme.md')).toBeNull();
     expect(lspServerKindForWorkspaceRelativePath('')).toBeNull();

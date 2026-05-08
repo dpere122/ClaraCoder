@@ -2,12 +2,14 @@ import type { AppConfig, LlmConnectionConfig, LlmModelProfile, LlmProviderConfig
 
 /** Merge provider endpoint + model preset into the wire shape used by Python and context helpers. */
 export function mergeLlmProviderModel(provider: LlmProviderConfig, model: LlmModelProfile): LlmConnectionConfig {
+  const embBase = (provider.embeddingsBaseUrl ?? '').trim();
   return {
     ...model,
     provider: provider.provider,
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     embeddingsModel: provider.embeddingsModel,
+    ...(embBase ? { embeddingsBaseUrl: embBase } : {}),
   };
 }
 

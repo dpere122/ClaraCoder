@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 
+from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
 from nemo_backend.domain import SessionState
 from nemo_backend.state import current_session_id
 from nemo_backend.workspace_index.fingerprint import workspace_content_fingerprint
-from nemo_backend.workspace_index.index_build import load_or_rebuild_index, read_manifest
+from nemo_backend.workspace_index.index_build import (
+    load_or_rebuild_index,
+    load_or_rebuild_workspace_index,
+    read_manifest,
+)
+from nemo_backend.workspace_index import lifecycle as lc
 from nemo_backend.workspace_index.paths import index_persist_dir, workspace_index_persist_dir
+from nemo_backend.workspace_index.incremental import flush_semantic_index_patches
 from nemo_backend.workspace_index.semantic_tool import (
     retrieve_workspace_checkpoint_semantic,
     retrieve_workspace_semantic,
@@ -161,8 +169,6 @@ def test_incremental_workspace_patch(tmp_path: Path, monkeypatch: pytest.MonkeyP
     root.mkdir()
     (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
     embed = _FakeEmb()
-    from nemo_backend.workspace_index.index_build import load_or_rebuild_workspace_index
-    from nemo_backend.workspace_index.incremental import flush_semantic_index_patches
 
     idx, err = load_or_rebuild_workspace_index(root, 'wid', embed)
     assert err == ''
@@ -176,3 +182,92 @@ def test_incremental_workspace_patch(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert out is not None
     hits = out.as_retriever(similarity_top_k=3).retrieve('alpha')
     assert hits
+
+
+@pytest.fixture
+def _clear_fingerprint_cache():
+    lc._fingerprint_cache.clear()
+    lc._staging_fingerprint_cache.clear()
+    yield
+    lc._fingerprint_cache.clear()
+    lc._staging_fingerprint_cache.clear()
+
+
+def test_flush_invalidates_workspace_fingerprint_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _clear_fingerprint_cache
+) -> None:
+    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+    _, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err == ''
+
+    key = f'{root.resolve()}\0{NEMO_LLAMA_INDEX_MAX_FILES}'
+    lc._fingerprint_cache[key] = (time.monotonic(), 'stale-fingerprint')
+
+    sess = SessionState()
+    sess.semantic_index_pending = [('a.py', 'updated')]
+    flush_semantic_index_patches('sess-1', sess, root, 'wid', embed, embedding_model_id='test-emb')
+
+    assert key not in lc._fingerprint_cache
+
+
+def test_load_or_rebuild_rebuilds_when_embedding_model_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'x.py').write_text('v = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+    idx, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='embed-a')
+    assert err == '' and idx is not None
+
+    fp = workspace_content_fingerprint(root, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
+    idx2, err2 = load_or_rebuild_workspace_index(
+        root, 'wid', embed, fingerprint_override=fp, embedding_model_id='embed-b'
+    )
+    assert err2 == '' and idx2 is not None
+    man = read_manifest(workspace_index_persist_dir('wid', root))
+    assert man is not None
+    assert man.get('embedding_model') == 'embed-b'
+
+
+def test_flush_requeues_pending_on_workspace_load_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('z = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+    _, err = load_or_rebuild_workspace_index(root, 'wid', embed)
+    assert err == ''
+
+    sess = SessionState()
+    sess.semantic_index_pending = [('a.py', 'updated')]
+
+    def _boom(*_a: object, **_kw: object) -> tuple[None, str]:
+        raise OSError('simulated load failure')
+
+    monkeypatch.setattr(
+        'nemo_backend.workspace_index.incremental.load_or_rebuild_workspace_index',
+        _boom,
+    )
+    with pytest.raises(OSError, match='simulated'):
+        flush_semantic_index_patches('sess-1', sess, root, 'wid', embed)
+    assert sess.semantic_index_pending == [('a.py', 'updated')]
+
+
+def test_merge_workspace_staging_prefers_workspace_on_score_tie() -> None:
+    from nemo_backend.workspace_index.semantic_tool import _merge_workspace_staging_hits
+
+    class _N:
+        def __init__(self, score: float, tag: str) -> None:
+            self.score = score
+            self.tag = tag
+
+    w = [_N(0.5, 'w')]
+    s = [_N(0.5, 's')]
+    merged = _merge_workspace_staging_hits(w, s, k=2)
+    assert len(merged) == 2
+    assert merged[0].tag == 'w'
+    assert merged[1].tag == 's'

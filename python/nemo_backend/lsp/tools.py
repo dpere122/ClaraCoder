@@ -16,6 +16,7 @@ from nemo_backend.lsp.manager import (
     activate_session_lsp_scope,
     get_session_lsp_manager,
 )
+from nemo_backend.lsp.registry import display_label_for_server
 from nemo_backend.staging_edit_tools import stage_create_file, stage_workspace_file_overwrite
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
@@ -56,7 +57,7 @@ def _require_lsp_read_path(relative_path: str) -> tuple[str, LspServerKind]:
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(
-            f'LSP read tools support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs`. Got `{rel}`.'
+            f'LSP read tools support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and `.gd`. Got `{rel}`.'
         )
     return rel, server
 
@@ -126,7 +127,7 @@ def _format_symbols(items: Any, *, depth: int = 0) -> list[str]:
 
 
 def _lsp_server_label(server: str) -> str:
-    return 'Python' if server == 'python' else 'TypeScript'
+    return display_label_for_server(server)
 
 
 def _format_lsp_tool_error(

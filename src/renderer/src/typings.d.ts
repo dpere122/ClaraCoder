@@ -291,6 +291,7 @@ declare global {
       relativePath: string,
       encoding?: string,
     ) => Promise<{ ok: true } | { ok: false; error: string }>;
+    warmLspServer?: (sessionId: string, server: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     lspEditorHover?: (
       sessionId: string,
       relativePath: string,
@@ -347,7 +348,7 @@ declare global {
     ) => Promise<{ ok: true; workspaceEdit: LspWorkspaceEditPayload | null } | { ok: false; error: string }>;
     lspEditorSemanticTokensLegend?: (
       sessionId: string,
-      server: 'python' | 'typescript',
+      server: string,
     ) => Promise<{ ok: true; legend: LspSemanticTokensLegendPayload } | { ok: false; error: string }>;
     lspEditorSemanticTokensFull?: (
       sessionId: string,

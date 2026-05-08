@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 
 from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
 from nemo_backend.state import current_session_id, get_active_connection, get_session
-from nemo_backend.workspace_index.embeddings_factory import build_embedding_model
+from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from nemo_backend.workspace_index.incremental import flush_semantic_index_patches
 from nemo_backend.workspace_index.index_build import load_or_rebuild_staging_index, load_or_rebuild_workspace_index
 from nemo_backend.workspace_index.lifecycle import cached_staging_fingerprint, cached_workspace_fingerprint
@@ -21,6 +21,13 @@ RETRIEVE_WORKSPACE_SEMANTIC_NAME = 'retrieve_workspace_semantic'
 RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME = 'retrieve_workspace_checkpoint_semantic'
 
 _MAX_TOOL_CHARS = 24_000
+
+
+def _merge_workspace_staging_hits(w_hits: list, s_hits: list, k: int) -> list:
+    """Merge per-index top-k hits; scores are not comparable across indexes — rank within batch, tie-break workspace."""
+    tagged: list[tuple[str, object]] = [('w', h) for h in w_hits] + [('s', h) for h in s_hits]
+    tagged.sort(key=lambda it: (-_hit_score(it[1]), 1 if it[0] == 's' else 0))
+    return [h for _, h in tagged[:k]]
 
 
 def _hit_score(nws: object) -> float:
@@ -64,18 +71,22 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
     scope: Literal['full', 'checkpoint'] = 'full' if include_nested_staging else 'checkpoint'
 
     try:
-        embed_model, err = build_embedding_model(get_active_connection())
+        conn = get_active_connection()
+        mid = resolve_embedding_model_id(conn)
+        embed_model, err = build_embedding_model(conn)
         if embed_model is None:
             return err or 'Semantic index unavailable.'
         root = Path(root_s).resolve()
         wid = (session.workspace_id or '').strip()
         try:
-            flush_semantic_index_patches(sid, session, root, wid, embed_model)
+            flush_semantic_index_patches(sid, session, root, wid, embed_model, embedding_model_id=mid)
         except Exception as exc:
             logger.debug('semantic index flush skipped: %s', exc)
 
         fp = cached_workspace_fingerprint(root, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
-        w_index, w_err = load_or_rebuild_workspace_index(root, wid, embed_model, fingerprint_override=fp)
+        w_index, w_err = load_or_rebuild_workspace_index(
+            root, wid, embed_model, fingerprint_override=fp, embedding_model_id=mid
+        )
         if w_err:
             return w_err
 
@@ -84,16 +95,16 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
             graph_id = (session.active_planner_graph_id or '').strip()
             sfp = cached_staging_fingerprint(sid, graph_id, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
             s_index, _s_err = load_or_rebuild_staging_index(
-                sid, graph_id, embed_model, fingerprint_override=sfp or None
+                sid, graph_id, embed_model, fingerprint_override=sfp or None, embedding_model_id=mid
             )
 
-        hits: list = []
+        w_hits: list = []
+        s_hits: list = []
         if w_index is not None:
-            hits.extend(w_index.as_retriever(similarity_top_k=k).retrieve(q))
+            w_hits = w_index.as_retriever(similarity_top_k=k).retrieve(q)
         if s_index is not None:
-            hits.extend(s_index.as_retriever(similarity_top_k=k).retrieve(q))
-        hits.sort(key=_hit_score, reverse=True)
-        hits = hits[:k]
+            s_hits = s_index.as_retriever(similarity_top_k=k).retrieve(q)
+        hits = _merge_workspace_staging_hits(w_hits, s_hits, k)
     except Exception as exc:
         logger.warning('semantic retrieve failed: %s', exc, exc_info=True)
         return f'Semantic index error ({type(exc).__name__}: {exc}).'

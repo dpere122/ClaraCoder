@@ -14,6 +14,7 @@ import { registerWindowChromeIpc } from './handlers/window-chrome';
 import { registerLlamaServerIpc } from './handlers/llama-server';
 import { registerLmStudioIpc } from './handlers/lm-studio';
 import { registerLspStatusIpc } from './handlers/lsp-status';
+import { registerModelManagerIpc } from './handlers/model-manager';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -21,6 +22,7 @@ export function registerAllIpc(): void {
   registerChatIpc();
   registerLlamaServerIpc();
   registerLmStudioIpc();
+  registerModelManagerIpc();
   registerLspStatusIpc();
   registerWindowChromeIpc();
   registerConfigWorkspacesIpc();

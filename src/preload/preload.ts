@@ -214,6 +214,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
   readDirectory: (dirPath: string) => ipcRenderer.invoke('read-directory', dirPath),
   readDirectoryRecursive: (dirPath: string) => ipcRenderer.invoke('read-directory-recursive', dirPath),
+  modelManagerPickCustomDir: () => ipcRenderer.invoke('model-manager:pick-custom-dir'),
+  modelManagerListCustomModels: (payload: { customDir: string }) =>
+    ipcRenderer.invoke('model-manager:list-custom-models', payload),
+  modelManagerDetectCaches: () => ipcRenderer.invoke('model-manager:detect-caches'),
+  modelManagerListCacheCandidates: (payload: { cachePaths: string[] }) =>
+    ipcRenderer.invoke('model-manager:list-cache-candidates', payload),
+  modelManagerMigrateModel: (payload: {
+    sourcePath: string;
+    customDir: string;
+    mode: 'copy' | 'move';
+  }) => ipcRenderer.invoke('model-manager:migrate-model', payload),
+  modelManagerRenameModel: (payload: {
+    customDir: string;
+    modelPath: string;
+    newFileName: string;
+  }) => ipcRenderer.invoke('model-manager:rename-model', payload),
+  modelManagerDeleteModel: (payload: { customDir: string; modelPath: string }) =>
+    ipcRenderer.invoke('model-manager:delete-model', payload),
+  modelManagerSearchHf: (payload: { query: string; token?: string; limit?: number }) =>
+    ipcRenderer.invoke('model-manager:search-hf', payload),
   setWorkspaceContext: (
     sessionId: string,
     workspacePath: string,

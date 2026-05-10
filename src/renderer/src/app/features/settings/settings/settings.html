@@ -17,6 +17,8 @@
           <small>
             @if (tab.id === 'models') {
               {{ llmProviders().length }} sources
+            } @else if (tab.id === 'modelManager') {
+              {{ modelManagerCustomModels().length }} local models
             } @else if (tab.id === 'general') {
               {{ chatFontSizeRem() | number: '1.1-1' }} rem
             } @else if (tab.id === 'tools') {
@@ -426,7 +428,8 @@
                         <code>{{ managedLlamaPortToken }}</code>
                         token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
                         sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code>. Use <code>--host</code> in the command if you bind elsewhere; health
-                        checks use that host.
+                        checks use that host. For long-context stability and to avoid large checkpoint artifacts, include
+                        <code>--ctx-checkpoints 0 --checkpoint-every-n-tokens -1</code>.
                       </p>
                     </div>
 
@@ -437,7 +440,7 @@
                           rows='4'
                           [ngModel]='lm.chatRunCommand'
                           (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
-                          [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0'"
+                          [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1'"
                         ></textarea>
                       </label>
 
@@ -451,24 +454,6 @@
                         ></textarea>
                       </label>
 
-                      <label class='field field--full'>
-                        <span>Hugging Face token (optional)</span>
-                        <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                          Use a <strong>read</strong> token from
-                          <a href='https://huggingface.co/settings/tokens' target='_blank' rel='noopener noreferrer'>huggingface.co/settings/tokens</a>
-                          when <code>-hf</code> pulls hit HTTP 401 (gated or private repos). Clara passes it as
-                          <code>HF_TOKEN</code> / <code>HUGGING_FACE_HUB_TOKEN</code> only for managed Start (chat and embedding
-                          processes). Stored locally in your config like other keys.
-                        </p>
-                        <input
-                          type='password'
-                          autocomplete='off'
-                          spellcheck='false'
-                          [ngModel]='lm.huggingFaceToken ?? ""'
-                          (ngModelChange)='patchLlamaCppManaged({ huggingFaceToken: $event })'
-                          placeholder='hf_...'
-                        />
-                      </label>
                     </div>
                   </div>
                 }
@@ -843,6 +828,168 @@
             }
           </div>
         </div>
+      </div>
+    }
+
+    @if (selectedSettingsTab() === 'modelManager') {
+      <div class='settings-pane'>
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Custom model directory</h5>
+            <p class='settings-copy'>Select one folder for your local model inventory and file operations.</p>
+          </div>
+          <div class='form-grid'>
+            <label class='field field--full'>
+              <span>Directory path</span>
+              <input
+                type='text'
+                [ngModel]='modelManagerCustomDir()'
+                (ngModelChange)='updateModelManagerConfig({ customModelsDir: $event })'
+                placeholder='D:\AI\Models'
+              />
+            </label>
+            <div class='field field--full model-manager-actions'>
+              <button type='button' class='action-button action-button--primary' (click)='pickModelManagerCustomDir()'>
+                Choose directory
+              </button>
+              <button type='button' class='action-button' [disabled]='modelManagerBusy()' (click)='refreshModelManagerData()'>
+                Refresh
+              </button>
+            </div>
+            <p class='settings-copy field--full'>
+              Models only appear from your custom directory location.
+            </p>
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Local models</h5>
+            <p class='settings-copy'>Only model files found in your custom directory are shown here.</p>
+          </div>
+          <div class='model-card-grid'>
+            @for (model of modelManagerCustomModels(); track model.absolutePath) {
+              <article class='model-card'>
+                <div class='model-card__head'>
+                  <strong>{{ model.fileName }}</strong>
+                  <span class='pill'>{{ model.source }}</span>
+                </div>
+                <p class='settings-copy'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</p>
+                <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                <div class='model-card__actions'>
+                  <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
+                  <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
+                </div>
+              </article>
+            } @empty {
+              <div class='empty-state'>
+                <p>No model files found in your custom directory.</p>
+              </div>
+            }
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Cache detection and migration</h5>
+            <p class='settings-copy'>Auto-detect cache locations and migrate models into your custom directory.</p>
+          </div>
+          <div class='cache-location-list'>
+            @for (cache of modelManagerCacheLocations(); track cache.path) {
+              <div class='cache-location-row'>
+                <div>
+                  <strong>{{ cache.label }}</strong>
+                  <p class='settings-copy'>{{ cache.path }}</p>
+                </div>
+                <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Not found' }}</span>
+              </div>
+            } @empty {
+              <p class='settings-copy'>No cache paths detected.</p>
+            }
+          </div>
+          <div class='model-card-grid'>
+            @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
+              <article class='model-card'>
+                <div class='model-card__head'>
+                  <strong>{{ model.fileName }}</strong>
+                  <span class='pill'>cache</span>
+                </div>
+                <p class='settings-copy'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</p>
+                <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                <div class='model-card__actions'>
+                  <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate (copy/move)</button>
+                </div>
+              </article>
+            } @empty {
+              <div class='empty-state'>
+                <p>No cache model candidates detected.</p>
+              </div>
+            }
+          </div>
+        </div>
+
+        <hr class='settings-divider' />
+
+        <div class='form-section'>
+          <div class='form-section__header'>
+            <h5>Hugging Face</h5>
+            <p class='settings-copy'>Store one shared token and search Hugging Face model repositories.</p>
+          </div>
+          <div class='form-grid'>
+            <label class='field field--full'>
+              <span>Hugging Face token (optional)</span>
+              <input
+                type='password'
+                autocomplete='off'
+                spellcheck='false'
+                [ngModel]='modelManagerHfToken()'
+                (ngModelChange)='updateModelManagerConfig({ huggingFaceToken: $event })'
+                placeholder='hf_...'
+              />
+            </label>
+            <div class='field field--full model-manager-actions'>
+              <input
+                type='text'
+                [ngModel]='modelManagerHfQuery()'
+                (ngModelChange)='onModelManagerHfQueryChange($event)'
+                placeholder='Search Hugging Face models...'
+              />
+              <button type='button' class='action-button action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels()'>
+                @if (modelManagerHfBusy()) { Searching… } @else { Search }
+              </button>
+            </div>
+          </div>
+          <div class='hf-results-grid'>
+            @for (model of modelManagerHfResults(); track model.id) {
+              <article class='model-card'>
+                <div class='model-card__head'>
+                  <strong>{{ model.id }}</strong>
+                  @if (model.gated || model.private) {
+                    <span class='pill'>restricted</span>
+                  }
+                </div>
+                <p class='settings-copy'>{{ model.downloads }} downloads · {{ model.likes }} likes</p>
+                <p class='settings-copy'>Updated: {{ model.lastModified || 'unknown' }}</p>
+                <p class='settings-copy model-card__path'>Use with: <code>llama-server -hf {{ model.id }}</code></p>
+              </article>
+            } @empty {
+              <div class='empty-state'>
+                <p>No Hugging Face results yet. Run a search above.</p>
+              </div>
+            }
+          </div>
+        </div>
+
+        @if (modelManagerStatus()) {
+          <hr class='settings-divider' />
+          <div class='callout'>
+            <p>{{ modelManagerStatus() }}</p>
+          </div>
+        }
       </div>
     }
 

@@ -19,6 +19,7 @@ export const THEMES: ThemeOption[] = [
   { id: 'win95', label: 'Windows 95', cssClass: 'theme-win95', bsTheme: 'light' },
   { id: 'woodland', label: 'Woodland', cssClass: 'theme-woodland', bsTheme: 'dark' },
   { id: 'ion', label: 'Ion', cssClass: 'theme-ion', bsTheme: 'dark' },
+  { id: 'purple-girl', label: 'Purple Girl', cssClass: 'theme-purple-girl', bsTheme: 'dark' },
   {
     id: 'ps2',
     label: 'PS2',

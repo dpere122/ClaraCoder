@@ -13,6 +13,7 @@ import type {
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
+  DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
   findLlmModelLocation,
@@ -41,6 +42,7 @@ import {
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
   getDefaultLlmProviders,
+  getDefaultModelManagerConfig,
   getDefaultWorkspaceTools,
   workspaceFromLegacyPath,
 } from './defaults';
@@ -325,16 +327,46 @@ function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
   }
 
   let migrated = false;
-  const chatRunCommand = typeof raw.chatRunCommand === 'string' ? raw.chatRunCommand : '';
+  let chatRunCommand = typeof raw.chatRunCommand === 'string' ? raw.chatRunCommand : '';
   const embeddingRunCommand = typeof raw.embeddingRunCommand === 'string' ? raw.embeddingRunCommand : '';
   if (typeof raw.chatRunCommand !== 'string' || typeof raw.embeddingRunCommand !== 'string') {
     migrated = true;
   }
-  const next: LlamaCppManaged = { chatRunCommand, embeddingRunCommand };
-  if (typeof raw.huggingFaceToken === 'string') {
-    next.huggingFaceToken = raw.huggingFaceToken;
+  const legacyDefaultChat = 'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
+  if (chatRunCommand.trim() === legacyDefaultChat) {
+    chatRunCommand = DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
+    migrated = true;
   }
+  const next: LlamaCppManaged = { chatRunCommand, embeddingRunCommand };
   model.llamaCppManaged = next;
+  return migrated;
+}
+
+function collectLegacyHfTokens(providers: LlmProviderConfig[]): string[] {
+  const out: string[] = [];
+  for (const p of providers) {
+    for (const m of p.models) {
+      const raw = m.llamaCppManaged as unknown as Record<string, unknown> | undefined;
+      const tok = typeof raw?.['huggingFaceToken'] === 'string' ? raw['huggingFaceToken'].trim() : '';
+      if (tok) {
+        out.push(tok);
+      }
+    }
+  }
+  return out;
+}
+
+function stripLegacyHfTokens(providers: LlmProviderConfig[]): boolean {
+  let migrated = false;
+  for (const p of providers) {
+    for (const m of p.models) {
+      const raw = m.llamaCppManaged as unknown as Record<string, unknown> | undefined;
+      if (raw && 'huggingFaceToken' in raw) {
+        delete raw['huggingFaceToken'];
+        migrated = true;
+      }
+    }
+  }
   return migrated;
 }
 
@@ -622,10 +654,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
       );
       newConfig.llmProviders = m.providers;
       newConfig.activeLlmModelId = m.activeModelId;
+    } else if (schemaVersion < 4) {
+      (newConfig as AppConfig).modelManager = getDefaultModelManagerConfig();
     }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
+
+  const legacyHfTokens = collectLegacyHfTokens(newConfig.llmProviders);
 
   if (normalizeLlmProvidersTree(newConfig.llmProviders)) {
     migrated = true;
@@ -820,6 +856,35 @@ export function migrateConfig(config: AppConfig): AppConfig {
       hm.metricsEnabled = false;
       migrated = true;
     }
+  }
+
+  const mmRaw = (newConfig as AppConfig & { modelManager?: unknown }).modelManager;
+  if (!mmRaw || typeof mmRaw !== 'object' || Array.isArray(mmRaw)) {
+    (newConfig as AppConfig).modelManager = getDefaultModelManagerConfig();
+    migrated = true;
+  } else {
+    const mm = mmRaw as { customModelsDir?: unknown; huggingFaceToken?: unknown };
+    const customModelsDir = typeof mm.customModelsDir === 'string' ? mm.customModelsDir.trim() : '';
+    const huggingFaceToken = typeof mm.huggingFaceToken === 'string' ? mm.huggingFaceToken : '';
+    const fallback = getDefaultModelManagerConfig();
+    const nextCustomDir = customModelsDir || fallback.customModelsDir;
+    if (nextCustomDir !== mm.customModelsDir) {
+      mm.customModelsDir = nextCustomDir;
+      migrated = true;
+    }
+    if (huggingFaceToken !== mm.huggingFaceToken) {
+      mm.huggingFaceToken = huggingFaceToken;
+      migrated = true;
+    }
+  }
+
+  const mm = (newConfig as AppConfig).modelManager;
+  if (!mm.huggingFaceToken && legacyHfTokens.length > 0) {
+    mm.huggingFaceToken = legacyHfTokens[0]!;
+    migrated = true;
+  }
+  if (stripLegacyHfTokens(newConfig.llmProviders)) {
+    migrated = true;
   }
 
   return migrated ? newConfig : config;

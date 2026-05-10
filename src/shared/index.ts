@@ -31,6 +31,7 @@ export type {
   MonacoWorkspaceEditorThemeId,
   WorkspaceToolsConfig,
   HealthMonitorConfig,
+  ModelManagerConfig,
 } from './types/app-config';
 export {
   DEFAULT_KOKORO_TTS_VOICE,
@@ -45,6 +46,7 @@ export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotin
 export {
   argvToShellCommandLine,
   buildLlamaServerArgv,
+  DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   isLegacyLlamaCppManagedShape,
@@ -169,3 +171,12 @@ export type {
   PythonInterpreterListItem,
 } from './types/workspace-context';
 export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';
+export type {
+  HuggingFaceModelSearchItem,
+  ModelManagerCacheLocation,
+  ModelManagerDetectCachesResult,
+  ModelManagerFileEntry,
+  ModelManagerHfSearchResult,
+  ModelManagerListModelsResult,
+  ModelManagerMutationResult,
+} from './types/model-manager';

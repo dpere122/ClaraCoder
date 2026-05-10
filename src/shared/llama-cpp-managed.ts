@@ -65,6 +65,12 @@ export function defaultLlamaCppManaged(): LlamaCppManaged {
 }
 
 const PORT_TOKEN = '{{PORT}}';
+/**
+ * Baseline managed chat command template used in defaults and Settings placeholders.
+ * Disables context checkpoints to avoid large checkpoint state growth on long prompts.
+ */
+export const DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND =
+  'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1';
 
 /**
  * True when persisted JSON still uses nested chat/embedding (or executable-only) managed blocks.

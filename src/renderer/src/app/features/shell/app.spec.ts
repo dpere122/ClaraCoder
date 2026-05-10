@@ -59,6 +59,10 @@ function stubElectronApi(): void {
       logLevel: 'info',
       metricsEnabled: false,
     },
+    modelManager: {
+      customModelsDir: 'C:\\models',
+      huggingFaceToken: '',
+    },
   };
   const convMeta = {
     id: 'test-conv',

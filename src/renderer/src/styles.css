@@ -393,6 +393,75 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-log-level-warning: #d29922;
 }
 
+.theme-purple-girl {
+  --t-bg: #12081c;
+  --t-bg-surface: #1d0f2a;
+  --t-bg-deep: #090511;
+  --t-panel: #180d24;
+  --t-primary: #d08dff;
+  --t-secondary: #8e6bff;
+  --t-fg: #f1dcff;
+  --t-border: #6f43a3;
+  --t-border-subtle: #3f2a5f;
+  --t-glow: rgba(208, 141, 255, 0.42);
+  --t-glow-soft: rgba(142, 107, 255, 0.22);
+  --t-hover-bg: rgba(208, 141, 255, 0.11);
+  --t-active-bg: rgba(208, 141, 255, 0.18);
+  --t-selection-bg: rgba(208, 141, 255, 0.32);
+  --t-text-muted: #9f83b8;
+  --t-muted: #9f83b8;
+  --t-user-bg: #2a1640;
+  --t-assistant-bg: #170c23;
+  --t-assistant-border: #b067ff;
+  --t-code-bg: #0d0616;
+  --t-code-inline-bg: #241239;
+  --t-code-text: #efdeff;
+  --t-input-bg: #12081c;
+  --t-input-fg: #f1dcff;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-titlebar-start: #4f2b7a;
+  --t-titlebar-end: #211038;
+  --t-titlebar-text: #f7e8ff;
+  --t-edge-light: #8159b2;
+  --t-edge-mid: #56357f;
+  --t-edge-dark: #2a173f;
+  --t-edge-darkest: #0a0612;
+  --t-process-a: #d08dff;
+  --t-process-b: #8e6bff;
+  --t-process-c: #ff7de3;
+  --t-hljs-keyword: #d08dff;
+  --t-hljs-string: #b7f27a;
+  --t-hljs-number: #ff9de8;
+  --t-hljs-comment: #7f6a96;
+  --t-hljs-function: #b49bff;
+  --t-hljs-class: #eb9dff;
+  --t-hljs-attr: #7ac9ff;
+  --t-hljs-params: #f1dcff;
+  --t-hljs-property: #d9b9ff;
+  --t-hljs-punctuation: #a186bd;
+  --t-hljs-operator: #c087ff;
+  --t-hljs-meta: #aa95ff;
+  --t-hljs-tag: #e39cff;
+  --t-hljs-name: #d08dff;
+  --t-hljs-symbol: #ff9de8;
+  --t-hljs-selector: #b7f27a;
+  --t-log-level-error: #ff7fa8;
+  --t-log-level-warning: #ffd06e;
+}
+
+html.theme-purple-girl body {
+  background-image: radial-gradient(circle at 12% 18%, rgba(190, 120, 255, 0.28) 0%, transparent 42%),
+    radial-gradient(circle at 88% 10%, rgba(120, 100, 255, 0.24) 0%, transparent 40%),
+    radial-gradient(circle at 70% 90%, rgba(255, 120, 220, 0.2) 0%, transparent 36%),
+    linear-gradient(180deg, #1a0d2a 0%, #12081c 44%, #0a0511 100%);
+  background-attachment: fixed;
+}
+
+html.theme-purple-girl .terminal-shell,
+html.theme-purple-girl .interactive-output .terminal-shell {
+  background: var(--t-code-bg);
+}
+
 /* Deep navy boot-screen chrome, electric cyan-blue highlights — PS2-era console UI */
 .theme-ps2 {
   --t-bg: #050a12;

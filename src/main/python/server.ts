@@ -6,6 +6,7 @@ import { PYTHON_PORT, PYTHON_URL } from '../constants';
 import {
   getCheckpointDbPath,
   getLogsDir,
+  getPythonExecutable,
   getPythonServerScriptPath,
   getWorkspaceSemanticIndexDir,
   getWorkspaceStagingDir,
@@ -18,7 +19,7 @@ export { PYTHON_URL, PYTHON_PORT };
  * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
  */
 export function startPythonServer(): void {
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const pythonCmd = getPythonExecutable();
   const scriptPath = getPythonServerScriptPath();
   const logDir = getLogsDir();
   const stagingDir = getWorkspaceStagingDir();

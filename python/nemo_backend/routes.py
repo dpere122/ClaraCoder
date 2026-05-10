@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from nemo_backend.domain import RuntimeAudioConfig, RuntimeConnection, RuntimeHostConfig, RuntimeToolsConfig
+from nemo_backend.http_url_normalize import normalize_bind_all_host_url
 from nemo_backend.schemas import RuntimeConfigRequest
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 from nemo_backend import state
@@ -35,7 +36,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             id=item.id,
             name=item.name,
             provider=item.provider,
-            base_url=item.baseUrl,
+            base_url=normalize_bind_all_host_url(item.baseUrl),
             model=item.model,
             api_key=item.apiKey,
             reasoning_effort=(item.reasoningEffort or '').strip(),
@@ -52,7 +53,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             presence_penalty=item.presencePenalty,
             repeat_penalty=item.repeatPenalty,
             architecture_hint=item.architectureHint,
-            embeddings_base_url=(item.embeddingsBaseUrl or '').strip(),
+            embeddings_base_url=normalize_bind_all_host_url((item.embeddingsBaseUrl or '').strip()),
             embeddings_enabled=bool(item.embeddingsEnabled),
             embeddings_model=(item.embeddingsModel or '').strip(),
         )
@@ -91,7 +92,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     cfg.connections = connections
     cfg.audio = RuntimeAudioConfig(
         provider=request.audio.provider,
-        base_url=request.audio.baseUrl,
+        base_url=normalize_bind_all_host_url(request.audio.baseUrl),
         model=request.audio.model,
         api_key=request.audio.apiKey,
     )

@@ -41,7 +41,12 @@
         @if (st2.ok === true && st2.running) {
           <button type='button' class='btn btn-sm btn-outline-secondary' [disabled]='stopDisabled()' (click)='onStop()'>Stop</button>
         } @else if (st2.ok === true && st2.remote) {
-          <p class='llama-tile__ports'>URL · {{ st2.chat.health === 'ok' ? 'reachable' : 'unreachable' }}</p>
+          <p class='llama-tile__ports'>
+            URL · {{ st2.chat.health === 'ok' ? 'reachable' : 'unreachable' }}
+            @if (st2.embed) {
+              <span> · embed {{ st2.embed.health === 'ok' ? 'reachable' : 'unreachable' }}</span>
+            }
+          </p>
         } @else if (st2.ok === true && !st2.running) {
           <button type='button' class='btn btn-sm btn-primary' [disabled]='startDisabled()' (click)='onStart()'>Start</button>
         }

@@ -63,6 +63,18 @@ function clampTtsSpeechSpeed(raw: unknown): number {
   return +c.toFixed(2);
 }
 
+/** Compare OpenAI-compatible ``…/v1`` bases for equality (trailing slashes optional). */
+function openAiV1BasesEquivalent(a: string, b: string): boolean {
+  const norm = (raw: string) => {
+    let s = (raw || '').trim().replace(/\/+$/, '');
+    if (!s.toLowerCase().endsWith('/v1')) {
+      s = `${s}/v1`;
+    }
+    return s.toLowerCase();
+  };
+  return norm(a) === norm(b);
+}
+
 const MONACO_EDITOR_THEME_LABELS: Record<MonacoWorkspaceEditorThemeId, string> = {
   'clara-monaco': 'Clara (matches app)',
   vs: 'VS Light',
@@ -234,8 +246,23 @@ export class Settings implements OnInit, OnDestroy {
   );
   protected readonly lmStudioLoadedCards = computed(() => this.lmStudioInventory().filter((c) => c.state === 'loaded'));
   protected readonly llamacppManagedModelIds = signal<string[]>([]);
+  /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
+  protected readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   protected readonly llamacppModelsListError = signal<string | null>(null);
   protected readonly llamacppModelsListInFlight = signal(false);
+  protected readonly llamacppUrlModelsSummary = computed(() => {
+    const chat = this.llamacppManagedModelIds().length;
+    const emb = this.llamacppUrlEmbeddingModelIds().length;
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'llamacpp') {
+      return `${chat} models`;
+    }
+    const embUrl = (p.embeddingsBaseUrl ?? '').trim();
+    if (!embUrl || openAiV1BasesEquivalent(p.baseUrl, embUrl)) {
+      return `${chat} models`;
+    }
+    return `${chat} chat · ${emb} embedding`;
+  });
 
   private subscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
@@ -355,10 +382,12 @@ export class Settings implements OnInit, OnDestroy {
       if (urlOnly) {
         void this.refreshLlamacppUrlModels();
       } else {
+        this.llamacppUrlEmbeddingModelIds.set([]);
         void this.refreshLlamacppManagedModels();
       }
     } else {
       this.llamacppManagedModelIds.set([]);
+      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
   }
@@ -396,12 +425,15 @@ export class Settings implements OnInit, OnDestroy {
       const res = await this.electron.llamacppManagedListModels({ modelId: m.id, config: cfg });
       if (res.ok) {
         this.llamacppManagedModelIds.set(res.models);
+        this.llamacppUrlEmbeddingModelIds.set([]);
       } else {
         this.llamacppManagedModelIds.set([]);
+        this.llamacppUrlEmbeddingModelIds.set([]);
         this.llamacppModelsListError.set(res.error);
       }
     } catch (e) {
       this.llamacppManagedModelIds.set([]);
+      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
@@ -416,15 +448,31 @@ export class Settings implements OnInit, OnDestroy {
     this.llamacppModelsListInFlight.set(true);
     this.llamacppModelsListError.set(null);
     try {
-      const res = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: p.apiKey || '' });
-      if (res.ok) {
-        this.llamacppManagedModelIds.set(res.models);
-      } else {
+      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: p.apiKey || '' });
+      if (!chatRes.ok) {
         this.llamacppManagedModelIds.set([]);
-        this.llamacppModelsListError.set(res.error);
+        this.llamacppUrlEmbeddingModelIds.set([]);
+        this.llamacppModelsListError.set(chatRes.error);
+        return;
       }
+      this.llamacppManagedModelIds.set(chatRes.models);
+
+      const embBase = (p.embeddingsBaseUrl ?? '').trim();
+      if (!embBase || openAiV1BasesEquivalent(p.baseUrl, embBase)) {
+        this.llamacppUrlEmbeddingModelIds.set([...chatRes.models]);
+        return;
+      }
+
+      const embRes = await this.electron.llamacppOpenAiListModels({ baseUrl: embBase, apiKey: p.apiKey || '' });
+      if (!embRes.ok) {
+        this.llamacppUrlEmbeddingModelIds.set([]);
+        this.llamacppModelsListError.set(`Chat OK; embeddings server: ${embRes.error}`);
+        return;
+      }
+      this.llamacppUrlEmbeddingModelIds.set(embRes.models);
     } catch (e) {
       this.llamacppManagedModelIds.set([]);
+      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
@@ -1487,10 +1535,12 @@ export class Settings implements OnInit, OnDestroy {
       if (!(locAfter.model.llamaCppManaged?.chatRunCommand ?? '').trim()) {
         void this.refreshLlamacppUrlModels();
       } else {
+        this.llamacppUrlEmbeddingModelIds.set([]);
         void this.refreshLlamacppManagedModels();
       }
     } else {
       this.llamacppManagedModelIds.set([]);
+      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
 

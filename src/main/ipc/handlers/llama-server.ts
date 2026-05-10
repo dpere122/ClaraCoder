@@ -18,27 +18,46 @@ export interface LlamaServerIpcPayload {
 /**
  * Start/stop managed llama-server pair and query health from the main process.
  */
+function normalizeLlamaModelId(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
 export function registerLlamaServerIpc(): void {
   ipcMain.handle('llama-server:start', async (_event, payload: LlamaServerIpcPayload) => {
-    return startManagedLlamaServers(payload.modelId, payload.config);
+    const modelId = normalizeLlamaModelId(payload.modelId);
+    if (!modelId) {
+      return { ok: false as const, error: 'Missing model id.' };
+    }
+    return startManagedLlamaServers(modelId, payload.config);
   });
 
   ipcMain.handle('llama-server:stop', async (_event, payload: LlamaServerIpcPayload) => {
-    stopManagedLlamaServers(payload.modelId);
+    const modelId = normalizeLlamaModelId(payload.modelId);
+    if (modelId) {
+      stopManagedLlamaServers(modelId);
+    }
     await syncWithManagedLlamaOverrides(payload.config);
     return { ok: true as const };
   });
 
   ipcMain.handle('llama-server:status', async (_event, payload: LlamaServerIpcPayload) => {
-    return getManagedLlamaStatus(payload.modelId, payload.config);
+    const modelId = normalizeLlamaModelId(payload.modelId);
+    if (!modelId) {
+      return { ok: false as const, error: 'Missing model id.' };
+    }
+    return getManagedLlamaStatus(modelId, payload.config);
   });
 
   ipcMain.handle('llamacpp-managed:list-models', async (_event, payload: LlamaServerIpcPayload) => {
-    const loc = findLlmModelLocation(payload.config.llmProviders, payload.modelId);
+    const modelId = normalizeLlamaModelId(payload.modelId);
+    if (!modelId) {
+      return { ok: false as const, error: 'Missing model id.' };
+    }
+    const loc = findLlmModelLocation(payload.config.llmProviders, modelId);
     if (!loc || loc.provider.provider !== 'llamacpp') {
       return { ok: false as const, error: 'Not a llama.cpp source model.' };
     }
-    const base = getManagedChatOpenAiBaseUrl(payload.modelId);
+    const base = getManagedChatOpenAiBaseUrl(modelId);
     if (!base) {
       return {
         ok: false as const,

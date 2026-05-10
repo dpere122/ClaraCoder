@@ -649,8 +649,8 @@ export class ElectronService {
     return this.api?.registerTtsStreamUrl(text, voice, speed) ?? Promise.resolve({ url: '' });
   }
 
-  abortTtsStream(): void {
-    void this.api?.abortTtsStream();
+  abortTtsStream(): Promise<{ ok: boolean }> {
+    return this.api?.abortTtsStream() ?? Promise.resolve({ ok: true });
   }
 
   transcribe(audio: ArrayBuffer): Promise<string> {

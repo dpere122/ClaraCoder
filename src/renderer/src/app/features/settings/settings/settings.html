@@ -293,7 +293,7 @@
                 <div class='form-section'>
                   <div class='form-section__header'>
                     <h5>Llama server connection</h5>
-                    <p class='settings-copy'>Chat completions base URL (e.g. <code>http://192.168.1.10:8080/v1</code>) and optional separate embeddings base URL (e.g. <code>http://192.168.1.10:8081/v1</code>). Use <strong>Connect</strong> to list models from the chat server.</p>
+                    <p class='settings-copy'>Chat completions base URL (e.g. <code>http://192.168.1.10:8080/v1</code>) and optional separate embeddings base URL (e.g. <code>http://192.168.1.10:8081/v1</code>). Use <strong>Connect</strong> to list models: chat models from the chat URL, embedding models from the embeddings URL when it differs.</p>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
@@ -343,8 +343,8 @@
                       </button>
                       @if (llamacppModelsListError(); as lerr) {
                         <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
-                      } @else if (llamacppManagedModelIds().length) {
-                        <span class='lm-studio-status lm-studio-status--ok'>{{ llamacppManagedModelIds().length }} models</span>
+                      } @else if (llamacppManagedModelIds().length || llamacppUrlEmbeddingModelIds().length) {
+                        <span class='lm-studio-status lm-studio-status--ok'>{{ llamacppUrlModelsSummary() }}</span>
                       }
                     </div>
                   </div>
@@ -352,7 +352,7 @@
                 <div class='form-section'>
                   <div class='form-section__header'>
                     <h5>Models from llama-server</h5>
-                    <p class='settings-copy'>Choose chat and (optional) embedding model ids. Connect above after your server is running to refresh the list.</p>
+                    <p class='settings-copy'>Choose chat and (optional) embedding model ids. <strong>Connect</strong> loads chat models from the chat URL and embedding models from the embeddings URL when it is set and different.</p>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
@@ -376,10 +376,10 @@
                         (ngModelChange)='updateSelectedProvider({ embeddingsModel: $event || undefined })'
                       >
                         <option value=''>— None (env default) —</option>
-                        @if ((selectedProvider()?.embeddingsModel || "") && !llamacppManagedModelIds().includes((selectedProvider()?.embeddingsModel) || "")) {
+                        @if ((selectedProvider()?.embeddingsModel || "") && !llamacppUrlEmbeddingModelIds().includes((selectedProvider()?.embeddingsModel) || "")) {
                           <option [value]='selectedProvider()!.embeddingsModel'>{{ selectedProvider()!.embeddingsModel }} (current)</option>
                         }
-                        @for (id of llamacppManagedModelIds(); track id) {
+                        @for (id of llamacppUrlEmbeddingModelIds(); track id) {
                           <option [value]='id'>{{ id }}</option>
                         }
                       </select>

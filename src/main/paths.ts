@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { app } from 'electron';
 import path = require('path');
 import { DEV_SERVER_URL } from './constants';
@@ -66,4 +67,24 @@ export function getPythonServerScriptPath(): string {
     return path.join(process.resourcesPath, 'python', 'server.py');
   }
   return path.join(__dirname, '..', '..', 'python', 'server.py');
+}
+
+/**
+ * Interpreter for `server.py`. In dev, uses repo `.venv` when present so launches match
+ * `npm run setup:python`. Optional override: `NEMO_PYTHON` (absolute path to executable).
+ */
+export function getPythonExecutable(): string {
+  const fromEnv = process.env.NEMO_PYTHON?.trim();
+  if (fromEnv) return fromEnv;
+
+  if (!app.isPackaged) {
+    const scriptPath = getPythonServerScriptPath();
+    const repoRoot = path.dirname(path.dirname(scriptPath));
+    const unix = path.join(repoRoot, '.venv', 'bin', 'python');
+    const win = path.join(repoRoot, '.venv', 'Scripts', 'python.exe');
+    if (existsSync(unix)) return unix;
+    if (existsSync(win)) return win;
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3';
 }

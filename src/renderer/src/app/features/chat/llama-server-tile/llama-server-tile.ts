@@ -309,7 +309,8 @@ export class LlamaServerTile {
       this.clearInflightIfMatches(raw);
       return;
     }
-    if (!raw.running) {
+    const remoteLive = raw.ok === true && raw.remote === true;
+    if (!raw.running && !remoteLive) {
       this.chatOkExitStreak.n = 0;
       this.embedOkExitStreak.n = 0;
       this.status.set(raw);

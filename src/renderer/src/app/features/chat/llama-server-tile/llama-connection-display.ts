@@ -15,7 +15,12 @@ const STABLE_OK_MS = 15_000;
 const UNSTABLE_MS = 2_500;
 
 export function llamaCrystalAggregateFromPayload(st: LlamaServerStatusPayload | null): LlamaCrystalAggregate {
-  if (!st || !st.running) {
+  if (!st) {
+    return 'off';
+  }
+  /** URL-only presets never set ``running``; health is still probed from Settings URLs. */
+  const live = st.running || st.remote === true;
+  if (!live) {
     return 'off';
   }
   const parts: ManagedServerHealthState[] = [st.chat.health];
@@ -41,7 +46,8 @@ export function computeStatusPollIntervalMs(status: LlamaServerStatusResult | nu
   if (!status || status.ok === false) {
     return UNSTABLE_MS;
   }
-  if (!status.running) {
+  const live = status.running || (status.ok === true && status.remote === true);
+  if (!live) {
     return UNSTABLE_MS;
   }
   const parts: ManagedServerHealthState[] = [status.chat.health];

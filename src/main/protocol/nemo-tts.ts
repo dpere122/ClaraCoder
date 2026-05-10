@@ -1,7 +1,7 @@
 import { protocol } from 'electron';
 import { PassThrough } from 'stream';
 import { randomUUID } from 'crypto';
-import { mainState } from '../state';
+import { abortAllTtsStreamControllers, mainState } from '../state';
 import { PYTHON_URL } from '../python/server';
 
 /**
@@ -29,9 +29,11 @@ export function registerNemoTtsStreamProtocol(): void {
     }
     mainState.ttsStreamTokens.delete(id);
 
-    mainState.ttsAbort?.abort();
-    mainState.ttsAbort = new AbortController();
-    const signal = mainState.ttsAbort.signal;
+    abortAllTtsStreamControllers();
+    const protoKey = `proto:${id}`;
+    const ac = new AbortController();
+    mainState.ttsStreamControllers.set(protoKey, ac);
+    const signal = ac.signal;
 
     const pass = new PassThrough();
     callback({
@@ -80,8 +82,8 @@ export function registerNemoTtsStreamProtocol(): void {
         } catch {
           // ignore
         }
-        if (mainState.ttsAbort?.signal === signal) {
-          mainState.ttsAbort = null;
+        if (mainState.ttsStreamControllers.get(protoKey) === ac) {
+          mainState.ttsStreamControllers.delete(protoKey);
         }
       }
     })();

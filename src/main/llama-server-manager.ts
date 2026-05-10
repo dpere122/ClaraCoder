@@ -2,6 +2,7 @@
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
 import { spawn, type ChildProcess } from 'child_process';
+import { promises as fs } from 'fs';
 import * as net from 'net';
 
 import type {
@@ -148,6 +149,13 @@ function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
 
 function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  const customDir = config.modelManager.customModelsDir.trim();
+  if (customDir) {
+    // Keep managed `-hf` downloads and cache lookups in the configured custom models directory.
+    env.LLAMA_CACHE = customDir;
+    env.HUGGINGFACE_HUB_CACHE = customDir;
+    env.TRANSFORMERS_CACHE = customDir;
+  }
   const tok = config.modelManager.huggingFaceToken.trim();
   if (tok) {
     env.HF_TOKEN = tok;
@@ -256,6 +264,10 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   const logBuf: StreamBuf = { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
   let embedProc: ChildProcess | undefined;
   const spawnEnv = buildManagedLlamaSpawnEnv(config);
+  const managedCacheDir = (spawnEnv.LLAMA_CACHE || '').trim();
+  if (managedCacheDir) {
+    await fs.mkdir(managedCacheDir, { recursive: true });
+  }
 
   try {
     /**

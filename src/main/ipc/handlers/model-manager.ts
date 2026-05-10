@@ -16,7 +16,11 @@ import { mainState } from '../../state';
 const MODEL_EXTENSIONS = new Set(['.gguf']);
 
 function normalizeAbs(p: string): string {
-  return path.resolve(p);
+  const t = String(p || '').trim();
+  if (!t) {
+    return '';
+  }
+  return path.resolve(t);
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -46,8 +50,15 @@ async function walkModelFiles(
 ): Promise<ModelManagerFileEntry[]> {
   const out: ModelManagerFileEntry[] = [];
   const stack: string[] = [normalizeAbs(root)];
+  const visitedDirs = new Set<string>();
   while (stack.length > 0) {
     const current = stack.pop()!;
+    const realCurrent = await fs.realpath(current).catch(() => current);
+    const currentKey = process.platform === 'win32' ? realCurrent.toLowerCase() : realCurrent;
+    if (visitedDirs.has(currentKey)) {
+      continue;
+    }
+    visitedDirs.add(currentKey);
     const entries = await fs.readdir(current, { withFileTypes: true });
     for (const entry of entries) {
       const full = path.join(current, entry.name);
@@ -55,10 +66,21 @@ async function walkModelFiles(
         stack.push(full);
         continue;
       }
-      if (!entry.isFile() || !hasModelExtension(full)) {
+      if (entry.isSymbolicLink()) {
+        const linkedStat = await fs.stat(full).catch(() => null);
+        if (linkedStat?.isDirectory()) {
+          stack.push(full);
+          continue;
+        }
+      }
+      if (!hasModelExtension(full)) {
         continue;
       }
+      // Resolve symlinks/junctions so cache snapshots (often link-backed) are visible in the UI.
       const stat = await fs.stat(full);
+      if (!stat.isFile()) {
+        continue;
+      }
       out.push({
         fileName: entry.name,
         absolutePath: full,
@@ -83,6 +105,7 @@ function detectModelCacheLocations(): ModelManagerCacheLocation[] {
     { label: 'TRANSFORMERS_CACHE', path: process.env.TRANSFORMERS_CACHE?.trim() || '' },
     { label: 'HF_HOME/hub', path: hfHome ? path.join(hfHome, 'hub') : '' },
     { label: 'HF default cache', path: path.join(home, '.cache', 'huggingface', 'hub') },
+    { label: 'LocalAppData Hugging Face cache', path: localAppData ? path.join(localAppData, 'huggingface', 'hub') : '' },
     { label: 'llama.cpp cache', path: path.join(home, '.cache', 'llama.cpp') },
     { label: 'llama.cpp models', path: path.join(home, '.cache', 'llama.cpp', 'models') },
     { label: 'LocalAppData llama.cpp models', path: localAppData ? path.join(localAppData, 'llama.cpp', 'models') : '' },

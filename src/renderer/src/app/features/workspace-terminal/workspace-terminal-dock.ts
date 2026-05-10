@@ -554,6 +554,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       const terminal = new Terminal({
         cursorBlink: false,
         disableStdin: true,
+        convertEol: true,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
         fontSize: 13,
         theme: buildXtermThemeFromCssVars(getComputedStyle(document.documentElement)),

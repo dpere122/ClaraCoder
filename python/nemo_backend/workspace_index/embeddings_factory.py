@@ -33,10 +33,15 @@ _EMBEDDING_PROBE_CACHE_MAX = 64
 
 def resolve_embedding_model_id(connection: RuntimeConnection) -> str:
     """Effective OpenAI-compatible embeddings model id (matches :func:`build_embedding_model`)."""
-    return (
-        (getattr(connection, 'embeddings_model', None) or '').strip()
-        or (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
-    )
+    explicit = (getattr(connection, 'embeddings_model', None) or '').strip()
+    if explicit:
+        return explicit
+    # llama-server exposes GGUF / preset ids on ``/v1/models``; OpenAI's default id breaks probes.
+    if connection.provider == 'llamacpp':
+        chat_model = (connection.model or '').strip()
+        if chat_model:
+            return chat_model
+    return (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
 
 
 def _prune_embedding_probe_cache(now: float) -> None:
@@ -134,6 +139,29 @@ class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
 
     async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         return [await self._aget_text_embedding(t) for t in texts]
+
+
+# LlamaIndex validates ``model`` against ``OpenAIEmbeddingModelType`` (OpenAI ids only). Local servers expose arbitrary ids.
+_LLAMA_INDEX_OPENAI_EMBEDDING_STUB = 'text-embedding-3-small'
+
+
+def _openai_compatible_local_embedding(connection: RuntimeConnection) -> bool:
+    return connection.provider in ('llamacpp', 'lmstudio')
+
+
+def _make_chunk_pooling_embedding(connection: RuntimeConnection, **kwargs: Any) -> ChunkPoolingOpenAIEmbedding:
+    """Build :class:`ChunkPoolingOpenAIEmbedding`, bypassing enum validation for LM Studio / llama.cpp model names."""
+    model = (kwargs.pop('model', None) or '').strip() or _LLAMA_INDEX_OPENAI_EMBEDDING_STUB
+    if not _openai_compatible_local_embedding(connection):
+        kwargs['model'] = model
+        return ChunkPoolingOpenAIEmbedding(**kwargs)
+    real_id = model
+    kwargs['model'] = _LLAMA_INDEX_OPENAI_EMBEDDING_STUB
+    emb = ChunkPoolingOpenAIEmbedding(**kwargs)
+    emb._query_engine = real_id
+    emb._text_engine = real_id
+    emb.model_name = real_id
+    return emb
 
 
 def normalize_openai_api_base(raw: str) -> str | None:
@@ -237,7 +265,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
     skip_probe = probe_hit is not None and (now - probe_hit) < _EMBEDDING_PROBE_TTL_SEC
 
     try:
-        embed = ChunkPoolingOpenAIEmbedding(**kwargs)
+        embed = _make_chunk_pooling_embedding(connection, **kwargs)
         if not skip_probe:
             embed.get_query_embedding('nemo')
             _embedding_probe_ok_mono[probe_key] = time.monotonic()

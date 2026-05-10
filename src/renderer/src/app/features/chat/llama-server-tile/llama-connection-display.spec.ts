@@ -19,6 +19,38 @@ describe('llamaCrystalAggregateFromPayload', () => {
     ).toBe('off');
   });
 
+  it('treats remote URL presets as live for crystal state', () => {
+    expect(
+      llamaCrystalAggregateFromPayload({
+        ok: true,
+        remote: true,
+        running: false,
+        modelId: 'm',
+        chat: { port: 8080, health: 'ok' },
+      }),
+    ).toBe('ok');
+    expect(
+      llamaCrystalAggregateFromPayload({
+        ok: true,
+        remote: true,
+        running: false,
+        modelId: 'm',
+        chat: { port: 8080, health: 'ok' },
+        embed: { port: 8081, health: 'ok' },
+      }),
+    ).toBe('ok');
+    expect(
+      llamaCrystalAggregateFromPayload({
+        ok: true,
+        remote: true,
+        running: false,
+        modelId: 'm',
+        chat: { port: 8080, health: 'ok' },
+        embed: { port: 8081, health: 'error' },
+      }),
+    ).toBe('error');
+  });
+
   it('prioritizes error over loading and ok', () => {
     expect(
       llamaCrystalAggregateFromPayload({
@@ -109,6 +141,19 @@ describe('computeStatusPollIntervalMs', () => {
         embed: { port: 2, health: 'loading' },
       }),
     ).toBe(2500);
+  });
+
+  it('uses long interval when remote and all probed parts are ok', () => {
+    expect(
+      computeStatusPollIntervalMs({
+        ok: true,
+        remote: true,
+        running: false,
+        modelId: 'm',
+        chat: { port: 8080, health: 'ok' },
+        embed: { port: 8081, health: 'ok' },
+      }),
+    ).toBe(15000);
   });
 });
 

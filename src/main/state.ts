@@ -29,5 +29,17 @@ export const mainState = {
   monacoWorkspaceUnsavedPaths: [] as string[],
   /** One-shot TTS payloads for `nemo-tts://` stream URLs (WAV from local Kokoro). */
   ttsStreamTokens: new Map<string, { text: string; voice: string; speed: number }>(),
-  ttsAbort: null as AbortController | null,
+  /**
+   * Active TTS fetch abort handles (`ipc:<seq>` from renderer, `proto:<token>` from `nemo-tts://`).
+   * Multiple IPC streams may run concurrently so the next chunk can prefetch while the current plays.
+   */
+  ttsStreamControllers: new Map<string, AbortController>(),
 };
+
+/** Abort every in-flight TTS HTTP fetch (IPC streams and `nemo-tts://` protocol). */
+export function abortAllTtsStreamControllers(): void {
+  for (const c of mainState.ttsStreamControllers.values()) {
+    c.abort();
+  }
+  mainState.ttsStreamControllers.clear();
+}

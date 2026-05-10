@@ -20,11 +20,6 @@ export type GemmaArchitectureHint = 'auto' | 'dense';
 export interface LlamaCppManaged {
   chatRunCommand: string;
   embeddingRunCommand: string;
-  /**
-   * Optional Hugging Face access token for ``-hf`` / hub downloads (gated or private repos).
-   * Injected as ``HF_TOKEN`` and ``HUGGING_FACE_HUB_TOKEN`` when the app spawns managed ``llama-server`` processes.
-   */
-  huggingFaceToken?: string;
 }
 
 /**
@@ -87,7 +82,7 @@ export interface LlmProviderConfig {
   id: string;
   name: string;
   /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). */
-  provider: 'openai' | 'lmstudio' | 'llamacpp';
+  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'python-t2i';
   baseUrl: string;
   apiKey: string;
   /**
@@ -157,6 +152,14 @@ export interface HealthMonitorConfig {
   logLevel: 'debug' | 'info' | 'warning' | 'error';
   /** Enables live system metric polling in the health window. */
   metricsEnabled: boolean;
+}
+
+/** Local model catalog preferences used by Settings → Model Manager. */
+export interface ModelManagerConfig {
+  /** Absolute custom directory where local model cards are sourced from. */
+  customModelsDir: string;
+  /** Shared Hugging Face token for model search and managed llama `-hf` pulls. */
+  huggingFaceToken: string;
 }
 
 /** Workspace agent tool limits and edit-tool surface; synced to Python `/runtime-config`. */
@@ -417,6 +420,7 @@ export interface AppConfig {
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
   healthMonitor: HealthMonitorConfig;
+  modelManager: ModelManagerConfig;
   /** Chat message font size in `rem` (e.g. 0.9). Client-only UI preference. */
   chatFontSizeRem?: number;
   /** Workspace Monaco editor options (client-only). */

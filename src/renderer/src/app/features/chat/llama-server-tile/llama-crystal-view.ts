@@ -12,17 +12,15 @@ import {
   viewChild,
 } from '@angular/core';
 import type {
+  Bone,
   Clock,
   DirectionalLight,
   HemisphereLight,
   Mesh,
-  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
-  Quaternion,
   Scene,
-  Vector3,
   WebGLRenderer,
 } from 'three';
 import {
@@ -33,58 +31,249 @@ import {
 
 type ThreeModule = typeof import('three');
 
-/** Procedural lowercase “t”: long stem, crossbar in the upper third, short ascender above the bar (not a cap “T”). */
-function createGlowingCross(T: ThreeModule): {
+/** Procedural stylized status circle model for the status viewport. */
+function createStatusCircleModel(T: ThreeModule): {
   root: import('three').Group;
-  tintMaterials: MeshStandardMaterial[];
+  pulseMaterials: MeshStandardMaterial[];
+  growthMeshes: import('three').Mesh[];
+  growthBones: import('three').Bone[];
 } {
   const root = new T.Group();
-
-  const stemGeom = new T.BoxGeometry(0.26, 1.34, 0.26);
-  const beamGeom = new T.BoxGeometry(0.68, 0.22, 0.26);
-  const stem = new T.Mesh(stemGeom);
-  stem.position.set(0, -0.19, 0);
-  const beam = new T.Mesh(beamGeom);
-  beam.position.set(0, 0.22, 0);
-
-  const coreMat = new T.MeshStandardMaterial({
-    color: new T.Color(1, 1, 1),
+  const skinMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.48, 0.67, 0.42),
+    metalness: 0.03,
+    roughness: 0.78,
+  });
+  const tunicMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.25, 0.12, 0.39),
+    metalness: 0.16,
+    roughness: 0.5,
+  });
+  const hairMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.49, 0.23, 0.71),
     metalness: 0.06,
-    roughness: 0.28,
-    emissive: new T.Color(1, 1, 1),
-    emissiveIntensity: 0.55,
+    roughness: 0.45,
+    emissive: new T.Color(0.13, 0.06, 0.24),
+    emissiveIntensity: 0.18,
   });
-  stem.material = coreMat;
-  beam.material = coreMat;
-
-  const glowMat = new T.MeshStandardMaterial({
-    color: new T.Color(1, 1, 1),
+  const bootMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.14, 0.09, 0.18),
+    metalness: 0.2,
+    roughness: 0.62,
+  });
+  const tuskMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.93, 0.87, 0.74),
+    metalness: 0.03,
+    roughness: 0.6,
+  });
+  const eyeGlowMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.95, 0.8, 1),
     metalness: 0,
-    roughness: 1,
-    emissive: new T.Color(1, 1, 1),
-    emissiveIntensity: 0.35,
-    transparent: true,
-    opacity: 0.42,
-    depthWrite: false,
-    side: T.DoubleSide,
+    roughness: 0.2,
+    emissive: new T.Color(0.88, 0.48, 1),
+    emissiveIntensity: 0.64,
   });
-  glowMat.userData['emissiveScale'] = 1.12;
+  eyeGlowMat.userData['emissiveScale'] = 1.18;
+  const chestMat = new T.MeshStandardMaterial({
+    color: new T.Color(0.57, 0.24, 0.79),
+    metalness: 0.1,
+    roughness: 0.38,
+    emissive: new T.Color(0.16, 0.08, 0.25),
+    emissiveIntensity: 0.24,
+  });
+  chestMat.userData['emissiveScale'] = 1.14;
 
-  const glowStem = new T.Mesh(stemGeom.clone());
-  glowStem.position.copy(stem.position);
-  glowStem.scale.setScalar(1.14);
-  glowStem.material = glowMat;
+  const torso = new T.Mesh(new T.CapsuleGeometry(0.2, 0.5, 8, 14), tunicMat);
+  torso.position.set(0, -0.03, 0);
+  torso.scale.set(1.26, 1.08, 0.92);
+  root.add(torso);
 
-  const glowBeam = new T.Mesh(beamGeom.clone());
-  glowBeam.position.copy(beam.position);
-  glowBeam.scale.setScalar(1.14);
-  glowBeam.material = glowMat;
+  const upperTorso = new T.Mesh(new T.SphereGeometry(0.26, 24, 16), tunicMat);
+  upperTorso.position.set(0, 0.14, 0.01);
+  upperTorso.scale.set(1.08, 0.85, 0.9);
+  root.add(upperTorso);
 
-  root.add(glowStem, glowBeam, stem, beam);
-  root.scale.setScalar(2);
+  const waist = new T.Mesh(new T.CylinderGeometry(0.2, 0.18, 0.18, 16), tunicMat);
+  waist.position.set(0, -0.36, 0);
+  root.add(waist);
 
-  const tintMaterials: MeshStandardMaterial[] = [coreMat, glowMat];
-  return { root, tintMaterials };
+  const hips = new T.Mesh(new T.SphereGeometry(0.29, 24, 16), tunicMat);
+  hips.position.set(0, -0.57, 0.01);
+  hips.scale.set(1.08, 0.64, 0.98);
+  root.add(hips);
+
+  const hipSkirt = new T.Mesh(new T.TorusGeometry(0.23, 0.05, 10, 36), hairMat);
+  hipSkirt.position.set(0, -0.49, 0);
+  hipSkirt.rotation.x = Math.PI / 2;
+  root.add(hipSkirt);
+
+  const neck = new T.Mesh(new T.CylinderGeometry(0.08, 0.08, 0.1, 12), skinMat);
+  neck.position.set(0, 0.36, 0.01);
+  root.add(neck);
+
+  const head = new T.Mesh(new T.SphereGeometry(0.25, 24, 16), skinMat);
+  head.position.set(0, 0.62, 0.02);
+  root.add(head);
+
+  const hairCap = new T.Mesh(new T.SphereGeometry(0.265, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
+  hairCap.position.copy(head.position);
+  root.add(hairCap);
+
+  const ponytail = new T.Mesh(new T.CylinderGeometry(0.07, 0.03, 0.26, 14), hairMat);
+  ponytail.position.set(0, 0.46, -0.2);
+  ponytail.rotation.x = -0.4;
+  root.add(ponytail);
+  const sideBraidL = new T.Mesh(new T.CylinderGeometry(0.03, 0.02, 0.24, 10), hairMat);
+  sideBraidL.position.set(-0.17, 0.46, 0.11);
+  sideBraidL.rotation.z = 0.22;
+  const sideBraidR = sideBraidL.clone();
+  sideBraidR.position.x = 0.17;
+  sideBraidR.rotation.z = -0.22;
+  root.add(sideBraidL, sideBraidR);
+
+  const eyeL = new T.Mesh(new T.SphereGeometry(0.03, 10, 8), eyeGlowMat);
+  eyeL.position.set(-0.075, 0.64, 0.24);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.075;
+  root.add(eyeL, eyeR);
+
+  const tuskL = new T.Mesh(new T.ConeGeometry(0.03, 0.11, 10), tuskMat);
+  tuskL.position.set(-0.065, 0.5, 0.23);
+  tuskL.rotation.z = 0.36;
+  tuskL.rotation.x = Math.PI;
+  const tuskR = tuskL.clone();
+  tuskR.position.x = 0.065;
+  tuskR.rotation.z = -0.36;
+  root.add(tuskL, tuskR);
+
+  const earL = new T.Mesh(new T.ConeGeometry(0.045, 0.2, 10), skinMat);
+  earL.position.set(-0.24, 0.62, -0.01);
+  earL.rotation.z = 0.95;
+  const earR = earL.clone();
+  earR.position.x = 0.24;
+  earR.rotation.z = -0.95;
+  root.add(earL, earR);
+
+  const shoulderL = new T.Mesh(new T.SphereGeometry(0.11, 14, 10), tunicMat);
+  shoulderL.position.set(-0.34, 0.14, 0.01);
+  const shoulderR = shoulderL.clone();
+  shoulderR.position.x = 0.34;
+  root.add(shoulderL, shoulderR);
+
+  const armGeom = new T.CylinderGeometry(0.055, 0.05, 0.4, 12);
+  const armL = new T.Mesh(armGeom, skinMat);
+  armL.position.set(-0.36, -0.15, 0.01);
+  armL.rotation.z = 0.18;
+  const armR = armL.clone();
+  armR.position.x = 0.36;
+  armR.rotation.z = -0.18;
+  root.add(armL, armR);
+
+  const bracerGeom = new T.CylinderGeometry(0.06, 0.06, 0.11, 12);
+  const bracerL = new T.Mesh(bracerGeom, hairMat);
+  bracerL.position.set(-0.4, -0.31, 0.02);
+  bracerL.rotation.z = 0.18;
+  const bracerR = bracerL.clone();
+  bracerR.position.x = 0.4;
+  bracerR.rotation.z = -0.18;
+  root.add(bracerL, bracerR);
+
+  const handGeom = new T.SphereGeometry(0.055, 12, 10);
+  const handL = new T.Mesh(handGeom, skinMat);
+  handL.position.set(-0.43, -0.38, 0.03);
+  const handR = handL.clone();
+  handR.position.x = 0.43;
+  root.add(handL, handR);
+
+  const legGeom = new T.CapsuleGeometry(0.075, 0.34, 8, 12);
+  const legL = new T.Mesh(legGeom, skinMat);
+  legL.position.set(-0.14, -0.86, 0.01);
+  legL.scale.set(1.0, 1.1, 0.95);
+  const legR = legL.clone();
+  legR.position.x = 0.14;
+  root.add(legL, legR);
+
+  const bootGeom = new T.BoxGeometry(0.16, 0.16, 0.27);
+  const bootL = new T.Mesh(bootGeom, bootMat);
+  bootL.position.set(-0.14, -1.13, 0.06);
+  bootL.scale.set(1.06, 0.95, 1.16);
+  const bootR = bootL.clone();
+  bootR.position.x = 0.14;
+  root.add(bootL, bootR);
+
+  const belt = new T.Mesh(new T.TorusGeometry(0.22, 0.03, 10, 32), chestMat);
+  belt.position.set(0, -0.4, 0);
+  belt.rotation.x = Math.PI / 2;
+  root.add(belt);
+
+  const chestL = new T.Mesh(new T.SphereGeometry(0.12, 16, 12), chestMat);
+  chestL.position.set(-0.11, 0.04, 0.18);
+  chestL.scale.set(1, 0.86, 0.84);
+  const chestR = chestL.clone();
+  chestR.position.x = 0.11;
+  root.add(chestL, chestR);
+
+  const rune = new T.Mesh(new T.SphereGeometry(0.05, 12, 10), eyeGlowMat);
+  rune.position.set(0, -0.03, 0.2);
+  rune.scale.set(1, 1.2, 0.55);
+  root.add(rune);
+
+  root.scale.setScalar(1.38);
+  root.rotation.y = 0.2;
+
+  const pulseMaterials: MeshStandardMaterial[] = [eyeGlowMat, hairMat, chestMat];
+  const growthMeshes = [chestL, chestR];
+  return { root, pulseMaterials, growthMeshes, growthBones: [] };
+}
+
+async function loadLegacyIndicator(T: ThreeModule): Promise<{
+  root: import('three').Object3D;
+  pulseMaterials: MeshStandardMaterial[];
+  growthMeshes: import('three').Mesh[];
+  growthBones: import('three').Bone[];
+}> {
+  const { IndicatorLoader } = await import('three/examples/jsm/loaders/IndicatorLoader.js');
+  const loader = new IndicatorLoader();
+  const modelUrl = new URL('', window.location.href).toString();
+  const loaded = await loader.loadAsync(modelUrl);
+  const root = loaded.scene || loaded.scenes?.[0];
+  if (!root) {
+    throw new Error('status indicator has no scene');
+  }
+
+  const pulseMaterials = new Set<MeshStandardMaterial>();
+  const growthMeshes: import('three').Mesh[] = [];
+  const growthBones: import('three').Bone[] = [];
+  const chestMeshRx = /(breast|boob|bust|chest)/i;
+  const chestBoneRx = /(breast|boob|bust|chest|spine_?0?2|spine_?0?3)/i;
+
+  root.traverse((obj) => {
+    if (obj instanceof T.Mesh) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        if (m instanceof T.MeshStandardMaterial) {
+          if (m.emissiveIntensity > 0 || m.emissive.r > 0 || m.emissive.g > 0 || m.emissive.b > 0) {
+            m.userData['emissiveScale'] = typeof m.userData['emissiveScale'] === 'number' ? m.userData['emissiveScale'] : 1.08;
+            pulseMaterials.add(m);
+          }
+        }
+      }
+      if (obj.name && chestMeshRx.test(obj.name)) {
+        growthMeshes.push(obj);
+      }
+    }
+    if (obj instanceof T.Bone && obj.name && chestBoneRx.test(obj.name)) {
+      growthBones.push(obj);
+    }
+  });
+
+  root.rotation.y = 0.2;
+  return {
+    root,
+    pulseMaterials: [...pulseMaterials],
+    growthMeshes,
+    growthBones,
+  };
 }
 
 @Component({
@@ -116,15 +305,11 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private scene: Scene | null = null;
   private camera: PerspectiveCamera | null = null;
   private modelRoot: Object3D | null = null;
-  /** Single thin gold ring behind the cross; billboards + spins, not parented to ``modelRoot``. */
-  private embedHaloMesh: Mesh | null = null;
-  private embedHaloMat: MeshBasicMaterial | null = null;
-  private haloMaxDim = 1;
-  private haloOpacity = 0;
-  private haloScratchDir: Vector3 | null = null;
-  private haloSpinQuat: Quaternion | null = null;
-  private haloSpinAngle = 0;
-  private tintMaterials: MeshStandardMaterial[] = [];
+  private pulseMaterials: MeshStandardMaterial[] = [];
+  private growthMeshes: Mesh[] = [];
+  private growthBones: Bone[] = [];
+  private readonly growthMeshBaseScale = new Map<Mesh, { x: number; y: number; z: number }>();
+  private readonly growthBoneBaseScale = new Map<Bone, { x: number; y: number; z: number }>();
   private clock: Clock | null = null;
   private rafId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -135,6 +320,7 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private bobPhase = 0;
   private bobAmp = 0;
   private baseModelY = 0;
+  private chestGrowthScale = 1;
   /** Smoothed emissive intensity (color stays pure white). */
   private curEi = 0.5;
 
@@ -182,7 +368,6 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.disposeModel();
-    this.disposeEmbedHalo();
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
@@ -255,7 +440,20 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       if (this.disposed) {
         return;
       }
-      const { root, tintMaterials } = createGlowingCross(T);
+      let loaded:
+        | {
+            root: Object3D;
+            pulseMaterials: MeshStandardMaterial[];
+            growthMeshes: Mesh[];
+            growthBones: Bone[];
+          }
+        | null = null;
+      try {
+        loaded = await loadLegacyIndicator(T);
+      } catch {
+        loaded = null;
+      }
+      const { root, pulseMaterials, growthMeshes, growthBones } = loaded ?? createStatusCircleModel(T);
       this.modelRoot = root;
       this.scene.add(this.modelRoot);
 
@@ -272,33 +470,27 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       this.camera.updateProjectionMatrix();
       this.camera.lookAt(0, maxDim * 0.05, 0);
 
-      this.haloMaxDim = maxDim;
-      this.haloScratchDir = new T.Vector3();
-      this.haloSpinQuat = new T.Quaternion();
-
-      const rMid = maxDim * 0.515;
-      const halfStripe = maxDim * 0.012;
-      const ringInner = rMid - halfStripe;
-      const ringOuter = rMid + halfStripe;
-      const haloGeom = new T.RingGeometry(ringInner, ringOuter, 96);
-      const gold = new T.Color(1, 0.9, 0.45);
-      const haloMat = new T.MeshBasicMaterial({
-        color: gold,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: T.AdditiveBlending,
-        side: T.DoubleSide,
-        toneMapped: false,
-      });
-      const haloMesh = new T.Mesh(haloGeom, haloMat);
-      haloMesh.renderOrder = -1;
-      this.scene.add(haloMesh);
-      this.embedHaloMesh = haloMesh;
-      this.embedHaloMat = haloMat;
-
-      this.tintMaterials = tintMaterials;
-      for (const mat of this.tintMaterials) {
+      this.pulseMaterials = pulseMaterials;
+      this.growthMeshes = growthMeshes;
+      this.growthBones = growthBones;
+      this.chestGrowthScale = 1;
+      this.growthMeshBaseScale.clear();
+      for (const mesh of this.growthMeshes) {
+        this.growthMeshBaseScale.set(mesh, {
+          x: mesh.scale.x,
+          y: mesh.scale.y,
+          z: mesh.scale.z,
+        });
+      }
+      this.growthBoneBaseScale.clear();
+      for (const bone of this.growthBones) {
+        this.growthBoneBaseScale.set(bone, {
+          x: bone.scale.x,
+          y: bone.scale.y,
+          z: bone.scale.z,
+        });
+      }
+      for (const mat of this.pulseMaterials) {
         mat.emissive = mat.emissive.clone();
         mat.emissiveIntensity = Math.max(mat.emissiveIntensity ?? 0, 0.02);
       }
@@ -311,7 +503,6 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
         this.cdr.markForCheck();
       }
       this.disposeModel();
-      this.disposeEmbedHalo();
       if (this.renderer) {
         this.renderer.dispose();
         this.renderer = null;
@@ -349,11 +540,9 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     const emAlpha = expSmoothingAlpha(dt, 0.38);
     this.curEi += (targetEi - this.curEi) * emAlpha;
 
-    for (const mat of this.tintMaterials) {
+    for (const mat of this.pulseMaterials) {
       const emScale =
         typeof mat.userData['emissiveScale'] === 'number' ? (mat.userData['emissiveScale'] as number) : 1;
-      mat.color.setRGB(1, 1, 1);
-      mat.emissive.setRGB(1, 1, 1);
       mat.emissiveIntensity = this.curEi * emScale;
     }
 
@@ -386,28 +575,25 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       }
     }
 
-    const halo = this.embedHaloMesh;
-    const haloMat = this.embedHaloMat;
-    const scratch = this.haloScratchDir;
-    const spinQ = this.haloSpinQuat;
-    if (halo && haloMat && scratch && spinQ && this.modelRoot && this.camera) {
-      const embedOn = this.embedLoaded();
-      const targetHaloOp = embedOn ? 0.92 : 0;
-      this.haloOpacity += (targetHaloOp - this.haloOpacity) * expSmoothingAlpha(dt, 0.32);
-      haloMat.opacity = this.haloOpacity;
-      halo.visible = this.haloOpacity > 0.004;
-      if (halo.visible) {
-        this.camera.getWorldDirection(scratch);
-        const depth = this.haloMaxDim * 0.26;
-        halo.position.copy(this.modelRoot.position).addScaledVector(scratch, depth);
-        if (embedOn) {
-          this.haloSpinAngle += this.spinSpeed * dt;
-          spinQ.setFromAxisAngle(scratch, this.haloSpinAngle);
-          halo.quaternion.copy(this.camera.quaternion).premultiply(spinQ);
-        } else {
-          halo.quaternion.copy(this.camera.quaternion);
-        }
+    const targetChestScale = this.embedLoaded() ? 1.42 : 1;
+    this.chestGrowthScale += (targetChestScale - this.chestGrowthScale) * expSmoothingAlpha(dt, 0.24);
+    for (const mesh of this.growthMeshes) {
+      const base = this.growthMeshBaseScale.get(mesh);
+      if (!base) {
+        continue;
       }
+      mesh.scale.set(
+        base.x * this.chestGrowthScale,
+        base.y * this.chestGrowthScale,
+        base.z * this.chestGrowthScale,
+      );
+    }
+    for (const bone of this.growthBones) {
+      const base = this.growthBoneBaseScale.get(bone);
+      if (!base) {
+        continue;
+      }
+      bone.scale.set(base.x * this.chestGrowthScale, base.y, base.z * this.chestGrowthScale);
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -416,7 +602,11 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private disposeModel(): void {
     const T = this.three;
     if (!this.modelRoot) {
-      this.tintMaterials = [];
+      this.pulseMaterials = [];
+      this.growthMeshes = [];
+      this.growthBones = [];
+      this.growthMeshBaseScale.clear();
+      this.growthBoneBaseScale.clear();
       return;
     }
     this.scene?.remove(this.modelRoot);
@@ -435,22 +625,11 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       }
     });
     this.modelRoot = null;
-    this.tintMaterials = [];
-  }
-
-  private disposeEmbedHalo(): void {
-    const mesh = this.embedHaloMesh;
-    const mat = this.embedHaloMat;
-    if (mesh && this.scene) {
-      this.scene.remove(mesh);
-      mesh.geometry.dispose();
-    }
-    if (mat) {
-      mat.dispose();
-    }
-    this.embedHaloMesh = null;
-    this.embedHaloMat = null;
-    this.haloScratchDir = null;
-    this.haloSpinQuat = null;
+    this.pulseMaterials = [];
+    this.growthMeshes = [];
+    this.growthBones = [];
+    this.growthMeshBaseScale.clear();
+    this.growthBoneBaseScale.clear();
+    this.chestGrowthScale = 1;
   }
 }

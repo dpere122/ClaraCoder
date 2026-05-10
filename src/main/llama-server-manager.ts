@@ -146,9 +146,9 @@ function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
   return `${out}\n${err}`.slice(-12_000);
 }
 
-function buildManagedLlamaSpawnEnv(managed: LlamaCppManaged | undefined): NodeJS.ProcessEnv {
+function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  const tok = managed?.huggingFaceToken?.trim();
+  const tok = config.modelManager.huggingFaceToken.trim();
   if (tok) {
     env.HF_TOKEN = tok;
     env.HUGGING_FACE_HUB_TOKEN = tok;
@@ -163,7 +163,7 @@ function hfWarmHintFromLogs(logBuf: StreamBuf, kind: StreamKind): string {
       t,
     )
   ) {
-    return ' Hugging Face rejected the request (often HTTP 401 for gated or private repos). Set a read token in Clara → Settings → Models → this preset → Hugging Face token (used when you Start managed servers), or set HF_TOKEN in your user environment.';
+    return ' Hugging Face rejected the request (often HTTP 401 for gated or private repos). Set a read token in Clara → Settings → Model Manager → Hugging Face token (used when you Start managed servers), or set HF_TOKEN in your user environment.';
   }
   if (/repository not found|"error":\s*"repository not found"|manifests\//i.test(t)) {
     return ' Hugging Face returned 404 (unknown repo, branch, or manifest/quantization tag in your chat `-hf` command). Fix chat first: the embedding server starts only after chat is healthy, so a bad chat preset used to abort an embed download mid-way.';
@@ -255,7 +255,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
 
   const logBuf: StreamBuf = { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
   let embedProc: ChildProcess | undefined;
-  const spawnEnv = buildManagedLlamaSpawnEnv(managed);
+  const spawnEnv = buildManagedLlamaSpawnEnv(config);
 
   try {
     /**

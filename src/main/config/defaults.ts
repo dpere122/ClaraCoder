@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { homedir } from 'os';
 import path = require('path');
 import type {
   AppConfig,
@@ -6,10 +7,12 @@ import type {
   HealthMonitorConfig,
   LlmModelProfile,
   LlmProviderConfig,
+  ModelManagerConfig,
   Workspace,
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
+  DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_KOKORO_TTS_VOICE,
   defaultLlamaCppManaged,
   defaultMonacoWorkspaceEditorSettings,
@@ -22,7 +25,7 @@ import {
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` should reset LLM sources to defaults (see `migrateConfig`). */
-export const APP_CONFIG_SCHEMA_VERSION = 3;
+export const APP_CONFIG_SCHEMA_VERSION = 4;
 
 /** Seed LLM rows from env (LM Studio + llama-server defaults). */
 function getDefaultPlanRetryAttemptsCount(): number {
@@ -69,7 +72,7 @@ export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
   const defaultLlamacppModel = process.env.LLAMACPP_MODEL || 'local-model';
   const chatRunCommand =
     process.env.LLAMACPP_CHAT_RUN_COMMAND ||
-    'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
+    DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
   const embeddingRunCommand = process.env.LLAMACPP_EMBEDDING_RUN_COMMAND || '';
   return {
     id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
@@ -175,6 +178,13 @@ export function getDefaultHealthMonitor(): HealthMonitorConfig {
   };
 }
 
+export function getDefaultModelManagerConfig(): ModelManagerConfig {
+  return {
+    customModelsDir: path.join(homedir(), 'models'),
+    huggingFaceToken: '',
+  };
+}
+
 /** Fresh config file shape before first save. */
 export function createDefaultConfig(): AppConfig {
   const llmProviders = getDefaultLlmProviders();
@@ -190,6 +200,7 @@ export function createDefaultConfig(): AppConfig {
     audioTranscription: getDefaultAudioTranscription(),
     workspaceTools: getDefaultWorkspaceTools(),
     healthMonitor: getDefaultHealthMonitor(),
+    modelManager: getDefaultModelManagerConfig(),
     chatFontSizeRem: 0.9,
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
   };

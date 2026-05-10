@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,8 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
 from nemo_backend.planner_graph_session import cleanup_planner_graph_session
-from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
-from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes, flush_semantic_index_patches
+from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes
 from nemo_backend.workspace_index.lifecycle import (
     invalidate_staging_index_disk,
     invalidate_workspace_index_disk,
@@ -101,20 +99,11 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
         enqueue_semantic_index_changes(sess, ch.paths, ch.kinds)
 
     if new_path:
-        try:
-            conn = state.get_active_connection()
-            embed_model, _em_err = build_embedding_model(conn)
-            if embed_model is not None:
-                flush_semantic_index_patches(
-                    request.session_id,
-                    sess,
-                    Path(new_path),
-                    sess.workspace_id,
-                    embed_model,
-                    embedding_model_id=resolve_embedding_model_id(conn),
-                )
-        except Exception:
-            logger.debug('semantic index flush after workspace-context failed', exc_info=True)
+        # Keep watcher updates queued, but do not flush embeddings/index work from
+        # workspace-context sync. This endpoint is high-frequency and can otherwise
+        # spam the embeddings server outside explicit semantic-retrieval tool usage.
+        # Queued changes are still flushed by semantic retrieval paths.
+        pass
 
     if not new_path:
         sess.semantic_index_pending.clear()

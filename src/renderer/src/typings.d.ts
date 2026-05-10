@@ -18,6 +18,10 @@ import type {
   LlamaServerStatusResult,
   LlamacppManagedListModelsResult,
   LlmStatus,
+  ModelManagerDetectCachesResult,
+  ModelManagerHfSearchResult,
+  ModelManagerListModelsResult,
+  ModelManagerMutationResult,
   LmStudioListModelsResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
@@ -166,6 +170,26 @@ declare global {
     openDirectoryDialog: () => Promise<string | null>;
     readDirectory: (dirPath: string) => Promise<FileEntry[]>;
     readDirectoryRecursive: (dirPath: string) => Promise<string>;
+    modelManagerPickCustomDir: () => Promise<string | null>;
+    modelManagerListCustomModels: (payload: { customDir: string }) => Promise<ModelManagerListModelsResult>;
+    modelManagerDetectCaches: () => Promise<ModelManagerDetectCachesResult>;
+    modelManagerListCacheCandidates: (payload: { cachePaths: string[] }) => Promise<ModelManagerListModelsResult>;
+    modelManagerMigrateModel: (payload: {
+      sourcePath: string;
+      customDir: string;
+      mode: 'copy' | 'move';
+    }) => Promise<ModelManagerMutationResult>;
+    modelManagerRenameModel: (payload: {
+      customDir: string;
+      modelPath: string;
+      newFileName: string;
+    }) => Promise<ModelManagerMutationResult>;
+    modelManagerDeleteModel: (payload: { customDir: string; modelPath: string }) => Promise<ModelManagerMutationResult>;
+    modelManagerSearchHf: (payload: {
+      query: string;
+      token?: string;
+      limit?: number;
+    }) => Promise<ModelManagerHfSearchResult>;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;

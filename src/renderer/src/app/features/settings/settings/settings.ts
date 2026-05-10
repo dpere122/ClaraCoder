@@ -5,12 +5,15 @@ import { Subscription } from 'rxjs';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
+  HuggingFaceModelSearchItem,
   LlamaCppManaged,
   LlmConnectionConfig,
   LlmModelProfile,
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
+  ModelManagerCacheLocation,
+  ModelManagerFileEntry,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   Workspace,
@@ -18,6 +21,7 @@ import type {
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
+  DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_KOKORO_TTS_VOICE,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
@@ -47,7 +51,7 @@ import { FontControl } from '../../layout/font-control/font-control';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import { LucideAngularModule } from 'lucide-angular';
 
-type SettingsTab = 'general' | 'appearance' | 'models' | 'tools' | 'monaco' | 'audio' | 'workspaces';
+type SettingsTab = 'general' | 'appearance' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
 
 const TALK_SILENCE_THRESHOLD_MIN = 0.5;
 const TALK_SILENCE_THRESHOLD_MAX = 5;
@@ -84,8 +88,7 @@ export class Settings implements OnInit, OnDestroy {
   /**
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
-  private static readonly newManagedLlamacppChatCommand =
-    'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
+  private static readonly newManagedLlamacppChatCommand = DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
   protected readonly selectedSettingsTab = signal<SettingsTab>('models');
   protected readonly tabs: Array<{ id: SettingsTab; label: string; description: string }> = [
     {
@@ -98,6 +101,12 @@ export class Settings implements OnInit, OnDestroy {
       label: 'Models',
       description:
         'LM Studio, remote llama-server (LAN), and local managed llama-server are built in. Add sources for more managed instances. The highlighted source is used for chat.',
+    },
+    {
+      id: 'modelManager',
+      label: 'Model Manager',
+      description:
+        'Manage local model files in one custom directory, migrate cache files, and search Hugging Face.',
     },
     {
       id: 'tools',
@@ -145,6 +154,16 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly defaultWorkspaceEncoding = signal('utf-8');
   protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
   protected readonly allowStagingOverlayCommands = signal(false);
+  protected readonly modelManagerCustomDir = signal('');
+  protected readonly modelManagerHfToken = signal('');
+  protected readonly modelManagerCustomModels = signal<ModelManagerFileEntry[]>([]);
+  protected readonly modelManagerCacheLocations = signal<ModelManagerCacheLocation[]>([]);
+  protected readonly modelManagerCacheCandidates = signal<ModelManagerFileEntry[]>([]);
+  protected readonly modelManagerHfQuery = signal('');
+  protected readonly modelManagerHfResults = signal<HuggingFaceModelSearchItem[]>([]);
+  protected readonly modelManagerStatus = signal('');
+  protected readonly modelManagerBusy = signal(false);
+  protected readonly modelManagerHfBusy = signal(false);
   protected readonly selectedLocation = computed(() => {
     const modelId = this.selectedModelId();
     if (!modelId) {
@@ -249,6 +268,8 @@ export class Settings implements OnInit, OnDestroy {
     this.selectedSettingsTab.set(tab);
     if (tab === 'audio') {
       void this.refreshTalkAudioInputs();
+    } else if (tab === 'modelManager') {
+      void this.refreshModelManagerData();
     }
   }
 
@@ -789,6 +810,217 @@ export class Settings implements OnInit, OnDestroy {
     });
   }
 
+  protected formatModelBytes(sizeBytes: number): string {
+    if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+      return '0 B';
+    }
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = sizeBytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
+  }
+
+  protected formatModelDate(modifiedMs: number): string {
+    if (!Number.isFinite(modifiedMs)) {
+      return '';
+    }
+    return new Date(modifiedMs).toLocaleString();
+  }
+
+  protected updateModelManagerConfig(changes: Partial<{ customModelsDir: string; huggingFaceToken: string }>): void {
+    if (changes.customModelsDir !== undefined) {
+      this.modelManagerCustomDir.set(changes.customModelsDir);
+    }
+    if (changes.huggingFaceToken !== undefined) {
+      this.modelManagerHfToken.set(changes.huggingFaceToken);
+    }
+    this.markSettingsDirty();
+  }
+
+  protected async pickModelManagerCustomDir(): Promise<void> {
+    const selected = await this.electron.modelManagerPickCustomDir();
+    if (!selected) {
+      return;
+    }
+    this.updateModelManagerConfig({ customModelsDir: selected });
+    this.modelManagerStatus.set('Custom model directory updated.');
+    await this.refreshModelManagerData();
+  }
+
+  protected async refreshModelManagerData(): Promise<void> {
+    await this.refreshCustomModelCards();
+    await this.refreshDetectedCaches();
+    await this.refreshCacheCandidates();
+  }
+
+  protected async refreshCustomModelCards(): Promise<void> {
+    const dir = this.modelManagerCustomDir().trim();
+    if (!dir) {
+      this.modelManagerCustomModels.set([]);
+      return;
+    }
+    this.modelManagerBusy.set(true);
+    try {
+      const res = await this.electron.modelManagerListCustomModels({ customDir: dir });
+      if (res.ok) {
+        this.modelManagerCustomModels.set(res.models);
+      } else {
+        this.modelManagerCustomModels.set([]);
+        this.modelManagerStatus.set(res.error);
+      }
+    } finally {
+      this.modelManagerBusy.set(false);
+    }
+  }
+
+  protected async refreshDetectedCaches(): Promise<void> {
+    const res = await this.electron.modelManagerDetectCaches();
+    if (!res.ok) {
+      this.modelManagerStatus.set(res.error);
+      this.modelManagerCacheLocations.set([]);
+      return;
+    }
+    this.modelManagerCacheLocations.set(res.caches);
+  }
+
+  protected async refreshCacheCandidates(): Promise<void> {
+    const existingCaches = this.modelManagerCacheLocations()
+      .filter((c) => c.exists)
+      .map((c) => c.path);
+    if (existingCaches.length === 0) {
+      this.modelManagerCacheCandidates.set([]);
+      return;
+    }
+    const res = await this.electron.modelManagerListCacheCandidates({ cachePaths: existingCaches });
+    if (!res.ok) {
+      this.modelManagerStatus.set(res.error);
+      this.modelManagerCacheCandidates.set([]);
+      return;
+    }
+    this.modelManagerCacheCandidates.set(res.models);
+  }
+
+  protected async migrateCacheModel(model: ModelManagerFileEntry): Promise<void> {
+    const customDir = this.modelManagerCustomDir().trim();
+    if (!customDir) {
+      this.modelManagerStatus.set('Set a custom model directory first.');
+      return;
+    }
+    const modeRaw = window.prompt(
+      `Migrate ${model.fileName}\nType "copy" or "move":`,
+      'copy',
+    );
+    if (!modeRaw) {
+      return;
+    }
+    const mode = modeRaw.trim().toLowerCase();
+    if (mode !== 'copy' && mode !== 'move') {
+      this.modelManagerStatus.set('Migration cancelled: mode must be "copy" or "move".');
+      return;
+    }
+    this.modelManagerBusy.set(true);
+    try {
+      const res = await this.electron.modelManagerMigrateModel({
+        sourcePath: model.absolutePath,
+        customDir,
+        mode,
+      });
+      if (!res.ok) {
+        this.modelManagerStatus.set(res.error);
+        return;
+      }
+      this.modelManagerStatus.set(`${model.fileName} migrated via ${mode}.`);
+      await this.refreshModelManagerData();
+    } finally {
+      this.modelManagerBusy.set(false);
+    }
+  }
+
+  protected async renameCustomModel(model: ModelManagerFileEntry): Promise<void> {
+    const customDir = this.modelManagerCustomDir().trim();
+    if (!customDir) {
+      return;
+    }
+    const nextName = window.prompt('Rename model file:', model.fileName);
+    if (!nextName || nextName.trim() === model.fileName) {
+      return;
+    }
+    this.modelManagerBusy.set(true);
+    try {
+      const res = await this.electron.modelManagerRenameModel({
+        customDir,
+        modelPath: model.absolutePath,
+        newFileName: nextName.trim(),
+      });
+      if (!res.ok) {
+        this.modelManagerStatus.set(res.error);
+        return;
+      }
+      this.modelManagerStatus.set(`Renamed to ${res.model?.fileName ?? nextName.trim()}.`);
+      await this.refreshCustomModelCards();
+    } finally {
+      this.modelManagerBusy.set(false);
+    }
+  }
+
+  protected async deleteCustomModel(model: ModelManagerFileEntry): Promise<void> {
+    const customDir = this.modelManagerCustomDir().trim();
+    if (!customDir) {
+      return;
+    }
+    const ok = window.confirm(`Delete model file ${model.fileName}?`);
+    if (!ok) {
+      return;
+    }
+    this.modelManagerBusy.set(true);
+    try {
+      const res = await this.electron.modelManagerDeleteModel({
+        customDir,
+        modelPath: model.absolutePath,
+      });
+      if (!res.ok) {
+        this.modelManagerStatus.set(res.error);
+        return;
+      }
+      this.modelManagerStatus.set(`Deleted ${model.fileName}.`);
+      await this.refreshCustomModelCards();
+    } finally {
+      this.modelManagerBusy.set(false);
+    }
+  }
+
+  protected async searchHuggingFaceModels(): Promise<void> {
+    const query = this.modelManagerHfQuery().trim();
+    if (!query) {
+      this.modelManagerHfResults.set([]);
+      return;
+    }
+    this.modelManagerHfBusy.set(true);
+    try {
+      const res = await this.electron.modelManagerSearchHf({
+        query,
+        token: this.modelManagerHfToken().trim(),
+        limit: 24,
+      });
+      if (!res.ok) {
+        this.modelManagerStatus.set(res.error);
+        this.modelManagerHfResults.set([]);
+        return;
+      }
+      this.modelManagerHfResults.set(res.models);
+    } finally {
+      this.modelManagerHfBusy.set(false);
+    }
+  }
+
+  protected onModelManagerHfQueryChange(value: string): void {
+    this.modelManagerHfQuery.set(value);
+  }
+
   protected updateAudioSettings(changes: Partial<AudioTranscriptionConfig>): void {
     if (changes.provider !== undefined) {
       this.audioProvider.set(changes.provider);
@@ -1111,6 +1343,10 @@ export class Settings implements OnInit, OnDestroy {
         defaultWorkspaceNewline: this.defaultWorkspaceNewline(),
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
       },
+      modelManager: {
+        customModelsDir: this.modelManagerCustomDir(),
+        huggingFaceToken: this.modelManagerHfToken(),
+      },
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
   }
@@ -1176,6 +1412,8 @@ export class Settings implements OnInit, OnDestroy {
       this.monacoWorkspaceEditor.set(
         normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
       );
+      this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
+      this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
       return;
     }
 
@@ -1225,6 +1463,8 @@ export class Settings implements OnInit, OnDestroy {
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
+    this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
+    this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
 
     const currentSelected = this.selectedModelId();
     const selectedStillValid =
@@ -1252,6 +1492,10 @@ export class Settings implements OnInit, OnDestroy {
     } else {
       this.llamacppManagedModelIds.set([]);
       this.llamacppModelsListError.set(null);
+    }
+
+    if (this.selectedSettingsTab() === 'modelManager') {
+      void this.refreshModelManagerData();
     }
 
     const themeToApply = currentWorkspace?.themeId || config.noWorkspaceThemeId || config.themeId || 'dark';

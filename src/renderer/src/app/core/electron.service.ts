@@ -27,6 +27,10 @@ import type {
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
+  ModelManagerDetectCachesResult,
+  ModelManagerHfSearchResult,
+  ModelManagerListModelsResult,
+  ModelManagerMutationResult,
   MaybeAutoTitleResult,
   PlannerProgress,
   PythonInterpreterListItem,
@@ -665,6 +669,60 @@ export class ElectronService {
     return this.api?.readDirectoryRecursive(dirPath) ?? Promise.resolve('');
   }
 
+  modelManagerPickCustomDir(): Promise<string | null> {
+    return this.api?.modelManagerPickCustomDir() ?? Promise.resolve(null);
+  }
+
+  modelManagerListCustomModels(payload: { customDir: string }): Promise<ModelManagerListModelsResult> {
+    return (
+      this.api?.modelManagerListCustomModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerDetectCaches(): Promise<ModelManagerDetectCachesResult> {
+    return (
+      this.api?.modelManagerDetectCaches() ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerListCacheCandidates(payload: { cachePaths: string[] }): Promise<ModelManagerListModelsResult> {
+    return (
+      this.api?.modelManagerListCacheCandidates(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerMigrateModel(payload: {
+    sourcePath: string;
+    customDir: string;
+    mode: 'copy' | 'move';
+  }): Promise<ModelManagerMutationResult> {
+    return (
+      this.api?.modelManagerMigrateModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerRenameModel(payload: {
+    customDir: string;
+    modelPath: string;
+    newFileName: string;
+  }): Promise<ModelManagerMutationResult> {
+    return (
+      this.api?.modelManagerRenameModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerDeleteModel(payload: { customDir: string; modelPath: string }): Promise<ModelManagerMutationResult> {
+    return (
+      this.api?.modelManagerDeleteModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerSearchHf(payload: { query: string; token?: string; limit?: number }): Promise<ModelManagerHfSearchResult> {
+    return (
+      this.api?.modelManagerSearchHf(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   async setWorkspaceContext(
     sessionId: string,
     workspacePath: string,
@@ -748,6 +806,10 @@ export class ElectronService {
       healthMonitor: {
         logLevel: 'info',
         metricsEnabled: false,
+      },
+      modelManager: {
+        customModelsDir: '',
+        huggingFaceToken: '',
       },
     });
   }

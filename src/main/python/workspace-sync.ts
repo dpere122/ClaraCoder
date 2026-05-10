@@ -8,6 +8,73 @@ import { flattenLlmProvidersToConnections } from '../../shared';
 import { PYTHON_URL } from './server';
 import { getHostOsInfo } from '../utils/host-os';
 
+function hasUrlScheme(s: string): boolean {
+  return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
+}
+
+function loopbackHost(hostname: string): boolean {
+  const h = hostname.trim().toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+/**
+ * ``0.0.0.0`` / ``::`` are server bind addresses; HTTP clients must use a concrete host (loopback for same machine).
+ */
+export function normalizeBindAllHostToLocalhost(url: string): string {
+  const s = url.trim();
+  if (!s) {
+    return s;
+  }
+  try {
+    const raw = hasUrlScheme(s) ? s : `http://${s}`;
+    const u = new URL(raw);
+    const h = u.hostname.toLowerCase();
+    if (h !== '0.0.0.0' && h !== '::') {
+      return s;
+    }
+    u.hostname = '127.0.0.1';
+    return u.href;
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * If chat targets a non-loopback host but the embeddings base URL still uses loopback,
+ * reuse the chat hostname so LAN setups do not keep the default ``127.0.0.1:8081`` row after
+ * updating chat to ``http://192.168.x.x:8080/v1`` only.
+ */
+export function alignLlamaEmbeddingsBaseUrlWithChatHost(chatBaseUrl: string, embeddingsBaseUrl: string): string {
+  const chat = chatBaseUrl.trim();
+  const emb = embeddingsBaseUrl.trim();
+  if (!chat || !emb) {
+    return emb;
+  }
+  try {
+    const chatRaw = hasUrlScheme(chat) ? chat : `http://${chat}`;
+    const embRaw = hasUrlScheme(emb) ? emb : `http://${emb}`;
+    const chatUrl = new URL(chatRaw);
+    const embUrl = new URL(embRaw);
+    if (!loopbackHost(embUrl.hostname)) {
+      return emb;
+    }
+    if (loopbackHost(chatUrl.hostname)) {
+      return emb;
+    }
+    embUrl.hostname = chatUrl.hostname;
+    let path = embUrl.pathname.replace(/\/+$/, '') || '';
+    if (!path.endsWith('/v1')) {
+      path = `${path}/v1`.replace(/\/+/g, '/');
+      if (!path.startsWith('/')) {
+        path = `/${path}`;
+      }
+    }
+    return `${embUrl.origin}${path}`;
+  } catch {
+    return emb;
+  }
+}
+
 /**
  * When false, Python skips workspace embeddings / semantic index for this connection.
  * llama.cpp: true only when the preset has a non-empty ``embeddingRunCommand`` and a reachable embeddings base URL is known
@@ -34,11 +101,17 @@ function connectionToRuntimeWire(
   c: LlmConnectionConfig,
   llamaOverride: LlamaManagedRuntimeEndpoints | undefined,
 ): Record<string, unknown> {
-  const baseUrl = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
-  const embeddingsBaseUrl =
+  const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
+  const baseUrl = normalizeBindAllHostToLocalhost(resolvedBase);
+  const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
       : (c.embeddingsBaseUrl ?? '').trim();
+  const alignedEmb =
+    c.provider === 'llamacpp'
+      ? alignLlamaEmbeddingsBaseUrlWithChatHost(baseUrl, rawEmbeddingsBase)
+      : rawEmbeddingsBase;
+  const embeddingsBaseUrl = normalizeBindAllHostToLocalhost(alignedEmb);
   return {
     id: c.id,
     name: c.name,

@@ -1,3 +1,4 @@
+# Interpreter: Python 3.10–3.12 (Kokoro → misaki declares Requires-Python <3.13).
 fastapi>=0.135,<1
 pydantic>=2.10,<3
 typing-extensions>=4.12,<5
@@ -9,7 +10,7 @@ langgraph>=1.1,<2
 langgraph-checkpoint-sqlite>=3.0,<4
 aiosqlite>=0.22,<1
 langchain-openai>=1.1,<2
-kokoro>=0.9.4,<0.10
+kokoro>=0.7.11,<0.10
 soundfile>=0.12,<0.14
 SpeechRecognition>=3.15,<4
 diff-match-patch>=20241021

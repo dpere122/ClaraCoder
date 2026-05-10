@@ -124,11 +124,35 @@ def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: Magic
     assert kwargs.get('api_key') == 'secret-emb'
 
 
+def test_make_chunk_pooling_embedding_llamacpp_allows_hf_style_model_id() -> None:
+    from nemo_backend.workspace_index.embeddings_factory import _make_chunk_pooling_embedding
+
+    conn = _llamacpp_conn()
+    emb = _make_chunk_pooling_embedding(
+        conn,
+        model='nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0',
+        api_key='k',
+        api_base='http://127.0.0.1:9/v1',
+        timeout=30.0,
+        max_retries=0,
+    )
+    assert emb._query_engine == 'nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0'
+    assert emb._text_engine == 'nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0'
+    assert emb.model_name == 'nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0'
+
+
 def test_resolve_embedding_model_id_prefers_connection_field() -> None:
     from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
 
     conn = _llamacpp_conn(embeddings_model='custom-emb-id')
     assert resolve_embedding_model_id(conn) == 'custom-emb-id'
+
+
+def test_resolve_embedding_model_id_llamacpp_falls_back_to_chat_model() -> None:
+    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+
+    conn = _llamacpp_conn(model='my-gguf', embeddings_model='')
+    assert resolve_embedding_model_id(conn) == 'my-gguf'
 
 
 @patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')

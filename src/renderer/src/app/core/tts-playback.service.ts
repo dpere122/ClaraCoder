@@ -8,7 +8,8 @@ import { ElectronService } from './electron.service';
 
 @Injectable({ providedIn: 'root' })
 export class TtsPlaybackService {
-  private static readonly TTS_CHUNK_MAX = 880;
+  /** Max characters per Kokoro request — larger reduces HTTP round-trips; keep bounded for memory/time. */
+  private static readonly TTS_CHUNK_MAX = 2200;
 
   /** Shown on the latest assistant bubble while the first chunk is in flight. */
   readonly ttsLoading = signal(false);
@@ -31,7 +32,7 @@ export class TtsPlaybackService {
   /** Bump generation, stop playback, clear TTS loading UI (e.g. speech toggled off). */
   invalidateSpeechPipeline(): void {
     this.speechGen++;
-    this.electron.abortTtsStream();
+    void this.electron.abortTtsStream();
     this.stopSpeech();
     this.zone.run(() => this.ttsLoading.set(false));
   }
@@ -56,7 +57,12 @@ export class TtsPlaybackService {
   }
 
   async speakText(text: string, voice: string, speed: number): Promise<void> {
-    this.invalidateSpeechPipeline();
+    // Invalidate prior playback and await main-process abort so the next `/tts` fetch is not
+    // cancelled by a late `tts-stream-abort` (fire-and-forget abort raced `tts-stream-start`).
+    this.speechGen++;
+    await this.electron.abortTtsStream();
+    this.stopSpeech();
+    this.zone.run(() => this.ttsLoading.set(false));
     const gen = this.speechGen;
     const clean = text
       .replace(/<details class="llm-reasoning"[\s\S]*?<\/details>/gi, '')
@@ -73,12 +79,20 @@ export class TtsPlaybackService {
     const chunks = this.splitTextForTts(clean);
     this.zone.run(() => this.ttsLoading.set(true));
     try {
-      for (let i = 0; i < chunks.length; i++) {
+      const n = chunks.length;
+      if (n === 0) return;
+      let seq = ++this.ttsStreamSeq;
+      let nextWavPromise = this.collectTtsWav(chunks[0], voice, speed, seq, gen, () => {
+        this.zone.run(() => this.ttsLoading.set(false));
+      });
+      for (let i = 0; i < n; i++) {
         if (gen !== this.speechGen) return;
-        const seq = ++this.ttsStreamSeq;
-        await this.playTtsStreamChunk(chunks[i], voice, speed, seq, gen, () => {
-          if (i === 0) this.zone.run(() => this.ttsLoading.set(false));
-        });
+        const wav = await nextWavPromise;
+        if (i + 1 < n) {
+          seq = ++this.ttsStreamSeq;
+          nextWavPromise = this.collectTtsWav(chunks[i + 1], voice, speed, seq, gen, () => {});
+        }
+        await this.playAudioBufferFromUint8(wav, gen, 'audio/wav');
       }
     } catch (err) {
       console.error('TTS playback failed:', err);
@@ -124,18 +138,18 @@ export class TtsPlaybackService {
   }
 
   /**
-   * Pulls WAV from Python via the main process: accumulate streamed bytes, then play as one blob
-   * (Kokoro returns complete WAV per request; MP3/MSE path is not used).
+   * Accumulate WAV bytes from Python for one utterance (one HTTP `/tts` request).
+   * Used with prefetch: start the next collect while the previous WAV plays.
    */
-  private playTtsStreamChunk(
+  private collectTtsWav(
     text: string,
     voice: string,
     speed: number,
     seq: number,
     gen: number,
-    onFirstChunk: () => void,
-  ): Promise<void> {
-    if (gen !== this.speechGen) return Promise.resolve();
+    onFirstNetworkChunk: () => void,
+  ): Promise<Uint8Array> {
+    if (gen !== this.speechGen) return Promise.resolve(new Uint8Array());
 
     return new Promise((resolve, reject) => {
       const collected: Uint8Array[] = [];
@@ -145,16 +159,16 @@ export class TtsPlaybackService {
       const notifyFirstChunk = (): void => {
         if (firstChunkSeen) return;
         firstChunkSeen = true;
-        onFirstChunk();
+        onFirstNetworkChunk();
       };
 
       let sub: Subscription;
 
-      const finishOk = (): void => {
+      const finishOk = (merged: Uint8Array): void => {
         if (completed) return;
         completed = true;
         sub.unsubscribe();
-        resolve();
+        resolve(merged);
       };
 
       const finishErr = (err: Error): void => {
@@ -166,17 +180,16 @@ export class TtsPlaybackService {
 
       sub = this.electron.ttsStream$.subscribe({
         next: (packet) => {
-          if (packet.seq !== seq || completed) return;
+          if (Number(packet.seq) !== seq || completed) return;
           if (gen !== this.speechGen) {
-            finishOk();
+            finishOk(new Uint8Array());
             return;
           }
           if (packet.kind === 'chunk') {
             notifyFirstChunk();
             collected.push(new Uint8Array(packet.data));
           } else if (packet.kind === 'end') {
-            const merged = this.mergeUint8Arrays(collected);
-            void this.playAudioBufferFromUint8(merged, gen, 'audio/wav').then(finishOk).catch(finishErr);
+            finishOk(this.mergeUint8Arrays(collected));
           } else if (packet.kind === 'error') {
             finishErr(new Error(packet.message));
           }

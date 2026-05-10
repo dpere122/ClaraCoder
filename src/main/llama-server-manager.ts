@@ -71,7 +71,16 @@ function killProcessTree(proc: ChildProcess | undefined): void {
         proc.kill();
       });
     } else {
-      proc.kill('SIGKILL');
+      /**
+       * Managed servers are spawned with ``detached: true`` on POSIX so this PID is a new session /
+       * process-group leader (the shell). Killing the group tears down ``llama-server`` too.
+       * Without that, ``SIGKILL`` on the shell alone often orphans the real server on Linux.
+       */
+      try {
+        process.kill(-proc.pid, 'SIGKILL');
+      } catch {
+        proc.kill('SIGKILL');
+      }
     }
   } catch {
     proc.kill();
@@ -265,6 +274,8 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
      */
     const chatProc = spawn(chatBuilt.command, {
       shell: true,
+      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server``, not just ``sh``. */
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       env: spawnEnv,
@@ -310,6 +321,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     if (embedBuilt && embedPort != null) {
       embedProc = spawn(embedBuilt.command, {
         shell: true,
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
         env: spawnEnv,
@@ -488,7 +500,11 @@ function httpPortForDisplay(rootUrl: string): number {
   }
 }
 
-async function getRemoteLlamacppUrlStatus(modelId: string, openAiV1BaseUrl: string): Promise<LlamaServerStatusResult> {
+async function getRemoteLlamacppUrlStatus(
+  modelId: string,
+  openAiV1BaseUrl: string,
+  embeddingsOpenAiV1BaseUrl?: string,
+): Promise<LlamaServerStatusResult> {
   const root = openAiV1BaseToServerRoot(openAiV1BaseUrl);
   if (!root) {
     return {
@@ -499,26 +515,40 @@ async function getRemoteLlamacppUrlStatus(modelId: string, openAiV1BaseUrl: stri
       chat: { port: 0, health: 'error' },
     };
   }
+  const embIn = (embeddingsOpenAiV1BaseUrl ?? '').trim();
+  const embRoot = embIn ? openAiV1BaseToServerRoot(embIn) : '';
+
+  const probeHttpHealth = async (baseRoot: string): Promise<ManagedServerHealthState> => {
+    try {
+      const res = await fetchWithTimeout(`${baseRoot}/health`, 2000);
+      return res.ok ? 'ok' : 'error';
+    } catch {
+      return 'error';
+    }
+  };
+
+  const chatP = probeHttpHealth(root);
+  const embedP =
+    embRoot !== ''
+      ? probeHttpHealth(embRoot).then((health) => ({
+          port: httpPortForDisplay(embRoot),
+          health,
+        }))
+      : Promise.resolve(undefined);
+
+  const [chatHealth, embedBlock] = await Promise.all([chatP, embedP]);
   const port = httpPortForDisplay(root);
-  try {
-    const res = await fetchWithTimeout(`${root}/health`, 2000);
-    const health: ManagedServerHealthState = res.ok ? 'ok' : 'error';
-    return {
-      ok: true,
-      remote: true,
-      running: false,
-      modelId,
-      chat: { port, health },
-    };
-  } catch {
-    return {
-      ok: true,
-      remote: true,
-      running: false,
-      modelId,
-      chat: { port, health: 'error' },
-    };
+  const out: LlamaServerStatusPayload = {
+    ok: true,
+    remote: true,
+    running: false,
+    modelId,
+    chat: { port, health: chatHealth },
+  };
+  if (embedBlock) {
+    out.embed = embedBlock;
   }
+  return out;
 }
 
 export async function getManagedLlamaStatus(
@@ -535,7 +565,7 @@ export async function getManagedLlamaStatus(
   if (!st) {
     invalidateManagedStatusCache(modelId);
     if (!(managed?.chatRunCommand ?? '').trim()) {
-      return getRemoteLlamacppUrlStatus(modelId, loc.provider.baseUrl);
+      return getRemoteLlamacppUrlStatus(modelId, loc.provider.baseUrl, loc.provider.embeddingsBaseUrl);
     }
     return {
       ok: true,

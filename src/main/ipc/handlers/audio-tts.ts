@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import { mainState } from '../../state';
+import { abortAllTtsStreamControllers, mainState } from '../../state';
 import { PYTHON_URL } from '../../python/server';
 import { registerTtsStreamToken } from '../../protocol/nemo-tts';
 
@@ -58,16 +58,16 @@ export function registerAudioTtsIpc(): void {
   });
 
   ipcMain.handle('tts-stream-abort', () => {
-    mainState.ttsAbort?.abort();
-    mainState.ttsAbort = null;
+    abortAllTtsStreamControllers();
     return { ok: true };
   });
 
   ipcMain.handle('tts-stream-start', async (event, payload: { text: string; voice: string; speed: number; seq: number }) => {
     const { text, voice, speed, seq } = payload;
-    mainState.ttsAbort?.abort();
-    mainState.ttsAbort = new AbortController();
-    const signal = mainState.ttsAbort.signal;
+    const key = `ipc:${seq}`;
+    const ac = new AbortController();
+    mainState.ttsStreamControllers.set(key, ac);
+    const signal = ac.signal;
     const wc = event.sender;
 
     void (async () => {
@@ -117,8 +117,8 @@ export function registerAudioTtsIpc(): void {
         } catch {
           // ignore
         }
-        if (mainState.ttsAbort?.signal === signal) {
-          mainState.ttsAbort = null;
+        if (mainState.ttsStreamControllers.get(key) === ac) {
+          mainState.ttsStreamControllers.delete(key);
         }
       }
     })();

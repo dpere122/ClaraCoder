@@ -572,6 +572,30 @@
   gap: 8px;
 }
 
+.model-migrate-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-height: 2.25rem;
+  justify-content: center;
+}
+
+.model-migrate-progress__bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  accent-color: color-mix(in srgb, var(--t-primary) 85%, var(--t-bg));
+}
+
+.model-migrate-progress__label {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  opacity: 0.92;
+}
+
 .cache-location-list {
   display: flex;
   flex-direction: column;

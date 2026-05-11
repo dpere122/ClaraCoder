@@ -857,7 +857,7 @@
               </button>
             </div>
             <p class='settings-copy field--full'>
-              Models only appear from your custom directory location.
+              Managed <code>llama-server -hf</code> downloads store each repo as a folder (blobs, refs, snapshots) under this path when started from the app. Loose <code>.gguf</code> / <code>.ggml</code> files at the top level are listed too. Use <code>-m</code> only when pointing at a single GGUF file.
             </p>
           </div>
         </div>
@@ -867,7 +867,9 @@
         <div class='form-section'>
           <div class='form-section__header'>
             <h5>Local models</h5>
-            <p class='settings-copy'>Only model files found in your custom directory are shown here.</p>
+            <p class='settings-copy'>
+              Hugging Face hub repos appear as folders (<code>models--org--name</code> or any folder containing blobs, refs, snapshots). Standalone GGUF/GGML files elsewhere under this directory are listed separately.
+            </p>
           </div>
           <div class='model-card-grid'>
             @for (model of modelManagerCustomModels(); track model.absolutePath) {
@@ -875,6 +877,9 @@
                 <div class='model-card__head'>
                   <strong>{{ model.fileName }}</strong>
                   <span class='pill'>{{ model.source }}</span>
+                  @if (model.entryKind === 'hubRepo') {
+                    <span class='pill'>hub folder</span>
+                  }
                 </div>
                 <p class='settings-copy'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</p>
                 <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
@@ -885,7 +890,7 @@
               </article>
             } @empty {
               <div class='empty-state'>
-                <p>No model files found in your custom directory.</p>
+                <p>No hub folders or standalone GGUF/GGML models found. Add <code>.gguf</code> / <code>.ggml</code> files, or download with <code>-hf</code> so the repo appears as a folder tree.</p>
               </div>
             }
           </div>
@@ -896,7 +901,7 @@
         <div class='form-section'>
           <div class='form-section__header'>
             <h5>Cache detection and migration</h5>
-            <p class='settings-copy'>Auto-detect cache locations and migrate models into your custom directory.</p>
+            <p class='settings-copy'>Detect Hugging Face hub repo folders under known caches and copy or move the whole tree into your custom directory (blobs, refs, snapshots). Falls back to listing loose GGUF files only when no hub folders exist in that cache root.</p>
           </div>
           <div class='cache-location-list'>
             @for (cache of modelManagerCacheLocations(); track cache.path) {
@@ -917,16 +922,30 @@
                 <div class='model-card__head'>
                   <strong>{{ model.fileName }}</strong>
                   <span class='pill'>cache</span>
+                  @if (model.entryKind === 'hubRepo') {
+                    <span class='pill'>hub folder</span>
+                  }
                 </div>
                 <p class='settings-copy'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</p>
                 <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
                 <div class='model-card__actions'>
-                  <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate (copy/move)</button>
+                  @if (isCacheModelMigrating(model)) {
+                    <div class='model-migrate-progress' role='status'>
+                      @if (modelManagerMigrateIndeterminate()) {
+                        <progress class='model-migrate-progress__bar' max='100'></progress>
+                      } @else {
+                        <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
+                      }
+                      <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
+                    </div>
+                  } @else {
+                    <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate (copy/move)</button>
+                  }
                 </div>
               </article>
             } @empty {
               <div class='empty-state'>
-                <p>No cache model candidates detected.</p>
+                <p>No hub repo folders or GGUF files found in detected caches. Confirm the cache path matches where Hugging Face stores downloads (often a folder named <code>hub</code> containing <code>models--...</code>).</p>
               </div>
             }
           </div>

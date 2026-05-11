@@ -12,6 +12,7 @@ import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
   LspDashboardStatus,
+  ModelManagerMigrateProgressPayload,
   PlannerProgress,
   TtsStreamPacket,
   WorkspaceContextSyncExtras,
@@ -220,10 +221,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   modelManagerDetectCaches: () => ipcRenderer.invoke('model-manager:detect-caches'),
   modelManagerListCacheCandidates: (payload: { cachePaths: string[] }) =>
     ipcRenderer.invoke('model-manager:list-cache-candidates', payload),
+  modelManagerChooseMigrateMode: (payload: { title?: string; detail?: string }) =>
+    ipcRenderer.invoke('model-manager:choose-migrate-mode', payload),
+  modelManagerSubscribeMigrateProgress: (callback: (payload: ModelManagerMigrateProgressPayload) => void) => {
+    const channel = 'model-manager:migrate-progress';
+    const listener = (_event: unknown, payload: ModelManagerMigrateProgressPayload) => callback(payload);
+    ipcRenderer.on(channel, listener);
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
+  },
   modelManagerMigrateModel: (payload: {
     sourcePath: string;
     customDir: string;
     mode: 'copy' | 'move';
+    suggestedFileName?: string;
+    entryKind?: 'file' | 'hubRepo';
   }) => ipcRenderer.invoke('model-manager:migrate-model', payload),
   modelManagerRenameModel: (payload: {
     customDir: string;

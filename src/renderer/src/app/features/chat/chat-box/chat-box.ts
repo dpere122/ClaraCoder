@@ -42,6 +42,9 @@ import {
   sumHeights,
 } from './chat-box-virtual';
 
+/** Pixels from the bottom of the chat viewport to treat as “pinned” for follow-final-message behavior. */
+const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
+
 const SPINNER_CHAT_TOOL = 'chat-tool';
 const SPINNER_CHAT_THINK = 'chat-think';
 const SPINNER_CHAT_TTS = 'chat-tts';
@@ -76,6 +79,16 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
     m.role === 'user' ||
     m.role === 'assistant' ||
     m.role === 'chain' ||
+    m.role === 'diff' ||
+    m.role === 'delete_confirm' ||
+    m.role === 'copy_confirm' ||
+    m.role === 'accept_command'
+  );
+}
+
+/** Review / confirmation cards (HITL): always scroll into view, including while a reply is still streaming. */
+export function isHitlActivationMessage(m: ChatMessage): boolean {
+  return (
     m.role === 'diff' ||
     m.role === 'delete_confirm' ||
     m.role === 'copy_confirm' ||
@@ -301,6 +314,11 @@ export class ChatBox implements OnDestroy {
   private scrollTrackedMsgLen = 0;
   private scrollTrackedConvId: string | null | undefined = undefined;
   private scrollSmoothDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** While streaming, follow growing primary reply only when the user is pinned to the bottom. */
+  private pinToBottom = true;
+  private prevLoadingForCompletionScroll = false;
+  private prevStreamPrimaryKey = '';
+  private prevStreamAuxKey = '';
   private wasProcessingToolsActive = false;
   private readonly toolPhaseSynonymIndex = signal(0);
   private chatDestroyed = false;
@@ -476,6 +494,7 @@ export class ChatBox implements OnDestroy {
         this.chatScrollResizeObserver?.disconnect();
         this.chatScrollResizeObserver = new ResizeObserver(() => {
           this.viewportHeightSig.set(elScroll.clientHeight);
+          requestAnimationFrame(() => this.updatePinFromScroll());
         });
         this.chatScrollResizeObserver.observe(elScroll);
       },
@@ -528,10 +547,71 @@ export class ChatBox implements OnDestroy {
         if (msgs.length > this.scrollTrackedMsgLen) {
           const added = msgs.slice(this.scrollTrackedMsgLen);
           if (added.some(isScrollWorthyAppendMessage)) {
-            this.debouncedSmoothScrollToBottom();
+            const loading = this.loading();
+            if (
+              !loading ||
+              added.some((m) => m.role === 'user') ||
+              added.some(isHitlActivationMessage)
+            ) {
+              this.debouncedSmoothScrollToBottom();
+            }
           }
         }
         this.scrollTrackedMsgLen = msgs.length;
+      });
+    });
+
+    effect(() => {
+      const loading = this.loading();
+      const _parts = this.streamingParts();
+      untracked(() => {
+        if (!loading) {
+          return;
+        }
+        const primary = this.primaryStreamLiveText();
+        const auxParts = this.liveAuxiliaryTimeline();
+        const primaryKey =
+          primary.length === 0 ? '' : `${primary.length}:${primary.slice(-120)}`;
+        const auxKey = auxParts
+          .map((p) => `${String(p.streamTag ?? '')}:${String(p.label ?? '')}:${p.text.length}`)
+          .join('\u001f');
+
+        const primaryChanged = primaryKey !== this.prevStreamPrimaryKey;
+        const auxChanged = auxKey !== this.prevStreamAuxKey;
+        if (primaryChanged) {
+          this.prevStreamPrimaryKey = primaryKey;
+        }
+        if (auxChanged) {
+          this.prevStreamAuxKey = auxKey;
+        }
+        if (!primaryChanged && auxChanged) {
+          return;
+        }
+        if (primaryChanged && this.pinToBottom) {
+          this.scrollToBottom('instant');
+        }
+      });
+    });
+
+    effect(() => {
+      const loading = this.loading();
+      untracked(() => {
+        if (loading && !this.prevLoadingForCompletionScroll) {
+          this.prevStreamPrimaryKey = '';
+          this.prevStreamAuxKey = '';
+        }
+        if (this.prevLoadingForCompletionScroll && !loading) {
+          afterNextRender(
+            () => {
+              if (this.chatDestroyed) {
+                return;
+              }
+              this.scrollToBottom('smooth');
+            },
+            { injector: this.inj },
+          );
+        }
+        this.prevLoadingForCompletionScroll = loading;
       });
     });
 
@@ -645,8 +725,16 @@ export class ChatBox implements OnDestroy {
       if (!box) return;
       this.scrollTopSig.set(box.scrollTop);
       this.viewportHeightSig.set(box.clientHeight);
+      this.updatePinFromScroll();
       this.scheduleMeasureVisibleRows();
     });
+  }
+
+  private updatePinFromScroll(): void {
+    const box = this.chatScroll()?.nativeElement;
+    if (!box) return;
+    const slack = box.scrollHeight - box.scrollTop - box.clientHeight;
+    this.pinToBottom = slack <= SCROLL_BOTTOM_PIN_THRESHOLD_PX;
   }
 
   isLastPersistedRow(index: number): boolean {
@@ -736,6 +824,7 @@ export class ChatBox implements OnDestroy {
         this.scrollTopSig.set(box.scrollTop);
       }
       this.scheduleMeasureVisibleRows();
+      this.updatePinFromScroll();
     });
   }
 

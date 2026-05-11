@@ -15,6 +15,7 @@ import type {
   ManagedServerHealthState,
 } from '../shared';
 import { findLlmModelLocation, looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel, prepareManagedLlamaShellCommand } from '../shared';
+import { loadConfigSync } from './config/load-save';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -156,16 +157,36 @@ function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
   return `${out}\n${err}`.slice(-12_000);
 }
 
+/**
+ * Persisted ``customModelsDir`` is authoritative for managed ``llama-server`` so Hugging Face / llama cache
+ * env vars match Settings → Model Manager even if the renderer IPC snapshot is stale. HF token may still
+ * come from the in-memory config when entered but not saved yet.
+ */
+function modelManagerForManagedLlamaSpawn(config: AppConfig): AppConfig['modelManager'] {
+  const disk = loadConfigSync().modelManager;
+  const ipcTok = config.modelManager.huggingFaceToken.trim();
+  const diskTok = disk.huggingFaceToken.trim();
+  return {
+    ...disk,
+    huggingFaceToken: ipcTok || diskTok,
+  };
+}
+
 function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  const customDir = config.modelManager.customModelsDir.trim();
+  const mm = modelManagerForManagedLlamaSpawn(config);
+  const customDir = mm.customModelsDir.trim();
   if (customDir) {
-    // Keep managed `-hf` downloads and cache lookups in the configured custom models directory.
+    // Keep managed `-hf` downloads and hub/GGUF resolution under the Model Manager directory.
+    // llama.cpp also honors HF_HUB_CACHE; huggingface_hub uses HF_HUB_CACHE / HUGGINGFACE_HUB_CACHE.
     env.LLAMA_CACHE = customDir;
+    env.HF_HUB_CACHE = customDir;
     env.HUGGINGFACE_HUB_CACHE = customDir;
     env.TRANSFORMERS_CACHE = customDir;
+    // A user/system HF_HOME makes llama.cpp resolve $HF_HOME/hub and ignore the dirs above in some builds.
+    delete env.HF_HOME;
   }
-  const tok = config.modelManager.huggingFaceToken.trim();
+  const tok = mm.huggingFaceToken.trim();
   if (tok) {
     env.HF_TOKEN = tok;
     env.HUGGING_FACE_HUB_TOKEN = tok;

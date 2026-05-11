@@ -175,8 +175,11 @@ export type {
   HuggingFaceModelSearchItem,
   ModelManagerCacheLocation,
   ModelManagerDetectCachesResult,
+  ModelManagerEntryKind,
   ModelManagerFileEntry,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
+  ModelManagerMigrateProgressPayload,
+  ModelManagerMigrateProgressPhase,
   ModelManagerMutationResult,
 } from './types/model-manager';

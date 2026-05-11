@@ -30,6 +30,7 @@ import type {
   ModelManagerDetectCachesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
+  ModelManagerMigrateProgressPayload,
   ModelManagerMutationResult,
   MaybeAutoTitleResult,
   PlannerProgress,
@@ -691,10 +692,21 @@ export class ElectronService {
     );
   }
 
+  modelManagerChooseMigrateMode(payload: { title?: string; detail?: string }): Promise<'copy' | 'move' | null> {
+    return this.api?.modelManagerChooseMigrateMode(payload) ?? Promise.resolve(null);
+  }
+
+  subscribeModelManagerMigrateProgress(cb: (p: ModelManagerMigrateProgressPayload) => void): () => void {
+    const wrapped = (p: ModelManagerMigrateProgressPayload) => this.zone.run(() => cb(p));
+    return this.api?.modelManagerSubscribeMigrateProgress?.(wrapped) ?? (() => {});
+  }
+
   modelManagerMigrateModel(payload: {
     sourcePath: string;
     customDir: string;
     mode: 'copy' | 'move';
+    suggestedFileName?: string;
+    entryKind?: 'file' | 'hubRepo';
   }): Promise<ModelManagerMutationResult> {
     return (
       this.api?.modelManagerMigrateModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })

@@ -492,7 +492,15 @@ export class App implements OnInit, OnDestroy {
         return;
       }
       if (conversationId === this.activeConversationId()) {
-        this.streamingParts.update((prev) => appendStreamPart(prev, streamTag, delta));
+        this.streamingParts.update((prev) => {
+          const next = appendStreamPart(prev, streamTag, delta);
+          if (this.speechEnabled()) {
+            const rawPrimary = primaryAssistantTextFromParts(next);
+            const sanitized = this.sanitizeAssistantTextForActiveModel(rawPrimary);
+            void this.tts.feedStreamingAssistantText(sanitized, this.selectedVoice(), this.ttsSpeechSpeed());
+          }
+          return next;
+        });
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
         this.backgroundStreamParts.set(conversationId, appendStreamPart(prev, streamTag, delta));
@@ -664,7 +672,7 @@ export class App implements OnInit, OnDestroy {
         ) {
           this.pushMessage('assistant', text, planner, toolStreams, moeStreams, auxiliaryStreamTimeline);
           if (this.speechEnabled() && text.trim()) {
-            void this.tts.speakText(text, this.selectedVoice(), this.ttsSpeechSpeed());
+            void this.tts.flushStreamingAssistantText(text, this.selectedVoice(), this.ttsSpeechSpeed());
           }
           void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
             console.error('[App] persist assistant / auto-title failed', err),
@@ -792,6 +800,9 @@ export class App implements OnInit, OnDestroy {
     this.pushMessage('user', normalized);
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
+    if (this.speechEnabled()) {
+      this.tts.beginAssistantSpeechTurn();
+    }
     this.streamingParts.set([]);
     this.livePlannerProgress.set(null);
     this.backgroundPlannerProgress.delete(convId);

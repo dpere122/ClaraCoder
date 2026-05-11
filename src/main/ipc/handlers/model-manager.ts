@@ -1,26 +1,97 @@
-import { dialog, ipcMain } from 'electron';
-import { promises as fs } from 'fs';
+import type { WebContents } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { createReadStream, createWriteStream, promises as fs } from 'fs';
 import { homedir } from 'os';
 import path = require('path');
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 import type {
   HuggingFaceModelSearchItem,
   ModelManagerCacheLocation,
   ModelManagerDetectCachesResult,
+  ModelManagerEntryKind,
   ModelManagerFileEntry,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
+  ModelManagerMigrateProgressPhase,
+  ModelManagerMigrateProgressPayload,
   ModelManagerMutationResult,
 } from '../../../shared';
 import { mainState } from '../../state';
 
-const MODEL_EXTENSIONS = new Set(['.gguf']);
+const MODEL_EXTENSIONS = new Set(['.gguf', '.ggml']);
 
-function normalizeAbs(p: string): string {
-  const t = String(p || '').trim();
+/** Smallest size (bytes) before we peek the GGUF magic for extensionless / odd names. */
+const MIN_BYTES_FOR_GGUF_HEADER_PROBE = 4096;
+
+const SKIP_GGUF_HEADER_PROBE_EXT = new Set([
+  '.zip',
+  '.rar',
+  '.7z',
+  '.tar',
+  '.gz',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.ico',
+  '.svg',
+  '.pdf',
+  '.mp4',
+  '.mkv',
+  '.avi',
+  '.mp3',
+  '.wav',
+  '.json',
+  '.md',
+  '.txt',
+  '.xml',
+  '.html',
+  '.css',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.exe',
+  '.dll',
+  '.msi',
+  '.iso',
+  '.safetensors',
+  '.pt',
+  '.pth',
+  '.pkl',
+  '.onnx',
+  '.npz',
+  '.npy',
+]);
+
+/** Normalize user-entered paths: trim, strip quotes, expand ~ and (Windows) %ENV%. */
+function normalizeModelManagerPath(p: string): string {
+  let t = String(p || '').trim();
   if (!t) {
     return '';
   }
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    t = t.slice(1, -1).trim();
+  }
+  if (!t) {
+    return '';
+  }
+  if (process.platform === 'win32') {
+    t = t.replace(/%([^%]+)%/g, (_, key: string) => process.env[key.toUpperCase()] ?? `%${key}%`);
+  }
+  if (t === '~' || t.startsWith('~/') || t.startsWith('~\\')) {
+    const rest = t === '~' ? '' : t.slice(2);
+    t = path.join(homedir(), rest);
+  } else if (t.startsWith('~') && process.platform !== 'win32') {
+    t = path.join(homedir(), t.slice(1).replace(/^\//, ''));
+  }
   return path.resolve(t);
+}
+
+function normalizeAbs(p: string): string {
+  return normalizeModelManagerPath(p);
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -34,6 +105,110 @@ function hasModelExtension(filePath: string): boolean {
   return MODEL_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
+function pathKey(p: string): string {
+  return process.platform === 'win32' ? p.toLowerCase() : p;
+}
+
+function isHubSnapshotPath(filePath: string): boolean {
+  return path.normalize(filePath).split(path.sep).includes('snapshots');
+}
+
+function isBlobLikeFileName(fileName: string): boolean {
+  const ext = path.extname(fileName);
+  if (ext) {
+    return false;
+  }
+  return /^[a-f0-9]{32,}$/i.test(fileName) || /^sha256[-_][a-f0-9]{32,}$/i.test(fileName);
+}
+
+function sanitizeModelFileName(name: string): string {
+  const base = path.basename(String(name || '').trim());
+  if (!base || base === '.' || base === '..') {
+    return '';
+  }
+  const sanitized = base.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+  if (!sanitized || sanitized === '.' || sanitized === '..') {
+    return '';
+  }
+  return hasModelExtension(sanitized) ? sanitized : `${sanitized}.gguf`;
+}
+
+function suggestModelFileName(sourcePath: string): string {
+  const base = path.basename(sourcePath);
+  if (hasModelExtension(base)) {
+    return sanitizeModelFileName(base);
+  }
+  const parts = path.normalize(sourcePath).split(path.sep);
+  const modelDir = [...parts].reverse().find((part) => part.startsWith('models--'));
+  if (modelDir) {
+    const repoName = modelDir.replace(/^models--/, '').replace(/--/g, '-');
+    const suffix = isBlobLikeFileName(base) ? base.replace(/^sha256[-_]/i, '').slice(0, 12) : base;
+    return sanitizeModelFileName(`${repoName}-${suffix}`);
+  }
+  return sanitizeModelFileName(base);
+}
+
+async function uniqueModelTargetPath(customDir: string, suggestedName: string): Promise<string> {
+  const safeName = sanitizeModelFileName(suggestedName) || 'model.gguf';
+  const ext = path.extname(safeName);
+  const stem = ext ? safeName.slice(0, -ext.length) : safeName;
+  let candidate = path.join(customDir, safeName);
+  for (let i = 1; ; i += 1) {
+    try {
+      await fs.stat(candidate);
+      candidate = path.join(customDir, `${stem} (${i})${ext || '.gguf'}`);
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+function preferCacheEntry(candidate: ModelManagerFileEntry, existing: ModelManagerFileEntry): boolean {
+  const candidateSnapshot = isHubSnapshotPath(candidate.absolutePath);
+  const existingSnapshot = isHubSnapshotPath(existing.absolutePath);
+  if (candidateSnapshot !== existingSnapshot) {
+    return candidateSnapshot;
+  }
+  const candidateNamed = hasModelExtension(candidate.fileName) || !isBlobLikeFileName(candidate.fileName);
+  const existingNamed = hasModelExtension(existing.fileName) || !isBlobLikeFileName(existing.fileName);
+  if (candidateNamed !== existingNamed) {
+    return candidateNamed;
+  }
+  return candidate.modifiedMs > existing.modifiedMs;
+}
+
+async function fileStartsWithGgufMagic(filePath: string): Promise<boolean> {
+  let h: import('fs/promises').FileHandle | undefined;
+  try {
+    h = await fs.open(filePath, 'r');
+    const buf = Buffer.allocUnsafe(4);
+    const { bytesRead } = await h.read(buf, 0, 4, 0);
+    return bytesRead === 4 && buf.equals(Buffer.from('GGUF', 'ascii'));
+  } catch {
+    return false;
+  } finally {
+    await h?.close();
+  }
+}
+
+/** Accept `.gguf` / `.ggml`, or large blobs whose first bytes match the GGUF container magic. */
+async function isRecognizedGgufFile(filePath: string, sizeBytes: number): Promise<boolean> {
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 4) {
+    return false;
+  }
+  if (hasModelExtension(filePath)) {
+    return true;
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  if (SKIP_GGUF_HEADER_PROBE_EXT.has(ext)) {
+    return false;
+  }
+  if (sizeBytes < MIN_BYTES_FOR_GGUF_HEADER_PROBE) {
+    return false;
+  }
+  return await fileStartsWithGgufMagic(filePath);
+}
+
 async function pathExistsDir(p: string): Promise<boolean> {
   try {
     const st = await fs.stat(p);
@@ -43,50 +218,264 @@ async function pathExistsDir(p: string): Promise<boolean> {
   }
 }
 
-async function walkModelFiles(
-  root: string,
+async function childEntryKind(parent: string, baseName: string): Promise<'dir' | 'file' | 'missing'> {
+  const full = path.join(parent, baseName);
+  try {
+    const st = await fs.stat(full);
+    if (st.isDirectory()) {
+      return 'dir';
+    }
+    return st.isFile() ? 'file' : 'missing';
+  } catch {
+    return 'missing';
+  }
+}
+
+/** True for Hugging Face Hub repo dirs (`models--org--repo`) or trees with blobs/refs/snapshots. */
+async function isHubRepoLayoutDir(dirPath: string): Promise<boolean> {
+  const base = path.basename(dirPath);
+  if (base.toLowerCase().startsWith('models--')) {
+    return true;
+  }
+  const blobs = (await childEntryKind(dirPath, 'blobs')) === 'dir';
+  const refs = (await childEntryKind(dirPath, 'refs')) === 'dir';
+  const snapshots = (await childEntryKind(dirPath, 'snapshots')) === 'dir';
+  return blobs && refs && snapshots;
+}
+
+async function computeHubFolderStats(dirPath: string): Promise<{ sizeBytes: number; modifiedMs: number }> {
+  let sizeBytes = 0;
+  let modifiedMs = 0;
+  const stack: string[] = [dirPath];
+  const visited = new Set<string>();
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    const real = await fs.realpath(current).catch(() => current);
+    const key = pathKey(real);
+    if (visited.has(key)) {
+      continue;
+    }
+    visited.add(key);
+    let names: string[];
+    try {
+      names = await fs.readdir(current);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const full = path.join(current, name);
+      let lst: import('fs').Stats;
+      try {
+        lst = await fs.lstat(full);
+      } catch {
+        continue;
+      }
+      if (lst.isSymbolicLink()) {
+        let st: import('fs').Stats;
+        try {
+          st = await fs.stat(full);
+        } catch {
+          continue;
+        }
+        modifiedMs = Math.max(modifiedMs, st.mtimeMs);
+        if (st.isDirectory()) {
+          stack.push(full);
+        } else if (st.isFile()) {
+          sizeBytes += st.size;
+        }
+        continue;
+      }
+      modifiedMs = Math.max(modifiedMs, lst.mtimeMs);
+      if (lst.isDirectory()) {
+        stack.push(full);
+      } else if (lst.isFile()) {
+        sizeBytes += lst.size;
+      }
+    }
+  }
+  return { sizeBytes, modifiedMs };
+}
+
+async function listHubRepoFoldersAtDepthOne(
+  parentDir: string,
   source: 'custom' | 'cache',
   sourceRoot?: string,
 ): Promise<ModelManagerFileEntry[]> {
   const out: ModelManagerFileEntry[] = [];
-  const stack: string[] = [normalizeAbs(root)];
+  const parentAbs = normalizeModelManagerPath(parentDir);
+  if (!parentAbs || !(await pathExistsDir(parentAbs))) {
+    return out;
+  }
+  let names: string[];
+  try {
+    names = await fs.readdir(parentAbs);
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    const full = path.join(parentAbs, name);
+    let lst: import('fs').Stats;
+    try {
+      lst = await fs.lstat(full);
+    } catch {
+      continue;
+    }
+    let isDir = lst.isDirectory();
+    if (lst.isSymbolicLink()) {
+      try {
+        const st = await fs.stat(full);
+        isDir = st.isDirectory();
+      } catch {
+        continue;
+      }
+    }
+    if (!isDir) {
+      continue;
+    }
+    if (!(await isHubRepoLayoutDir(full))) {
+      continue;
+    }
+    const { sizeBytes, modifiedMs } = await computeHubFolderStats(full);
+    out.push({
+      fileName: name,
+      absolutePath: full,
+      sizeBytes,
+      modifiedMs,
+      source,
+      entryKind: 'hubRepo',
+      suggestedFileName: name,
+      ...(sourceRoot ? { sourceRoot } : {}),
+    });
+  }
+  out.sort((a, b) => b.modifiedMs - a.modifiedMs || a.fileName.localeCompare(b.fileName));
+  return out;
+}
+
+function sanitizeHubFolderBaseName(name: string): string {
+  const base = path.basename(String(name || '').trim());
+  if (!base || base === '.' || base === '..') {
+    return '';
+  }
+  return base.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+}
+
+async function uniqueHubFolderTargetPath(customDir: string, folderName: string): Promise<string> {
+  const safe = sanitizeHubFolderBaseName(folderName) || 'hub-model';
+  let candidate = path.join(customDir, safe);
+  for (let i = 1; ; i += 1) {
+    try {
+      await fs.stat(candidate);
+      candidate = path.join(customDir, `${safe} (${i})`);
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+function preferHubDupEntry(a: ModelManagerFileEntry, b: ModelManagerFileEntry): ModelManagerFileEntry {
+  return a.modifiedMs >= b.modifiedMs ? a : b;
+}
+
+async function walkModelFiles(
+  root: string,
+  source: 'custom' | 'cache',
+  sourceRoot?: string,
+  opts?: { skipHubRepoDirectories?: boolean },
+): Promise<ModelManagerFileEntry[]> {
+  const out: ModelManagerFileEntry[] = [];
+  const rootAbs = normalizeModelManagerPath(root);
+  if (!rootAbs) {
+    return out;
+  }
+  const stack: string[] = [rootAbs];
   const visitedDirs = new Set<string>();
   while (stack.length > 0) {
     const current = stack.pop()!;
     const realCurrent = await fs.realpath(current).catch(() => current);
-    const currentKey = process.platform === 'win32' ? realCurrent.toLowerCase() : realCurrent;
+    const currentKey = pathKey(realCurrent);
     if (visitedDirs.has(currentKey)) {
       continue;
     }
     visitedDirs.add(currentKey);
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(full);
+    let names: string[];
+    try {
+      names = await fs.readdir(current);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const full = path.join(current, name);
+      let lst: import('fs').Stats;
+      try {
+        lst = await fs.lstat(full);
+      } catch {
         continue;
       }
-      if (entry.isSymbolicLink()) {
-        const linkedStat = await fs.stat(full).catch(() => null);
-        if (linkedStat?.isDirectory()) {
+      if (lst.isSymbolicLink()) {
+        let followed: import('fs').Stats;
+        try {
+          followed = await fs.stat(full);
+        } catch {
+          continue;
+        }
+        if (followed.isDirectory()) {
+          if (opts?.skipHubRepoDirectories && (await isHubRepoLayoutDir(full))) {
+            continue;
+          }
           stack.push(full);
           continue;
         }
-      }
-      if (!hasModelExtension(full)) {
+        if (!followed.isFile()) {
+          continue;
+        }
+        if (!(await isRecognizedGgufFile(full, followed.size))) {
+          continue;
+        }
+        out.push({
+          fileName: name,
+          absolutePath: full,
+          sizeBytes: followed.size,
+          modifiedMs: followed.mtimeMs,
+          source,
+          suggestedFileName: suggestModelFileName(full),
+          ...(sourceRoot ? { sourceRoot } : {}),
+        });
         continue;
       }
-      // Resolve symlinks/junctions so cache snapshots (often link-backed) are visible in the UI.
-      const stat = await fs.stat(full);
-      if (!stat.isFile()) {
+      if (lst.isDirectory()) {
+        if (opts?.skipHubRepoDirectories && (await isHubRepoLayoutDir(full))) {
+          continue;
+        }
+        stack.push(full);
+        continue;
+      }
+      let fileSize = 0;
+      let fileMtime = 0;
+      if (lst.isFile()) {
+        fileSize = lst.size;
+        fileMtime = lst.mtimeMs;
+      } else {
+        try {
+          const st = await fs.stat(full);
+          if (!st.isFile()) {
+            continue;
+          }
+          fileSize = st.size;
+          fileMtime = st.mtimeMs;
+        } catch {
+          continue;
+        }
+      }
+      if (!(await isRecognizedGgufFile(full, fileSize))) {
         continue;
       }
       out.push({
-        fileName: entry.name,
+        fileName: name,
         absolutePath: full,
-        sizeBytes: stat.size,
-        modifiedMs: stat.mtimeMs,
+        sizeBytes: fileSize,
+        modifiedMs: fileMtime,
         source,
+        suggestedFileName: suggestModelFileName(full),
         ...(sourceRoot ? { sourceRoot } : {}),
       });
     }
@@ -117,8 +506,8 @@ function detectModelCacheLocations(): ModelManagerCacheLocation[] {
     if (!raw) {
       continue;
     }
-    const abs = normalizeAbs(raw);
-    const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const abs = normalizeModelManagerPath(raw);
+    const key = pathKey(abs);
     if (seen.has(key)) {
       continue;
     }
@@ -148,8 +537,219 @@ async function readSingleModel(pathname: string, source: 'custom' | 'cache', sou
   };
 }
 
+async function resolveMigrationSource(
+  sourcePath: string,
+): Promise<
+  | { ok: true; readPath: string; removePath: string; stat: import('fs').Stats; isSymlink: boolean }
+  | { ok: false; error: string }
+> {
+  let lst: import('fs').Stats;
+  try {
+    lst = await fs.lstat(sourcePath);
+  } catch {
+    return {
+      ok: false,
+      error: 'Source path does not exist. Refresh cache detection and ensure the Hugging Face download finished.',
+    };
+  }
+
+  const resolvedPath = await fs.realpath(sourcePath).catch(() => '');
+  const readPath = resolvedPath || sourcePath;
+  let stat: import('fs').Stats;
+  try {
+    stat = await fs.stat(readPath);
+  } catch {
+    return {
+      ok: false,
+      error: 'Could not resolve the cache file. Refresh cache detection or select a completed snapshots/... model file.',
+    };
+  }
+
+  if (!stat.isFile()) {
+    return {
+      ok: false,
+      error: 'Source path did not resolve to a regular model file. Refresh cache detection or ensure the Hugging Face download finished.',
+    };
+  }
+
+  return { ok: true, readPath, removePath: sourcePath, stat, isSymlink: lst.isSymbolicLink() };
+}
+
+function createMigrateProgressReporter(sender: WebContents) {
+  let lastPct = -1;
+  let lastPhase: ModelManagerMigrateProgressPhase | '' = '';
+  let lastSentAt = 0;
+  const MIN_INTERVAL_MS = 120;
+
+  return (
+    bytesDone: number,
+    bytesTotal: number,
+    phase: ModelManagerMigrateProgressPhase,
+    opts?: { force?: boolean },
+  ): void => {
+    if (sender.isDestroyed()) {
+      return;
+    }
+    const safeTotal = Math.max(1, bytesTotal);
+    const cappedDone = Math.min(bytesDone, bytesTotal);
+    const pct = Math.min(100, Math.floor((cappedDone / safeTotal) * 100));
+    const force = opts?.force === true || phase === 'done';
+    const now = Date.now();
+    if (!force && phase === lastPhase && pct === lastPct && now - lastSentAt < MIN_INTERVAL_MS) {
+      return;
+    }
+    lastPhase = phase;
+    lastPct = pct;
+    lastSentAt = now;
+    const payload: ModelManagerMigrateProgressPayload = {
+      bytesDone: cappedDone,
+      bytesTotal: safeTotal,
+      phase,
+    };
+    sender.send('model-manager:migrate-progress', payload);
+  };
+}
+
+async function collectMigrationFilesUnderRoot(rootAbs: string): Promise<Array<{ src: string; rel: string; size: number }>> {
+  const rootResolved = path.normalize(await fs.realpath(rootAbs).catch(() => rootAbs));
+  const files: Array<{ src: string; rel: string; size: number }> = [];
+  const stack: string[] = [rootResolved];
+  const visitedDirReal = new Set<string>();
+
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    const dirReal = await fs.realpath(dir).catch(() => dir);
+    const dirKey = pathKey(dirReal);
+    if (visitedDirReal.has(dirKey)) {
+      continue;
+    }
+    visitedDirReal.add(dirKey);
+
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+
+    for (const name of names) {
+      const full = path.join(dir, name);
+      let lst: import('fs').Stats;
+      try {
+        lst = await fs.lstat(full);
+      } catch {
+        continue;
+      }
+
+      if (lst.isSymbolicLink()) {
+        let st: import('fs').Stats;
+        try {
+          st = await fs.stat(full);
+        } catch {
+          continue;
+        }
+        if (st.isDirectory()) {
+          stack.push(full);
+        } else if (st.isFile()) {
+          const srcReal = await fs.realpath(full).catch(() => full);
+          let rel = path.relative(rootResolved, srcReal);
+          if (rel.startsWith('..') || path.isAbsolute(rel)) {
+            rel = path.relative(rootResolved, full);
+          }
+          if (rel.startsWith('..') || path.isAbsolute(rel)) {
+            continue;
+          }
+          files.push({ src: full, rel, size: st.size });
+        }
+      } else if (lst.isDirectory()) {
+        stack.push(full);
+      } else if (lst.isFile()) {
+        const rel = path.relative(rootResolved, full);
+        files.push({ src: full, rel, size: lst.size });
+      }
+    }
+  }
+
+  return files;
+}
+
+async function copyFileWithProgressBytes(src: string, dest: string, onDelta: (n: number) => void): Promise<void> {
+  await fs.mkdir(path.dirname(dest), { recursive: true });
+  let size = 0;
+  try {
+    size = (await fs.stat(src)).size;
+  } catch {
+    /* missing */
+  }
+  if (size === 0) {
+    await fs.copyFile(src, dest);
+    return;
+  }
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      onDelta(chunk.length);
+      cb(null, chunk);
+    },
+  });
+  await pipeline(createReadStream(src), counter, createWriteStream(dest));
+}
+
+async function copyDirectoryTreeWithProgress(
+  sourcePath: string,
+  destRoot: string,
+  report: ReturnType<typeof createMigrateProgressReporter>,
+): Promise<number> {
+  const rootResolved = path.normalize(await fs.realpath(sourcePath).catch(() => sourcePath));
+  report(0, 1, 'scanning', { force: true });
+  const files = await collectMigrationFilesUnderRoot(rootResolved);
+  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+  const safeTotal = Math.max(1, totalBytes);
+  report(0, safeTotal, 'copying', { force: true });
+
+  let done = 0;
+  for (const f of files) {
+    const destPath = path.join(destRoot, f.rel);
+    const chunkStart = done;
+    await copyFileWithProgressBytes(f.src, destPath, (d) => {
+      done += d;
+      report(Math.min(done, safeTotal), safeTotal, 'copying');
+    });
+    done = chunkStart + f.size;
+    report(Math.min(done, safeTotal), safeTotal, 'copying');
+  }
+  report(safeTotal, safeTotal, 'copying', { force: true });
+  return safeTotal;
+}
+
 /** Model Manager IPC: custom model folder CRUD, cache detection/migration, and Hugging Face search. */
 export function registerModelManagerIpc(): void {
+  ipcMain.handle(
+    'model-manager:choose-migrate-mode',
+    async (_event, payload: { title?: string; detail?: string }): Promise<'copy' | 'move' | null> => {
+      const title = String(payload?.title ?? 'Migrate model').trim() || 'Migrate model';
+      const detail =
+        String(payload?.detail ?? '').trim() ||
+        'Copy keeps the original in the cache. Move removes it from the source location after it has been copied.';
+      const win = BrowserWindow.getFocusedWindow() ?? mainState.settingsWindow ?? mainState.mainWindow;
+      if (!win) {
+        return null;
+      }
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Copy', 'Move', 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        title: 'Migrate model',
+        message: title,
+        detail,
+      });
+      if (response === 2) {
+        return null;
+      }
+      return response === 0 ? 'copy' : 'move';
+    },
+  );
+
   ipcMain.handle('model-manager:pick-custom-dir', async (): Promise<string | null> => {
     const mw = mainState.mainWindow;
     if (!mw) return null;
@@ -162,15 +762,19 @@ export function registerModelManagerIpc(): void {
     'model-manager:list-custom-models',
     async (_event, payload: { customDir: string }): Promise<ModelManagerListModelsResult> => {
       try {
-        const customDir = normalizeAbs(String(payload?.customDir || '').trim());
+        const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
         if (!customDir) {
           return { ok: false, error: 'Custom model directory is empty.' };
         }
         if (!(await pathExistsDir(customDir))) {
-          return { ok: true, models: [] };
+          return { ok: true, models: [], resolvedDir: customDir, directoryMissing: true };
         }
-        const models = await walkModelFiles(customDir, 'custom');
-        return { ok: true, models };
+        const hubFolders = await listHubRepoFoldersAtDepthOne(customDir, 'custom');
+        const looseFiles = await walkModelFiles(customDir, 'custom', undefined, { skipHubRepoDirectories: true });
+        const models = [...hubFolders, ...looseFiles].sort(
+          (a, b) => b.modifiedMs - a.modifiedMs || a.fileName.localeCompare(b.fileName),
+        );
+        return { ok: true, models, resolvedDir: customDir };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
@@ -194,18 +798,39 @@ export function registerModelManagerIpc(): void {
     async (_event, payload: { cachePaths: string[] }): Promise<ModelManagerListModelsResult> => {
       try {
         const input = Array.isArray(payload?.cachePaths) ? payload.cachePaths : [];
-        const roots = input.map((p) => normalizeAbs(String(p || '').trim())).filter(Boolean);
+        const roots = input.map((p) => normalizeModelManagerPath(String(p || '').trim())).filter(Boolean);
         const models: ModelManagerFileEntry[] = [];
         for (const root of roots) {
           if (!(await pathExistsDir(root))) {
             continue;
           }
-          const found = await walkModelFiles(root, 'cache', root);
-          models.push(...found);
+          const hubFolders = await listHubRepoFoldersAtDepthOne(root, 'cache', root);
+          if (hubFolders.length > 0) {
+            models.push(...hubFolders);
+          } else {
+            const found = await walkModelFiles(root, 'cache', root);
+            models.push(...found);
+          }
         }
         const dedup = new Map<string, ModelManagerFileEntry>();
         for (const model of models) {
-          dedup.set(process.platform === 'win32' ? model.absolutePath.toLowerCase() : model.absolutePath, model);
+          const realPath = await fs.realpath(model.absolutePath).catch(() => model.absolutePath);
+          const key = pathKey(realPath);
+          const existing = dedup.get(key);
+          if (!existing) {
+            dedup.set(key, model);
+            continue;
+          }
+          const bothHub = model.entryKind === 'hubRepo' && existing.entryKind === 'hubRepo';
+          if (bothHub) {
+            dedup.set(key, preferHubDupEntry(model, existing));
+          } else if (model.entryKind === 'hubRepo') {
+            dedup.set(key, model);
+          } else if (existing.entryKind === 'hubRepo') {
+            /* keep hub folder entry */
+          } else if (preferCacheEntry(model, existing)) {
+            dedup.set(key, model);
+          }
         }
         const unique = [...dedup.values()].sort((a, b) => b.modifiedMs - a.modifiedMs);
         return { ok: true, models: unique };
@@ -219,40 +844,143 @@ export function registerModelManagerIpc(): void {
     'model-manager:migrate-model',
     async (
       _event,
-      payload: { sourcePath: string; customDir: string; mode: 'copy' | 'move' },
+      payload: {
+        sourcePath: string;
+        customDir: string;
+        mode: 'copy' | 'move';
+        suggestedFileName?: string;
+        entryKind?: ModelManagerEntryKind;
+      },
     ): Promise<ModelManagerMutationResult> => {
       try {
-        const sourcePath = normalizeAbs(String(payload?.sourcePath || '').trim());
-        const customDir = normalizeAbs(String(payload?.customDir || '').trim());
+        const sender = _event.sender;
+        const report = createMigrateProgressReporter(sender);
+        const sourcePath = normalizeModelManagerPath(String(payload?.sourcePath || '').trim());
+        const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
         const mode = payload?.mode === 'move' ? 'move' : 'copy';
         if (!sourcePath || !customDir) {
           return { ok: false, error: 'Missing source path or custom directory.' };
         }
-        if (!hasModelExtension(sourcePath)) {
-          return { ok: false, error: 'Only .gguf model files are supported for migration.' };
-        }
-        const sourceStat = await fs.stat(sourcePath);
-        if (!sourceStat.isFile()) {
-          return { ok: false, error: 'Source path is not a file.' };
-        }
-        await fs.mkdir(customDir, { recursive: true });
-        const targetPath = path.join(customDir, path.basename(sourcePath));
+
+        let srcLst: import('fs').Stats;
         try {
-          await fs.stat(targetPath);
-          return { ok: false, error: `Target already exists: ${path.basename(targetPath)}` };
+          srcLst = await fs.lstat(sourcePath);
         } catch {
-          /* target missing */
+          return { ok: false, error: 'Source path does not exist. Refresh cache detection and try again.' };
         }
-        if (mode === 'copy') {
-          await fs.copyFile(sourcePath, targetPath);
-        } else {
+
+        let effectiveStat: import('fs').Stats = srcLst;
+        if (srcLst.isSymbolicLink()) {
           try {
-            await fs.rename(sourcePath, targetPath);
+            effectiveStat = await fs.stat(sourcePath);
           } catch {
-            await fs.copyFile(sourcePath, targetPath);
-            await fs.unlink(sourcePath);
+            return { ok: false, error: 'Broken symlink or unreadable source path.' };
           }
         }
+
+        const hubRequested = payload?.entryKind === 'hubRepo';
+        if (effectiveStat.isDirectory()) {
+          if (!(await isHubRepoLayoutDir(sourcePath))) {
+            return {
+              ok: false,
+              error:
+                'Source folder is not a Hugging Face hub cache (expected blobs/, refs/, snapshots/ under the folder, or a models--* folder name).',
+            };
+          }
+
+          await fs.mkdir(customDir, { recursive: true });
+          const folderName =
+            sanitizeHubFolderBaseName(String(payload?.suggestedFileName || '').trim()) || path.basename(sourcePath);
+          const targetDir = await uniqueHubFolderTargetPath(customDir, folderName);
+
+          if (mode === 'move') {
+            try {
+              await fs.rename(sourcePath, targetDir);
+              report(1, 1, 'copying', { force: true });
+              report(1, 1, 'done', { force: true });
+              const agg = await computeHubFolderStats(targetDir);
+              const model: ModelManagerFileEntry = {
+                fileName: path.basename(targetDir),
+                absolutePath: targetDir,
+                sizeBytes: agg.sizeBytes,
+                modifiedMs: agg.modifiedMs,
+                source: 'custom',
+                entryKind: 'hubRepo',
+                suggestedFileName: path.basename(targetDir),
+              };
+              return { ok: true, model };
+            } catch {
+              /* cross-volume or locked: copy then remove source */
+            }
+          }
+
+          const copiedTotal = await copyDirectoryTreeWithProgress(sourcePath, targetDir, report);
+          const bt = Math.max(1, copiedTotal);
+          if (mode === 'move') {
+            report(bt, bt, 'finishing', { force: true });
+            await fs.rm(sourcePath, { recursive: true, force: true });
+          }
+          report(bt, bt, 'done', { force: true });
+          const agg = await computeHubFolderStats(targetDir);
+          const model: ModelManagerFileEntry = {
+            fileName: path.basename(targetDir),
+            absolutePath: targetDir,
+            sizeBytes: agg.sizeBytes,
+            modifiedMs: agg.modifiedMs,
+            source: 'custom',
+            entryKind: 'hubRepo',
+            suggestedFileName: path.basename(targetDir),
+          };
+          return { ok: true, model };
+        }
+
+        if (hubRequested) {
+          return { ok: false, error: 'This cache entry is not a folder; refresh the model list.' };
+        }
+
+        const source = await resolveMigrationSource(sourcePath);
+        if (!source.ok) {
+          return source;
+        }
+        if (!(await isRecognizedGgufFile(source.readPath, source.stat.size))) {
+          return { ok: false, error: 'Only GGUF model files are supported for migration.' };
+        }
+        await fs.mkdir(customDir, { recursive: true });
+        const suggestedFileName = sanitizeModelFileName(String(payload?.suggestedFileName || ''))
+          || suggestModelFileName(sourcePath);
+        const targetPath = await uniqueModelTargetPath(customDir, suggestedFileName);
+        const totalBytes = Math.max(1, source.stat.size);
+
+        report(0, totalBytes, 'copying', { force: true });
+
+        if (mode === 'move' && !source.isSymlink) {
+          try {
+            await fs.rename(source.readPath, targetPath);
+            report(totalBytes, totalBytes, 'copying', { force: true });
+            report(totalBytes, totalBytes, 'done', { force: true });
+            const model = await readSingleModel(targetPath, 'custom');
+            return { ok: true, model };
+          } catch {
+            /* fall through to streamed copy */
+          }
+        }
+
+        let done = 0;
+        await copyFileWithProgressBytes(source.readPath, targetPath, (d) => {
+          done += d;
+          report(Math.min(done, totalBytes), totalBytes, 'copying');
+        });
+        report(totalBytes, totalBytes, 'copying', { force: true });
+
+        if (mode === 'move') {
+          report(totalBytes, totalBytes, 'finishing', { force: true });
+          try {
+            await fs.unlink(source.removePath);
+          } catch {
+            await fs.unlink(source.readPath).catch(() => {});
+          }
+        }
+        report(totalBytes, totalBytes, 'done', { force: true });
         const model = await readSingleModel(targetPath, 'custom');
         return { ok: true, model };
       } catch (e) {
@@ -268,8 +996,8 @@ export function registerModelManagerIpc(): void {
       payload: { customDir: string; modelPath: string; newFileName: string },
     ): Promise<ModelManagerMutationResult> => {
       try {
-        const customDir = normalizeAbs(String(payload?.customDir || '').trim());
-        const modelPath = normalizeAbs(String(payload?.modelPath || '').trim());
+        const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
+        const modelPath = normalizeModelManagerPath(String(payload?.modelPath || '').trim());
         const newFileName = sanitizeRename(String(payload?.newFileName || ''));
         if (!customDir || !modelPath || !newFileName) {
           return { ok: false, error: 'Missing custom directory, model path, or new filename.' };
@@ -277,8 +1005,24 @@ export function registerModelManagerIpc(): void {
         if (!isWithinRoot(customDir, modelPath)) {
           return { ok: false, error: 'Model path must be inside the custom directory.' };
         }
+        const st = await fs.stat(modelPath);
+        if (st.isDirectory()) {
+          const targetPath = path.join(path.dirname(modelPath), newFileName);
+          await fs.rename(modelPath, targetPath);
+          const agg = await computeHubFolderStats(targetPath);
+          const model: ModelManagerFileEntry = {
+            fileName: newFileName,
+            absolutePath: targetPath,
+            sizeBytes: agg.sizeBytes,
+            modifiedMs: agg.modifiedMs,
+            source: 'custom',
+            entryKind: 'hubRepo',
+            suggestedFileName: newFileName,
+          };
+          return { ok: true, model };
+        }
         if (!hasModelExtension(newFileName)) {
-          return { ok: false, error: 'Renamed file must keep a .gguf extension.' };
+          return { ok: false, error: 'Renamed model file must keep a .gguf or .ggml extension.' };
         }
         const targetPath = path.join(path.dirname(modelPath), newFileName);
         await fs.rename(modelPath, targetPath);
@@ -297,15 +1041,20 @@ export function registerModelManagerIpc(): void {
       payload: { customDir: string; modelPath: string },
     ): Promise<ModelManagerMutationResult> => {
       try {
-        const customDir = normalizeAbs(String(payload?.customDir || '').trim());
-        const modelPath = normalizeAbs(String(payload?.modelPath || '').trim());
+        const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
+        const modelPath = normalizeModelManagerPath(String(payload?.modelPath || '').trim());
         if (!customDir || !modelPath) {
           return { ok: false, error: 'Missing custom directory or model path.' };
         }
         if (!isWithinRoot(customDir, modelPath)) {
           return { ok: false, error: 'Model path must be inside the custom directory.' };
         }
-        await fs.unlink(modelPath);
+        const st = await fs.lstat(modelPath);
+        if (st.isDirectory()) {
+          await fs.rm(modelPath, { recursive: true, force: true });
+        } else {
+          await fs.unlink(modelPath);
+        }
         return { ok: true };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };

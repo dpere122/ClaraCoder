@@ -14,6 +14,7 @@ import type {
   LmStudioModelCard,
   ModelManagerCacheLocation,
   ModelManagerFileEntry,
+  ModelManagerMigrateProgressPayload,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   Workspace,
@@ -176,6 +177,9 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerStatus = signal('');
   protected readonly modelManagerBusy = signal(false);
   protected readonly modelManagerHfBusy = signal(false);
+  protected readonly modelManagerMigratingPath = signal<string | null>(null);
+  protected readonly modelManagerMigrateProgress = signal<ModelManagerMigrateProgressPayload | null>(null);
+  private migrateProgressUnsub: (() => void) | null = null;
   protected readonly selectedLocation = computed(() => {
     const modelId = this.selectedModelId();
     if (!modelId) {
@@ -285,6 +289,7 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty) {
       void this.enqueuePersist();
@@ -895,11 +900,14 @@ export class Settings implements OnInit, OnDestroy {
       return;
     }
     this.updateModelManagerConfig({ customModelsDir: selected });
+    await this.refreshModelManagerData({ clearStatus: false });
     this.modelManagerStatus.set('Custom model directory updated.');
-    await this.refreshModelManagerData();
   }
 
-  protected async refreshModelManagerData(): Promise<void> {
+  protected async refreshModelManagerData(options?: { clearStatus?: boolean }): Promise<void> {
+    if (options?.clearStatus !== false) {
+      this.modelManagerStatus.set('');
+    }
     await this.refreshCustomModelCards();
     await this.refreshDetectedCaches();
     await this.refreshCacheCandidates();
@@ -916,6 +924,11 @@ export class Settings implements OnInit, OnDestroy {
       const res = await this.electron.modelManagerListCustomModels({ customDir: dir });
       if (res.ok) {
         this.modelManagerCustomModels.set(res.models);
+        if (res.directoryMissing) {
+          this.modelManagerStatus.set(
+            `Custom model directory does not exist (${res.resolvedDir ?? dir}). Create the folder or fix the path.`,
+          );
+        }
       } else {
         this.modelManagerCustomModels.set([]);
         this.modelManagerStatus.set(res.error);
@@ -952,38 +965,82 @@ export class Settings implements OnInit, OnDestroy {
     this.modelManagerCacheCandidates.set(res.models);
   }
 
+  protected isCacheModelMigrating(model: ModelManagerFileEntry): boolean {
+    const active = this.modelManagerMigratingPath();
+    return !!active && active === model.absolutePath;
+  }
+
+  protected modelManagerMigratePercent(): number {
+    const p = this.modelManagerMigrateProgress();
+    if (!p || p.bytesTotal <= 0) {
+      return 0;
+    }
+    return Math.min(100, Math.round((Math.min(p.bytesDone, p.bytesTotal) / p.bytesTotal) * 100));
+  }
+
+  protected modelManagerMigrateIndeterminate(): boolean {
+    const p = this.modelManagerMigrateProgress();
+    return !p || p.phase === 'scanning';
+  }
+
+  protected modelManagerMigratePhaseLabel(): string {
+    const p = this.modelManagerMigrateProgress();
+    switch (p?.phase) {
+      case 'scanning':
+        return 'Scanning files…';
+      case 'copying':
+        return `Copying… ${this.modelManagerMigratePercent()}%`;
+      case 'finishing':
+        return 'Finishing…';
+      case 'done':
+        return 'Done';
+      default:
+        return 'Preparing…';
+    }
+  }
+
   protected async migrateCacheModel(model: ModelManagerFileEntry): Promise<void> {
     const customDir = this.modelManagerCustomDir().trim();
     if (!customDir) {
       this.modelManagerStatus.set('Set a custom model directory first.');
       return;
     }
-    const modeRaw = window.prompt(
-      `Migrate ${model.fileName}\nType "copy" or "move":`,
-      'copy',
-    );
-    if (!modeRaw) {
+    const mode = await this.electron.modelManagerChooseMigrateMode({
+      title: `Migrate "${model.fileName}"?`,
+      detail:
+        model.entryKind === 'hubRepo'
+          ? 'Copies or moves the entire Hugging Face hub folder (blobs, refs, snapshots) into your custom directory.'
+          : 'Copies or moves this GGUF/GGML file into your custom directory.',
+    });
+    if (!mode) {
       return;
     }
-    const mode = modeRaw.trim().toLowerCase();
-    if (mode !== 'copy' && mode !== 'move') {
-      this.modelManagerStatus.set('Migration cancelled: mode must be "copy" or "move".');
-      return;
-    }
+    this.modelManagerMigratingPath.set(model.absolutePath);
+    this.modelManagerMigrateProgress.set({ bytesDone: 0, bytesTotal: 1, phase: 'scanning' });
+    this.migrateProgressUnsub?.();
+    this.migrateProgressUnsub = this.electron.subscribeModelManagerMigrateProgress((p) => {
+      this.modelManagerMigrateProgress.set(p);
+    });
     this.modelManagerBusy.set(true);
     try {
       const res = await this.electron.modelManagerMigrateModel({
         sourcePath: model.absolutePath,
         customDir,
         mode,
+        suggestedFileName: model.suggestedFileName || model.fileName,
+        entryKind: model.entryKind === 'hubRepo' ? 'hubRepo' : undefined,
       });
       if (!res.ok) {
         this.modelManagerStatus.set(res.error);
         return;
       }
+      await this.refreshModelManagerData({ clearStatus: false });
       this.modelManagerStatus.set(`${model.fileName} migrated via ${mode}.`);
-      await this.refreshModelManagerData();
     } finally {
+      this.migrateProgressUnsub?.();
+      this.migrateProgressUnsub = null;
+      this.modelManagerMigratingPath.set(null);
+      this.modelManagerMigrateProgress.set(null);
       this.modelManagerBusy.set(false);
     }
   }
@@ -1020,7 +1077,11 @@ export class Settings implements OnInit, OnDestroy {
     if (!customDir) {
       return;
     }
-    const ok = window.confirm(`Delete model file ${model.fileName}?`);
+    const ok = window.confirm(
+      model.entryKind === 'hubRepo'
+        ? `Delete hub folder "${model.fileName}" and everything inside it?`
+        : `Delete model file ${model.fileName}?`,
+    );
     if (!ok) {
       return;
     }

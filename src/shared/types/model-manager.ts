@@ -1,3 +1,13 @@
+export type ModelManagerMigrateProgressPhase = 'scanning' | 'copying' | 'finishing' | 'done';
+
+export interface ModelManagerMigrateProgressPayload {
+  bytesDone: number;
+  bytesTotal: number;
+  phase: ModelManagerMigrateProgressPhase;
+}
+
+export type ModelManagerEntryKind = 'file' | 'hubRepo';
+
 export interface ModelManagerFileEntry {
   fileName: string;
   absolutePath: string;
@@ -5,6 +15,9 @@ export interface ModelManagerFileEntry {
   modifiedMs: number;
   source: 'custom' | 'cache';
   sourceRoot?: string;
+  suggestedFileName?: string;
+  /** Hugging Face hub-style repo folder (`models--*` plus blobs/refs/snapshots layout). Omit means a single file. */
+  entryKind?: ModelManagerEntryKind;
 }
 
 export interface ModelManagerCacheLocation {
@@ -14,7 +27,7 @@ export interface ModelManagerCacheLocation {
 }
 
 export type ModelManagerListModelsResult =
-  | { ok: true; models: ModelManagerFileEntry[] }
+  | { ok: true; models: ModelManagerFileEntry[]; resolvedDir?: string; directoryMissing?: boolean }
   | { ok: false; error: string };
 
 export type ModelManagerDetectCachesResult =

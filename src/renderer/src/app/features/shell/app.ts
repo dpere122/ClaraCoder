@@ -371,6 +371,10 @@ export class App implements OnInit, OnDestroy {
   private boundOnResizeMove = this.onResizeMove.bind(this);
   private boundOnResizeEnd = this.onResizeEnd.bind(this);
   private pendingSave = false;
+  /** Serializes SQLite writes for the active conversation so overlapping saves cannot apply a stale snapshot after a newer one. */
+  private saveCurrentConversationChain: Promise<void> = Promise.resolve();
+  /** Per-conversation RMW chain for background-completed streams (read disk → append assistant). */
+  private readonly backgroundConversationSaveChains = new Map<string, Promise<void>>();
   private workspaceSyncToken = 0;
 
   constructor(
@@ -1337,20 +1341,30 @@ export class App implements OnInit, OnDestroy {
   }
 
   private async saveCurrentConversation(): Promise<void> {
+    const p = this.saveCurrentConversationChain.then(() => this.flushSaveCurrentConversation());
+    this.saveCurrentConversationChain = p.catch((err) => {
+      console.error('[App] saveCurrentConversation chain failed:', err);
+    });
+    return p;
+  }
+
+  private async flushSaveCurrentConversation(): Promise<void> {
     if (!this.activeConversation) {
       console.log('[App] saveCurrentConversation: no active conversation');
       return;
     }
-
-    if (this.pendingSave) {
-      console.log('[App] saveCurrentConversation: saving, pendingSave was true');
+    let flushed = false;
+    while (this.pendingSave) {
+      flushed = true;
+      console.log('[App] saveCurrentConversation: flushing dirty state');
       this.pendingSave = false;
       this.activeConversation.messages = [...this.messages()];
       this.activeConversation.updatedAt = new Date().toISOString();
       console.log('[App] Saving conversation with', this.activeConversation.messages.length, 'messages');
       await this.electron.saveConversation(this.activeConversation);
       console.log('[App] Conversation saved successfully');
-    } else {
+    }
+    if (!flushed) {
       console.log('[App] saveCurrentConversation: skipping, pendingSave was false');
     }
   }
@@ -1392,23 +1406,30 @@ export class App implements OnInit, OnDestroy {
     moeStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
   ): Promise<void> {
-    try {
-      // Find the conversation's workspaceId from the list
-      const convMeta = this.conversations().find(c => c.id === conversationId);
-      const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
-      const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
-      const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
-      if (planner) assistant.planner = planner;
-      if (toolStreams?.length) assistant.toolStreams = toolStreams;
-      if (moeStreams?.length) assistant.moeStreams = moeStreams;
-      if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
-      conv.messages.push(assistant);
-      conv.updatedAt = new Date().toISOString();
-      await this.electron.saveConversation(conv);
-      this.bumpConversation(conversationId);
-    } catch {
-      // conversation may have been deleted
-    }
+    const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
+    const mine = prev.then(async () => {
+      try {
+        const convMeta = this.conversations().find(c => c.id === conversationId);
+        const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
+        const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
+        const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
+        if (planner) assistant.planner = planner;
+        if (toolStreams?.length) assistant.toolStreams = toolStreams;
+        if (moeStreams?.length) assistant.moeStreams = moeStreams;
+        if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
+        conv.messages.push(assistant);
+        conv.updatedAt = new Date().toISOString();
+        await this.electron.saveConversation(conv);
+        this.bumpConversation(conversationId);
+      } catch {
+        // conversation may have been deleted
+      }
+    });
+    this.backgroundConversationSaveChains.set(
+      conversationId,
+      mine.catch((err) => console.error('[App] background conversation save failed:', err)),
+    );
+    return mine;
   }
 
   private bumpConversation(id: string): void {

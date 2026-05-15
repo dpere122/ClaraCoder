@@ -894,12 +894,13 @@ export class ElectronService {
   }
 
   workspacePtySpawn(
+    workspaceRoot: string,
     cwd: string,
     cols: number,
     rows: number,
   ): Promise<{ success: true; sessionId: string } | { success: false; error: string }> {
     return (
-      this.api?.workspacePtySpawn(cwd, cols, rows) ??
+      this.api?.workspacePtySpawn(workspaceRoot, cwd, cols, rows) ??
       Promise.resolve({ success: false as const, error: 'API not available' })
     );
   }
@@ -962,9 +963,10 @@ export class ElectronService {
     line: number,
     character: number,
     documentText: string,
+    skipDocumentSync?: boolean,
   ): Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }> {
     return (
-      this.api?.lspEditorHover?.(sessionId, relativePath, line, character, documentText) ??
+      this.api?.lspEditorHover?.(sessionId, relativePath, line, character, documentText, skipDocumentSync === true) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
@@ -975,13 +977,20 @@ export class ElectronService {
     line: number,
     character: number,
     documentText: string,
+    skipDocumentSync?: boolean,
   ): Promise<
     | { ok: true; locations: LspEditorLocationPayload[] }
     | { ok: false; error: string }
   > {
     return (
-      this.api?.lspEditorDefinition?.(sessionId, relativePath, line, character, documentText) ??
-      Promise.resolve({ ok: false as const, error: 'API not available' })
+      this.api?.lspEditorDefinition?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        documentText,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
 
@@ -992,6 +1001,7 @@ export class ElectronService {
     character: number,
     documentText: string,
     includeDeclaration: boolean,
+    skipDocumentSync?: boolean,
   ): Promise<
     | { ok: true; locations: LspEditorLocationPayload[] }
     | { ok: false; error: string }
@@ -1004,6 +1014,7 @@ export class ElectronService {
         character,
         documentText,
         includeDeclaration,
+        skipDocumentSync === true,
       ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
@@ -1012,6 +1023,7 @@ export class ElectronService {
     sessionId: string,
     relativePath: string,
     documentText: string,
+    skipDocumentSync?: boolean,
   ): Promise<
     | {
         ok: true;
@@ -1021,7 +1033,7 @@ export class ElectronService {
     | { ok: false; error: string }
   > {
     return (
-      this.api?.lspEditorDocumentSymbols?.(sessionId, relativePath, documentText) ??
+      this.api?.lspEditorDocumentSymbols?.(sessionId, relativePath, documentText, skipDocumentSync === true) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
@@ -1034,6 +1046,7 @@ export class ElectronService {
     documentText: string,
     triggerKind: number,
     triggerCharacter: string | null,
+    skipDocumentSync?: boolean,
   ): Promise<
     | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[] }
     | { ok: false; error: string }
@@ -1047,6 +1060,7 @@ export class ElectronService {
         documentText,
         triggerKind,
         triggerCharacter,
+        skipDocumentSync === true,
       ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
@@ -1058,13 +1072,21 @@ export class ElectronService {
     character: number,
     documentText: string,
     newName: string,
+    skipDocumentSync?: boolean,
   ): Promise<
     | { ok: true; workspaceEdit: LspWorkspaceEditPayload | null }
     | { ok: false; error: string }
   > {
     return (
-      this.api?.lspEditorRename?.(sessionId, relativePath, line, character, documentText, newName) ??
-      Promise.resolve({ ok: false as const, error: 'API not available' })
+      this.api?.lspEditorRename?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        documentText,
+        newName,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
 
@@ -1082,9 +1104,10 @@ export class ElectronService {
     sessionId: string,
     relativePath: string,
     documentText: string,
+    skipDocumentSync?: boolean,
   ): Promise<{ ok: true; payload: LspSemanticTokensFullPayload } | { ok: false; error: string }> {
     return (
-      this.api?.lspEditorSemanticTokensFull?.(sessionId, relativePath, documentText) ??
+      this.api?.lspEditorSemanticTokensFull?.(sessionId, relativePath, documentText, skipDocumentSync === true) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }

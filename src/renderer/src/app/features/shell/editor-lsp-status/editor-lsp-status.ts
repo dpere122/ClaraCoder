@@ -21,6 +21,15 @@ export class EditorLspStatusComponent {
   protected readonly fetchError = signal('');
   protected readonly loading = signal(false);
 
+  /**
+   * Serialized dashboard fetches: callers chain so a refresh after ``warmLspForActiveFile``
+   * still runs (it is not dropped after awaiting an older in-flight fetch).
+   */
+  private dashboardRefreshChain: Promise<void> = Promise.resolve();
+
+  /** Dedupe ``warmLspForActiveFile`` when the same conversation + path effect re-runs. */
+  private lastWarmConversationPath = '';
+
   /** User-chosen server (dropdown); synced from active file when that file has an integrated LSP. */
   protected readonly selectedServerId = signal<string>('python');
 
@@ -67,6 +76,11 @@ export class EditorLspStatusComponent {
       if (!lspServerKindForWorkspaceRelativePath(posix)) {
         return;
       }
+      const warmKey = `${conv}|${posix}`;
+      if (this.lastWarmConversationPath === warmKey) {
+        return;
+      }
+      this.lastWarmConversationPath = warmKey;
       untracked(async () => {
         const w = await this.electron.warmLspForActiveFile(conv, posix);
         if (w.ok) {
@@ -94,24 +108,28 @@ export class EditorLspStatusComponent {
     })();
   }
 
-  private async refreshDashboard(): Promise<void> {
-    const conv = this.conversationId()?.trim();
-    if (!conv) {
-      return;
-    }
-    this.loading.set(true);
-    try {
-      const res = await this.electron.getLspDashboardStatus(conv);
-      if (res.ok) {
-        this.dashboard.set(res.status);
-        this.fetchError.set('');
-      } else {
-        this.dashboard.set(null);
-        this.fetchError.set(res.error);
+  private refreshDashboard(): Promise<void> {
+    const next = this.dashboardRefreshChain.then(async () => {
+      const conv = this.conversationId()?.trim();
+      if (!conv) {
+        return;
       }
-    } finally {
-      this.loading.set(false);
-    }
+      this.loading.set(true);
+      try {
+        const res = await this.electron.getLspDashboardStatus(conv);
+        if (res.ok) {
+          this.dashboard.set(res.status);
+          this.fetchError.set('');
+        } else {
+          this.dashboard.set(null);
+          this.fetchError.set(res.error);
+        }
+      } finally {
+        this.loading.set(false);
+      }
+    });
+    this.dashboardRefreshChain = next.catch(() => undefined);
+    return next;
   }
 
   /** Single-line indicator + tooltip for tab strip. */

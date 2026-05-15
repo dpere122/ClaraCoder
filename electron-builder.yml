@@ -23,6 +23,11 @@ extraResources:
       - "!**/.venv/**"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+  - from: LLM_Templates
+    # Basename must match QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME in src/shared/qwen-template.ts
+    to: LLM_Templates
+    filter:
+      - "**/*"
 
 asarUnpack:
   - "**/node_modules/node-pty/**/*"

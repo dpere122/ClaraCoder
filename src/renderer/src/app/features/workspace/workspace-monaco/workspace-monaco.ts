@@ -20,7 +20,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type * as Monaco from 'monaco-editor';
 import {
   LSP_MONACO_LANGUAGE_IDS,
-  LSP_SEMANTIC_LEGEND_SERVER_IDS,
+  LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS,
   lspServerKindForWorkspaceRelativePath,
   type FileDiffPayload,
   type MonacoWorkspaceEditorSettings,
@@ -33,6 +33,7 @@ import { PendingDiffReviewService } from '../../diff/pending-diff-review.service
 import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
 import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
+import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript',
@@ -688,7 +689,7 @@ export class WorkspaceMonacoComponent {
     const convId = this.conversationId()?.trim();
     if (this.electron.isElectron && convId) {
       initialSemanticLegends = {};
-      for (const sid of LSP_SEMANTIC_LEGEND_SERVER_IDS) {
+      for (const sid of LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS) {
         const res = await this.electron.lspEditorSemanticTokensLegend(convId, sid);
         initialSemanticLegends[sid] = {
           tokenTypes: res.ok ? res.legend.tokenTypes : [],
@@ -760,15 +761,20 @@ export class WorkspaceMonacoComponent {
     if (!sessionId) {
       return null;
     }
+    const skipSync = !monacoModelNeedsLspDocumentSync(model);
     const res = await this.electron.lspEditorHover(
       sessionId,
       relKey,
       position.lineNumber,
       position.column,
-      model.getValue(),
+      skipSync ? '' : model.getValue(),
+      skipSync,
     );
     if (!res.ok || !res.markdown?.trim()) {
       return null;
+    }
+    if (!skipSync) {
+      markMonacoModelLspDocumentSynced(model);
     }
     return {
       contents: [{ value: res.markdown, isTrusted: true }],

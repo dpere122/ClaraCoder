@@ -28,6 +28,9 @@ export const LSP_MONACO_LANGUAGE_IDS: readonly string[] = [
  */
 export const LSP_SEMANTIC_LEGEND_SERVER_IDS: readonly string[] = ['python', 'typescript', 'gdscript'];
 
+/** Subset prefetched on editor mount (avoids GDScript / Godot bridge cold start when no ``.gd`` is open). */
+export const LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS: readonly string[] = ['python', 'typescript'];
+
 /** Backward-compatible name for server id strings. */
 export type LspServerKind = string;
 

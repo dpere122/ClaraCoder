@@ -7,8 +7,8 @@
     "postinstall": "node scripts/rebuild-native.mjs",
     "rebuild:pty": "electron-rebuild -f -o node-pty",
     "rebuild:sqlite": "electron-rebuild -f -o better-sqlite3",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "init:tsconfig": "npx create-tsconfig @typescript-eslint/parser --project=src/main/index.ts",
+    "test": "npm test --prefix src/renderer",
+    "test:renderer": "npm test --prefix src/renderer",
     "setup:python": "node scripts/setup-python.mjs",
     "setup:python:cpu": "cross-env NEMO_PYTORCH_CPU=1 node scripts/setup-python.mjs",
     "check:python-deps": "python -m pip install -r python/requirements-dev.txt -q && python -m pip check && cd python && python -m deptry .",
@@ -35,7 +35,8 @@
     "better-sqlite3": "^12.9.0",
     "iconv-lite": "^0.6.3",
     "node-pty": "^1.1.0",
-    "systeminformation": "^5.31.5"
+    "systeminformation": "^5.31.5",
+    "undici": "^6.25.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.2",

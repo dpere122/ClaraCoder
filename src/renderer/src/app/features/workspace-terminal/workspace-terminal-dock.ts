@@ -32,6 +32,10 @@ interface PtyTerminalTab {
   readonly id: string;
   sessionId: string | null;
   title: string;
+  /** Set when the main process could not start a PTY for this tab. */
+  spawnError?: string;
+  /** True while ``workspace-pty-spawn`` is in flight (shows a "starting" placeholder). */
+  spawning?: boolean;
 }
 
 interface MergedTab {
@@ -373,7 +377,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   addTab(): void {
     const id = crypto.randomUUID();
     const n = this.ptyTabs().length + 1;
-    this.ptyTabs.update((list) => [...list, { id, sessionId: null, title: `Terminal ${n}` }]);
+    this.ptyTabs.update((list) => [...list, { id, sessionId: null, title: `Terminal ${n}`, spawnError: undefined }]);
     this.activeTabId.set(id);
     if (this.expanded() && this.hasWorkspace()) {
       this.queueSafe(() => void this.ensureActiveTabSession());
@@ -429,6 +433,16 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       inst?.terminal.focus();
       this.applyXtermThemes();
     });
+  }
+
+  /** Clears a failed spawn and tries again (same workspace cwd). */
+  retryPtySpawn(tabId: string): void {
+    this.ptyTabs.update((list) =>
+      list.map((t) => (t.id === tabId ? { ...t, spawnError: undefined } : t)),
+    );
+    if (this.activeTabId() === tabId) {
+      void this.ensureActiveTabSession();
+    }
   }
 
   onResizeHandleDown(ev: MouseEvent): void {
@@ -515,22 +529,73 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       if (this.spawningTabs.has(tabId)) {
         return;
       }
+      // Do not auto-retry after a failed spawn; require an explicit Retry click. Without this,
+      // the effect that watches ``ptyTabs()`` re-fires when ``spawnError`` is written and starts
+      // an infinite spawn loop.
+      if (tab?.spawnError) {
+        return;
+      }
       this.spawningTabs.add(tabId);
+      this.ptyTabs.update((list) =>
+        list.map((t) => (t.id === tabId ? { ...t, spawnError: undefined, spawning: true } : t)),
+      );
       const cols = 80;
       const rows = 24;
       try {
-        const res = await this.electron.workspacePtySpawn(path, cols, rows);
-        if (this.destroyed || !res.success) {
+        const workspaceRoot = path;
+        const cwd = path;
+        console.log('[workspace-terminal] spawn requested', { tabId, workspaceRoot, cwd });
+        let spawnTimedOut = false;
+        const spawnPromise = this.electron.workspacePtySpawn(workspaceRoot, cwd, cols, rows).then((spawnRes) => {
+          if (spawnTimedOut && spawnRes.success) {
+            void this.electron.workspacePtyKill(spawnRes.sessionId);
+          }
+          return spawnRes;
+        });
+        const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) =>
+          setTimeout(
+            () => {
+              spawnTimedOut = true;
+              resolve({
+                success: false as const,
+                error:
+                  'Timed out waiting for the main process to start a shell after 10s. ' +
+                  'Check the Electron main-process console for [workspace-pty] errors.',
+              });
+            },
+            10_000,
+          ),
+        );
+        const res = await Promise.race([spawnPromise, timeoutPromise]);
+        if (this.destroyed) {
           return;
         }
+        if (!res.success) {
+          const err = 'error' in res ? res.error : 'Could not start shell.';
+          console.warn('[workspace-terminal] spawn failed', { tabId, error: err });
+          this.ptyTabs.update((list) =>
+            list.map((t) => (t.id === tabId ? { ...t, spawnError: err, spawning: false } : t)),
+          );
+          return;
+        }
+        console.log('[workspace-terminal] spawn ok', { tabId, sessionId: res.sessionId });
         const still = this.ptyTabs().find((t) => t.id === tabId);
         if (!still || still.sessionId !== null) {
           void this.electron.workspacePtyKill(res.sessionId);
           return;
         }
-        this.ptyTabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, sessionId: res.sessionId } : t)));
+        this.ptyTabs.update((list) =>
+          list.map((t) =>
+            t.id === tabId
+              ? { ...t, sessionId: res.sessionId, spawnError: undefined, spawning: false }
+              : t,
+          ),
+        );
       } finally {
         this.spawningTabs.delete(tabId);
+        this.ptyTabs.update((list) =>
+          list.map((t) => (t.id === tabId && t.spawning ? { ...t, spawning: false } : t)),
+        );
       }
     }
     if (this.destroyed) {
@@ -600,7 +665,21 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     const host = document.getElementById(this.hostDomId(tabId));
-    if (!host || this.xterms.has(tabId)) {
+    if (!host) {
+      console.warn('[workspace-terminal] mount skipped: host element missing', { tabId });
+      // Try once more on the next animation frame in case Angular has not flushed yet.
+      requestAnimationFrame(() => {
+        if (!this.destroyed && !this.xterms.has(tabId)) {
+          const retryHost = document.getElementById(this.hostDomId(tabId));
+          const retryTab = this.ptyTabs().find((t) => t.id === tabId);
+          if (retryHost && retryTab?.sessionId === sessionId) {
+            this.mountPtyXtermIfNeeded(tabId, sessionId);
+          }
+        }
+      });
+      return;
+    }
+    if (this.xterms.has(tabId)) {
       return;
     }
     const terminal = new Terminal({
@@ -629,7 +708,11 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     }
     this.xterms.set(tabId, { terminal, fit, sessionId });
     this.ptySessionToTabId.set(sessionId, tabId);
-    fit.fit();
+    try {
+      fit.fit();
+    } catch {
+      /* host may have zero size before layout settles */
+    }
     const dims = fit.proposeDimensions();
     if (dims?.cols && dims?.rows) {
       void this.electron.workspacePtyResize(sessionId, dims.cols, dims.rows);

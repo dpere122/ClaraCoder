@@ -344,6 +344,27 @@ export function parseHostFromLlamaCommand(command: string): string {
 }
 
 /**
+ * For managed ``llama-server`` when the Qwen optimization preset is on: append ``--jinja`` and
+ * ``--chat-template-file`` so llama.cpp uses the bundled Qwen template. Skips if the user command
+ * already contains ``--chat-template-file``.
+ */
+export function appendQwenChatTemplateFlagsToManagedChatCommand(
+  chatRunCommand: string,
+  templatePath: string,
+  platform: ShellQuotingPlatform,
+): string {
+  const cmd = chatRunCommand.trim();
+  // ``\b`` is unreliable before ``--`` (hyphen is not ``\w``), so match long options as tokens.
+  if (/(?:^|[\s"'])--chat-template-file(?:\s|=|$)/i.test(cmd)) {
+    return chatRunCommand;
+  }
+  const quoted = shellQuoteArg(templatePath, platform);
+  const hasJinja = /(?:^|[\s"'])--jinja(?:\s|$)/i.test(cmd);
+  const tail = hasJinja ? `--chat-template-file ${quoted}` : `--jinja --chat-template-file ${quoted}`;
+  return `${cmd} ${tail}`;
+}
+
+/**
  * Validate and substitute ``{{PORT}}`` for one managed server command before ``spawn(..., { shell: true })``.
  */
 export function prepareManagedLlamaShellCommand(

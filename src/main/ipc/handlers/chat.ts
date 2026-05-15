@@ -3,7 +3,7 @@ import type {
   LlmStatusPayload,
 } from '../../../shared';
 import { parseAgentStreamPayload } from '../../../shared';
-import { PYTHON_URL } from '../../python/server';
+import { pythonControlFetch, pythonSsePost } from '../../python/http-client';
 import { mainState } from '../../state';
 
 /** Per-conversation abort controllers so the renderer can cancel an in-flight stream. */
@@ -101,12 +101,7 @@ export function registerChatIpc(): void {
     }
 
     try {
-      const res = await fetch(`${PYTHON_URL}/chat/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: abortController.signal,
-      });
+      const res = await pythonSsePost('/chat/stream', body, abortController.signal);
 
       if (!res.ok || !res.body) {
         throw new Error(`Stream request failed: ${res.status}`);
@@ -180,7 +175,7 @@ export function registerChatIpc(): void {
       stagedTransferAction?: 'confirm' | 're_review',
     ) => {
     try {
-      const res = await fetch(`${PYTHON_URL}/chat/agent-continue`, {
+      const res = await pythonControlFetch('/chat/agent-continue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,7 +207,7 @@ export function registerChatIpc(): void {
       controller.abort();
       streamAbortControllers.delete(conversationId);
       try {
-        await fetch(`${PYTHON_URL}/chat/abort`, {
+        await pythonControlFetch('/chat/abort', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: conversationId }),
@@ -227,7 +222,7 @@ export function registerChatIpc(): void {
 
   ipcMain.handle('sync-auto-apply-mode', async (_event, conversationId: string, autoApplyMode: boolean) => {
     try {
-      const res = await fetch(`${PYTHON_URL}/session/auto-apply`, {
+      const res = await pythonControlFetch('/session/auto-apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: conversationId, auto_apply_mode: !!autoApplyMode }),

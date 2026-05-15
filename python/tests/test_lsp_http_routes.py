@@ -21,6 +21,7 @@ class _FakeLspClient:
         self.docs: dict[str, str] = {}
         self.closed = False
         self.initialized = False
+        self.sync_notify_count = 0
 
     def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
         del root_uri, process_id, capabilities, initialization_options
@@ -76,6 +77,7 @@ class _FakeLspClient:
             return
         if method not in ('textDocument/didOpen', 'textDocument/didChange'):
             raise AssertionError(f'unexpected LSP notification: {method}')
+        self.sync_notify_count += 1
         if method == 'textDocument/didOpen':
             uri = params['textDocument']['uri']
             text = params['textDocument']['text']
@@ -126,11 +128,16 @@ def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     session.lsp_active_scope = 'workspace'
     session.lsp_workspace_root = ''
 
-    factory = lambda *, command, workspace_root, notification_handler: _FakeLspClient(
-        command=command,
-        workspace_root=workspace_root,
-        notification_handler=notification_handler,
-    )
+    fake_clients: list[_FakeLspClient] = []
+
+    def factory(*, command, workspace_root, notification_handler):
+        client = _FakeLspClient(
+            command=command,
+            workspace_root=workspace_root,
+            notification_handler=notification_handler,
+        )
+        fake_clients.append(client)
+        return client
 
     real_get = get_session_lsp_manager
 
@@ -142,7 +149,7 @@ def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     from nemo_backend.main import app
 
-    yield SimpleNamespace(app=app, session_id=session_id, sample_path='pkg/mod.py')
+    yield SimpleNamespace(app=app, session_id=session_id, sample_path='pkg/mod.py', fake_clients=fake_clients)
 
     current_session_id.reset(token)
     shutdown_all_lsp_managers()
@@ -190,6 +197,56 @@ def test_lsp_completion_http_route(lsp_http_env) -> None:
     assert body['items'][0].get('label') == 'fakeItem'
 
 
+def test_lsp_completion_accepts_explicit_empty_document_text(lsp_http_env) -> None:
+    """Empty string buffer must be forwarded (unsaved empty editor), not treated as omitted."""
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(
+            f'/lsp/completion?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+                'trigger_kind': 1,
+                'document_text': '',
+            },
+        )
+    assert r.status_code == 200
+    assert r.json().get('items')
+
+
+def test_lsp_completion_skip_document_sync_avoids_second_buffer_sync(lsp_http_env) -> None:
+    """``skip_document_sync`` must not send another didOpen/didChange for the same buffer."""
+    text = 'value = "TODO"\nprint(value)\n'
+    with TestClient(lsp_http_env.app) as client:
+        r1 = client.post(
+            f'/lsp/completion?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+                'trigger_kind': 1,
+                'document_text': text,
+            },
+        )
+        assert r1.status_code == 200
+        assert lsp_http_env.fake_clients, 'expected injected LSP client'
+        fake = lsp_http_env.fake_clients[0]
+        after_first = fake.sync_notify_count
+        r2 = client.post(
+            f'/lsp/completion?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+                'trigger_kind': 1,
+                'skip_document_sync': True,
+            },
+        )
+        after_second = fake.sync_notify_count
+    assert r2.status_code == 200
+    assert after_second == after_first
+
+
 def test_lsp_semantic_tokens_legend_http_route(lsp_http_env) -> None:
     with TestClient(lsp_http_env.app) as client:
         r = client.get(
@@ -218,13 +275,39 @@ def test_lsp_semantic_tokens_legend_unknown_server_returns_400(lsp_http_env) -> 
     assert r.status_code == 400
 
 
-def test_lsp_semantic_tokens_legend_gdscript_with_default_bridge_uses_injected_client(
+def test_lsp_semantic_tokens_legend_gdscript_default_bridge_deferred_without_seed(
     lsp_http_env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With fake LSP client injection, gdscript server starts like python (default argv is stdio bridge)."""
+    """Default GDScript bridge is not started for legend until a ``.gd`` file has been synced (seed)."""
 
     monkeypatch.delenv('NEMO_GDSCRIPT_LSP_COMMAND', raising=False)
     with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=gdscript',
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get('supported') is False
+    assert data.get('tokenTypes') == []
+
+
+def test_lsp_semantic_tokens_legend_gdscript_after_disk_sync_uses_injected_client(
+    lsp_http_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After syncing a ``.gd`` path, legend prefetch may start the injected gdscript client."""
+
+    monkeypatch.delenv('NEMO_GDSCRIPT_LSP_COMMAND', raising=False)
+    session = get_session(lsp_http_env.session_id)
+    root = Path(session.workspace_path)
+    gd = root / 'game' / 'Main.gd'
+    gd.parent.mkdir(parents=True, exist_ok=True)
+    gd.write_text('extends Node\n', encoding='utf-8')
+    with TestClient(lsp_http_env.app) as client:
+        r0 = client.get(
+            f'/lsp/diagnostics?session_id={lsp_http_env.session_id}'
+            f'&relative_path=game/Main.gd&refresh_active_document=true',
+        )
+        assert r0.status_code == 200
         r = client.get(
             f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=gdscript',
         )

@@ -308,8 +308,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   endScript: (processId: string) => ipcRenderer.invoke('end-script', processId),
   onScriptOutput: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-output', callback),
   onScriptComplete: (callback: (event: unknown, data: unknown) => void) => ipcRenderer.on('script-complete', callback),
-  workspacePtySpawn: (cwd: string, cols: number, rows: number) =>
-    ipcRenderer.invoke('workspace-pty-spawn', cwd, cols, rows),
+  workspacePtySpawn: (workspaceRoot: string, cwd: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('workspace-pty-spawn', workspaceRoot, cwd, cols, rows),
   workspacePtyWrite: (sessionId: string, data: string) => ipcRenderer.invoke('workspace-pty-write', sessionId, data),
   workspacePtyResize: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('workspace-pty-resize', sessionId, cols, rows),
@@ -347,18 +347,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     line: number,
     character: number,
     documentText: string,
+    skipDocumentSync?: boolean,
   ) =>
-    ipcRenderer.invoke('lsp-editor-hover', sessionId, relativePath, line, character, documentText) as Promise<
-      { ok: true; markdown: string | null } | { ok: false; error: string }
-    >,
+    ipcRenderer.invoke(
+      'lsp-editor-hover',
+      sessionId,
+      relativePath,
+      line,
+      character,
+      documentText,
+      skipDocumentSync === true,
+    ) as Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }>,
   lspEditorDefinition: (
     sessionId: string,
     relativePath: string,
     line: number,
     character: number,
     documentText: string,
+    skipDocumentSync?: boolean,
   ) =>
-    ipcRenderer.invoke('lsp-editor-definition', sessionId, relativePath, line, character, documentText) as Promise<
+    ipcRenderer.invoke(
+      'lsp-editor-definition',
+      sessionId,
+      relativePath,
+      line,
+      character,
+      documentText,
+      skipDocumentSync === true,
+    ) as Promise<
       | { ok: true; locations: LspEditorLocationIpc[] }
       | { ok: false; error: string }
     >,
@@ -369,6 +385,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     character: number,
     documentText: string,
     includeDeclaration: boolean,
+    skipDocumentSync?: boolean,
   ) =>
     ipcRenderer.invoke(
       'lsp-editor-references',
@@ -378,9 +395,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       character,
       documentText,
       includeDeclaration,
+      skipDocumentSync === true,
     ) as Promise<{ ok: true; locations: LspEditorLocationIpc[] } | { ok: false; error: string }>,
-  lspEditorDocumentSymbols: (sessionId: string, relativePath: string, documentText: string) =>
-    ipcRenderer.invoke('lsp-editor-document-symbols', sessionId, relativePath, documentText) as Promise<
+  lspEditorDocumentSymbols: (sessionId: string, relativePath: string, documentText: string, skipDocumentSync?: boolean) =>
+    ipcRenderer.invoke(
+      'lsp-editor-document-symbols',
+      sessionId,
+      relativePath,
+      documentText,
+      skipDocumentSync === true,
+    ) as Promise<
       | { ok: true; hierarchical: LspEditorDocumentSymbolIpc[]; flat: LspEditorFlatSymbolIpc[] }
       | { ok: false; error: string }
     >,
@@ -392,6 +416,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     documentText: string,
     triggerKind: number,
     triggerCharacter: string | null,
+    skipDocumentSync?: boolean,
   ) =>
     ipcRenderer.invoke(
       'lsp-editor-completion',
@@ -402,6 +427,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       documentText,
       triggerKind,
       triggerCharacter,
+      skipDocumentSync === true,
     ) as Promise<
       | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemIpc[] }
       | { ok: false; error: string }
@@ -413,8 +439,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     character: number,
     documentText: string,
     newName: string,
+    skipDocumentSync?: boolean,
   ) =>
-    ipcRenderer.invoke('lsp-editor-rename', sessionId, relativePath, line, character, documentText, newName) as Promise<
+    ipcRenderer.invoke(
+      'lsp-editor-rename',
+      sessionId,
+      relativePath,
+      line,
+      character,
+      documentText,
+      newName,
+      skipDocumentSync === true,
+    ) as Promise<
       | { ok: true; workspaceEdit: LspWorkspaceEditIpc | null }
       | { ok: false; error: string }
     >,
@@ -423,8 +459,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       | { ok: true; legend: LspSemanticTokensLegendIpc }
       | { ok: false; error: string }
     >,
-  lspEditorSemanticTokensFull: (sessionId: string, relativePath: string, documentText: string) =>
-    ipcRenderer.invoke('lsp-editor-semantic-tokens-full', sessionId, relativePath, documentText) as Promise<
+  lspEditorSemanticTokensFull: (sessionId: string, relativePath: string, documentText: string, skipDocumentSync?: boolean) =>
+    ipcRenderer.invoke(
+      'lsp-editor-semantic-tokens-full',
+      sessionId,
+      relativePath,
+      documentText,
+      skipDocumentSync === true,
+    ) as Promise<
       | { ok: true; payload: LspSemanticTokensFullIpc }
       | { ok: false; error: string }
     >,

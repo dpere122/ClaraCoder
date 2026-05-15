@@ -42,8 +42,10 @@ export {
   defaultMonacoWorkspaceEditorSettings,
   normalizeMonacoWorkspaceEditorSettings,
 } from './types/app-config';
+export { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from './qwen-template';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export {
+  appendQwenChatTemplateFlagsToManagedChatCommand,
   argvToShellCommandLine,
   buildLlamaServerArgv,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
@@ -155,6 +157,7 @@ export type { LspServerKind } from './lsp-file-policy';
 export {
   LSP_EXTENSION_TO_SERVER,
   LSP_MONACO_LANGUAGE_IDS,
+  LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS,
   LSP_SEMANTIC_LEGEND_SERVER_IDS,
   lspServerIdForMonacoLanguageId,
 } from './lsp-file-policy';

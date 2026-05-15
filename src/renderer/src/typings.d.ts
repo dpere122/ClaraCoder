@@ -263,11 +263,12 @@ declare global {
     onScriptComplete: (
       callback: (event: unknown, data: { processId: string; exitCode: number | null }) => void,
     ) => void;
-    workspacePtySpawn: (
-      cwd: string,
-      cols: number,
-      rows: number,
-    ) => Promise<
+  workspacePtySpawn: (
+    workspaceRoot: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+  ) => Promise<
       | { success: true; sessionId: string }
       | { success: false; error: string }
     >;
@@ -332,6 +333,7 @@ declare global {
       line: number,
       character: number,
       documentText: string,
+      skipDocumentSync?: boolean,
     ) => Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }>;
     lspEditorDefinition?: (
       sessionId: string,
@@ -339,6 +341,7 @@ declare global {
       line: number,
       character: number,
       documentText: string,
+      skipDocumentSync?: boolean,
     ) => Promise<{ ok: true; locations: LspEditorLocationPayload[] } | { ok: false; error: string }>;
     lspEditorReferences?: (
       sessionId: string,
@@ -347,11 +350,13 @@ declare global {
       character: number,
       documentText: string,
       includeDeclaration: boolean,
+      skipDocumentSync?: boolean,
     ) => Promise<{ ok: true; locations: LspEditorLocationPayload[] } | { ok: false; error: string }>;
     lspEditorDocumentSymbols?: (
       sessionId: string,
       relativePath: string,
       documentText: string,
+      skipDocumentSync?: boolean,
     ) => Promise<
       | {
           ok: true;
@@ -368,6 +373,7 @@ declare global {
       documentText: string,
       triggerKind: number,
       triggerCharacter: string | null,
+      skipDocumentSync?: boolean,
     ) => Promise<
       | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[] }
       | { ok: false; error: string }
@@ -379,6 +385,7 @@ declare global {
       character: number,
       documentText: string,
       newName: string,
+      skipDocumentSync?: boolean,
     ) => Promise<{ ok: true; workspaceEdit: LspWorkspaceEditPayload | null } | { ok: false; error: string }>;
     lspEditorSemanticTokensLegend?: (
       sessionId: string,
@@ -388,6 +395,7 @@ declare global {
       sessionId: string,
       relativePath: string,
       documentText: string,
+      skipDocumentSync?: boolean,
     ) => Promise<{ ok: true; payload: LspSemanticTokensFullPayload } | { ok: false; error: string }>;
     healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
     healthSetLogLevel: (level: string) => Promise<{ ok: boolean }>;

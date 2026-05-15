@@ -68,11 +68,22 @@
       <div class="workspace-terminal-dock__body">
         @for (tab of ptyTabs(); track tab.id) {
           <div
-            class="workspace-terminal-dock__pane"
+            class="workspace-terminal-dock__pane workspace-terminal-dock__pane--pty"
             [class.workspace-terminal-dock__pane--hidden]="tab.id !== activeTabId()"
-            [id]="hostDomId(tab.id)"
             role="tabpanel"
-          ></div>
+          >
+            @if (tab.spawnError) {
+              <div class="workspace-terminal-dock__spawn-error" role="alert">
+                <p class="workspace-terminal-dock__spawn-error-text">{{ tab.spawnError }}</p>
+                <button type="button" class="workspace-terminal-dock__spawn-error-retry" (click)="retryPtySpawn(tab.id)">
+                  Retry
+                </button>
+              </div>
+            } @else if (tab.spawning && !tab.sessionId) {
+              <div class="workspace-terminal-dock__starting">Starting shell…</div>
+            }
+            <div class="workspace-terminal-dock__xterm-host" [id]="hostDomId(tab.id)"></div>
+          </div>
         }
         @for (llamaTab of llamaTabs(); track llamaTab.id) {
           <div

@@ -64,14 +64,16 @@ def _lsp_editor_hover_sync(
     line: int,
     character: int,
     document_text: str | None,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    if document_text is not None:
-        manager.sync_document(rel, document_text)
+    if not skip_document_sync and document_text is not None:
+        manager.sync_document(rel, document_text, wait_for_diagnostics=False)
     result = manager.hover(rel, line, character)
     raw_contents = result.get('contents') if isinstance(result, dict) else None
     if raw_contents is None:
@@ -80,9 +82,18 @@ def _lsp_editor_hover_sync(
     return {'markdown': text or None}
 
 
-def _maybe_sync_buffer(manager: Any, rel: str, document_text: str | None) -> None:
+def _maybe_sync_buffer(
+    manager: Any,
+    rel: str,
+    document_text: str | None,
+    *,
+    wait_for_diagnostics: bool = False,
+    skip_document_sync: bool = False,
+) -> None:
+    if skip_document_sync:
+        return
     if document_text is not None:
-        manager.sync_document(rel, document_text)
+        manager.sync_document(rel, document_text, wait_for_diagnostics=wait_for_diagnostics)
 
 
 def _lsp_editor_definition_sync(
@@ -91,13 +102,15 @@ def _lsp_editor_definition_sync(
     line: int,
     character: int,
     document_text: str | None,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    _maybe_sync_buffer(manager, rel, document_text)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.definition(rel, line, character)
     locations = serialize_locations_payload(manager, raw)
     return {'locations': locations}
@@ -110,13 +123,15 @@ def _lsp_editor_references_sync(
     character: int,
     document_text: str | None,
     include_declaration: bool,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    _maybe_sync_buffer(manager, rel, document_text)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.references(rel, line, character, include_declaration=include_declaration)
     locations = serialize_locations_payload(manager, raw)
     return {'locations': locations}
@@ -126,13 +141,15 @@ def _lsp_editor_document_symbols_sync(
     session_id: str,
     relative_path: str,
     document_text: str | None,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    _maybe_sync_buffer(manager, rel, document_text)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.document_symbols(rel)
     return serialize_document_symbols_payload(manager, raw)
 
@@ -145,13 +162,15 @@ def _lsp_editor_completion_sync(
     document_text: str | None,
     trigger_kind: int,
     trigger_character: str | None,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    _maybe_sync_buffer(manager, rel, document_text)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     tc = trigger_character
     raw = manager.completion(
         rel,
@@ -170,13 +189,15 @@ def _lsp_editor_rename_sync(
     character: int,
     document_text: str | None,
     new_name: str,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    _maybe_sync_buffer(manager, rel, document_text)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.rename(rel, line, character, new_name)
     if raw is None:
         return {'workspaceEdit': None}
@@ -188,13 +209,15 @@ def _lsp_semantic_tokens_full_sync(
     session_id: str,
     relative_path: str,
     document_text: str | None,
+    *,
+    skip_document_sync: bool = False,
 ) -> dict[str, Any]:
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    _maybe_sync_buffer(manager, rel, document_text)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.semantic_tokens_full(rel)
     return serialize_semantic_tokens_payload(manager, raw)
 
@@ -204,6 +227,7 @@ class LspEditorHoverBody(BaseModel):
     line: int = Field(..., ge=1)
     character: int = Field(..., ge=1)
     document_text: str | None = None
+    skip_document_sync: bool = False
 
 
 class LspEditorPositionBody(BaseModel):
@@ -211,6 +235,7 @@ class LspEditorPositionBody(BaseModel):
     line: int = Field(..., ge=1)
     character: int = Field(..., ge=1)
     document_text: str | None = None
+    skip_document_sync: bool = False
 
 
 class LspEditorReferencesBody(LspEditorPositionBody):
@@ -220,6 +245,7 @@ class LspEditorReferencesBody(LspEditorPositionBody):
 class LspEditorDocumentSymbolsBody(BaseModel):
     relative_path: str = Field(..., min_length=1)
     document_text: str | None = None
+    skip_document_sync: bool = False
 
 
 class LspEditorCompletionBody(LspEditorPositionBody):
@@ -234,6 +260,7 @@ class LspEditorRenameBody(LspEditorPositionBody):
 class LspSemanticTokensFullBody(BaseModel):
     relative_path: str = Field(..., min_length=1)
     document_text: str | None = None
+    skip_document_sync: bool = False
 
 
 @router.get('/lsp/diagnostics')
@@ -322,6 +349,7 @@ async def lsp_editor_hover(
             body.line,
             body.character,
             body.document_text,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -344,6 +372,7 @@ async def lsp_editor_definition(
             body.line,
             body.character,
             body.document_text,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -367,6 +396,7 @@ async def lsp_editor_references(
             body.character,
             body.document_text,
             body.include_declaration,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -387,6 +417,7 @@ async def lsp_editor_document_symbols(
             session_id,
             body.relative_path,
             body.document_text,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -411,6 +442,7 @@ async def lsp_editor_completion(
             body.document_text,
             body.trigger_kind,
             body.trigger_character,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -434,6 +466,7 @@ async def lsp_editor_rename(
             body.character,
             body.document_text,
             body.new_name,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -454,6 +487,7 @@ async def lsp_semantic_tokens_full(
             session_id,
             body.relative_path,
             body.document_text,
+            skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

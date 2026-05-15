@@ -3,6 +3,7 @@ import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
+import { pythonControlFetch } from './http-client';
 import {
   getCheckpointDbPath,
   getLogsDir,
@@ -66,7 +67,7 @@ export async function waitForPython(
 ): Promise<void> {
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(`${PYTHON_URL}/health`);
+      const res = await pythonControlFetch('/health');
       if (res.ok) return;
     } catch {
       // server not up yet

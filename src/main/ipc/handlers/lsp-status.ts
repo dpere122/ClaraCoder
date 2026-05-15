@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import type { LspDashboardStatus } from '../../../shared';
 import { isSemanticLegendServerId } from '../../../shared/lsp-registry';
-import { PYTHON_URL } from '../../python/server';
+import { pythonControlFetch } from '../../python/http-client';
 
 interface LspEditorIRangeWire {
   startLineNumber: number;
@@ -63,10 +63,9 @@ interface LspSemanticTokensFullWire {
 }
 
 async function postLspEditorJson<T>(
-  pythonUrl: string,
+  pathSuffix: string,
   sessionId: string,
   relativePath: string,
-  pathSuffix: string,
   jsonBody: Record<string, unknown>,
 ): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
   const rel = relativePath.replace(/\\/g, '/');
@@ -75,7 +74,7 @@ async function postLspEditorJson<T>(
   }
   try {
     const params = new URLSearchParams({ session_id: sessionId.trim() });
-    const res = await fetch(`${pythonUrl}${pathSuffix}?${params.toString()}`, {
+    const res = await pythonControlFetch(`${pathSuffix}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(jsonBody),
@@ -104,7 +103,7 @@ export function registerLspStatusIpc(): void {
         return { ok: false, error: 'No conversation session.' };
       }
       try {
-        const res = await fetch(`${PYTHON_URL}/lsp/status?session_id=${encodeURIComponent(sid)}`);
+        const res = await pythonControlFetch(`/lsp/status?session_id=${encodeURIComponent(sid)}`);
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
@@ -144,7 +143,7 @@ export function registerLspStatusIpc(): void {
           refresh_active_document: 'true',
           encoding: enc,
         });
-        const res = await fetch(`${PYTHON_URL}/lsp/diagnostics?${params.toString()}`);
+        const res = await pythonControlFetch(`/lsp/diagnostics?${params.toString()}`);
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
@@ -172,7 +171,7 @@ export function registerLspStatusIpc(): void {
       }
       try {
         const params = new URLSearchParams({ session_id: sid, server: srv });
-        const res = await fetch(`${PYTHON_URL}/lsp/warm-server?${params.toString()}`, { method: 'POST' });
+        const res = await pythonControlFetch(`/lsp/warm-server?${params.toString()}`, { method: 'POST' });
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
@@ -195,27 +194,32 @@ export function registerLspStatusIpc(): void {
       line: unknown,
       character: unknown,
       documentText: unknown,
+      skipDocumentSync: unknown,
     ): Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }> => {
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
       const col = typeof character === 'number' && Number.isFinite(character) ? Math.floor(character) : NaN;
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       if (!sid || !rel || ln < 1 || col < 1) {
         return { ok: false, error: 'Missing session, path, or position.' };
       }
       try {
         const params = new URLSearchParams({ session_id: sid });
-        const res = await fetch(`${PYTHON_URL}/lsp/hover?${params.toString()}`, {
+        const jsonBody: Record<string, unknown> = {
+          relative_path: rel,
+          line: ln,
+          character: col,
+          skip_document_sync: skipSync,
+        };
+        if (!skipSync) {
+          jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
+        }
+        const res = await pythonControlFetch(`/lsp/hover?${params.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            relative_path: rel,
-            line: ln,
-            character: col,
-            document_text: text,
-          }),
+          body: JSON.stringify(jsonBody),
         });
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
@@ -243,6 +247,7 @@ export function registerLspStatusIpc(): void {
       line: unknown,
       character: unknown,
       documentText: unknown,
+      skipDocumentSync: unknown,
     ): Promise<
       | { ok: true; locations: LspEditorLocationWire[] }
       | { ok: false; error: string }
@@ -252,21 +257,20 @@ export function registerLspStatusIpc(): void {
       const rel = raw.replace(/\\/g, '/');
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
       const col = typeof character === 'number' && Number.isFinite(character) ? Math.floor(character) : NaN;
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       if (!sid || !rel || ln < 1 || col < 1) {
         return { ok: false, error: 'Missing session, path, or position.' };
       }
-      const out = await postLspEditorJson<{ locations: LspEditorLocationWire[] }>(
-        PYTHON_URL,
-        sid,
-        rel,
-        '/lsp/definition',
-        {
+      const jsonBody: Record<string, unknown> = {
         relative_path: rel,
         line: ln,
         character: col,
-        document_text: text.length > 0 ? text : null,
-      });
+        skip_document_sync: skipSync,
+      };
+      if (!skipSync) {
+        jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
+      }
+      const out = await postLspEditorJson<{ locations: LspEditorLocationWire[] }>('/lsp/definition', sid, rel, jsonBody);
       if (!out.ok) {
         return out;
       }
@@ -284,6 +288,7 @@ export function registerLspStatusIpc(): void {
       character: unknown,
       documentText: unknown,
       includeDeclaration: unknown,
+      skipDocumentSync: unknown,
     ): Promise<
       | { ok: true; locations: LspEditorLocationWire[] }
       | { ok: false; error: string }
@@ -293,23 +298,22 @@ export function registerLspStatusIpc(): void {
       const rel = raw.replace(/\\/g, '/');
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
       const col = typeof character === 'number' && Number.isFinite(character) ? Math.floor(character) : NaN;
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       const incDecl = includeDeclaration === true;
       if (!sid || !rel || ln < 1 || col < 1) {
         return { ok: false, error: 'Missing session, path, or position.' };
       }
-      const out = await postLspEditorJson<{ locations: LspEditorLocationWire[] }>(
-        PYTHON_URL,
-        sid,
-        rel,
-        '/lsp/references',
-        {
+      const jsonBody: Record<string, unknown> = {
         relative_path: rel,
         line: ln,
         character: col,
-        document_text: text.length > 0 ? text : null,
         include_declaration: incDecl,
-      });
+        skip_document_sync: skipSync,
+      };
+      if (!skipSync) {
+        jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
+      }
+      const out = await postLspEditorJson<{ locations: LspEditorLocationWire[] }>('/lsp/references', sid, rel, jsonBody);
       if (!out.ok) {
         return out;
       }
@@ -324,6 +328,7 @@ export function registerLspStatusIpc(): void {
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
+      skipDocumentSync: unknown,
     ): Promise<
       | {
           ok: true;
@@ -335,17 +340,21 @@ export function registerLspStatusIpc(): void {
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       if (!sid || !rel) {
         return { ok: false, error: 'Missing session or path.' };
+      }
+      const jsonBody: Record<string, unknown> = {
+        relative_path: rel,
+        skip_document_sync: skipSync,
+      };
+      if (!skipSync) {
+        jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
       }
       const out = await postLspEditorJson<{
         hierarchical: LspEditorDocumentSymbolWire[];
         flat: LspEditorFlatSymbolWire[];
-      }>(PYTHON_URL, sid, rel, '/lsp/document-symbols', {
-        relative_path: rel,
-        document_text: text.length > 0 ? text : null,
-      });
+      }>('/lsp/document-symbols', sid, rel, jsonBody);
       if (!out.ok) {
         return out;
       }
@@ -368,6 +377,7 @@ export function registerLspStatusIpc(): void {
       documentText: unknown,
       triggerKind: unknown,
       triggerCharacter: unknown,
+      skipDocumentSync: unknown,
     ): Promise<
       | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemWire[] }
       | { ok: false; error: string }
@@ -377,7 +387,7 @@ export function registerLspStatusIpc(): void {
       const rel = raw.replace(/\\/g, '/');
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
       const col = typeof character === 'number' && Number.isFinite(character) ? Math.floor(character) : NaN;
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       const tk =
         typeof triggerKind === 'number' && Number.isFinite(triggerKind)
           ? Math.max(1, Math.min(3, Math.floor(triggerKind)))
@@ -387,17 +397,21 @@ export function registerLspStatusIpc(): void {
       if (!sid || !rel || ln < 1 || col < 1) {
         return { ok: false, error: 'Missing session, path, or position.' };
       }
-      const out = await postLspEditorJson<{
-        isIncomplete?: boolean;
-        items: LspEditorCompletionItemWire[];
-      }>(PYTHON_URL, sid, rel, '/lsp/completion', {
+      const jsonBody: Record<string, unknown> = {
         relative_path: rel,
         line: ln,
         character: col,
-        document_text: text.length > 0 ? text : null,
         trigger_kind: tk,
         trigger_character: tc,
-      });
+        skip_document_sync: skipSync,
+      };
+      if (!skipSync) {
+        jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
+      }
+      const out = await postLspEditorJson<{
+        isIncomplete?: boolean;
+        items: LspEditorCompletionItemWire[];
+      }>('/lsp/completion', sid, rel, jsonBody);
       if (!out.ok) {
         return out;
       }
@@ -419,6 +433,7 @@ export function registerLspStatusIpc(): void {
       character: unknown,
       documentText: unknown,
       newName: unknown,
+      skipDocumentSync: unknown,
     ): Promise<
       | {
           ok: true;
@@ -431,23 +446,26 @@ export function registerLspStatusIpc(): void {
       const rel = raw.replace(/\\/g, '/');
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
       const col = typeof character === 'number' && Number.isFinite(character) ? Math.floor(character) : NaN;
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       const name = typeof newName === 'string' ? newName : '';
       if (!sid || !rel || ln < 1 || col < 1 || !name.trim()) {
         return { ok: false, error: 'Missing session, path, position, or new name.' };
       }
+      const jsonBody: Record<string, unknown> = {
+        relative_path: rel,
+        line: ln,
+        character: col,
+        new_name: name,
+        skip_document_sync: skipSync,
+      };
+      if (!skipSync) {
+        jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
+      }
       const out = await postLspEditorJson<{ workspaceEdit: { changes: Record<string, LspEditorTextEditWire[]> } | null }>(
-        PYTHON_URL,
+        '/lsp/rename',
         sid,
         rel,
-        '/lsp/rename',
-        {
-          relative_path: rel,
-          line: ln,
-          character: col,
-          document_text: text.length > 0 ? text : null,
-          new_name: name,
-        },
+        jsonBody,
       );
       if (!out.ok) {
         return out;
@@ -473,7 +491,7 @@ export function registerLspStatusIpc(): void {
           session_id: sid,
           server: srv,
         });
-        const res = await fetch(`${PYTHON_URL}/lsp/semantic-tokens-legend?${params.toString()}`);
+        const res = await pythonControlFetch(`/lsp/semantic-tokens-legend?${params.toString()}`);
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
@@ -501,18 +519,23 @@ export function registerLspStatusIpc(): void {
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
+      skipDocumentSync: unknown,
     ): Promise<{ ok: true; payload: LspSemanticTokensFullWire } | { ok: false; error: string }> => {
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
-      const text = typeof documentText === 'string' ? documentText : '';
+      const skipSync = skipDocumentSync === true;
       if (!sid || !rel) {
         return { ok: false, error: 'Missing session or path.' };
       }
-      const out = await postLspEditorJson<LspSemanticTokensFullWire>(PYTHON_URL, sid, rel, '/lsp/semantic-tokens/full', {
+      const jsonBody: Record<string, unknown> = {
         relative_path: rel,
-        document_text: text.length > 0 ? text : null,
-      });
+        skip_document_sync: skipSync,
+      };
+      if (!skipSync) {
+        jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
+      }
+      const out = await postLspEditorJson<LspSemanticTokensFullWire>('/lsp/semantic-tokens/full', sid, rel, jsonBody);
       if (!out.ok) {
         return out;
       }

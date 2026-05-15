@@ -2,7 +2,7 @@
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
 import { spawn, type ChildProcess } from 'child_process';
-import { promises as fs } from 'fs';
+import { existsSync, promises as fs } from 'fs';
 import * as net from 'net';
 
 import type {
@@ -14,10 +14,18 @@ import type {
   LlamaServerStatusResult,
   ManagedServerHealthState,
 } from '../shared';
-import { findLlmModelLocation, looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel, prepareManagedLlamaShellCommand } from '../shared';
+import {
+  appendQwenChatTemplateFlagsToManagedChatCommand,
+  detectShellQuotingPlatform,
+  findLlmModelLocation,
+  looksLikeLlamaModelDownload,
+  managedLlamaCmdUsesHfRemoteModel,
+  prepareManagedLlamaShellCommand,
+} from '../shared';
 import { loadConfigSync } from './config/load-save';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
+import { getQwenInferenceChatTemplatePath } from './paths';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 
 type StreamKind = 'chat' | 'embed';
@@ -260,9 +268,20 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     return { ok: false, error: 'Missing llamaCppManaged profile.' };
   }
 
-  const chatCmd = (managed.chatRunCommand || '').trim();
+  let chatCmd = (managed.chatRunCommand || '').trim();
   if (!chatCmd) {
     return { ok: false, error: 'chatRunCommand is empty.' };
+  }
+
+  if (loc.model.optimizationPreset === 'qwen') {
+    const tplPath = getQwenInferenceChatTemplatePath();
+    if (!existsSync(tplPath)) {
+      return {
+        ok: false,
+        error: `Qwen optimization is enabled but the chat template was not found at ${tplPath}. Set NEMO_QWEN_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/qwen_inference_template.jinja is present (packaged builds ship it under resources).`,
+      };
+    }
+    chatCmd = appendQwenChatTemplateFlagsToManagedChatCommand(chatCmd, tplPath, detectShellQuotingPlatform());
   }
 
   const chatPort = await pickPort();

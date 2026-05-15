@@ -91,7 +91,10 @@ function stubElectronApi(): void {
     onScriptComplete: noop,
     onWorkspacePtyData: noop,
     onWorkspacePtyExit: noop,
-    workspacePtySpawn: async () => ({ success: false as const, error: 'stub' }),
+    workspacePtySpawn: async (_workspaceRoot: string, _cwd: string, _cols: number, _rows: number) => ({
+      success: false as const,
+      error: 'stub',
+    }),
     workspacePtyWrite: async () => ({ success: false }),
     workspacePtyResize: async () => ({ success: false }),
     workspacePtyKill: async () => ({ success: false }),

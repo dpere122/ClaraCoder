@@ -198,6 +198,57 @@
   padding: 0.25rem 0.35rem 0.4rem;
 }
 
+.workspace-terminal-dock__pane--pty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 0;
+}
+
+.workspace-terminal-dock__spawn-error {
+  flex-shrink: 0;
+  padding: 0.45rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--t-error, #f44) 55%, var(--t-border-subtle));
+  background: color-mix(in srgb, var(--t-error, #f44) 10%, var(--t-code-bg));
+  font-size: 0.8rem;
+  color: var(--t-text-muted);
+}
+
+.workspace-terminal-dock__spawn-error-text {
+  margin: 0 0 0.4rem;
+  color: var(--t-error, #f66);
+  word-break: break-word;
+}
+
+.workspace-terminal-dock__spawn-error-retry {
+  border: 1px solid var(--t-border-subtle);
+  background: var(--t-hover-bg);
+  color: var(--t-primary);
+  border-radius: 4px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.workspace-terminal-dock__spawn-error-retry:hover {
+  border-color: var(--t-primary);
+}
+
+.workspace-terminal-dock__starting {
+  flex-shrink: 0;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--t-text-muted);
+  font-style: italic;
+}
+
+.workspace-terminal-dock__xterm-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
 .workspace-terminal-dock__pane--hidden {
   visibility: hidden;
   pointer-events: none;

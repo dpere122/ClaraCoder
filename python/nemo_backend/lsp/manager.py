@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import threading
@@ -167,6 +168,7 @@ class SessionWorkspaceLspManager:
         self._diag_cond = threading.Condition(self._lock)
         self._doc_versions: dict[str, int] = {}
         self._diag_generation: dict[str, int] = {}
+        self._last_synced_digest: dict[str, bytes] = {}
         self._semantic_tokens_legend: dict[str, list[str]] | None = None
 
     def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
@@ -236,6 +238,7 @@ class SessionWorkspaceLspManager:
             tracked = list(self._doc_versions.keys())
             self._doc_versions.clear()
             self._diag_generation.clear()
+            self._last_synced_digest.clear()
             for rel in tracked:
                 self.session.lsp_diagnostics.pop(rel, None)
         if client is not None:
@@ -260,11 +263,18 @@ class SessionWorkspaceLspManager:
             if self.session.lsp_active_scope == self.scope:
                 self.session.lsp_active_scope = 'workspace'
 
-    def sync_document(self, relative_path: str, text: str) -> list[dict[str, Any]]:
+    def sync_document(
+        self,
+        relative_path: str,
+        text: str,
+        *,
+        wait_for_diagnostics: bool = True,
+    ) -> list[dict[str, Any]]:
         rel = normalize_relative_posix_path(relative_path)
         policy = self._policy(rel)
         if policy is None:
             raise ValueError(f'LSP sync is not supported for `{rel}` on {self.server_kind} server.')
+        digest = hashlib.sha256(text.encode('utf-8')).digest()
         with self._lock:
             running = self._client is not None
         if self._plugin.on_before_sync_document(
@@ -279,6 +289,8 @@ class SessionWorkspaceLspManager:
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
         with self._lock:
+            if rel in self._doc_versions and self._last_synced_digest.get(rel) == digest:
+                return list(self.session.lsp_diagnostics.get(rel, []))
             prev_generation = self._diag_generation.get(rel, 0)
             version = self._doc_versions.get(rel, 0) + 1
             self._doc_versions[rel] = version
@@ -319,15 +331,23 @@ class SessionWorkspaceLspManager:
                     rel,
                     version,
                 )
-            self._wait_for_diagnostics(rel, prev_generation)
+            self._last_synced_digest[rel] = digest
+            if wait_for_diagnostics:
+                self._wait_for_diagnostics(rel, prev_generation)
             return list(self.session.lsp_diagnostics.get(rel, []))
 
-    def sync_workspace_document(self, relative_path: str, *, encoding: str = 'utf-8') -> list[dict[str, Any]]:
+    def sync_workspace_document(
+        self,
+        relative_path: str,
+        *,
+        encoding: str = 'utf-8',
+        wait_for_diagnostics: bool = True,
+    ) -> list[dict[str, Any]]:
         rel = normalize_relative_posix_path(relative_path)
         enc = validate_workspace_encoding(encoding)
         target = normalize_relative_path(self.workspace_root, rel)
         text = read_file_for_tools(target, enc)
-        return self.sync_document(rel, text)
+        return self.sync_document(rel, text, wait_for_diagnostics=wait_for_diagnostics)
 
     def close_document(self, relative_path: str) -> None:
         rel = normalize_relative_posix_path(relative_path)
@@ -341,6 +361,7 @@ class SessionWorkspaceLspManager:
             target = normalize_relative_path(self.workspace_root, rel)
             client.notify('textDocument/didClose', {'textDocument': {'uri': _path_to_uri(target)}})
             self._doc_versions.pop(rel, None)
+            self._last_synced_digest.pop(rel, None)
             self.session.lsp_diagnostics.pop(rel, None)
             self._diag_generation.pop(rel, None)
             logger.info(
@@ -680,6 +701,7 @@ def sync_session_document(
     *,
     session_id: str | None = None,
     scope: str | None = None,
+    wait_for_diagnostics: bool = True,
 ) -> list[dict[str, Any]]:
     sid = (session_id or current_session_id.get() or '').strip() or None
     server = lsp_server_for_path(relative_path)
@@ -687,14 +709,14 @@ def sync_session_document(
         raise ValueError(f'No LSP server is configured for `{relative_path}`.')
     try:
         manager = get_session_lsp_manager(sid, scope=scope, server=server)
-        return manager.sync_document(relative_path, text)
+        return manager.sync_document(relative_path, text, wait_for_diagnostics=wait_for_diagnostics)
     except Exception as exc:
         if sid is None or not _should_retry_lsp_bootstrap(exc):
             raise
         logger.warning('retrying LSP sync after bootstrap failure session=%s server=%s err=%s', sid, server, exc)
         shutdown_session_lsp(sid)
         manager = get_session_lsp_manager(sid, scope=scope, server=server)
-        return manager.sync_document(relative_path, text)
+        return manager.sync_document(relative_path, text, wait_for_diagnostics=wait_for_diagnostics)
 
 
 def close_session_document(

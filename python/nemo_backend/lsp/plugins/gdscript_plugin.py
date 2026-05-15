@@ -6,6 +6,7 @@ import logging
 import os
 import shlex
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,11 +22,35 @@ logger = logging.getLogger('nemo_backend.lsp.plugins.gdscript')
 _GODOT_LSP_STDIO_BRIDGE_SCRIPT = Path(__file__).resolve().parent.parent / 'godot_lsp_stdio_bridge.py'
 
 
+@dataclass
+class GdscriptPluginState:
+    last_seed: str = ''
+
+
 class GdscriptLspPlugin(LspServerPlugin):
     server_id = 'gdscript'
 
     def create_state(self) -> Any:
-        return None
+        return GdscriptPluginState()
+
+    def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
+        if os.environ.get('NEMO_GDSCRIPT_LSP_COMMAND', '').strip():
+            return False
+        st = state if isinstance(state, GdscriptPluginState) else GdscriptPluginState()
+        return not (st.last_seed or '').strip()
+
+    def on_before_sync_document(
+        self,
+        *,
+        session: SessionState,
+        workspace_root: Path,
+        relative_posix_path: str,
+        state: Any,
+        client_running: bool,
+    ) -> bool:
+        st = state if isinstance(state, GdscriptPluginState) else GdscriptPluginState()
+        st.last_seed = relative_posix_path
+        return False
 
     def compute_start_params(
         self,

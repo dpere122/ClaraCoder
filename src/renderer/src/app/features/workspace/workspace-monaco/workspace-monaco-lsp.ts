@@ -6,6 +6,7 @@ import {
   lspServerIdForMonacoLanguageId,
   lspServerKindForWorkspaceRelativePath,
 } from '@shared/index';
+import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
 
 export interface WorkspaceMonacoLspNavigatePayload {
   readonly relativePath: string;
@@ -59,6 +60,10 @@ function emptyLegend(): Monaco.languages.SemanticTokensLegend {
   return { tokenTypes: [], tokenModifiers: [] };
 }
 
+function lspCancelled(token: Monaco.CancellationToken | undefined): boolean {
+  return token?.isCancellationRequested === true;
+}
+
 /**
  * Registers workspace-scoped LSP providers on the standalone editor.
  * Models must use the ``clara-workspace`` URI scheme (see ``WorkspaceMonacoComponent``).
@@ -99,30 +104,38 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     return !!(rel && lspServerKindForWorkspaceRelativePath(rel) && getConversationId()?.trim());
   };
 
-  const sessionCall = async <T>(
+  const withSessionAndDocument = <T>(
     model: Monaco.editor.ITextModel,
-    fn: (sessionId: string, rel: string, text: string) => Promise<T>,
+    fn: (sessionId: string, rel: string, text: string, skipDocumentSync: boolean) => Promise<T>,
   ): Promise<T | null> => {
     const sessionId = getConversationId()?.trim();
     const rel = getWorkspaceRelativePathForModel(model);
     if (!sessionId || !rel) {
-      return null;
+      return Promise.resolve(null);
     }
-    return fn(sessionId, rel, model.getValue());
+    const skip = !monacoModelNeedsLspDocumentSync(model);
+    return fn(sessionId, rel, skip ? '' : model.getValue(), skip);
   };
 
   for (const lang of LSP_MONACO_LANGUAGE_IDS) {
     disposables.push(
       api.languages.registerDefinitionProvider(lang, {
-        provideDefinition: async (model, position) => {
+        provideDefinition: async (model, position, token) => {
           if (!canRun(model)) {
             return null;
           }
-          const res = await sessionCall(model, (sid, rel, text) =>
-            electron.lspEditorDefinition(sid, rel, position.lineNumber, position.column, text),
+          const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
+            electron.lspEditorDefinition(sid, rel, position.lineNumber, position.column, text, skip),
           );
+          if (lspCancelled(token)) {
+            return null;
+          }
           if (!res || !res.ok || !res.locations?.length) {
             return null;
+          }
+          if (neededSync) {
+            markMonacoModelLspDocumentSynced(model);
           }
           const cur = normalizePathSlashes(getWorkspaceRelativePathForModel(model) ?? '');
           const mapped = res.locations.map((loc) => ({
@@ -148,15 +161,22 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
     disposables.push(
       api.languages.registerReferenceProvider(lang, {
-        provideReferences: async (model, position, context) => {
+        provideReferences: async (model, position, context, token) => {
           if (!canRun(model)) {
             return null;
           }
-          const res = await sessionCall(model, (sid, rel, text) =>
-            electron.lspEditorReferences(sid, rel, position.lineNumber, position.column, text, context.includeDeclaration),
+          const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
+            electron.lspEditorReferences(sid, rel, position.lineNumber, position.column, text, context.includeDeclaration, skip),
           );
+          if (lspCancelled(token)) {
+            return null;
+          }
           if (!res || !res.ok || !res.locations?.length) {
             return null;
+          }
+          if (neededSync) {
+            markMonacoModelLspDocumentSynced(model);
           }
           return res.locations.map((loc) => ({
             uri: api.Uri.parse(`clara-workspace:///${encodeURI(normalizePathSlashes(loc.relativePath))}`),
@@ -169,7 +189,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     disposables.push(
       api.languages.registerCompletionItemProvider(lang, {
         triggerCharacters: ['.', '/', '"', "'", '`', '@', '<', '#'],
-        provideCompletionItems: async (model, position, context, _token) => {
+        provideCompletionItems: async (model, position, context, token) => {
           if (!canRun(model)) {
             return { suggestions: [] };
           }
@@ -178,6 +198,8 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (!sessionId || !rel) {
             return { suggestions: [] };
           }
+          const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const skip = !neededSync;
           const tk = context.triggerKind + 1;
           const tc =
             context.triggerCharacter === undefined || context.triggerCharacter === null
@@ -188,12 +210,19 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             rel,
             position.lineNumber,
             position.column,
-            model.getValue(),
+            skip ? '' : model.getValue(),
             tk,
             tc,
+            skip,
           );
+          if (lspCancelled(token)) {
+            return { suggestions: [] };
+          }
           if (!res.ok) {
             return { suggestions: [] };
+          }
+          if (neededSync) {
+            markMonacoModelLspDocumentSynced(model);
           }
           const suggestions: Monaco.languages.CompletionItem[] = [];
           const SnippetRule = api.languages.CompletionItemInsertTextRule.InsertAsSnippet;
@@ -234,15 +263,22 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
     disposables.push(
       api.languages.registerDocumentSymbolProvider(lang, {
-        provideDocumentSymbols: async (model, _token) => {
+        provideDocumentSymbols: async (model, token) => {
           if (!canRun(model)) {
             return null;
           }
-          const res = await sessionCall(model, (sid, rel, text) =>
-            electron.lspEditorDocumentSymbols(sid, rel, text),
+          const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
+            electron.lspEditorDocumentSymbols(sid, rel, text, skip),
           );
+          if (lspCancelled(token)) {
+            return null;
+          }
           if (!res || !res.ok) {
             return null;
+          }
+          if (neededSync) {
+            markMonacoModelLspDocumentSynced(model);
           }
           if (res.hierarchical?.length) {
             const mapSym = (s: (typeof res.hierarchical)[0]): Monaco.languages.DocumentSymbol => ({
@@ -270,15 +306,22 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
     disposables.push(
       api.languages.registerRenameProvider(lang, {
-        provideRenameEdits: async (model, position, newName, _token) => {
+        provideRenameEdits: async (model, position, newName, token) => {
           if (!canRun(model)) {
             return null;
           }
-          const res = await sessionCall(model, (sid, rel, text) =>
-            electron.lspEditorRename(sid, rel, position.lineNumber, position.column, text, newName),
+          const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
+            electron.lspEditorRename(sid, rel, position.lineNumber, position.column, text, newName, skip),
           );
+          if (lspCancelled(token)) {
+            return null;
+          }
           if (!res || !res.ok || !res.workspaceEdit) {
             return null;
+          }
+          if (neededSync) {
+            markMonacoModelLspDocumentSynced(model);
           }
           return mapWorkspaceEdit(api, res.workspaceEdit);
         },
@@ -288,7 +331,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     disposables.push(
       api.languages.registerDocumentSemanticTokensProvider(lang, {
         getLegend: () => legendForMonacoLang(lang),
-        provideDocumentSemanticTokens: async (model, _lastResultId, _token) => {
+        provideDocumentSemanticTokens: async (model, _lastResultId, token) => {
           if (!canRun(model)) {
             return null;
           }
@@ -297,9 +340,17 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (!sessionId || !rel) {
             return null;
           }
-          const res = await electron.lspEditorSemanticTokensFull(sessionId, rel, model.getValue());
+          const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const skip = !neededSync;
+          const res = await electron.lspEditorSemanticTokensFull(sessionId, rel, skip ? '' : model.getValue(), skip);
+          if (lspCancelled(token)) {
+            return null;
+          }
           if (!res.ok) {
             return null;
+          }
+          if (neededSync) {
+            markMonacoModelLspDocumentSynced(model);
           }
           const p = res.payload;
           const sk = lspServerKindForWorkspaceRelativePath(rel);

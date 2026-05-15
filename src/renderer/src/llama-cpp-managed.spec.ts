@@ -1,4 +1,5 @@
 import {
+  appendQwenChatTemplateFlagsToManagedChatCommand,
   argvToShellCommandLine,
   buildLlamaServerArgv,
   defaultLlamaCppManaged,
@@ -6,8 +7,15 @@ import {
   migrateLegacyLlamaCppManagedToCommands,
   parseHostFromLlamaCommand,
   prepareManagedLlamaShellCommand,
+  QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME,
   type LlamaCppManagedLegacy,
 } from '@shared/index';
+
+describe('QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME', () => {
+  it('matches the bundled resource name used by main getQwenInferenceChatTemplatePath and electron-builder LLM_Templates', () => {
+    expect(QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME).toBe('qwen_inference_template.jinja');
+  });
+});
 
 describe('defaultLlamaCppManaged', () => {
   it('provides empty run commands', () => {
@@ -56,6 +64,48 @@ describe('prepareManagedLlamaShellCommand', () => {
   it('errors when placeholder appears twice', () => {
     const r = prepareManagedLlamaShellCommand('llama-server --port {{PORT}} --x {{PORT}}', 1);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('appendQwenChatTemplateFlagsToManagedChatCommand', () => {
+  it('appends jinja and chat-template-file when absent', () => {
+    const line = appendQwenChatTemplateFlagsToManagedChatCommand(
+      'llama-server --port {{PORT}} -m a.gguf',
+      '/tmp/tpl.jinja',
+      'posix',
+    );
+    expect(line).toContain('--jinja');
+    expect(line).toContain('--chat-template-file');
+    expect(line).toContain('/tmp/tpl.jinja');
+  });
+
+  it('does not duplicate --jinja', () => {
+    const line = appendQwenChatTemplateFlagsToManagedChatCommand(
+      'llama-server --jinja --port {{PORT}} -m a.gguf',
+      '/x/t.jinja',
+      'posix',
+    );
+    expect(line.match(/--jinja/g)?.length).toBe(1);
+    expect(line).toContain('/x/t.jinja');
+  });
+
+  it('leaves command unchanged when --chat-template-file exists', () => {
+    const orig = 'llama-server --port {{PORT}} --chat-template-file /custom.jinja -m a.gguf';
+    expect(appendQwenChatTemplateFlagsToManagedChatCommand(orig, '/bundled.jinja', 'posix')).toBe(orig);
+  });
+
+  it('leaves command unchanged when --chat-template-file uses equals form', () => {
+    const orig = 'llama-server --port {{PORT}} --chat-template-file=/custom.jinja -m a.gguf';
+    expect(appendQwenChatTemplateFlagsToManagedChatCommand(orig, '/bundled.jinja', 'posix')).toBe(orig);
+  });
+
+  it('quotes paths with spaces on win32', () => {
+    const line = appendQwenChatTemplateFlagsToManagedChatCommand(
+      'llama-server --port {{PORT}} -m a.gguf',
+      'C:\\Program Files\\app\\qwen_inference_template.jinja',
+      'win32',
+    );
+    expect(line).toContain('"C:\\Program Files\\app\\qwen_inference_template.jinja"');
   });
 });
 

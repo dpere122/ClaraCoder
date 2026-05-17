@@ -30,7 +30,10 @@ import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { MarkdownPipe } from './markdown.pipe';
 import { PlannerTasksComponent } from './planner-tasks/planner-tasks';
-import { AuxiliaryStreamPanelComponent } from './auxiliary-stream-panel/auxiliary-stream-panel';
+import {
+  AuxiliaryStreamPanelComponent,
+  DEFAULT_AUXILIARY_STREAM_PANEL_TITLE,
+} from './auxiliary-stream-panel/auxiliary-stream-panel';
 import { RunButtonDirective } from './run-button.directive';
 import { TalkUiState } from '../../../core/talk-ui-state';
 import {
@@ -207,6 +210,42 @@ function stripToolChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainG
       };
     })
     .filter((g) => g.rows.length > 0);
+}
+
+/** When Clara updates are promoted into the reasoning panel title, avoid showing the same card twice. */
+function stripClaraChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
+  return groups
+    .map((g) => {
+      const rows = g.rows.filter((row) => !isClaraOuterBriefStreamTag(row.streamTag));
+      return {
+        ...g,
+        rows,
+        toolCallCount: rows.filter((row) => row.source === 'tool').length,
+      };
+    })
+    .filter((g) => g.rows.length > 0);
+}
+
+function oneLineTitle(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+export function auxiliaryPanelTitleFromChainGroups(groups: readonly ToolChainGroup[]): string {
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const rows = groups[i].rows;
+    for (let j = rows.length - 1; j >= 0; j--) {
+      const row = rows[j];
+      if (!isClaraOuterBriefStreamTag(row.streamTag)) {
+        continue;
+      }
+      const title = oneLineTitle(row.text || row.label);
+      if (!title) {
+        continue;
+      }
+      return title.length > 120 ? `${title.slice(0, 117).trimEnd()}...` : title;
+    }
+  }
+  return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
 }
 
 export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] {
@@ -468,12 +507,23 @@ export class ChatBox implements OnDestroy {
 
   /** Hides duplicate tool-only rows from the live strip when they stream inside the reasoning panel. */
   readonly liveChainGroupsForDisplay = computed(() => {
-    const base = this.liveVisibleChainGroups();
+    let base = this.liveVisibleChainGroups();
     if (!auxiliaryTimelineEmbedsToolStatus(this.liveAuxiliaryTimeline())) {
+      if (this.liveAuxiliaryTimeline().length > 0) {
+        base = stripClaraChainRowsFromChainGroups(base);
+      }
       return base;
     }
-    return stripToolChainRowsFromChainGroups(base);
+    base = stripToolChainRowsFromChainGroups(base);
+    if (this.liveAuxiliaryTimeline().length > 0) {
+      base = stripClaraChainRowsFromChainGroups(base);
+    }
+    return base;
   });
+
+  readonly liveAuxiliaryPanelTitle = computed(() =>
+    auxiliaryPanelTitleFromChainGroups(this.liveVisibleChainGroups()),
+  );
 
   readonly processingBubbleLabel = computed(() => {
     if (!this.loading()) {
@@ -836,12 +886,22 @@ export class ChatBox implements OnDestroy {
     if (row.kind !== 'assistant-turn') {
       return [];
     }
-    const groups = row.chainGroups;
+    let groups = row.chainGroups;
     const timeline = persistedAuxiliaryStreamTimeline(row.assistant ?? undefined);
-    if (!auxiliaryTimelineEmbedsToolStatus(timeline)) {
-      return groups;
+    if (auxiliaryTimelineEmbedsToolStatus(timeline)) {
+      groups = stripToolChainRowsFromChainGroups(groups);
     }
-    return stripToolChainRowsFromChainGroups(groups);
+    if (timeline.length > 0) {
+      groups = stripClaraChainRowsFromChainGroups(groups);
+    }
+    return groups;
+  }
+
+  auxiliaryPanelTitleForTurn(row: ChatDisplayRow): string {
+    if (row.kind !== 'assistant-turn') {
+      return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
+    }
+    return auxiliaryPanelTitleFromChainGroups(row.chainGroups);
   }
 
   toolChainSummary(group: ToolChainGroup): string {

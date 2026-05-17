@@ -8,7 +8,11 @@
     (click)="toggleExpanded()"
     [attr.aria-expanded]="expanded()"
   >
-    <span class="auxiliary-stream-panel__title">Model reasoning & tools</span>
+    <span
+      class="auxiliary-stream-panel__title"
+      [class.auxiliary-stream-panel__title--custom]="hasCustomTitle()"
+      [attr.title]="title()"
+    >{{ title() }}</span>
     <span class="auxiliary-stream-panel__chevron" aria-hidden="true">{{ expanded() ? '▼' : '▶' }}</span>
   </button>
   <div

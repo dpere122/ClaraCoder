@@ -23,9 +23,11 @@ from nemo_backend.edit_staging import (
     begin_planner_graph_staging_session,
     copy_workspace_into_snapshot,
     discard_all_session_stagings,
+    format_source_via_prettier,
     get_active_planner_snapshot_root,
     get_staging_root,
     is_code_review_extension,
+    resolve_prettier_cli,
 )
 from nemo_backend.edit_tool import apply_workspace_full_file
 from nemo_backend.staging_edit_tools import (
@@ -48,6 +50,82 @@ def test_is_code_review_extension(staging_env) -> None:
     assert is_code_review_extension('package.json')
     assert is_code_review_extension('config/app.yaml')
     assert not is_code_review_extension('README.md')
+
+
+def test_resolve_prettier_cli_reads_package_bin(staging_env) -> None:
+    ws = staging_env.workspace
+    package_dir = ws / 'node_modules' / 'prettier'
+    package_dir.mkdir(parents=True)
+    cli = package_dir / 'bin' / 'prettier.cjs'
+    cli.parent.mkdir(parents=True)
+    cli.write_text('// prettier cli\n', encoding='utf-8')
+    (package_dir / 'package.json').write_text('{"bin":{"prettier":"./bin/prettier.cjs"}}\n', encoding='utf-8')
+
+    assert resolve_prettier_cli(ws) == cli.resolve()
+
+
+def test_format_source_via_prettier_runs_cmd_shim_directly(monkeypatch, staging_env) -> None:
+    from nemo_backend import edit_staging as _es
+
+    shim = staging_env.workspace / 'node_modules' / '.bin' / 'prettier.cmd'
+    monkeypatch.setattr(_es, 'resolve_prettier_cli', lambda workspace_root: shim)
+    monkeypatch.setattr(_es, '_resolve_node_executable', lambda: 'node')
+
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = b'const x = 1;\n'
+        stderr = b''
+
+    def _run(args, **kwargs):
+        del kwargs
+        calls.append(args)
+        return _Proc()
+
+    monkeypatch.setattr(_es.subprocess, 'run', _run)
+
+    formatted, err = format_source_via_prettier(
+        'const x=1\n',
+        workspace_root=staging_env.workspace,
+        relative_posix='main.js',
+    )
+
+    assert err == ''
+    assert formatted == 'const x = 1;\n'
+    assert calls == [[str(shim), '--stdin-filepath', 'main.js']]
+
+
+def test_format_source_via_prettier_runs_node_for_cjs_cli(monkeypatch, staging_env) -> None:
+    from nemo_backend import edit_staging as _es
+
+    cli = staging_env.workspace / 'node_modules' / 'prettier' / 'bin' / 'prettier.cjs'
+    monkeypatch.setattr(_es, 'resolve_prettier_cli', lambda workspace_root: cli)
+    monkeypatch.setattr(_es, '_resolve_node_executable', lambda: 'node')
+
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = b'const x = 1;\n'
+        stderr = b''
+
+    def _run(args, **kwargs):
+        del kwargs
+        calls.append(args)
+        return _Proc()
+
+    monkeypatch.setattr(_es.subprocess, 'run', _run)
+
+    formatted, err = format_source_via_prettier(
+        'const x=1\n',
+        workspace_root=staging_env.workspace,
+        relative_posix='main.js',
+    )
+
+    assert err == ''
+    assert formatted == 'const x = 1;\n'
+    assert calls == [['node', str(cli), '--stdin-filepath', 'main.js']]
 
 
 def test_copy_workspace_into_snapshot_skips_uncopyable_files(tmp_path, monkeypatch) -> None:

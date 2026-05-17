@@ -4,6 +4,7 @@ import {
   Injector,
   ViewEncapsulation,
   afterNextRender,
+  computed,
   effect,
   inject,
   input,
@@ -14,6 +15,8 @@ import {
 import type { StreamPart } from '@shared/index';
 import { isMoeAuxiliaryStreamTag, isShellStyleToolStreamTag, isToolTrailStatusStreamTag } from '@shared/index';
 import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/delegated-shell-terminal';
+
+export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 
 @Component({
   selector: 'app-auxiliary-stream-panel',
@@ -30,9 +33,13 @@ export class AuxiliaryStreamPanelComponent {
   readonly parts = input.required<StreamPart[]>();
   /** Live stream: parent may style timing (e.g. running tool row); panel is log-style, not a card. */
   readonly live = input(false);
+  /** Header text; Clara handoff updates can replace the default reasoning/tools label. */
+  readonly title = input(DEFAULT_AUXILIARY_STREAM_PANEL_TITLE);
 
   readonly expanded = signal(false);
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
+
+  readonly hasCustomTitle = computed(() => this.title().trim() !== DEFAULT_AUXILIARY_STREAM_PANEL_TITLE);
 
   readonly isMoe = isMoeAuxiliaryStreamTag;
   readonly isShellTool = isShellStyleToolStreamTag;

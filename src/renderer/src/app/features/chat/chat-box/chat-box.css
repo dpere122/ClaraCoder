@@ -333,6 +333,13 @@ app-chat-box .streaming-primary-live {
   gap: 0.15rem;
 }
 
+app-chat-box .streaming-live-md {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9em;
+  color: var(--t-secondary);
+}
+
 app-chat-box .streaming-live-pre {
   flex: 1;
   min-width: 0;

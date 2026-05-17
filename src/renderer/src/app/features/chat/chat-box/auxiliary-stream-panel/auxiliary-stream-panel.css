@@ -18,6 +18,7 @@ app-auxiliary-stream-panel .auxiliary-stream-panel__toggle {
   justify-content: flex-start;
   width: 100%;
   gap: 0.35rem;
+  min-width: 0;
   padding: 0 0 0.2rem;
   margin: 0;
   border: none;
@@ -35,11 +36,22 @@ app-auxiliary-stream-panel .auxiliary-stream-panel__toggle:hover {
 }
 
 app-auxiliary-stream-panel .auxiliary-stream-panel__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.68rem;
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--t-text-muted);
+}
+
+app-auxiliary-stream-panel .auxiliary-stream-panel__title--custom {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: color-mix(in srgb, var(--t-secondary) 92%, transparent);
 }
 
 app-auxiliary-stream-panel .auxiliary-stream-panel__chevron {

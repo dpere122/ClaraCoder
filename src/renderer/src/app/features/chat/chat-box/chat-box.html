@@ -61,7 +61,11 @@
           @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
           @if (auxPersisted.length > 0) {
             <div aria-live="polite">
-              <app-auxiliary-stream-panel [parts]="auxPersisted" [live]="false" />
+              <app-auxiliary-stream-panel
+                [parts]="auxPersisted"
+                [live]="false"
+                [title]="auxiliaryPanelTitleForTurn(row)"
+              />
             </div>
           }
 
@@ -191,7 +195,7 @@
         }
         @if (primaryStreamLiveText().length > 0) {
           <div class="streaming-primary-live" aria-live="polite">
-            <div class="streaming-live-pre">{{ primaryStreamLiveText() }}</div>
+            <div class="assistant-md streaming-live-md" [innerHTML]="primaryStreamLiveText() | markdown"></div>
             @if (showStreamingPrimaryCursor()) {
               <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
             }
@@ -199,7 +203,11 @@
         }
         @if (liveAuxiliaryTimeline().length > 0) {
           <div aria-live="polite">
-            <app-auxiliary-stream-panel [parts]="liveAuxiliaryTimeline()" [live]="true" />
+            <app-auxiliary-stream-panel
+              [parts]="liveAuxiliaryTimeline()"
+              [live]="true"
+              [title]="liveAuxiliaryPanelTitle()"
+            />
           </div>
         }
         @for (artifact of liveTurn.artifacts; track artifactTrackKey(artifact)) {

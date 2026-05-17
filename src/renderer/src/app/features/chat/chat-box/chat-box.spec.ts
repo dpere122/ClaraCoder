@@ -1,6 +1,7 @@
 import type { PlannerProgress, StreamPart } from '@shared/index';
 import { persistedAuxiliaryStreamTimeline } from '@shared/index';
 import {
+  auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
   filterLiveToolChainGroups,
   isScrollWorthyAppendMessage,
@@ -228,6 +229,46 @@ describe('TOOL_BUILDING_SYNONYMS', () => {
       expect(w).toBe(w.toLowerCase());
       expect(w).toMatch(/^[a-z]+$/);
     }
+  });
+});
+
+describe('auxiliaryPanelTitleFromChainGroups', () => {
+  it('uses the latest Clara update as the reasoning panel title', () => {
+    const groups: ToolChainGroup[] = [
+      {
+        key: 'tools',
+        toolCallCount: 1,
+        rows: [
+          {
+            role: 'chain',
+            label: 'read_file',
+            text: 'Reading files',
+            state: 'running',
+            source: 'tool',
+            statusId: 'tool-1',
+          },
+        ],
+      },
+      {
+        key: 'clara',
+        toolCallCount: 0,
+        rows: [
+          {
+            role: 'chain',
+            label: 'Clara update',
+            text: 'Reviewing streamed markdown formatting\nand reasoning title behavior.',
+            state: 'complete',
+            source: 'agent',
+            statusId: 'clara-1',
+            streamTag: 'clara',
+          },
+        ],
+      },
+    ];
+
+    expect(auxiliaryPanelTitleFromChainGroups(groups)).toBe(
+      'Reviewing streamed markdown formatting and reasoning title behavior.',
+    );
   });
 });
 

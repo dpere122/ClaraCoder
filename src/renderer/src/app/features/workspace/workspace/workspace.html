@@ -107,19 +107,27 @@
 
   @if (electron.isElectron && currentWorkspaceId()) {
     <div class='workspace-interpreter-footer'>
-      <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Interpreter</label>
-      <select
-        id='workspace-python-interpreter'
-        class='workspace-interpreter-select'
-        [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
-        (change)='onPythonInterpreterChange($event)'
-      >
-        @for (opt of pythonInterpreterRows(); track opt.id) {
-          <option [value]='opt.id' [selected]='opt.id === pythonInterpreterSelectedId()'>{{ opt.label }}</option>
+      <div class='workspace-lsp-block'>
+        <app-editor-lsp-status
+          [conversationId]='activeConversationId()'
+          [activeFileRelativePath]='activeFileRelativePath()'
+        />
+      </div>
+      @if (pythonInterpreterControlsActive()) {
+        <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
+        <select
+          id='workspace-python-interpreter'
+          class='workspace-interpreter-select'
+          [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
+          (change)='onPythonInterpreterChange($event)'
+        >
+          @for (opt of pythonInterpreterRows(); track opt.id) {
+            <option [value]='opt.id' [selected]='opt.id === pythonInterpreterSelectedId()'>{{ opt.label }}</option>
+          }
+        </select>
+        @if (pythonInterpreterError()) {
+          <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
         }
-      </select>
-      @if (pythonInterpreterError()) {
-        <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
       }
     </div>
   }

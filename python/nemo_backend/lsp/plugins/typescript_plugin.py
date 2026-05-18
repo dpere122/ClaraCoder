@@ -49,8 +49,9 @@ class TypescriptLspPlugin(LspServerPlugin):
         )
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
-        st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
-        return not (st.last_seed or '').strip()
+        # TypeScript can discover a project root without a seed path, and Monaco needs
+        # this legend before the first semantic-token response can be interpreted.
+        return False
 
     def on_before_sync_document(
         self,

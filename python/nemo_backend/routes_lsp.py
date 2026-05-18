@@ -288,7 +288,7 @@ async def lsp_diagnostics(
 
 @router.get('/lsp/semantic-tokens-legend')
 async def lsp_semantic_tokens_legend(session_id: str, server: str) -> dict[str, Any]:
-    """Return cached semantic token legend after ensuring the server process is started."""
+    """Return semantic token legend, starting the server only when the plugin allows cold legend."""
 
     try:
         srv = (server or '').strip().lower()

@@ -44,7 +44,6 @@ import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
-import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
@@ -196,7 +195,6 @@ function markToolExecStreamComplete(
     WorkspaceComponent,
     WorkspaceMonacoComponent,
     WorkspaceTerminalDockComponent,
-    EditorLspStatusComponent,
     StatusBarComponent,
     ThemedConfirmDialogComponent,
   ],

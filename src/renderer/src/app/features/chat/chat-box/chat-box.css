@@ -597,6 +597,8 @@ app-chat-box .processing-ngx-host .ngx-spinner-overlay,
 app-chat-box .tts-ngx-host .ngx-spinner-overlay,
 app-chat-box .talk-voice-ngx-host .ngx-spinner-overlay {
   pointer-events: none;
+  /* ngx-spinner defaults z-index to 99999; keep inline spinners below expanded diff (1055). */
+  z-index: 1 !important;
 }
 
 app-chat-box .talk-voice-row {

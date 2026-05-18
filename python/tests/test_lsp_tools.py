@@ -10,7 +10,12 @@ import pytest
 
 from nemo_backend.app_logging import configure_logging, get_recent_records, reset_logging_handlers
 from nemo_backend.domain import EditStagingEntry, RuntimeToolsConfig
-from nemo_backend.lsp.manager import activate_session_lsp_scope, get_session_lsp_manager, shutdown_all_lsp_managers
+from nemo_backend.lsp.manager import (
+    activate_session_lsp_scope,
+    get_session_lsp_manager,
+    shutdown_all_lsp_managers,
+    sync_session_document,
+)
 from nemo_backend.planner_graph_session import prepare_new_planner_graph_session
 from nemo_backend.lsp.tools import (
     lsp_find_definition,
@@ -255,6 +260,40 @@ def test_lsp_get_diagnostics_returns_tool_error_when_lsp_bootstrap_fails(monkeyp
     assert 'configured language server' in result
 
 
+def test_sync_session_document_retry_restarts_only_failed_server(monkeypatch, lsp_env) -> None:
+    class _BrokenOnceManager:
+        def sync_document(self, relative_path: str, text: str, *, wait_for_diagnostics: bool = True):
+            del relative_path, text, wait_for_diagnostics
+            raise RuntimeError("LSP request failed for 'initialize': LSP client closed")
+
+    class _RecoveredManager:
+        def sync_document(self, relative_path: str, text: str, *, wait_for_diagnostics: bool = True):
+            del relative_path, text, wait_for_diagnostics
+            return [{'relative_path': 'pkg/mod.py', 'message': 'ok'}]
+
+    managers = [_BrokenOnceManager(), _RecoveredManager()]
+    shutdown_calls: list[tuple[str, str]] = []
+
+    def _fake_get_session_lsp_manager(*args, **kwargs):
+        del args, kwargs
+        return managers.pop(0)
+
+    def _fake_shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
+        shutdown_calls.append((session_id, server_id))
+
+    monkeypatch.setattr('nemo_backend.lsp.manager.get_session_lsp_manager', _fake_get_session_lsp_manager)
+    monkeypatch.setattr('nemo_backend.lsp.manager.shutdown_session_lsp_server', _fake_shutdown_session_lsp_server)
+    monkeypatch.setattr(
+        'nemo_backend.lsp.manager.shutdown_session_lsp',
+        lambda session_id: (_ for _ in ()).throw(AssertionError(f'should not shut down all LSPs: {session_id}')),
+    )
+
+    diagnostics = sync_session_document('pkg/mod.py', 'value = 1\n', session_id=lsp_env.session_id)
+
+    assert diagnostics == [{'relative_path': 'pkg/mod.py', 'message': 'ok'}]
+    assert shutdown_calls == [(lsp_env.session_id, 'python')]
+
+
 def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env) -> None:
     lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
         temp_path=str(lsp_env.sample),
@@ -402,4 +441,4 @@ def test_python_lsp_events_flow_into_nemo_logging(lsp_env, tmp_path: Path) -> No
     loggers = {record['logger'] for record in records}
     messages = ' '.join(record['message'] for record in records)
     assert 'nemo.lsp.manager' in loggers
-    assert 'python diagnostics refreshed' in messages
+    assert 'python LSP didOpen' in messages

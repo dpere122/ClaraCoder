@@ -134,6 +134,7 @@ app-conversation-manager .conv-pending-ngx-host ngx-spinner {
 
 app-conversation-manager .conv-pending-ngx-host .ngx-spinner-overlay {
   pointer-events: none;
+  z-index: 1 !important;
 }
 
 app-conversation-manager .empty-hint {

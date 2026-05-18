@@ -97,7 +97,12 @@ class JsonRpcLspClient:
             req_id = self._next_id
             wait_q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
             self._pending[req_id] = wait_q
-        self._send_message({'jsonrpc': '2.0', 'id': req_id, 'method': method, 'params': params})
+        try:
+            self._send_message({'jsonrpc': '2.0', 'id': req_id, 'method': method, 'params': params})
+        except Exception:
+            with self._lock:
+                self._pending.pop(req_id, None)
+            raise
         try:
             response = wait_q.get(timeout=max(0.1, timeout_s))
         except queue.Empty as exc:
@@ -188,9 +193,18 @@ class JsonRpcLspClient:
         proc = self._require_process()
         if proc.stdin is None:
             raise RuntimeError('LSP subprocess stdin is unavailable.')
-        with self._write_lock:
-            proc.stdin.write(msg)
-            proc.stdin.flush()
+        try:
+            with self._write_lock:
+                proc.stdin.write(msg)
+                proc.stdin.flush()
+        except OSError as exc:
+            with self._lock:
+                exit_code = proc.poll()
+                stderr_summary = self._stderr_summary_locked()
+            self.close()
+            raise RuntimeError(
+                self._format_closed_message(exit_code=exit_code, stderr_summary=stderr_summary)
+            ) from exc
 
     def _read_stderr_loop(self) -> None:
         proc = self._proc

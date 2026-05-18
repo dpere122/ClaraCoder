@@ -1,8 +1,9 @@
-import { Component, effect, HostListener, input, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
+import { Component, computed, effect, HostListener, input, OnDestroy, output, signal, untracked, ViewEncapsulation } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { PythonInterpreterListItem, Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { Subscription } from 'rxjs';
+import { EditorLspStatusComponent } from '../../shell/editor-lsp-status/editor-lsp-status';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 
@@ -28,7 +29,7 @@ interface FlatNode {
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, ThemeSelector],
+  imports: [LucideAngularModule, ThemeSelector, EditorLspStatusComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -38,6 +39,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly currentWorkspaceId = input<string | null>(null);
   /** Active chat session id — Python LSP / interpreter APIs key off this. */
   readonly activeConversationId = input<string | null>(null);
+  /** Active editor tab path (workspace-relative); drives which integrated LSP is warmed and shown. */
+  readonly activeFileRelativePath = input<string | null>(null);
 
   readonly workspaceChanged = output<string | null>();
   readonly addWorkspace = output<void>();
@@ -71,6 +74,18 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly pythonInterpreterLoading = signal(false);
   protected readonly pythonInterpreterError = signal('');
   private pythonInterpreterLoadRequestId = 0;
+
+  /** From ``GET /lsp/status`` — whether the Jedi subprocess for this session is running. */
+  protected readonly lspPythonServerRunning = signal(false);
+  /** From bounded workspace tree text (same scan as LLM context) — typical Python project markers / ``.py`` files. */
+  protected readonly pythonWorkspaceTreeHints = signal(false);
+  private interpreterChromeRequestId = 0;
+  private lastInterpreterChromeWorkspaceRoot = '';
+
+  /** Show / enable Python env controls only when the workspace looks Python-related or Jedi is already up. */
+  protected readonly pythonInterpreterControlsActive = computed(() => {
+    return this.lspPythonServerRunning() || this.pythonWorkspaceTreeHints();
+  });
 
   private tree: FileNode[] = [];
   private workspaceSubscription: Subscription | null = null;
@@ -107,7 +122,39 @@ export class WorkspaceComponent implements OnDestroy {
         this.pythonInterpreterError.set('');
         return;
       }
+      if (!this.pythonInterpreterControlsActive()) {
+        this.pythonInterpreterRows.set([]);
+        this.pythonInterpreterSelectedId.set('');
+        this.pythonInterpreterError.set('');
+        return;
+      }
       void this.loadPythonInterpreters(sid, wid, wss);
+    });
+
+    effect(() => {
+      const sid = this.activeConversationId()?.trim();
+      const wid = this.currentWorkspaceId();
+      const wss = this.workspaces();
+      void this.activeFileRelativePath();
+      if (!this.electron.isElectron || !sid || !wid) {
+        untracked(() => {
+          this.lspPythonServerRunning.set(false);
+          this.pythonWorkspaceTreeHints.set(false);
+          this.lastInterpreterChromeWorkspaceRoot = '';
+        });
+        return;
+      }
+      const ws = wss.find((w) => w.id === wid);
+      const root = ws?.path?.trim();
+      if (!root) {
+        untracked(() => {
+          this.lspPythonServerRunning.set(false);
+          this.pythonWorkspaceTreeHints.set(false);
+          this.lastInterpreterChromeWorkspaceRoot = '';
+        });
+        return;
+      }
+      void this.refreshWorkspaceInterpreterChrome(sid, root);
     });
 
     this.workspaceSubscription = this.electron.workspaceChanged$.subscribe((workspaceId) => {
@@ -123,6 +170,11 @@ export class WorkspaceComponent implements OnDestroy {
 
       this.lastWorkspaceChange.set(this.describeWorkspaceChange(event));
       void this.reloadPreservingExpansion(currentWorkspace.path);
+      this.lastInterpreterChromeWorkspaceRoot = '';
+      const sid = this.activeConversationId()?.trim();
+      if (this.electron.isElectron && sid) {
+        void this.refreshWorkspaceInterpreterChrome(sid, currentWorkspace.path);
+      }
     });
   }
 
@@ -223,6 +275,38 @@ export class WorkspaceComponent implements OnDestroy {
       if (req === this.pythonInterpreterLoadRequestId) {
         this.pythonInterpreterLoading.set(false);
       }
+    }
+  }
+
+  private async refreshWorkspaceInterpreterChrome(sessionId: string, workspaceDiskRoot: string): Promise<void> {
+    const req = ++this.interpreterChromeRequestId;
+    const skipTree = this.lastInterpreterChromeWorkspaceRoot === workspaceDiskRoot;
+    try {
+      const dashP = this.electron.getLspDashboardStatus(sessionId);
+      const treeP = skipTree
+        ? Promise.resolve(null as string | null)
+        : this.electron.readDirectoryRecursive(workspaceDiskRoot);
+      const [dash, tree] = await Promise.all([dashP, treeP]);
+      if (req !== this.interpreterChromeRequestId) {
+        return;
+      }
+      if (tree != null) {
+        this.lastInterpreterChromeWorkspaceRoot = workspaceDiskRoot;
+        this.pythonWorkspaceTreeHints.set(workspaceTreeTextHintsPython(tree));
+      }
+      if (!dash.ok) {
+        this.lspPythonServerRunning.set(false);
+        return;
+      }
+      const st = dash.status;
+      this.lspPythonServerRunning.set(st.servers?.python?.initialized === true);
+    } catch {
+      if (req !== this.interpreterChromeRequestId) {
+        return;
+      }
+      this.lspPythonServerRunning.set(false);
+      this.pythonWorkspaceTreeHints.set(false);
+      this.lastInterpreterChromeWorkspaceRoot = '';
     }
   }
 
@@ -802,4 +886,44 @@ function isSafeRenameBasename(name: string): boolean {
   }
   const p = parts[0];
   return p !== '..' && p !== '.';
+}
+
+/** Detect typical Python project files in bounded workspace tree text (``buildWorkspaceTree`` output). */
+function workspaceTreeTextHintsPython(tree: string): boolean {
+  const raw = tree.trim();
+  if (!raw) {
+    return false;
+  }
+  const tl = raw.toLowerCase();
+  const markers = [
+    'pyproject.toml',
+    'setup.py',
+    'setup.cfg',
+    'requirements.txt',
+    'requirements.in',
+    'pipfile',
+    'poetry.lock',
+    'pdm.lock',
+    'uv.lock',
+    'manage.py',
+    'tox.ini',
+    'environment.yml',
+    'environment.yaml',
+    'conda.yml',
+    'conda.yaml',
+    '.python-version',
+    'pyrightconfig.json',
+    'ruff.toml',
+    '.ruff.toml',
+    'pytest.ini',
+    'mypy.ini',
+    '.flake8',
+    'pixi.toml',
+  ];
+  for (const m of markers) {
+    if (tl.includes(m)) {
+      return true;
+    }
+  }
+  return /[^\s|'"`]+\.(?:py|pyi)(?:\s|$|\n|\[)/.test(raw);
 }

@@ -172,7 +172,7 @@ class SessionWorkspaceLspManager:
         self._semantic_tokens_legend: dict[str, list[str]] | None = None
 
     def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
-        """True when legend prefetch must not spawn the server (TypeScript without a seed path)."""
+        """True when legend prefetch must not spawn this server before any document seed."""
 
         return self._plugin.should_defer_semantic_tokens_legend_without_document_seed(self._plugin_state)
 
@@ -489,7 +489,8 @@ class SessionWorkspaceLspManager:
             self.session.lsp_diagnostics[rel] = normalized
             self._diag_generation[rel] = self._diag_generation.get(rel, 0) + 1
             self._diag_cond.notify_all()
-        logger.info(
+        # High churn for TS/JS (publishDiagnostics on many internal passes); keep health / INFO logs usable.
+        logger.debug(
             '%s diagnostics refreshed session=%s scope=%s path=%s count=%s',
             self.server_kind,
             self.session_id,
@@ -714,7 +715,7 @@ def sync_session_document(
         if sid is None or not _should_retry_lsp_bootstrap(exc):
             raise
         logger.warning('retrying LSP sync after bootstrap failure session=%s server=%s err=%s', sid, server, exc)
-        shutdown_session_lsp(sid)
+        shutdown_session_lsp_server(sid, server)
         manager = get_session_lsp_manager(sid, scope=scope, server=server)
         return manager.sync_document(relative_path, text, wait_for_diagnostics=wait_for_diagnostics)
 

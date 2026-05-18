@@ -33,6 +33,7 @@
         [workspaces]='workspaces()'
         [currentWorkspaceId]='currentWorkspaceId()'
         [activeConversationId]='activeConversationId()'
+        [activeFileRelativePath]='activeFileRelativePath()'
         (workspaceChanged)='onWorkspaceChanged($event)'
         (addWorkspace)='onAddWorkspace()'
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'
@@ -86,10 +87,6 @@
             </button>
           }
           </div>
-          <app-editor-lsp-status
-            [conversationId]='activeConversationId()'
-            [activeFileRelativePath]='activeFileRelativePath()'
-          />
         </div>
         <div class='chat-main-tab-panels flex-grow-1 min-h-0 d-flex flex-column'>
           <div

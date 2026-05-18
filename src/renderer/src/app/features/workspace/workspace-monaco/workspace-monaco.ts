@@ -664,6 +664,22 @@ export class WorkspaceMonacoComponent {
   private async bootstrapEditor(): Promise<void> {
     const monacoApi = await import('monaco-editor');
     this.monaco = monacoApi;
+    // Monaco's in-worker TS/JS service has no workspace fs/tsconfig; semantic rules
+    // clash with the real project. TS/JS IntelliSense and checks come from the LSP bridge.
+    monacoApi.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSuggestionDiagnostics: true,
+    });
+    monacoApi.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSuggestionDiagnostics: true,
+    });
+    // Built-in TS/JS worker hover (QuickInfo) still runs by default and merges with our LSP
+    // hover — same symbol appears twice. Workspace IntelliSense uses the LSP bridge only.
+    const tsDefaults = monacoApi.languages.typescript.typescriptDefaults;
+    const jsDefaults = monacoApi.languages.typescript.javascriptDefaults;
+    tsDefaults.setModeConfiguration({ ...tsDefaults.modeConfiguration, hovers: false });
+    jsDefaults.setModeConfiguration({ ...jsDefaults.modeConfiguration, hovers: false });
     this.defineClaraTheme(monacoApi);
     const host = this.editorHost().nativeElement;
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);

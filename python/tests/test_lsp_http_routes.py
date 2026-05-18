@@ -247,8 +247,28 @@ def test_lsp_completion_skip_document_sync_avoids_second_buffer_sync(lsp_http_en
     assert after_second == after_first
 
 
-def test_lsp_semantic_tokens_legend_http_route(lsp_http_env) -> None:
+def test_lsp_semantic_tokens_legend_python_deferred_without_seed(lsp_http_env) -> None:
+    """Jedi is not started for legend prefetch until a ``.py`` file has been synced (seed)."""
+
     with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=python',
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get('supported') is False
+    assert data.get('tokenTypes') == []
+
+
+def test_lsp_semantic_tokens_legend_python_after_disk_sync_uses_injected_client(lsp_http_env) -> None:
+    """After syncing a ``.py`` path, legend prefetch may start the injected Python client."""
+
+    with TestClient(lsp_http_env.app) as client:
+        r0 = client.get(
+            f'/lsp/diagnostics?session_id={lsp_http_env.session_id}'
+            f'&relative_path={lsp_http_env.sample_path}&refresh_active_document=true',
+        )
+        assert r0.status_code == 200
         r = client.get(
             f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=python',
         )
@@ -256,6 +276,21 @@ def test_lsp_semantic_tokens_legend_http_route(lsp_http_env) -> None:
     data = r.json()
     assert data.get('supported') is True
     assert 'keyword' in data.get('tokenTypes', [])
+
+
+def test_lsp_semantic_tokens_legend_typescript_prefetch_starts_injected_client(lsp_http_env) -> None:
+    """TypeScript legend is safe to prefetch before a file seed, so Monaco receives a non-empty legend."""
+
+    with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=typescript',
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get('supported') is True
+    assert 'keyword' in data.get('tokenTypes', [])
+    assert lsp_http_env.fake_clients
+    assert lsp_http_env.fake_clients[0].initialized is True
 
 
 def test_lsp_hover_bad_extension_returns_400(lsp_http_env) -> None:

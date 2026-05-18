@@ -47,6 +47,9 @@ export function monacoWorkspaceSettingsToEditorOptions(
   s: MonacoWorkspaceEditorSettings,
 ): Monaco.editor.IEditorOptions {
   return {
+    // Hovers / suggest / peek render above cursor; `overflow: hidden` on workspace host
+    // clips them unless widgets use fixed positioning (VS Code–style, viewport-relative flip).
+    fixedOverflowWidgets: true,
     fontSize: s.fontSize,
     lineHeight: s.lineHeight <= 0 ? undefined : s.lineHeight,
     fontFamily: resolveMonacoWorkspaceFontFamily(s),

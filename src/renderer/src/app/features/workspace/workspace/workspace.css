@@ -103,6 +103,11 @@ app-workspace .workspace-interpreter-footer {
   gap: 0.35rem;
 }
 
+app-workspace .workspace-lsp-block {
+  width: 100%;
+  min-width: 0;
+}
+
 app-workspace .workspace-interpreter-label {
   font-size: 0.68rem;
   text-transform: uppercase;

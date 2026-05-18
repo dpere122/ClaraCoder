@@ -8,14 +8,20 @@ import { ElectronService } from './electron.service';
 
 @Injectable({ providedIn: 'root' })
 export class TtsPlaybackService {
-  /** Max characters per Kokoro request — larger reduces HTTP round-trips; keep bounded for memory/time. */
-  private static readonly TTS_CHUNK_MAX = 2200;
+  /**
+   * Preferred max characters per Kokoro request. Smaller chunks improve time-to-first-audio; the
+   * next chunk prefetches while the current WAV plays ({@link collectTtsWav} pipelining).
+   */
+  private static readonly TTS_CHUNK_TARGET = 1200;
+
+  /** Never exceed this many characters in one `/tts` body (e.g. huge unpunctuated spans). */
+  private static readonly TTS_CHUNK_HARD_MAX = 2200;
 
   /** Prefer flushing streaming speech after at least this many characters (unless forced below). */
-  private static readonly STREAM_FLUSH_MIN = 28;
+  private static readonly STREAM_FLUSH_MIN = 120;
 
   /** Force a boundary flush near this length when no sentence break appears yet. */
-  private static readonly STREAM_FLUSH_MAX = 480;
+  private static readonly STREAM_FLUSH_MAX = 900;
 
   /** Shown on the latest assistant bubble while the first chunk is in flight. */
   readonly ttsLoading = signal(false);
@@ -30,6 +36,7 @@ export class TtsPlaybackService {
   private streamingCommittedCleanLen = 0;
   private readonly streamingSegmentQueue: string[] = [];
   private streamingPipelineBusy = false;
+  private streamingQueueSignal: (() => void) | null = null;
 
   constructor(
     private readonly electron: ElectronService,
@@ -48,6 +55,7 @@ export class TtsPlaybackService {
     this.streamingCommittedCleanLen = 0;
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
+    this.notifyStreamingQueueChanged();
     this.zone.run(() => this.ttsLoading.set(false));
   }
 
@@ -89,6 +97,9 @@ export class TtsPlaybackService {
     for (const s of segments) {
       this.streamingSegmentQueue.push(s);
     }
+    if (segments.length > 0) {
+      this.notifyStreamingQueueChanged();
+    }
     this.streamingCommittedCleanLen = clean.length - keep.length;
     void this.ensureStreamingPipeline(voice, speed);
   }
@@ -103,9 +114,43 @@ export class TtsPlaybackService {
       for (const s of this.splitTextForTts(tail.trim())) {
         this.streamingSegmentQueue.push(s);
       }
+      this.notifyStreamingQueueChanged();
     }
     this.streamingCommittedCleanLen = clean.length;
     await this.ensureStreamingPipeline(voice, speed);
+  }
+
+  private notifyStreamingQueueChanged(): void {
+    const signal = this.streamingQueueSignal;
+    if (!signal) return;
+    this.streamingQueueSignal = null;
+    signal();
+  }
+
+  private waitForQueueOrPlayback(playback: Promise<void>): Promise<'queue' | 'playback'> {
+    if (this.streamingSegmentQueue.length > 0) {
+      return Promise.resolve('queue');
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const signal = (): void => {
+        if (settled) return;
+        settled = true;
+        if (this.streamingQueueSignal === signal) {
+          this.streamingQueueSignal = null;
+        }
+        resolve('queue');
+      };
+      this.streamingQueueSignal = signal;
+      void playback.finally(() => {
+        if (settled) return;
+        settled = true;
+        if (this.streamingQueueSignal === signal) {
+          this.streamingQueueSignal = null;
+        }
+        resolve('playback');
+      });
+    });
   }
 
   private takeFlushablePrefix(tail: string): { flush: string; keep: string } {
@@ -166,19 +211,33 @@ export class TtsPlaybackService {
     this.zone.run(() => this.ttsLoading.set(true));
     try {
       while (gen === this.speechGen && this.streamingSegmentQueue.length > 0) {
-        let first = this.streamingSegmentQueue.shift()!;
+        let first = this.takeNextStreamingBatch()!;
         let seq = ++this.ttsStreamSeq;
         let nextWavPromise = this.collectTtsWav(first, voice, speed, seq, gen, () => {
           this.zone.run(() => this.ttsLoading.set(false));
         });
         while (gen === this.speechGen) {
           const wav = await nextWavPromise;
-          const nextSeg = this.streamingSegmentQueue.shift() ?? null;
+          let nextSeg = this.takeNextStreamingBatch();
           if (nextSeg) {
             seq = ++this.ttsStreamSeq;
             nextWavPromise = this.collectTtsWav(nextSeg, voice, speed, seq, gen, () => {});
           }
-          await this.playAudioBufferFromUint8(wav, gen, 'audio/wav');
+          const playback = this.playAudioBufferFromUint8(wav, gen, 'audio/wav');
+          if (!nextSeg) {
+            const outcome = await this.waitForQueueOrPlayback(playback);
+            if (gen !== this.speechGen) return;
+            if (outcome === 'queue' && gen === this.speechGen) {
+              nextSeg = this.takeNextStreamingBatch();
+              if (nextSeg) {
+                seq = ++this.ttsStreamSeq;
+                nextWavPromise = this.collectTtsWav(nextSeg, voice, speed, seq, gen, () => {});
+                await playback;
+                continue;
+              }
+            }
+          }
+          await playback;
           if (!nextSeg) break;
         }
       }
@@ -195,23 +254,99 @@ export class TtsPlaybackService {
     }
   }
 
+  /**
+   * Split for TTS: always prefer multiple smaller Kokoro requests (up to {@link TTS_CHUNK_TARGET})
+   * at sentence / line / word boundaries so the first chunk returns audio sooner; merge sub-pieces
+   * that still exceed {@link TTS_CHUNK_HARD_MAX}.
+   */
   private splitTextForTts(text: string): string[] {
-    const max = TtsPlaybackService.TTS_CHUNK_MAX;
-    if (text.length <= max) return [text];
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+
+    const target = TtsPlaybackService.TTS_CHUNK_TARGET;
+    const hard = TtsPlaybackService.TTS_CHUNK_HARD_MAX;
     const out: string[] = [];
-    let rest = text;
-    while (rest.length > max) {
-      let cut = rest.lastIndexOf('. ', max);
-      if (cut < max * 0.35) cut = rest.lastIndexOf('? ', max);
-      if (cut < max * 0.35) cut = rest.lastIndexOf('! ', max);
-      if (cut < max * 0.35) cut = rest.lastIndexOf('\n', max);
-      if (cut < max * 0.35) cut = max;
-      const piece = rest.slice(0, cut + 1).trim();
-      if (piece) out.push(piece);
-      rest = rest.slice(cut + 1).trim();
+    let rest = trimmed;
+
+    while (rest.length > 0) {
+      if (rest.length <= target) {
+        out.push(...this.splitHardMaxOnly(rest, hard));
+        break;
+      }
+      let end = this.findPreferredChunkEnd(rest, target);
+      let rawPiece = rest.slice(0, end).trim();
+      if (!rawPiece && rest.length > 0) {
+        end = 1;
+        rawPiece = rest.slice(0, end).trim();
+      }
+      rest = rest.slice(end).trim();
+      if (!rawPiece) break;
+      out.push(...this.splitHardMaxOnly(rawPiece, hard));
     }
-    if (rest) out.push(rest);
-    return out.length > 0 ? out : [text];
+
+    return out.length > 0 ? out : [trimmed];
+  }
+
+  private takeNextStreamingBatch(): string | null {
+    const first = this.streamingSegmentQueue.shift();
+    if (!first) return null;
+    const target = TtsPlaybackService.TTS_CHUNK_TARGET;
+    const parts = [first];
+    let len = first.length;
+    while (this.streamingSegmentQueue.length > 0) {
+      const next = this.streamingSegmentQueue[0];
+      if (len + 1 + next.length > target) break;
+      parts.push(this.streamingSegmentQueue.shift()!);
+      len += 1 + next.length;
+    }
+    return parts.join(' ').trim() || null;
+  }
+
+  /** Exclusive end index: first chunk is `rest.slice(0, end)` (at most `limit` chars). */
+  private findPreferredChunkEnd(rest: string, limit: number): number {
+    const lim = Math.min(limit, rest.length);
+    const win = lim >= rest.length ? rest : rest.slice(0, lim);
+    const minRel = Math.floor(lim * 0.35);
+
+    const endAfterPair = (pair: string): number => {
+      const c = win.lastIndexOf(pair);
+      return c >= minRel ? c + pair.length : -1;
+    };
+
+    let end = endAfterPair('. ');
+    if (end < 0) end = endAfterPair('? ');
+    if (end < 0) end = endAfterPair('! ');
+    if (end < 0) {
+      const nl = win.lastIndexOf('\n');
+      if (nl >= minRel) end = nl + 1;
+    }
+    if (end < 0) {
+      const sp = win.lastIndexOf(' ');
+      if (sp >= minRel - 1 && sp > 0) end = sp + 1;
+    }
+    if (end < 0) end = lim;
+    return Math.max(1, Math.min(end, rest.length));
+  }
+
+  /** Split only when a single piece exceeds the hard cap (rare long unpunctuated spans). */
+  private splitHardMaxOnly(piece: string, hard: number): string[] {
+    if (piece.length <= hard) return piece ? [piece] : [];
+    const parts: string[] = [];
+    let rest = piece;
+    while (rest.length > hard) {
+      const end = this.findPreferredChunkEnd(rest, hard);
+      let seg = rest.slice(0, end).trim();
+      let next = rest.slice(end).trim();
+      if (!seg) {
+        const take = Math.min(hard, rest.length);
+        seg = rest.slice(0, take).trim() || rest.slice(0, 1);
+        next = rest.slice(take).trim();
+      }
+      parts.push(seg);
+      rest = next;
+    }
+    if (rest) parts.push(rest);
+    return parts.length > 0 ? parts : [piece];
   }
 
   async speakText(text: string, voice: string, speed: number): Promise<void> {

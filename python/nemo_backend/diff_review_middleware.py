@@ -31,19 +31,18 @@ class DiffReviewAfterToolMiddleware(AgentMiddleware):
         name = str(request.tool_call.get('name') or '')
         sess = get_session(session_id)
         direct = direct_workspace_edits_active(sess, apply_mode=sess.worker_apply_mode)
+        payload = sess.pending_diff_payload
+        # Require an active SSE pump (``hitl_sse_queue``), not ``worker_apply_mode``: nested
+        # specialist tools can run during streamed agent work while refcount edge cases exist.
         if (
-            not sess.worker_apply_mode
+            sess.hitl_sse_queue is None
             or name not in hitl_diff_pause_tools(direct=direct)
-            or not sess.pending_diff_payload
+            or not payload
             or sess.auto_apply_mode
         ):
             return result
 
-        q = sess.hitl_sse_queue
-        if q is None:
-            return result
-
-        await q.put(('diff',))
+        await sess.hitl_sse_queue.put(('diff', payload))
         note = await await_diff_review_note(session_id)
 
         tm: ToolMessage

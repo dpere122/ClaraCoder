@@ -4,7 +4,9 @@ import {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
   filterLiveToolChainGroups,
+  isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
   type ChatMessage,
   type ToolChainGroup,
@@ -269,6 +271,32 @@ describe('auxiliaryPanelTitleFromChainGroups', () => {
     expect(auxiliaryPanelTitleFromChainGroups(groups)).toBe(
       'Reviewing streamed markdown formatting and reasoning title behavior.',
     );
+  });
+});
+
+describe('isPendingHitlArtifact', () => {
+  it('is true only while review is pending', () => {
+    const diff: ChatMessage = {
+      role: 'diff',
+      payload: {
+        version: 1,
+        relativePath: 'a.ts',
+        language: 'typescript',
+        rows: [],
+        fullNewContent: '',
+        truncated: false,
+      },
+      reviewStatus: 'pending',
+    };
+    expect(isPendingHitlArtifact(diff)).toBe(true);
+    expect(isPendingHitlArtifact({ ...diff, reviewStatus: 'complete' })).toBe(false);
+
+    const rows = buildChatDisplayRows([{ role: 'user', text: 'edit' }, diff]);
+    expect(rows[1].kind).toBe('assistant-turn');
+    if (rows[1].kind !== 'assistant-turn') return;
+    expect(turnHasPendingHitlArtifacts(rows[1].artifacts)).toBe(true);
+    const done = rows[1].artifacts.map((a) => ({ ...a, reviewStatus: 'complete' as const }));
+    expect(turnHasPendingHitlArtifacts(done)).toBe(false);
   });
 });
 

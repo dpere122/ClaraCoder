@@ -98,6 +98,15 @@ export function isHitlActivationMessage(m: ChatMessage): boolean {
   );
 }
 
+/** HITL card still awaiting user action (blocks the live streaming row until resolved). */
+export function isPendingHitlArtifact(m: ArtifactMessage): boolean {
+  return (m.reviewStatus ?? 'pending') === 'pending';
+}
+
+export function turnHasPendingHitlArtifacts(artifacts: readonly ArtifactMessage[]): boolean {
+  return artifacts.some(isPendingHitlArtifact);
+}
+
 /** Small stable hash for synonym index (FNV-1a 32-bit). */
 function hashToUint(str: string): number {
   let h = 0x811c9dc5;
@@ -371,6 +380,10 @@ export class ChatBox implements OnDestroy {
     if (!this.loading()) return rows;
     const last = rows.at(-1);
     if (last?.kind === 'assistant-turn' && !last.assistant) {
+      // Keep pending HITL review cards in the persisted window during an open SSE pause.
+      if (turnHasPendingHitlArtifacts(last.artifacts)) {
+        return rows;
+      }
       return rows.slice(0, -1);
     }
     return rows;
@@ -453,6 +466,9 @@ export class ChatBox implements OnDestroy {
     const rows = this.transcriptRows();
     const last = rows.at(-1);
     const trailingTurn = last?.kind === 'assistant-turn' && !last.assistant ? last : null;
+    if (trailingTurn && turnHasPendingHitlArtifacts(trailingTurn.artifacts)) {
+      return null;
+    }
     // Always show the live row while loading so the processing ngx-spinners stay mounted and visible
     // during the gap before the first stream chunk, planner update, or tool status.
     return (

@@ -173,8 +173,8 @@ def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
         if pending_copy:
             return [sse_line({'type': 'copy_confirm', 'copyConfirm': copy_confirm_sse_payload(pending_copy)})]
         return []
-    if raw_hitl == ('diff',):
-        pending_diff = session.pending_diff_payload
+    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'diff':
+        pending_diff = raw_hitl[1] if len(raw_hitl) > 1 else session.pending_diff_payload
         if pending_diff:
             session.pending_diff_payload = None
             return [sse_line({'type': 'diff', 'diff': pending_diff})]

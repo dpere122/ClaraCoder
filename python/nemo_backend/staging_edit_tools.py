@@ -67,8 +67,10 @@ def _staging_edit_preamble(
     from nemo_backend.state import get_session
 
     session = get_session(session_id)
-    session.pending_diff_payload = None
-    session.pending_staged_transfer_hitl = None
+    # Do not clobber an in-flight staged-transfer / diff HITL pause (another tool round could run next).
+    if session.agent_pause_event is None:
+        session.pending_diff_payload = None
+        session.pending_staged_transfer_hitl = None
 
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)

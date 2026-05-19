@@ -103,8 +103,10 @@ def test_outer_agent_brief_emits_status() -> None:
     assert len(lines) == 1
     assert '"type": "status"' in lines[0]
     assert '"label": "Planner checklist"' in lines[0]
+    assert '"current_task"' in lines[0]
     assert 'First step' in lines[0]
     assert '"stream_tag": "clara"' in lines[0]
+    assert '"id": "clara-current-task"' in lines[0]
 
 
 def test_tool_exec_complete_event_is_forwarded() -> None:
@@ -154,6 +156,42 @@ def test_tool_exec_complete_forwards_output_excerpt() -> None:
     assert '"output_excerpt": "FAILED tests/test_x.py::test_a"' in lines[0]
 
 
+def test_chat_model_stream_discards_deferred_text_when_step_requests_tools() -> None:
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='Planning before tools. ')},
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert state.deferred_agent_text == 'Planning before tools. '
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {
+                'output': AIMessage(
+                    content='Planning before tools. ',
+                    tool_calls=[{'name': 'read_file', 'args': {}, 'id': 'tc1', 'type': 'tool_call'}],
+                ),
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert not [ln for ln in end_lines if '"type": "chunk"' in ln and 'Planning' in ln]
+    assert state.deferred_agent_text == ''
+
+
 def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
     state = GraphStreamState()
 
@@ -182,8 +220,24 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
         stream_tag='agent',
     )
 
-    assert len(first) == 1
-    assert len(second) == 1
+    assert len(first) == 0
+    assert len(second) == 0
+    assert state.deferred_agent_text == 'Hello world'
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {'output': AIMessage(content='Hello world')},
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    chunk_lines = [ln for ln in end_lines if '"type": "chunk"' in ln]
+    assert len(chunk_lines) == 1
+    assert 'Hello world' in chunk_lines[0]
     assert state.partial_stream_text == 'Hello world'
 
 
@@ -286,11 +340,19 @@ def test_hitl_sse_lines_diff_sentinel_only() -> None:
     from nemo_backend.domain import SessionState
 
     s = SessionState()
-    s.pending_diff_payload = {'version': 1, 'rows': []}
+    payload = {'version': 1, 'rows': []}
+    s.pending_diff_payload = payload
     lines = _hitl_sse_lines(s, ('diff',))
     assert len(lines) == 1
     assert 'diff' in lines[0]
     assert s.pending_diff_payload is None
+
+    s1b = SessionState()
+    embedded = {'version': 1, 'rows': [], 'relativePath': 'x.py'}
+    lines_b = _hitl_sse_lines(s1b, ('diff', embedded))
+    assert len(lines_b) == 1
+    assert 'x.py' in lines_b[0]
+    assert s1b.pending_diff_payload is None
 
     s2 = SessionState()
     assert _hitl_sse_lines(s2, ('diff',)) == []

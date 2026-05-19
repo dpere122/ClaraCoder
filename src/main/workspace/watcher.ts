@@ -59,7 +59,11 @@ async function syncWatchedWorkspaceTree(
       watcherState.ignoreRules = await loadWorkspaceIgnoreRules(watcherState.workspacePath);
     }
 
-    const tree = await buildWatchedContextSnapshot(watcherState.workspacePath, watcherState.stagingPath);
+    const tree = await buildWatchedContextSnapshot(
+      watcherState.workspacePath,
+      watcherState.stagingPath,
+      watcherState.exposeAllWorkspaceFiles,
+    );
     if (mainState.activeWorkspaceWatcher !== watcherState || watcherState.syncVersion !== syncVersion) {
       return;
     }
@@ -126,7 +130,11 @@ function getWorkspaceChangeKind(eventType: string): WorkspaceChangeKind {
   return 'unknown';
 }
 
-function createTreeState(rootPath: string, ignoreRules: string[]): WorkspaceContextState {
+function createTreeState(
+  rootPath: string,
+  ignoreRules: string[],
+  exposeAllWorkspaceFiles: boolean,
+): WorkspaceContextState {
   return {
     rootPath,
     maxDepth: WORKSPACE_CONTEXT_MAX_DEPTH,
@@ -134,14 +142,25 @@ function createTreeState(rootPath: string, ignoreRules: string[]): WorkspaceCont
     entriesWritten: 0,
     truncated: false,
     ignoreRules,
+    exposeAllWorkspaceFiles,
   };
 }
 
-async function buildWatchedContextSnapshot(workspacePath: string, stagingPath: string): Promise<string> {
+async function buildWatchedContextSnapshot(
+  workspacePath: string,
+  stagingPath: string,
+  exposeAllWorkspaceFiles: boolean,
+): Promise<string> {
   syncFs.mkdirSync(stagingPath, { recursive: true });
 
-  const workspaceTree = await buildWorkspaceTree(workspacePath);
-  const stagingTree = await buildWorkspaceTree(stagingPath, '', 0, createTreeState(stagingPath, []));
+  const ignoreRules = exposeAllWorkspaceFiles ? [] : await loadWorkspaceIgnoreRules(workspacePath);
+  const workspaceTree = await buildWorkspaceTree(
+    workspacePath,
+    '',
+    0,
+    createTreeState(workspacePath, ignoreRules, exposeAllWorkspaceFiles),
+  );
+  const stagingTree = await buildWorkspaceTree(stagingPath, '', 0, createTreeState(stagingPath, [], false));
 
   const trimmedWorkspaceTree = workspaceTree.trimEnd() || '[empty]';
   const trimmedStagingTree = stagingTree.trimEnd() || '[empty]';
@@ -166,7 +185,12 @@ function shouldProcessWorkspaceWatchPath(
   workspacePath: string,
   relativePath: string,
   ignoreRules: string[],
+  exposeAllWorkspaceFiles: boolean,
 ): boolean {
+  if (exposeAllWorkspaceFiles) {
+    return true;
+  }
+
   const normalizedRelativePath = normalizeContextPath(relativePath).replace(/^\/+/, '');
   if (!normalizedRelativePath) {
     return true;
@@ -211,7 +235,12 @@ function createDirectoryWatcher(
       if (
         source === 'workspace' &&
         relativePath &&
-        !shouldProcessWorkspaceWatchPath(watcherState.workspacePath, relativePath, aw.ignoreRules)
+        !shouldProcessWorkspaceWatchPath(
+          watcherState.workspacePath,
+          relativePath,
+          aw.ignoreRules,
+          aw.exposeAllWorkspaceFiles,
+        )
       ) {
         return;
       }
@@ -224,15 +253,39 @@ function createDirectoryWatcher(
   );
 }
 
+/** Rebuild workspace tree context when Settings → Tools changes file visibility. */
+export async function applyWorkspaceExposeAllFromConfig(config: import('../../shared').AppConfig): Promise<void> {
+  const aw = mainState.activeWorkspaceWatcher;
+  if (!aw) {
+    return;
+  }
+  const exposeAll = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
+  if (aw.exposeAllWorkspaceFiles === exposeAll) {
+    return;
+  }
+  aw.exposeAllWorkspaceFiles = exposeAll;
+  if (!exposeAll) {
+    try {
+      aw.ignoreRules = await loadWorkspaceIgnoreRules(aw.workspacePath);
+    } catch {
+      aw.ignoreRules = [];
+    }
+  }
+  void syncWatchedWorkspaceTree(aw);
+}
+
 export async function startWorkspaceWatcher(workspace: Workspace): Promise<void> {
   clearWorkspaceWatcher();
 
   const stagingPath = getWorkspaceStagingDir();
   syncFs.mkdirSync(stagingPath, { recursive: true });
 
+  const config = await loadConfig();
+  const exposeAllWorkspaceFiles = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
+
   let ignoreRules: string[];
   try {
-    ignoreRules = await loadWorkspaceIgnoreRules(workspace.path);
+    ignoreRules = exposeAllWorkspaceFiles ? [] : await loadWorkspaceIgnoreRules(workspace.path);
   } catch {
     ignoreRules = [];
   }
@@ -243,6 +296,7 @@ export async function startWorkspaceWatcher(workspace: Workspace): Promise<void>
       workspacePath: workspace.path,
       stagingPath,
       ignoreRules,
+      exposeAllWorkspaceFiles,
       watchers: [],
       debounceTimer: null,
       pendingPaths: new Set(),
@@ -304,10 +358,12 @@ export async function syncConversationWorkspaceContext(conv: ConversationFile): 
       const aw = mainState.activeWorkspaceWatcher;
       const stagingPath = getWorkspaceStagingDir();
       syncFs.mkdirSync(stagingPath, { recursive: true });
+      const exposeAll = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
       const tree =
         aw?.workspaceId === workspace.id
-          ? aw.lastTree || (await buildWatchedContextSnapshot(workspace.path, stagingPath))
-          : await buildWatchedContextSnapshot(workspace.path, stagingPath);
+          ? aw.lastTree ||
+            (await buildWatchedContextSnapshot(workspace.path, stagingPath, aw.exposeAllWorkspaceFiles))
+          : await buildWatchedContextSnapshot(workspace.path, stagingPath, exposeAll);
       await syncWorkspaceContextToPython(conv.id, workspace.path, tree, { workspaceId: workspace.id });
       return;
     }

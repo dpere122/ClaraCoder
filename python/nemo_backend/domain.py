@@ -46,19 +46,6 @@ class PendingStagedTransferHitl:
 
 
 @dataclass
-class ProjectReviewReentryRequest:
-    """Structured handoff returned when final project review requires a brand-new planner graph."""
-
-    original_task_summary: str
-    next_task_summary: str
-    review_feedback: str
-    recorded_steps: list[str] = field(default_factory=list)
-    final_review_attempts: int = 0
-    retry_budget: int = 0
-    terminal_reason: str = ''
-
-
-@dataclass
 class SessionState:
     """Per-chat-session data kept while the Electron app talks to this process."""
 
@@ -93,10 +80,10 @@ class SessionState:
     pending_staged_transfer_hitl: PendingStagedTransferHitl | None = None
     # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
     pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
-    # Active planner graph namespace used for staging temp files and the seeded workspace snapshot.
-    active_planner_graph_id: str = ''
-    # Absolute path to the seeded staging snapshot root for the active planner graph, or empty when inactive.
-    active_planner_snapshot_root: str = ''
+    # Active staging snapshot namespace for temp drafts and the seeded workspace mirror.
+    active_staging_snapshot_id: str = ''
+    # Absolute path to the seeded workspace mirror root, or empty when no snapshot is active.
+    active_staging_snapshot_root: str = ''
     # Original workspace snapshots for staged files materialized into the real workspace before reviewer test runs.
     test_run_materializations: dict[str, WorkspaceTestMaterializationEntry] = field(default_factory=dict)
     # Set by delete_workspace_entry when auto_apply is false; cleared after confirm/cancel via agent-continue.
@@ -121,11 +108,8 @@ class SessionState:
     hitl_sse_queue: asyncio.Queue | None = None
     # Set when the client requests an abort; the streaming generator checks this to bail out early.
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
-    # LangGraph manager only: nested planning graph events merged into the manager SSE loop during plan_and_modify.
-    # Outer ``/chat/stream`` runs also allocate this queue so subprocess tools (pytest, overlay, …) can emit ``tool_exec_*`` SSE.
+    # Outer ``/chat/stream`` allocates this queue so subprocess tools (pytest, smoke, overlay, …) can emit ``tool_exec_*`` SSE.
     planning_nested_events_q: asyncio.Queue | None = None
-    # Set while nested planning runs; SSE loop signals after it consumes the nested stream end sentinel.
-    planning_nested_done_event: asyncio.Event | None = None
     # While True, chat-model token deltas from the parent graph's ``astream_events`` queue are not sent as SSE
     # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
     # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.
@@ -142,19 +126,11 @@ class SessionState:
     lsp_staging_overlay_parent: str = ''
     # Cached normalized diagnostics keyed by workspace-relative path.
     lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
-    # Structured project-review failure handoff consumed by the caller to start a brand-new planner graph.
-    pending_project_review_reentry: ProjectReviewReentryRequest | None = None
-    # Latest pytest/smoke captured output during project review; ``reject_project_review`` attaches it for the planner.
+    # Latest pytest/smoke captured output during project review (attached to ``reject_project_review`` when used).
     last_project_review_subprocess_report: str = ''
     # Set by ``report_insufficient_workspace_recon`` during the file-write author phase; read and cleared by
     # ``run_write_recon_then_author_stream`` to optionally run one supplemental recon pass (author stays workspace-blind).
     write_recon_supplement_request: str = ''
-    # During ``plan_and_modify``, planner/review handoffs appended for the outer Clara tool result and optional SSE.
-    plan_and_modify_outer_briefs: list[str] = field(default_factory=list)
-    # Snapshot of UI/runtime flags for the active nested delegation (``None`` = not in nested outer tool).
-    nested_turn_apply_mode: bool | None = None
-    nested_turn_auto_apply_mode: bool | None = None
-    nested_turn_orchestrated_mode: bool | None = None
     # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`nemo_backend.agent`).
     last_stream_apply_mode: bool | None = None
     last_stream_auto_apply_mode: bool | None = None
@@ -238,6 +214,8 @@ class RuntimeToolsConfig:
     default_workspace_newline: str = 'lf'
     #: When True, nested code review may call ``run_staging_overlay_command`` (Settings → Tools).
     allow_staging_overlay_commands: bool = False
+    #: When True, list/search/tree/semantic indexing include all workspace paths (no built-in or ``.gitignore`` skips).
+    expose_all_workspace_files: bool = False
 
 
 @dataclass

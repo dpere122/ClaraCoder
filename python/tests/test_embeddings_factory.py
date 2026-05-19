@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from nemo_backend.domain import RuntimeConnection
 
 
@@ -148,11 +150,37 @@ def test_resolve_embedding_model_id_prefers_connection_field() -> None:
     assert resolve_embedding_model_id(conn) == 'custom-emb-id'
 
 
-def test_resolve_embedding_model_id_llamacpp_falls_back_to_chat_model() -> None:
+def test_resolve_embedding_model_id_llamacpp_falls_back_to_chat_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_backend.workspace_index import embeddings_factory as ef
     from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
 
-    conn = _llamacpp_conn(model='my-gguf', embeddings_model='')
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    conn = _llamacpp_conn(model='my-gguf', embeddings_model='', embeddings_base_url='')
     assert resolve_embedding_model_id(conn) == 'my-gguf'
+
+
+def test_resolve_embedding_model_id_uses_env_default_on_dedicated_embeddings_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nemo_backend.workspace_index import embeddings_factory as ef
+    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:8081')
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_MODEL', 'nomic-embed-text')
+    conn = _llamacpp_conn(model='my-chat-gguf', embeddings_model='')
+    assert resolve_embedding_model_id(conn) == 'nomic-embed-text'
+
+
+def test_resolve_embedding_model_id_uses_env_default_on_per_connection_embeddings_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nemo_backend.workspace_index import embeddings_factory as ef
+    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_MODEL', 'nomic-embed-text')
+    conn = _llamacpp_conn(model='my-chat-gguf', embeddings_model='', embeddings_base_url='http://127.0.0.1:8081')
+    assert resolve_embedding_model_id(conn) == 'nomic-embed-text'
 
 
 @patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')

@@ -44,6 +44,7 @@ def _payload(*, allow_overlay: bool = False) -> dict:
             'defaultWorkspaceEncoding': 'utf-8',
             'defaultWorkspaceNewline': 'lf',
             'allowStagingOverlayCommands': allow_overlay,
+            'exposeAllWorkspaceFiles': allow_overlay,
         },
     }
 
@@ -61,6 +62,7 @@ def test_runtime_config_updates_imported_runtime_config_references() -> None:
             assert r.json()['ok'] is True
 
             assert state.runtime_config.tools.allow_staging_overlay_commands is True
+            assert state.runtime_config.tools.expose_all_workspace_files is True
             assert messages.runtime_config.tools.allow_staging_overlay_commands is True
             assert model_tuning.runtime_config.tools.allow_staging_overlay_commands is True
 
@@ -68,6 +70,7 @@ def test_runtime_config_updates_imported_runtime_config_references() -> None:
             assert r2.status_code == 200
             assert r2.json()['ok'] is True
             assert state.runtime_config.tools.allow_staging_overlay_commands is False
+            assert state.runtime_config.tools.expose_all_workspace_files is False
             assert messages.runtime_config.tools.allow_staging_overlay_commands is False
     finally:
         state.runtime_config.active_connection_id = orig.active_connection_id

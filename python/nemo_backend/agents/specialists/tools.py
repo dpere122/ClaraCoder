@@ -55,7 +55,7 @@ def report_insufficient_workspace_recon(what_is_missing: str) -> str:
 
     Use **before** any staging mutation in this turn. Describe missing paths, symbols, caller/callee facts, or
     excerpts the author needs (plain text; be specific). The write pipeline may append **one** extra recon pass
-    and re-invoke the author; it is not a substitute for a full planner discovery pass.
+    and re-invoke the author; it is not a substitute for thorough outer reads/search before staging.
     """
     sid = current_session_id.get()
     if not sid:

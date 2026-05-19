@@ -42,8 +42,10 @@ def test_allow_staging_overlay_accepts_snake_case_string() -> None:
             'defaultWorkspaceEncoding': 'utf-8',
             'defaultWorkspaceNewline': 'lf',
             'allow_staging_overlay_commands': 'true',
+            'expose_all_workspace_files': 'true',
         },
     }
     r = RuntimeConfigRequest.model_validate(body)
     assert r.tools is not None
     assert r.tools.allowStagingOverlayCommands is True
+    assert r.tools.exposeAllWorkspaceFiles is True

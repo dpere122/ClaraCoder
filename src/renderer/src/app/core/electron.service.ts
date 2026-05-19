@@ -33,7 +33,6 @@ import type {
   ModelManagerMigrateProgressPayload,
   ModelManagerMutationResult,
   MaybeAutoTitleResult,
-  PlannerProgress,
   PythonInterpreterListItem,
   TtsStreamPacket,
   Workspace,
@@ -67,6 +66,7 @@ export interface ToolExecCompleteMessage {
   label?: string;
   exitCode?: number | null;
   outputExcerpt?: string;
+  outcome?: 'passed' | 'failed';
 }
 
 export interface DoneMessage {
@@ -81,11 +81,6 @@ export interface LlmStatusMessage {
 export interface HarnessCrystalMessage {
   conversationId: string;
   polarity: 'positive' | 'negative';
-}
-
-export interface PlannerMessage {
-  conversationId: string;
-  planner: PlannerProgress;
 }
 
 /** OpenAI-compatible usage from the backend (LangChain ``usage_metadata`` / SDK ``usage``). */
@@ -217,7 +212,6 @@ export class ElectronService {
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
-  private readonly plannerSubject = new Subject<PlannerMessage>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
@@ -250,7 +244,6 @@ export class ElectronService {
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
-  readonly planner$ = this.plannerSubject.asObservable();
   /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
@@ -330,7 +323,7 @@ export class ElectronService {
       });
     });
     this.api?.onMessageToolExecComplete?.(
-      (_event, conversationId, streamTag, label, exitCode, outputExcerpt) => {
+      (_event, conversationId, streamTag, label, exitCode, outputExcerpt, outcome) => {
         this.enqueueStreamBatchItem({
           kind: 'toolExecComplete',
           msg: {
@@ -339,6 +332,7 @@ export class ElectronService {
             label,
             exitCode,
             outputExcerpt,
+            outcome,
           },
         });
       },
@@ -371,9 +365,6 @@ export class ElectronService {
           polarity: polarity === 'negative' ? 'negative' : 'positive',
         }),
       );
-    });
-    this.api?.onMessagePlanner?.((_event, conversationId, planner) => {
-      this.zone.run(() => this.plannerSubject.next({ conversationId, planner }));
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
@@ -814,6 +805,7 @@ export class ElectronService {
         defaultWorkspaceEncoding: 'utf-8',
         defaultWorkspaceNewline: 'lf',
         allowStagingOverlayCommands: false,
+        exposeAllWorkspaceFiles: false,
       },
       healthMonitor: {
         logLevel: 'info',

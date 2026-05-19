@@ -251,9 +251,19 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('allowStagingOverlayCommands', 'allow_staging_overlay_commands'),
     )
 
+    exposeAllWorkspaceFiles: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('exposeAllWorkspaceFiles', 'expose_all_workspace_files'),
+    )
+
     @field_validator('allowStagingOverlayCommands', mode='before')
     @classmethod
     def _normalize_allow_overlay(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+    @field_validator('exposeAllWorkspaceFiles', mode='before')
+    @classmethod
+    def _normalize_expose_all(cls, v: Any) -> Any:
         return _coerce_boolish(v)
 
 

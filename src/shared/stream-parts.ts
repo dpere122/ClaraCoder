@@ -84,7 +84,7 @@ export function otherDelegatedStreamPartsForDisplay(
 }
 
 /**
- * Nested pipeline: coding planner (`planner`), planning router (`planning`), and `spec-*` subgraphs.
+ * Delegated subprocess / specialist streams (`planning`, `spec-*`, legacy `planner` tag).
  */
 export function streamIndicatesNestedSpecialistRouting(parts: StreamPart[]): boolean {
   return parts.some((p) => {

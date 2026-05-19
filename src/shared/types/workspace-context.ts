@@ -6,6 +6,8 @@ export interface WorkspaceContextState {
   entriesWritten: number;
   truncated: boolean;
   ignoreRules: string[];
+  /** When true, built-in and `.gitignore` filters are not applied while building the tree. */
+  exposeAllWorkspaceFiles: boolean;
 }
 
 export type WorkspaceChangeKind = 'created' | 'updated' | 'deleted' | 'renamed' | 'unknown';

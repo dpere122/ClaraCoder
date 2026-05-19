@@ -74,7 +74,7 @@ def _staging_edit_preamble(
     target = normalize_relative_path(root, relative_path)
     rel_display = target.relative_to(root).as_posix()
 
-    source_root = _edit_staging.get_active_planner_snapshot_root(session) or root
+    source_root = _edit_staging.get_active_staging_snapshot_root(session) or root
     source = normalize_relative_path(source_root, rel_display)
     if not source.exists() and target.exists():
         source = target
@@ -125,7 +125,7 @@ def _staging_after_merge(
     temp_path = _edit_staging.allocate_staging_file(
         session_id,
         rel_display,
-        graph_id=session.active_planner_graph_id,
+        graph_id=session.active_staging_snapshot_id,
     )
     try:
         if staging_seed_text is not None:
@@ -222,7 +222,7 @@ def _staging_after_merge(
         f'`transfer_staged_file_to_workspace` succeeds. Inspect the draft with `diff_staged_edit_against_baseline` '
         f'and/or `read_staged_edit` (not `read_workspace_file` for new staged content). **Next:** review then call '
         f'`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit` yourself; '
-        f'in nested mutation flows, the router should call `route_code_review_specialist` with the path and task context.'
+        f'Use code-review specialist tools (`code_review_specialist_*`) when you need a formal review pass before transfer.'
         f'{diagnostics_note}'
     )
 

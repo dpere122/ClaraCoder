@@ -31,17 +31,27 @@ _embedding_probe_ok_mono: dict[str, float] = {}
 _EMBEDDING_PROBE_CACHE_MAX = 64
 
 
+def _has_dedicated_embeddings_endpoint(connection: RuntimeConnection) -> bool:
+    """True when embeddings HTTP calls should not reuse the chat server's model id."""
+    if NEMO_EMBEDDINGS_BASE_URL:
+        return True
+    return bool((getattr(connection, 'embeddings_base_url', None) or '').strip())
+
+
 def resolve_embedding_model_id(connection: RuntimeConnection) -> str:
     """Effective OpenAI-compatible embeddings model id (matches :func:`build_embedding_model`)."""
     explicit = (getattr(connection, 'embeddings_model', None) or '').strip()
     if explicit:
         return explicit
-    # llama-server exposes GGUF / preset ids on ``/v1/models``; OpenAI's default id breaks probes.
+    # Dedicated embedding server (env or per-connection URL): use embeddings default, not chat GGUF id.
+    if _has_dedicated_embeddings_endpoint(connection):
+        return NEMO_EMBEDDINGS_MODEL
+    # Same-process llama-server: chat and embed often share one loaded model name.
     if connection.provider == 'llamacpp':
         chat_model = (connection.model or '').strip()
         if chat_model:
             return chat_model
-    return (NEMO_EMBEDDINGS_MODEL or 'text-embedding-3-small')
+    return NEMO_EMBEDDINGS_MODEL
 
 
 def _prune_embedding_probe_cache(now: float) -> None:
@@ -122,7 +132,7 @@ class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
         norm = text.replace('\n', ' ')
         chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
         if len(chunks) == 1:
-            return super()._get_text_embedding(text)
+            return super()._get_text_embedding(chunks[0])
         vecs = [super()._get_text_embedding(c) for c in chunks]
         return _mean_l2_normalize(vecs)
 
@@ -130,7 +140,7 @@ class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
         norm = text.replace('\n', ' ')
         chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
         if len(chunks) == 1:
-            return await super()._aget_text_embedding(text)
+            return await super()._aget_text_embedding(chunks[0])
         vecs = [await super()._aget_text_embedding(c) for c in chunks]
         return _mean_l2_normalize(vecs)
 

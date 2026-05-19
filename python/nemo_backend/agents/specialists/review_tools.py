@@ -20,6 +20,12 @@ from nemo_backend.agents.specialists.project_review_tools import (
     _terminate_process,
 )
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
+from nemo_backend.subprocess_smoke import (
+    SmokeOutputTracker,
+    SmokeStopReason,
+    argv_implies_watch_mode,
+    wait_for_smoke_completion,
+)
 from nemo_backend.diff_payload import build_file_diff_payload
 from nemo_backend.domain import PendingStagedTransferHitl, SessionState, WorkspaceTestMaterializationEntry
 from nemo_backend.lsp.diagnostics import format_diagnostics_summary, indentation_followup_guidance
@@ -34,7 +40,13 @@ from nemo_backend.staging_test_overlay import (
     remove_overlay_parent,
     resolve_overlay_cwd,
 )
-from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
+from nemo_backend.state import (
+    current_session_id,
+    direct_workspace_edits_active,
+    get_session,
+    mutation_tools_blocked_reason,
+    runtime_config,
+)
 from nemo_backend.workspace_text_io import DiskNewline, decode_for_tools, write_file_resolved
 from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text, truncate_text_head_tail
 
@@ -46,6 +58,8 @@ READ_STAGED_EDIT_NAME = 'read_staged_edit'
 SEARCH_STAGED_EDITS_NAME = 'search_staged_edits'
 FORMAT_STAGING_FILE_BLACK_NAME = 'format_staging_file_black'
 FORMAT_STAGING_FILE_PRETTIER_NAME = 'format_staging_file_prettier'
+FORMAT_WORKSPACE_FILE_BLACK_NAME = 'format_workspace_file_black'
+FORMAT_WORKSPACE_FILE_PRETTIER_NAME = 'format_workspace_file_prettier'
 TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME = 'transfer_staged_file_to_workspace'
 DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME = 'diff_staged_edit_against_baseline'
 RUN_STAGING_OVERLAY_COMMAND_NAME = 'run_staging_overlay_command'
@@ -639,6 +653,93 @@ def format_staging_file_prettier(relative_path: str) -> str:
     )
 
 
+def _workspace_file_for_format(relative_path: str) -> tuple[str, Path, str, DiskNewline] | str:
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    blocked = mutation_tools_blocked_reason(sid)
+    if blocked:
+        return blocked
+    try:
+        root = get_active_workspace_root()
+    except ValueError as exc:
+        return f'Tool error: {exc}'
+    target = normalize_relative_path(root, relative_path)
+    rel_key = target.relative_to(root).as_posix()
+    if not target.is_file():
+        return f'Tool error: no workspace file at `{rel_key}`.'
+    try:
+        raw = target.read_bytes()
+    except OSError as exc:
+        return f'Tool error: could not read workspace file ({exc}).'
+    disk_enc = (runtime_config.tools.default_workspace_encoding or 'utf-8').strip() or 'utf-8'
+    nl: DiskNewline = 'crlf' if b'\r\n' in raw else 'lf'
+    return rel_key, target, disk_enc, nl
+
+
+@tool(FORMAT_WORKSPACE_FILE_BLACK_NAME)
+def format_workspace_file_black(relative_path: str) -> str:
+    """Run Black on a workspace `.py` file in place (direct Editor + Auto-apply mode).
+
+    When: on-disk Python needs style fixes after a direct write.
+    Not: staged drafts (use `format_staging_file_black` when staging is active).
+    Shape: workspace-relative POSIX path; then `lsp_get_diagnostics` with `refresh_active_document=true`."""
+
+    got = _workspace_file_for_format(relative_path)
+    if isinstance(got, str):
+        return got
+    rel_key, target, disk_enc, nl = got
+    if not rel_key.lower().endswith('.py'):
+        return 'Tool error: Black applies only to `.py` workspace files.'
+    ok, detail = edit_staging.run_black_on_file(target, encoding=disk_enc, disk_newline=nl)
+    if not ok:
+        logger.warning('format_workspace_file_black failed path=%s detail=%s', rel_key, detail)
+        return f'Black did not change the file (or failed): {detail}'
+    logger.info('format_workspace_file_black ok path=%s', rel_key)
+    return (
+        f'Black formatted workspace `{rel_key}`. Call `lsp_get_diagnostics` with '
+        '`refresh_active_document=true` to verify.'
+    )
+
+
+@tool(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
+def format_workspace_file_prettier(relative_path: str) -> str:
+    """Run Prettier on a workspace file in place (direct Editor + Auto-apply mode).
+
+    When: on-disk `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` needs style fixes.
+    Not: staged drafts (use `format_staging_file_prettier` when staging is active).
+    Shape: workspace-relative POSIX path; then `lsp_get_diagnostics` with `refresh_active_document=true` for TS/JS."""
+
+    got = _workspace_file_for_format(relative_path)
+    if isinstance(got, str):
+        return got
+    rel_key, target, disk_enc, nl = got
+    if not is_prettier_managed_path(rel_key):
+        return (
+            'Tool error: Prettier applies only to workspace `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.html`, '
+            '`.htm`, `.css` files.'
+        )
+    try:
+        workspace_root = get_active_workspace_root()
+    except ValueError as exc:
+        return f'Tool error: {exc}'
+    ok, detail = edit_staging.run_prettier_on_file(
+        target,
+        workspace_root=workspace_root,
+        relative_posix=rel_key,
+        encoding=disk_enc,
+        disk_newline=nl,
+    )
+    if not ok:
+        logger.warning('format_workspace_file_prettier failed path=%s detail=%s', rel_key, detail)
+        return f'Prettier did not change the file (or failed): {detail}'
+    logger.info('format_workspace_file_prettier ok path=%s', rel_key)
+    return (
+        f'Prettier formatted workspace `{rel_key}`. For `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, call '
+        '`lsp_get_diagnostics` with `refresh_active_document=true` to verify.'
+    )
+
+
 def _overlay_combined_output(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
     stdout = ''.join(stdout_chunks)
     stderr = ''.join(stderr_chunks)
@@ -675,14 +776,24 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
     except ValueError as exc:
         return f'Tool error: {exc}'
 
-    overlay_root, overlay_parent, build_err = build_staging_test_overlay(session, workspace_root, sid)
-    if overlay_root is None or overlay_parent is None:
-        return build_err or 'Tool error: could not build staging overlay.'
-
-    cwd, cwd_err = resolve_overlay_cwd(overlay_root, cwd_relative)
-    if cwd is None:
-        remove_overlay_parent(overlay_parent)
-        return cwd_err
+    direct = direct_workspace_edits_active(session, apply_mode=True)
+    overlay_parent: Path | None = None
+    if direct:
+        command_root = workspace_root.resolve()
+        cwd, cwd_err = resolve_overlay_cwd(command_root, cwd_relative)
+        if cwd is None:
+            return cwd_err
+        cwd_label = 'workspace'
+    else:
+        overlay_root, overlay_parent, build_err = build_staging_test_overlay(session, workspace_root, sid)
+        if overlay_root is None or overlay_parent is None:
+            return build_err or 'Tool error: could not build staging overlay.'
+        command_root = overlay_root
+        cwd, cwd_err = resolve_overlay_cwd(command_root, cwd_relative)
+        if cwd is None:
+            remove_overlay_parent(overlay_parent)
+            return cwd_err
+        cwd_label = 'overlay'
 
     await ensure_session_python_workspace_env(
         session,
@@ -702,6 +813,12 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
     exit_code: int | None = None
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
+    watch_mode = argv_implies_watch_mode(argv)
+    tracker = SmokeOutputTracker()
+
+    def _track_output(text: str) -> None:
+        tracker.feed(text)
+
     try:
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -729,6 +846,7 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
                 capture_chunks=stdout_chunks,
                 stream_tag=_OVERLAY_STREAM_TAG,
                 label=_OVERLAY_STREAM_LABEL,
+                on_text=_track_output,
             )
         )
         stderr_task = asyncio.create_task(
@@ -739,58 +857,112 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
                 capture_chunks=stderr_chunks,
                 stream_tag=_OVERLAY_STREAM_TAG,
                 label=_OVERLAY_STREAM_LABEL,
+                on_text=_track_output,
             )
         )
         wait_task = asyncio.create_task(proc.wait())
         abort_task = asyncio.create_task(session.abort_event.wait())
-        try:
-            timeout_sec = (
-                float(NEMO_SUBPROCESS_TIMEOUT_SEC)
-                if NEMO_SUBPROCESS_TIMEOUT_SEC and NEMO_SUBPROCESS_TIMEOUT_SEC > 0
-                else None
+
+        async def _emit_overlay_status(message: str) -> None:
+            await _emit_project_review_chunk(
+                sid,
+                message,
+                stream_tag=_OVERLAY_STREAM_TAG,
+                label=_OVERLAY_STREAM_LABEL,
             )
-            if timeout_sec is not None:
-                done, _pending = await asyncio.wait(
-                    {wait_task, abort_task},
-                    timeout=timeout_sec,
-                    return_when=asyncio.FIRST_COMPLETED,
+
+        smoke_outcome: str | None = None
+        smoke_passed = False
+        smoke_steady = False
+        smoke_readiness = False
+        try:
+            if watch_mode:
+                smoke_result = await wait_for_smoke_completion(
+                    proc,
+                    wait_task=wait_task,
+                    abort_task=abort_task,
+                    tracker=tracker,
+                    terminate_fn=_terminate_process,
+                    emit_status=_emit_overlay_status,
+                    watch_mode=True,
                 )
-                if not done:
-                    await _emit_project_review_chunk(
+                exit_code = smoke_result.exit_code
+                smoke_passed = smoke_result.passed
+                smoke_steady = smoke_result.steady_state
+                smoke_readiness = smoke_result.readiness_detected
+                smoke_outcome = 'passed' if smoke_result.passed else 'failed'
+                if smoke_result.stop_reason is SmokeStopReason.ABORTED:
+                    replay = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
+                    excerpt = replay[-12_000:] if len(replay) > 12_000 else replay
+                    await _emit_project_review_tool_complete(
                         sid,
-                        '\n[staging overlay command timed out]\n',
                         stream_tag=_OVERLAY_STREAM_TAG,
                         label=_OVERLAY_STREAM_LABEL,
+                        exit_code=exit_code,
+                        output_excerpt=excerpt.strip(),
+                        outcome='failed',
                     )
-                    await _terminate_process(proc)
-                    await wait_task
-                    exit_code = proc.returncode
-                elif wait_task in done:
-                    exit_code = await wait_task
-                elif abort_task in done and session.abort_event.is_set():
-                    await _emit_project_review_chunk(
-                        sid,
-                        '\n[staging overlay command aborted by user]\n',
-                        stream_tag=_OVERLAY_STREAM_TAG,
-                        label=_OVERLAY_STREAM_LABEL,
-                    )
-                    await _terminate_process(proc)
-                    await wait_task
-                    exit_code = proc.returncode
+                    return 'Aborted by user.'
             else:
-                done, _pending = await asyncio.wait({wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
-                if wait_task in done:
-                    exit_code = await wait_task
-                elif abort_task in done and session.abort_event.is_set():
-                    await _emit_project_review_chunk(
+                timeout_sec = (
+                    float(NEMO_SUBPROCESS_TIMEOUT_SEC)
+                    if NEMO_SUBPROCESS_TIMEOUT_SEC and NEMO_SUBPROCESS_TIMEOUT_SEC > 0
+                    else None
+                )
+                if timeout_sec is not None:
+                    done, _pending = await asyncio.wait(
+                        {wait_task, abort_task},
+                        timeout=timeout_sec,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if not done:
+                        await _emit_project_review_chunk(
+                            sid,
+                            '\n[staging overlay command timed out]\n',
+                            stream_tag=_OVERLAY_STREAM_TAG,
+                            label=_OVERLAY_STREAM_LABEL,
+                        )
+                        await _terminate_process(proc)
+                        await wait_task
+                        exit_code = proc.returncode
+                    elif wait_task in done:
+                        exit_code = await wait_task
+                    elif abort_task in done and session.abort_event.is_set():
+                        await _emit_project_review_chunk(
+                            sid,
+                            '\n[staging overlay command aborted by user]\n',
+                            stream_tag=_OVERLAY_STREAM_TAG,
+                            label=_OVERLAY_STREAM_LABEL,
+                        )
+                        await _terminate_process(proc)
+                        await wait_task
+                        exit_code = proc.returncode
+                else:
+                    done, _pending = await asyncio.wait({wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+                    if wait_task in done:
+                        exit_code = await wait_task
+                    elif abort_task in done and session.abort_event.is_set():
+                        await _emit_project_review_chunk(
+                            sid,
+                            '\n[staging overlay command aborted by user]\n',
+                            stream_tag=_OVERLAY_STREAM_TAG,
+                            label=_OVERLAY_STREAM_LABEL,
+                        )
+                        await _terminate_process(proc)
+                        await wait_task
+                        exit_code = proc.returncode
+                if abort_task.done() and session.abort_event.is_set() and not watch_mode:
+                    replay = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
+                    excerpt = replay[-12_000:] if len(replay) > 12_000 else replay
+                    await _emit_project_review_tool_complete(
                         sid,
-                        '\n[staging overlay command aborted by user]\n',
                         stream_tag=_OVERLAY_STREAM_TAG,
                         label=_OVERLAY_STREAM_LABEL,
+                        exit_code=exit_code,
+                        output_excerpt=excerpt.strip(),
+                        outcome='failed',
                     )
-                    await _terminate_process(proc)
-                    await wait_task
-                    exit_code = proc.returncode
+                    return 'Aborted by user.'
         finally:
             if not abort_task.done():
                 abort_task.cancel()
@@ -802,27 +974,40 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
 
         combined = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
         excerpt = combined[-12_000:] if len(combined) > 12_000 else combined
+        if watch_mode:
+            passed = smoke_passed
+            if smoke_steady and smoke_readiness:
+                status = 'passed (dev server readiness detected)'
+            elif smoke_steady:
+                status = 'passed (startup reached steady state)'
+            else:
+                status = 'passed' if passed else 'failed'
+        else:
+            passed = exit_code == 0
+            status = 'passed' if passed else 'failed'
         await _emit_project_review_tool_complete(
             sid,
             stream_tag=_OVERLAY_STREAM_TAG,
             label=_OVERLAY_STREAM_LABEL,
             exit_code=exit_code,
             output_excerpt=excerpt.strip(),
+            outcome=smoke_outcome if watch_mode else ('passed' if passed else 'failed'),
         )
-        status = 'passed' if exit_code == 0 else 'failed'
         body = (
-            'Staging overlay command summary:\n'
+            'Command summary:\n'
             f'- Command: `{rendered}`\n'
-            f'- Working directory (overlay): `{cwd}`\n'
+            f'- Working directory ({cwd_label}): `{cwd}`\n'
+            f'- Watch mode: {"yes" if watch_mode else "no"}\n'
             f'- Result: {status}\n'
             f'- Exit code: {exit_code if exit_code is not None else "unknown"}\n'
         )
         if combined:
             body += f'\nCaptured output:\n{combined}'
-        logger.info('run_staging_overlay_command exit_code=%s cwd=%s', exit_code, cwd)
+        logger.info('run_staging_overlay_command exit_code=%s cwd=%s direct=%s watch=%s', exit_code, cwd, direct, watch_mode)
         return truncate_text_head_tail(body, _MAX_OVERLAY_OUTPUT_CHARS)
     finally:
-        remove_overlay_parent(overlay_parent)
+        if overlay_parent is not None:
+            remove_overlay_parent(overlay_parent)
 
 
 def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[dict | None, str | None]:
@@ -965,18 +1150,26 @@ def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
     )
 
 
-def code_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
-    tools: list[object] = [
-        list_staged_edits,
-        diff_staged_edit_against_baseline,
-        read_staged_edit,
-        search_staged_edits,
-        lsp_get_diagnostics,
-        format_staging_file_black,
-        format_staging_file_prettier,
-        run_staging_overlay_command,
-        transfer_staged_file_to_workspace,
-        reject_staged_workspace_edit,
-    ]
+def code_review_specialist_tools(*, direct: bool = False) -> tuple[list[object], dict[str, object]]:
+    if direct:
+        tools: list[object] = [
+            lsp_get_diagnostics,
+            format_workspace_file_black,
+            format_workspace_file_prettier,
+            run_staging_overlay_command,
+        ]
+    else:
+        tools = [
+            list_staged_edits,
+            diff_staged_edit_against_baseline,
+            read_staged_edit,
+            search_staged_edits,
+            lsp_get_diagnostics,
+            format_staging_file_black,
+            format_staging_file_prettier,
+            run_staging_overlay_command,
+            transfer_staged_file_to_workspace,
+            reject_staged_workspace_edit,
+        ]
     m = {t.name: t for t in tools}
     return tools, m

@@ -2,7 +2,7 @@ import type { AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
-import type { LlmStatusPayload, PlannerProgress, PlannerStep } from './types/llm';
+import type { LlmStatusPayload } from './types/llm';
 
 export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
@@ -15,6 +15,8 @@ export type ParsedAgentStreamPayload =
       exitCode?: number | null;
       /** Full or tail replay when live chunks were empty or incomplete (pytest/smoke). */
       outputExcerpt?: string;
+      /** When set, drives the terminal badge instead of raw exit code (watch-mode smoke tests). */
+      outcome?: 'passed' | 'failed';
     }
   | {
       type: 'token_usage';
@@ -24,7 +26,6 @@ export type ParsedAgentStreamPayload =
       totalTokens?: number;
     }
   | { type: 'status'; status: LlmStatusPayload }
-  | { type: 'planner'; planner: PlannerProgress }
   | { type: 'diff'; diff: FileDiffPayload }
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
@@ -38,12 +39,12 @@ type RawAgentStreamPayload = {
   label?: string;
   exit_code?: unknown;
   output_excerpt?: unknown;
+  outcome?: unknown;
   polarity?: string;
   input_tokens?: unknown;
   output_tokens?: unknown;
   total_tokens?: unknown;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
-  planner?: PlannerProgress;
   diff?: unknown;
   acceptCommand?: unknown;
   copyConfirm?: unknown;
@@ -52,78 +53,6 @@ type RawAgentStreamPayload = {
 
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-const _PLANNER_PHASES: ReadonlySet<PlannerProgress['phase']> = new Set([
-  'discovery',
-  'planning',
-  'executing',
-  'complete',
-  'error',
-]);
-
-const _STEP_STATES: ReadonlySet<PlannerStep['state']> = new Set([
-  'pending',
-  'running',
-  'complete',
-  'error',
-]);
-
-/** Coerce backend planner dicts so the renderer never sees missing `steps` or invalid shapes. */
-export function normalizePlannerProgress(raw: unknown): PlannerProgress {
-  const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const stRaw = p['streamTag'];
-  const streamTag =
-    typeof stRaw === 'string' && stRaw.trim() ? stRaw.trim() : 'planner';
-  const phaseRaw = p['phase'];
-  const phase = _PLANNER_PHASES.has(phaseRaw as PlannerProgress['phase'])
-    ? (phaseRaw as PlannerProgress['phase'])
-    : 'discovery';
-  const rawSteps = p['steps'];
-  const steps: PlannerStep[] = [];
-  if (Array.isArray(rawSteps)) {
-    for (const item of rawSteps) {
-      if (!item || typeof item !== 'object') continue;
-      const s = item as Record<string, unknown>;
-      const idRaw = s['id'];
-      const id = typeof idRaw === 'string' && idRaw.trim() ? idRaw.trim() : `step-${steps.length + 1}`;
-      const textRaw = s['text'];
-      const text = typeof textRaw === 'string' ? textRaw : '';
-      const stateRaw = s['state'];
-      const st = _STEP_STATES.has(stateRaw as PlannerStep['state'])
-        ? (stateRaw as PlannerStep['state'])
-        : 'pending';
-      steps.push({ id, text, state: st });
-    }
-  }
-  const planReadyRaw = p['planReady'];
-  const out: PlannerProgress = {
-    streamTag,
-    phase,
-    steps,
-    planReady: typeof planReadyRaw === 'boolean' ? planReadyRaw : false,
-  };
-  const activeStepId = p['activeStepId'];
-  if (typeof activeStepId === 'string' && activeStepId.trim()) {
-    out.activeStepId = activeStepId.trim();
-  }
-  const finalReviewState = p['finalReviewState'];
-  if (_STEP_STATES.has(finalReviewState as PlannerStep['state'])) {
-    out.finalReviewState = finalReviewState as PlannerStep['state'];
-  }
-  const finalReviewAttempts = p['finalReviewAttempts'];
-  if (typeof finalReviewAttempts === 'number' && Number.isFinite(finalReviewAttempts)) {
-    out.finalReviewAttempts = finalReviewAttempts;
-  }
-  const finalReviewMaxAttempts = p['finalReviewMaxAttempts'];
-  if (typeof finalReviewMaxAttempts === 'number' && Number.isFinite(finalReviewMaxAttempts)) {
-    out.finalReviewMaxAttempts = finalReviewMaxAttempts;
-  }
-  const finalReviewSummary = p['finalReviewSummary'];
-  if (typeof finalReviewSummary === 'string' && finalReviewSummary.trim()) {
-    out.finalReviewSummary = finalReviewSummary.trim();
-  }
-  return out;
 }
 
 export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPayload {
@@ -146,10 +75,6 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
           ...(agentRole ? { agentRole } : {}),
         },
       };
-    }
-
-    if (parsed.type === 'planner' && parsed.planner && typeof parsed.planner === 'object') {
-      return { type: 'planner', planner: normalizePlannerProgress(parsed.planner) };
     }
 
     if (parsed.type === 'diff' && parsed.diff && typeof parsed.diff === 'object') {
@@ -201,12 +126,16 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       const excerptRaw = parsed.output_excerpt;
       const outputExcerpt =
         typeof excerptRaw === 'string' && excerptRaw.trim() ? excerptRaw.trim() : undefined;
+      const outcomeRaw = parsed.outcome;
+      const outcome =
+        outcomeRaw === 'passed' || outcomeRaw === 'failed' ? outcomeRaw : undefined;
       return {
         type: 'tool_exec_complete',
         streamTag: optionalTrimmedString(parsed.stream_tag),
         label: optionalTrimmedString(parsed.label),
         ...(exitCode !== undefined ? { exitCode } : {}),
         ...(outputExcerpt ? { outputExcerpt } : {}),
+        ...(outcome ? { outcome } : {}),
       };
     }
 

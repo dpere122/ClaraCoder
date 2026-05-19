@@ -8,8 +8,8 @@ FastAPI service used by the Nemo / Clara Electron app. It runs a LangChain agent
 - **Workspace tools** — Snapshot, list directory, read file (line range), and regex search under the session's workspace root (path traversal blocked).
 - **LSP tools** — Session-scoped language servers: **Python** (Jedi), **TypeScript/JavaScript** (`typescript-language-server` / `tsserver`), and **GDScript** for diagnostics, hover, go-to-definition, references, and document symbols on `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and `.gd`. The TS server **auto-detects** the Node project root (walks up from the file you open, then searches under the workspace for the deepest `package.json` with TypeScript tooling). Override with `NEMO_TYPESCRIPT_LSP_PROJECT_ROOT` (relative to the session workspace or absolute). **GDScript:** by default Nemo spawns a stdio bridge to Godot's TCP LSP (run the Godot editor with the project open; default `127.0.0.1:6005`, see Editor Settings → Network → Language Server). Tune with `NEMO_GODOT_LSP_HOST` / `NEMO_GODOT_LSP_PORT`, or replace the whole command with `NEMO_GDSCRIPT_LSP_COMMAND` (stdio argv). Other overrides: `NEMO_PYTHON_LSP_COMMAND`, `NEMO_TYPESCRIPT_LSP_COMMAND`.
 - **LSP roadmap (optional follow-ups)** — Angular Language Service for `.html` templates, vscode HTML/CSS language servers, and workspace commands such as `ng build` / `tsc --noEmit` (via a PTY or dedicated tool) are the next increment when you need template-aware or build-authoritative diagnostics beyond TS/JS files.
-- **Edit tools** — Full-file, line-range, and snippet-based workspace edits with diff preview and auto-apply mode.
-- **Nested mutations** — `execute_workspace_mutation` runs the router + specialist pipeline directly for a single scoped code change. `plan_and_modify` may run the coding planner first (discovery, checklist, final project review), then the same nested pipeline.
+- **Editor mode (staging)** — When Editor is on, Clara uses `stage_*` tools, LSP Python staging mutators, code-review specialist tools, dependency installs, and workspace pytest/smoke helpers. Drafts live in a session staging area until `transfer_staged_file_to_workspace` (with diff review unless auto-apply is on).
+- **Workspace mirror** — Optional per-session snapshot under `.nemo/staging` (`staging_snapshot_session`) seeds an ignored-aware copy of the workspace for LSP overlays and read/search against staged peers; cleaned up after each outer agent turn.
 - **Sessions** — `POST /clear`, `POST /load`, and `POST /workspace-context` sync chat history and workspace metadata from the renderer.
 - **Runtime config (`POST /runtime-config`)** — LLM connections, active connection, transcription provider, and optional host OS hints for the system prompt.
 - **Transcription (`POST /transcribe`)** — WAV upload; **OpenAI** speech API, **Google Web Speech** (no key, network required), or **disabled**.
@@ -78,7 +78,7 @@ cd python
 .\.venv\Scripts\python -m pytest tests -v
 ```
 
-Inside the nested planning flow, staged code review no longer runs pytest. Final Python validation happens in the project reviewer after approved edits are materialized in the workspace.
+Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run_workspace_python_smoke_test` on the outer agent when you need verification. Those tools can stream subprocess output into the chat SSE timeline.
 
 ## Layout
 
@@ -117,18 +117,17 @@ Inside the nested planning flow, staged code review no longer runs pytest. Final
 | `nemo_backend/delete_tool.py`                          | `delete_workspace_entry` + pending delete / confirm flow.                   |
 | `nemo_backend/partial_workspace_edit.py`               | Merge strategies (line range, snippet, fuzzy match).                        |
 | `nemo_backend/diff_payload.py`                         | Side-by-side diff rows via diff-match-patch.                                |
-| `nemo_backend/edit_staging.py`                         | Temp staging dir, code-review extensions, staging lifecycle.                |
+| `nemo_backend/edit_staging.py`                         | Temp staging dir, workspace mirror, code-review extensions.                 |
+| `nemo_backend/staging_snapshot_session.py`               | Seed/cleanup workspace mirror + staging namespace per session.                |
 | `nemo_backend/lsp/`                                    | Python LSP client, manager, diagnostics, and tool surface.                  |
 | `nemo_backend/workspace_text_io.py`                    | Encoding/newline normalization and disk I/O for tools.                      |
 | `nemo_backend/workspace_ignore.py`                     | `.gitignore` + built-in ignores for search/list.                            |
 | `nemo_backend/tool_registry.py`                        | Central tool registry and HITL policy.                                      |
-| **Nested Mutations**                                   |                                                                             |
-| `nemo_backend/agents/planning/tool.py`                 | `plan_and_modify` and `execute_workspace_mutation` stub tools.              |
-| `nemo_backend/agents/planning/nested_middleware.py`    | LangGraph middleware: intercept mutation tool, run nested stream.           |
-| `nemo_backend/agents/orchestration/nested_pipeline.py` | Nested router graph + specialist subgraphs.                                 |
-| `nemo_backend/agents/specialists/tools.py`             | Per-specialist tool lists.                                                  |
-| `nemo_backend/agents/specialists/prompts.py`           | Router + specialist system prompts.                                         |
-| `nemo_backend/agents/specialists/review_tools.py`      | Staging read/approve/reject/format-with-Black tools.                        |
+| **Specialists (outer agent tools)**                    |                                                                             |
+| `nemo_backend/agents/specialists/tools.py`             | Dependency and staging-author tool lists (legacy nested-router helpers).    |
+| `nemo_backend/agents/specialists/review_tools.py`      | Staging read/approve/reject/format/overlay command tools.                     |
+| `nemo_backend/agents/specialists/project_review_tools.py` | Workspace pytest/smoke + approve/reject project review tools.            |
+| `nemo_backend/agents/orchestration/router_probe_tools.py` | `workspace_path_status` probe for path existence.                        |
 | **Middleware**                                         |                                                                             |
 | `nemo_backend/diff_review_middleware.py`               | Pause after diff-emitting tools until user continues.                       |
 | `nemo_backend/delete_review_middleware.py`             | Pause after delete HITL.                                                    |
@@ -156,7 +155,7 @@ Inside the nested planning flow, staged code review no longer runs pytest. Final
 | `LM_STUDIO_MODEL`           | Default LM Studio model id (default `local-model`).                                                                                                  |
 | `LM_STUDIO_API_KEY`         | Optional key for local server (default placeholder `lm-studio` if unset).                                                                            |
 | `NEMO_TRANSCRIBE_MODEL`     | OpenAI transcription model (default `gpt-4o-mini-transcribe`).                                                                                       |
-| `PLAN_RETRY_ATTEMPTS_COUNT` | Default retry budget for final project review failures before the planner stops creating new retry requests (default `2`).                           |
+| `PLAN_RETRY_ATTEMPTS_COUNT` | Reserved default for project-review retry budgeting (default `2`; outer agent uses review tools directly).                                      |
 
 
 ## Dependencies

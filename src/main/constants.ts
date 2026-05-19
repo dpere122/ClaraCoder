@@ -37,7 +37,10 @@ export const WORKSPACE_CONTEXT_IGNORED_NAMES = new Set([
   'venv',
 ]);
 
-export const WORKSPACE_CONTEXT_IGNORED_SUFFIXES = ['.log', '.pyc', '.pyo', '.tmp', '.swp'];
+/** Suffix skips for bulk discovery (log files are always visible — see `isLogRelatedFile`). */
+export const WORKSPACE_CONTEXT_IGNORED_SUFFIXES = ['.pyc', '.pyo', '.tmp', '.swp'];
+
+export const WORKSPACE_NODE_MODULES_DIR = 'node_modules';
 
 /** Default theme when none is set (matches renderer). */
 export const FIRST_THEME_ID = 'dark';

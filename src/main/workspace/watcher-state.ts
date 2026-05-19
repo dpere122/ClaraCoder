@@ -10,6 +10,8 @@ export interface WorkspaceWatcherState {
   stagingPath: string;
   /** Root `.gitignore` patterns (same subset as context tree); refreshed when root `.gitignore` changes. */
   ignoreRules: string[];
+  /** When true, built-in and `.gitignore` filters are skipped for tree sync and workspace watch batches. */
+  exposeAllWorkspaceFiles: boolean;
   watchers: FSWatcher[];
   debounceTimer: NodeJS.Timeout | null;
   pendingPaths: Set<string>;

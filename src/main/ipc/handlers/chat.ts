@@ -15,8 +15,6 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
   const parsed = parseStreamPayload(payload);
   if (parsed.type === 'status') {
     event.reply('message-status', conversationId, parsed.status);
-  } else if (parsed.type === 'planner') {
-    event.reply('message-planner', conversationId, parsed.planner);
   } else if (parsed.type === 'diff') {
     event.reply('message-diff', conversationId, parsed.diff);
   } else if (parsed.type === 'accept_command') {
@@ -37,6 +35,7 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
       parsed.label,
       parsed.exitCode,
       parsed.outputExcerpt,
+      parsed.outcome,
     );
   } else if (parsed.type === 'token_usage') {
     event.reply('message-token-usage', conversationId, {

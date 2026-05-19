@@ -238,9 +238,10 @@ def _run_edit_tool(
         return pre
     session, rel_display, old_text, disk_enc, disk_nl = pre
 
-    guarded = outer_workspace_edit_guard_error(rel_display)
-    if guarded:
-        return guarded
+    if not (session.worker_apply_mode and session.auto_apply_mode):
+        guarded = outer_workspace_edit_guard_error(rel_display)
+        if guarded:
+            return guarded
 
     merged, merge_err = merge_partial_edit(
         old_text,

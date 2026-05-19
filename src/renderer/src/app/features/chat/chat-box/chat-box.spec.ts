@@ -332,74 +332,12 @@ describe('filterLiveToolChainGroups', () => {
     },
   ];
 
-  it('hides nested planner groups until the plan is ready', () => {
-    const planner: PlannerProgress = { streamTag: 'planner', phase: 'discovery', planReady: false, steps: [] };
-    expect(filterLiveToolChainGroups(groups, planner)).toEqual([groups[0]]);
+  it('keeps tool chain groups that have visible rows', () => {
+    expect(filterLiveToolChainGroups(groups)).toEqual([groups[0], groups[2]]);
   });
 
-  it('shows nested planner groups after the task list is published', () => {
-    const planner: PlannerProgress = { streamTag: 'planner', phase: 'planning', planReady: true, steps: [] };
-    expect(filterLiveToolChainGroups(groups, planner)).toEqual([groups[0], groups[2]]);
-  });
-
-  it('shows nested planning/specialist tool rows even when plan is not ready (router-only nested path)', () => {
-    const planningGroup: ToolChainGroup = {
-      key: 'planning-router',
-      toolCallCount: 1,
-      rows: [
-        {
-          role: 'chain',
-          label: 'route_write_specialist',
-          text: '',
-          state: 'running',
-          source: 'tool',
-          statusId: 'nest-1',
-          streamTag: 'planning',
-        },
-      ],
-    };
-    const plannerNotReady: PlannerProgress = { streamTag: 'planner', phase: 'discovery', planReady: false, steps: [] };
-    expect(filterLiveToolChainGroups([groups[0], planningGroup], plannerNotReady)).toEqual([groups[0], planningGroup]);
-  });
-
-  it('shows Clara-only groups when planner progress is absent (e.g. router-only nested run)', () => {
-    const claraGroup: ToolChainGroup = {
-      key: 'clara',
-      toolCallCount: 0,
-      rows: [
-        {
-          role: 'chain',
-          label: 'Project review',
-          text: 'Approved.',
-          state: 'complete',
-          source: 'agent',
-          statusId: 'b1',
-          streamTag: 'clara',
-        },
-      ],
-    };
-    expect(filterLiveToolChainGroups([groups[0], claraGroup], null)).toEqual([groups[0], claraGroup]);
-  });
-
-  it('hides Clara-only handoff groups until the planner checklist is ready', () => {
-    const claraGroup: ToolChainGroup = {
-      key: 'clara',
-      toolCallCount: 0,
-      rows: [
-        {
-          role: 'chain',
-          label: 'Planner checklist',
-          text: '1. a',
-          state: 'complete',
-          source: 'agent',
-          statusId: 'b1',
-          streamTag: 'clara',
-        },
-      ],
-    };
-    const plannerNotReady: PlannerProgress = { streamTag: 'planner', phase: 'discovery', planReady: false, steps: [] };
-    expect(filterLiveToolChainGroups([groups[0], claraGroup], plannerNotReady)).toEqual([groups[0]]);
-    const plannerReady: PlannerProgress = { streamTag: 'planner', phase: 'planning', planReady: true, steps: [] };
-    expect(filterLiveToolChainGroups([groups[0], claraGroup], plannerReady)).toEqual([groups[0], claraGroup]);
+  it('drops empty tool chain groups', () => {
+    const emptyGroup: ToolChainGroup = { key: 'empty', toolCallCount: 0, rows: [] };
+    expect(filterLiveToolChainGroups([groups[0], emptyGroup])).toEqual([groups[0]]);
   });
 });

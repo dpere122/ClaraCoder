@@ -42,39 +42,6 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
-  it('parses planner progress payloads', () => {
-    const planner = {
-      streamTag: 'planner',
-      phase: 'executing' as const,
-      planReady: true,
-      steps: [{ id: 'step-1', text: 'Do work', state: 'running' as const }],
-    };
-
-    expect(parseAgentStreamPayload(JSON.stringify({ type: 'planner', planner }))).toEqual({
-      type: 'planner',
-      planner,
-    });
-  });
-
-  it('normalizes planner payloads with missing steps', () => {
-    expect(
-      parseAgentStreamPayload(
-        JSON.stringify({
-          type: 'planner',
-          planner: { streamTag: 'planner', phase: 'discovery' },
-        }),
-      ),
-    ).toEqual({
-      type: 'planner',
-      planner: {
-        streamTag: 'planner',
-        phase: 'discovery',
-        planReady: false,
-        steps: [],
-      },
-    });
-  });
-
   it('parses tool execution chunks with optional label and stream tag', () => {
     expect(
       parseAgentStreamPayload(
@@ -90,6 +57,24 @@ describe('parseAgentStreamPayload', () => {
       delta: '1 passed\n',
       streamTag: 'spec-code_review-tests',
       label: 'Pytest',
+    });
+  });
+
+  it('parses tool_exec_complete with outcome', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'tool_exec_complete',
+          stream_tag: 'spec-project_review-smoke',
+          exit_code: -15,
+          outcome: 'passed',
+        }),
+      ),
+    ).toEqual({
+      type: 'tool_exec_complete',
+      streamTag: 'spec-project_review-smoke',
+      exitCode: -15,
+      outcome: 'passed',
     });
   });
 

@@ -23,6 +23,7 @@ export interface BatchToolExecCompleteMessage {
   label?: string;
   exitCode?: number | null;
   outputExcerpt?: string;
+  outcome?: 'passed' | 'failed';
 }
 
 /** One IPC-derived stream item in arrival order (preserves interleaving across kinds). */

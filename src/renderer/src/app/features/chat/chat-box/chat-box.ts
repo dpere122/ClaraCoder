@@ -15,7 +15,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { ConversationMessage, PlannerProgress, StreamPart } from '@shared/index';
+import type { ConversationMessage, StreamPart } from '@shared/index';
 import {
   auxiliaryTimelineEmbedsToolStatus,
   isClaraOuterBriefStreamTag,
@@ -29,7 +29,6 @@ import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
 import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { MarkdownPipe } from './markdown.pipe';
-import { PlannerTasksComponent } from './planner-tasks/planner-tasks';
 import {
   AuxiliaryStreamPanelComponent,
   DEFAULT_AUXILIARY_STREAM_PANEL_TITLE,
@@ -160,39 +159,8 @@ function isClaraOnlyToolChainGroup(group: ToolChainGroup): boolean {
   );
 }
 
-/**
- * Coding-planner checklist UX: hide nested `planner` / Clara-brief noise until `planReady`.
- * Nested router + specialists (`planning`, `spec-*`) never get a planner checklist, so they must not wait on `planReady`
- * (otherwise the live tool chain vanishes while the model works).
- */
-function nestedGroupWaitsForPlanReady(group: ToolChainGroup, planner: PlannerProgress | null): boolean {
-  if (!isNestedPlannerChainGroup(group)) {
-    return false;
-  }
-  if (
-    group.rows.some((row) => {
-      const tag = row.streamTag?.trim() ?? '';
-      return tag === 'planning' || tag.startsWith('spec-');
-    })
-  ) {
-    return false;
-  }
-  if (planner == null) {
-    return false;
-  }
-  return !planner.planReady;
-}
-
-export function filterLiveToolChainGroups(
-  groups: ToolChainGroup[],
-  planner: PlannerProgress | null,
-): ToolChainGroup[] {
-  const planReady = planner?.planReady ?? false;
-  return groups.filter(
-    (group) =>
-      group.rows.length > 0 &&
-      (!nestedGroupWaitsForPlanReady(group, planner) || planReady),
-  );
+export function filterLiveToolChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
+  return groups.filter((group) => group.rows.length > 0);
 }
 
 /** Drop `source: tool` chain rows when those tools are already shown inside the auxiliary timeline. */
@@ -320,7 +288,6 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
     AcceptCommandComponent,
     CopyConfirmComponent,
     DeleteConfirmComponent,
-    PlannerTasksComponent,
     NgxSpinnerComponent,
     AuxiliaryStreamPanelComponent,
   ],
@@ -374,7 +341,6 @@ export class ChatBox implements OnDestroy {
   readonly processingToolsActive = input(false);
   readonly ttsLoading = input(false);
   readonly streamingParts = input<StreamPart[]>([]);
-  readonly livePlannerProgress = input<PlannerProgress | null>(null);
   readonly fontSize = input(0.9);
   readonly sendResponse = output<string>();
   readonly diffReviewFinished = output<{
@@ -502,7 +468,7 @@ export class ChatBox implements OnDestroy {
   readonly liveVisibleChainGroups = computed(() => {
     const liveTurn = this.liveTurn();
     if (!liveTurn) return [];
-    return filterLiveToolChainGroups(liveTurn.chainGroups, this.livePlannerProgress());
+    return filterLiveToolChainGroups(liveTurn.chainGroups);
   });
 
   /** Hides duplicate tool-only rows from the live strip when they stream inside the reasoning panel. */

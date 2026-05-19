@@ -230,6 +230,6 @@ def format_diagnostics_summary(
         text += (
             '\n\nNote: Staging analysis uses a mirror workspace with pending drafts on disk; imports resolve against '
             'that mirror (symlinked dependency dirs such as `node_modules` point at the real workspace). '
-            'Paths never transferred into staging are unchanged copies from the planner snapshot or live workspace baseline.'
+            'Paths never transferred into staging are unchanged copies from the staging snapshot or live workspace baseline.'
         )
     return text

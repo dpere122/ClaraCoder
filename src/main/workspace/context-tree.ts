@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import path = require('path');
 import type { WorkspaceChangeRecord, WorkspaceContextState } from '../../shared';
-import { WORKSPACE_CONTEXT_MAX_DEPTH, WORKSPACE_CONTEXT_MAX_ENTRIES } from '../constants';
+import { WORKSPACE_CONTEXT_MAX_DEPTH, WORKSPACE_CONTEXT_MAX_ENTRIES, WORKSPACE_NODE_MODULES_DIR } from '../constants';
 import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
 
 export function formatContextTruncationNotice(prefix: string, reason: string): string {
@@ -54,6 +54,7 @@ export async function buildWorkspaceTree(
       entriesWritten: 0,
       truncated: false,
       ignoreRules: await loadWorkspaceIgnoreRules(dirPath),
+      exposeAllWorkspaceFiles: false,
     } as WorkspaceContextState);
 
   if (depth >= contextState.maxDepth) {
@@ -78,7 +79,12 @@ export async function buildWorkspaceTree(
 
   const visibleEntries = entries.filter((entry) => {
     const relativePath = path.relative(contextState.rootPath, path.join(dirPath, entry.name));
-    return !shouldIgnoreWorkspaceEntry(entry.name, relativePath, contextState.ignoreRules);
+    return !shouldIgnoreWorkspaceEntry(
+      entry.name,
+      relativePath,
+      contextState.ignoreRules,
+      contextState.exposeAllWorkspaceFiles,
+    );
   });
 
   let result = '';
@@ -104,6 +110,10 @@ export async function buildWorkspaceTree(
       result += `${prefix}${connector}${entry.name}/\n`;
       if (isSymlink) {
         result += `${nextPrefix}[symlink skipped]\n`;
+        continue;
+      }
+      if (entry.name === WORKSPACE_NODE_MODULES_DIR) {
+        result += `${nextPrefix}[bulk listing disabled — use search_workspace]\n`;
         continue;
       }
       result += await buildWorkspaceTree(fullPath, nextPrefix, depth + 1, contextState);

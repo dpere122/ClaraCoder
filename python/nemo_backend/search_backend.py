@@ -37,6 +37,67 @@ class SearchLineMatch:
     line_number: int
 
 
+def run_grep_workspace_recursive(
+    root: Path,
+    query: str,
+    *,
+    max_matches: int,
+    encoding: str = '',
+    exclude_dir_names: frozenset[str] | None = None,
+) -> list[SearchLineMatch] | None:
+    """Recursive workspace grep; searches inside ``node_modules`` but excludes other heavy dirs."""
+
+    grep_executable = shutil.which('grep')
+    if grep_executable is None:
+        return None
+    if max_matches <= 0:
+        return []
+    if not _grep_can_search(query, encoding=encoding):
+        return None
+
+    args = [grep_executable, '-rnH', '-I', '-i', '-E', '-Z', '-e', query]
+    for name in sorted(exclude_dir_names or frozenset()):
+        if name == 'node_modules':
+            continue
+        args.append(f'--exclude-dir={name}')
+    args.append('.')
+
+    try:
+        proc = subprocess.run(
+            args,
+            cwd=str(root.resolve()),
+            capture_output=True,
+            text=False,
+            check=False,
+            timeout=_GREP_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except OSError as exc:
+        logger.debug('grep recursive search launch failed err=%s', exc)
+        return None
+    except subprocess.TimeoutExpired as exc:
+        logger.debug('grep recursive search timed out err=%s', exc)
+        return None
+    if proc.returncode not in {0, 1}:
+        stderr = proc.stderr.decode('utf-8', errors='replace').strip()
+        logger.debug('grep recursive search failed code=%s stderr=%s', proc.returncode, stderr)
+        return None
+
+    display_by_command_path: dict[str, str] = {}
+    matches = _parse_grep_matches(proc.stdout, display_by_command_path)
+    normalized: list[SearchLineMatch] = []
+    root_resolved = root.resolve()
+    for match in matches:
+        raw = match.display_path.lstrip('./').replace('\\', '/')
+        try:
+            rel = Path(raw).resolve().relative_to(root_resolved).as_posix()
+        except ValueError:
+            rel = raw
+        normalized.append(SearchLineMatch(display_path=rel, line_number=match.line_number))
+        if len(normalized) >= max_matches:
+            break
+    return normalized
+
+
 def run_grep_line_search(
     query: str,
     candidates: list[SearchCandidate],

@@ -10,8 +10,12 @@ import pytest
 
 from nemo_backend.search_backend import SearchLineMatch
 from nemo_backend.state import current_session_id, get_session
+from nemo_backend.domain import RuntimeToolsConfig
+from nemo_backend.state import runtime_config
 from nemo_backend.workspace_ignore import (
     get_workspace_ignore_rules_cached,
+    is_log_related_file,
+    is_node_modules_bulk_listing_path,
     iter_workspace_search_files,
     matches_ignore_rule,
     should_ignore_workspace_entry,
@@ -44,8 +48,18 @@ def test_anchored_path() -> None:
 
 # --- TestShouldIgnoreBuiltins ---
 
-def test_node_modules_by_name() -> None:
-    assert should_ignore_workspace_entry('node_modules', 'node_modules', [])
+def test_log_files_never_ignored() -> None:
+    assert is_log_related_file('app.log')
+    assert is_log_related_file('app.log.1')
+    assert not should_ignore_workspace_entry('x.log', 'x.log', [])
+    assert not should_ignore_workspace_entry('x.log', 'x.log', ['*.log'])
+
+
+def test_node_modules_bulk_discovery_blocked() -> None:
+    assert should_ignore_workspace_entry('lodash', 'node_modules/lodash', [])
+    assert not should_ignore_workspace_entry('node_modules', 'node_modules', [])
+    assert is_node_modules_bulk_listing_path('node_modules')
+    assert is_node_modules_bulk_listing_path('node_modules/lodash')
 
 
 def test_venv_dirs_by_name() -> None:
@@ -53,8 +67,16 @@ def test_venv_dirs_by_name() -> None:
     assert should_ignore_workspace_entry('venv', 'venv', [])
 
 
-def test_log_suffix() -> None:
-    assert should_ignore_workspace_entry('x.log', 'x.log', [])
+def test_expose_all_keeps_node_modules_bulk_block() -> None:
+    saved = runtime_config.tools
+    try:
+        runtime_config.tools = RuntimeToolsConfig(expose_all_workspace_files=True)
+        assert not should_ignore_workspace_entry('node_modules', 'node_modules', [])
+        assert should_ignore_workspace_entry('lodash', 'node_modules/lodash', [])
+        assert not should_ignore_workspace_entry('x.log', 'x.log', ['*.log'])
+        assert not should_ignore_workspace_entry('.git', '.git', [])
+    finally:
+        runtime_config.tools = saved
 
 
 # --- TestToolsWithGitignore (uses fixture) ---
@@ -162,6 +184,18 @@ def test_gitignore_cache_evicts_oldest_when_over_max(tmp_path: Path, monkeypatch
     assert len(wi._gitignore_cache) == 2
     assert str(r1.resolve()) not in wi._gitignore_cache
     assert get_workspace_ignore_rules_cached(r3) == ['c']
+
+
+def test_list_node_modules_returns_search_hint(workspace_session: Path) -> None:
+    root = workspace_session
+    pkg = root / 'node_modules' / 'pkg'
+    pkg.mkdir(parents=True)
+    (pkg / 'index.js').write_text('x', encoding='utf-8')
+
+    out = list_workspace_directory.invoke({'relative_path': 'node_modules'})
+    assert 'bulk listing disabled' in out
+    assert 'search_workspace' in out
+    assert 'pkg/' not in out
 
 
 def test_search_workspace_falls_back_when_grep_returns_none(workspace_session: Path, monkeypatch: pytest.MonkeyPatch) -> None:

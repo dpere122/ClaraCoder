@@ -1,1 +1,1 @@
-"""Nested planning execution (router + specialists)."""
+"""Orchestration helpers (router probe tools for path status)."""

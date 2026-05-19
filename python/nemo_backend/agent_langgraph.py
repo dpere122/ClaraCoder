@@ -24,7 +24,6 @@ from nemo_backend.accept_command import accept_command_sse_payload
 from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
 from nemo_backend.agents.specialists.review_tools import rollback_test_run_materializations
 from nemo_backend.checkpointing import get_graph_checkpointer, outer_agent_thread_id
-from nemo_backend.agents.planning.nested_middleware import NESTED_WORKER_STREAM_END
 from nemo_backend.config import MAX_AGENT_STEPS
 from nemo_backend.copy_review_middleware import CopyReviewAfterToolMiddleware
 from nemo_backend.copy_tool import copy_confirm_sse_payload
@@ -35,7 +34,7 @@ from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
-from nemo_backend.planner_graph_session import cleanup_planner_graph_session
+from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from nemo_backend.domain import SessionState
 from nemo_backend.langgraph_sse import (
     GraphStreamState,
@@ -62,7 +61,7 @@ def build_nemo_single_outer_graph(
     extra_middleware: list[Any] | None = None,
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible)."""
-    tools, _ = worker_tools_and_map(apply_mode)
+    tools, _ = worker_tools_and_map(apply_mode, session=session)
     system_prompt = build_system_prompt(session, apply_mode)
     core_middleware: list[Any] = [
         ConnectionParallelToolCallsMiddleware(),
@@ -102,7 +101,7 @@ def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None
             'Orphaned nested edit stagings after outer agent completion (discarding): %s',
             list(session.pending_edit_stagings.keys()),
         )
-    cleanup_planner_graph_session(session, session_id)
+    cleanup_staging_snapshot_session(session, session_id)
 
 
 def _unpack_nested_queue_item(item: Any) -> tuple[str, dict[str, Any]] | None:
@@ -190,14 +189,8 @@ def _nested_sse_lines(
     nested_states: dict[str, GraphStreamState],
     cfg: AgentGraphConfig,
 ) -> list[str]:
-    """Translate nested planner queue items into outer SSE lines."""
+    """Translate nested subprocess/tool queue items into outer SSE lines."""
 
-    if item is NESTED_WORKER_STREAM_END:
-        done_ev = session.planning_nested_done_event
-        if done_ev is not None:
-            done_ev.set()
-        nested_states.clear()
-        return []
     unpacked = _unpack_nested_queue_item(item)
     if unpacked is None:
         return []
@@ -347,7 +340,7 @@ async def _stream_langgraph_tool_agent(
         session.active_editor_langgraph_streams += 1
     session.worker_apply_mode = session.active_editor_langgraph_streams > 0
     session.hitl_sse_queue = hitl_q
-    # Subprocess / nested tool streaming (pytest, smoke, overlay, plan_and_modify) shares one queue.
+    # Subprocess / nested tool streaming (pytest, smoke, overlay) shares one queue.
     # Outer chat streams always allocate a queue so project-review tools can emit tool_exec_* SSE.
     nested_stream_q = nested_planning_queue if nested_planning_queue is not None else asyncio.Queue()
     session.planning_nested_events_q = nested_stream_q
@@ -456,7 +449,6 @@ async def _stream_langgraph_tool_agent(
             _cleanup_nested_edit_staging(session, cfg.session_id)
             session.hitl_sse_queue = None
             session.planning_nested_events_q = None
-            session.planning_nested_done_event = None
         if not pump_task.done():
             pump_task.cancel()
             try:

@@ -7,6 +7,8 @@ from collections import OrderedDict
 from collections.abc import Iterator
 from pathlib import Path
 
+from nemo_backend.state import runtime_config
+
 # Keep aligned with src/main/constants.ts WORKSPACE_CONTEXT_IGNORED_NAMES
 WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
     {
@@ -38,12 +40,13 @@ WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
 
 # Keep aligned with src/main/constants.ts WORKSPACE_CONTEXT_IGNORED_SUFFIXES
 WORKSPACE_CONTEXT_IGNORED_SUFFIXES: tuple[str, ...] = (
-    '.log',
     '.pyc',
     '.pyo',
     '.tmp',
     '.swp',
 )
+
+NODE_MODULES_DIR_NAME = 'node_modules'
 
 # Extra binary / non-text suffixes skipped by search_workspace (tool-specific)
 SEARCH_SKIP_SUFFIXES: frozenset[str] = frozenset(
@@ -128,7 +131,53 @@ def matches_ignore_rule(relative_path: str, entry_name: str, rule: str) -> bool:
     return normalized_path == anchored_rule or normalized_path.startswith(f'{anchored_rule}/')
 
 
+def workspace_expose_all_files() -> bool:
+    """True when Settings → Tools disables workspace file filters for discovery tools."""
+    return bool(getattr(runtime_config.tools, 'expose_all_workspace_files', False))
+
+
+def is_log_related_file(entry_name: str) -> bool:
+    """Log files stay visible in tree/list/search even when gitignore or built-in suffix rules apply."""
+    lower = entry_name.lower()
+    if lower.endswith('.log'):
+        return True
+    if lower.endswith(('.log.gz', '.log.bz2', '.log.xz', '.log.zip')):
+        return True
+    parts = lower.rsplit('.', 2)
+    if len(parts) == 3 and parts[1] == 'log' and parts[2].isdigit():
+        return True
+    return False
+
+
+def is_under_node_modules(relative_path: str) -> bool:
+    normalized = normalize_context_path(relative_path).strip('/')
+    if not normalized:
+        return False
+    return NODE_MODULES_DIR_NAME in normalized.split('/')
+
+
+def is_node_modules_bulk_listing_path(relative_path: str) -> bool:
+    """True when ``list_workspace_directory`` must not enumerate children (search instead)."""
+    normalized = normalize_context_path(relative_path).strip('/')
+    if not normalized:
+        return False
+    if normalized == NODE_MODULES_DIR_NAME:
+        return True
+    return normalized.startswith(f'{NODE_MODULES_DIR_NAME}/')
+
+
 def should_ignore_workspace_entry(entry_name: str, relative_path: str, ignore_rules: list[str]) -> bool:
+    """Bulk discovery (tree, list, semantic walk): hide ignored paths; never hide log files."""
+    if is_log_related_file(entry_name):
+        return False
+    normalized = normalize_context_path(relative_path).strip('/')
+    segments = normalized.split('/') if normalized else []
+    if NODE_MODULES_DIR_NAME in segments:
+        if segments == [NODE_MODULES_DIR_NAME] and entry_name == NODE_MODULES_DIR_NAME:
+            return False
+        return True
+    if workspace_expose_all_files():
+        return False
     if entry_name in WORKSPACE_CONTEXT_IGNORED_NAMES:
         return True
     if any(entry_name.endswith(sfx) for sfx in WORKSPACE_CONTEXT_IGNORED_SUFFIXES):
@@ -157,6 +206,6 @@ def iter_workspace_search_files(root: Path, ignore_rules: list[str]) -> Iterator
             rel_path = f'{rel_dir}/{fn}' if rel_dir else fn
             if should_ignore_workspace_entry(fn, rel_path, ignore_rules):
                 continue
-            if Path(fn).suffix.lower() in SEARCH_SKIP_SUFFIXES:
+            if not workspace_expose_all_files() and Path(fn).suffix.lower() in SEARCH_SKIP_SUFFIXES:
                 continue
             yield rdir / fn

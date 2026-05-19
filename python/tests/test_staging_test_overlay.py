@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -115,3 +116,107 @@ async def test_run_staging_overlay_command_runs_in_overlay(tmp_path: Path, monke
     finally:
         current_session_id.reset(token)
         runtime_config.tools = saved
+
+
+@pytest.mark.asyncio
+async def test_run_staging_overlay_command_runs_in_workspace_when_direct(tmp_path: Path) -> None:
+    saved = runtime_config.tools
+    runtime_config.tools = RuntimeToolsConfig(allow_staging_overlay_commands=True)
+    session_id = 'overlay-direct-sid'
+    token = current_session_id.set(session_id)
+    try:
+        ws = tmp_path / 'ws-direct'
+        ws.mkdir()
+        marker = ws / 'on_disk.txt'
+        marker.write_text('workspace_body', encoding='utf-8')
+        session = get_session(session_id)
+        session.workspace_path = str(ws.resolve())
+        session.worker_apply_mode = True
+        session.auto_apply_mode = True
+        session.abort_event.clear()
+        argv_json = json.dumps([sys.executable, '-c', "print(open('on_disk.txt', encoding='utf-8').read().strip())"])
+        out = await run_staging_overlay_command.ainvoke({'command_argv_json': argv_json, 'cwd_relative': ''})
+        assert 'workspace_body' in out
+        assert 'Working directory (workspace)' in out
+    finally:
+        current_session_id.reset(token)
+        runtime_config.tools = saved
+
+
+@pytest.mark.asyncio
+async def test_run_staging_overlay_command_watch_mode_stops_on_readiness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    saved = runtime_config.tools
+    runtime_config.tools = RuntimeToolsConfig(allow_staging_overlay_commands=True)
+    session_id = 'overlay-watch-sid'
+    token = current_session_id.set(session_id)
+    try:
+        ws = tmp_path / 'ws-watch'
+        ws.mkdir()
+        session = get_session(session_id)
+        session.workspace_path = str(ws.resolve())
+        session.worker_apply_mode = True
+        session.auto_apply_mode = True
+        session.abort_event.clear()
+        session.planning_nested_events_q = asyncio.Queue()
+
+        class _WatchProc:
+            def __init__(self) -> None:
+                self.stdout = _FakeAsyncStreamReader(
+                    b'\n  VITE v5.0.0  ready in 120 ms\n  \xe2\x9e\x9c  Local:   http://localhost:5173/\n'
+                )
+                self.stderr = _FakeAsyncStreamReader(b'')
+                self.returncode: int | None = None
+                self.terminated = False
+
+            async def wait(self) -> int:
+                await asyncio.sleep(30)
+                self.returncode = self.returncode if self.returncode is not None else 0
+                return self.returncode
+
+            def terminate(self) -> None:
+                self.terminated = True
+                self.returncode = -15
+
+            def kill(self) -> None:
+                self.returncode = -9
+
+        fake_proc = _WatchProc()
+
+        async def _fake_create_subprocess_exec(*_args, **_kwargs):
+            return fake_proc
+
+        monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
+
+        argv_json = json.dumps(['npx', 'vite'])
+        out = await run_staging_overlay_command.ainvoke({'command_argv_json': argv_json, 'cwd_relative': ''})
+        assert 'dev server readiness detected' in out
+        assert fake_proc.terminated is True
+        complete_events = []
+        while not session.planning_nested_events_q.empty():
+            item = await session.planning_nested_events_q.get()
+            if item[1].get('event') == 'tool_exec_complete':
+                complete_events.append(item)
+        assert complete_events
+        payload = complete_events[-1][1].get('data') or {}
+        assert payload.get('outcome') == 'passed'
+    finally:
+        current_session_id.reset(token)
+        runtime_config.tools = saved
+
+
+class _FakeAsyncStreamReader:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._pos = 0
+
+    async def read(self, n: int = -1) -> bytes:
+        await asyncio.sleep(0)
+        if self._pos >= len(self._data):
+            return b''
+        if n == -1:
+            chunk = self._data[self._pos :]
+            self._pos = len(self._data)
+            return chunk
+        chunk = self._data[self._pos : self._pos + n]
+        self._pos += len(chunk)
+        return chunk

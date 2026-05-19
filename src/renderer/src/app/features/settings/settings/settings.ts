@@ -167,6 +167,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly defaultWorkspaceEncoding = signal('utf-8');
   protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
   protected readonly allowStagingOverlayCommands = signal(false);
+  protected readonly exposeAllWorkspaceFiles = signal(false);
   protected readonly modelManagerCustomDir = signal('');
   protected readonly modelManagerHfToken = signal('');
   protected readonly modelManagerCustomModels = signal<ModelManagerFileEntry[]>([]);
@@ -1244,6 +1245,9 @@ export class Settings implements OnInit, OnDestroy {
     if (changes.allowStagingOverlayCommands !== undefined) {
       this.allowStagingOverlayCommands.set(!!changes.allowStagingOverlayCommands);
     }
+    if (changes.exposeAllWorkspaceFiles !== undefined) {
+      this.exposeAllWorkspaceFiles.set(!!changes.exposeAllWorkspaceFiles);
+    }
     this.markSettingsDirty();
   }
 
@@ -1286,6 +1290,11 @@ export class Settings implements OnInit, OnDestroy {
 
   protected onAllowStagingOverlayCommandsChange(enabled: boolean): void {
     this.allowStagingOverlayCommands.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  protected onExposeAllWorkspaceFilesChange(enabled: boolean): void {
+    this.exposeAllWorkspaceFiles.set(!!enabled);
     this.markSettingsDirty();
   }
 
@@ -1451,6 +1460,7 @@ export class Settings implements OnInit, OnDestroy {
         defaultWorkspaceEncoding: this.defaultWorkspaceEncoding(),
         defaultWorkspaceNewline: this.defaultWorkspaceNewline(),
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
+        exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
       },
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
@@ -1572,6 +1582,7 @@ export class Settings implements OnInit, OnDestroy {
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
+    this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
     this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
 

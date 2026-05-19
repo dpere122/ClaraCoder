@@ -1047,6 +1047,23 @@
                 workspace with staged drafts applied (argv-only subprocess; no shell). Off by default.
               </p>
             </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='exposeAllWorkspaceFiles()'
+                  (ngModelChange)='onExposeAllWorkspaceFilesChange($event)'
+                />
+                <span>Expose all workspace files to the agent</span>
+              </label>
+              <p class='settings-copy' style='margin-top: 0.35rem'>
+                When on, the workspace tree, directory listing, search, and semantic index include most paths (no
+                built-in skips for <code>.git</code>, etc., and no root <code>.gitignore</code>). <code>node_modules</code>
+                is never bulk-listed—use <code>search_workspace</code> with a precise query instead. Log files are always
+                visible. Off by default. Tree depth and entry caps still apply.
+              </p>
+            </div>
           </div>
 
           <hr class='settings-divider' />

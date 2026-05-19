@@ -84,15 +84,6 @@ export {
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
 export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
-export {
-  collapseExcessiveAssistantBlankLines,
-  gemmaTemplateSanitizeActive,
-  isPlaceholderThinkingNoise,
-  sanitizeGemmaVisibleAssistantText,
-  stripAssistantChannelNoise,
-  stripLlmControlMarkers,
-  stripPseudoToolCallXml,
-} from './llm-visible-text';
 export type {
   ChatStructuredContentPart,
   ConversationMeta,
@@ -135,7 +126,7 @@ export {
 } from './stream-parts';
 export type { PersistedAssistantStreamFields } from './stream-parts';
 export type { ParsedAgentStreamPayload } from './stream-payload';
-export { normalizePlannerProgress, parseAgentStreamPayload } from './stream-payload';
+export { parseAgentStreamPayload } from './stream-payload';
 export type {
   ClaraAgentMode,
   LlmAgentRole,

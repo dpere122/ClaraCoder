@@ -1,6 +1,11 @@
 import { promises as fs } from 'fs';
 import path = require('path');
-import { WORKSPACE_CONTEXT_IGNORED_NAMES, WORKSPACE_CONTEXT_IGNORED_SUFFIXES } from '../constants';
+import {
+  WORKSPACE_CONTEXT_IGNORED_NAMES,
+  WORKSPACE_CONTEXT_IGNORED_SUFFIXES,
+  WORKSPACE_NODE_MODULES_DIR,
+} from '../constants';
+import { isLogRelatedFile } from './log-files';
 
 /** Normalize path separators for consistent ignore matching on Windows. */
 export function normalizeContextPath(targetPath: string): string {
@@ -44,7 +49,34 @@ export function matchesIgnoreRule(relativePath: string, entryName: string, rule:
   return normalizedPath === anchoredRule || normalizedPath.startsWith(`${anchoredRule}/`);
 }
 
-export function shouldIgnoreWorkspaceEntry(entryName: string, relativePath: string, ignoreRules: string[]): boolean {
+function isUnderNodeModules(relativePath: string): boolean {
+  const normalized = normalizeContextPath(relativePath).replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!normalized) {
+    return false;
+  }
+  return normalized.split('/').includes(WORKSPACE_NODE_MODULES_DIR);
+}
+
+export function shouldIgnoreWorkspaceEntry(
+  entryName: string,
+  relativePath: string,
+  ignoreRules: string[],
+  exposeAllWorkspaceFiles = false,
+): boolean {
+  if (isLogRelatedFile(entryName)) {
+    return false;
+  }
+  const normalized = normalizeContextPath(relativePath).replace(/^\/+/, '').replace(/\/+$/, '');
+  const segments = normalized ? normalized.split('/') : [];
+  if (segments.includes(WORKSPACE_NODE_MODULES_DIR)) {
+    if (segments.length === 1 && entryName === WORKSPACE_NODE_MODULES_DIR) {
+      return false;
+    }
+    return true;
+  }
+  if (exposeAllWorkspaceFiles) {
+    return false;
+  }
   if (WORKSPACE_CONTEXT_IGNORED_NAMES.has(entryName)) {
     return true;
   }
@@ -53,3 +85,5 @@ export function shouldIgnoreWorkspaceEntry(entryName: string, relativePath: stri
   }
   return ignoreRules.some((rule) => matchesIgnoreRule(relativePath, entryName, rule));
 }
+
+export { isUnderNodeModules };

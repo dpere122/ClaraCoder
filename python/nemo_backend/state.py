@@ -97,14 +97,17 @@ def get_session(session_id: str) -> SessionState:
     return sessions.setdefault(session_id, SessionState())
 
 
+def direct_workspace_edits_active(session: SessionState, *, apply_mode: bool) -> bool:
+    """True when Editor and Auto-apply are both on: bind direct workspace mutators, not staging."""
+    return bool(apply_mode and session.auto_apply_mode)
+
+
 def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
     """Return an error when mutation-capable tools are used while Editor mode is off."""
     sid = (session_id or current_session_id.get() or '').strip()
     if not sid:
         return 'Tool error: no active session.'
     sess = get_session(sid)
-    if sess.nested_turn_apply_mode is True:
-        return None
     if not sess.worker_apply_mode:
         return 'Tool error: Editor mode is off; workspace mutation and staging tools are unavailable.'
     return None

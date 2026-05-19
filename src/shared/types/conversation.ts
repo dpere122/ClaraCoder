@@ -16,6 +16,8 @@ export interface StreamPart {
   runComplete?: boolean;
   /** Subprocess exit code when `runComplete`; null if finished but code unknown. */
   exitCode?: number | null;
+  /** Smoke-test verdict when backend intentionally stopped a watch process. */
+  outcome?: 'passed' | 'failed';
   /** Present on synthetic `tool-trail:*` segments: mirrors IPC tool status in the auxiliary timeline. */
   toolChainState?: 'running' | 'complete' | 'error';
 }

@@ -13,7 +13,6 @@ import type {
   HealthMetricsSnapshot,
   LspDashboardStatus,
   ModelManagerMigrateProgressPayload,
-  PlannerProgress,
   TtsStreamPacket,
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
@@ -106,6 +105,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       label?: string,
       exitCode?: number | null,
       outputExcerpt?: string,
+      outcome?: 'passed' | 'failed',
     ) => void,
   ) => ipcRenderer.on('message-tool-exec-complete', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
@@ -121,8 +121,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMessageHarnessCrystal: (
     callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
   ) => ipcRenderer.on('message-harness-crystal', callback),
-  onMessagePlanner: (callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void) =>
-    ipcRenderer.on('message-planner', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
   onMessageAcceptCommand: (

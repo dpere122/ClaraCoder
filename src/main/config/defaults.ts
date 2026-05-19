@@ -168,6 +168,7 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     defaultWorkspaceEncoding: 'utf-8',
     defaultWorkspaceNewline: 'lf',
     allowStagingOverlayCommands: false,
+    exposeAllWorkspaceFiles: false,
   };
 }
 

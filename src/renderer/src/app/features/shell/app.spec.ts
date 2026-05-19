@@ -54,6 +54,7 @@ function stubElectronApi(): void {
       defaultWorkspaceEncoding: 'utf-8',
       defaultWorkspaceNewline: 'lf',
       allowStagingOverlayCommands: false,
+      exposeAllWorkspaceFiles: false,
     },
     healthMonitor: {
       logLevel: 'info',

@@ -17,8 +17,9 @@ from nemo_backend.lsp.manager import (
     get_session_lsp_manager,
 )
 from nemo_backend.lsp.registry import display_label_for_server
+from nemo_backend.edit_tool import apply_workspace_full_file
 from nemo_backend.staging_edit_tools import stage_create_file, stage_workspace_file_overwrite
-from nemo_backend.state import current_session_id, get_session
+from nemo_backend.state import current_session_id, direct_workspace_edits_active, get_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 
 LSP_GET_DIAGNOSTICS_NAME = 'lsp_get_diagnostics'
@@ -155,16 +156,23 @@ def _format_lsp_tool_error(
     return message
 
 
-def _run_lsp_python_staging_tool(tool_obj: Any, payload: dict[str, Any], *, relative_path: str) -> str:
+def _run_lsp_python_mutation_tool(tool_obj: Any, payload: dict[str, Any], *, relative_path: str) -> str:
     rel = _require_python_path(relative_path)
     sid = (current_session_id.get() or '').strip()
+    session = get_session(sid) if sid else None
+    direct = bool(
+        session
+        and session.worker_apply_mode
+        and direct_workspace_edits_active(session, apply_mode=True)
+    )
     if sid:
-        activate_session_lsp_scope(sid, scope='staging')
+        activate_session_lsp_scope(sid, scope='workspace' if direct else 'staging')
     result = tool_obj.invoke(payload)
     result_text = result if isinstance(result, str) else str(result)
     if result_text.lower().startswith('tool error:'):
         return result_text
-    return f'Python LSP staging path selected for `{rel}`.\n\n{result_text}'
+    scope_label = 'workspace' if direct else 'staging'
+    return f'Python LSP {scope_label} path selected for `{rel}`.\n\n{result_text}'
 
 
 def _sync_active_document_for_diagnostics(
@@ -342,7 +350,20 @@ def lsp_create_python_file(
 
     Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. See `stage_create_file` for `land_in_workspace`."""
 
-    return _run_lsp_python_staging_tool(
+    sid = (current_session_id.get() or '').strip()
+    session = get_session(sid) if sid else None
+    if session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True):
+        return _run_lsp_python_mutation_tool(
+            apply_workspace_full_file,
+            {
+                'relative_path': relative_path,
+                'new_content': new_content,
+                'encoding': encoding,
+                'newline': newline,
+            },
+            relative_path=relative_path,
+        )
+    return _run_lsp_python_mutation_tool(
         stage_create_file,
         {
             'relative_path': relative_path,
@@ -367,7 +388,20 @@ def lsp_update_python_file(
 
     Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
 
-    return _run_lsp_python_staging_tool(
+    sid = (current_session_id.get() or '').strip()
+    session = get_session(sid) if sid else None
+    if session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True):
+        return _run_lsp_python_mutation_tool(
+            apply_workspace_full_file,
+            {
+                'relative_path': relative_path,
+                'new_content': new_content,
+                'encoding': encoding,
+                'newline': newline,
+            },
+            relative_path=relative_path,
+        )
+    return _run_lsp_python_mutation_tool(
         stage_workspace_file_overwrite,
         {
             'relative_path': relative_path,

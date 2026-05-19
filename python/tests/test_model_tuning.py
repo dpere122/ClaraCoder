@@ -87,19 +87,6 @@ def test_combined_suffix_gemma_thinking_on() -> None:
     c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='gemma', thinking_mode='on')
     s = combined_model_prompt_suffix(c)
     assert 'Model note (Gemma thinking)' in s
-    assert 'Model note (Gemma visible text)' in s
-
-
-def test_combined_suffix_gemma_visible_text_even_when_thinking_default() -> None:
-    c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='gemma', thinking_mode='default')
-    s = combined_model_prompt_suffix(c)
-    assert 'Model note (Gemma visible text)' in s
-
-
-def test_combined_suffix_generic_skips_gemma_visible_text() -> None:
-    c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='generic')
-    s = combined_model_prompt_suffix(c)
-    assert 'Model note (Gemma visible text)' not in s
 
 
 def test_combined_suffix_gemma_sparse_expert_hint() -> None:

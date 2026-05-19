@@ -833,6 +833,15 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.allowStagingOverlayCommands = false;
       migrated = true;
     }
+    const exposeAllRaw = (wt as unknown as { exposeAllWorkspaceFiles?: unknown }).exposeAllWorkspaceFiles;
+    if (typeof exposeAllRaw === 'string') {
+      const s = exposeAllRaw.trim().toLowerCase();
+      wt.exposeAllWorkspaceFiles = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof exposeAllRaw !== 'boolean') {
+      wt.exposeAllWorkspaceFiles = false;
+      migrated = true;
+    }
   }
 
   const lab = (newConfig as AppConfig & { lastActiveConversationByWorkspaceId?: unknown })

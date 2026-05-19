@@ -14,10 +14,6 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
-from nemo_backend.llm_visible_text import (
-    is_auxiliary_reasoning_placeholder_delta,
-    is_placeholder_thinking_noise,
-)
 from nemo_backend.model_tuning import combined_model_prompt_suffix
 from nemo_backend.prompt_blocks import (
     harness_mindset_block,
@@ -57,8 +53,11 @@ def session_to_messages(session: SessionState) -> list[BaseMessage]:
 
 def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> str:
     """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth."""
+    from nemo_backend.state import direct_workspace_edits_active
+
     editor_s = 'on' if apply_mode else 'off'
     auto_s = 'on' if session.auto_apply_mode else 'off'
+    direct_s = 'on' if direct_workspace_edits_active(session, apply_mode=apply_mode) else 'off'
     overlap = session.active_editor_langgraph_streams > 0
     overlap_line = (
         '\n- Other concurrent Editor streams in this session: **yes** (another turn may still be writing).'
@@ -68,7 +67,8 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
     return (
         '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
-        f'- Auto-apply (UI): **{auto_s}**'
+        f'- Auto-apply (UI): **{auto_s}**\n'
+        f'- Direct workspace writes (Editor + Auto-apply): **{direct_s}**'
         f'{overlap_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
         'system instructions—not stale narration.\n'
@@ -126,30 +126,24 @@ def _reasoning_body(message: AIMessage) -> str:
     """Extract provider reasoning / thinking text from AIMessage (multiple possible shapes)."""
     r = getattr(message, 'reasoning', None)
     if isinstance(r, str) and r.strip():
-        out = r.strip()
-        return '' if is_auxiliary_reasoning_placeholder_delta(out) else out
+        return r.strip()
     ak = getattr(message, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)
         if isinstance(val, str) and val.strip():
-            out = val.strip()
-            return '' if is_auxiliary_reasoning_placeholder_delta(out) else out
+            return val.strip()
         if isinstance(val, dict):
             for sub in ('summary', 'text', 'content'):
                 s = val.get(sub)
                 if isinstance(s, str) and s.strip():
-                    out = s.strip()
-                    return '' if is_auxiliary_reasoning_placeholder_delta(out) else out
+                    return s.strip()
     return ''
 
 
 def assistant_visible_answer(message: AIMessage) -> str:
     """User-visible assistant text from normal content only (no reasoning-channel fallback)."""
     via_lc = str(getattr(message, 'text', None) or '').strip()
-    raw = via_lc if via_lc else stringify_content(message.content).strip()
-    if raw and is_placeholder_thinking_noise(raw):
-        return ''
-    return raw
+    return via_lc if via_lc else stringify_content(message.content).strip()
 
 
 def final_assistant_text(message: AIMessage) -> str:
@@ -357,9 +351,9 @@ def _connection_line(session: SessionState) -> str:
     )
 
 
-def _model_prompt_suffix() -> str:
+def _model_prompt_suffix(session: SessionState, apply_mode: bool) -> str:
     """Universal tool/edit semantics plus optional parallel-batching and Qwen-specific lines."""
-    return combined_model_prompt_suffix(get_active_connection())
+    return combined_model_prompt_suffix(get_active_connection(), session=session, apply_mode=apply_mode)
 
 
 def _os_hint_line() -> str:
@@ -373,8 +367,11 @@ def _os_hint_line() -> str:
     )
 
 
-def _outer_agent_operational_block(apply_mode: bool) -> str:
-    """Outer Clara: reads/search; direct copy; nested mutation tools for source code when Editor is on."""
+def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> str:
+    """Outer Clara: reads/search; direct copy; staging and specialist tools when Editor is on."""
+    from nemo_backend.state import direct_workspace_edits_active
+
+    direct = direct_workspace_edits_active(session, apply_mode=apply_mode)
     base = (
         'Operational guidance:\n'
         '- For codebase questions, inspect the workspace before making claims.\n'
@@ -389,11 +386,19 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
         '- Discovery / reads (follow each bound tool’s description for details):\n'
         '  1. Unknown targets → `retrieve_workspace_semantic`, then verify each hit’s `origin`.\n'
         '  2. origin=workspace → `read_workspace_file` / LSP / `search_workspace` (disk).\n'
-        '  3. origin=staging → `read_staged_edit` or `diff_staged_edit_against_baseline` (not disk `read_workspace_file` until `transfer_staged_file_to_workspace`).\n'
-        '  4. Exact grep: disk → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
-        '  5. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
-        '  6. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
-        '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
+        + (
+            '  3. Semantic hits are workspace-only in direct-write mode—use `read_workspace_file` / LSP on disk.\n'
+            if direct
+            else '  3. origin=staging → `read_staged_edit` or `diff_staged_edit_against_baseline` (not disk `read_workspace_file` until `transfer_staged_file_to_workspace`).\n'
+        )
+        + (
+            '  4. Exact grep: use `search_workspace` on disk.\n'
+            if direct
+            else '  4. Exact grep: disk → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
+        )
+        + '  5. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
+        + '  6. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
+        + '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
     )
     if not apply_mode:
@@ -403,6 +408,25 @@ def _outer_agent_operational_block(apply_mode: bool) -> str:
             'tools are not bound. Ignore any stale prior assistant text that claims Editor is on or lists write tools.\n'
             '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
             'If the user wants patches or deletes from chat, ask them to enable Editor in the toolbar.\n'
+        )
+    if direct:
+        return (
+            base
+            + '- **Backend (authoritative):** Editor mode is **ON** and Auto-apply is **ON**; **direct workspace writes** '
+            'are bound (no staging or transfer tools).\n'
+            + '- Use `apply_workspace_full_file`, `replace_workspace_line_range`, and `replace_workspace_snippet` '
+            '(when bound) for text edits; for `.py` prefer `lsp_create_python_file`, `lsp_update_python_file`, and '
+            '`lsp_delete_python_file` (writes land on disk immediately).\n'
+            + '- `read_workspace_file` and LSP reads/diagnostics reflect the **on-disk workspace**—there is no staging draft plane.\n'
+            + '- Verify with `lsp_get_diagnostics` (`refresh_active_document=true` on touched paths) and '
+            '`run_workspace_pytest_tests` / `run_workspace_python_smoke_test` / `run_staging_overlay_command` '
+            '(runs in the live workspace when overlay commands are enabled).\n'
+            + '- **Python dependencies**, **Node/npm** tools, and **`angular_cli_tool`** are available when needed.\n'
+            + '- Use `copy_workspace_files` only when duplicating existing files to new paths.\n'
+            + '- Prefer **small, verifiable** edits; re-read files or refresh LSP between dependent changes.\n'
+            + '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
+            f'{routing_handoff_contract()}\n'
+            + '- **Inspect–integrate–mutate–verify:** Base **Existence** on `read_workspace_file` / LSP before mutating.\n'
         )
     return (
         base
@@ -447,12 +471,12 @@ def build_system_prompt(
 ) -> str:
     """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace."""
     workspace_hint = _workspace_hint(session)
-    operational = _outer_agent_operational_block(apply_mode)
+    operational = _outer_agent_operational_block(session, apply_mode)
     formatting_early = (
         f'{source_code_formatting_guidance()}\n\n' if (session.workspace_path or '').strip() else ''
     )
     return (
-        'You are Clara, a proactive coding assistant inside an Electron desktop app. '
+        'You are Clara, a coding assistant.'
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
         'Prefer quoting exact file paths, line numbers, commands, and concrete next steps. '
         'Keep answers concise but useful, and explain what you actually inspected.\n\n'
@@ -462,5 +486,5 @@ def build_system_prompt(
         f'{operational}'
         f'{formatting_early}'
         f'{workspace_hint}'
-        f'{_model_prompt_suffix()}'
+        f'{_model_prompt_suffix(session, apply_mode)}'
     )

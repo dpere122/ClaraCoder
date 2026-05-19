@@ -169,11 +169,24 @@ def llm_optional_kwargs(connection: RuntimeConnection) -> dict[str, Any]:
     return out
 
 
-def tool_calling_and_edit_semantics_suffix(_connection: RuntimeConnection | None = None) -> str:
-    """Tool channel and staged workspace edit semantics; appended for every model."""
+def tool_calling_and_edit_semantics_suffix(
+    _connection: RuntimeConnection | None = None,
+    *,
+    direct_workspace_edits: bool = False,
+) -> str:
+    """Tool channel and workspace edit semantics; appended for every model."""
+    if direct_workspace_edits:
+        return (
+            '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
+            'only use the API tool channel.\n'
+            '**Workspace edits (direct):** Editor and Auto-apply are on—write **directly to disk** with '
+            '`apply_workspace_full_file`, `replace_workspace_line_range`, or `replace_workspace_snippet` (when bound). '
+            'For `.py`, prefer `lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file`. '
+            'There is **no** staging draft plane and **no** `transfer_staged_file_to_workspace` on your graph. '
+            'Verify with `read_workspace_file`, LSP diagnostics, and workspace test tools.\n'
+        )
     nested_note = (
-        'Nested delegation (`plan_and_modify`, `execute_workspace_mutation`) is not available—use staging (`stage_*`) '
-        'and `transfer_staged_file_to_workspace` for source and structured-config paths. '
+        'Use staging (`stage_*`) and `transfer_staged_file_to_workspace` for source and structured-config paths. '
     )
     return (
         '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
@@ -231,12 +244,6 @@ def gemma_thinking_prompt_suffix(connection: RuntimeConnection) -> str:
             '\nModel note (Gemma sparse experts): Sparse mixture-of-experts layout (many total parameters, few active '
             'per token); keep each assistant turn focused.\n'
         )
-    parts.append(
-        '\nModel note (Gemma visible text): Do not paste Gemma chat-template control markers (e.g. `<|channel|>`, '
-        '`<|channel>`, other `<|...>` tags) or raw `<turn|>` into the user-facing answer. Put scratchpad / '
-        'step-by-step reasoning in the reasoning channel when the server supports it—not in the main reply. '
-        'Keep tools on the API tool channel only.\n'
-    )
     return ''.join(parts)
 
 
@@ -267,9 +274,21 @@ def qwen_system_prompt_suffix(connection: RuntimeConnection | None = None) -> st
     return tool_calling_and_edit_semantics_suffix(connection) + qwen_specific_prompt_suffix()
 
 
-def combined_model_prompt_suffix(connection: RuntimeConnection) -> str:
+def combined_model_prompt_suffix(
+    connection: RuntimeConnection,
+    *,
+    session: object | None = None,
+    apply_mode: bool = False,
+) -> str:
     """Universal tool/edit semantics, optional parallel batching, optional Qwen single-call hint, optional Gemma."""
-    parts = [tool_calling_and_edit_semantics_suffix(connection)]
+    direct = False
+    if session is not None and apply_mode:
+        from nemo_backend.domain import SessionState
+        from nemo_backend.state import direct_workspace_edits_active
+
+        if isinstance(session, SessionState):
+            direct = direct_workspace_edits_active(session, apply_mode=apply_mode)
+    parts = [tool_calling_and_edit_semantics_suffix(connection, direct_workspace_edits=direct)]
     if effective_parallel_tool_calls(connection):
         parts.append(parallel_batching_prompt_suffix())
     if qwen_optimize_profile_active(connection):

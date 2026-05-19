@@ -10,13 +10,6 @@ from typing import Any
 from langchain_core.messages import AIMessageChunk, BaseMessageChunk
 
 from nemo_backend.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STATUS_LINE, TEXT_CHUNK_WORDS
-from nemo_backend.llm_visible_text import (
-    is_auxiliary_reasoning_placeholder_delta,
-    is_placeholder_stream_delta,
-    is_placeholder_thinking_noise,
-    scrub_gemma_pipe_tags_fragment,
-    strip_pseudo_tool_call_xml,
-)
 from nemo_backend.tool_registry import WORKSPACE_READ_TOOL_NAMES
 from nemo_backend.workspace_tools import truncate_text
 
@@ -46,11 +39,6 @@ def status_event(
     return {'type': 'status', 'status': row}
 
 
-def planner_progress_event(planner: dict[str, Any]) -> dict[str, Any]:
-    """Build one structured planner progress payload for the UI."""
-    return {'type': 'planner', 'planner': planner}
-
-
 def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: str = '') -> dict[str, Any]:
     """Build one structured live tool execution output payload for the UI."""
     row: dict[str, Any] = {'type': 'tool_exec_chunk', 'delta': delta}
@@ -67,6 +55,7 @@ def tool_exec_complete_event(
     label: str = '',
     exit_code: int | None = None,
     output_excerpt: str = '',
+    outcome: str | None = None,
 ) -> dict[str, Any]:
     """Signal that a subprocess-style tool stream has finished (optional exit code for the badge)."""
     row: dict[str, Any] = {'type': 'tool_exec_complete', 'exit_code': exit_code}
@@ -77,6 +66,8 @@ def tool_exec_complete_event(
     ex = output_excerpt.strip()
     if ex:
         row['output_excerpt'] = ex
+    if outcome in ('passed', 'failed'):
+        row['outcome'] = outcome
     return row
 
 
@@ -108,9 +99,6 @@ def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
                     if isinstance(c, str):
                         parts.append(c)
         raw = ''.join(parts)
-    raw = scrub_gemma_pipe_tags_fragment(strip_pseudo_tool_call_xml(raw))
-    if is_placeholder_stream_delta(raw) or is_placeholder_thinking_noise(raw):
-        return ''
     return raw
 
 
@@ -120,22 +108,16 @@ def aimessage_chunk_reasoning_delta(chunk: BaseMessageChunk) -> str:
         return ''
     r = getattr(chunk, 'reasoning', None)
     if isinstance(r, str) and r:
-        if is_auxiliary_reasoning_placeholder_delta(r):
-            return ''
         return r
     ak = getattr(chunk, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)
         if isinstance(val, str) and val:
-            if is_auxiliary_reasoning_placeholder_delta(val):
-                return ''
             return val
         if isinstance(val, dict):
             for sub in ('summary', 'text', 'content'):
                 s = val.get(sub)
                 if isinstance(s, str) and s:
-                    if is_auxiliary_reasoning_placeholder_delta(s):
-                        return ''
                     return s
     return ''
 

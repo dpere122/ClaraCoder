@@ -167,6 +167,7 @@ export async function syncRuntimeConfigToPython(
           defaultWorkspaceEncoding: config.workspaceTools.defaultWorkspaceEncoding,
           defaultWorkspaceNewline: config.workspaceTools.defaultWorkspaceNewline,
           allowStagingOverlayCommands: config.workspaceTools.allowStagingOverlayCommands ?? false,
+          exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
         },
       }),
     });

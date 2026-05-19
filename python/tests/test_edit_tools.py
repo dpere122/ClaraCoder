@@ -10,7 +10,11 @@ from nemo_backend.agents.specialists.tools import (
     update_specialist_tools,
     write_specialist_tools,
 )
-from nemo_backend.edit_tool import apply_workspace_full_file, replace_workspace_line_range
+from nemo_backend.edit_tool import (
+    apply_workspace_full_file,
+    edit_tools_for_strict,
+    replace_workspace_line_range,
+)
 from nemo_backend.lsp.file_policy import outer_workspace_edit_guard_error
 from nemo_backend.state import current_session_id, get_session, runtime_config, sessions
 from nemo_backend.domain import RuntimeToolsConfig
@@ -64,6 +68,18 @@ def test_strict_omits_snippet_tool() -> None:
     assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
 
 
+def test_hitl_diff_pause_tools_direct_mode() -> None:
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    direct_names = {t.name for t in edit_tools_for_strict(False)}
+    direct_names |= {
+        'lsp_create_python_file',
+        'lsp_update_python_file',
+        'format_workspace_file_black',
+        'format_workspace_file_prettier',
+    }
+    assert hitl_diff_pause_tools(direct=True) == frozenset(direct_names)
+
+
 def test_replace_workspace_line_range_accepts_new_content_alias(tmp_path) -> None:
     """Regression: LM Studio / Qwen sometimes uses `new_content` for line-range replace."""
     session_id = 'line-range-alias'
@@ -93,8 +109,10 @@ def test_replace_workspace_line_range_accepts_new_content_alias(tmp_path) -> Non
         current_session_id.reset(token)
 
 
-def test_outer_agent_tools() -> None:
+def test_outer_agent_tools_staging_mode() -> None:
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    session = get_session('outer-staging')
+    session.auto_apply_mode = False
     read_names = {
         'list_workspace_directory',
         'read_workspace_file',
@@ -111,14 +129,14 @@ def test_outer_agent_tools() -> None:
     dep_names = {t.name for t in python_dependency_tools()[0]}
     node_dep_names = {t.name for t in node_dependency_tools()[0]}
     env_names = {ensure_python_workspace_env_tool.name}
-    review_names = {t.name for t in code_review_specialist_tools()[0]}
+    review_names = {t.name for t in code_review_specialist_tools(direct=False)[0]}
 
     outer_verify_names = {'run_workspace_pytest_tests', 'run_workspace_python_smoke_test'}
 
-    tools_on, map_on = worker_tools_and_map(True)
+    tools_on, map_on = worker_tools_and_map(True, session=session)
     assert {t.name for t in tools_on} == (
         read_names
-        | {'copy_workspace_files'}
+        | {'copy_workspace_files', 'angular_cli_tool'}
         | edit_names
         | lsp_py_mut_names
         | dep_names
@@ -130,10 +148,24 @@ def test_outer_agent_tools() -> None:
     )
     assert map_on.keys() == {t.name for t in tools_on}
 
-    tools_off, map_off = worker_tools_and_map(False)
+    tools_off, map_off = worker_tools_and_map(False, session=session)
     assert {t.name for t in tools_off} == read_names
     assert 'plan_and_modify' not in map_off
     assert 'execute_workspace_mutation' not in map_off
+
+
+def test_outer_agent_tools_direct_mode() -> None:
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    session = get_session('outer-direct')
+    session.auto_apply_mode = True
+    edit_names = {t.name for t in edit_tools_for_strict(False)}
+    review_names = {t.name for t in code_review_specialist_tools(direct=True)[0]}
+    tools_on, _map_on = worker_tools_and_map(True, session=session)
+    tool_names = {t.name for t in tools_on}
+    assert edit_names <= tool_names
+    assert review_names <= tool_names
+    assert 'stage_create_file' not in tool_names
+    assert 'transfer_staged_file_to_workspace' not in tool_names
 
 
 def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> None:
@@ -143,7 +175,9 @@ def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> 
     from nemo_backend.python_dependency_agent import install_python_packages_tool
 
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
-    _tools, mapping = worker_tools_and_map(True)
+    session = get_session('merge-canonical')
+    session.auto_apply_mode = False
+    _tools, mapping = worker_tools_and_map(True, session=session)
     assert mapping['lsp_get_diagnostics'] is lsp_get_diagnostics
     assert mapping['install_python_packages'] is install_python_packages_tool
     assert mapping['install_npm_packages'] is install_npm_packages_tool
@@ -157,7 +191,7 @@ def test_outer_workspace_edit_guard_blocks_code_extensions() -> None:
     assert outer_workspace_edit_guard_error('helm/values.yaml') is not None
 
 
-def test_apply_workspace_full_file_rejects_python_path(tmp_path) -> None:
+def test_apply_workspace_full_file_rejects_python_path_without_auto_apply(tmp_path) -> None:
     session_id = 'guard-py'
     token = current_session_id.set(session_id)
     try:
@@ -166,6 +200,7 @@ def test_apply_workspace_full_file_rejects_python_path(tmp_path) -> None:
         session = get_session(session_id)
         session.workspace_path = str(root.resolve())
         session.worker_apply_mode = True
+        session.auto_apply_mode = False
         (root / 'a.py').write_text('x=1\n', encoding='utf-8')
         out = apply_workspace_full_file.invoke(
             {'relative_path': 'a.py', 'new_content': 'x = 1\n', 'encoding': 'utf-8', 'newline': 'lf'}
@@ -176,10 +211,30 @@ def test_apply_workspace_full_file_rejects_python_path(tmp_path) -> None:
         current_session_id.reset(token)
 
 
-def test_code_review_specialist_tools_are_staging_only() -> None:
-    session = get_session('review-tools')
+def test_apply_workspace_full_file_writes_python_in_direct_mode(tmp_path) -> None:
+    session_id = 'direct-py'
+    token = current_session_id.set(session_id)
+    try:
+        root = tmp_path / 'ws'
+        root.mkdir()
+        session = get_session(session_id)
+        session.workspace_path = str(root.resolve())
+        session.worker_apply_mode = True
+        session.auto_apply_mode = True
+        (root / 'a.py').write_text('x=1\n', encoding='utf-8')
+        out = apply_workspace_full_file.invoke(
+            {'relative_path': 'a.py', 'new_content': 'x = 1\n', 'encoding': 'utf-8', 'newline': 'lf'}
+        )
+        assert 'Auto-applied' in out
+        assert (root / 'a.py').read_text(encoding='utf-8') == 'x = 1\n'
+    finally:
+        current_session_id.reset(token)
+
+
+def test_code_review_specialist_tools_staging_mode() -> None:
+    session = get_session('review-tools-staging')
     session.worker_apply_mode = True
-    tools, tool_map = code_review_specialist_tools()
+    tools, tool_map = code_review_specialist_tools(direct=False)
     names = {t.name for t in tools}
     assert names == {
         'list_staged_edits',
@@ -195,6 +250,19 @@ def test_code_review_specialist_tools_are_staging_only() -> None:
     }
     assert tool_map.keys() == names
     assert names.isdisjoint({'list_workspace_directory', 'read_workspace_file', 'search_workspace'})
+
+
+def test_code_review_specialist_tools_direct_mode() -> None:
+    tools, tool_map = code_review_specialist_tools(direct=True)
+    names = {t.name for t in tools}
+    assert names == {
+        'lsp_get_diagnostics',
+        'format_workspace_file_black',
+        'format_workspace_file_prettier',
+        'run_staging_overlay_command',
+    }
+    assert tool_map.keys() == names
+    assert 'transfer_staged_file_to_workspace' not in names
 
 
 def test_project_review_specialist_tools_include_workspace_tests() -> None:
@@ -219,6 +287,7 @@ def test_project_review_specialist_tools_include_workspace_tests() -> None:
         'npm_install_project',
         'remove_npm_packages',
         'run_npm_script',
+        'angular_cli_tool',
         'run_workspace_python_smoke_test',
         'run_workspace_pytest_tests',
         'approve_project_review',

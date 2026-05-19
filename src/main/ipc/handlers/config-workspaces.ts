@@ -7,6 +7,7 @@ import { mainState } from '../../state';
 import { loadConfig, migrateConfig, saveConfig } from '../../config/load-save';
 import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
 import { syncRuntimeConfigToPython, syncWorkspaceContextToPython, fetchPythonInterpretersFromPython, postPythonInterpreterSelection } from '../../python/workspace-sync';
+import { applyWorkspaceExposeAllFromConfig } from '../../workspace/watcher';
 import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
 import { getRecentConversations } from '../../menu/recent-conversations';
 import { buildMenu } from '../../menu/application-menu';
@@ -105,6 +106,7 @@ export function registerConfigWorkspacesIpc(): void {
     await syncPythonLogLevel(migratedConfig.healthMonitor.logLevel);
     setHealthMetricsEnabled(migratedConfig.healthMonitor.metricsEnabled);
     await syncRuntimeConfigToPython(migratedConfig, getLlamaManagedRuntimeOverrides(migratedConfig));
+    await applyWorkspaceExposeAllFromConfig(migratedConfig);
     broadcastConfig(migratedConfig);
     return migratedConfig;
   });

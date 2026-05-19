@@ -9,7 +9,7 @@ from typing import Literal
 from langchain_core.tools import tool
 
 from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
-from nemo_backend.state import current_session_id, get_active_connection, get_session
+from nemo_backend.state import current_session_id, direct_workspace_edits_active, get_active_connection, get_session
 from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from nemo_backend.workspace_index.incremental import flush_semantic_index_patches
 from nemo_backend.workspace_index.index_build import load_or_rebuild_staging_index, load_or_rebuild_workspace_index
@@ -89,10 +89,17 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
         )
         if w_err:
             return w_err
+        if w_index is None:
+            return (
+                'Semantic index: no indexable workspace content '
+                '(empty tree, or paths skipped by ignore rules / non-text extensions). '
+                'Try `search_workspace` or `list_workspace_directory`, or enable '
+                'Settings → Tools → Expose all workspace files.'
+            )
 
         s_index = None
         if include_nested_staging and sid:
-            graph_id = (session.active_planner_graph_id or '').strip()
+            graph_id = (session.active_staging_snapshot_id or '').strip()
             sfp = cached_staging_fingerprint(sid, graph_id, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
             s_index, _s_err = load_or_rebuild_staging_index(
                 sid, graph_id, embed_model, fingerprint_override=sfp or None, embedding_model_id=mid
@@ -146,7 +153,13 @@ def retrieve_workspace_semantic(query: str, top_k: int = 8) -> str:
     When: unknown targets or repo-wide “where is X?”; broad discovery before precise reads.
     Not: exact string search (use `search_workspace` disk or `search_staged_edits` drafts); literal file text (use `read_workspace_file` / `read_staged_edit` after picking a path).
     Shape: natural-language `query`; `top_k` capped (default 8). Verify every hit by `origin` (see output header). LSP-backed paths (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): prefer LSP on that path before trusting chunks alone. Index lives outside workspace; refreshes from watcher/embeddings when available—otherwise returns guidance if embeddings missing."""
-    return _retrieve_semantic_impl(query, top_k, include_nested_staging=True)
+    sid = (current_session_id.get() or '').strip()
+    include_staging = True
+    if sid:
+        sess = get_session(sid)
+        if sess.worker_apply_mode and direct_workspace_edits_active(sess, apply_mode=True):
+            include_staging = False
+    return _retrieve_semantic_impl(query, top_k, include_nested_staging=include_staging)
 
 
 @tool(RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME)

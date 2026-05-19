@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from nemo_backend.edit_staging import (
     copy_workspace_mirror,
-    get_active_planner_snapshot_root,
+    get_active_staging_snapshot_root,
     get_staging_root,
 )
 from nemo_backend.lsp.typescript_project_root import package_node_modules_link_rels
@@ -140,11 +140,11 @@ def build_staging_workspace_overlay(
 ) -> tuple[Path | None, Path | None, str]:
     """Return ``(overlay_root, overlay_parent, err)``; ``overlay_parent`` is the uuid folder to rmtree.
 
-    Baseline tree is the active planner snapshot when present, else the live workspace.
+    Baseline tree is the active staging snapshot when present, else the live workspace.
     ``overlay_root`` is ``.../uuid/workspace`` — the synthetic workspace root (LSP rootUri / subprocess cwd).
     """
     ws = workspace_root.resolve()
-    snap = get_active_planner_snapshot_root(session)
+    snap = get_active_staging_snapshot_root(session)
     content_root = snap if snap is not None and snap.is_dir() else ws
     ns = _safe_session_ns(session_id)
     overlay_parent = get_staging_root() / ns / overlay_subdir / uuid.uuid4().hex

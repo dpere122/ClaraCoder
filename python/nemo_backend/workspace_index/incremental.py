@@ -122,8 +122,8 @@ def _parse_staging_relative(raw: str) -> str | None:
 def _replace_ref_nodes(index: Any, doc_id: str, nodes: list[Any]) -> None:
     try:
         index.delete_ref_doc(doc_id, delete_from_docstore=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('semantic index delete_ref_doc failed doc_id=%s: %s', doc_id, exc)
     if nodes:
         index.insert_nodes(nodes)
 
@@ -170,7 +170,7 @@ def _flush_semantic_index_patches_impl(
     from nemo_backend.edit_staging import get_staging_root
 
     sid = (session_id or '').strip()
-    graph_id = (sess.active_planner_graph_id or '').strip()
+    graph_id = (sess.active_staging_snapshot_id or '').strip()
     root = workspace_root.resolve()
     staging_root = get_staging_root().resolve()
 

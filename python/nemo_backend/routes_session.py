@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
-from nemo_backend.planner_graph_session import cleanup_planner_graph_session
+from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes
 from nemo_backend.workspace_index.lifecycle import (
     invalidate_staging_index_disk,
@@ -44,7 +44,7 @@ async def clear_session(request: ClearRequest) -> dict[str, bool]:
         invalidate_staging_index_disk(sid)
     except Exception:
         logger.debug('invalidate staging semantic index on clear failed', exc_info=True)
-    cleanup_planner_graph_session(state.get_session(sid), sid)
+    cleanup_staging_snapshot_session(state.get_session(sid), sid)
     await delete_outer_threads_for_session(sid)
     state.sessions[sid] = SessionState()
     return {'ok': True}
@@ -83,7 +83,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     new_path = (request.workspace_path or '').strip()
     workspace_path_changed = bool(prev_path and prev_path != new_path)
     if workspace_path_changed:
-        cleanup_planner_graph_session(sess, request.session_id)
+        cleanup_staging_snapshot_session(sess, request.session_id)
         if prev_path:
             try:
                 invalidate_workspace_index_disk(prev_wid, Path(prev_path))

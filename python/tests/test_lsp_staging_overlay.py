@@ -36,7 +36,7 @@ def test_build_staging_workspace_overlay_prefers_planner_snapshot(staging_env) -
     snap = staging_env.staging_root.parent / 'planner_snap'
     snap.mkdir(parents=True)
     (snap / 'marker.txt').write_text('FROM_SNAPSHOT\n', encoding='utf-8')
-    session.active_planner_snapshot_root = str(snap.resolve())
+    session.active_staging_snapshot_root = str(snap.resolve())
 
     overlay_root, overlay_parent, err = sto.build_staging_workspace_overlay(
         session,

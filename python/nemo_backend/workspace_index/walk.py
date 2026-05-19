@@ -9,6 +9,7 @@ from pathlib import Path
 from nemo_backend.workspace_ignore import (
     get_workspace_ignore_rules_cached,
     should_ignore_workspace_entry,
+    workspace_expose_all_files,
 )
 from nemo_backend.workspace_ignore import SEARCH_SKIP_SUFFIXES
 
@@ -41,7 +42,7 @@ def iter_index_workspace_files(root: Path, *, max_files: int) -> Iterator[Path]:
             if should_ignore_workspace_entry(fn, rel_path, ignore_rules):
                 continue
             sfx = Path(fn).suffix.lower()
-            if sfx in _INDEX_SKIP_SUFFIXES:
+            if not workspace_expose_all_files() and sfx in _INDEX_SKIP_SUFFIXES:
                 continue
             count += 1
             yield rdir / fn
@@ -58,7 +59,7 @@ def is_indexable_workspace_relative_path(root: Path, rel_posix: str) -> bool:
     if should_ignore_workspace_entry(fn, rel, ignore_rules):
         return False
     sfx = Path(fn).suffix.lower()
-    if sfx in _INDEX_SKIP_SUFFIXES:
+    if not workspace_expose_all_files() and sfx in _INDEX_SKIP_SUFFIXES:
         return False
     candidate = (root / rel).resolve()
     try:

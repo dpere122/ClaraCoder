@@ -50,14 +50,6 @@
             </details>
           }
 
-          @if (row.assistant?.planner; as planner) {
-            @if (planner.steps.length > 0) {
-              <div class="d-flex mb-2 w-100">
-                <app-planner-tasks class="planner-row-card" [planner]="planner" />
-              </div>
-            }
-          }
-
           @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
           @if (auxPersisted.length > 0) {
             <div aria-live="polite">
@@ -185,13 +177,6 @@
               }
             }
           </div>
-        }
-        @if (livePlannerProgress(); as planner) {
-          @if (planner.steps.length > 0) {
-            <div class="d-flex mb-2 w-100">
-              <app-planner-tasks class="planner-row-card" [planner]="planner" />
-            </div>
-          }
         }
         @if (primaryStreamLiveText().length > 0) {
           <div class="streaming-primary-live" aria-live="polite">

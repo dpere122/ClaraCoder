@@ -123,6 +123,7 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
 
     assert 'notes.md' in out
     assert 'frobnitz' in out.lower() or 'handler' in out.lower()
+    assert 'no indexable workspace content' not in out
     assert 'read_staged_edit' in out
     assert 'diff_staged_edit_against_baseline' in out
     assert 'origin=workspace' in out

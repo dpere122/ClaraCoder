@@ -1,4 +1,4 @@
-"""Read-only workspace probes exposed only to the nested mutation router."""
+"""Read-only workspace path probes (existence / file vs directory)."""
 
 from __future__ import annotations
 

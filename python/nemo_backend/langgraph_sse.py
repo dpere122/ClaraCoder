@@ -18,7 +18,6 @@ from nemo_backend.agent_streaming import (
     is_meaningful_stream_delta,
     iter_read_tool_stream_sse,
     model_chunk_sse_line,
-    planner_progress_event,
     sse_line,
     sse_tool_finished,
     status_event,
@@ -381,11 +380,6 @@ def sse_lines_for_graph_event(
         return _on_tool_start(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'on_tool_end':
         return _on_tool_end(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
-    if et == 'planner_progress':
-        planner = data.get('planner')
-        if isinstance(planner, dict):
-            return [sse_line(planner_progress_event(planner))]
-        return []
     if et == 'outer_agent_brief':
         summary = data.get('summary')
         label = data.get('label')
@@ -429,6 +423,8 @@ def sse_lines_for_graph_event(
             exit_code = None
         excerpt_raw = data.get('output_excerpt')
         output_excerpt = excerpt_raw.strip() if isinstance(excerpt_raw, str) else ''
+        outcome_raw = data.get('outcome')
+        outcome = outcome_raw if outcome_raw in ('passed', 'failed') else None
         return [
             sse_line(
                 tool_exec_complete_event(
@@ -436,6 +432,7 @@ def sse_lines_for_graph_event(
                     label=label_out,
                     exit_code=exit_code,
                     output_excerpt=output_excerpt,
+                    outcome=outcome,
                 ),
             ),
         ]

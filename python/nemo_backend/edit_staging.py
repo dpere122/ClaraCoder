@@ -412,31 +412,31 @@ def copy_workspace_into_snapshot(workspace_root: Path, snapshot_root: Path) -> N
     copy_workspace_mirror(workspace_root, snapshot_root, rules_workspace=workspace_root)
 
 
-def begin_planner_graph_staging_session(session: object, session_id: str, workspace_root: Path) -> str:
-    """Reset planner-local staging state, then seed a fresh workspace snapshot for a new graph."""
+def begin_staging_snapshot_session(session: object, session_id: str, workspace_root: Path) -> str:
+    """Reset staging state, then seed a fresh workspace mirror for this session."""
     discard_all_session_stagings(session)
     setattr(session, 'test_run_materializations', {})
     clear_session_staging_dir(session_id)
 
-    graph_id = uuid.uuid4().hex[:12]
-    snapshot_root = graph_snapshot_root(session_id, graph_id)
+    snapshot_id = uuid.uuid4().hex[:12]
+    snapshot_root = graph_snapshot_root(session_id, snapshot_id)
     copy_workspace_into_snapshot(workspace_root, snapshot_root)
 
-    setattr(session, 'active_planner_graph_id', graph_id)
-    setattr(session, 'active_planner_snapshot_root', str(snapshot_root))
-    return graph_id
+    setattr(session, 'active_staging_snapshot_id', snapshot_id)
+    setattr(session, 'active_staging_snapshot_root', str(snapshot_root))
+    return snapshot_id
 
 
-def get_active_planner_snapshot_root(session: object) -> Path | None:
-    raw = str(getattr(session, 'active_planner_snapshot_root', '') or '').strip()
+def get_active_staging_snapshot_root(session: object) -> Path | None:
+    raw = str(getattr(session, 'active_staging_snapshot_root', '') or '').strip()
     if not raw:
         return None
     return Path(raw).resolve()
 
 
 def write_snapshot_file(session: object, relative_path: str, text: str, encoding: str, disk_newline: DiskNewline) -> None:
-    """Keep the active planner snapshot in sync with the latest approved or staged file content."""
-    snapshot_root = get_active_planner_snapshot_root(session)
+    """Keep the active workspace mirror in sync with the latest approved or staged file content."""
+    snapshot_root = get_active_staging_snapshot_root(session)
     if snapshot_root is None:
         return
     rel = relative_path.strip().replace('\\', '/')
@@ -448,8 +448,8 @@ def write_snapshot_file(session: object, relative_path: str, text: str, encoding
 
 
 def delete_snapshot_path(session: object, relative_path: str) -> None:
-    """Remove a path from the active planner snapshot when the real workspace deletes it."""
-    snapshot_root = get_active_planner_snapshot_root(session)
+    """Remove a path from the active workspace mirror when the real workspace deletes it."""
+    snapshot_root = get_active_staging_snapshot_root(session)
     if snapshot_root is None:
         return
     rel = relative_path.strip().replace('\\', '/')

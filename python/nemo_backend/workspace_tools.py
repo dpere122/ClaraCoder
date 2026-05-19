@@ -16,7 +16,7 @@ logger = logging.getLogger('nemo.tools.workspace')
 
 from langchain_core.tools import tool
 
-from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
+from nemo_backend.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
 from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
 from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
@@ -27,7 +27,9 @@ from nemo_backend.workspace_text_io import (
     write_file_to_disk,
 )
 from nemo_backend.workspace_ignore import (
+    WORKSPACE_CONTEXT_IGNORED_NAMES,
     get_workspace_ignore_rules_cached,
+    is_node_modules_bulk_listing_path,
     iter_workspace_search_files,
     should_ignore_workspace_entry,
 )
@@ -223,6 +225,14 @@ def list_workspace_directory(relative_path: str = '.') -> str:
     if not target.is_dir():
         raise ValueError(f'Path is not a directory: {relative_path}')
 
+    rel_display = '.' if target == root else target.relative_to(root).as_posix()
+    if is_node_modules_bulk_listing_path(rel_display):
+        return (
+            f'Directory: {rel_display}\n'
+            '[node_modules bulk listing disabled. Use `search_workspace` with a precise query '
+            '(and optional path segment in the query) to find packages or files inside dependencies.]'
+        )
+
     ignore_rules = get_workspace_ignore_rules_cached(root)
     entries = sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
     root_resolved = root.resolve()
@@ -241,7 +251,6 @@ def list_workspace_directory(relative_path: str = '.') -> str:
     if len(visible) > 200:
         lines.append('... [truncated]')
 
-    rel_display = '.' if target == root else target.relative_to(root).as_posix()
     return f'Directory: {rel_display}\n' + ('\n'.join(lines) if lines else '[empty]')
 
 
@@ -328,23 +337,36 @@ def _search_workspace_grep(
     limit: int,
     encoding: str,
 ) -> tuple[list[str], int] | None:
-    candidates: list[SearchCandidate] = []
-    path_by_display: dict[str, Path] = {}
-    for path in iter_workspace_search_files(root_resolved, ignore_rules):
-        rel_path = path.relative_to(root_resolved)
-        rel_command_path = str(rel_path)
-        rel_display = rel_path.as_posix()
-        candidates.append(SearchCandidate(command_path=rel_command_path, display_path=rel_display))
-        path_by_display[rel_display] = path
-    grep_matches = run_grep_line_search(
+    del ignore_rules
+    grep_matches = run_grep_workspace_recursive(
+        root_resolved,
         query,
-        candidates,
         max_matches=limit,
         encoding=encoding,
-        cwd=root_resolved,
+        exclude_dir_names=WORKSPACE_CONTEXT_IGNORED_NAMES,
     )
     if grep_matches is None:
-        return None
+        candidates: list[SearchCandidate] = []
+        path_by_display: dict[str, Path] = {}
+        for path in iter_workspace_search_files(root_resolved, get_workspace_ignore_rules_cached(root_resolved)):
+            rel_path = path.relative_to(root_resolved)
+            rel_command_path = str(rel_path)
+            rel_display = rel_path.as_posix()
+            candidates.append(SearchCandidate(command_path=rel_command_path, display_path=rel_display))
+            path_by_display[rel_display] = path
+        grep_matches = run_grep_line_search(
+            query,
+            candidates,
+            max_matches=limit,
+            encoding=encoding,
+            cwd=root_resolved,
+        )
+        if grep_matches is None:
+            return None
+    else:
+        path_by_display = {
+            match.display_path: root_resolved / match.display_path for match in grep_matches
+        }
 
     rendered: list[str] = []
     skipped = 0

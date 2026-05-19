@@ -79,7 +79,7 @@ class LangGraphWorkerOutcome:
 
 
 class NestedWorkerRunState(str, Enum):
-    """Structured result for one nested planner/router attempt."""
+    """Structured result for one nested worker attempt (legacy nested-router types)."""
 
     COMPLETED = 'completed'
     RETRY = 'retry'
@@ -90,7 +90,7 @@ class NestedWorkerRunState(str, Enum):
 
 @dataclass
 class NestedWorkerRunResult:
-    """Outcome returned by nested planner middleware for one or more attempts."""
+    """Outcome returned by nested worker middleware for one or more attempts (legacy)."""
 
     state: NestedWorkerRunState
     output_text: str

@@ -26,7 +26,6 @@ import type {
   LmStudioListModelsResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
-  PlannerProgress,
   PythonInterpreterListItem,
   TtsStreamPacket,
   Workspace,
@@ -74,6 +73,7 @@ declare global {
         label?: string,
         exitCode?: number | null,
         outputExcerpt?: string,
+        outcome?: 'passed' | 'failed',
       ) => void,
     ) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
@@ -87,9 +87,6 @@ declare global {
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
     onMessageHarnessCrystal?: (
       callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
-    ) => void;
-    onMessagePlanner?: (
-      callback: (event: unknown, conversationId: string, planner: PlannerProgress) => void,
     ) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
     onMessageAcceptCommand?: (

@@ -10,8 +10,8 @@ name with the existing ``python_dependency_tools`` / LSP read tools), plus **loc
 and **workspace pytest/smoke** tools shared with
 final project review (without ``approve_project_review`` / ``reject_project_review`` on the standard outer graph).
 
-**Nested executor** — router and specialist subgraphs bind create/update/delete tools in
-:mod:`nemo_backend.agents.orchestration.nested_pipeline`.
+When Editor and Auto-apply are both on, staging tools are replaced by direct workspace mutators
+(``apply_workspace_full_file``, ``replace_workspace_line_range``, optional ``replace_workspace_snippet``).
 
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
 ``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
@@ -32,6 +32,8 @@ from nemo_backend.delete_tool import (
 from nemo_backend.agents.specialists.review_tools import (
     FORMAT_STAGING_FILE_BLACK_NAME,
     FORMAT_STAGING_FILE_PRETTIER_NAME,
+    FORMAT_WORKSPACE_FILE_BLACK_NAME,
+    FORMAT_WORKSPACE_FILE_PRETTIER_NAME,
     REJECT_STAGED_WORKSPACE_EDIT_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
 )
@@ -57,7 +59,8 @@ from nemo_backend.lsp.tools import (
     PYTHON_LSP_READ_TOOLS,
 )
 from nemo_backend.staging_edit_tools import STAGING_TOOLS
-from nemo_backend.state import runtime_config
+from nemo_backend.domain import SessionState
+from nemo_backend.state import direct_workspace_edits_active, runtime_config
 from nemo_backend.workspace_tools import TOOLS, TOOL_MAP
 
 WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)
@@ -90,15 +93,25 @@ def merge_tools_replace_by_name(
 
 
 def staging_workspace_write_tools(edit_tools_strict: bool) -> list[Any]:
-    """Staged create/update tools for the outer agent and coding planner (snippet omitted when strict)."""
+    """Staged create/update tools for the outer agent (snippet omitted when strict)."""
     if edit_tools_strict:
         return list(STAGING_TOOLS[:-1])
     return list(STAGING_TOOLS)
 
 
-def hitl_diff_pause_tools() -> frozenset[str]:
+def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
     """Tool names that may emit a diff and require human review before the agent continues."""
-    names = {t.name for t in staging_workspace_write_tools(runtime_config.tools.edit_tools_strict)}
+    edit_strict = runtime_config.tools.edit_tools_strict
+    if direct:
+        from nemo_backend.edit_tool import edit_tools_for_strict
+
+        names = {t.name for t in edit_tools_for_strict(edit_strict)}
+        names.add(LSP_CREATE_PYTHON_FILE_NAME)
+        names.add(LSP_UPDATE_PYTHON_FILE_NAME)
+        names.add(FORMAT_WORKSPACE_FILE_BLACK_NAME)
+        names.add(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
+        return frozenset(names)
+    names = {t.name for t in staging_workspace_write_tools(edit_strict)}
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
     names.add(REJECT_STAGED_WORKSPACE_EDIT_NAME)
     names.add(FORMAT_STAGING_FILE_BLACK_NAME)
@@ -134,17 +147,21 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
 def worker_tools_and_map(
     apply_mode: bool,
     *,
+    session: SessionState | None = None,
     edit_tools_strict_override: bool | None = None,
 ) -> tuple[list[Any], dict[str, Any]]:
     """Tools for the outer Clara agent: reads; plus direct copy, staging writes, and Python LSP staging mutators when Editor is on.
 
-    ``edit_tools_strict_override`` — when set, drives :func:`staging_workspace_write_tools` instead of runtime Settings.
+    ``edit_tools_strict_override`` — when set, drives staged/direct write tools instead of runtime Settings.
+  When ``session`` is provided and Editor + Auto-apply are on, binds direct workspace mutators instead of staging.
     """
     tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
     mapping: dict[str, Any] = dict(TOOL_MAP)
     for tool_ in PYTHON_LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
     if apply_mode:
+        sess = session or SessionState()
+        direct = direct_workspace_edits_active(sess, apply_mode=apply_mode)
         tools.append(copy_workspace_files)
         mapping[copy_workspace_files.name] = copy_workspace_files
         tools.append(ensure_python_workspace_env_tool)
@@ -164,7 +181,12 @@ def worker_tools_and_map(
             if edit_tools_strict_override is not None
             else runtime_config.tools.edit_tools_strict
         )
-        edit_tools = staging_workspace_write_tools(edit_strict)
+        if direct:
+            from nemo_backend.edit_tool import edit_tools_for_strict
+
+            edit_tools = edit_tools_for_strict(edit_strict)
+        else:
+            edit_tools = staging_workspace_write_tools(edit_strict)
         tools.extend(edit_tools)
         for t in edit_tools:
             mapping[t.name] = t
@@ -188,7 +210,7 @@ def worker_tools_and_map(
             [
                 ('dependency_specialist', dependency_specialist_tools()[0]),
                 ('node_dependency_specialist', node_dependency_specialist_tools()[0]),
-                ('code_review_specialist', code_review_specialist_tools()[0]),
+                ('code_review_specialist', code_review_specialist_tools(direct=direct)[0]),
                 (
                     'outer_workspace_verification',
                     [run_workspace_pytest_tests, run_workspace_python_smoke_test],
@@ -196,4 +218,3 @@ def worker_tools_and_map(
             ],
         )
     return tools, mapping
-

@@ -2,7 +2,13 @@ import { dialog, ipcMain } from 'electron';
 import { promises as fs } from 'fs';
 import path = require('path');
 import { mainState } from '../../state';
+import { loadConfig } from '../../config/load-save';
+import {
+  WORKSPACE_CONTEXT_MAX_DEPTH,
+  WORKSPACE_CONTEXT_MAX_ENTRIES,
+} from '../../constants';
 import { buildWorkspaceTree } from '../../workspace/context-tree';
+import { loadWorkspaceIgnoreRules } from '../../workspace/ignore-rules';
 
 /**
  * Native folder picker, shallow listing, and recursive tree text for workspace UI.
@@ -34,7 +40,18 @@ export function registerFsIpc(): void {
 
   ipcMain.handle('read-directory-recursive', async (_event, dirPath: string) => {
     try {
-      return await buildWorkspaceTree(dirPath);
+      const config = await loadConfig();
+      const exposeAllWorkspaceFiles = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
+      const ignoreRules = exposeAllWorkspaceFiles ? [] : await loadWorkspaceIgnoreRules(dirPath);
+      return await buildWorkspaceTree(dirPath, '', 0, {
+        rootPath: dirPath,
+        maxDepth: WORKSPACE_CONTEXT_MAX_DEPTH,
+        maxEntries: WORKSPACE_CONTEXT_MAX_ENTRIES,
+        entriesWritten: 0,
+        truncated: false,
+        ignoreRules,
+        exposeAllWorkspaceFiles,
+      });
     } catch {
       return '';
     }

@@ -20,11 +20,11 @@ from nemo_backend.agents.specialists.review_tools import (
 )
 from nemo_backend.domain import EditStagingEntry, RuntimeToolsConfig
 from nemo_backend.edit_staging import (
-    begin_planner_graph_staging_session,
+    begin_staging_snapshot_session,
     copy_workspace_into_snapshot,
     discard_all_session_stagings,
     format_source_via_prettier,
-    get_active_planner_snapshot_root,
+    get_active_staging_snapshot_root,
     get_staging_root,
     is_code_review_extension,
     resolve_prettier_cli,
@@ -129,7 +129,7 @@ def test_format_source_via_prettier_runs_node_for_cjs_cli(monkeypatch, staging_e
 
 
 def test_copy_workspace_into_snapshot_skips_uncopyable_files(tmp_path, monkeypatch) -> None:
-    """Regression: one bad file under e.g. .venv must not abort plan_and_modify snapshot seed."""
+    """Regression: one bad file under e.g. .venv must not abort staging snapshot seed."""
     from shutil import copy2 as real_copy2
 
     from nemo_backend import edit_staging as edit_staging_mod
@@ -204,7 +204,7 @@ def test_stage_create_file_non_code_stages(staging_env) -> None:
 
 
 def test_general_edit_tool_goes_straight_to_diff_for_non_code(staging_env) -> None:
-    """Direct workspace edit tools apply to non-code paths only (code paths use plan_and_modify)."""
+    """Direct workspace edit tools apply to non-code paths only (code paths use staging)."""
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'notes.md').write_text('y=2\n', encoding='utf-8')
@@ -337,7 +337,7 @@ def test_stage_workspace_file_overwrite_allows_staged_only_new_file(staging_env)
     assert latest.temp_path == first_entry.temp_path
 
 
-def test_begin_planner_graph_staging_session_copies_workspace_snapshot(staging_env) -> None:
+def test_begin_staging_snapshot_session_copies_workspace_snapshot(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / '.gitignore').write_text('ignored_dir/\n', encoding='utf-8')
@@ -346,12 +346,12 @@ def test_begin_planner_graph_staging_session_copies_workspace_snapshot(staging_e
     (ws / 'ignored_dir').mkdir()
     (ws / 'ignored_dir' / 'secret.py').write_text('ignored = True\n', encoding='utf-8')
 
-    graph_id = begin_planner_graph_staging_session(session, 'test-staging-session', ws)
+    snapshot_id = begin_staging_snapshot_session(session, 'test-staging-session', ws)
 
-    snapshot_root = get_active_planner_snapshot_root(session)
-    assert graph_id == session.active_planner_graph_id
+    snapshot_root = get_active_staging_snapshot_root(session)
+    assert snapshot_id == session.active_staging_snapshot_id
     assert snapshot_root is not None
-    assert snapshot_root == Path(session.active_planner_snapshot_root).resolve()
+    assert snapshot_root == Path(session.active_staging_snapshot_root).resolve()
     assert (snapshot_root / 'pkg' / 'module.py').read_text(encoding='utf-8') == 'value = 1\n'
     assert not (snapshot_root / 'ignored_dir').exists()
 
@@ -361,7 +361,7 @@ def test_stage_workspace_file_overwrite_uses_active_snapshot_baseline(staging_en
     session = staging_env.session
     target = ws / 'baseline.py'
     target.write_text('value = 1\n', encoding='utf-8')
-    begin_planner_graph_staging_session(session, 'test-staging-session', ws)
+    begin_staging_snapshot_session(session, 'test-staging-session', ws)
     target.write_text('value = 999\n', encoding='utf-8')
 
     out = stage_workspace_file_overwrite.invoke(

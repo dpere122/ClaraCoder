@@ -24,6 +24,8 @@ export class DelegatedShellTerminalComponent {
   readonly runComplete = input(false);
   /** Exit code when known; omitted before complete or when the backend could not start the process. */
   readonly exitCode = input<number | null | undefined>(undefined);
+  /** Smoke-test verdict when a watch process was stopped after readiness/steady state. */
+  readonly outcome = input<'passed' | 'failed' | undefined>(undefined);
 
   private readonly terminalBody = viewChild<ElementRef<HTMLElement>>('terminalBody');
 
@@ -49,6 +51,13 @@ export class DelegatedShellTerminalComponent {
     if (!this.runComplete()) {
       return 'terminal-shell-badge terminal-shell-badge-running';
     }
+    const verdict = this.outcome();
+    if (verdict === 'passed') {
+      return 'terminal-shell-badge terminal-shell-badge-complete';
+    }
+    if (verdict === 'failed') {
+      return 'terminal-shell-badge terminal-shell-badge-error';
+    }
     const ec = this.exitCode();
     if (ec !== null && ec !== undefined && ec !== 0) {
       return 'terminal-shell-badge terminal-shell-badge-error';
@@ -59,6 +68,13 @@ export class DelegatedShellTerminalComponent {
   badgeText(): string {
     if (!this.runComplete()) {
       return 'Running';
+    }
+    const verdict = this.outcome();
+    if (verdict === 'passed') {
+      return 'Passed';
+    }
+    if (verdict === 'failed') {
+      return 'Failed';
     }
     const ec = this.exitCode();
     if (ec === null || ec === undefined) {

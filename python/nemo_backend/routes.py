@@ -82,6 +82,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             default_workspace_encoding=default_enc,
             default_workspace_newline=nl,
             allow_staging_overlay_commands=request.tools.allowStagingOverlayCommands,
+            expose_all_workspace_files=request.tools.exposeAllWorkspaceFiles,
         )
     else:
         tools_cfg = prev_tools

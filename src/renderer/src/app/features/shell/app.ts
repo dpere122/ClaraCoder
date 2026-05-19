@@ -10,24 +10,20 @@ import type {
   ConversationMeta,
   FileDiffPayload,
   LlmStatus,
-  PlannerProgress,
   StreamPart,
   Workspace,
 } from '@shared/index';
 import {
-  collapseExcessiveAssistantBlankLines,
   DEFAULT_KOKORO_TTS_VOICE,
   delegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
   findLlmModelLocation,
-  gemmaTemplateSanitizeActive,
   isMoeAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
   multiplexAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   READ_TOOL_PREVIEW_STREAM_TAG,
   resolveActiveLlmConnection,
-  stripAssistantChannelNoise,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   toolTrailStatusStreamTag,
   TTS_SPEECH_SPEED_DEFAULT,
@@ -137,6 +133,7 @@ function markToolExecStreamComplete(
   streamTag: string | undefined,
   exitCode: number | null | undefined,
   outputExcerpt?: string,
+  outcome?: 'passed' | 'failed',
 ): StreamPart[] {
   const t = streamTag?.trim();
   const next = parts.map((p) => ({ ...p }));
@@ -179,6 +176,7 @@ function markToolExecStreamComplete(
     text,
     runComplete: true,
     ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(outcome ? { outcome } : {}),
   };
   return next;
 }
@@ -233,7 +231,6 @@ export class App implements OnInit, OnDestroy {
    * LangChain ``usage_metadata``). Cleared when switching conversations; overrides heuristic estimates.
    */
   protected readonly measuredPromptTokens = signal<number | null>(null);
-  protected readonly livePlannerProgress = signal<PlannerProgress | null>(null);
   protected readonly settingsWindowOpen = signal(false);
   /** Main window zoom state (frameless window controls). */
   protected readonly windowMaximized = signal(false);
@@ -364,7 +361,6 @@ export class App implements OnInit, OnDestroy {
 
   private activeConversation: Conversation | null = null;
   private backgroundStreamParts = new Map<string, StreamPart[]>();
-  private backgroundPlannerProgress = new Map<string, PlannerProgress>();
   private resizing: 'workspace' | 'sidebar' | null = null;
   private boundOnResizeMove = this.onResizeMove.bind(this);
   private boundOnResizeEnd = this.onResizeEnd.bind(this);
@@ -498,8 +494,7 @@ export class App implements OnInit, OnDestroy {
           const next = appendStreamPart(prev, streamTag, delta);
           if (this.speechEnabled()) {
             const rawPrimary = primaryAssistantTextFromParts(next);
-            const sanitized = this.sanitizeAssistantTextForActiveModel(rawPrimary);
-            void this.tts.feedStreamingAssistantText(sanitized, this.selectedVoice(), this.ttsSpeechSpeed());
+            void this.tts.feedStreamingAssistantText(rawPrimary, this.selectedVoice(), this.ttsSpeechSpeed());
           }
           return next;
         });
@@ -533,25 +528,17 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
-    this.electron.toolExecComplete$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, streamTag, exitCode, outputExcerpt }) => {
+    this.electron.toolExecComplete$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, streamTag, exitCode, outputExcerpt, outcome }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) =>
-          markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt),
+          markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt, outcome),
         );
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
         this.backgroundStreamParts.set(
           conversationId,
-          markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt),
+          markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt, outcome),
         );
-      }
-    });
-
-    this.electron.planner$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, planner }) => {
-      if (conversationId === this.activeConversationId()) {
-        this.livePlannerProgress.set(planner);
-      } else {
-        this.backgroundPlannerProgress.set(conversationId, planner);
       }
     });
 
@@ -639,7 +626,6 @@ export class App implements OnInit, OnDestroy {
       this.removePending(conversationId);
       if (conversationId === this.activeConversationId()) {
         const parts = this.streamingParts();
-        const planner = this.livePlannerProgress();
         const toolStreamCandidates = delegatedStreamPartsForDisplay(parts, null).filter(
           (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
         );
@@ -652,27 +638,23 @@ export class App implements OnInit, OnDestroy {
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
-        this.livePlannerProgress.set(null);
-        this.backgroundPlannerProgress.delete(conversationId);
         let text = primaryAssistantTextFromParts(parts);
         if (
           !text.trim() &&
           (parts.length > 0 ||
-            planner != null ||
             (toolStreams?.length ?? 0) > 0 ||
             (moeStreams?.length ?? 0) > 0 ||
             (auxiliaryStreamTimeline?.length ?? 0) > 0)
         ) {
           text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
         }
-        text = this.sanitizeAssistantTextForActiveModel(text);
         if (
           text.trim() ||
           (toolStreams?.length ?? 0) > 0 ||
           (moeStreams?.length ?? 0) > 0 ||
           (auxiliaryStreamTimeline?.length ?? 0) > 0
         ) {
-          this.pushMessage('assistant', text, planner, toolStreams, moeStreams, auxiliaryStreamTimeline);
+          this.pushMessage('assistant', text, toolStreams, moeStreams, auxiliaryStreamTimeline);
           if (this.speechEnabled() && text.trim()) {
             void this.tts.flushStreamingAssistantText(text, this.selectedVoice(), this.ttsSpeechSpeed());
           }
@@ -683,8 +665,6 @@ export class App implements OnInit, OnDestroy {
       } else {
         const parts = this.backgroundStreamParts.get(conversationId) ?? [];
         this.backgroundStreamParts.delete(conversationId);
-        const planner = this.backgroundPlannerProgress.get(conversationId) ?? null;
-        this.backgroundPlannerProgress.delete(conversationId);
         const toolStreamCandidates = delegatedStreamPartsForDisplay(parts, null).filter(
           (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
         );
@@ -698,14 +678,12 @@ export class App implements OnInit, OnDestroy {
         if (
           !text.trim() &&
           (parts.length > 0 ||
-            planner != null ||
             (toolStreams?.length ?? 0) > 0 ||
             (moeStreams?.length ?? 0) > 0 ||
             (auxiliaryStreamTimeline?.length ?? 0) > 0)
         ) {
           text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
         }
-        text = this.sanitizeAssistantTextForActiveModel(text);
         if (
           text.trim() ||
           (toolStreams?.length ?? 0) > 0 ||
@@ -715,7 +693,6 @@ export class App implements OnInit, OnDestroy {
           void this.saveMessageToConversation(
             conversationId,
             text,
-            planner,
             toolStreams,
             moeStreams,
             auxiliaryStreamTimeline,
@@ -806,8 +783,6 @@ export class App implements OnInit, OnDestroy {
       this.tts.beginAssistantSpeechTurn();
     }
     this.streamingParts.set([]);
-    this.livePlannerProgress.set(null);
-    this.backgroundPlannerProgress.delete(convId);
     this.electron.sendMessage(
       convId,
       normalized,
@@ -827,7 +802,6 @@ export class App implements OnInit, OnDestroy {
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
     this.streamingParts.set([]);
-    this.livePlannerProgress.set(null);
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
     let themeToApply = config.noWorkspaceThemeId || 'dark';
@@ -1241,23 +1215,9 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  /** Strip channel noise (all models); extra blank-line collapse for Gemma-oriented connections. */
-  private sanitizeAssistantTextForActiveModel(text: string): string {
-    let t = stripAssistantChannelNoise(text);
-    const conn = this.activeLlmConnection();
-    if (
-      conn &&
-      gemmaTemplateSanitizeActive({ optimizationPreset: conn.optimizationPreset, model: conn.model })
-    ) {
-      t = collapseExcessiveAssistantBlankLines(t);
-    }
-    return t;
-  }
-
   private pushMessage(
     role: 'user' | 'assistant',
     text: string,
-    planner: PlannerProgress | null = null,
     toolStreams?: StreamPart[],
     moeStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
@@ -1268,7 +1228,6 @@ export class App implements OnInit, OnDestroy {
       nextMessage = { role, text };
     } else {
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
-      if (planner) assistant.planner = planner;
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
       if (moeStreams?.length) assistant.moeStreams = moeStreams;
       if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
@@ -1318,11 +1277,9 @@ export class App implements OnInit, OnDestroy {
       const bgParts = this.backgroundStreamParts.get(conv.id) ?? [];
       this.streamingParts.set(bgParts.length ? [...bgParts] : []);
       this.backgroundStreamParts.delete(conv.id);
-      this.livePlannerProgress.set(this.backgroundPlannerProgress.get(conv.id) ?? null);
     } else {
       this.streamingParts.set([]);
       this.backgroundStreamParts.delete(conv.id);
-      this.livePlannerProgress.set(null);
     }
 
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
@@ -1399,7 +1356,6 @@ export class App implements OnInit, OnDestroy {
   private async saveMessageToConversation(
     conversationId: string,
     text: string,
-    planner: PlannerProgress | null = null,
     toolStreams?: StreamPart[],
     moeStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
@@ -1411,7 +1367,6 @@ export class App implements OnInit, OnDestroy {
         const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
         const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
         const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
-        if (planner) assistant.planner = planner;
         if (toolStreams?.length) assistant.toolStreams = toolStreams;
         if (moeStreams?.length) assistant.moeStreams = moeStreams;
         if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;

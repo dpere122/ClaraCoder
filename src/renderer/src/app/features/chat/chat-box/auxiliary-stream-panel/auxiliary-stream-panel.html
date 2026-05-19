@@ -41,6 +41,7 @@
           [text]="part.text"
           [runComplete]="live() ? !!part.runComplete : true"
           [exitCode]="part.exitCode ?? null"
+          [outcome]="part.outcome"
         />
       } @else {
         <div class="streaming-delegated-block auxiliary-stream-panel__delegated">

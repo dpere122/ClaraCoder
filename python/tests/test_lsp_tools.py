@@ -16,7 +16,7 @@ from nemo_backend.lsp.manager import (
     shutdown_all_lsp_managers,
     sync_session_document,
 )
-from nemo_backend.planner_graph_session import prepare_new_planner_graph_session
+from nemo_backend.staging_snapshot_session import prepare_new_staging_snapshot_session
 from nemo_backend.lsp.tools import (
     lsp_find_definition,
     lsp_find_references,
@@ -192,15 +192,15 @@ def test_lsp_scope_switch_shuts_down_staging_manager_before_workspace_review(lsp
     assert workspace_manager is not staging_manager
 
 
-def test_prepare_new_planner_graph_session_resets_lsp_and_seeds_snapshot(lsp_env) -> None:
+def test_prepare_new_staging_snapshot_session_resets_lsp_and_seeds_snapshot(lsp_env) -> None:
     lsp_env.manager.sync_workspace_document('pkg/mod.py')
 
-    graph_id = prepare_new_planner_graph_session(lsp_env.session, lsp_env.session_id)
+    snapshot_id = prepare_new_staging_snapshot_session(lsp_env.session, lsp_env.session_id)
 
-    assert graph_id == lsp_env.session.active_planner_graph_id
+    assert snapshot_id == lsp_env.session.active_staging_snapshot_id
     assert lsp_env.session.lsp_diagnostics == {}
     assert lsp_env.session.lsp_workspace_root == ''
-    snapshot_root = Path(lsp_env.session.active_planner_snapshot_root)
+    snapshot_root = Path(lsp_env.session.active_staging_snapshot_root)
     assert snapshot_root.is_dir()
     assert (snapshot_root / 'pkg' / 'mod.py').read_text(encoding='utf-8') == 'value = "TODO"\nprint(value)\n'
 

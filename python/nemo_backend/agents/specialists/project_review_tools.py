@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -29,6 +30,7 @@ from nemo_backend.python_dependency_agent import (
     write_frozen_python_requirements_file_tool,
 )
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
+from nemo_backend.subprocess_smoke import SmokeOutputTracker, SmokeStopReason, wait_for_smoke_completion
 from nemo_backend.python_env import (
     _terminate_subprocess_tree,
     ensure_session_python_workspace_env,
@@ -103,6 +105,7 @@ async def _emit_project_review_tool_complete(
     label: str,
     exit_code: int | None,
     output_excerpt: str = '',
+    outcome: str | None = None,
 ) -> None:
     session = get_session(session_id)
     queue = session.planning_nested_events_q
@@ -116,6 +119,8 @@ async def _emit_project_review_tool_complete(
     excerpt = output_excerpt.strip()
     if excerpt:
         payload['output_excerpt'] = excerpt
+    if outcome in ('passed', 'failed'):
+        payload['outcome'] = outcome
     await queue.put((stream_tag, {'event': 'tool_exec_complete', 'data': payload}))
 
 
@@ -150,6 +155,7 @@ async def _pump_subprocess_stream(
     capture_chunks: list[str],
     stream_tag: str = _PYTEST_STREAM_TAG,
     label: str = _PYTEST_STREAM_LABEL,
+    on_text: Callable[[str], None] | None = None,
 ) -> None:
     if stream is None:
         return
@@ -159,6 +165,8 @@ async def _pump_subprocess_stream(
             break
         text = block.decode('utf-8', errors='replace')
         capture_chunks.append(text)
+        if on_text is not None:
+            on_text(text)
         rendered = f'{emit_prefix}{text}' if emit_prefix else text
         await _emit_project_review_chunk(session_id, rendered, stream_tag=stream_tag, label=label)
 
@@ -271,6 +279,9 @@ def _build_smoke_result(
     stdout_chunks: list[str],
     stderr_chunks: list[str],
     steady_state: bool,
+    readiness_detected: bool = False,
+    passed: bool | None = None,
+    failure_detail: str = '',
 ) -> str:
     stdout = ''.join(stdout_chunks)
     stderr = ''.join(stderr_chunks)
@@ -278,10 +289,16 @@ def _build_smoke_result(
     if stderr:
         combined = f'{combined}\n[stderr]\n{stderr}' if combined else f'[stderr]\n{stderr}'
     combined = combined.strip()
-    if steady_state:
+    if passed is None:
+        passed = exit_code == 0 if not steady_state else True
+    if steady_state and readiness_detected:
+        status = 'passed (dev server readiness detected)'
+    elif steady_state:
         status = 'passed (startup reached steady state)'
+    elif passed:
+        status = 'passed'
     else:
-        status = 'passed' if exit_code == 0 else 'failed'
+        status = 'failed'
     body = (
         'Workspace Python smoke-test summary:\n'
         f'- Command: `{python_executable} {entry_path}`\n'
@@ -289,6 +306,8 @@ def _build_smoke_result(
         f'- Result: {status}\n'
         f'- Exit code: {exit_code if exit_code is not None else "unknown"}\n'
     )
+    if failure_detail.strip():
+        body += f'- Failure signal: {failure_detail.strip()}\n'
     if combined:
         body += f'\nCaptured output:\n{combined}'
     return truncate_text_head_tail(body, 120_000)
@@ -557,6 +576,11 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
+    tracker = SmokeOutputTracker()
+
+    def _track_output(text: str) -> None:
+        tracker.feed(text)
+
     stdout_task = asyncio.create_task(
         _pump_subprocess_stream(
             proc.stdout,
@@ -565,6 +589,7 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             capture_chunks=stdout_chunks,
             stream_tag=_SMOKE_STREAM_TAG,
             label=_SMOKE_STREAM_LABEL,
+            on_text=_track_output,
         )
     )
     stderr_task = asyncio.create_task(
@@ -575,48 +600,30 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             capture_chunks=stderr_chunks,
             stream_tag=_SMOKE_STREAM_TAG,
             label=_SMOKE_STREAM_LABEL,
+            on_text=_track_output,
         )
     )
     wait_task = asyncio.create_task(proc.wait())
     abort_task = asyncio.create_task(session.abort_event.wait())
-    steady_state = False
-    exit_code: int | None = None
-    try:
-        done, _pending = await asyncio.wait(
-            {wait_task, abort_task},
-            timeout=3.0,
-            return_when=asyncio.FIRST_COMPLETED,
+
+    async def _emit_smoke_status(message: str) -> None:
+        await _emit_project_review_chunk(
+            sid,
+            message,
+            stream_tag=_SMOKE_STREAM_TAG,
+            label=_SMOKE_STREAM_LABEL,
         )
-        if wait_task in done:
-            exit_code = await wait_task
-        elif abort_task in done and session.abort_event.is_set():
-            await _emit_project_review_chunk(
-                sid,
-                '\n[workspace smoke test aborted by user]\n',
-                stream_tag=_SMOKE_STREAM_TAG,
-                label=_SMOKE_STREAM_LABEL,
-            )
-            await _terminate_process(proc)
-            await wait_task
-            replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
-            await _emit_project_review_tool_complete(
-                sid,
-                stream_tag=_SMOKE_STREAM_TAG,
-                label=_SMOKE_STREAM_LABEL,
-                exit_code=proc.returncode,
-                output_excerpt=replay,
-            )
-            return 'Aborted by user.'
-        else:
-            steady_state = True
-            await _emit_project_review_chunk(
-                sid,
-                '\n[workspace smoke test reached steady state; stopping process]\n',
-                stream_tag=_SMOKE_STREAM_TAG,
-                label=_SMOKE_STREAM_LABEL,
-            )
-            exit_code = await _terminate_process(proc)
-            await wait_task
+
+    try:
+        smoke_result = await wait_for_smoke_completion(
+            proc,
+            wait_task=wait_task,
+            abort_task=abort_task,
+            tracker=tracker,
+            terminate_fn=_terminate_process,
+            emit_status=_emit_smoke_status,
+            watch_mode=False,
+        )
     finally:
         if not abort_task.done():
             abort_task.cancel()
@@ -626,22 +633,38 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
                 pass
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
+    if smoke_result.stop_reason is SmokeStopReason.ABORTED:
+        replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+        await _emit_project_review_tool_complete(
+            sid,
+            stream_tag=_SMOKE_STREAM_TAG,
+            label=_SMOKE_STREAM_LABEL,
+            exit_code=smoke_result.exit_code,
+            output_excerpt=replay,
+            outcome='failed',
+        )
+        return 'Aborted by user.'
+
     replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_SMOKE_STREAM_TAG,
         label=_SMOKE_STREAM_LABEL,
-        exit_code=exit_code,
+        exit_code=smoke_result.exit_code,
         output_excerpt=replay,
+        outcome='passed' if smoke_result.passed else 'failed',
     )
     return _build_smoke_result(
-        exit_code=exit_code,
+        exit_code=smoke_result.exit_code,
         project_root_label=project_root_label,
         python_executable=python_executable,
         entry_path=rel_entry,
         stdout_chunks=stdout_chunks,
         stderr_chunks=stderr_chunks,
-        steady_state=steady_state,
+        steady_state=smoke_result.steady_state,
+        readiness_detected=smoke_result.readiness_detected,
+        passed=smoke_result.passed,
+        failure_detail=smoke_result.failure_detail,
     )
 
 
@@ -669,7 +692,7 @@ def reject_project_review(feedback: str) -> str:
         stash = (get_session(sid).last_project_review_subprocess_report or '').strip()
         if stash:
             body += (
-                '\n\nLast workspace test/smoke output (attached automatically for the coding planner):\n'
+                '\n\nLast workspace test/smoke output:\n'
                 f'{stash}'
             )
     return body

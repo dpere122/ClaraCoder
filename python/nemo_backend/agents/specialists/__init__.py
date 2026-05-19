@@ -1,1 +1,1 @@
-"""CRUD specialist tool lists and prompts for nested workspace routing."""
+"""Specialist tool surfaces bound on the outer Clara agent (staging review, dependencies, project review)."""

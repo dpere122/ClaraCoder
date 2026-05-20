@@ -9,7 +9,7 @@ app-llama-server-tile {
   border-radius: 6px;
   background: var(--bs-body-bg);
   max-width: 100%;
-  min-height: 11rem;
+  min-height: 16rem;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -86,7 +86,8 @@ app-llama-server-tile {
 }
 
 app-llama-crystal-view {
-  display: block;
-  flex: 1;
-  min-height: 5.5rem;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 12rem;
+  overflow: hidden;
 }

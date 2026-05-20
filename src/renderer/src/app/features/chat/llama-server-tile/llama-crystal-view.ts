@@ -27,48 +27,14 @@ import {
   expSmoothingAlpha,
   type LlamaCrystalAggregate,
 } from './llama-connection-display';
+import {
+  applyFractalMultiplyAnimation,
+  createHyperbolicOctahedronFractalAssembly,
+  type HyperbolicOctahedronFractalAssembly,
+  HYPERBOLIC_OCTAHEDRON_FRACTAL_NAME,
+} from './hyperbolic-octahedron-fractal';
 
 type ThreeModule = typeof import('three');
-
-/** White status disc with a subtle center cross for the Model Status viewport. */
-function createStatusCircleModel(T: ThreeModule): {
-  root: Group;
-  pulseMaterials: MeshStandardMaterial[];
-} {
-  const root = new T.Group();
-
-  const circleMat = new T.MeshStandardMaterial({
-    color: new T.Color(1, 1, 1),
-    metalness: 0.04,
-    roughness: 0.42,
-    emissive: new T.Color(0.94, 0.96, 0.98),
-    emissiveIntensity: 0.1,
-  });
-  circleMat.userData['emissiveScale'] = 1;
-
-  const crossMat = new T.MeshStandardMaterial({
-    color: new T.Color(0.82, 0.84, 0.88),
-    metalness: 0,
-    roughness: 0.55,
-    emissive: new T.Color(0.72, 0.74, 0.78),
-    emissiveIntensity: 0.03,
-  });
-  crossMat.userData['emissiveScale'] = 0.55;
-
-  const disc = new T.Mesh(new T.CircleGeometry(0.52, 64), circleMat);
-  root.add(disc);
-
-  const crossDepth = 0.012;
-  const crossThickness = 0.038;
-  const crossArm = 0.2;
-  const barV = new T.Mesh(new T.BoxGeometry(crossThickness, crossArm, crossDepth), crossMat);
-  const barH = new T.Mesh(new T.BoxGeometry(crossArm, crossThickness, crossDepth), crossMat);
-  barV.position.z = crossDepth * 0.55;
-  barH.position.z = crossDepth * 0.55;
-  root.add(barV, barH);
-
-  return { root, pulseMaterials: [circleMat, crossMat] };
-}
 
 @Component({
   selector: 'app-llama-crystal-view',
@@ -78,6 +44,9 @@ function createStatusCircleModel(T: ThreeModule): {
 })
 export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
+
+  /** Accessible label for the status fractal (Endless Design Lab style). */
+  protected readonly fractalName = HYPERBOLIC_OCTAHEDRON_FRACTAL_NAME;
 
   readonly aggregate = input<LlamaCrystalAggregate>('off');
   readonly recentOutput = input(false);
@@ -105,6 +74,8 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private clock: Clock | null = null;
   private rafId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  /** Fraction of the viewport the fractal should fill (width/height). */
+  private readonly viewFill = 0.96;
   private disposed = false;
   private shakeClearTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -112,8 +83,12 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
   private bobPhase = 0;
   private bobAmp = 0;
   private baseModelY = 0;
-  /** Smoothed emissive intensity for status-driven glow. */
-  private curEi = 0.5;
+  private fractalAssembly: HyperbolicOctahedronFractalAssembly | null = null;
+  /** 0 = single idle unit, 1 = full multiplied cluster. */
+  private fractalMultiplyProgress = 0;
+  private fractalMultiplyTarget = 0;
+  /** Smoothed base / emissive colors and intensity from aggregate state. */
+  private cur = { r: 0.78, g: 0.8, b: 0.82, er: 0.04, eg: 0.055, eb: 0.07, ei: 0.06 };
 
   constructor() {
     effect((onCleanup) => {
@@ -138,6 +113,10 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
           this.shakeClearTimer = null;
         }
       });
+    });
+
+    effect(() => {
+      this.fractalMultiplyTarget = this.isModelLoaded(this.aggregate()) ? 1 : 0;
     });
   }
 
@@ -194,8 +173,7 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     this.scene = new T.Scene();
     this.scene.background = null;
 
-    this.camera = new T.PerspectiveCamera(42, w / h, 0.01, 80);
-    this.camera.position.set(0.35, 0.55, 1.85);
+    this.camera = new T.PerspectiveCamera(32, w / h, 0.01, 80);
 
     this.renderer = new T.WebGLRenderer({
       canvas,
@@ -207,13 +185,19 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     this.renderer.setSize(w, h, false);
     this.renderer.outputColorSpace = T.SRGBColorSpace;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.88;
+    this.renderer.toneMappingExposure = 1.08;
 
-    const hemi: HemisphereLight = new T.HemisphereLight(0xffffff, 0x223344, 0.48);
+    const hemi: HemisphereLight = new T.HemisphereLight(0xf2f0ec, 0x4a4e58, 0.52);
     this.scene.add(hemi);
-    const dir: DirectionalLight = new T.DirectionalLight(0xffffff, 0.32);
-    dir.position.set(2, 4, 3);
-    this.scene.add(dir);
+    const key: DirectionalLight = new T.DirectionalLight(0xffffff, 0.58);
+    key.position.set(0.6, 2.8, 1.6);
+    this.scene.add(key);
+    const fill: DirectionalLight = new T.DirectionalLight(0xe4e8f0, 0.48);
+    fill.position.set(-1.4, -1.2, 1.8);
+    this.scene.add(fill);
+    const rim: DirectionalLight = new T.DirectionalLight(0xf8f8fa, 0.32);
+    rim.position.set(0.2, 0.4, -2.2);
+    this.scene.add(rim);
 
     this.resizeObserver = new ResizeObserver(() => {
       if (this.disposed || !this.renderer || !this.camera) {
@@ -224,6 +208,7 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       this.camera.aspect = rw / rh;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(rw, rh, false);
+      this.frameModelInView();
     });
     this.resizeObserver.observe(host);
 
@@ -231,33 +216,18 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       if (this.disposed) {
         return;
       }
-      const { root, pulseMaterials } = createStatusCircleModel(T);
-      this.modelRoot = root;
-      this.scene.add(this.modelRoot);
-
-      const box = new T.Box3().setFromObject(this.modelRoot);
-      const center = box.getCenter(new T.Vector3());
-      const size = box.getSize(new T.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z, 0.001);
-      this.modelRoot.position.sub(center);
-      this.baseModelY = this.modelRoot.position.y;
-      this.baseModelScale = 1;
-      this.modelScale = 1;
-      const dist = maxDim * 2.6;
-      this.camera.position.set(0, 0, dist);
-      this.camera.near = Math.max(0.001, dist / 200);
-      this.camera.far = dist * 20;
-      this.camera.updateProjectionMatrix();
-      this.camera.lookAt(0, 0, 0);
-
-      this.pulseMaterials = pulseMaterials;
-      for (const mat of this.pulseMaterials) {
-        mat.emissive = mat.emissive.clone();
-        mat.emissiveIntensity = Math.max(mat.emissiveIntensity ?? 0, 0.02);
-      }
+      this.mountFractalAssembly();
 
       const t0 = crystalVisualTargets(this.aggregate());
-      this.curEi = t0.emissiveIntensity;
+      this.cur = {
+        r: t0.baseRgb[0],
+        g: t0.baseRgb[1],
+        b: t0.baseRgb[2],
+        er: t0.emissiveRgb[0],
+        eg: t0.emissiveRgb[1],
+        eb: t0.emissiveRgb[2],
+        ei: t0.emissiveIntensity,
+      };
     } catch {
       if (!this.disposed) {
         this.loadError.set(true);
@@ -298,21 +268,31 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
         : 0;
     const targetEi = targets.emissiveIntensity + pulse;
 
+    const colorAlpha = expSmoothingAlpha(dt, 0.42);
     const emAlpha = expSmoothingAlpha(dt, 0.38);
-    this.curEi += (targetEi - this.curEi) * emAlpha;
+    this.cur.r += (targets.baseRgb[0] - this.cur.r) * colorAlpha;
+    this.cur.g += (targets.baseRgb[1] - this.cur.g) * colorAlpha;
+    this.cur.b += (targets.baseRgb[2] - this.cur.b) * colorAlpha;
+    this.cur.er += (targets.emissiveRgb[0] - this.cur.er) * emAlpha;
+    this.cur.eg += (targets.emissiveRgb[1] - this.cur.eg) * emAlpha;
+    this.cur.eb += (targets.emissiveRgb[2] - this.cur.eb) * emAlpha;
+    this.cur.ei += (targetEi - this.cur.ei) * emAlpha;
 
     for (const mat of this.pulseMaterials) {
       const emScale =
         typeof mat.userData['emissiveScale'] === 'number' ? (mat.userData['emissiveScale'] as number) : 1;
-      mat.emissiveIntensity = this.curEi * emScale;
+      mat.color.setRGB(this.cur.r, this.cur.g, this.cur.b);
+      mat.emissive.setRGB(this.cur.er, this.cur.eg, this.cur.eb);
+      mat.emissiveIntensity = Math.max(this.cur.ei * emScale, 0.09);
     }
 
     const llm = this.llmStreamActive();
     const serveOut = this.recentOutput();
     const dl = agg === 'modelDownload';
-    const modelLoaded = agg === 'ok' || agg === 'feedbackPositive' || agg === 'feedbackNegative';
-    const loadedSpin = modelLoaded ? 0.52 : 0;
-    const targetSpin = (dl ? 3.35 : 0) + loadedSpin + (serveOut ? 0.36 : 0) + (llm ? 0.62 : 0);
+    const modelLoaded = this.isModelLoaded(agg);
+    const loadedSpin = modelLoaded ? 0.68 : 0;
+    const embedSpin = this.embedLoaded() ? 0.42 : 0;
+    const targetSpin = (dl ? 3.35 : 0) + loadedSpin + embedSpin + (serveOut ? 0.36 : 0) + (llm ? 0.62 : 0);
     this.spinSpeed += (targetSpin - this.spinSpeed) * expSmoothingAlpha(dt, 0.28);
 
     let targetBob = 0;
@@ -330,16 +310,77 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     if (this.modelRoot) {
       this.modelRoot.position.y = this.baseModelY + Math.sin(this.bobPhase) * this.bobAmp;
       if (this.embedLoaded()) {
-        this.modelRoot.rotation.z = 0;
+        this.modelRoot.rotation.y += this.spinSpeed * dt * 0.5;
+        this.modelRoot.rotation.z *= 0.96;
       } else {
+        this.modelRoot.rotation.y += this.spinSpeed * dt * 0.72;
         this.modelRoot.rotation.z += this.spinSpeed * dt;
       }
-      const targetScale = this.embedLoaded() ? 1.1 : 1;
+      const targetScale = this.embedLoaded() ? 1.14 : 1;
       this.modelScale += (targetScale - this.modelScale) * expSmoothingAlpha(dt, 0.24);
       this.modelRoot.scale.setScalar(this.baseModelScale * this.modelScale);
     }
 
+    if (this.fractalAssembly) {
+      const expanding = this.fractalMultiplyTarget > this.fractalMultiplyProgress;
+      const progressAlpha = expSmoothingAlpha(dt, expanding ? 0.48 : 0.62);
+      this.fractalMultiplyProgress +=
+        (this.fractalMultiplyTarget - this.fractalMultiplyProgress) * progressAlpha;
+      applyFractalMultiplyAnimation(
+        this.fractalAssembly.idleUnit,
+        this.fractalAssembly.units,
+        this.fractalMultiplyProgress,
+      );
+      if (Math.abs(this.fractalMultiplyTarget - this.fractalMultiplyProgress) > 0.004) {
+        this.frameModelInView();
+      }
+    }
+
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private isModelLoaded(agg: LlamaCrystalAggregate): boolean {
+    return agg === 'ok' || agg === 'feedbackPositive' || agg === 'feedbackNegative';
+  }
+
+  private mountFractalAssembly(): void {
+    const T = this.three;
+    if (!T || !this.scene || this.disposed) {
+      return;
+    }
+
+    const prevRotationY = this.modelRoot?.rotation.y ?? 0;
+    const prevRotationZ = this.modelRoot?.rotation.z ?? 0;
+    this.disposeModel();
+
+    const assembly = createHyperbolicOctahedronFractalAssembly(T);
+    this.fractalAssembly = assembly;
+    this.modelRoot = assembly.root;
+    this.scene.add(this.modelRoot);
+
+    const box = new T.Box3().setFromObject(this.modelRoot);
+    const center = box.getCenter(new T.Vector3());
+    this.modelRoot.position.sub(center);
+    this.baseModelY = this.modelRoot.position.y;
+    this.baseModelScale = 1;
+    this.modelScale = 1;
+    this.modelRoot.rotation.y = prevRotationY;
+    this.modelRoot.rotation.z = prevRotationZ;
+
+    this.fractalMultiplyTarget = this.isModelLoaded(this.aggregate()) ? 1 : 0;
+    this.fractalMultiplyProgress = this.fractalMultiplyTarget;
+    applyFractalMultiplyAnimation(
+      assembly.idleUnit,
+      assembly.units,
+      this.fractalMultiplyProgress,
+    );
+    this.frameModelInView();
+
+    this.pulseMaterials = assembly.pulseMaterials;
+    for (const mat of this.pulseMaterials) {
+      mat.emissive = mat.emissive.clone();
+      mat.emissiveIntensity = Math.max(mat.emissiveIntensity ?? 0, 0.02);
+    }
   }
 
   private disposeModel(): void {
@@ -351,7 +392,7 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
     this.scene?.remove(this.modelRoot);
     const seenMats = new Set<unknown>();
     this.modelRoot.traverse((obj: Object3D) => {
-      if (T && obj instanceof T.Mesh) {
+      if (T && (obj instanceof T.Mesh || obj instanceof T.InstancedMesh)) {
         obj.geometry?.dispose();
         const mats = obj.material;
         const list = Array.isArray(mats) ? mats : [mats];
@@ -364,8 +405,31 @@ export class LlamaCrystalView implements AfterViewInit, OnDestroy {
       }
     });
     this.modelRoot = null;
+    this.fractalAssembly = null;
     this.pulseMaterials = [];
     this.baseModelScale = 1;
     this.modelScale = 1;
+    this.fractalMultiplyProgress = 0;
+    this.fractalMultiplyTarget = 0;
+  }
+
+  /** Frame camera so the fractal fills most of the status viewport. */
+  private frameModelInView(): void {
+    const T = this.three;
+    if (!T || !this.camera || !this.modelRoot) {
+      return;
+    }
+    const box = new T.Box3().setFromObject(this.modelRoot);
+    const size = box.getSize(new T.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+    const fovRad = (this.camera.fov * Math.PI) / 180;
+    const distV = maxDim / (2 * Math.tan(fovRad / 2));
+    const distH = maxDim / (2 * Math.tan(fovRad / 2) * this.camera.aspect);
+    const dist = Math.max(distV, distH) / this.viewFill;
+    this.camera.position.set(0, maxDim * 0.04, dist);
+    this.camera.near = Math.max(0.001, dist / 200);
+    this.camera.far = dist * 20;
+    this.camera.updateProjectionMatrix();
+    this.camera.lookAt(0, 0, 0);
   }
 }

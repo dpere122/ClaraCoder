@@ -47,38 +47,51 @@
 }
 
 .llama-crystal-fallback {
+  --llama-crystal-tint: rgb(255 255 255 / 0%);
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   border-radius: 4px;
   opacity: 0.92;
+  background:
+    linear-gradient(var(--llama-crystal-tint), var(--llama-crystal-tint)),
+    linear-gradient(90deg, transparent calc(50% - 1px), rgb(0 0 0 / 14%) calc(50% - 1px), rgb(0 0 0 / 14%) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(transparent calc(50% - 1px), rgb(0 0 0 / 14%) calc(50% - 1px), rgb(0 0 0 / 14%) calc(50% + 1px), transparent calc(50% + 1px)),
+    radial-gradient(circle at 50% 50%, #fff 0%, #fff 38%, #f4f5f7 62%, #e8eaee 100%);
+  background-size:
+    100% 100%,
+    min(42%, 5.5rem) min(42%, 5.5rem),
+    min(42%, 5.5rem) min(42%, 5.5rem),
+    min(72%, 9rem) min(72%, 9rem);
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .llama-crystal-fallback[data-state='off'] {
-  background: radial-gradient(circle at 40% 35%, #5a6a78 0%, #2a3238 72%);
+  --llama-crystal-tint: rgb(120 132 144 / 18%);
 }
 
 .llama-crystal-fallback[data-state='loading'] {
-  background: radial-gradient(circle at 42% 38%, #e8c45c 0%, #6a4a12 75%);
+  --llama-crystal-tint: rgb(232 196 92 / 22%);
 }
 
 .llama-crystal-fallback[data-state='modelDownload'] {
-  background: radial-gradient(circle at 40% 36%, #6ec8f0 0%, #1a3d5c 78%);
+  --llama-crystal-tint: rgb(110 200 240 / 24%);
 }
 
 .llama-crystal-fallback[data-state='ok'] {
-  background: radial-gradient(circle at 38% 32%, #5ed4b0 0%, #1a4a3c 78%);
+  --llama-crystal-tint: rgb(94 212 176 / 20%);
 }
 
 .llama-crystal-fallback[data-state='error'] {
-  background: radial-gradient(circle at 40% 36%, #f06678 0%, #4a1820 76%);
+  --llama-crystal-tint: rgb(240 102 120 / 24%);
 }
 
 .llama-crystal-fallback[data-state='feedbackPositive'] {
-  background: radial-gradient(circle at 38% 34%, #3ee8a8 0%, #0d4a38 78%);
+  --llama-crystal-tint: rgb(62 232 168 / 22%);
 }
 
 .llama-crystal-fallback[data-state='feedbackNegative'] {
-  background: radial-gradient(circle at 40% 36%, #d888f0 0%, #3a1848 76%);
+  --llama-crystal-tint: rgb(216 136 240 / 22%);
 }

@@ -46,7 +46,7 @@ import {
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog';
-import { unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
+import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
 import { FontControl } from '../../layout/font-control/font-control';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
@@ -359,6 +359,9 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected async selectWorkspace(id: string | null): Promise<void> {
+    const config = await this.electron.loadConfig();
+    const fromWorkspaceId = config.currentWorkspaceId;
+
     const unsaved = await this.electron.getWorkspaceMonacoUnsavedPaths();
     if (unsaved.length > 0) {
       const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
@@ -366,6 +369,16 @@ export class Settings implements OnInit, OnDestroy {
         return;
       }
     }
+
+    const pending = await this.electron.getPendingStreamIdsForWorkspace(fromWorkspaceId);
+    if (pending.length > 0) {
+      const proceed = await this.themedConfirm.open(activeStreamWorkspaceSwitchPrompt(pending.length));
+      if (!proceed) {
+        return;
+      }
+      await this.electron.abortPendingStreamsForWorkspace(fromWorkspaceId);
+    }
+
     await this.electron.setCurrentWorkspace(id);
   }
 

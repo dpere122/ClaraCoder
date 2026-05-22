@@ -121,6 +121,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMessageHarnessCrystal: (
     callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
   ) => ipcRenderer.on('message-harness-crystal', callback),
+  onMessageFinalText: (callback: (event: unknown, conversationId: string, text: string) => void) =>
+    ipcRenderer.on('message-final-text', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
   onMessageAcceptCommand: (
@@ -138,6 +140,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     applyMode?: boolean,
     autoApplyMode?: boolean,
     structuredContent?: Record<string, unknown>[],
+    workspaceId?: string | null,
   ) =>
     ipcRenderer.send(
       'message',
@@ -146,8 +149,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       applyMode ?? true,
       autoApplyMode ?? false,
       structuredContent,
+      workspaceId ?? null,
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
+  getPendingStreamIdsForWorkspace: (workspaceId: string | null) =>
+    ipcRenderer.invoke('get-pending-stream-ids-for-workspace', workspaceId),
+  abortPendingStreamsForWorkspace: (workspaceId: string | null) =>
+    ipcRenderer.invoke('abort-pending-streams-for-workspace', workspaceId),
   agentContinue: (
     conversationId: string,
     note: string,

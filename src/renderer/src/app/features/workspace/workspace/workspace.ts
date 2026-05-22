@@ -51,6 +51,25 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly loadError = signal('');
   protected readonly lastWorkspaceChange = signal<string>('');
 
+  /** Currently selected node path (keyboard/click selection, distinct from open file). */
+  protected readonly selectedPath = signal<string | null>(null);
+
+  /** Computed absolute path of the active file for tree highlighting. */
+  protected readonly activeFileAbsolutePath = computed(() => {
+    const rel = this.activeFileRelativePath();
+    if (!rel) {
+      return null;
+    }
+    const wsId = this.currentWorkspaceId();
+    const ws = this.workspaces().find((w) => w.id === wsId);
+    if (!ws?.path) {
+      return null;
+    }
+    const root = normalizePathSlashes(ws.path);
+    const normRel = normalizePathSlashes(rel);
+    return root.endsWith('/') ? root + normRel : root + '/' + normRel;
+  });
+
   protected readonly contextMenuVisible = signal(false);
   protected readonly contextMenuX = signal(0);
   protected readonly contextMenuY = signal(0);
@@ -99,6 +118,10 @@ export class WorkspaceComponent implements OnDestroy {
   private renameBlurTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCreateSkipBlurCancel = false;
   private lastEffectWorkspaceId: string | null | undefined = undefined;
+  /** Track last revealed path to avoid redundant reveals. */
+  private lastRevealedAbsolutePath: string | null = null;
+  /** Flag to prevent reveal during initial tree load. */
+  private initialLoadComplete = false;
 
   constructor(protected electron: ElectronService) {
     effect(() => {
@@ -107,9 +130,25 @@ export class WorkspaceComponent implements OnDestroy {
       if (this.lastEffectWorkspaceId !== undefined && this.lastEffectWorkspaceId !== (wsId ?? null)) {
         this.cancelInlineRename();
         this.cancelPendingCreate();
+        this.lastRevealedAbsolutePath = null;
+        this.initialLoadComplete = false;
+        this.selectedPath.set(null);
       }
       this.lastEffectWorkspaceId = wsId ?? null;
       void this.loadWorkspaceFromConfig(wsId, workspaces);
+    });
+
+    effect(() => {
+      const absPath = this.activeFileAbsolutePath();
+      const tree = this.flatTree();
+      if (!absPath || !this.initialLoadComplete || tree.length === 0) {
+        return;
+      }
+      if (absPath === this.lastRevealedAbsolutePath) {
+        return;
+      }
+      this.lastRevealedAbsolutePath = absPath;
+      void this.revealPath(absPath);
     });
 
     effect(() => {
@@ -190,6 +229,9 @@ export class WorkspaceComponent implements OnDestroy {
     const ws = this.workspaces().find(w => w.id === this.currentWorkspaceId());
     return ws?.name ?? 'No workspace';
   }
+
+  /** Expose path normalizer to template for active file comparison. */
+  protected normalizePathSlashes = normalizePathSlashes;
 
   onWorkspaceSelectChange(event: Event): void {
     const select = event.target as HTMLSelectElement;
@@ -329,6 +371,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (!ws?.path) {
       return;
     }
+    this.selectedPath.set(node.path);
     const targetDir = node.isDirectory ? node.path : parentDirectoryPath(node.path);
     this.openContextMenuAt(event.clientX, event.clientY, targetDir, node);
   }
@@ -676,6 +719,7 @@ export class WorkspaceComponent implements OnDestroy {
       this.loadError.set('');
       this.lastWorkspaceChange.set('');
       this.rebuildFlat();
+      this.initialLoadComplete = false;
       return;
     }
 
@@ -692,11 +736,13 @@ export class WorkspaceComponent implements OnDestroy {
       }));
       this.loadError.set('');
       this.rebuildFlat();
+      this.initialLoadComplete = true;
     } catch {
       if (requestId !== this.loadRequestId) return;
       this.tree = [];
       this.loadError.set('Unable to read this workspace. It may be missing or inaccessible.');
       this.rebuildFlat();
+      this.initialLoadComplete = false;
     }
   }
 
@@ -717,6 +763,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.inlineRenamePath() === node.path) {
       return;
     }
+    this.selectedPath.set(node.path);
     if (!node.isDirectory) {
       return;
     }
@@ -730,10 +777,133 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.inlineRenamePath() === node.path) {
       return;
     }
+    this.selectedPath.set(node.path);
     if (node.isDirectory) {
       return;
     }
     this.workspaceFileOpen.emit({ absolutePath: node.path });
+  }
+
+  onTreeKeydown(event: KeyboardEvent): void {
+    const flat = this.flatTree();
+    if (flat.length === 0) {
+      return;
+    }
+
+    const currentSelected = this.selectedPath();
+    let currentIndex = currentSelected ? flat.findIndex((n) => n.path === currentSelected) : -1;
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        if (currentIndex < flat.length - 1) {
+          this.selectedPath.set(flat[currentIndex + 1].path);
+          this.scrollToSelectedNode();
+        } else if (currentIndex === -1 && flat.length > 0) {
+          this.selectedPath.set(flat[0].path);
+          this.scrollToSelectedNode();
+        }
+        break;
+
+      case 'ArrowUp':
+        event.preventDefault();
+        if (currentIndex > 0) {
+          this.selectedPath.set(flat[currentIndex - 1].path);
+          this.scrollToSelectedNode();
+        } else if (currentIndex === -1 && flat.length > 0) {
+          this.selectedPath.set(flat[flat.length - 1].path);
+          this.scrollToSelectedNode();
+        }
+        break;
+
+      case 'ArrowRight':
+        event.preventDefault();
+        if (currentIndex >= 0) {
+          const node = flat[currentIndex];
+          if (node.isDirectory) {
+            if (!node.expanded) {
+              void this.toggleFolder(node);
+            } else if (currentIndex < flat.length - 1) {
+              this.selectedPath.set(flat[currentIndex + 1].path);
+              this.scrollToSelectedNode();
+            }
+          }
+        }
+        break;
+
+      case 'ArrowLeft':
+        event.preventDefault();
+        if (currentIndex >= 0) {
+          const node = flat[currentIndex];
+          if (node.isDirectory && node.expanded) {
+            void this.toggleFolder(node);
+          } else {
+            const parentPath = this.findParentPath(node.path);
+            if (parentPath) {
+              this.selectedPath.set(parentPath);
+              this.scrollToSelectedNode();
+            }
+          }
+        }
+        break;
+
+      case 'Enter':
+        event.preventDefault();
+        if (currentIndex >= 0) {
+          const node = flat[currentIndex];
+          if (node.isDirectory) {
+            void this.toggleFolder(node);
+          } else {
+            this.workspaceFileOpen.emit({ absolutePath: node.path });
+          }
+        }
+        break;
+
+      case 'Home':
+        event.preventDefault();
+        if (flat.length > 0) {
+          this.selectedPath.set(flat[0].path);
+          this.scrollToSelectedNode();
+        }
+        break;
+
+      case 'End':
+        event.preventDefault();
+        if (flat.length > 0) {
+          this.selectedPath.set(flat[flat.length - 1].path);
+          this.scrollToSelectedNode();
+        }
+        break;
+    }
+  }
+
+  private findParentPath(childPath: string): string | null {
+    const flat = this.flatTree();
+    const childIndex = flat.findIndex((n) => n.path === childPath);
+    if (childIndex <= 0) {
+      return null;
+    }
+
+    const childDepth = flat[childIndex].depth;
+    for (let i = childIndex - 1; i >= 0; i--) {
+      if (flat[i].depth < childDepth && flat[i].isDirectory) {
+        return flat[i].path;
+      }
+    }
+    return null;
+  }
+
+  private scrollToSelectedNode(): void {
+    const selected = this.selectedPath();
+    if (!selected) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`app-workspace .tree-node[data-path="${CSS.escape(selected)}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
   }
 
   async toggleFolder(node: FlatNode): Promise<void> {
@@ -839,6 +1009,90 @@ export class WorkspaceComponent implements OnDestroy {
     }
 
     this.rebuildFlat();
+  }
+
+  /**
+   * Expand all ancestor folders to reveal a file at the given absolute path,
+   * then scroll the file into view.
+   */
+  async revealPath(absolutePath: string): Promise<void> {
+    const wsId = this.currentWorkspaceId();
+    const ws = this.workspaces().find((w) => w.id === wsId);
+    if (!ws?.path) {
+      return;
+    }
+
+    const normalizedTarget = normalizePathSlashes(absolutePath);
+    const normalizedRoot = normalizePathSlashes(ws.path);
+
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      return;
+    }
+
+    const relativePart = normalizedTarget.slice(normalizedRoot.length).replace(/^\//, '');
+    if (!relativePart) {
+      return;
+    }
+
+    const segments = relativePart.split('/').filter((s) => s.length > 0);
+    if (segments.length === 0) {
+      return;
+    }
+
+    let currentPath = normalizedRoot;
+    for (let i = 0; i < segments.length - 1; i++) {
+      currentPath = currentPath + '/' + segments[i];
+      const node = this.findNodeByNormalizedPath(this.tree, currentPath);
+      if (!node || !node.isDirectory) {
+        break;
+      }
+
+      if (!node.expanded) {
+        if (node.children === null) {
+          try {
+            const entries = await this.electron.readDirectory(node.path);
+            node.children = entries.map((entry) => ({
+              name: entry.name,
+              path: entry.path,
+              isDirectory: entry.isDirectory,
+              expanded: false,
+              children: entry.isDirectory ? null : [],
+              depth: node.depth + 1,
+            }));
+          } catch {
+            node.children = [];
+          }
+        }
+        node.expanded = true;
+      }
+    }
+
+    this.rebuildFlat();
+    this.scrollToPath(absolutePath);
+  }
+
+  private findNodeByNormalizedPath(nodes: FileNode[], normalizedPath: string): FileNode | null {
+    for (const n of nodes) {
+      if (normalizePathSlashes(n.path) === normalizedPath) {
+        return n;
+      }
+      if (n.children) {
+        const found = this.findNodeByNormalizedPath(n.children, normalizedPath);
+        if (found) {
+          return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  private scrollToPath(absolutePath: string): void {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`app-workspace .tree-node[data-path="${CSS.escape(absolutePath)}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
   }
 
   private describeWorkspaceChange(event: { paths: string[]; kinds: WorkspaceChangeKind[] }): string {

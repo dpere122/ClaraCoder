@@ -17,6 +17,7 @@ import { isMoeAuxiliaryStreamTag, isShellStyleToolStreamTag, isToolTrailStatusSt
 import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/delegated-shell-terminal';
 
 export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
+export const PERSISTED_AUXILIARY_STREAM_PANEL_TITLE = 'Response details';
 
 @Component({
   selector: 'app-auxiliary-stream-panel',

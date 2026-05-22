@@ -92,6 +92,12 @@ app-workspace .workspace-icon-btn lucide-icon {
 app-workspace .file-tree {
   flex: 1;
   overflow-y: auto;
+  outline: none;
+}
+
+app-workspace .file-tree:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: -1px;
 }
 
 app-workspace .workspace-interpreter-footer {
@@ -196,13 +202,9 @@ app-workspace .tree-node {
   padding: 0.25rem 0.5rem;
   font-size: 0.78rem;
   color: var(--t-secondary);
-  cursor: default;
+  cursor: pointer;
   user-select: none;
   transition: background-color 0.1s;
-}
-
-app-workspace .tree-node.is-directory {
-  cursor: pointer;
 }
 
 app-workspace .tree-node.is-renaming {
@@ -235,6 +237,28 @@ app-workspace .tree-node-rename-input:focus {
 
 app-workspace .tree-node:hover {
   background-color: var(--t-hover-bg);
+}
+
+app-workspace .tree-node.is-selected {
+  background-color: var(--t-hover-bg);
+  outline: 1px solid var(--t-border);
+  outline-offset: -1px;
+}
+
+app-workspace .tree-node.is-active {
+  background-color: var(--t-hover-bg);
+  border-left: 2px solid var(--t-primary);
+  padding-left: calc(0.5rem - 2px);
+}
+
+app-workspace .tree-node.is-active .node-name {
+  color: var(--t-primary);
+  font-weight: 500;
+}
+
+app-workspace .tree-node.is-selected.is-active {
+  outline: 1px solid var(--t-primary);
+  outline-offset: -1px;
 }
 
 app-workspace .node-chevron {

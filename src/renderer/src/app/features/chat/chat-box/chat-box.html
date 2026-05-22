@@ -186,7 +186,7 @@
             }
           </div>
         }
-        @if (liveAuxiliaryTimeline().length > 0) {
+        @if (showLiveAuxiliaryPanel()) {
           <div aria-live="polite">
             <app-auxiliary-stream-panel
               [parts]="liveAuxiliaryTimeline()"

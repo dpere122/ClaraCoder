@@ -79,6 +79,33 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
   } = opts;
   const disposables: Monaco.IDisposable[] = [];
 
+  disposables.push(
+    api.editor.registerEditorOpener({
+      openCodeEditor: (_source, resource, selectionOrPosition) => {
+        if (resource.scheme !== 'clara-workspace') {
+          return false;
+        }
+        const rel = decodeURI(resource.path.replace(/^\/+/, ''));
+        if (!rel) {
+          return false;
+        }
+        let line = 1;
+        let column = 1;
+        if (selectionOrPosition) {
+          if ('startLineNumber' in selectionOrPosition) {
+            line = selectionOrPosition.startLineNumber;
+            column = selectionOrPosition.startColumn;
+          } else if ('lineNumber' in selectionOrPosition) {
+            line = selectionOrPosition.lineNumber;
+            column = selectionOrPosition.column;
+          }
+        }
+        onNavigateToWorkspaceFile({ relativePath: rel, line, column });
+        return true;
+      },
+    }),
+  );
+
   const legends: Record<string, Monaco.languages.SemanticTokensLegend> = {};
   const init = initialSemanticLegends ?? {};
   for (const key of Object.keys(init)) {
@@ -137,24 +164,10 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (neededSync) {
             markMonacoModelLspDocumentSynced(model);
           }
-          const cur = normalizePathSlashes(getWorkspaceRelativePathForModel(model) ?? '');
-          const mapped = res.locations.map((loc) => ({
+          return res.locations.map((loc) => ({
             uri: api.Uri.parse(`clara-workspace:///${encodeURI(normalizePathSlashes(loc.relativePath))}`),
             range: wireRange(api, loc.range),
           }));
-          if (mapped.length === 1) {
-            const target = normalizePathSlashes(res.locations[0].relativePath);
-            if (target && target !== cur) {
-              const r = res.locations[0].range;
-              onNavigateToWorkspaceFile({
-                relativePath: target,
-                line: r.startLineNumber,
-                column: r.startColumn,
-              });
-              return null;
-            }
-          }
-          return mapped;
         },
       }),
     );

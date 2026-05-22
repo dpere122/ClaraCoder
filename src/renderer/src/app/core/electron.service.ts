@@ -212,6 +212,7 @@ export class ElectronService {
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
+  private readonly finalTextSubject = new Subject<{ conversationId: string; text: string }>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
@@ -244,6 +245,8 @@ export class ElectronService {
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
+  /** Final assistant text (clean, without intermediate briefs) sent by the backend at stream end. */
+  readonly finalText$ = this.finalTextSubject.asObservable();
   /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
@@ -366,6 +369,9 @@ export class ElectronService {
         }),
       );
     });
+    this.api?.onMessageFinalText?.((_event, conversationId, text) => {
+      this.zone.run(() => this.finalTextSubject.next({ conversationId, text }));
+    });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
     });
@@ -444,6 +450,7 @@ export class ElectronService {
     applyMode = true,
     autoApplyMode = false,
     structuredContent?: readonly ChatStructuredContentPart[],
+    workspaceId?: string | null,
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -451,6 +458,7 @@ export class ElectronService {
       applyMode,
       autoApplyMode,
       structuredContent ? [...structuredContent] : undefined,
+      workspaceId ?? null,
     );
   }
 
@@ -458,6 +466,17 @@ export class ElectronService {
     return (
       this.api?.abortMessage(conversationId) ??
       Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  getPendingStreamIdsForWorkspace(workspaceId: string | null): Promise<string[]> {
+    return this.api?.getPendingStreamIdsForWorkspace(workspaceId) ?? Promise.resolve([]);
+  }
+
+  abortPendingStreamsForWorkspace(workspaceId: string | null): Promise<{ aborted: string[] }> {
+    return (
+      this.api?.abortPendingStreamsForWorkspace(workspaceId) ??
+      Promise.resolve({ aborted: [] })
     );
   }
 

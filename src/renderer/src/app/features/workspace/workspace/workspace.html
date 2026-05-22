@@ -22,7 +22,12 @@
 
   <div class='workspace-body'>
     @if (currentWorkspaceId()) {
-      <div class='file-tree' (contextmenu)='onFileTreePaneContextMenu($event)'>
+      <div
+        class='file-tree'
+        tabindex='0'
+        (contextmenu)='onFileTreePaneContextMenu($event)'
+        (keydown)='onTreeKeydown($event)'
+      >
         @if (lastWorkspaceChange()) {
           <p class='workspace-change-indicator'>Updated: {{ lastWorkspaceChange() }}</p>
         }
@@ -57,6 +62,9 @@
             <div
               class='tree-node'
               [class.is-renaming]='inlineRenamePath() === node.path'
+              [class.is-active]='activeFileAbsolutePath() && normalizePathSlashes(node.path) === activeFileAbsolutePath()'
+              [class.is-selected]='selectedPath() === node.path'
+              [attr.data-path]='node.path'
               [style.padding-left.rem]='0.5 + node.depth * 1'
               [class.is-directory]='node.isDirectory'
               (click)='onTreeNodeClick(node)'

@@ -101,6 +101,11 @@ async def stream_agent_reply(
             session.history.append({'role': 'user', 'content': user_message})
             session.history.append({'role': 'assistant', 'content': graph_outcome.best_available_text()})
 
+        # Send the final text (clean, without intermediate briefs) to the frontend
+        final_text = graph_outcome.final_text.strip()
+        if final_text:
+            yield sse_line({'type': 'final_text', 'text': final_text})
+
         yield 'data: [DONE]\n\n'
     except Exception as exc:
         try:

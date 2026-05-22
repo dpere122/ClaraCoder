@@ -30,7 +30,8 @@ export type ParsedAgentStreamPayload =
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
-  | { type: 'harness_crystal'; polarity: 'positive' | 'negative' };
+  | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
+  | { type: 'final_text'; text: string };
 
 type RawAgentStreamPayload = {
   type?: string;
@@ -172,6 +173,13 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       const pol = parsed.polarity;
       if (pol === 'positive' || pol === 'negative') {
         return { type: 'harness_crystal', polarity: pol };
+      }
+    }
+
+    if (parsed.type === 'final_text') {
+      const text = (parsed as { text?: string }).text;
+      if (typeof text === 'string') {
+        return { type: 'final_text', text };
       }
     }
   } catch {

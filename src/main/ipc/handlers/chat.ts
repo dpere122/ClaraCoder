@@ -8,6 +8,41 @@ import { mainState } from '../../state';
 
 /** Per-conversation abort controllers so the renderer can cancel an in-flight stream. */
 const streamAbortControllers = new Map<string, AbortController>();
+/** Workspace id for each active stream (used by settings window leave guards). */
+const streamWorkspaceByConversationId = new Map<string, string | null>();
+
+function conversationWorkspaceMatches(
+  conversationWorkspaceId: string | null | undefined,
+  workspaceId: string | null,
+): boolean {
+  return (conversationWorkspaceId ?? null) === workspaceId;
+}
+
+function getPendingStreamIdsForWorkspace(workspaceId: string | null): string[] {
+  return [...streamAbortControllers.keys()].filter((conversationId) =>
+    conversationWorkspaceMatches(streamWorkspaceByConversationId.get(conversationId), workspaceId),
+  );
+}
+
+async function abortStream(conversationId: string): Promise<{ ok: boolean; error?: string }> {
+  const controller = streamAbortControllers.get(conversationId);
+  if (controller) {
+    controller.abort();
+    streamAbortControllers.delete(conversationId);
+    streamWorkspaceByConversationId.delete(conversationId);
+    try {
+      await pythonControlFetch('/chat/abort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: conversationId }),
+      });
+    } catch {
+      // Best-effort: Python abort may fail if stream already ended.
+    }
+    return { ok: true };
+  }
+  return { ok: false, error: 'No active stream' };
+}
 
 export const parseStreamPayload = parseAgentStreamPayload;
 
@@ -47,6 +82,8 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
   } else if (parsed.type === 'harness_crystal') {
     event.reply('message-harness-crystal', conversationId, parsed.polarity);
+  } else if (parsed.type === 'final_text') {
+    event.reply('message-final-text', conversationId, parsed.text);
   }
 }
 
@@ -76,6 +113,7 @@ export function registerChatIpc(): void {
       applyMode = true,
       autoApplyMode = false,
       structuredContent?: unknown,
+      workspaceId?: string | null,
     ) => {
     console.log('Received message for', conversationId, ':', msg);
 
@@ -83,6 +121,7 @@ export function registerChatIpc(): void {
     streamAbortControllers.get(conversationId)?.abort();
     const abortController = new AbortController();
     streamAbortControllers.set(conversationId, abortController);
+    streamWorkspaceByConversationId.set(conversationId, workspaceId ?? null);
 
     const body: Record<string, unknown> = {
       session_id: conversationId,
@@ -156,6 +195,7 @@ export function registerChatIpc(): void {
       event.reply('message-done', conversationId);
     } finally {
       streamAbortControllers.delete(conversationId);
+      streamWorkspaceByConversationId.delete(conversationId);
     }
   });
 
@@ -200,23 +240,22 @@ export function registerChatIpc(): void {
     }
   });
 
-  ipcMain.handle('abort-message', async (_event, conversationId: string) => {
-    const controller = streamAbortControllers.get(conversationId);
-    if (controller) {
-      controller.abort();
-      streamAbortControllers.delete(conversationId);
-      try {
-        await pythonControlFetch('/chat/abort', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: conversationId }),
-        });
-      } catch {
-        // Best-effort: Python abort may fail if stream already ended.
+  ipcMain.handle('abort-message', async (_event, conversationId: string) => abortStream(conversationId));
+
+  ipcMain.handle('get-pending-stream-ids-for-workspace', (_event, workspaceId: string | null) =>
+    getPendingStreamIdsForWorkspace(workspaceId),
+  );
+
+  ipcMain.handle('abort-pending-streams-for-workspace', async (_event, workspaceId: string | null) => {
+    const ids = getPendingStreamIdsForWorkspace(workspaceId);
+    const aborted: string[] = [];
+    for (const id of ids) {
+      const result = await abortStream(id);
+      if (result.ok) {
+        aborted.push(id);
       }
-      return { ok: true };
     }
-    return { ok: false, error: 'No active stream' };
+    return { aborted };
   });
 
   ipcMain.handle('sync-auto-apply-mode', async (_event, conversationId: string, autoApplyMode: boolean) => {

@@ -88,6 +88,9 @@ declare global {
     onMessageHarnessCrystal?: (
       callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
     ) => void;
+    onMessageFinalText?: (
+      callback: (event: unknown, conversationId: string, text: string) => void,
+    ) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
     onMessageAcceptCommand?: (
       callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
@@ -104,8 +107,11 @@ declare global {
       applyMode?: boolean,
       autoApplyMode?: boolean,
       structuredContent?: ChatStructuredContentPart[],
+      workspaceId?: string | null,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
+    getPendingStreamIdsForWorkspace: (workspaceId: string | null) => Promise<string[]>;
+    abortPendingStreamsForWorkspace: (workspaceId: string | null) => Promise<{ aborted: string[] }>;
     agentContinue: (
       conversationId: string,
       note: string,

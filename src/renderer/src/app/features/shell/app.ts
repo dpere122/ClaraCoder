@@ -46,6 +46,7 @@ import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/t
 import { PendingDiffReviewService } from '../diff/pending-diff-review.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import {
+  activeStreamWorkspaceSwitchPrompt,
   unsavedCloseFileTabPrompt,
   unsavedWorkspaceSwitchPrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
@@ -361,6 +362,8 @@ export class App implements OnInit, OnDestroy {
 
   private activeConversation: Conversation | null = null;
   private backgroundStreamParts = new Map<string, StreamPart[]>();
+  /** Final assistant text from backend (clean, without briefs) per conversation. */
+  private pendingFinalText = new Map<string, string>();
   private resizing: 'workspace' | 'sidebar' | null = null;
   private boundOnResizeMove = this.onResizeMove.bind(this);
   private boundOnResizeEnd = this.onResizeEnd.bind(this);
@@ -622,6 +625,10 @@ export class App implements OnInit, OnDestroy {
       this.upsertChainMessage(status);
     });
 
+    this.electron.finalText$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, text }) => {
+      this.pendingFinalText.set(conversationId, text);
+    });
+
     this.electron.done$.pipe(takeUntilDestroyed()).subscribe(({ conversationId }) => {
       this.removePending(conversationId);
       if (conversationId === this.activeConversationId()) {
@@ -638,7 +645,12 @@ export class App implements OnInit, OnDestroy {
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
-        let text = primaryAssistantTextFromParts(parts);
+        // Use clean final text from backend if available (without intermediate briefs)
+        let text = this.pendingFinalText.get(conversationId) ?? '';
+        this.pendingFinalText.delete(conversationId);
+        if (!text.trim()) {
+          text = primaryAssistantTextFromParts(parts);
+        }
         if (
           !text.trim() &&
           (parts.length > 0 ||
@@ -674,7 +686,12 @@ export class App implements OnInit, OnDestroy {
         const timelinePartsBg = multiplexAuxiliaryStreamTimeline(parts);
         const auxiliaryStreamTimeline = timelinePartsBg.length > 0 ? timelinePartsBg : undefined;
         const hasReasoningStreamText = moeCandidates.length > 0;
-        let text = primaryAssistantTextFromParts(parts);
+        // Use clean final text from backend if available (without intermediate briefs)
+        let text = this.pendingFinalText.get(conversationId) ?? '';
+        this.pendingFinalText.delete(conversationId);
+        if (!text.trim()) {
+          text = primaryAssistantTextFromParts(parts);
+        }
         if (
           !text.trim() &&
           (parts.length > 0 ||
@@ -783,11 +800,14 @@ export class App implements OnInit, OnDestroy {
       this.tts.beginAssistantSpeechTurn();
     }
     this.streamingParts.set([]);
+    const workspaceId = this.activeConversation?.workspaceId ?? this.currentWorkspaceId();
     this.electron.sendMessage(
       convId,
       normalized,
       this.editorMode(),
       this.editorMode() && this.autoApplyMode(),
+      undefined,
+      workspaceId,
     );
     this.autoSave();
   }
@@ -1074,12 +1094,9 @@ export class App implements OnInit, OnDestroy {
     // Save current conversation before switching
     await this.saveCurrentConversation();
 
-    const unsaved = [...this.monacoUnsavedPaths()];
-    if (unsaved.length > 0) {
-      const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
-      if (!proceed) {
-        return;
-      }
+    const canLeave = await this.prepareWorkspaceLeave(this.currentWorkspaceId());
+    if (!canLeave) {
+      return;
     }
 
     await this.electron.setCurrentWorkspace(workspaceId);
@@ -1438,6 +1455,46 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  private getPendingStreamIdsForWorkspace(workspaceId: string | null): string[] {
+    return [...this.pendingIds()].filter((id) => {
+      const conv = this.conversations().find((c) => c.id === id);
+      if (conv) {
+        return (conv.workspaceId ?? null) === workspaceId;
+      }
+      if (id === this.activeConversationId() && this.activeConversation) {
+        return (this.activeConversation.workspaceId ?? null) === workspaceId;
+      }
+      return false;
+    });
+  }
+
+  private async abortPendingStreamsForWorkspace(workspaceId: string | null): Promise<void> {
+    const ids = this.getPendingStreamIdsForWorkspace(workspaceId);
+    await Promise.all(ids.map((id) => this.electron.abortMessage(id)));
+  }
+
+  /** Unsaved-file and active-stream guards; aborts streams on confirm. Returns false to cancel leave. */
+  private async prepareWorkspaceLeave(fromWorkspaceId: string | null): Promise<boolean> {
+    const unsaved = [...this.monacoUnsavedPaths()];
+    if (unsaved.length > 0) {
+      const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
+      if (!proceed) {
+        return false;
+      }
+    }
+
+    const pending = this.getPendingStreamIdsForWorkspace(fromWorkspaceId);
+    if (pending.length > 0) {
+      const proceed = await this.themedConfirm.open(activeStreamWorkspaceSwitchPrompt(pending.length));
+      if (!proceed) {
+        return false;
+      }
+      await this.abortPendingStreamsForWorkspace(fromWorkspaceId);
+    }
+
+    return true;
+  }
+
   private async refreshConversationList(): Promise<void> {
     const wsId = this.currentWorkspaceId();
     const list = await this.electron.getConversations(wsId);
@@ -1492,12 +1549,9 @@ export class App implements OnInit, OnDestroy {
     const conv = await this.electron.readConversationFromDisk(targetId);
 
     if (conv.workspaceId !== this.currentWorkspaceId()) {
-      const unsaved = [...this.monacoUnsavedPaths()];
-      if (unsaved.length > 0) {
-        const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
-        if (!proceed) {
-          return;
-        }
+      const canLeave = await this.prepareWorkspaceLeave(this.currentWorkspaceId());
+      if (!canLeave) {
+        return;
       }
       await this.electron.setCurrentWorkspace(conv.workspaceId);
       const config = await this.electron.loadConfig();

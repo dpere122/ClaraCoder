@@ -32,6 +32,7 @@ import { MarkdownPipe } from './markdown.pipe';
 import {
   AuxiliaryStreamPanelComponent,
   DEFAULT_AUXILIARY_STREAM_PANEL_TITLE,
+  PERSISTED_AUXILIARY_STREAM_PANEL_TITLE,
 } from './auxiliary-stream-panel/auxiliary-stream-panel';
 import { RunButtonDirective } from './run-button.directive';
 import { TalkUiState } from '../../../core/talk-ui-state';
@@ -206,6 +207,23 @@ function stripClaraChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChain
 function oneLineTitle(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * Extract the latest non-empty line from streaming text for the panel title.
+ * During streaming, briefs update the panel title instead of appearing in the main response.
+ */
+export function extractLatestBriefLine(text: string): string {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line) {
+      const title = oneLineTitle(line);
+      return title.length > 120 ? `${title.slice(0, 117).trimEnd()}...` : title;
+    }
+  }
+  return '';
+}
+
 
 export function auxiliaryPanelTitleFromChainGroups(groups: readonly ToolChainGroup[]): string {
   for (let i = groups.length - 1; i >= 0; i--) {
@@ -448,10 +466,21 @@ export class ChatBox implements OnDestroy {
 
   readonly liveAuxiliaryTimeline = computed(() => multiplexAuxiliaryStreamTimeline(this.streamingParts()));
 
-  /** Live primary stream text with newlines preserved (markdown layout survives tool rounds). */
-  readonly primaryStreamLiveText = computed(() =>
+  /**
+   * Raw primary stream text - used for extracting the brief to show as panel title.
+   * During streaming, briefs update the panel title; the main response area stays empty.
+   * Only the final response (from backend's last_final_text) appears after completion.
+   */
+  private readonly rawPrimaryStreamText = computed(() =>
     joinPrimaryAssistantStreamText(this.streamingParts()),
   );
+
+  /**
+   * Live primary stream text for display - returns empty during streaming.
+   * Briefs are shown only as the panel title, not in the main response area.
+   * The final persisted message comes from the backend's last_final_text.
+   */
+  readonly primaryStreamLiveText = computed(() => '');
 
   readonly showStreamingPrimaryCursor = computed(
     () => this.loading() && this.primaryStreamParts().some((p) => p.text.length > 0),
@@ -488,21 +517,34 @@ export class ChatBox implements OnDestroy {
   /** Hides duplicate tool-only rows from the live strip when they stream inside the reasoning panel. */
   readonly liveChainGroupsForDisplay = computed(() => {
     let base = this.liveVisibleChainGroups();
-    if (!auxiliaryTimelineEmbedsToolStatus(this.liveAuxiliaryTimeline())) {
-      if (this.liveAuxiliaryTimeline().length > 0) {
-        base = stripClaraChainRowsFromChainGroups(base);
-      }
-      return base;
-    }
-    base = stripToolChainRowsFromChainGroups(base);
-    if (this.liveAuxiliaryTimeline().length > 0) {
-      base = stripClaraChainRowsFromChainGroups(base);
+    base = stripClaraChainRowsFromChainGroups(base);
+    if (auxiliaryTimelineEmbedsToolStatus(this.liveAuxiliaryTimeline())) {
+      base = stripToolChainRowsFromChainGroups(base);
     }
     return base;
   });
 
-  readonly liveAuxiliaryPanelTitle = computed(() =>
-    auxiliaryPanelTitleFromChainGroups(this.liveVisibleChainGroups()),
+  /**
+   * Panel title: uses the latest brief from the primary stream.
+   * Every brief updates this title during streaming.
+   */
+  readonly liveAuxiliaryPanelTitle = computed(() => {
+    const brief = extractLatestBriefLine(this.rawPrimaryStreamText());
+    if (brief) {
+      return brief;
+    }
+    const fromChainGroups = auxiliaryPanelTitleFromChainGroups(this.liveVisibleChainGroups());
+    if (fromChainGroups !== DEFAULT_AUXILIARY_STREAM_PANEL_TITLE) {
+      return fromChainGroups;
+    }
+    return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
+  });
+
+  /**
+   * Show the auxiliary panel during streaming when there's a brief or auxiliary content.
+   */
+  readonly showLiveAuxiliaryPanel = computed(() =>
+    this.liveAuxiliaryTimeline().length > 0 || this.rawPrimaryStreamText().trim().length > 0,
   );
 
   readonly processingBubbleLabel = computed(() => {
@@ -872,18 +914,14 @@ export class ChatBox implements OnDestroy {
     if (auxiliaryTimelineEmbedsToolStatus(timeline)) {
       groups = stripToolChainRowsFromChainGroups(groups);
     }
-    if (timeline.length > 0) {
-      groups = stripClaraChainRowsFromChainGroups(groups);
-    }
+    groups = stripClaraChainRowsFromChainGroups(groups);
     return groups;
   }
 
-  auxiliaryPanelTitleForTurn(row: ChatDisplayRow): string {
-    if (row.kind !== 'assistant-turn') {
-      return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
-    }
-    return auxiliaryPanelTitleFromChainGroups(row.chainGroups);
+  auxiliaryPanelTitleForTurn(_row: ChatDisplayRow): string {
+    return PERSISTED_AUXILIARY_STREAM_PANEL_TITLE;
   }
+
 
   toolChainSummary(group: ToolChainGroup): string {
     const claraN = group.rows.filter((r) => isClaraOuterBriefStreamTag(r.streamTag)).length;

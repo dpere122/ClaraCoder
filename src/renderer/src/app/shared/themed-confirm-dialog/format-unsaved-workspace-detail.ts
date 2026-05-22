@@ -25,6 +25,22 @@ export function unsavedWorkspaceSwitchPrompt(paths: readonly string[]): ThemedCo
   };
 }
 
+/** Copy for leaving a workspace while an agent response is still streaming. */
+export function activeStreamWorkspaceSwitchPrompt(count: number): ThemedConfirmOpenOptions {
+  const detail =
+    count === 1
+      ? '1 in-progress stream will be cancelled.'
+      : `${count} in-progress streams will be cancelled.`;
+  return {
+    title: 'Agent still running',
+    message: 'An agent response is still in progress. Switch workspace anyway?',
+    detail,
+    cancelText: 'Stay',
+    confirmText: 'Switch workspace',
+    variant: 'warning',
+  };
+}
+
 /** Copy for closing a single workspace file tab that still has editor buffer changes. */
 export function unsavedCloseFileTabPrompt(relativePath: string): ThemedConfirmOpenOptions {
   return {

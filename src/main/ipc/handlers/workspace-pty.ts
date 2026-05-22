@@ -1,17 +1,17 @@
 import { existsSync } from 'fs';
+import { randomUUID } from 'crypto';
 import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as pty from 'node-pty';
+import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
+import { envForChildProcess } from '../../utils/filter-sensitive-env';
 import { validateWorkspacePtyCwd } from '../../utils/workspace-pty-cwd';
 
 const sessions = new Map<string, pty.IPty>();
 
 function envForPtyChild(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  if (!env.PYTHONIOENCODING?.trim()) env.PYTHONIOENCODING = 'utf-8';
-  if (!env.PYTHONUTF8?.trim()) env.PYTHONUTF8 = '1';
-  return env;
+  return envForChildProcess();
 }
 
 /**
@@ -31,8 +31,17 @@ function candidateShells(): Array<{ file: string; args: string[] }> {
       { file: 'cmd.exe', args: [] },
     ];
   }
-  const shell = process.env.SHELL?.trim() || '/bin/bash';
-  return [{ file: shell, args: [] }];
+  const shell = process.env.SHELL?.trim();
+  const candidates: Array<{ file: string; args: string[] }> = [
+    { file: '/bin/zsh', args: [] },
+    { file: '/bin/bash', args: [] },
+    { file: '/bin/sh', args: [] },
+  ];
+  if (shell && path.isAbsolute(shell)) {
+    candidates.push({ file: shell, args: [] });
+  }
+  candidates.push({ file: shell || '/bin/bash', args: [] });
+  return candidates;
 }
 
 function pickShell(): { file: string; args: string[] } {
@@ -74,7 +83,12 @@ export function killAllWorkspacePtySessions(): void {
 export function registerWorkspacePtyIpc(): void {
   ipcMain.handle(
     'workspace-pty-spawn',
-    async (_event, workspaceRoot: unknown, cwd: unknown, cols: unknown, rows: unknown) => {
+    async (event, workspaceRoot: unknown, cwd: unknown, cols: unknown, rows: unknown) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { success: false as const, error: 'Forbidden' };
+      }
       const wr = typeof workspaceRoot === 'string' ? workspaceRoot : '';
       const cw = typeof cwd === 'string' ? cwd : '';
       const validated = await validateWorkspacePtyCwd(wr, cw);
@@ -84,7 +98,7 @@ export function registerWorkspacePtyIpc(): void {
       const cwdReal = validated.cwdReal;
       const colN = typeof cols === 'number' && Number.isFinite(cols) ? cols : 80;
       const rowN = typeof rows === 'number' && Number.isFinite(rows) ? rows : 24;
-      const sessionId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      const sessionId = `pty-${randomUUID()}`;
       const { file, args } = pickShell();
       console.log('[workspace-pty] spawn', { sessionId, workspaceRoot: wr.trim(), cwd: cwdReal, file, args });
       try {
@@ -122,7 +136,12 @@ export function registerWorkspacePtyIpc(): void {
     },
   );
 
-  ipcMain.handle('workspace-pty-write', async (_event, sessionId: unknown, data: unknown) => {
+  ipcMain.handle('workspace-pty-write', async (event, sessionId: unknown, data: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { success: false as const, error: 'Forbidden' };
+    }
     const id = typeof sessionId === 'string' ? sessionId : '';
     const chunk = typeof data === 'string' ? data : '';
     const term = sessions.get(id);
@@ -138,7 +157,12 @@ export function registerWorkspacePtyIpc(): void {
     }
   });
 
-  ipcMain.handle('workspace-pty-resize', async (_event, sessionId: unknown, cols: unknown, rows: unknown) => {
+  ipcMain.handle('workspace-pty-resize', async (event, sessionId: unknown, cols: unknown, rows: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { success: false as const, error: 'Forbidden' };
+    }
     const id = typeof sessionId === 'string' ? sessionId : '';
     const term = sessions.get(id);
     if (!term) {
@@ -155,7 +179,12 @@ export function registerWorkspacePtyIpc(): void {
     }
   });
 
-  ipcMain.handle('workspace-pty-kill', async (_event, sessionId: unknown) => {
+  ipcMain.handle('workspace-pty-kill', async (event, sessionId: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { success: false as const, error: 'Forbidden' };
+    }
     const id = typeof sessionId === 'string' ? sessionId : '';
     const term = sessions.get(id);
     if (!term) {
@@ -172,7 +201,12 @@ export function registerWorkspacePtyIpc(): void {
     }
   });
 
-  ipcMain.handle('workspace-pty-kill-all', async () => {
+  ipcMain.handle('workspace-pty-kill-all', async (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { success: false as const, error: 'Forbidden' };
+    }
     killAllWorkspacePtySessions();
     return { success: true as const };
   });

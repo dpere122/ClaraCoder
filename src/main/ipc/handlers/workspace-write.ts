@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path = require('path');
 
 import type { WorkspaceChangeKind, WorkspaceFileWriteOptions } from '../../../shared';
+import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { encodeWorkspaceFileContent, normalizeWorkspaceEncoding } from '../../utils/workspace-file-encoding';
 import { mainState } from '../../state';
 import {
@@ -49,12 +50,17 @@ export function registerWorkspaceWriteIpc(): void {
   ipcMain.handle(
     'write-workspace-file',
     async (
-      _event,
+      event,
       workspaceRoot: string,
       relativePath: string,
       content: string,
       options?: WorkspaceFileWriteOptions,
     ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Forbidden' };
+      }
       if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
         return { ok: false as const, error: 'No workspace root.' };
       }
@@ -92,7 +98,12 @@ export function registerWorkspaceWriteIpc(): void {
    */
   ipcMain.handle(
     'create-workspace-file',
-    async (_event, workspaceRoot: string, absoluteParentDir: string, fileName: string) => {
+    async (event, workspaceRoot: string, absoluteParentDir: string, fileName: string) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Forbidden' };
+      }
       if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
         return { ok: false as const, error: 'No workspace root.' };
       }
@@ -139,7 +150,12 @@ export function registerWorkspaceWriteIpc(): void {
    */
   ipcMain.handle(
     'create-workspace-folder',
-    async (_event, workspaceRoot: string, absoluteParentDir: string, folderName: string) => {
+    async (event, workspaceRoot: string, absoluteParentDir: string, folderName: string) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Forbidden' };
+      }
       if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
         return { ok: false as const, error: 'No workspace root.' };
       }
@@ -192,7 +208,12 @@ export function registerWorkspaceWriteIpc(): void {
   );
 
   /** Delete a file or directory under the workspace (recursive for directories). */
-  ipcMain.handle('delete-workspace-entry', async (_event, workspaceRoot: string, absolutePath: string) => {
+  ipcMain.handle('delete-workspace-entry', async (event, workspaceRoot: string, absolutePath: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Forbidden' };
+    }
     if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
       return { ok: false as const, error: 'No workspace root.' };
     }
@@ -232,7 +253,12 @@ export function registerWorkspaceWriteIpc(): void {
   /** Rename a file or directory in place (`newName` is a single path segment; same parent folder). */
   ipcMain.handle(
     'rename-workspace-entry',
-    async (_event, workspaceRoot: string, absolutePath: string, newName: string) => {
+    async (event, workspaceRoot: string, absolutePath: string, newName: string) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Forbidden' };
+      }
       if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
         return { ok: false as const, error: 'No workspace root.' };
       }

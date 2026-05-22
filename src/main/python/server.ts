@@ -16,10 +16,36 @@ import { ingestElectronLog } from '../log-ingest';
 
 export { PYTHON_URL, PYTHON_PORT };
 
+/** True when the sidecar on `PYTHON_PORT` already accepts `/health`. */
+export async function isPythonHealthy(): Promise<boolean> {
+  try {
+    const res = await pythonControlFetch('/health');
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
+ * Skips spawn when another healthy instance is already listening (common after electronmon restarts).
+ */
+export async function ensurePythonServer(): Promise<void> {
+  if (await isPythonHealthy()) {
+    console.log(`[Python] Reusing existing server on ${PYTHON_URL}`);
+    return;
+  }
+  startPythonServer();
+  await waitForPython();
+}
+
 /**
  * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
  */
 export function startPythonServer(): void {
+  if (mainState.pythonProcess) {
+    return;
+  }
   const pythonCmd = getPythonExecutable();
   const scriptPath = getPythonServerScriptPath();
   const logDir = getLogsDir();
@@ -56,6 +82,13 @@ export function startPythonServer(): void {
   mainState.pythonProcess.on('close', (code) => {
     console.log(`[Python] Process exited with code ${code}`);
     mainState.pythonProcess = null;
+    if (code !== 0) {
+      void isPythonHealthy().then((healthy) => {
+        if (healthy) {
+          console.log(`[Python] Port ${PYTHON_PORT} still served by another process — continuing`);
+        }
+      });
+    }
   });
 }
 

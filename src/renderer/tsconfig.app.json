@@ -15,6 +15,7 @@
     "../shared/**/*.ts"
   ],
   "exclude": [
-    "src/**/*.spec.ts"
+    "src/**/*.spec.ts",
+    "../shared/**/*.spec.ts"
   ]
 }

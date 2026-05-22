@@ -4,6 +4,8 @@ import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { buildMenu } from '../menu/application-menu';
 import { resolveAppIconPath } from '../utils/app-icon';
+import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
+import { registerSelectableTextContextMenu } from '../utils/register-selectable-text-context-menu';
 
 /** Preload bundle lives next to main output: `dist/preload/preload.js`. */
 function preloadPath(): string {
@@ -19,20 +21,32 @@ function rendererIndexHtml(): string {
  * Creates the primary BrowserWindow (dev server URL or static Angular build).
  */
 export function createMainWindow(): void {
+  const existing = mainState.mainWindow;
+  if (existing && !existing.isDestroyed()) {
+    existing.focus();
+    return;
+  }
+
   const icon = resolveAppIconPath();
+  const preload = preloadPath();
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
     frame: false,
     title: 'Clara Coder',
     ...(icon ? { icon } : {}),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: preloadPath(),
-    },
+    webPreferences: secureWebPreferences(preload),
   });
   mainState.mainWindow = win;
+  hardenBrowserWindow(win);
+  registerSelectableTextContextMenu(win);
+
+  win.webContents.on('preload-error', (_event, failedPreload, error) => {
+    console.error('[Main] Preload failed:', failedPreload, error);
+  });
+  if (DEV_SERVER_URL) {
+    console.log('[Main] Preload script:', preload);
+  }
 
   const broadcastMaximized = (): void => {
     win.webContents.send('window-maximized-changed', win.isMaximized());

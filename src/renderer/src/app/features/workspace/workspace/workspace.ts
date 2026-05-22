@@ -6,26 +6,25 @@ import { Subscription } from 'rxjs';
 import { EditorLspStatusComponent } from '../../shell/editor-lsp-status/editor-lsp-status';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
-
-type WorkspaceChangeKind = 'created' | 'updated' | 'deleted' | 'renamed' | 'unknown';
-
-interface FileNode {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  expanded: boolean;
-  children: FileNode[] | null;
-  depth: number;
-}
-
-interface FlatNode {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  expanded: boolean;
-  depth: number;
-  hasChildren: boolean;
-}
+import {
+  collectExpandedPaths,
+  describeWorkspaceChange,
+  fileNodesFromDirectoryEntries,
+  findFileNode,
+  findFileNodeByNormalizedPath,
+  findParentPathInFlatTree,
+  rebuildFlatTree,
+  scrollWorkspaceTreeNodeToPath,
+  scrollWorkspaceTreeNodeToSelected,
+  type FileNode,
+  type FlatNode,
+} from './workspace-tree';
+import {
+  isSafeNewFileRelativeName,
+  isSafeRenameBasename,
+  parentDirectoryPath,
+} from './workspace-path-utils';
+import { workspaceTreeTextHintsPython } from './workspace-python-hints';
 
 @Component({
   selector: 'app-workspace',
@@ -207,7 +206,7 @@ export class WorkspaceComponent implements OnDestroy {
         return;
       }
 
-      this.lastWorkspaceChange.set(this.describeWorkspaceChange(event));
+      this.lastWorkspaceChange.set(describeWorkspaceChange(event));
       void this.reloadPreservingExpansion(currentWorkspace.path);
       this.lastInterpreterChromeWorkspaceRoot = '';
       const sid = this.activeConversationId()?.trim();
@@ -726,14 +725,7 @@ export class WorkspaceComponent implements OnDestroy {
     try {
       const entries = await this.electron.readDirectory(pathToLoad);
       if (requestId !== this.loadRequestId) return;
-      this.tree = entries.map((e) => ({
-        name: e.name,
-        path: e.path,
-        isDirectory: e.isDirectory,
-        expanded: false,
-        children: e.isDirectory ? null : [],
-        depth: 0,
-      }));
+      this.tree = fileNodesFromDirectoryEntries(entries, 0);
       this.loadError.set('');
       this.rebuildFlat();
       this.initialLoadComplete = true;
@@ -747,7 +739,7 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   private async reloadPreservingExpansion(dirPath: string): Promise<void> {
-    const expandedPaths = this.collectExpandedPaths(this.tree);
+    const expandedPaths = collectExpandedPaths(this.tree);
     await this.loadRoot(dirPath);
     if (expandedPaths.size === 0 || this.loadError()) {
       return;
@@ -838,7 +830,7 @@ export class WorkspaceComponent implements OnDestroy {
           if (node.isDirectory && node.expanded) {
             void this.toggleFolder(node);
           } else {
-            const parentPath = this.findParentPath(node.path);
+            const parentPath = findParentPathInFlatTree(flat, node.path);
             if (parentPath) {
               this.selectedPath.set(parentPath);
               this.scrollToSelectedNode();
@@ -877,37 +869,16 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  private findParentPath(childPath: string): string | null {
-    const flat = this.flatTree();
-    const childIndex = flat.findIndex((n) => n.path === childPath);
-    if (childIndex <= 0) {
-      return null;
-    }
-
-    const childDepth = flat[childIndex].depth;
-    for (let i = childIndex - 1; i >= 0; i--) {
-      if (flat[i].depth < childDepth && flat[i].isDirectory) {
-        return flat[i].path;
-      }
-    }
-    return null;
-  }
-
   private scrollToSelectedNode(): void {
     const selected = this.selectedPath();
     if (!selected) {
       return;
     }
-    requestAnimationFrame(() => {
-      const el = document.querySelector(`app-workspace .tree-node[data-path="${CSS.escape(selected)}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    });
+    scrollWorkspaceTreeNodeToSelected(selected);
   }
 
   async toggleFolder(node: FlatNode): Promise<void> {
-    const treeNode = this.findNode(this.tree, node.path);
+    const treeNode = findFileNode(this.tree, node.path);
     if (!treeNode || !treeNode.isDirectory) return;
 
     if (treeNode.expanded) {
@@ -916,14 +887,7 @@ export class WorkspaceComponent implements OnDestroy {
       if (treeNode.children === null) {
         try {
           const entries = await this.electron.readDirectory(treeNode.path);
-          treeNode.children = entries.map((e) => ({
-            name: e.name,
-            path: e.path,
-            isDirectory: e.isDirectory,
-            expanded: false,
-            children: e.isDirectory ? null : [],
-            depth: treeNode.depth + 1,
-          }));
+          treeNode.children = fileNodesFromDirectoryEntries(entries, treeNode.depth + 1);
         } catch {
           treeNode.children = [];
         }
@@ -933,58 +897,14 @@ export class WorkspaceComponent implements OnDestroy {
     this.rebuildFlat();
   }
 
-  private findNode(nodes: FileNode[], targetPath: string): FileNode | null {
-    for (const n of nodes) {
-      if (n.path === targetPath) return n;
-      if (n.children) {
-        const found = this.findNode(n.children, targetPath);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
-
   private rebuildFlat(): void {
-    const result: FlatNode[] = [];
-    const walk = (nodes: FileNode[]) => {
-      for (const n of nodes) {
-        result.push({
-          name: n.name,
-          path: n.path,
-          isDirectory: n.isDirectory,
-          expanded: n.expanded,
-          depth: n.depth,
-          hasChildren: n.isDirectory && (n.children === null || n.children.length > 0),
-        });
-        if (n.expanded && n.children) {
-          walk(n.children);
-        }
-      }
-    };
-    walk(this.tree);
-    this.flatTree.set(result);
-  }
-
-  private collectExpandedPaths(nodes: FileNode[]): Set<string> {
-    const expandedPaths = new Set<string>();
-    const walk = (items: FileNode[]) => {
-      for (const item of items) {
-        if (item.isDirectory && item.expanded) {
-          expandedPaths.add(item.path);
-        }
-        if (item.children && item.children.length > 0) {
-          walk(item.children);
-        }
-      }
-    };
-    walk(nodes);
-    return expandedPaths;
+    this.flatTree.set(rebuildFlatTree(this.tree));
   }
 
   private async restoreExpandedPaths(expandedPaths: Set<string>): Promise<void> {
     const sortedPaths = Array.from(expandedPaths).sort((a, b) => a.length - b.length);
     for (const targetPath of sortedPaths) {
-      const node = this.findNode(this.tree, targetPath);
+      const node = findFileNode(this.tree, targetPath);
       if (!node || !node.isDirectory) {
         continue;
       }
@@ -992,14 +912,7 @@ export class WorkspaceComponent implements OnDestroy {
       if (node.children === null) {
         try {
           const entries = await this.electron.readDirectory(node.path);
-          node.children = entries.map((entry) => ({
-            name: entry.name,
-            path: entry.path,
-            isDirectory: entry.isDirectory,
-            expanded: false,
-            children: entry.isDirectory ? null : [],
-            depth: node.depth + 1,
-          }));
+          node.children = fileNodesFromDirectoryEntries(entries, node.depth + 1);
         } catch {
           node.children = [];
         }
@@ -1042,7 +955,7 @@ export class WorkspaceComponent implements OnDestroy {
     let currentPath = normalizedRoot;
     for (let i = 0; i < segments.length - 1; i++) {
       currentPath = currentPath + '/' + segments[i];
-      const node = this.findNodeByNormalizedPath(this.tree, currentPath);
+      const node = findFileNodeByNormalizedPath(this.tree, currentPath);
       if (!node || !node.isDirectory) {
         break;
       }
@@ -1051,14 +964,7 @@ export class WorkspaceComponent implements OnDestroy {
         if (node.children === null) {
           try {
             const entries = await this.electron.readDirectory(node.path);
-            node.children = entries.map((entry) => ({
-              name: entry.name,
-              path: entry.path,
-              isDirectory: entry.isDirectory,
-              expanded: false,
-              children: entry.isDirectory ? null : [],
-              depth: node.depth + 1,
-            }));
+            node.children = fileNodesFromDirectoryEntries(entries, node.depth + 1);
           } catch {
             node.children = [];
           }
@@ -1068,116 +974,6 @@ export class WorkspaceComponent implements OnDestroy {
     }
 
     this.rebuildFlat();
-    this.scrollToPath(absolutePath);
+    scrollWorkspaceTreeNodeToPath(absolutePath);
   }
-
-  private findNodeByNormalizedPath(nodes: FileNode[], normalizedPath: string): FileNode | null {
-    for (const n of nodes) {
-      if (normalizePathSlashes(n.path) === normalizedPath) {
-        return n;
-      }
-      if (n.children) {
-        const found = this.findNodeByNormalizedPath(n.children, normalizedPath);
-        if (found) {
-          return found;
-        }
-      }
-    }
-    return null;
-  }
-
-  private scrollToPath(absolutePath: string): void {
-    requestAnimationFrame(() => {
-      const el = document.querySelector(`app-workspace .tree-node[data-path="${CSS.escape(absolutePath)}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    });
-  }
-
-  private describeWorkspaceChange(event: { paths: string[]; kinds: WorkspaceChangeKind[] }): string {
-    const kind = event.kinds[0] ?? 'unknown';
-    const pathLabel = event.paths[0] ?? 'workspace';
-    const moreCount = Math.max(0, event.paths.length - 1);
-    const kindLabel = kind === 'unknown' ? 'changed' : kind;
-    if (moreCount === 0) {
-      return `${pathLabel} ${kindLabel}`;
-    }
-    return `${pathLabel} ${kindLabel} (+${moreCount} more)`;
-  }
-}
-
-function parentDirectoryPath(filePath: string): string {
-  const trimmed = filePath.replace(/[/\\]+$/, '');
-  const m = trimmed.match(/^(.+)[\\/][^\\/]+$/);
-  return m ? m[1] : trimmed;
-}
-
-function isSafeNewFileRelativeName(name: string): boolean {
-  const parts = normalizePathSlashes(name)
-    .split('/')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-  if (parts.length === 0) {
-    return false;
-  }
-  for (const p of parts) {
-    if (p === '..' || p === '.') {
-      return false;
-    }
-  }
-  return true;
-}
-
-/** Single path segment only (rename in same folder). */
-function isSafeRenameBasename(name: string): boolean {
-  const parts = normalizePathSlashes(name)
-    .split('/')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-  if (parts.length !== 1) {
-    return false;
-  }
-  const p = parts[0];
-  return p !== '..' && p !== '.';
-}
-
-/** Detect typical Python project files in bounded workspace tree text (``buildWorkspaceTree`` output). */
-function workspaceTreeTextHintsPython(tree: string): boolean {
-  const raw = tree.trim();
-  if (!raw) {
-    return false;
-  }
-  const tl = raw.toLowerCase();
-  const markers = [
-    'pyproject.toml',
-    'setup.py',
-    'setup.cfg',
-    'requirements.txt',
-    'requirements.in',
-    'pipfile',
-    'poetry.lock',
-    'pdm.lock',
-    'uv.lock',
-    'manage.py',
-    'tox.ini',
-    'environment.yml',
-    'environment.yaml',
-    'conda.yml',
-    'conda.yaml',
-    '.python-version',
-    'pyrightconfig.json',
-    'ruff.toml',
-    '.ruff.toml',
-    'pytest.ini',
-    'mypy.ini',
-    '.flake8',
-    'pixi.toml',
-  ];
-  for (const m of markers) {
-    if (tl.includes(m)) {
-      return true;
-    }
-  }
-  return /[^\s|'"`]+\.(?:py|pyi)(?:\s|$|\n|\[)/.test(raw);
 }

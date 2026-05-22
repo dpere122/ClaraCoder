@@ -3,6 +3,7 @@ import path = require('path');
 import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { resolveAppIconPath } from '../utils/app-icon';
+import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
 
 function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
@@ -37,14 +38,11 @@ export function createSettingsWindow(): void {
     show: false,
     title: 'Clara Coder — Settings',
     ...(icon ? { icon } : {}),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: preloadPath(),
-    },
+    webPreferences: secureWebPreferences(preloadPath()),
   });
 
   const sw = mainState.settingsWindow;
+  hardenBrowserWindow(sw);
   sw.removeMenu();
   sw.once('ready-to-show', () => {
     sw.show();

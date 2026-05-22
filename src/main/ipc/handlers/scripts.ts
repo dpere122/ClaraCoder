@@ -1,24 +1,24 @@
 import { ipcMain } from 'electron';
 import { spawn } from 'child_process';
+import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState, type ScriptProcess } from '../../state';
 import { buildScriptLaunchPlan } from '../../utils/script-launch';
+import { envForChildProcess } from '../../utils/filter-sensitive-env';
 
-/**
- * Child processes inherit the parent env; on Windows, piped Python stdio defaults to cp1252 and
- * breaks `print()` of Unicode (e.g. ✓). Terminals often use UTF-8; match that for script runs.
- */
 function envForScriptChild(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  if (!env.PYTHONIOENCODING?.trim()) env.PYTHONIOENCODING = 'utf-8';
-  if (!env.PYTHONUTF8?.trim()) env.PYTHONUTF8 = '1';
-  return env;
+  return envForChildProcess();
 }
 
 /**
  * One-shot script run with timeout, plus interactive PTY-like stdin/stdout streaming.
  */
 export function registerScriptsIpc(): void {
-  ipcMain.handle('run-script', async (_event, script: string, language: string, workspacePath: string) => {
+  ipcMain.handle('run-script', async (event, script: string, language: string, workspacePath: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { stdout: '', stderr: 'Forbidden', exitCode: -1 };
+    }
     console.log('[Main] run-script called:', { language, workspacePath: workspacePath || '(empty)' });
 
     return new Promise((resolve) => {
@@ -27,6 +27,19 @@ export function registerScriptsIpc(): void {
       let stdout = '';
       let stderr = '';
       let tempFile: string | null = null;
+      let settled = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (result: { stdout: string; stderr: string; exitCode: number | null; timedOut?: boolean }) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+        }
+        resolve(result);
+      };
 
       void (async () => {
         try {
@@ -48,7 +61,6 @@ export function registerScriptsIpc(): void {
           }
 
           console.log('[Main] Running script from temp file:', tempFile);
-          console.log('[Main] Script content:', script);
 
           const proc = spawn(launchPlan.shellCmd, launchPlan.shellArgs, options);
 
@@ -66,20 +78,20 @@ export function registerScriptsIpc(): void {
           });
 
           proc.on('close', (code) => {
-            console.log('[Main] run-script completed with code:', code, 'stdout:', stdout, 'stderr:', stderr);
+            console.log('[Main] run-script completed with code:', code);
             if (tempFile) {
               unlink(tempFile).catch(() => {});
             }
-            resolve({ stdout, stderr, exitCode: code });
+            finish({ stdout, stderr, exitCode: code });
           });
 
-          setTimeout(() => {
+          timeoutId = setTimeout(() => {
             if (!proc.killed) {
               proc.kill();
               if (tempFile) {
                 unlink(tempFile).catch(() => {});
               }
-              resolve({ stdout, stderr, exitCode: -1, timedOut: true });
+              finish({ stdout, stderr, exitCode: -1, timedOut: true });
             }
           }, 60000);
         } catch (err: unknown) {
@@ -88,13 +100,18 @@ export function registerScriptsIpc(): void {
           if (tempFile) {
             unlink(tempFile).catch(() => {});
           }
-          resolve({ stdout: '', stderr: message, exitCode: -1 });
+          finish({ stdout: '', stderr: message, exitCode: -1 });
         }
       })();
     });
   });
 
-  ipcMain.handle('run-script-interactive', async (_event, script: string, language: string, workspacePath: string) => {
+  ipcMain.handle('run-script-interactive', async (event, script: string, language: string, workspacePath: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { processId: null, success: false, error: 'Forbidden' };
+    }
     console.log('[Main] run-script-interactive called:', { language, workspacePath: workspacePath || '(empty)' });
 
     const { unlink } = require('fs').promises;
@@ -167,7 +184,12 @@ export function registerScriptsIpc(): void {
     }
   });
 
-  ipcMain.handle('send-script-input', async (_event, processId: string, input: string) => {
+  ipcMain.handle('send-script-input', async (event, processId: string, input: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { success: false, error: 'Forbidden' };
+    }
     const scriptProc = mainState.activeProcesses.get(processId);
     if (!scriptProc || !scriptProc.proc.stdin) {
       return { success: false, error: 'Process not found or stdin not available' };
@@ -182,7 +204,12 @@ export function registerScriptsIpc(): void {
     }
   });
 
-  ipcMain.handle('end-script', async (_event, processId: string) => {
+  ipcMain.handle('end-script', async (event, processId: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { success: false, error: 'Forbidden' };
+    }
     const scriptProc = mainState.activeProcesses.get(processId);
     if (!scriptProc) {
       return { success: false, error: 'Process not found' };

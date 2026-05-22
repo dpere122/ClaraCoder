@@ -5,6 +5,7 @@ import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { getLogsDir } from '../paths';
 import { resolveAppIconPath } from '../utils/app-icon';
+import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
 
 function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
@@ -39,14 +40,11 @@ export function createHealthWindow(): void {
     show: false,
     title: 'Clara Coder — Health',
     ...(icon ? { icon } : {}),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: preloadPath(),
-    },
+    webPreferences: secureWebPreferences(preloadPath()),
   });
 
   const hw = mainState.healthWindow;
+  hardenBrowserWindow(hw);
   hw.removeMenu();
   hw.once('ready-to-show', () => {
     hw.show();

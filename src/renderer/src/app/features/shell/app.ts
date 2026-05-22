@@ -15,22 +15,31 @@ import type {
 } from '@shared/index';
 import {
   DEFAULT_KOKORO_TTS_VOICE,
-  delegatedStreamPartsForDisplay,
-  emptyPrimaryAssistantFallbackMessage,
   findLlmModelLocation,
-  isMoeAuxiliaryStreamTag,
-  isShellStyleToolStreamTag,
-  multiplexAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   READ_TOOL_PREVIEW_STREAM_TAG,
   resolveActiveLlmConnection,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
-  toolTrailStatusStreamTag,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
 } from '@shared/index';
 import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
+import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
+import {
+  chatFileTabBasename,
+  chatFileTabId,
+  readLlamaServerDockFromStorage,
+  writeLlamaServerDockToStorage,
+  type ChatFileTab,
+  type LlamaServerDockSide,
+} from './app-chat-file-tabs';
+import {
+  appendStreamPart,
+  markToolExecStreamComplete,
+  upsertToolTrailStatusStreamPart,
+} from './app-stream-parts';
+import { applyAppTheme, resolveAppThemeId } from './app-theme';
 import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
 import { LlamaServerTile } from '../chat/llama-server-tile/llama-server-tile';
@@ -52,135 +61,6 @@ import {
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
-import { THEMES } from '../layout/theme-selector/theme-selector';
-
-const DEFAULT_REASONING_STREAM_LABEL = 'Model reasoning';
-
-const LLAMA_SERVER_DOCK_STORAGE_KEY = 'nemo.llamaServerDock';
-
-type LlamaServerDockSide = 'conversations' | 'workspace';
-
-interface ChatFileTab {
-  relativePath: string;
-}
-
-function chatFileTabId(relativePath: string): string {
-  return `file:${normalizePathSlashes(relativePath)}`;
-}
-
-function chatFileTabBasename(relativePath: string): string {
-  const n = normalizePathSlashes(relativePath);
-  const i = n.lastIndexOf('/');
-  return i >= 0 ? n.slice(i + 1) : n;
-}
-
-function readLlamaServerDockFromStorage(): LlamaServerDockSide {
-  try {
-    if (typeof localStorage === 'undefined') {
-      return 'conversations';
-    }
-    const v = localStorage.getItem(LLAMA_SERVER_DOCK_STORAGE_KEY)?.trim();
-    if (v === 'workspace') {
-      return 'workspace';
-    }
-  } catch {
-    /* ignore */
-  }
-  return 'conversations';
-}
-
-function appendStreamPart(
-  parts: StreamPart[],
-  streamTag: string | undefined,
-  delta: string,
-  label = '',
-): StreamPart[] {
-  const t = streamTag?.trim() ? streamTag.trim() : 'agent';
-  const resolvedLabel = label || (isMoeAuxiliaryStreamTag(t) ? DEFAULT_REASONING_STREAM_LABEL : '');
-  const next = [...parts];
-  const last = next[next.length - 1];
-  if (last?.streamTag === t) {
-    next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
-    return next;
-  }
-  next.push({ streamTag: t, label: resolvedLabel, text: delta });
-  return next;
-}
-
-/** Insert or update a tool-status row in the multiplex timeline (wall-clock order vs. `moe` chunks). */
-function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
-  const src = (status.source ?? 'agent').toLowerCase();
-  if (src !== 'tool') {
-    return parts;
-  }
-  const streamTag = toolTrailStatusStreamTag(status.id);
-  const next = [...parts];
-  const idx = next.findIndex((p) => p.streamTag === streamTag);
-  const row: StreamPart = {
-    streamTag,
-    label: status.label,
-    text: status.detail ?? '',
-    toolChainState: status.state,
-  };
-  if (idx >= 0) {
-    next[idx] = { ...next[idx], ...row };
-    return next;
-  }
-  return [...next, row];
-}
-
-function markToolExecStreamComplete(
-  parts: StreamPart[],
-  streamTag: string | undefined,
-  exitCode: number | null | undefined,
-  outputExcerpt?: string,
-  outcome?: 'passed' | 'failed',
-): StreamPart[] {
-  const t = streamTag?.trim();
-  const next = parts.map((p) => ({ ...p }));
-  const ex = outputExcerpt?.trim();
-
-  let targetIdx = -1;
-  if (t) {
-    for (let i = next.length - 1; i >= 0; i--) {
-      if (next[i].streamTag.trim() === t) {
-        targetIdx = i;
-        break;
-      }
-    }
-  } else {
-    for (let i = next.length - 1; i >= 0; i--) {
-      if (next[i].runComplete) continue;
-      const tag = next[i].streamTag?.trim() ?? '';
-      if (tag.startsWith('spec-') || isShellStyleToolStreamTag(tag)) {
-        targetIdx = i;
-        break;
-      }
-    }
-  }
-
-  if (targetIdx < 0) {
-    return parts;
-  }
-
-  let text = next[targetIdx].text;
-  if (ex) {
-    const head = ex.slice(0, Math.min(160, ex.length));
-    if (!text.trim()) {
-      text = ex;
-    } else if (!text.includes(head)) {
-      text = `${text.endsWith('\n') ? text : `${text}\n`}\n${ex}`;
-    }
-  }
-  next[targetIdx] = {
-    ...next[targetIdx],
-    text,
-    runComplete: true,
-    ...(exitCode !== undefined ? { exitCode } : {}),
-    ...(outcome ? { outcome } : {}),
-  };
-  return next;
-}
 
 @Component({
   selector: 'app-root',
@@ -471,14 +351,7 @@ export class App implements OnInit, OnDestroy {
           : TTS_SPEECH_SPEED_DEFAULT,
       );
       // Resolve theme: workspace theme > noWorkspaceThemeId > dark
-      let themeToApply = config.noWorkspaceThemeId || 'dark';
-      if (config.currentWorkspaceId) {
-        const workspace = config.workspaces.find(w => w.id === config.currentWorkspaceId);
-        if (workspace?.themeId) {
-          themeToApply = workspace.themeId;
-        }
-      }
-      this.applyTheme(themeToApply);
+      applyAppTheme(resolveAppThemeId(config));
       this.workspaces.set(config.workspaces);
       this.currentWorkspaceId.set(config.currentWorkspaceId);
     });
@@ -631,88 +504,41 @@ export class App implements OnInit, OnDestroy {
 
     this.electron.done$.pipe(takeUntilDestroyed()).subscribe(({ conversationId }) => {
       this.removePending(conversationId);
+      const parts =
+        conversationId === this.activeConversationId()
+          ? this.streamingParts()
+          : (this.backgroundStreamParts.get(conversationId) ?? []);
+      const turn = buildAssistantTurnFromStreamParts(parts, this.pendingFinalText.get(conversationId));
+      this.pendingFinalText.delete(conversationId);
+
       if (conversationId === this.activeConversationId()) {
-        const parts = this.streamingParts();
-        const toolStreamCandidates = delegatedStreamPartsForDisplay(parts, null).filter(
-          (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
-        );
-        const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
-        const moeCandidates = parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag) && p.text.trim());
-        const moeStreams = moeCandidates.length > 0 ? moeCandidates : undefined;
-        const timelineParts = multiplexAuxiliaryStreamTimeline(parts);
-        const auxiliaryStreamTimeline = timelineParts.length > 0 ? timelineParts : undefined;
-        const hasReasoningStreamText = moeCandidates.length > 0;
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
-        // Use clean final text from backend if available (without intermediate briefs)
-        let text = this.pendingFinalText.get(conversationId) ?? '';
-        this.pendingFinalText.delete(conversationId);
-        if (!text.trim()) {
-          text = primaryAssistantTextFromParts(parts);
-        }
-        if (
-          !text.trim() &&
-          (parts.length > 0 ||
-            (toolStreams?.length ?? 0) > 0 ||
-            (moeStreams?.length ?? 0) > 0 ||
-            (auxiliaryStreamTimeline?.length ?? 0) > 0)
-        ) {
-          text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
-        }
-        if (
-          text.trim() ||
-          (toolStreams?.length ?? 0) > 0 ||
-          (moeStreams?.length ?? 0) > 0 ||
-          (auxiliaryStreamTimeline?.length ?? 0) > 0
-        ) {
-          this.pushMessage('assistant', text, toolStreams, moeStreams, auxiliaryStreamTimeline);
-          if (this.speechEnabled() && text.trim()) {
-            void this.tts.flushStreamingAssistantText(text, this.selectedVoice(), this.ttsSpeechSpeed());
+        if (turn) {
+          this.pushMessage(
+            'assistant',
+            turn.text,
+            turn.toolStreams,
+            turn.moeStreams,
+            turn.auxiliaryStreamTimeline,
+          );
+          if (this.speechEnabled() && turn.text.trim()) {
+            void this.tts.flushStreamingAssistantText(turn.text, this.selectedVoice(), this.ttsSpeechSpeed());
           }
           void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
             console.error('[App] persist assistant / auto-title failed', err),
           );
         }
       } else {
-        const parts = this.backgroundStreamParts.get(conversationId) ?? [];
         this.backgroundStreamParts.delete(conversationId);
-        const toolStreamCandidates = delegatedStreamPartsForDisplay(parts, null).filter(
-          (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
-        );
-        const toolStreams = toolStreamCandidates.length > 0 ? toolStreamCandidates : undefined;
-        const moeCandidates = parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag) && p.text.trim());
-        const moeStreams = moeCandidates.length > 0 ? moeCandidates : undefined;
-        const timelinePartsBg = multiplexAuxiliaryStreamTimeline(parts);
-        const auxiliaryStreamTimeline = timelinePartsBg.length > 0 ? timelinePartsBg : undefined;
-        const hasReasoningStreamText = moeCandidates.length > 0;
-        // Use clean final text from backend if available (without intermediate briefs)
-        let text = this.pendingFinalText.get(conversationId) ?? '';
-        this.pendingFinalText.delete(conversationId);
-        if (!text.trim()) {
-          text = primaryAssistantTextFromParts(parts);
-        }
-        if (
-          !text.trim() &&
-          (parts.length > 0 ||
-            (toolStreams?.length ?? 0) > 0 ||
-            (moeStreams?.length ?? 0) > 0 ||
-            (auxiliaryStreamTimeline?.length ?? 0) > 0)
-        ) {
-          text = emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText);
-        }
-        if (
-          text.trim() ||
-          (toolStreams?.length ?? 0) > 0 ||
-          (moeStreams?.length ?? 0) > 0 ||
-          (auxiliaryStreamTimeline?.length ?? 0) > 0
-        ) {
+        if (turn) {
           void this.saveMessageToConversation(
             conversationId,
-            text,
-            toolStreams,
-            moeStreams,
-            auxiliaryStreamTimeline,
+            turn.text,
+            turn.toolStreams,
+            turn.moeStreams,
+            turn.auxiliaryStreamTimeline,
           )
             .then(() => this.applyMaybeAutoTitleFromMain(conversationId))
             .catch((err) => console.error('[App] background save / auto-title failed', err));
@@ -737,14 +563,7 @@ export class App implements OnInit, OnDestroy {
     this.currentWorkspaceId.set(config.currentWorkspaceId);
 
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
-    let themeToApply = config.noWorkspaceThemeId || 'dark';
-    if (config.currentWorkspaceId) {
-      const workspace = config.workspaces.find(w => w.id === config.currentWorkspaceId);
-      if (workspace?.themeId) {
-        themeToApply = workspace.themeId;
-      }
-    }
-    this.applyTheme(themeToApply);
+    applyAppTheme(resolveAppThemeId(config));
 
     if (this.electron.isElectron) {
       this.windowMaximized.set(await this.electron.windowIsMaximized());
@@ -824,14 +643,7 @@ export class App implements OnInit, OnDestroy {
     this.streamingParts.set([]);
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
-    let themeToApply = config.noWorkspaceThemeId || 'dark';
-    if (workspaceId) {
-      const workspace = config.workspaces.find(w => w.id === workspaceId);
-      if (workspace?.themeId) {
-        themeToApply = workspace.themeId;
-      }
-    }
-    this.applyTheme(themeToApply);
+    applyAppTheme(resolveAppThemeId(config, workspaceId));
     await this.refreshConversationList();
     void this.rememberLastActiveForWorkspace(conv);
   }
@@ -1025,11 +837,7 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.llamaServerDock.set(target);
-    try {
-      localStorage.setItem(LLAMA_SERVER_DOCK_STORAGE_KEY, target);
-    } catch {
-      /* ignore */
-    }
+    writeLlamaServerDockToStorage(target);
   }
 
   onWorkspaceResizeStart(event: MouseEvent): void {
@@ -1301,14 +1109,7 @@ export class App implements OnInit, OnDestroy {
 
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
-    let themeToApply = config.noWorkspaceThemeId || 'dark';
-    if (workspaceId) {
-      const workspace = config.workspaces.find(w => w.id === workspaceId);
-      if (workspace?.themeId) {
-        themeToApply = workspace.themeId;
-      }
-    }
-    this.applyTheme(themeToApply);
+    applyAppTheme(resolveAppThemeId(config, workspaceId));
     void this.rememberLastActiveForWorkspace(conv);
   }
 
@@ -1590,11 +1391,5 @@ export class App implements OnInit, OnDestroy {
 
   protected onWindowClose(): void {
     this.electron.windowClose();
-  }
-
-  private applyTheme(themeId: string): void {
-    const theme = THEMES.find((t) => t.id === themeId);
-    document.documentElement.className = theme?.cssClass ?? '';
-    document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
   }
 }

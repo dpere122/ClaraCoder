@@ -2,6 +2,18 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:host ::ng-deep app-chat-box,
+:host ::ng-deep app-message-box,
+:host ::ng-deep app-workspace-monaco,
+:host ::ng-deep app-workspace-terminal-dock,
+:host ::ng-deep input,
+:host ::ng-deep textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .app-layout {
@@ -59,6 +71,22 @@
   margin: 0;
   text-align: center;
   cursor: default;
+}
+
+.browser-only-hint {
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--t-border);
+  border-radius: 0.35rem;
+  background: var(--t-bg-surface);
+  color: var(--t-fg-muted, var(--t-fg));
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.browser-only-hint code {
+  font-family: inherit;
+  font-size: 0.95em;
 }
 
 .title-glow--solo {

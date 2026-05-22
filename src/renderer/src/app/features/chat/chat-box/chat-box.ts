@@ -15,7 +15,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { ConversationMessage, StreamPart } from '@shared/index';
+import type { StreamPart } from '@shared/index';
 import {
   auxiliaryTimelineEmbedsToolStatus,
   isClaraOuterBriefStreamTag,
@@ -44,6 +44,40 @@ import {
   estimateChatRowHeight,
   sumHeights,
 } from './chat-box-virtual';
+import {
+  auxiliaryPanelTitleFromChainGroups,
+  buildChatDisplayRows,
+  extractLatestBriefLine,
+  filterLiveToolChainGroups,
+  hashChatToolPhaseKey,
+  isHitlActivationMessage,
+  isScrollWorthyAppendMessage,
+  stripClaraChainRowsFromChainGroups,
+  stripToolChainRowsFromChainGroups,
+  toolChainSummary,
+  TOOL_BUILDING_SYNONYMS,
+  turnHasPendingHitlArtifacts,
+  type ArtifactMessage,
+  type ChatDisplayRow,
+  type ChatMessage,
+  type ToolChainGroup,
+} from './chat-box-display';
+
+export {
+  auxiliaryPanelTitleFromChainGroups,
+  buildChatDisplayRows,
+  extractLatestBriefLine,
+  filterLiveToolChainGroups,
+  isHitlActivationMessage,
+  isPendingHitlArtifact,
+  isScrollWorthyAppendMessage,
+  TOOL_BUILDING_SYNONYMS,
+  turnHasPendingHitlArtifacts,
+  type ArtifactMessage,
+  type ChatDisplayRow,
+  type ChatMessage,
+  type ToolChainGroup,
+} from './chat-box-display';
 
 /** Pixels from the bottom of the chat viewport to treat as “pinned” for follow-final-message behavior. */
 const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
@@ -61,250 +95,7 @@ const INLINE_SPINNER = {
   color: 'var(--bs-secondary-color)',
 };
 
-/** Shown in the live processing row while tools are active; index chosen when tool phase starts. */
-export const TOOL_BUILDING_SYNONYMS = [
-  'assembling',
-  'constructing',
-  'compiling',
-  'crafting',
-  'fabricating',
-  'forging',
-  'generating',
-  'producing',
-  'shaping',
-  'structuring',
-  'erecting',
-  'forming',
-] as const;
-
-export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
-  return (
-    m.role === 'user' ||
-    m.role === 'assistant' ||
-    m.role === 'chain' ||
-    m.role === 'diff' ||
-    m.role === 'delete_confirm' ||
-    m.role === 'copy_confirm' ||
-    m.role === 'accept_command'
-  );
-}
-
-/** Review / confirmation cards (HITL): always scroll into view, including while a reply is still streaming. */
-export function isHitlActivationMessage(m: ChatMessage): boolean {
-  return (
-    m.role === 'diff' ||
-    m.role === 'delete_confirm' ||
-    m.role === 'copy_confirm' ||
-    m.role === 'accept_command'
-  );
-}
-
-/** HITL card still awaiting user action (blocks the live streaming row until resolved). */
-export function isPendingHitlArtifact(m: ArtifactMessage): boolean {
-  return (m.reviewStatus ?? 'pending') === 'pending';
-}
-
-export function turnHasPendingHitlArtifacts(artifacts: readonly ArtifactMessage[]): boolean {
-  return artifacts.some(isPendingHitlArtifact);
-}
-
-/** Small stable hash for synonym index (FNV-1a 32-bit). */
-function hashToUint(str: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-/** Same shape as `ConversationMessage` in `typings.d.ts` (single source for save/load). */
-export type ChatMessage = ConversationMessage;
-type UserMessage = Extract<ChatMessage, { role: 'user' }>;
-type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
-type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' }>;
-
-export interface ToolChainGroup {
-  key: string;
-  rows: ChainMessage[];
-  toolCallCount: number;
-}
-
-export type ChatDisplayRow =
-  | { kind: 'user'; msg: UserMessage }
-  | {
-      kind: 'assistant-turn';
-      assistant: AssistantMessage | null;
-      chainGroups: ToolChainGroup[];
-      artifacts: ArtifactMessage[];
-    };
-
-function buildToolChainGroup(rows: ChainMessage[], index: number): ToolChainGroup {
-  const visibleRows = rows.filter(
-    (row) => row.source === 'tool' || isClaraOuterBriefStreamTag(row.streamTag),
-  );
-  return {
-    key: rows[0]?.statusId ?? `tool-chain-${index}`,
-    rows: visibleRows,
-    toolCallCount: visibleRows.filter((row) => row.source === 'tool').length,
-  };
-}
-
-function isNestedPlannerChainGroup(group: ToolChainGroup): boolean {
-  return group.rows.some((row) => {
-    const tag = row.streamTag?.trim() ?? '';
-    return (
-      tag === 'planner' ||
-      tag === 'planning' ||
-      isClaraOuterBriefStreamTag(row.streamTag) ||
-      tag.startsWith('spec-')
-    );
-  });
-}
-
-function isClaraOnlyToolChainGroup(group: ToolChainGroup): boolean {
-  return (
-    group.rows.length > 0 && group.rows.every((row) => isClaraOuterBriefStreamTag(row.streamTag))
-  );
-}
-
-export function filterLiveToolChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
-  return groups.filter((group) => group.rows.length > 0);
-}
-
-/** Drop `source: tool` chain rows when those tools are already shown inside the auxiliary timeline. */
-function stripToolChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
-  return groups
-    .map((g) => {
-      const kept = g.rows.filter((r) => r.source !== 'tool');
-      const visibleRows = kept.filter(
-        (row) => row.source === 'tool' || isClaraOuterBriefStreamTag(row.streamTag),
-      );
-      return {
-        ...g,
-        rows: visibleRows,
-        toolCallCount: visibleRows.filter((row) => row.source === 'tool').length,
-      };
-    })
-    .filter((g) => g.rows.length > 0);
-}
-
-/** When Clara updates are promoted into the reasoning panel title, avoid showing the same card twice. */
-function stripClaraChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
-  return groups
-    .map((g) => {
-      const rows = g.rows.filter((row) => !isClaraOuterBriefStreamTag(row.streamTag));
-      return {
-        ...g,
-        rows,
-        toolCallCount: rows.filter((row) => row.source === 'tool').length,
-      };
-    })
-    .filter((g) => g.rows.length > 0);
-}
-
-function oneLineTitle(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Extract the latest non-empty line from streaming text for the panel title.
- * During streaming, briefs update the panel title instead of appearing in the main response.
- */
-export function extractLatestBriefLine(text: string): string {
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (line) {
-      const title = oneLineTitle(line);
-      return title.length > 120 ? `${title.slice(0, 117).trimEnd()}...` : title;
-    }
-  }
-  return '';
-}
-
-
-export function auxiliaryPanelTitleFromChainGroups(groups: readonly ToolChainGroup[]): string {
-  for (let i = groups.length - 1; i >= 0; i--) {
-    const rows = groups[i].rows;
-    for (let j = rows.length - 1; j >= 0; j--) {
-      const row = rows[j];
-      if (!isClaraOuterBriefStreamTag(row.streamTag)) {
-        continue;
-      }
-      const title = oneLineTitle(row.text || row.label);
-      if (!title) {
-        continue;
-      }
-      return title.length > 120 ? `${title.slice(0, 117).trimEnd()}...` : title;
-    }
-  }
-  return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
-}
-
-export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] {
-  const rows: ChatDisplayRow[] = [];
-  const pendingArtifacts: ArtifactMessage[] = [];
-  const pendingChainGroups: ToolChainGroup[] = [];
-  let pendingChainRows: ChainMessage[] = [];
-  let chainGroupIndex = 0;
-
-  const flushChainGroup = (): void => {
-    if (pendingChainRows.length === 0) return;
-    const group = buildToolChainGroup([...pendingChainRows], chainGroupIndex++);
-    pendingChainRows = [];
-    if (group.rows.length === 0) return;
-    pendingChainGroups.push(group);
-  };
-
-  const flushPendingAssistantTurn = (): void => {
-    flushChainGroup();
-    if (pendingChainGroups.length === 0 && pendingArtifacts.length === 0) return;
-    rows.push({
-      kind: 'assistant-turn',
-      assistant: null,
-      chainGroups: [...pendingChainGroups],
-      artifacts: [...pendingArtifacts],
-    });
-    pendingChainGroups.length = 0;
-    pendingArtifacts.length = 0;
-  };
-
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      flushPendingAssistantTurn();
-      rows.push({ kind: 'user', msg });
-      continue;
-    }
-    if (msg.role === 'chain') {
-      pendingChainRows.push(msg);
-      continue;
-    }
-    if (msg.role === 'diff' || msg.role === 'copy_confirm' || msg.role === 'delete_confirm') {
-      flushChainGroup();
-      pendingArtifacts.push(msg);
-      continue;
-    }
-    if (msg.role === 'accept_command') {
-      flushChainGroup();
-      pendingArtifacts.push(msg);
-      continue;
-    }
-    flushChainGroup();
-    rows.push({
-      kind: 'assistant-turn',
-      assistant: msg,
-      chainGroups: [...pendingChainGroups],
-      artifacts: [...pendingArtifacts],
-    });
-    pendingChainGroups.length = 0;
-    pendingArtifacts.length = 0;
-  }
-
-  flushPendingAssistantTurn();
-  return rows;
-}
 
 @Component({
   selector: 'app-chat-box',
@@ -724,7 +515,7 @@ export class ChatBox implements OnDestroy {
         if (loading && tools && !this.wasProcessingToolsActive) {
           const chainN = this.messages().filter((m) => m.role === 'chain').length;
           const key = `${this.conversationId() ?? ''}:${chainN}`;
-          this.toolPhaseSynonymIndex.set(hashToUint(key) % TOOL_BUILDING_SYNONYMS.length);
+          this.toolPhaseSynonymIndex.set(hashChatToolPhaseKey(key) % TOOL_BUILDING_SYNONYMS.length);
         }
         this.wasProcessingToolsActive = tools;
         if (!loading || awaitingHitl) {
@@ -923,18 +714,5 @@ export class ChatBox implements OnDestroy {
   }
 
 
-  toolChainSummary(group: ToolChainGroup): string {
-    const claraN = group.rows.filter((r) => isClaraOuterBriefStreamTag(r.streamTag)).length;
-    const toolN = group.toolCallCount;
-    if (claraN > 0 && toolN > 0) {
-      return `${toolN} tool call${toolN === 1 ? '' : 's'} · ${claraN} Clara update${claraN === 1 ? '' : 's'}`;
-    }
-    if (claraN > 0) {
-      return `${claraN} Clara update${claraN === 1 ? '' : 's'}`;
-    }
-    if (toolN > 0) {
-      return `${toolN} tool call${toolN === 1 ? '' : 's'}`;
-    }
-    return `${group.rows.length} update${group.rows.length === 1 ? '' : 's'}`;
-  }
+  readonly toolChainSummary = toolChainSummary;
 }

@@ -1,13 +1,19 @@
 import { ipcMain } from 'electron';
 import { promises as fs } from 'fs';
 
+import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { resolveSafeWorkspacePath } from '../../utils/workspace-safe-path';
 
 const MAX_READ_BYTES = 5 * 1024 * 1024;
 
 /** Read a UTF-8 text file under an open workspace (for the in-app Monaco editor). */
 export function registerWorkspaceReadIpc(): void {
-  ipcMain.handle('read-workspace-file', async (_event, workspaceRoot: string, relativePath: string) => {
+  ipcMain.handle('read-workspace-file', async (event, workspaceRoot: string, relativePath: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Forbidden' };
+    }
     if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
       return { ok: false as const, error: 'No workspace root.' };
     }

@@ -1,4 +1,5 @@
 import type { LlamacppManagedListModelsResult } from '../shared';
+import { parseAllowedHttpUrl } from '../shared/safe-http-url';
 
 /** OpenAI base URL (…/v1) → http origin for /health and non-``/v1`` routes. */
 export function openAiV1BaseToServerRoot(openAiV1: string): string {
@@ -21,8 +22,12 @@ export async function fetchOpenAiCompatibleModelIds(
   openAiBaseUrl: string,
   apiKey: string,
 ): Promise<LlamacppManagedListModelsResult> {
-  const base = openAiBaseUrl.replace(/\/$/, '');
-  const url = `${base}/models`;
+  const parsed = parseAllowedHttpUrl(openAiBaseUrl);
+  if (!parsed) {
+    return { ok: false, error: 'Invalid base URL' };
+  }
+  parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/models`;
+  const url = parsed.toString();
   const headers: Record<string, string> = { Accept: 'application/json' };
   const key = (apiKey || '').trim();
   if (key) {

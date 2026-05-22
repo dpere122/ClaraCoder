@@ -392,9 +392,6 @@
                     <h5>llama.cpp source</h5>
                     <p class='settings-copy'>
                       Start and stop managed <code>llama-server</code> from the chat sidebar. Paste run commands here; refresh models after the chat server is running.
-                      @if (isPinnedLocalManagedLlamaSource()) {
-                        <span> The chat run command below is required for this source (it does not switch to URL-only mode).</span>
-                      }
                     </p>
                   </div>
                   <div class='form-grid'>
@@ -417,46 +414,44 @@
                   </div>
                 </div>
 
-                @if (selectedModel()?.llamaCppManaged; as lm) {
-                  <hr class='settings-divider' />
+                <hr class='settings-divider' />
 
-                  <div class='form-section'>
-                    <div class='form-section__header'>
-                      <h5>Managed llama-server</h5>
-                      <p class='settings-copy'>
-                        One shell command per process. Each command must include exactly one
-                        <code>{{ managedLlamaPortToken }}</code>
-                        token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
-                        sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code>. Use <code>--host</code> in the command if you bind elsewhere; health
-                        checks use that host. For long-context stability and to avoid large checkpoint artifacts, include
-                        <code>--ctx-checkpoints 0 --checkpoint-every-n-tokens -1</code>.
-                      </p>
-                    </div>
-
-                    <div class='form-grid'>
-                      <label class='field field--full'>
-                        <span>Chat llama-server command</span>
-                        <textarea
-                          rows='4'
-                          [ngModel]='lm.chatRunCommand'
-                          (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
-                          [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1'"
-                        ></textarea>
-                      </label>
-
-                      <label class='field field--full'>
-                        <span>Embedding llama-server command (optional)</span>
-                        <textarea
-                          rows='4'
-                          [ngModel]='lm.embeddingRunCommand'
-                          (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
-                          [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
-                        ></textarea>
-                      </label>
-
-                    </div>
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Managed llama-server</h5>
+                    <p class='settings-copy'>
+                      One shell command per process. Each command must include exactly one
+                      <code>{{ managedLlamaPortToken }}</code>
+                      token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
+                      sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code>. Use <code>--host</code> in the command if you bind elsewhere; health
+                      checks use that host. For long-context stability and to avoid large checkpoint artifacts, include
+                      <code>--ctx-checkpoints 0 --checkpoint-every-n-tokens -1</code>.
+                    </p>
                   </div>
-                }
+
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Chat llama-server command</span>
+                      <textarea
+                        rows='4'
+                        [ngModel]='selectedLlamaCppManaged().chatRunCommand'
+                        (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
+                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1'"
+                      ></textarea>
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Embedding llama-server command (optional)</span>
+                      <textarea
+                        rows='4'
+                        [ngModel]='selectedLlamaCppManaged().embeddingRunCommand'
+                        (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
+                        [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
+                      ></textarea>
+                    </label>
+
+                  </div>
+                </div>
 
                 <hr class='settings-divider' />
 

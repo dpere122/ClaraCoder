@@ -546,14 +546,15 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         const cwd = path;
         console.log('[workspace-terminal] spawn requested', { tabId, workspaceRoot, cwd });
         let spawnTimedOut = false;
+        let spawnTimeoutId: ReturnType<typeof setTimeout> | undefined;
         const spawnPromise = this.electron.workspacePtySpawn(workspaceRoot, cwd, cols, rows).then((spawnRes) => {
           if (spawnTimedOut && spawnRes.success) {
             void this.electron.workspacePtyKill(spawnRes.sessionId);
           }
           return spawnRes;
         });
-        const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) =>
-          setTimeout(
+        const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) => {
+          spawnTimeoutId = setTimeout(
             () => {
               spawnTimedOut = true;
               resolve({
@@ -564,9 +565,12 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
               });
             },
             10_000,
-          ),
-        );
+          );
+        });
         const res = await Promise.race([spawnPromise, timeoutPromise]);
+        if (spawnTimeoutId !== undefined) {
+          clearTimeout(spawnTimeoutId);
+        }
         if (this.destroyed) {
           return;
         }

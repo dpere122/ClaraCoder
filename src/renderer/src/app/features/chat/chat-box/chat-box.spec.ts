@@ -10,7 +10,7 @@ import {
   TOOL_BUILDING_SYNONYMS,
   type ChatMessage,
   type ToolChainGroup,
-} from './chat-box';
+} from './chat-box-display';
 
 describe('buildChatDisplayRows', () => {
   it('groups chain rows and diff cards into the same assistant turn', () => {

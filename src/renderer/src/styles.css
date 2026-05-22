@@ -228,57 +228,59 @@ html.theme-classical .interactive-output .terminal-shell {
 .theme-win95 {
   --t-bg: #008080;
   --t-bg-surface: #c0c0c0;
-  --t-bg-deep: #b3b3b3;
+  --t-bg-deep: #a8a8a8;
   --t-panel: #c0c0c0;
-  --t-primary: #000000;
-  --t-secondary: #202020;
+  --t-primary: #000080;
+  --t-secondary: #800000;
   --t-fg: #000000;
   --t-border: #808080;
   --t-border-subtle: #9a9a9a;
   --t-glow: transparent;
   --t-glow-soft: transparent;
-  --t-hover-bg: #d9d9d9;
-  --t-active-bg: #b8b8b8;
+  --t-hover-bg: #d4d0c8;
+  --t-active-bg: #b0b0b0;
   --t-selection-bg: #000080;
-  --t-text-muted: #555555;
-  --t-muted: #555555;
+  --t-text-muted: #404040;
+  --t-muted: #404040;
+  --t-warn: #996600;
   --t-user-bg: #ffffff;
-  --t-assistant-bg: #efefef;
+  --t-assistant-bg: #f0f0f0;
   --t-assistant-border: #808080;
-  --t-code-bg: #ffffff;
-  --t-code-inline-bg: #efefef;
+  --t-code-bg: #fffff8;
+  --t-code-inline-bg: #e8e8e8;
   --t-code-text: #000000;
   --t-input-bg: #ffffff;
   --t-input-fg: #000000;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-font: 'MS Sans Serif', 'Segoe UI', 'Tahoma', sans-serif;
+  --t-font-mono: 'Fixedsys', 'Lucida Console', 'Consolas', monospace;
   --t-titlebar-start: #000080;
   --t-titlebar-end: #1084d0;
   --t-titlebar-text: #ffffff;
   --t-edge-light: #ffffff;
   --t-edge-mid: #dfdfdf;
   --t-edge-dark: #808080;
-  --t-edge-darkest: #000000;
-  --t-process-a: #000080;
-  --t-process-b: #800000;
+  --t-edge-darkest: #404040;
+  --t-process-a: #0000c0;
+  --t-process-b: #c00000;
   --t-process-c: #008000;
-  --t-hljs-keyword: #000080;
+  --t-hljs-keyword: #0000c0;
   --t-hljs-string: #008000;
-  --t-hljs-number: #800000;
-  --t-hljs-comment: #808080;
+  --t-hljs-number: #c00000;
+  --t-hljs-comment: #606060;
   --t-hljs-function: #000080;
   --t-hljs-class: #800080;
-  --t-hljs-attr: #800000;
+  --t-hljs-attr: #a00000;
   --t-hljs-params: #000000;
   --t-hljs-property: #000080;
-  --t-hljs-punctuation: #000000;
-  --t-hljs-operator: #000000;
-  --t-hljs-meta: #808000;
-  --t-hljs-tag: #800000;
+  --t-hljs-punctuation: #303030;
+  --t-hljs-operator: #303030;
+  --t-hljs-meta: #666000;
+  --t-hljs-tag: #a00000;
   --t-hljs-name: #000080;
-  --t-hljs-symbol: #800000;
+  --t-hljs-symbol: #a00000;
   --t-hljs-selector: #800080;
-  --t-log-level-error: #800000;
-  --t-log-level-warning: #808000;
+  --t-log-level-error: #c00000;
+  --t-log-level-warning: #806000;
 }
 
 .theme-woodland {
@@ -1108,12 +1110,15 @@ body.col-resizing * {
 }
 
 html.theme-win95 {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 html.theme-win95 body {
   color: var(--t-fg);
   letter-spacing: 0;
+  font-family: var(--t-font);
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
 }
 
 html.theme-win95 ::selection {
@@ -1210,13 +1215,14 @@ html.theme-win95 body.sidebar-resizing .sidebar-resize-handle {
 html.theme-win95 .title-glow {
   display: block;
   margin: 0 0 0.75rem;
-  padding: 0.28rem 0.5rem;
+  padding: 0.32rem 0.6rem;
   background: linear-gradient(90deg, var(--t-titlebar-start), var(--t-titlebar-end));
   color: var(--t-titlebar-text);
-  text-shadow: none;
-  font-size: 1rem;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+  font-size: 0.95rem;
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: 0.02em;
+  font-family: var(--t-font);
 }
 
 html.theme-win95 app-context-capacity .context-capacity__auto-apply-label,
@@ -1225,7 +1231,8 @@ html.theme-win95 app-font-control .font-size-label,
 html.theme-win95 app-font-control .size-label,
 html.theme-win95 app-settings .settings-voice-threshold-value {
   color: var(--t-fg);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 400;
 }
 
 html.theme-win95 app-context-capacity .context-capacity__auto-apply-toggle {
@@ -1407,14 +1414,20 @@ html.theme-win95 lucide-icon.folder-icon {
   opacity: 1;
 }
 
-html.theme-win95 .file-icon,
-html.theme-win95 .node-chevron,
+html.theme-win95 .file-icon {
+  color: #404040;
+}
+
+html.theme-win95 .node-chevron {
+  color: #000000;
+}
+
 html.theme-win95 .empty-hint,
 html.theme-win95 .workspace-item .workspace-path,
 html.theme-win95 .hint,
 html.theme-win95 .delete-btn,
 html.theme-win95 app-chat-box .empty-state {
-  color: var(--t-muted);
+  color: #505050;
 }
 
 html.theme-win95 .msg-bubble,
@@ -1436,7 +1449,22 @@ html.theme-win95 .user-bubble {
 }
 
 html.theme-win95 .assistant-bubble {
-  background-color: #efefef;
+  background-color: #f0f0f0;
+  line-height: 1.5;
+}
+
+html.theme-win95 .assistant-bubble p {
+  margin-bottom: 0.6em;
+}
+
+html.theme-win95 .assistant-bubble ul,
+html.theme-win95 .assistant-bubble ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.6em;
+}
+
+html.theme-win95 .assistant-bubble li {
+  margin-bottom: 0.25em;
 }
 
 html.theme-win95 .assistant-bubble h1,
@@ -1444,10 +1472,35 @@ html.theme-win95 .assistant-bubble h2,
 html.theme-win95 .assistant-bubble h3,
 html.theme-win95 .assistant-bubble h4,
 html.theme-win95 .assistant-bubble h5,
-html.theme-win95 .assistant-bubble h6,
-html.theme-win95 .assistant-bubble strong,
-html.theme-win95 .assistant-bubble a,
-html.theme-win95 .assistant-bubble blockquote,
+html.theme-win95 .assistant-bubble h6 {
+  color: var(--t-fg);
+  text-shadow: none;
+  font-weight: 700;
+  margin-bottom: 0.5em;
+}
+
+html.theme-win95 .assistant-bubble strong {
+  color: var(--t-fg);
+  font-weight: 700;
+}
+
+html.theme-win95 .assistant-bubble a {
+  color: var(--t-primary);
+  text-decoration: underline;
+}
+
+html.theme-win95 .assistant-bubble a:hover {
+  color: #0000ff;
+}
+
+html.theme-win95 .assistant-bubble blockquote {
+  border-left: 3px solid var(--t-primary);
+  background: #e8e8e8;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+  color: var(--t-fg);
+}
+
 html.theme-win95 .assistant-bubble .hljs-section {
   color: var(--t-fg);
   text-shadow: none;
@@ -1458,12 +1511,40 @@ html.theme-win95 .assistant-bubble pre,
 html.theme-win95 .assistant-bubble td,
 html.theme-win95 .code-block-output,
 html.theme-win95 .output-pre {
-  background-color: #ffffff;
+  background-color: #fffff8;
+  font-family: var(--t-font-mono);
+}
+
+html.theme-win95 .assistant-bubble code {
+  padding: 0.15em 0.35em;
+  background-color: #e8e8e8;
+  border: 1px solid #c0c0c0;
+  font-size: 0.9em;
+}
+
+html.theme-win95 .assistant-bubble pre code {
+  padding: 0;
+  background-color: transparent;
+  border: none;
 }
 
 html.theme-win95 .terminal-shell,
 html.theme-win95 .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
+  background: #000000;
+  color: #c0c0c0;
+  font-family: var(--t-font-mono);
+}
+
+html.theme-win95 .terminal-shell-header {
+  background: var(--t-bg-surface);
+  border: 2px solid;
+  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
+  color: var(--t-fg);
+}
+
+html.theme-win95 .output-pre.terminal-output {
+  background: #000000;
+  color: #c0c0c0;
 }
 
 html.theme-win95 .assistant-bubble th {
@@ -1550,6 +1631,56 @@ html.theme-win95 .workspace-item.active {
 html.theme-win95 .workspace-item .active-badge {
   background: var(--t-titlebar-start);
   color: #ffffff;
+}
+
+html.theme-win95 .chat-main-tab {
+  background: var(--t-bg-deep);
+  border: 2px solid;
+  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
+  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
+  color: var(--t-fg);
+  font-family: var(--t-font);
+}
+
+html.theme-win95 .chat-main-tab--active {
+  background: var(--t-bg-surface);
+  border-bottom-color: var(--t-bg-surface);
+  color: var(--t-fg);
+}
+
+html.theme-win95 .chat-main-tab--conversation:not(.chat-main-tab--active) {
+  background: var(--t-bg-deep);
+  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
+  color: var(--t-fg);
+}
+
+html.theme-win95 .chat-main-tab--active.chat-main-tab--conversation {
+  background: var(--t-bg-surface);
+  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-bg-surface) var(--t-edge-light);
+  color: var(--t-primary);
+  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
+}
+
+html.theme-win95 .chat-main-tab-close:hover {
+  background: #c00000;
+  color: #ffffff;
+}
+
+html.theme-win95 .user-bubble {
+  background-color: #ffffff;
+  color: var(--t-fg);
+  line-height: 1.5;
+}
+
+html.theme-win95 .msg-bubble {
+  font-family: var(--t-font);
+}
+
+html.theme-win95 .form-control,
+html.theme-win95 textarea {
+  font-family: var(--t-font);
+  color: var(--t-fg);
+  line-height: 1.4;
 }
 
 html .code-block-output,

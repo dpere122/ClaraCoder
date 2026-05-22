@@ -197,21 +197,18 @@ export class Settings implements OnInit, OnDestroy {
     }
     return mergeLlmProviderModel(loc.provider, loc.model);
   });
-  /** True when the selected row is URL-only llamacpp (not the pinned local managed source). */
+  /** True for the pinned remote llama-server row (URL + Connect), not managed run commands. */
   protected readonly isUrlOnlyLlamacpp = computed(() => {
-    const loc = this.selectedLocation();
-    if (!loc || loc.provider.provider !== 'llamacpp' || !loc.model) {
-      return false;
-    }
-    if (isPinnedLlamaCppLocalProviderId(loc.provider.id)) {
-      return false;
-    }
-    return !(loc.model.llamaCppManaged?.chatRunCommand ?? '').trim();
+    const p = this.selectedProvider();
+    return !!p && p.provider === 'llamacpp' && isPinnedLlamaServerUrlProviderId(p.id);
   });
-  /** Pinned on-machine managed llama row (always managed UI, never URL-only). */
-  protected readonly isPinnedLocalManagedLlamaSource = computed(() => {
-    const id = this.selectedProvider()?.id;
-    return !!id && isPinnedLlamaCppLocalProviderId(id);
+  /** Managed llama-server commands for the selected model (defaults when missing). */
+  protected readonly selectedLlamaCppManaged = computed((): LlamaCppManaged => {
+    const m = this.selectedModel();
+    if (!m) {
+      return defaultLlamaCppManaged();
+    }
+    return m.llamaCppManaged ?? defaultLlamaCppManaged();
   });
   protected readonly canDeleteSelectedProvider = computed(() => {
     const p = this.selectedProvider();
@@ -396,9 +393,7 @@ export class Settings implements OnInit, OnDestroy {
       this.lmStudioInventoryError.set(null);
     }
     if (p.provider === 'llamacpp') {
-      const urlOnly =
-        !isPinnedLlamaCppLocalProviderId(p.id) && !((first.llamaCppManaged?.chatRunCommand ?? '').trim());
-      if (urlOnly) {
+      if (isPinnedLlamaServerUrlProviderId(p.id)) {
         void this.refreshLlamacppUrlModels();
       } else {
         this.llamacppUrlEmbeddingModelIds.set([]);
@@ -869,11 +864,12 @@ export class Settings implements OnInit, OnDestroy {
 
   protected patchLlamaCppManaged(patch: Partial<LlamaCppManaged>): void {
     const m = this.selectedModel();
-    if (!m?.llamaCppManaged) {
+    if (!m) {
       return;
     }
+    const base = m.llamaCppManaged ?? defaultLlamaCppManaged();
     this.updateSelectedModel({
-      llamaCppManaged: { ...m.llamaCppManaged, ...patch },
+      llamaCppManaged: { ...base, ...patch },
     });
   }
 
@@ -1617,7 +1613,7 @@ export class Settings implements OnInit, OnDestroy {
     }
 
     if (locAfter?.provider.provider === 'llamacpp' && locAfter.model) {
-      if (!(locAfter.model.llamaCppManaged?.chatRunCommand ?? '').trim()) {
+      if (isPinnedLlamaServerUrlProviderId(locAfter.provider.id)) {
         void this.refreshLlamacppUrlModels();
       } else {
         this.llamacppUrlEmbeddingModelIds.set([]);

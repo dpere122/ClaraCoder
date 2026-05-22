@@ -83,10 +83,23 @@ export function popupHelpMenu(win: BrowserWindow, x: number, y: number): void {
   menu.popup({ window: win, x, y });
 }
 
+function buildWindowMenuTemplate(): Electron.MenuItemConstructorOptions[] {
+  if (process.platform === 'darwin') {
+    return [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }];
+  }
+  return [{ role: 'minimize' }, { role: 'togglefullscreen' }, { type: 'separator' }, { role: 'close' }];
+}
+
 /**
- * Main window uses frameless chrome; no native application menu bar.
- * (Open Recent stays fresh because each popup rebuilds from disk.)
+ * Frameless main window uses in-titlebar File/Help buttons; native menu is a fallback
+ * (Alt on Windows/Linux) and supplies Window actions when custom chrome is unavailable.
  */
 export function buildMenu(): void {
-  Menu.setApplicationMenu(null);
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+    { label: 'File', submenu: buildFileMenuTemplate() },
+    { label: 'Window', submenu: buildWindowMenuTemplate() },
+    { label: 'Help', submenu: buildHelpMenuTemplate() },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

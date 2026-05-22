@@ -4,7 +4,7 @@
  */
 import { app, BrowserWindow } from 'electron';
 import { registerPrivilegedNemoTtsScheme } from './protocol/register-privileged';
-import { startPythonServer, waitForPython } from './python/server';
+import { ensurePythonServer } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { loadConfig } from './config/load-save';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
@@ -25,18 +25,26 @@ registerAllIpc();
 app
   .whenReady()
   .then(async () => {
-    startPythonServer();
-    await waitForPython();
+    try {
+      await ensurePythonServer();
+    } catch (err) {
+      console.error('[Main] Python sidecar unavailable — UI will still open:', err);
+    }
     registerNemoTtsStreamProtocol();
     const config = await loadConfig();
-    await syncPythonLogLevel(config.healthMonitor.logLevel);
-    setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
-    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
-    await refreshWorkspaceWatcherForCurrentConfig(config);
+    try {
+      await syncPythonLogLevel(config.healthMonitor.logLevel);
+      setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
+      await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+      await refreshWorkspaceWatcherForCurrentConfig(config);
+    } catch (err) {
+      console.error('[Main] Python sync at startup failed:', err);
+    }
     createMainWindow();
   })
   .catch((err) => {
     console.error(err);
+    createMainWindow();
   });
 
 app.on('activate', () => {

@@ -194,8 +194,9 @@ describe('resolveSafeWorkspacePath', () => {
     });
 
     it('throws on null bytes (potential C string truncation)', () => {
-      const result = resolveSafeWorkspacePath('/workspace', 'file.txt\x00../../../etc/passwd');
-      expect(path.dirname(result)).toBe(path.resolve('/workspace'));
+      expect(() => {
+        resolveSafeWorkspacePath('/workspace', 'file.txt\x00../../../etc/passwd');
+      }).toThrow('Invalid path');
     });
   });
 

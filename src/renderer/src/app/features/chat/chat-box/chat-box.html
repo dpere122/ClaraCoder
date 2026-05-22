@@ -254,27 +254,29 @@
             </div>
           }
         }
-        <div class="processing-bubble" role="status" aria-live="polite">
-          <div class="processing-ngx-host" aria-hidden="true">
-            <ngx-spinner
-              name="chat-tool"
-              type="ball-triangle-path"
-              [fullScreen]="false"
-              bdColor="rgba(0,0,0,0)"
-              size="small"
-              color="var(--bs-secondary-color)"
-            ></ngx-spinner>
-            <ngx-spinner
-              name="chat-think"
-              type="ball-atom"
-              [fullScreen]="false"
-              bdColor="rgba(0,0,0,0)"
-              size="small"
-              color="var(--bs-secondary-color)"
-            ></ngx-spinner>
+        @if (!liveAwaitingHitlReview()) {
+          <div class="processing-bubble" role="status" aria-live="polite">
+            <div class="processing-ngx-host" aria-hidden="true">
+              <ngx-spinner
+                name="chat-tool"
+                type="ball-triangle-path"
+                [fullScreen]="false"
+                bdColor="rgba(0,0,0,0)"
+                size="small"
+                color="var(--bs-secondary-color)"
+              ></ngx-spinner>
+              <ngx-spinner
+                name="chat-think"
+                type="ball-atom"
+                [fullScreen]="false"
+                bdColor="rgba(0,0,0,0)"
+                size="small"
+                color="var(--bs-secondary-color)"
+              ></ngx-spinner>
+            </div>
+            <span class="processing-text">{{ processingBubbleLabel() }}</span>
           </div>
-          <span class="processing-text">{{ processingBubbleLabel() }}</span>
-        </div>
+        }
       </div>
     </div>
   }

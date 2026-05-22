@@ -380,10 +380,6 @@ export class ChatBox implements OnDestroy {
     if (!this.loading()) return rows;
     const last = rows.at(-1);
     if (last?.kind === 'assistant-turn' && !last.assistant) {
-      // Keep pending HITL review cards in the persisted window during an open SSE pause.
-      if (turnHasPendingHitlArtifacts(last.artifacts)) {
-        return rows;
-      }
       return rows.slice(0, -1);
     }
     return rows;
@@ -466,11 +462,7 @@ export class ChatBox implements OnDestroy {
     const rows = this.transcriptRows();
     const last = rows.at(-1);
     const trailingTurn = last?.kind === 'assistant-turn' && !last.assistant ? last : null;
-    if (trailingTurn && turnHasPendingHitlArtifacts(trailingTurn.artifacts)) {
-      return null;
-    }
-    // Always show the live row while loading so the processing ngx-spinners stay mounted and visible
-    // during the gap before the first stream chunk, planner update, or tool status.
+    // In-flight turn (tool trail, HITL cards, stream text) always renders in the live bubble.
     return (
       trailingTurn ?? {
         kind: 'assistant-turn',
@@ -479,6 +471,12 @@ export class ChatBox implements OnDestroy {
         artifacts: [],
       }
     );
+  });
+
+  /** True while the live bubble is blocked on diff / delete / copy / command approval. */
+  readonly liveAwaitingHitlReview = computed(() => {
+    const turn = this.liveTurn();
+    return turn != null && turnHasPendingHitlArtifacts(turn.artifacts);
   });
 
   readonly liveVisibleChainGroups = computed(() => {
@@ -679,6 +677,7 @@ export class ChatBox implements OnDestroy {
     effect(() => {
       const loading = this.loading();
       const tools = this.processingToolsActive();
+      const awaitingHitl = this.liveAwaitingHitlReview();
       untracked(() => {
         if (loading && tools && !this.wasProcessingToolsActive) {
           const chainN = this.messages().filter((m) => m.role === 'chain').length;
@@ -686,7 +685,7 @@ export class ChatBox implements OnDestroy {
           this.toolPhaseSynonymIndex.set(hashToUint(key) % TOOL_BUILDING_SYNONYMS.length);
         }
         this.wasProcessingToolsActive = tools;
-        if (!loading) {
+        if (!loading || awaitingHitl) {
           void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
           void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
           return;

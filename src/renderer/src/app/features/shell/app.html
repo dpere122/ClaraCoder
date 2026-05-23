@@ -170,6 +170,7 @@
         [maxTokens]='contextCapacity().maxTokens'
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
+        [compressionNotice]='activeContextCompressionNotice()'
         [modelName]='activeLlmModelDisplayName()'
         [modelPresetOptions]='llmModelPresetOptions()'
         [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'

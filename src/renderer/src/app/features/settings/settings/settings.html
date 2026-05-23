@@ -1102,6 +1102,110 @@
 
           <div class='form-section'>
             <div class='form-section__header'>
+              <h5>Context compression</h5>
+              <p class='settings-copy'>
+                When checkpoint usage exceeds the trigger threshold, older tool result bodies are shortened
+                in the LangGraph checkpoint. Compaction runs only when over budget; tool rounds are never removed.
+                The chat transcript in the UI is unchanged.
+              </p>
+            </div>
+
+            <div class='field field--full'>
+              <label class='toggle-row'>
+                <input
+                  type='checkbox'
+                  [ngModel]='contextCompressionEnabled()'
+                  (ngModelChange)='onContextCompressionEnabledChange($event)'
+                />
+                <span>Enable checkpoint context compression</span>
+              </label>
+            </div>
+
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Compact when usage ≥ (ratio)</span>
+                <input
+                  type='number'
+                  min='0.5'
+                  max='0.95'
+                  step='0.05'
+                  [ngModel]='contextCompressionTriggerRatio()'
+                  (ngModelChange)='onContextCompressionTriggerRatioChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+
+              <label class='field'>
+                <span>Target ratio (reserved)</span>
+                <input
+                  type='number'
+                  min='0.4'
+                  max='0.9'
+                  step='0.05'
+                  [ngModel]='contextCompressionTargetRatio()'
+                  (ngModelChange)='onContextCompressionTargetRatioChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+
+              <label class='field'>
+                <span>Protected tail messages</span>
+                <input
+                  type='number'
+                  min='8'
+                  max='100'
+                  step='1'
+                  [ngModel]='contextCompressionProtectTail()'
+                  (ngModelChange)='onContextCompressionProtectTailChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+
+              <label class='field'>
+                <span>System reserve (ratio)</span>
+                <input
+                  type='number'
+                  min='0.1'
+                  max='0.5'
+                  step='0.05'
+                  [ngModel]='contextCompressionSystemReserve()'
+                  (ngModelChange)='onContextCompressionSystemReserveChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+
+              <label class='field'>
+                <span>Recent tool body max chars</span>
+                <input
+                  type='number'
+                  min='200'
+                  max='20000'
+                  step='100'
+                  [ngModel]='contextCompressionRecentToolChars()'
+                  (ngModelChange)='onContextCompressionRecentToolCharsChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+
+              <label class='field'>
+                <span>Older tool body max chars</span>
+                <input
+                  type='number'
+                  min='100'
+                  max='10000'
+                  step='50'
+                  [ngModel]='contextCompressionOldToolChars()'
+                  (ngModelChange)='onContextCompressionOldToolCharsChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+            </div>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
               <h5>Default text encoding and newlines</h5>
               <p class='settings-copy'>
                 Used when the model omits <code>encoding</code> / <code>newline</code> on read, search, and edit tools. Per-call overrides still apply.

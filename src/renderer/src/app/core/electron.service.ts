@@ -40,6 +40,7 @@ import type {
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
 } from '@shared/index';
+import { getDefaultContextCompression } from '@shared/index';
 
 export interface ChunkMessage {
   conversationId: string;
@@ -89,6 +90,14 @@ export interface LlmTokenUsageMessage {
   inputTokens: number;
   outputTokens?: number;
   totalTokens?: number;
+}
+
+export interface ContextCompressedMessage {
+  conversationId: string;
+  tokensBefore: number;
+  tokensAfter: number;
+  toolMessagesCompacted: number;
+  toolRoundsDropped: number;
 }
 
 export interface DiffMessage {
@@ -214,6 +223,7 @@ export class ElectronService {
   private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
   private readonly finalTextSubject = new Subject<{ conversationId: string; text: string }>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
+  private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
@@ -249,6 +259,7 @@ export class ElectronService {
   readonly finalText$ = this.finalTextSubject.asObservable();
   /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
+  readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
@@ -355,6 +366,28 @@ export class ElectronService {
           inputTokens,
           ...(typeof outRaw === 'number' && Number.isFinite(outRaw) ? { outputTokens: outRaw } : {}),
           ...(typeof totRaw === 'number' && Number.isFinite(totRaw) ? { totalTokens: totRaw } : {}),
+        }),
+      );
+    });
+    this.api?.onMessageContextCompressed?.((_event, conversationId, payload) => {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      const beforeRaw = (p as { tokensBefore?: unknown }).tokensBefore;
+      const afterRaw = (p as { tokensAfter?: unknown }).tokensAfter;
+      const compactedRaw = (p as { toolMessagesCompacted?: unknown }).toolMessagesCompacted;
+      const droppedRaw = (p as { toolRoundsDropped?: unknown }).toolRoundsDropped;
+      const tokensBefore = typeof beforeRaw === 'number' && Number.isFinite(beforeRaw) ? beforeRaw : 0;
+      const tokensAfter = typeof afterRaw === 'number' && Number.isFinite(afterRaw) ? afterRaw : 0;
+      const toolMessagesCompacted =
+        typeof compactedRaw === 'number' && Number.isFinite(compactedRaw) ? compactedRaw : 0;
+      const toolRoundsDropped =
+        typeof droppedRaw === 'number' && Number.isFinite(droppedRaw) ? droppedRaw : 0;
+      this.zone.run(() =>
+        this.contextCompressedSubject.next({
+          conversationId,
+          tokensBefore,
+          tokensAfter,
+          toolMessagesCompacted,
+          toolRoundsDropped,
         }),
       );
     });
@@ -826,6 +859,7 @@ export class ElectronService {
         allowStagingOverlayCommands: false,
         exposeAllWorkspaceFiles: false,
       },
+      contextCompression: getDefaultContextCompression(),
       healthMonitor: {
         logLevel: 'info',
         metricsEnabled: false,

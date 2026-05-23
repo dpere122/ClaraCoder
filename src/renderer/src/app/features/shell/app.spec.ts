@@ -56,6 +56,15 @@ function stubElectronApi(): void {
       allowStagingOverlayCommands: false,
       exposeAllWorkspaceFiles: false,
     },
+    contextCompression: {
+      enabled: true,
+      triggerRatio: 0.7,
+      targetRatio: 0.55,
+      protectTailMessages: 24,
+      recentToolBodyMaxChars: 2000,
+      oldToolBodyMaxChars: 400,
+      systemReserveRatio: 0.25,
+    },
     healthMonitor: {
       logLevel: 'info',
       metricsEnabled: false,
@@ -78,6 +87,7 @@ function stubElectronApi(): void {
     onMessageToolReadChunk: noop,
     onMessageDone: noop,
     onMessageTokenUsage: noop,
+    onMessageContextCompressed: noop,
     onMessageStatus: noop,
     onMessageHarnessCrystal: noop,
     onConfigUpdated: noop,

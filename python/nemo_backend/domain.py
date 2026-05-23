@@ -178,6 +178,21 @@ class RuntimeConnection:
     presence_penalty: float | None = None
     #: Optional llama.cpp ``repeat_penalty`` in ``extra_body`` when set (not ``repetition_penalty`` on the wire).
     repeat_penalty: float | None = None
+    #: Main context window for this connection (from Settings); used for checkpoint compaction budgets.
+    context_window_tokens: int = 0
+
+
+@dataclass
+class RuntimeContextCompressionConfig:
+    """LangGraph checkpoint compaction settings (Settings → Tools)."""
+
+    enabled: bool = True
+    trigger_ratio: float = 0.70
+    target_ratio: float = 0.55
+    protect_tail_messages: int = 24
+    recent_tool_body_max_chars: int = 2000
+    old_tool_body_max_chars: int = 400
+    system_reserve_ratio: float = 0.25
 
 
 @dataclass
@@ -227,3 +242,4 @@ class RuntimeConfig:
     audio: RuntimeAudioConfig
     host: RuntimeHostConfig = field(default_factory=RuntimeHostConfig)
     tools: RuntimeToolsConfig = field(default_factory=RuntimeToolsConfig)
+    context_compression: RuntimeContextCompressionConfig = field(default_factory=RuntimeContextCompressionConfig)

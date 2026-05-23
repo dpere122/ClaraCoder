@@ -43,6 +43,18 @@ export const chatApi = {
       usage: { inputTokens: number; outputTokens?: number; totalTokens?: number },
     ) => void,
   ) => ipcRenderer.on('message-token-usage', callback),
+  onMessageContextCompressed: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      payload: {
+        tokensBefore: number;
+        tokensAfter: number;
+        toolMessagesCompacted: number;
+        toolRoundsDropped: number;
+      },
+    ) => void,
+  ) => ipcRenderer.on('message-context-compressed', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),
   onMessageHarnessCrystal: (

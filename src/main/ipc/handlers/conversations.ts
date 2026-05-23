@@ -54,7 +54,7 @@ function effectiveWorkspaceId(workspaceId?: string | null): string | null {
 }
 
 /**
- * Conversation persistence (SQLite), Python session sync (`/clear`, `/load`), and theme tweaks.
+ * Conversation persistence (SQLite), Python session sync (`/load`), and theme tweaks.
  */
 export function registerConversationsIpc(): void {
   ipcMain.handle('get-conversations', async (_event, workspaceId?: string | null) => {
@@ -96,20 +96,10 @@ export function registerConversationsIpc(): void {
 
       if (!skipPythonResync) {
         try {
-          await fetch(`${PYTHON_URL}/clear`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: id }),
-          });
+          await syncConversationWorkspaceContext(conv);
         } catch (err) {
-          console.error('Failed to reset Python session before loading conversation:', err);
+          console.error('Failed to sync workspace context:', err);
         }
-      }
-
-      try {
-        await syncConversationWorkspaceContext(conv);
-      } catch (err) {
-        console.error('Failed to sync workspace context:', err);
       }
 
       if (!skipPythonResync) {

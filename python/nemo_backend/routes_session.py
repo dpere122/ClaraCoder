@@ -53,7 +53,6 @@ async def clear_session(request: ClearRequest) -> dict[str, bool]:
 @router.post('/load')
 async def load_session(request: LoadRequest) -> dict[str, bool]:
     """Bulk-restore messages into a session (typically after app restart)."""
-    await delete_outer_threads_for_session(request.session_id)
     sess = state.get_session(request.session_id)
     restored: list[dict[str, Any]] = []
     for item in request.messages:

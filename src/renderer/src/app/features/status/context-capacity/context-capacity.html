@@ -44,6 +44,9 @@
       <span>{{ formatCompact(usedTokens()) }} / {{ formatCompact(maxTokens()) }} tokens</span>
       <span>{{ formatCompact(remainingTokens()) }} left</span>
     </div>
+    @if (compressionNotice()) {
+      <p class="context-capacity__compression-notice">{{ compressionNotice() }}</p>
+    }
   </div>
 
   <button

@@ -6,7 +6,13 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from nemo_backend.domain import RuntimeAudioConfig, RuntimeConnection, RuntimeHostConfig, RuntimeToolsConfig
+from nemo_backend.domain import (
+    RuntimeAudioConfig,
+    RuntimeConnection,
+    RuntimeContextCompressionConfig,
+    RuntimeHostConfig,
+    RuntimeToolsConfig,
+)
 from nemo_backend.http_url_normalize import normalize_bind_all_host_url
 from nemo_backend.schemas import RuntimeConfigRequest
 from nemo_backend.workspace_text_io import validate_workspace_encoding
@@ -56,6 +62,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             embeddings_base_url=normalize_bind_all_host_url((item.embeddingsBaseUrl or '').strip()),
             embeddings_enabled=bool(item.embeddingsEnabled),
             embeddings_model=(item.embeddingsModel or '').strip(),
+            context_window_tokens=int(item.contextWindowTokens),
         )
         for item in request.connections
     ]
@@ -87,6 +94,21 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     else:
         tools_cfg = prev_tools
 
+    prev_cc = state.runtime_config.context_compression
+    if request.contextCompression is not None:
+        cc_req = request.contextCompression
+        context_compression_cfg = RuntimeContextCompressionConfig(
+            enabled=bool(cc_req.enabled),
+            trigger_ratio=float(cc_req.triggerRatio),
+            target_ratio=float(cc_req.targetRatio),
+            protect_tail_messages=int(cc_req.protectTailMessages),
+            recent_tool_body_max_chars=int(cc_req.recentToolBodyMaxChars),
+            old_tool_body_max_chars=int(cc_req.oldToolBodyMaxChars),
+            system_reserve_ratio=float(cc_req.systemReserveRatio),
+        )
+    else:
+        context_compression_cfg = prev_cc
+
     # Mutate in place so modules that imported ``runtime_config`` keep seeing live values.
     cfg = state.runtime_config
     cfg.active_connection_id = active_connection_id
@@ -105,8 +127,10 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         label=request.host.label if request.host else '',
     )
     cfg.tools = tools_cfg
+    cfg.context_compression = context_compression_cfg
     logger.info(
-        'POST /runtime-config applied (tools payload: %s)',
+        'POST /runtime-config applied (tools payload: %s, contextCompression: %s)',
         'yes' if request.tools is not None else 'no',
+        'yes' if request.contextCompression is not None else 'no',
     )
     return {'ok': True}

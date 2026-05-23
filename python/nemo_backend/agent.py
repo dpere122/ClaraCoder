@@ -24,6 +24,7 @@ from nemo_backend.agent_loop import AgentLoopOutcome, DEFAULT_AGENT_LOOP_POLICY,
 from nemo_backend.checkpointing import delete_outer_thread
 from nemo_backend.agent_streaming import model_chunk_sse_line, sse_line, status_event
 from nemo_backend.config import MAX_TOOL_STATUS_LINE
+from nemo_backend.context_compression import maybe_compact_outer_checkpoint
 from nemo_backend.llm import build_llm
 from nemo_backend.llm_interaction_logging import log_llm_user_request
 from nemo_backend.messages import stringify_content
@@ -100,6 +101,11 @@ async def stream_agent_reply(
         if DEFAULT_AGENT_LOOP_POLICY.should_commit_history(graph_outcome):
             session.history.append({'role': 'user', 'content': user_message})
             session.history.append({'role': 'assistant', 'content': graph_outcome.best_available_text()})
+
+        if graph_outcome.state == AgentLoopOutcome.COMPLETED:
+            compact_stats = await maybe_compact_outer_checkpoint(session_id, apply_mode, session)
+            if compact_stats and compact_stats.changed:
+                yield sse_line(compact_stats.to_sse_payload())
 
         # Send the final text (clean, without intermediate briefs) to the frontend
         final_text = graph_outcome.final_text.strip()

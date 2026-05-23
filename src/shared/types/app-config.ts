@@ -186,6 +186,36 @@ export interface WorkspaceToolsConfig {
   exposeAllWorkspaceFiles?: boolean;
 }
 
+/** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */
+export interface ContextCompressionConfig {
+  /** When false, post-turn checkpoint compaction is skipped. */
+  enabled: boolean;
+  /** Start compaction when checkpoint estimate ≥ this × usable budget (0.5–0.95). */
+  triggerRatio: number;
+  /** Reserved for a future compaction phase; Phase 1 compacts tool bodies only. */
+  targetRatio: number;
+  /** Recent checkpoint messages left verbatim (8–100). */
+  protectTailMessages: number;
+  /** Max tool body chars for messages just outside the protected tail. */
+  recentToolBodyMaxChars: number;
+  /** Max tool body chars for older tool messages outside the tail. */
+  oldToolBodyMaxChars: number;
+  /** Fraction of context window reserved for system prompt + output (0.1–0.5). */
+  systemReserveRatio: number;
+}
+
+export function getDefaultContextCompression(): ContextCompressionConfig {
+  return {
+    enabled: true,
+    triggerRatio: 0.7,
+    targetRatio: 0.55,
+    protectTailMessages: 24,
+    recentToolBodyMaxChars: 2000,
+    oldToolBodyMaxChars: 400,
+    systemReserveRatio: 0.25,
+  };
+}
+
 /** Built-in Monaco themes plus the app-defined `clara-monaco` (CSS-variable aligned). */
 export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['clara-monaco', 'vs', 'vs-dark', 'hc-black', 'hc-light'] as const;
 export type MonacoWorkspaceEditorThemeId = (typeof MONACO_WORKSPACE_EDITOR_THEME_IDS)[number];
@@ -424,6 +454,7 @@ export interface AppConfig {
   llmProviders: LlmProviderConfig[];
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
+  contextCompression: ContextCompressionConfig;
   healthMonitor: HealthMonitorConfig;
   modelManager: ModelManagerConfig;
   /** Chat message font size in `rem` (e.g. 0.9). Client-only UI preference. */

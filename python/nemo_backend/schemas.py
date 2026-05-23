@@ -199,6 +199,12 @@ class RuntimeConnectionRequest(BaseModel):
         default='',
         validation_alias=AliasChoices('embeddingsModel', 'embeddings_model'),
     )
+    contextWindowTokens: int = Field(
+        default=0,
+        ge=0,
+        le=10_000_000,
+        validation_alias=AliasChoices('contextWindowTokens', 'context_window_tokens'),
+    )
 
     @field_validator('architectureHint', mode='before')
     @classmethod
@@ -267,6 +273,23 @@ class RuntimeToolsRequest(BaseModel):
         return _coerce_boolish(v)
 
 
+class RuntimeContextCompressionRequest(BaseModel):
+    """LangGraph checkpoint compaction settings from Settings → Tools."""
+
+    enabled: bool = True
+    triggerRatio: float = Field(default=0.70, ge=0.5, le=0.95)
+    targetRatio: float = Field(default=0.55, ge=0.4, le=0.90)
+    protectTailMessages: int = Field(default=24, ge=8, le=100)
+    recentToolBodyMaxChars: int = Field(default=2000, ge=200, le=20_000)
+    oldToolBodyMaxChars: int = Field(default=400, ge=100, le=10_000)
+    systemReserveRatio: float = Field(default=0.25, ge=0.1, le=0.5)
+
+    @field_validator('enabled', mode='before')
+    @classmethod
+    def _normalize_enabled(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 
@@ -275,6 +298,7 @@ class RuntimeConfigRequest(BaseModel):
     audio: RuntimeAudioRequest
     host: RuntimeHostRequest | None = None
     tools: RuntimeToolsRequest | None = None
+    contextCompression: RuntimeContextCompressionRequest | None = None
 
 
 class LogLevelRequest(BaseModel):

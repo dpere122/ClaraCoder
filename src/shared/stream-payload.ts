@@ -31,7 +31,14 @@ export type ParsedAgentStreamPayload =
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
   | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
-  | { type: 'final_text'; text: string };
+  | { type: 'final_text'; text: string }
+  | {
+      type: 'context_compressed';
+      tokensBefore: number;
+      tokensAfter: number;
+      toolMessagesCompacted: number;
+      toolRoundsDropped: number;
+    };
 
 type RawAgentStreamPayload = {
   type?: string;
@@ -45,6 +52,14 @@ type RawAgentStreamPayload = {
   input_tokens?: unknown;
   output_tokens?: unknown;
   total_tokens?: unknown;
+  tokens_before?: unknown;
+  tokens_after?: unknown;
+  tool_messages_compacted?: unknown;
+  tool_rounds_dropped?: unknown;
+  tokensBefore?: unknown;
+  tokensAfter?: unknown;
+  toolMessagesCompacted?: unknown;
+  toolRoundsDropped?: unknown;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
   diff?: unknown;
   acceptCommand?: unknown;
@@ -54,6 +69,13 @@ type RawAgentStreamPayload = {
 
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function optionalNonNegativeInt(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return undefined;
+  }
+  return Math.floor(value);
 }
 
 export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPayload {
@@ -180,6 +202,30 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       const text = (parsed as { text?: string }).text;
       if (typeof text === 'string') {
         return { type: 'final_text', text };
+      }
+    }
+
+    if (parsed.type === 'context_compressed') {
+      const tokensBefore =
+        optionalNonNegativeInt(parsed.tokensBefore) ?? optionalNonNegativeInt(parsed.tokens_before);
+      const tokensAfter =
+        optionalNonNegativeInt(parsed.tokensAfter) ?? optionalNonNegativeInt(parsed.tokens_after);
+      const toolMessagesCompacted =
+        optionalNonNegativeInt(parsed.toolMessagesCompacted)
+        ?? optionalNonNegativeInt(parsed.tool_messages_compacted)
+        ?? 0;
+      const toolRoundsDropped =
+        optionalNonNegativeInt(parsed.toolRoundsDropped)
+        ?? optionalNonNegativeInt(parsed.tool_rounds_dropped)
+        ?? 0;
+      if (tokensBefore !== undefined && tokensAfter !== undefined) {
+        return {
+          type: 'context_compressed',
+          tokensBefore,
+          tokensAfter,
+          toolMessagesCompacted,
+          toolRoundsDropped,
+        };
       }
     }
   } catch {

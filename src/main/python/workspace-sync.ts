@@ -136,6 +136,7 @@ function connectionToRuntimeWire(
     embeddingsBaseUrl,
     embeddingsModel: (c.embeddingsModel ?? '').trim(),
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
+    contextWindowTokens: c.contextWindowTokens,
   };
 }
 
@@ -168,6 +169,15 @@ export async function syncRuntimeConfigToPython(
           defaultWorkspaceNewline: config.workspaceTools.defaultWorkspaceNewline,
           allowStagingOverlayCommands: config.workspaceTools.allowStagingOverlayCommands ?? false,
           exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
+        },
+        contextCompression: {
+          enabled: config.contextCompression.enabled,
+          triggerRatio: config.contextCompression.triggerRatio,
+          targetRatio: config.contextCompression.targetRatio,
+          protectTailMessages: config.contextCompression.protectTailMessages,
+          recentToolBodyMaxChars: config.contextCompression.recentToolBodyMaxChars,
+          oldToolBodyMaxChars: config.contextCompression.oldToolBodyMaxChars,
+          systemReserveRatio: config.contextCompression.systemReserveRatio,
         },
       }),
     });

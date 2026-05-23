@@ -19,10 +19,12 @@ import type {
   MonacoWorkspaceEditorThemeId,
   Workspace,
   WorkspaceToolsConfig,
+  ContextCompressionConfig,
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
@@ -168,6 +170,13 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
   protected readonly allowStagingOverlayCommands = signal(false);
   protected readonly exposeAllWorkspaceFiles = signal(false);
+  protected readonly contextCompressionEnabled = signal(true);
+  protected readonly contextCompressionTriggerRatio = signal(0.7);
+  protected readonly contextCompressionTargetRatio = signal(0.55);
+  protected readonly contextCompressionProtectTail = signal(24);
+  protected readonly contextCompressionRecentToolChars = signal(2000);
+  protected readonly contextCompressionOldToolChars = signal(400);
+  protected readonly contextCompressionSystemReserve = signal(0.25);
   protected readonly modelManagerCustomDir = signal('');
   protected readonly modelManagerHfToken = signal('');
   protected readonly modelManagerCustomModels = signal<ModelManagerFileEntry[]>([]);
@@ -1307,6 +1316,83 @@ export class Settings implements OnInit, OnDestroy {
     this.markSettingsDirty();
   }
 
+  protected updateContextCompression(changes: Partial<ContextCompressionConfig>): void {
+    if (changes.enabled !== undefined) {
+      this.contextCompressionEnabled.set(!!changes.enabled);
+    }
+    if (changes.triggerRatio !== undefined) {
+      this.contextCompressionTriggerRatio.set(changes.triggerRatio);
+    }
+    if (changes.targetRatio !== undefined) {
+      this.contextCompressionTargetRatio.set(changes.targetRatio);
+    }
+    if (changes.protectTailMessages !== undefined) {
+      this.contextCompressionProtectTail.set(changes.protectTailMessages);
+    }
+    if (changes.recentToolBodyMaxChars !== undefined) {
+      this.contextCompressionRecentToolChars.set(changes.recentToolBodyMaxChars);
+    }
+    if (changes.oldToolBodyMaxChars !== undefined) {
+      this.contextCompressionOldToolChars.set(changes.oldToolBodyMaxChars);
+    }
+    if (changes.systemReserveRatio !== undefined) {
+      this.contextCompressionSystemReserve.set(changes.systemReserveRatio);
+    }
+    this.markSettingsDirty();
+  }
+
+  protected onContextCompressionEnabledChange(enabled: boolean): void {
+    this.updateContextCompression({ enabled: !!enabled });
+  }
+
+  protected onContextCompressionTriggerRatioChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    if (Number.isNaN(n)) return;
+    const clamped = Math.min(0.95, Math.max(0.5, n));
+    this.contextCompressionTriggerRatio.set(clamped);
+    if (this.contextCompressionTargetRatio() > clamped) {
+      this.contextCompressionTargetRatio.set(Math.min(clamped, 0.55));
+    }
+    this.markSettingsDirty();
+  }
+
+  protected onContextCompressionTargetRatioChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    if (Number.isNaN(n)) return;
+    const maxTarget = this.contextCompressionTriggerRatio();
+    const clamped = Math.min(maxTarget, Math.max(0.4, Math.min(0.9, n)));
+    this.contextCompressionTargetRatio.set(clamped);
+    this.markSettingsDirty();
+  }
+
+  protected onContextCompressionProtectTailChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) return;
+    this.contextCompressionProtectTail.set(Math.min(100, Math.max(8, n)));
+    this.markSettingsDirty();
+  }
+
+  protected onContextCompressionRecentToolCharsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) return;
+    this.contextCompressionRecentToolChars.set(Math.min(20_000, Math.max(200, n)));
+    this.markSettingsDirty();
+  }
+
+  protected onContextCompressionOldToolCharsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) return;
+    this.contextCompressionOldToolChars.set(Math.min(10_000, Math.max(100, n)));
+    this.markSettingsDirty();
+  }
+
+  protected onContextCompressionSystemReserveChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    if (Number.isNaN(n)) return;
+    this.contextCompressionSystemReserve.set(Math.min(0.5, Math.max(0.1, n)));
+    this.markSettingsDirty();
+  }
+
   protected patchMonaco(patch: Partial<MonacoWorkspaceEditorSettings>): void {
     const merged = { ...this.monacoWorkspaceEditor(), ...patch };
     this.monacoWorkspaceEditor.set(normalizeMonacoWorkspaceEditorSettings(merged).settings);
@@ -1471,6 +1557,15 @@ export class Settings implements OnInit, OnDestroy {
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
       },
+      contextCompression: {
+        enabled: this.contextCompressionEnabled(),
+        triggerRatio: this.contextCompressionTriggerRatio(),
+        targetRatio: this.contextCompressionTargetRatio(),
+        protectTailMessages: this.contextCompressionProtectTail(),
+        recentToolBodyMaxChars: this.contextCompressionRecentToolChars(),
+        oldToolBodyMaxChars: this.contextCompressionOldToolChars(),
+        systemReserveRatio: this.contextCompressionSystemReserve(),
+      },
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
         huggingFaceToken: this.modelManagerHfToken(),
@@ -1592,6 +1687,16 @@ export class Settings implements OnInit, OnDestroy {
     );
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
+
+    const cc = config.contextCompression ?? getDefaultContextCompression();
+    this.contextCompressionEnabled.set(!!cc.enabled);
+    this.contextCompressionTriggerRatio.set(cc.triggerRatio);
+    this.contextCompressionTargetRatio.set(cc.targetRatio);
+    this.contextCompressionProtectTail.set(cc.protectTailMessages);
+    this.contextCompressionRecentToolChars.set(cc.recentToolBodyMaxChars);
+    this.contextCompressionOldToolChars.set(cc.oldToolBodyMaxChars);
+    this.contextCompressionSystemReserve.set(cc.systemReserveRatio);
+
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
     this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
 

@@ -16,6 +16,7 @@ export class StatusBarComponent {
   readonly activeLlmModelId = input('');
   readonly activeLlmModelChange = output<string>();
   readonly usedPercentage = input(0);
+  readonly compressionNotice = input('');
   readonly editorMode = model(true);
   readonly autoApplyMode = model(false);
 }

@@ -192,4 +192,24 @@ describe('parseAgentStreamPayload', () => {
       delta: 'not-json',
     });
   });
+
+  it('parses context_compressed payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'context_compressed',
+          tokens_before: 12000,
+          tokens_after: 8000,
+          tool_messages_compacted: 3,
+          tool_rounds_dropped: 1,
+        }),
+      ),
+    ).toEqual({
+      type: 'context_compressed',
+      tokensBefore: 12000,
+      tokensAfter: 8000,
+      toolMessagesCompacted: 3,
+      toolRoundsDropped: 1,
+    });
+  });
 });

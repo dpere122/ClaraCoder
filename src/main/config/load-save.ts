@@ -10,6 +10,7 @@ import type {
   LlmConnectionConfig,
   LlmModelProfile,
   LlmProviderConfig,
+  ContextCompressionConfig,
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
@@ -21,6 +22,7 @@ import {
   isLegacyLlamaCppManagedShape,
   migrateLegacyLlamaCppManagedToCommands,
   normalizeMonacoWorkspaceEditorSettings,
+  getDefaultContextCompression,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
@@ -840,6 +842,62 @@ export function migrateConfig(config: AppConfig): AppConfig {
       migrated = true;
     } else if (typeof exposeAllRaw !== 'boolean') {
       wt.exposeAllWorkspaceFiles = false;
+      migrated = true;
+    }
+  }
+
+  const ccRaw = (newConfig as AppConfig & { contextCompression?: ContextCompressionConfig }).contextCompression;
+  if (!ccRaw || typeof ccRaw !== 'object') {
+    (newConfig as AppConfig).contextCompression = getDefaultContextCompression();
+    migrated = true;
+  } else {
+    const cc = ccRaw;
+    if (typeof cc.enabled !== 'boolean') {
+      cc.enabled = true;
+      migrated = true;
+    }
+    if (typeof cc.triggerRatio !== 'number' || cc.triggerRatio < 0.5 || cc.triggerRatio > 0.95) {
+      cc.triggerRatio = 0.7;
+      migrated = true;
+    }
+    if (typeof cc.targetRatio !== 'number' || cc.targetRatio < 0.4 || cc.targetRatio > 0.9) {
+      cc.targetRatio = 0.55;
+      migrated = true;
+    }
+    if (cc.targetRatio > cc.triggerRatio) {
+      cc.targetRatio = Math.min(cc.triggerRatio, 0.55);
+      migrated = true;
+    }
+    if (
+      typeof cc.protectTailMessages !== 'number' ||
+      cc.protectTailMessages < 8 ||
+      cc.protectTailMessages > 100
+    ) {
+      cc.protectTailMessages = 24;
+      migrated = true;
+    }
+    if (
+      typeof cc.recentToolBodyMaxChars !== 'number' ||
+      cc.recentToolBodyMaxChars < 200 ||
+      cc.recentToolBodyMaxChars > 20_000
+    ) {
+      cc.recentToolBodyMaxChars = 2000;
+      migrated = true;
+    }
+    if (
+      typeof cc.oldToolBodyMaxChars !== 'number' ||
+      cc.oldToolBodyMaxChars < 100 ||
+      cc.oldToolBodyMaxChars > 10_000
+    ) {
+      cc.oldToolBodyMaxChars = 400;
+      migrated = true;
+    }
+    if (
+      typeof cc.systemReserveRatio !== 'number' ||
+      cc.systemReserveRatio < 0.1 ||
+      cc.systemReserveRatio > 0.5
+    ) {
+      cc.systemReserveRatio = 0.25;
       migrated = true;
     }
   }

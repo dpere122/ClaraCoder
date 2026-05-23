@@ -26,6 +26,13 @@
   gap: 0.45rem 0.85rem;
 }
 
+.context-capacity__compression-notice {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--text-muted, #8b949e);
+}
+
 .context-capacity__title-row {
   align-items: center;
 }

@@ -150,6 +150,18 @@ except ValueError:
     MAX_READ_TOOL_STREAM_CHARS = 120_000
 
 # ---------------------------------------------------------------------------
+# LangGraph checkpoint context compression (Settings → Tools overrides via runtime-config)
+# ---------------------------------------------------------------------------
+NEMO_CONTEXT_COMPACT_ENABLED = _env_bool('NEMO_CONTEXT_COMPACT_ENABLED', True)
+NEMO_CONTEXT_COMPACT_TRIGGER_RATIO = _env_float('NEMO_CONTEXT_COMPACT_TRIGGER_RATIO', 0.70, 0.5, 0.95)
+NEMO_CONTEXT_COMPACT_TARGET_RATIO = _env_float('NEMO_CONTEXT_COMPACT_TARGET_RATIO', 0.55, 0.4, 0.90)
+NEMO_CONTEXT_COMPACT_PROTECT_TAIL = _env_int('NEMO_CONTEXT_COMPACT_PROTECT_TAIL', 24, 8, 100)
+NEMO_CONTEXT_COMPACT_RECENT_TOOL_CHARS = _env_int('NEMO_CONTEXT_COMPACT_RECENT_TOOL_CHARS', 2000, 200, 20_000)
+NEMO_CONTEXT_COMPACT_OLD_TOOL_CHARS = _env_int('NEMO_CONTEXT_COMPACT_OLD_TOOL_CHARS', 400, 100, 10_000)
+NEMO_CONTEXT_COMPACT_SYSTEM_RESERVE_RATIO = _env_float('NEMO_CONTEXT_COMPACT_SYSTEM_RESERVE_RATIO', 0.25, 0.1, 0.5)
+NEMO_CONTEXT_WINDOW_FALLBACK = _env_int('NEMO_CONTEXT_WINDOW_FALLBACK', 128_000, 1024, 10_000_000)
+
+# ---------------------------------------------------------------------------
 # Default URLs and model names (overridable via env)
 # ---------------------------------------------------------------------------
 DEFAULT_LM_STUDIO_BASE_URL = os.getenv('LM_STUDIO_BASE_URL', 'http://127.0.0.1:1234/v1').strip()

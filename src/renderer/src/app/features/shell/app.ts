@@ -56,6 +56,7 @@ import { PendingDiffReviewService } from '../diff/pending-diff-review.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import {
   activeStreamWorkspaceSwitchPrompt,
+  contextCapacityNearLimitPrompt,
   unsavedCloseFileTabPrompt,
   unsavedWorkspaceSwitchPrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
@@ -108,10 +109,26 @@ export class App implements OnInit, OnDestroy {
   protected readonly autoApplyMode = model(false);
   protected readonly streamingParts = signal<StreamPart[]>([]);
   /**
-   * Prompt token count from the last completed chat-model step (OpenAI-compatible ``usage`` /
-   * LangChain ``usage_metadata``). Cleared when switching conversations; overrides heuristic estimates.
+   * Last measured prompt token count per conversation (from API usage metadata).
+   * Persists across conversation switches until a newer measurement replaces it.
    */
-  protected readonly measuredPromptTokens = signal<number | null>(null);
+  protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
+  protected readonly contextCompressionNoticeByConversation = signal<Record<string, string>>({});
+  protected readonly activeMeasuredPromptTokens = computed(() => {
+    const id = this.activeConversationId();
+    if (!id) {
+      return null;
+    }
+    const tokens = this.measuredPromptTokensByConversation()[id];
+    return typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0 ? tokens : null;
+  });
+  protected readonly activeContextCompressionNotice = computed(() => {
+    const id = this.activeConversationId();
+    if (!id) {
+      return '';
+    }
+    return this.contextCompressionNoticeByConversation()[id] ?? '';
+  });
   protected readonly settingsWindowOpen = signal(false);
   /** Main window zoom state (frameless window controls). */
   protected readonly windowMaximized = signal(false);
@@ -198,8 +215,10 @@ export class App implements OnInit, OnDestroy {
     messages: this.messages(),
     streamingParts: this.streamingParts(),
     workspaceContextText: this.workspaceContextText(),
-    measuredPromptTokens: this.measuredPromptTokens(),
+    measuredPromptTokens: this.activeMeasuredPromptTokens(),
   }));
+
+  private static readonly CONTEXT_NEAR_LIMIT_PERCENT = 95;
 
   /** Flattened model presets for the status-bar selector (under the message box). */
   protected readonly llmModelPresetOptions = computed(() => {
@@ -321,18 +340,30 @@ export class App implements OnInit, OnDestroy {
 
     effect(() => {
       this.activeConversationId();
-      this.measuredPromptTokens.set(null);
-    });
-
-    effect(() => {
-      this.activeConversationId();
       untracked(() => this.pendingDiffReview.clearAllSessions());
     });
 
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
-      if (conversationId !== this.activeConversationId()) return;
       if (inputTokens > 0) {
-        this.measuredPromptTokens.set(inputTokens);
+        this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
+      }
+    });
+
+    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe((msg) => {
+      const freed = Math.max(0, msg.tokensBefore - msg.tokensAfter);
+      const parts: string[] = ['Compressed'];
+      if (freed > 0) {
+        parts.push(`~${this.formatCompactTokenCount(freed)} tokens freed`);
+      }
+      if (msg.toolMessagesCompacted > 0) {
+        parts.push(`${msg.toolMessagesCompacted} tool result${msg.toolMessagesCompacted === 1 ? '' : 's'}`);
+      }
+      if (msg.toolRoundsDropped > 0) {
+        parts.push(`${msg.toolRoundsDropped} round${msg.toolRoundsDropped === 1 ? '' : 's'} dropped`);
+      }
+      this.setContextCompressionNoticeForConversation(msg.conversationId, parts.join(' · '));
+      if (msg.tokensAfter > 0) {
+        this.setMeasuredPromptTokensForConversation(msg.conversationId, msg.tokensAfter);
       }
     });
 
@@ -607,11 +638,14 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  onMessageSent(text: string): void {
+  async onMessageSent(text: string): Promise<void> {
     const convId = this.activeConversationId();
     if (!convId) return;
     const normalized = text.trim();
     if (!normalized || this.pendingIds().has(convId)) return;
+    if (!(await this.confirmSendWhenContextNearLimit())) {
+      return;
+    }
     this.pushMessage('user', normalized);
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
@@ -655,8 +689,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   onSendResponse(text: string): void {
-    // Send the output as a new user message
-    this.onMessageSent(text);
+    void this.onMessageSent(text);
   }
 
   onDeleteReviewFinished(event: {
@@ -795,6 +828,7 @@ export class App implements OnInit, OnDestroy {
     const conv = this.conversations().find(c => c.id === id);
     const convWorkspaceId = conv?.workspaceId ?? this.currentWorkspaceId();
     await this.electron.deleteConversation(id, convWorkspaceId);
+    this.removeContextMetricsForConversation(id);
     const isActive = id === this.activeConversationId();
 
     // Refresh the conversation list for the current workspace
@@ -1391,5 +1425,61 @@ export class App implements OnInit, OnDestroy {
 
   protected onWindowClose(): void {
     this.electron.windowClose();
+  }
+
+  private formatCompactTokenCount(value: number): string {
+    return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(
+      Math.max(0, value),
+    );
+  }
+
+  private async confirmSendWhenContextNearLimit(): Promise<boolean> {
+    const cap = this.contextCapacity();
+    if (cap.usedPercentage < App.CONTEXT_NEAR_LIMIT_PERCENT) {
+      return true;
+    }
+    return this.themedConfirm.open(contextCapacityNearLimitPrompt(cap));
+  }
+
+  private setMeasuredPromptTokensForConversation(conversationId: string, tokens: number): void {
+    if (!conversationId || tokens <= 0) {
+      return;
+    }
+    this.measuredPromptTokensByConversation.update((prev) => ({
+      ...prev,
+      [conversationId]: Math.floor(tokens),
+    }));
+  }
+
+  private setContextCompressionNoticeForConversation(conversationId: string, notice: string): void {
+    if (!conversationId || !notice.trim()) {
+      return;
+    }
+    this.contextCompressionNoticeByConversation.update((prev) => ({
+      ...prev,
+      [conversationId]: notice,
+    }));
+  }
+
+  private removeContextMetricsForConversation(conversationId: string): void {
+    if (!conversationId) {
+      return;
+    }
+    this.measuredPromptTokensByConversation.update((prev) => {
+      if (!(conversationId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
+    this.contextCompressionNoticeByConversation.update((prev) => {
+      if (!(conversationId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
   }
 }

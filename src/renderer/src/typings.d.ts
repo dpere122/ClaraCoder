@@ -84,6 +84,18 @@ declare global {
         usage: { inputTokens: number; outputTokens?: number; totalTokens?: number },
       ) => void,
     ) => void;
+    onMessageContextCompressed?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: {
+          tokensBefore: number;
+          tokensAfter: number;
+          toolMessagesCompacted: number;
+          toolRoundsDropped: number;
+        },
+      ) => void,
+    ) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
     onMessageHarnessCrystal?: (
       callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,

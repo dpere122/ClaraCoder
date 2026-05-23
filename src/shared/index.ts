@@ -30,6 +30,7 @@ export type {
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   WorkspaceToolsConfig,
+  ContextCompressionConfig,
   HealthMonitorConfig,
   ModelManagerConfig,
 } from './types/app-config';
@@ -40,6 +41,7 @@ export {
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
   defaultMonacoWorkspaceEditorSettings,
+  getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,
 } from './types/app-config';
 export { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from './qwen-template';

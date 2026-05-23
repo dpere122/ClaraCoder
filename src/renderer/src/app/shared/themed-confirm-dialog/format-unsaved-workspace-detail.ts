@@ -52,3 +52,21 @@ export function unsavedCloseFileTabPrompt(relativePath: string): ThemedConfirmOp
     variant: 'warning',
   };
 }
+
+/** Copy when context usage is at or above the near-limit threshold before sending a message. */
+export function contextCapacityNearLimitPrompt(args: {
+  usedTokens: number;
+  maxTokens: number;
+  usedPercentage: number;
+  measuredFromApi: boolean;
+}): ThemedConfirmOpenOptions {
+  const source = args.measuredFromApi ? 'measured prompt usage' : 'estimated context usage';
+  return {
+    title: 'Context nearly full',
+    message: 'This conversation is at or above 95% of the model context window. Send anyway?',
+    detail: `${args.usedPercentage}% used (${args.usedTokens.toLocaleString()} / ${args.maxTokens.toLocaleString()} tokens, ${source}). The model may truncate, fail, or compress older tool output.`,
+    cancelText: 'Cancel',
+    confirmText: 'Send anyway',
+    variant: 'warning',
+  };
+}

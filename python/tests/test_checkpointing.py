@@ -111,7 +111,7 @@ def test_checkpoint_history_endpoint_returns_entries(
 
 
 @patch('nemo_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)
-def test_load_session_deletes_checkpoint_threads(
+def test_load_session_preserves_checkpoint_threads(
     mock_delete: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setenv('NEMO_CHECKPOINT_DB', str(tmp_path / 'cp4.sqlite'))
@@ -120,7 +120,7 @@ def test_load_session_deletes_checkpoint_threads(
     with TestClient(app) as client:
         r = client.post('/load', json={'session_id': 'ld', 'messages': [{'role': 'user', 'content': 'a'}]})
         assert r.status_code == 200
-    mock_delete.assert_awaited_once()
+    mock_delete.assert_not_awaited()
 
 
 @patch('nemo_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)

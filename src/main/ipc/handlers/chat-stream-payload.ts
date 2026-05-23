@@ -35,6 +35,13 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
       outputTokens: parsed.outputTokens,
       totalTokens: parsed.totalTokens,
     });
+  } else if (parsed.type === 'context_compressed') {
+    event.reply('message-context-compressed', conversationId, {
+      tokensBefore: parsed.tokensBefore,
+      tokensAfter: parsed.tokensAfter,
+      toolMessagesCompacted: parsed.toolMessagesCompacted,
+      toolRoundsDropped: parsed.toolRoundsDropped,
+    });
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
   } else if (parsed.type === 'harness_crystal') {

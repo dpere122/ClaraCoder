@@ -20,11 +20,15 @@ from nemo_backend.staging_snapshot_session import prepare_new_staging_snapshot_s
 from nemo_backend.lsp.tools import (
     lsp_find_definition,
     lsp_find_references,
+    lsp_create_gdscript_file,
     lsp_create_python_file,
+    lsp_create_typescript_file,
     lsp_get_diagnostics,
     lsp_get_document_symbols,
     lsp_hover,
+    lsp_update_gdscript_file,
     lsp_update_python_file,
+    lsp_update_typescript_file,
 )
 from nemo_backend.routes_session import clear_session, set_workspace_context
 from nemo_backend.routes_lsp import lsp_diagnostics
@@ -316,6 +320,7 @@ def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env)
 
 
 def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
     captured: dict[str, object] = {}
 
     def _fake_stage_create(payload: dict[str, object]) -> str:
@@ -342,6 +347,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
 
 
 def test_lsp_update_python_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
         'nemo_backend.lsp.tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
@@ -350,6 +356,94 @@ def test_lsp_update_python_file_passes_through_tool_errors(monkeypatch, lsp_env)
     result = lsp_update_python_file.invoke({'relative_path': 'pkg/mod.py', 'new_content': 'value = 2\n'})
 
     assert result == 'Tool error: staged overwrite failed for pkg/mod.py'
+
+
+def test_lsp_create_typescript_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
+    captured: dict[str, object] = {}
+
+    def _fake_stage_create(payload: dict[str, object]) -> str:
+        captured['payload'] = payload
+        return (
+            'Staged `src/app.ts` for code review. The workspace file on disk is **unchanged** until '
+            '`transfer_staged_file_to_workspace` succeeds. TypeScript LSP diagnostics: 0 issue(s).'
+        )
+
+    monkeypatch.setattr('nemo_backend.lsp.tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+
+    result = lsp_create_typescript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
+
+    assert result.startswith('TypeScript/JavaScript LSP staging path selected for `src/app.ts`.')
+    assert 'Staged `src/app.ts` for code review' in result
+    assert captured['payload'] == {
+        'relative_path': 'src/app.ts',
+        'new_content': 'const x = 1;\n',
+        'encoding': '',
+        'newline': '',
+        'land_in_workspace': False,
+    }
+    assert lsp_env.session.lsp_active_scope == 'staging'
+
+
+def test_lsp_update_typescript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
+    monkeypatch.setattr(
+        'nemo_backend.lsp.tools.stage_workspace_file_overwrite',
+        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
+    )
+
+    result = lsp_update_typescript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 2;\n'})
+
+    assert result == 'Tool error: staged overwrite failed for src/app.ts'
+
+
+def test_typescript_path_guard_rejects_python_extension() -> None:
+    with pytest.raises(ValueError, match='TypeScript/JavaScript LSP mutation tools'):
+        lsp_create_typescript_file.invoke({'relative_path': 'pkg/mod.py', 'new_content': 'value = 1\n'})
+
+
+def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
+    captured: dict[str, object] = {}
+
+    def _fake_stage_create(payload: dict[str, object]) -> str:
+        captured['payload'] = payload
+        return (
+            'Staged `game/Main.gd` for code review. The workspace file on disk is **unchanged** until '
+            '`transfer_staged_file_to_workspace` succeeds. GDScript LSP diagnostics: 0 issue(s).'
+        )
+
+    monkeypatch.setattr('nemo_backend.lsp.tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+
+    result = lsp_create_gdscript_file.invoke({'relative_path': 'game/Main.gd', 'new_content': 'extends Node\n'})
+
+    assert result.startswith('GDScript LSP staging path selected for `game/Main.gd`.')
+    assert 'Staged `game/Main.gd` for code review' in result
+    assert captured['payload'] == {
+        'relative_path': 'game/Main.gd',
+        'new_content': 'extends Node\n',
+        'encoding': '',
+        'newline': '',
+        'land_in_workspace': False,
+    }
+    assert lsp_env.session.lsp_active_scope == 'staging'
+
+
+def test_lsp_update_gdscript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
+    monkeypatch.setattr(
+        'nemo_backend.lsp.tools.stage_workspace_file_overwrite',
+        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
+    )
+
+    result = lsp_update_gdscript_file.invoke({'relative_path': 'game/Main.gd', 'new_content': 'extends Node2D\n'})
+
+    assert result == 'Tool error: staged overwrite failed for game/Main.gd'
+
+
+def test_gdscript_path_guard_rejects_typescript_extension() -> None:
+    with pytest.raises(ValueError, match='GDScript LSP mutation tools'):
+        lsp_create_gdscript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
 
 
 def test_diagnostics_route_returns_cached_python_results(lsp_env) -> None:

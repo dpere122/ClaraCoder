@@ -20,7 +20,7 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     id: 'qwen',
     label: 'Qwen',
     description:
-      'For Qwen-class models (e.g. Qwen 3.5 9B via LM Studio): single tool call per turn, higher max output, extra system prompt hints. Managed llama-server adds --jinja and --chat-template-file for the bundled Qwen Jinja template (recent llama.cpp with Jinja support).',
+      'For Qwen-class models (e.g. Qwen 3.5 27B via LM Studio): Extra system prompt hints, and `read_workspace_image` for workspace PNG/JPEG/GIF/WebP/BMP. Managed llama-server adds --jinja and --chat-template-file for the bundled Qwen Jinja template (recent llama.cpp with Jinja support).',
     providers: ['openai', 'lmstudio', 'llamacpp'],
   },
   {

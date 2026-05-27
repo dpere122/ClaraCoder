@@ -1,7 +1,8 @@
-"""LangChain tools for LSP context, diagnostics, and Python CRUD helpers."""
+"""LangChain tools for LSP context, diagnostics, and language-specific CRUD helpers."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.tools import tool
@@ -10,7 +11,13 @@ from pathlib import Path
 
 from nemo_backend.delete_tool import delete_workspace_entry
 from nemo_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
-from nemo_backend.lsp.file_policy import get_python_lsp_policy, lsp_server_for_path, normalize_relative_posix_path
+from nemo_backend.lsp.file_policy import (
+    get_gdscript_lsp_policy,
+    get_python_lsp_policy,
+    get_typescript_lsp_policy,
+    lsp_server_for_path,
+    normalize_relative_posix_path,
+)
 from nemo_backend.lsp.manager import (
     LspServerKind,
     activate_session_lsp_scope,
@@ -30,6 +37,12 @@ LSP_DOCUMENT_SYMBOLS_NAME = 'lsp_get_document_symbols'
 LSP_CREATE_PYTHON_FILE_NAME = 'lsp_create_python_file'
 LSP_UPDATE_PYTHON_FILE_NAME = 'lsp_update_python_file'
 LSP_DELETE_PYTHON_FILE_NAME = 'lsp_delete_python_file'
+LSP_CREATE_TYPESCRIPT_FILE_NAME = 'lsp_create_typescript_file'
+LSP_UPDATE_TYPESCRIPT_FILE_NAME = 'lsp_update_typescript_file'
+LSP_DELETE_TYPESCRIPT_FILE_NAME = 'lsp_delete_typescript_file'
+LSP_CREATE_GDSCRIPT_FILE_NAME = 'lsp_create_gdscript_file'
+LSP_UPDATE_GDSCRIPT_FILE_NAME = 'lsp_update_gdscript_file'
+LSP_DELETE_GDSCRIPT_FILE_NAME = 'lsp_delete_gdscript_file'
 
 __all__ = [
     'LSP_GET_DIAGNOSTICS_NAME',
@@ -40,6 +53,16 @@ __all__ = [
     'LSP_CREATE_PYTHON_FILE_NAME',
     'LSP_UPDATE_PYTHON_FILE_NAME',
     'LSP_DELETE_PYTHON_FILE_NAME',
+    'LSP_CREATE_TYPESCRIPT_FILE_NAME',
+    'LSP_UPDATE_TYPESCRIPT_FILE_NAME',
+    'LSP_DELETE_TYPESCRIPT_FILE_NAME',
+    'LSP_CREATE_GDSCRIPT_FILE_NAME',
+    'LSP_UPDATE_GDSCRIPT_FILE_NAME',
+    'LSP_DELETE_GDSCRIPT_FILE_NAME',
+    'LSP_READ_TOOLS',
+    'LSP_MUTATION_TOOLS',
+    'LSP_REVIEW_TOOLS',
+    # Deprecated aliases — prefer LSP_* names above.
     'PYTHON_LSP_READ_TOOLS',
     'PYTHON_LSP_MUTATION_TOOLS',
     'PYTHON_LSP_REVIEW_TOOLS',
@@ -50,6 +73,23 @@ def _require_python_path(relative_path: str) -> str:
     rel = normalize_relative_posix_path(relative_path)
     if get_python_lsp_policy(rel) is None:
         raise ValueError(f'Python LSP mutation tools only support `.py` files. Got `{rel}`.')
+    return rel
+
+
+def _require_typescript_path(relative_path: str) -> str:
+    rel = normalize_relative_posix_path(relative_path)
+    if get_typescript_lsp_policy(rel) is None:
+        raise ValueError(
+            f'TypeScript/JavaScript LSP mutation tools only support `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` '
+            f'files. Got `{rel}`.'
+        )
+    return rel
+
+
+def _require_gdscript_path(relative_path: str) -> str:
+    rel = normalize_relative_posix_path(relative_path)
+    if get_gdscript_lsp_policy(rel) is None:
+        raise ValueError(f'GDScript LSP mutation tools only support `.gd` files. Got `{rel}`.')
     return rel
 
 
@@ -156,8 +196,15 @@ def _format_lsp_tool_error(
     return message
 
 
-def _run_lsp_python_mutation_tool(tool_obj: Any, payload: dict[str, Any], *, relative_path: str) -> str:
-    rel = _require_python_path(relative_path)
+def _run_lsp_mutation_tool(
+    tool_obj: Any,
+    payload: dict[str, Any],
+    *,
+    relative_path: str,
+    path_guard: Callable[[str], str],
+    language_label: str,
+) -> str:
+    rel = path_guard(relative_path)
     sid = (current_session_id.get() or '').strip()
     session = get_session(sid) if sid else None
     direct = bool(
@@ -172,7 +219,77 @@ def _run_lsp_python_mutation_tool(tool_obj: Any, payload: dict[str, Any], *, rel
     if result_text.lower().startswith('tool error:'):
         return result_text
     scope_label = 'workspace' if direct else 'staging'
-    return f'Python LSP {scope_label} path selected for `{rel}`.\n\n{result_text}'
+    return f'{language_label} LSP {scope_label} path selected for `{rel}`.\n\n{result_text}'
+
+
+def _lsp_create_file_impl(
+    relative_path: str,
+    new_content: str,
+    encoding: str,
+    newline: str,
+    land_in_workspace: bool,
+    *,
+    path_guard: Callable[[str], str],
+    language_label: str,
+) -> str:
+    sid = (current_session_id.get() or '').strip()
+    session = get_session(sid) if sid else None
+    payload = {
+        'relative_path': relative_path,
+        'new_content': new_content,
+        'encoding': encoding,
+        'newline': newline,
+    }
+    if session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True):
+        return _run_lsp_mutation_tool(
+            apply_workspace_full_file,
+            payload,
+            relative_path=relative_path,
+            path_guard=path_guard,
+            language_label=language_label,
+        )
+    return _run_lsp_mutation_tool(
+        stage_create_file,
+        {**payload, 'land_in_workspace': land_in_workspace},
+        relative_path=relative_path,
+        path_guard=path_guard,
+        language_label=language_label,
+    )
+
+
+def _lsp_update_file_impl(
+    relative_path: str,
+    new_content: str,
+    encoding: str,
+    newline: str,
+    land_in_workspace: bool,
+    *,
+    path_guard: Callable[[str], str],
+    language_label: str,
+) -> str:
+    sid = (current_session_id.get() or '').strip()
+    session = get_session(sid) if sid else None
+    payload = {
+        'relative_path': relative_path,
+        'new_content': new_content,
+        'encoding': encoding,
+        'newline': newline,
+    }
+    if session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True):
+        return _run_lsp_mutation_tool(
+            apply_workspace_full_file,
+            payload,
+            relative_path=relative_path,
+            path_guard=path_guard,
+            language_label=language_label,
+        )
+    return _run_lsp_mutation_tool(
+        stage_workspace_file_overwrite,
+        {**payload, 'land_in_workspace': land_in_workspace},
+        relative_path=relative_path,
+        path_guard=path_guard,
+        language_label=language_label,
+    )
 
 
 def _sync_active_document_for_diagnostics(
@@ -350,29 +467,14 @@ def lsp_create_python_file(
 
     Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. See `stage_create_file` for `land_in_workspace`."""
 
-    sid = (current_session_id.get() or '').strip()
-    session = get_session(sid) if sid else None
-    if session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True):
-        return _run_lsp_python_mutation_tool(
-            apply_workspace_full_file,
-            {
-                'relative_path': relative_path,
-                'new_content': new_content,
-                'encoding': encoding,
-                'newline': newline,
-            },
-            relative_path=relative_path,
-        )
-    return _run_lsp_python_mutation_tool(
-        stage_create_file,
-        {
-            'relative_path': relative_path,
-            'new_content': new_content,
-            'encoding': encoding,
-            'newline': newline,
-            'land_in_workspace': land_in_workspace,
-        },
-        relative_path=relative_path,
+    return _lsp_create_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_python_path,
+        language_label='Python',
     )
 
 
@@ -388,29 +490,14 @@ def lsp_update_python_file(
 
     Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
 
-    sid = (current_session_id.get() or '').strip()
-    session = get_session(sid) if sid else None
-    if session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True):
-        return _run_lsp_python_mutation_tool(
-            apply_workspace_full_file,
-            {
-                'relative_path': relative_path,
-                'new_content': new_content,
-                'encoding': encoding,
-                'newline': newline,
-            },
-            relative_path=relative_path,
-        )
-    return _run_lsp_python_mutation_tool(
-        stage_workspace_file_overwrite,
-        {
-            'relative_path': relative_path,
-            'new_content': new_content,
-            'encoding': encoding,
-            'newline': newline,
-            'land_in_workspace': land_in_workspace,
-        },
-        relative_path=relative_path,
+    return _lsp_update_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_python_path,
+        language_label='Python',
     )
 
 
@@ -422,7 +509,115 @@ def lsp_delete_python_file(relative_path: str) -> str:
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 
-PYTHON_LSP_READ_TOOLS: list[Any] = [
+@tool(LSP_CREATE_TYPESCRIPT_FILE_NAME)
+def lsp_create_typescript_file(
+    relative_path: str,
+    new_content: str,
+    encoding: str = '',
+    newline: str = '',
+    land_in_workspace: bool = False,
+) -> str:
+    """Use for new `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs` files or whole-file rewrites; routes through staging and code review like `stage_create_file`.
+
+    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. On staged drafts, use `format_staging_file_prettier` before LSP refresh when formatting is needed. See `stage_create_file` for `land_in_workspace`."""
+
+    return _lsp_create_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_typescript_path,
+        language_label='TypeScript/JavaScript',
+    )
+
+
+@tool(LSP_UPDATE_TYPESCRIPT_FILE_NAME)
+def lsp_update_typescript_file(
+    relative_path: str,
+    new_content: str,
+    encoding: str = '',
+    newline: str = '',
+    land_in_workspace: bool = False,
+) -> str:
+    """Use when a TS/JS file already exists (or has a pending staged draft); supply the full updated file text.
+
+    Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
+
+    return _lsp_update_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_typescript_path,
+        language_label='TypeScript/JavaScript',
+    )
+
+
+@tool(LSP_DELETE_TYPESCRIPT_FILE_NAME)
+def lsp_delete_typescript_file(relative_path: str) -> str:
+    """Use to remove a `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs` file from the workspace; clears LSP state for that document."""
+
+    _require_typescript_path(relative_path)
+    return delete_workspace_entry.invoke({'relative_path': relative_path})
+
+
+@tool(LSP_CREATE_GDSCRIPT_FILE_NAME)
+def lsp_create_gdscript_file(
+    relative_path: str,
+    new_content: str,
+    encoding: str = '',
+    newline: str = '',
+    land_in_workspace: bool = False,
+) -> str:
+    """Use for new `.gd` files or whole-file GDScript rewrites; routes through staging and code review like `stage_create_file`.
+
+    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. See `stage_create_file` for `land_in_workspace`."""
+
+    return _lsp_create_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_gdscript_path,
+        language_label='GDScript',
+    )
+
+
+@tool(LSP_UPDATE_GDSCRIPT_FILE_NAME)
+def lsp_update_gdscript_file(
+    relative_path: str,
+    new_content: str,
+    encoding: str = '',
+    newline: str = '',
+    land_in_workspace: bool = False,
+) -> str:
+    """Use when a GDScript file already exists (or has a pending staged draft); supply the full updated file text.
+
+    Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
+
+    return _lsp_update_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_gdscript_path,
+        language_label='GDScript',
+    )
+
+
+@tool(LSP_DELETE_GDSCRIPT_FILE_NAME)
+def lsp_delete_gdscript_file(relative_path: str) -> str:
+    """Use to remove a `.gd` file from the workspace; clears LSP state for that document."""
+
+    _require_gdscript_path(relative_path)
+    return delete_workspace_entry.invoke({'relative_path': relative_path})
+
+
+LSP_READ_TOOLS: list[Any] = [
     lsp_get_diagnostics,
     lsp_hover,
     lsp_find_definition,
@@ -430,13 +625,24 @@ PYTHON_LSP_READ_TOOLS: list[Any] = [
     lsp_get_document_symbols,
 ]
 
-PYTHON_LSP_MUTATION_TOOLS: list[Any] = [
+LSP_MUTATION_TOOLS: list[Any] = [
     lsp_create_python_file,
     lsp_update_python_file,
     lsp_delete_python_file,
+    lsp_create_typescript_file,
+    lsp_update_typescript_file,
+    lsp_delete_typescript_file,
+    lsp_create_gdscript_file,
+    lsp_update_gdscript_file,
+    lsp_delete_gdscript_file,
 ]
 
 # The code-review specialist only needs staged diagnostics visibility.
-PYTHON_LSP_REVIEW_TOOLS: list[Any] = [
+LSP_REVIEW_TOOLS: list[Any] = [
     lsp_get_diagnostics,
 ]
+
+# Deprecated aliases — prefer LSP_* names above.
+PYTHON_LSP_READ_TOOLS = LSP_READ_TOOLS
+PYTHON_LSP_MUTATION_TOOLS = LSP_MUTATION_TOOLS
+PYTHON_LSP_REVIEW_TOOLS = LSP_REVIEW_TOOLS

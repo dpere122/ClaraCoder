@@ -15,6 +15,8 @@ __all__ = [
     'normalize_relative_posix_path',
     'get_lsp_file_policy',
     'get_python_lsp_policy',
+    'get_typescript_lsp_policy',
+    'get_gdscript_lsp_policy',
     'lsp_server_for_path',
     'is_lsp_managed_path',
     'is_prettier_managed_path',
@@ -177,6 +179,24 @@ def get_python_lsp_policy(relative_path: str) -> LspFilePolicy | None:
 
     policy = get_lsp_file_policy(relative_path)
     if policy is not None and policy.lsp_server == 'python':
+        return policy
+    return None
+
+
+def get_typescript_lsp_policy(relative_path: str) -> LspFilePolicy | None:
+    """Return the LSP policy when the path is managed by the TypeScript/JavaScript language server."""
+
+    policy = get_lsp_file_policy(relative_path)
+    if policy is not None and policy.lsp_server == 'typescript':
+        return policy
+    return None
+
+
+def get_gdscript_lsp_policy(relative_path: str) -> LspFilePolicy | None:
+    """Return the LSP policy when the path is managed by the GDScript language server."""
+
+    policy = get_lsp_file_policy(relative_path)
+    if policy is not None and policy.lsp_server == 'gdscript':
         return policy
     return None
 

@@ -29,6 +29,20 @@ from nemo_backend.tool_registry import (
     worker_tools_and_map,
 )
 
+_LSP_CREATE_UPDATE_NAMES = {
+    'lsp_create_python_file',
+    'lsp_update_python_file',
+    'lsp_create_typescript_file',
+    'lsp_update_typescript_file',
+    'lsp_create_gdscript_file',
+    'lsp_update_gdscript_file',
+}
+_LSP_MUTATION_NAMES = _LSP_CREATE_UPDATE_NAMES | {
+    'lsp_delete_python_file',
+    'lsp_delete_typescript_file',
+    'lsp_delete_gdscript_file',
+}
+
 
 @pytest.fixture(autouse=True)
 def _restore_runtime_tools():
@@ -46,13 +60,13 @@ def test_standard_includes_staging_write_tools() -> None:
         'stage_line_range_edit',
         'stage_snippet_edit',
     ]
-    lsp_mut = {'lsp_create_python_file', 'lsp_update_python_file'}
+    lsp_mut = _LSP_CREATE_UPDATE_NAMES
     transfer_names = {'transfer_staged_file_to_workspace'}
     staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert hitl_delete_pause_tools() == frozenset(
-        {'batch_delete_workspace_entries', 'delete_workspace_entry', 'lsp_delete_python_file'}
-    )
+        {'batch_delete_workspace_entries', 'delete_workspace_entry'}
+    ) | {n for n in _LSP_MUTATION_NAMES if n.startswith('lsp_delete_')}
     assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
 
 
@@ -60,7 +74,7 @@ def test_strict_omits_snippet_tool() -> None:
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=True)
     names = [t.name for t in staging_workspace_write_tools(True)]
     assert names == ['stage_create_file', 'stage_workspace_file_overwrite', 'stage_line_range_edit']
-    lsp_mut = {'lsp_create_python_file', 'lsp_update_python_file'}
+    lsp_mut = _LSP_CREATE_UPDATE_NAMES
     transfer_names = {'transfer_staged_file_to_workspace'}
     staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
@@ -71,9 +85,8 @@ def test_strict_omits_snippet_tool() -> None:
 def test_hitl_diff_pause_tools_direct_mode() -> None:
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
     direct_names = {t.name for t in edit_tools_for_strict(False)}
+    direct_names |= _LSP_CREATE_UPDATE_NAMES
     direct_names |= {
-        'lsp_create_python_file',
-        'lsp_update_python_file',
         'format_workspace_file_black',
         'format_workspace_file_prettier',
     }
@@ -116,6 +129,7 @@ def test_outer_agent_tools_staging_mode() -> None:
     read_names = {
         'list_workspace_directory',
         'read_workspace_file',
+        'read_workspace_image',
         'search_workspace',
         'retrieve_workspace_semantic',
         'lsp_get_diagnostics',
@@ -125,7 +139,7 @@ def test_outer_agent_tools_staging_mode() -> None:
         'lsp_get_document_symbols',
     }
     edit_names = {t.name for t in staging_workspace_write_tools(False)}
-    lsp_py_mut_names = {'lsp_create_python_file', 'lsp_update_python_file', 'lsp_delete_python_file'}
+    lsp_mut_names = _LSP_MUTATION_NAMES
     dep_names = {t.name for t in python_dependency_tools()[0]}
     node_dep_names = {t.name for t in node_dependency_tools()[0]}
     env_names = {ensure_python_workspace_env_tool.name}
@@ -138,7 +152,7 @@ def test_outer_agent_tools_staging_mode() -> None:
         read_names
         | {'copy_workspace_files', 'angular_cli_tool'}
         | edit_names
-        | lsp_py_mut_names
+        | lsp_mut_names
         | dep_names
         | node_dep_names
         | env_names
@@ -303,13 +317,19 @@ def test_update_specialist_uses_full_file_overwrite_only() -> None:
     assert names == [
         'read_staged_edit',
         'read_workspace_file',
+        'read_workspace_image',
         'lsp_update_python_file',
+        'lsp_update_typescript_file',
+        'lsp_update_gdscript_file',
         'stage_workspace_file_overwrite',
     ]
     assert tool_map.keys() == {
         'read_staged_edit',
         'read_workspace_file',
+        'read_workspace_image',
         'lsp_update_python_file',
+        'lsp_update_typescript_file',
+        'lsp_update_gdscript_file',
         'stage_workspace_file_overwrite',
     }
 
@@ -323,7 +343,10 @@ def test_create_specialist_includes_read_and_discovery_tools() -> None:
         'retrieve_workspace_semantic',
         'search_workspace',
         'read_workspace_file',
+        'read_workspace_image',
         'lsp_create_python_file',
+        'lsp_create_typescript_file',
+        'lsp_create_gdscript_file',
         'stage_create_file',
     ]
     assert tool_map.keys() == set(names)
@@ -342,6 +365,7 @@ def test_write_specialist_tools_unions_create_and_update_surfaces() -> None:
         'retrieve_workspace_checkpoint_semantic',
         'search_workspace',
         'read_workspace_file',
+        'read_workspace_image',
         'lsp_get_diagnostics',
         'lsp_hover',
         'lsp_find_definition',
@@ -352,7 +376,11 @@ def test_write_specialist_tools_unions_create_and_update_surfaces() -> None:
         'read_staged_edit',
         'report_insufficient_workspace_recon',
         'lsp_create_python_file',
+        'lsp_create_typescript_file',
+        'lsp_create_gdscript_file',
         'lsp_update_python_file',
+        'lsp_update_typescript_file',
+        'lsp_update_gdscript_file',
         'stage_create_file',
         'stage_workspace_file_overwrite',
         'stage_line_range_edit',

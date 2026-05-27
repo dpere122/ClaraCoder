@@ -13,11 +13,17 @@ from nemo_backend.agents.specialists.review_tools import (
     read_staged_edit,
 )
 from nemo_backend.lsp.tools import (
-    PYTHON_LSP_READ_TOOLS,
+    LSP_READ_TOOLS,
+    lsp_create_gdscript_file,
     lsp_create_python_file,
+    lsp_create_typescript_file,
+    lsp_delete_gdscript_file,
     lsp_delete_python_file,
+    lsp_delete_typescript_file,
     lsp_get_diagnostics,
+    lsp_update_gdscript_file,
     lsp_update_python_file,
+    lsp_update_typescript_file,
 )
 from nemo_backend.angular_cli_tool import angular_cli_tool
 from nemo_backend.node_dependency_agent import (
@@ -44,7 +50,7 @@ from nemo_backend.workspace_index.semantic_tool import (
     retrieve_workspace_semantic,
 )
 from nemo_backend.state import current_session_id, get_session
-from nemo_backend.workspace_tools import list_workspace_directory, read_workspace_file, search_workspace
+from nemo_backend.workspace_tools import list_workspace_directory, read_workspace_file, read_workspace_image, search_workspace
 
 REPORT_INSUFFICIENT_WORKSPACE_RECON_NAME = 'report_insufficient_workspace_recon'
 
@@ -78,7 +84,10 @@ def create_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
         retrieve_workspace_semantic,
         search_workspace,
         read_workspace_file,
+        read_workspace_image,
         lsp_create_python_file,
+        lsp_create_typescript_file,
+        lsp_create_gdscript_file,
         stage_create_file,
     ]
     return t, {tool_.name: tool_ for tool_ in t}
@@ -86,7 +95,15 @@ def create_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
 
 def update_specialist_tools(edit_tools_strict: bool) -> tuple[list[Any], dict[str, Any]]:
     del edit_tools_strict
-    t = [read_staged_edit, read_workspace_file, lsp_update_python_file, stage_workspace_file_overwrite]
+    t = [
+        read_staged_edit,
+        read_workspace_file,
+        read_workspace_image,
+        lsp_update_python_file,
+        lsp_update_typescript_file,
+        lsp_update_gdscript_file,
+        stage_workspace_file_overwrite,
+    ]
     return t, {tool_.name: tool_ for tool_ in t}
 
 
@@ -97,7 +114,8 @@ def workspace_recon_tools() -> tuple[list[Any], dict[str, Any]]:
         retrieve_workspace_checkpoint_semantic,
         search_workspace,
         read_workspace_file,
-        *PYTHON_LSP_READ_TOOLS,
+        read_workspace_image,
+        *LSP_READ_TOOLS,
     ]
     return t, {tool_.name: tool_ for tool_ in t}
 
@@ -108,7 +126,11 @@ def staging_author_tools(edit_tools_strict: bool) -> tuple[list[Any], dict[str, 
         read_staged_edit,
         report_insufficient_workspace_recon,
         lsp_create_python_file,
+        lsp_create_typescript_file,
+        lsp_create_gdscript_file,
         lsp_update_python_file,
+        lsp_update_typescript_file,
+        lsp_update_gdscript_file,
         stage_create_file,
         stage_workspace_file_overwrite,
         stage_line_range_edit,
@@ -135,7 +157,13 @@ def write_specialist_tools(edit_tools_strict: bool) -> tuple[list[Any], dict[str
 
 
 def delete_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
-    t = [lsp_delete_python_file, batch_delete_workspace_entries, delete_workspace_entry]
+    t = [
+        lsp_delete_python_file,
+        lsp_delete_typescript_file,
+        lsp_delete_gdscript_file,
+        batch_delete_workspace_entries,
+        delete_workspace_entry,
+    ]
     return t, {tool_.name: tool_ for tool_ in t}
 
 

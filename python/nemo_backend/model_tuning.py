@@ -28,6 +28,12 @@ def is_qwen_family(model: str) -> bool:
     return 'qwen' in (model or '').lower()
 
 
+def is_qwen35_vision_model(model: str) -> bool:
+    """True when the model id is likely a natively multimodal Qwen3.5 variant (e.g. qwen3.5-27b)."""
+    normalized = (model or '').lower().replace('_', '-')
+    return 'qwen3.5' in normalized or 'qwen3-5' in normalized or 'qwen-3.5' in normalized
+
+
 def is_gemma_family(model: str) -> bool:
     """True when the configured model id is likely Google Gemma (local or API)."""
     return 'gemma' in (model or '').lower()
@@ -182,6 +188,8 @@ def tool_calling_and_edit_semantics_suffix(
             '**Workspace edits (direct):** Editor and Auto-apply are on—write **directly to disk** with '
             '`apply_workspace_full_file`, `replace_workspace_line_range`, or `replace_workspace_snippet` (when bound). '
             'For `.py`, prefer `lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file`. '
+            'For `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, prefer `lsp_create_typescript_file`, `lsp_update_typescript_file`, and `lsp_delete_typescript_file`. '
+            'For `.gd`, prefer `lsp_create_gdscript_file`, `lsp_update_gdscript_file`, and `lsp_delete_gdscript_file`. '
             'There is **no** staging draft plane and **no** `transfer_staged_file_to_workspace` on your graph. '
             'Verify with `read_workspace_file`, LSP diagnostics, and workspace test tools.\n'
         )
@@ -198,9 +206,11 @@ def tool_calling_and_edit_semantics_suffix(
         'transfer for you—only the tool call counts. Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
         + nested_note
-        + '**LSP file mutations vs staging:** For `.py`, prefer `lsp_create_python_file` / `lsp_update_python_file` / '
-        '`lsp_delete_python_file` when those tools appear in **your** bound tool list (outer Clara with Editor on). '
-        'If they are not on your graph, use `stage_*` for Python. '
+        + '**LSP file mutations vs staging:** Prefer language-matched LSP mutators when they appear in **your** bound tool list (outer Clara with Editor on): '
+        '`.py` → `lsp_create_python_file` / `lsp_update_python_file` / `lsp_delete_python_file`; '
+        '`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` → `lsp_create_typescript_file` / `lsp_update_typescript_file` / `lsp_delete_typescript_file`; '
+        '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file`. '
+        'If they are not on your graph, use `stage_*` instead. '
         + 'For localized edits on existing files, prefer `stage_line_range_edit` or `stage_snippet_edit` over whole-file '
         'rewrites when practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
     )
@@ -220,6 +230,19 @@ def qwen_specific_prompt_suffix() -> str:
         '\nModel note (Qwen): Prefer one tool call per assistant turn when you can; wait for the tool result '
         'before issuing the next call. When staging review applies, call `transfer_staged_file_to_workspace` '
         'yourself—do not ask the user to approve or apply the diff in the UI instead of using the tool.\n'
+    )
+
+
+def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
+    """Hint to use ``read_workspace_image`` when Qwen preset is active on a Qwen3.5 vision model."""
+    if not qwen_optimize_profile_active(connection):
+        return ''
+    if not is_qwen35_vision_model(connection.model):
+        return ''
+    return (
+        '\nModel note (Qwen vision): For PNG/JPEG/GIF/WebP/BMP files in the workspace, call '
+        '`read_workspace_image` with the relative path. The tool attaches the image for visual analysis '
+        '(OCR, diagrams, UI screenshots). Optional `focus` narrows what to inspect.\n'
     )
 
 
@@ -293,6 +316,7 @@ def combined_model_prompt_suffix(
         parts.append(parallel_batching_prompt_suffix())
     if qwen_optimize_profile_active(connection):
         parts.append(qwen_specific_prompt_suffix())
+        parts.append(qwen_vision_prompt_suffix(connection))
     parts.append(gemma_thinking_prompt_suffix(connection))
     parts.append(gemma_sparse_expert_workspace_suffix(connection))
     return ''.join(parts)

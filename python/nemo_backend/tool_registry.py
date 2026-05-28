@@ -3,7 +3,9 @@
 **Outer agent** — workspace reads/search (including ``retrieve_workspace_semantic`` for checkpoint + staging recall; nested write recon uses ``retrieve_workspace_checkpoint_semantic``); ``copy_workspace_files``; ``delete_workspace_entry`` and
 ``batch_delete_workspace_entries`` (any path, with HITL when auto-apply is off); staged create/update tools
 (``stage_create_file``, ``stage_workspace_file_overwrite``, ``stage_line_range_edit``, optional ``stage_snippet_edit``);
-Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``);
+Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``),
+TypeScript/JavaScript LSP staging mutators (``lsp_create_typescript_file``, etc.), and GDScript LSP staging mutators
+(``lsp_create_gdscript_file``, etc.);
 plus the same staging review/transfer tools as nested graphs. When Editor is on, the outer tool list also
 includes the same **Python dependency** and **code-review specialist** tool surfaces as the nested graphs (merge by
 name with the existing ``python_dependency_tools`` / LSP read tools), ``discover_npm_projects`` / ``search_npm_packages`` for Node discovery and registry lookup, plus **local Angular CLI** (``angular_cli_tool``)
@@ -52,11 +54,17 @@ from nemo_backend.python_dependency_agent import (
     python_dependency_tools,
 )
 from nemo_backend.lsp.tools import (
+    LSP_CREATE_GDSCRIPT_FILE_NAME,
     LSP_CREATE_PYTHON_FILE_NAME,
+    LSP_CREATE_TYPESCRIPT_FILE_NAME,
+    LSP_DELETE_GDSCRIPT_FILE_NAME,
     LSP_DELETE_PYTHON_FILE_NAME,
+    LSP_DELETE_TYPESCRIPT_FILE_NAME,
+    LSP_MUTATION_TOOLS,
+    LSP_READ_TOOLS,
+    LSP_UPDATE_GDSCRIPT_FILE_NAME,
     LSP_UPDATE_PYTHON_FILE_NAME,
-    PYTHON_LSP_MUTATION_TOOLS,
-    PYTHON_LSP_READ_TOOLS,
+    LSP_UPDATE_TYPESCRIPT_FILE_NAME,
 )
 from nemo_backend.staging_edit_tools import STAGING_TOOLS
 from nemo_backend.domain import SessionState
@@ -99,6 +107,26 @@ def staging_workspace_write_tools(edit_tools_strict: bool) -> list[Any]:
     return list(STAGING_TOOLS)
 
 
+_LSP_CREATE_UPDATE_NAMES = frozenset(
+    {
+        LSP_CREATE_PYTHON_FILE_NAME,
+        LSP_UPDATE_PYTHON_FILE_NAME,
+        LSP_CREATE_TYPESCRIPT_FILE_NAME,
+        LSP_UPDATE_TYPESCRIPT_FILE_NAME,
+        LSP_CREATE_GDSCRIPT_FILE_NAME,
+        LSP_UPDATE_GDSCRIPT_FILE_NAME,
+    }
+)
+
+_LSP_DELETE_NAMES = frozenset(
+    {
+        LSP_DELETE_PYTHON_FILE_NAME,
+        LSP_DELETE_TYPESCRIPT_FILE_NAME,
+        LSP_DELETE_GDSCRIPT_FILE_NAME,
+    }
+)
+
+
 def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
     """Tool names that may emit a diff and require human review before the agent continues."""
     edit_strict = runtime_config.tools.edit_tools_strict
@@ -106,8 +134,7 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
         from nemo_backend.edit_tool import edit_tools_for_strict
 
         names = {t.name for t in edit_tools_for_strict(edit_strict)}
-        names.add(LSP_CREATE_PYTHON_FILE_NAME)
-        names.add(LSP_UPDATE_PYTHON_FILE_NAME)
+        names |= _LSP_CREATE_UPDATE_NAMES
         names.add(FORMAT_WORKSPACE_FILE_BLACK_NAME)
         names.add(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
         return frozenset(names)
@@ -116,13 +143,12 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
     names.add(REJECT_STAGED_WORKSPACE_EDIT_NAME)
     names.add(FORMAT_STAGING_FILE_BLACK_NAME)
     names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
-    names.add(LSP_CREATE_PYTHON_FILE_NAME)
-    names.add(LSP_UPDATE_PYTHON_FILE_NAME)
+    names |= _LSP_CREATE_UPDATE_NAMES
     return frozenset(names)
 
 
 def hitl_delete_pause_tools() -> frozenset[str]:
-    return frozenset({DELETE_WORKSPACE_ENTRY_NAME, BATCH_DELETE_WORKSPACE_ENTRIES_NAME, LSP_DELETE_PYTHON_FILE_NAME})
+    return frozenset({DELETE_WORKSPACE_ENTRY_NAME, BATCH_DELETE_WORKSPACE_ENTRIES_NAME}) | _LSP_DELETE_NAMES
 
 
 def hitl_copy_pause_tools() -> frozenset[str]:
@@ -160,10 +186,10 @@ def worker_tools_and_map(
     """
     from nemo_backend.process_tools import kill_process_tool, search_netstat_ports_tool
 
-    tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS, search_netstat_ports_tool]
+    tools: list[Any] = [*TOOLS, *LSP_READ_TOOLS, search_netstat_ports_tool]
     mapping: dict[str, Any] = dict(TOOL_MAP)
     mapping[search_netstat_ports_tool.name] = search_netstat_ports_tool
-    for tool_ in PYTHON_LSP_READ_TOOLS:
+    for tool_ in LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
     if apply_mode:
         sess = session or SessionState()
@@ -196,8 +222,8 @@ def worker_tools_and_map(
         tools.extend(edit_tools)
         for t in edit_tools:
             mapping[t.name] = t
-        tools.extend(PYTHON_LSP_MUTATION_TOOLS)
-        for t in PYTHON_LSP_MUTATION_TOOLS:
+        tools.extend(LSP_MUTATION_TOOLS)
+        for t in LSP_MUTATION_TOOLS:
             mapping[t.name] = t
         tools.append(delete_workspace_entry)
         mapping[DELETE_WORKSPACE_ENTRY_NAME] = delete_workspace_entry

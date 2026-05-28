@@ -491,10 +491,13 @@ def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> s
     return summary
 
 
+from nemo_backend.workspace_image_tools import read_workspace_image
+
 TOOLS = [
     list_workspace_directory,
     retrieve_workspace_semantic,
     search_workspace,
     read_workspace_file,
+    read_workspace_image,
 ]
 TOOL_MAP = {tool_.name: tool_ for tool_ in TOOLS}

@@ -34,6 +34,7 @@ from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
+from nemo_backend.vision_tool_middleware import VisionImageInjectionMiddleware
 from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from nemo_backend.domain import SessionState
 from nemo_backend.langgraph_sse import (
@@ -67,6 +68,7 @@ def build_nemo_single_outer_graph(
         ConnectionParallelToolCallsMiddleware(),
         PseudoToolXmlMiddleware(),
         EmptyResponseNudgeMiddleware(),
+        VisionImageInjectionMiddleware(),
     ]
     if extra_middleware:
         core_middleware.extend(extra_middleware)

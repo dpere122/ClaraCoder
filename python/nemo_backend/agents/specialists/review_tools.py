@@ -174,7 +174,8 @@ def _get_staging_entry(rel: str):
         return (
             f'Tool error: staged `{rel_key}` is already approved in the workspace for this chain. '
             'It is no longer pending review. For follow-up edits, read the live file with `read_workspace_file` and '
-            'then stage the next revision with `stage_workspace_file_overwrite` or `lsp_update_python_file`.'
+            'then stage the next revision with `stage_workspace_file_overwrite` or the matching '
+            '`lsp_update_python_file` / `lsp_update_typescript_file` / `lsp_update_gdscript_file`.'
         )
     return session, rel_key
 
@@ -1052,7 +1053,8 @@ def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str
         return (
             f'Tool error: staged `{rel_key}` is already approved in the workspace for this chain. '
             'It is no longer pending review. For follow-up edits, read the live file with `read_workspace_file` and '
-            'then stage the next revision with `stage_workspace_file_overwrite` or `lsp_update_python_file`.'
+            'then stage the next revision with `stage_workspace_file_overwrite` or the matching '
+            '`lsp_update_python_file` / `lsp_update_typescript_file` / `lsp_update_gdscript_file`.'
         )
 
     if not session.auto_apply_mode:

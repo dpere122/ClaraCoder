@@ -22,20 +22,9 @@
             autofocus
           />
         } @else {
-          <div
-            class="conv-pending-ngx-host"
-            [class.conv-pending-ngx-host--visible]="pendingIds().has(conv.id)"
-            aria-hidden="true"
-          >
-            <ngx-spinner
-              [name]="convPendingSpinnerName(conv.id)"
-              type="ball-clip-rotate-pulse"
-              [fullScreen]="false"
-              bdColor="rgba(0,0,0,0)"
-              size="small"
-              color="var(--bs-secondary-color)"
-            ></ngx-spinner>
-          </div>
+          @if (pendingIds().has(conv.id)) {
+            <span class="conv-pending-spinner" aria-hidden="true"></span>
+          }
           <span class="conv-title" (dblclick)="startRename(conv, $event)">{{ conv.title }}</span>
           <button class="delete-btn" (click)="onDelete(conv.id, $event)" title="Delete conversation">
             <lucide-icon name="trash" [size]="14" />

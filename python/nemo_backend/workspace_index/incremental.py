@@ -34,10 +34,15 @@ from nemo_backend.workspace_index.walk import is_indexable_workspace_relative_pa
 logger = logging.getLogger('nemo.workspace_index.incremental')
 
 _STAGING_PREFIX = '[staging] '
+# Coalesce rapid workspace-context sync batches before hitting the embeddings server.
+_BACKGROUND_INDEX_DEBOUNCE_SEC = 2.0
 
 _registry_lock = threading.Lock()
 _workspace_locks: dict[str, threading.Lock] = {}
 _staging_locks: dict[str, threading.Lock] = {}
+_background_index_lock = threading.Lock()
+_background_index_jobs: dict[str, dict[str, bool]] = {}
+_background_index_timers: dict[str, threading.Timer] = {}
 
 
 def _lock_for(store: dict[str, threading.Lock], key: str) -> threading.Lock:
@@ -53,6 +58,67 @@ def _workspace_lock_key(workspace_id: str, root: Path) -> str:
 
 def _staging_lock_key(session_id: str) -> str:
     return f's:{staging_index_persist_dir(session_id)}'
+
+
+def schedule_semantic_index_background(session_id: str, *, ensure_corpus: bool = False) -> None:
+    """Debounced background flush/build so embeddings index the workspace without blocking HTTP sync."""
+    sid = (session_id or '').strip()
+    if not sid:
+        return
+    with _background_index_lock:
+        job = _background_index_jobs.setdefault(sid, {'ensure_corpus': False})
+        job['ensure_corpus'] = job['ensure_corpus'] or bool(ensure_corpus)
+        existing = _background_index_timers.pop(sid, None)
+        if existing is not None:
+            existing.cancel()
+
+        def _fire() -> None:
+            with _background_index_lock:
+                _background_index_timers.pop(sid, None)
+                job_state = _background_index_jobs.pop(sid, None) or {'ensure_corpus': False}
+            try:
+                _run_semantic_index_background(sid, ensure_corpus=bool(job_state.get('ensure_corpus')))
+            except Exception:
+                logger.debug('background semantic index failed session=%s', sid, exc_info=True)
+
+        timer = threading.Timer(_BACKGROUND_INDEX_DEBOUNCE_SEC, _fire)
+        timer.daemon = True
+        _background_index_timers[sid] = timer
+        timer.start()
+
+
+def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> None:
+    from nemo_backend.state import get_active_connection, get_session
+    from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
+
+    sess = get_session(session_id)
+    root_s = (sess.workspace_path or '').strip()
+    if not root_s:
+        return
+
+    conn = get_active_connection()
+    mid = resolve_embedding_model_id(conn)
+    embed_model, err = build_embedding_model(conn)
+    if embed_model is None:
+        logger.debug('background semantic index skipped session=%s: %s', session_id, err)
+        return
+
+    root = Path(root_s).resolve()
+    wid = (sess.workspace_id or '').strip()
+
+    if sess.semantic_index_pending:
+        flush_semantic_index_patches(session_id, sess, root, wid, embed_model, embedding_model_id=mid)
+
+    if ensure_corpus:
+        _, w_err = load_or_rebuild_workspace_index(
+            root,
+            wid,
+            embed_model,
+            fingerprint_override=None,
+            embedding_model_id=mid,
+        )
+        if w_err:
+            logger.debug('background semantic corpus build skipped session=%s: %s', session_id, w_err)
 
 
 def enqueue_semantic_index_changes(sess: SessionState, paths: list[str], kinds: list[str]) -> None:

@@ -26,6 +26,8 @@ from nemo_backend.node_dependency_agent import (
     remove_npm_packages_tool,
     run_npm_script_tool,
 )
+from nemo_backend.node_project_discovery import discover_npm_projects_tool
+from nemo_backend.npm_registry_search import search_npm_packages_tool
 from nemo_backend.python_dependency_agent import (
     freeze_python_requirements_tool,
     install_python_packages_tool,
@@ -154,6 +156,8 @@ def node_dependency_specialist_tools() -> tuple[list[Any], dict[str, Any]]:
     """Node/npm/pnpm/Yarn plus local ``angular_cli_tool`` (same npm tools as :func:`nemo_backend.node_dependency_agent.node_dependency_tools`, plus Angular CLI)."""
 
     t = [
+        discover_npm_projects_tool,
+        search_npm_packages_tool,
         install_npm_packages_tool,
         remove_npm_packages_tool,
         npm_install_project_tool,

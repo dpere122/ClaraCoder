@@ -114,6 +114,12 @@ function stubElectronApi(): void {
     setAlwaysOnTop: noop,
     loadConfig: async () => ({ ...defaultConfig }),
     saveConfig: async (c: unknown) => c as typeof defaultConfig,
+    setLastActiveConversation: async (_workspaceKey: string, _conversationId: string) => ({ ...defaultConfig }),
+    setActiveLlmModel: async (_modelId: string) => ({ ...defaultConfig }),
+    patchHealthMonitor: async (patch: { logLevel?: string; metricsEnabled?: boolean }) => ({
+      ...defaultConfig,
+      healthMonitor: { ...defaultConfig.healthMonitor, ...patch },
+    }),
     getConversations: async () => [convMeta],
     readConversationFromDisk: async () => ({
       ...convMeta,

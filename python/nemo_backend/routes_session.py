@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
 from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
-from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes
+from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from nemo_backend.workspace_index.lifecycle import (
     invalidate_staging_index_disk,
     invalidate_workspace_index_disk,
@@ -80,6 +80,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     prev_path = (sess.workspace_path or '').strip()
     prev_wid = (sess.workspace_id or '').strip()
     new_path = (request.workspace_path or '').strip()
+    workspace_first_attach = bool(new_path and not prev_path)
     workspace_path_changed = bool(prev_path and prev_path != new_path)
     if workspace_path_changed:
         cleanup_staging_snapshot_session(sess, request.session_id)
@@ -99,11 +100,12 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
         enqueue_semantic_index_changes(sess, ch.paths, ch.kinds)
 
     if new_path:
-        # Keep watcher updates queued, but do not flush embeddings/index work from
-        # workspace-context sync. This endpoint is high-frequency and can otherwise
-        # spam the embeddings server outside explicit semantic-retrieval tool usage.
-        # Queued changes are still flushed by semantic retrieval paths.
-        pass
+        ensure_corpus = workspace_first_attach or workspace_path_changed
+        if ensure_corpus or sess.semantic_index_pending:
+            schedule_semantic_index_background(
+                request.session_id,
+                ensure_corpus=ensure_corpus,
+            )
 
     if not new_path:
         sess.semantic_index_pending.clear()

@@ -10,6 +10,7 @@ import type {
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  HealthMonitorConfig,
   LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -217,6 +218,9 @@ declare global {
     }) => Promise<ModelManagerHfSearchResult>;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
+    setLastActiveConversation: (workspaceKey: string, conversationId: string) => Promise<AppConfig>;
+    setActiveLlmModel: (modelId: string) => Promise<AppConfig>;
+    patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => Promise<AppConfig>;
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;

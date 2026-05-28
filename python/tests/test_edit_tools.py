@@ -118,6 +118,7 @@ def test_outer_agent_tools_staging_mode() -> None:
         'read_workspace_file',
         'search_workspace',
         'retrieve_workspace_semantic',
+        'search_netstat_ports',
         'lsp_get_diagnostics',
         'lsp_hover',
         'lsp_find_definition',
@@ -131,12 +132,16 @@ def test_outer_agent_tools_staging_mode() -> None:
     env_names = {ensure_python_workspace_env_tool.name}
     review_names = {t.name for t in code_review_specialist_tools(direct=False)[0]}
 
-    outer_verify_names = {'run_workspace_pytest_tests', 'run_workspace_python_smoke_test'}
+    outer_verify_names = {
+        'run_workspace_pytest_tests',
+        'run_workspace_python_smoke_test',
+        'run_workspace_node_smoke_test',
+    }
 
     tools_on, map_on = worker_tools_and_map(True, session=session)
     assert {t.name for t in tools_on} == (
         read_names
-        | {'copy_workspace_files', 'angular_cli_tool'}
+        | {'copy_workspace_files', 'angular_cli_tool', 'kill_process'}
         | edit_names
         | lsp_py_mut_names
         | dep_names
@@ -283,12 +288,17 @@ def test_project_review_specialist_tools_include_workspace_tests() -> None:
         'install_python_requirements_file',
         'freeze_python_requirements',
         'write_frozen_python_requirements_file',
+        'discover_npm_projects',
+        'search_npm_packages',
         'install_npm_packages',
         'npm_install_project',
         'remove_npm_packages',
         'run_npm_script',
         'angular_cli_tool',
         'run_workspace_python_smoke_test',
+        'run_workspace_node_smoke_test',
+        'search_netstat_ports',
+        'kill_process',
         'run_workspace_pytest_tests',
         'approve_project_review',
         'reject_project_review',

@@ -159,6 +159,7 @@
           [talkStatus]='talkStatus()'
           [talkDetail]='talkModeDetailStatus()'
           [loading]='loading()'
+          [contextBlocked]='contextChatBlocked()'
           (messageSent)='onMessageSent($event)'
           (abortRequested)='onAbortRequested()'
         />
@@ -170,7 +171,7 @@
         [maxTokens]='contextCapacity().maxTokens'
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
-        [compressionNotice]='activeContextCompressionNotice()'
+        [compressionNotice]='activeContextStatusNotice()'
         [modelName]='activeLlmModelDisplayName()'
         [modelPresetOptions]='llmModelPresetOptions()'
         [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'

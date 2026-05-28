@@ -6,6 +6,9 @@ const STREAM_OVERHEAD_TOKENS = 4;
 const WORKSPACE_OVERHEAD_TOKENS = 16;
 const TOOL_ARTIFACT_OVERHEAD_TOKENS = 12;
 
+/** At or above this percentage, new chat messages are blocked. */
+export const CONTEXT_CHAT_BLOCKED_PERCENT = 95;
+
 export interface ContextCapacitySnapshot {
   usedTokens: number;
   maxTokens: number;

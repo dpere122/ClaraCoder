@@ -17,6 +17,7 @@ import type {
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  HealthMonitorConfig,
   LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -873,6 +874,118 @@ export class ElectronService {
 
   saveConfig(config: AppConfig): Promise<AppConfig> {
     return this.api?.saveConfig(config) ?? Promise.resolve(structuredClone(config));
+  }
+
+  setLastActiveConversation(workspaceKey: string, conversationId: string): Promise<AppConfig> {
+    return (
+      this.api?.setLastActiveConversation(workspaceKey, conversationId) ??
+      Promise.resolve({
+        currentWorkspaceId: null,
+        workspaces: [],
+        themeId: 'dark',
+        noWorkspaceThemeId: 'dark',
+        activeLlmModelId: 'default-lmstudio',
+        llmProviders: [],
+        audioTranscription: {
+          provider: 'openai',
+          baseUrl: '',
+          model: 'gpt-4o-mini-transcribe',
+          apiKey: '',
+        },
+        workspaceTools: {
+          editToolsMode: 'standard',
+          maxFileReadLines: 400,
+          maxSearchResults: 40,
+          defaultWorkspaceEncoding: 'utf-8',
+          defaultWorkspaceNewline: 'lf',
+          allowStagingOverlayCommands: false,
+          exposeAllWorkspaceFiles: false,
+        },
+        contextCompression: getDefaultContextCompression(),
+        healthMonitor: {
+          logLevel: 'info',
+          metricsEnabled: false,
+        },
+        modelManager: {
+          customModelsDir: '',
+          huggingFaceToken: '',
+        },
+      })
+    );
+  }
+
+  setActiveLlmModel(modelId: string): Promise<AppConfig> {
+    return this.api?.setActiveLlmModel(modelId) ?? Promise.resolve({
+      currentWorkspaceId: null,
+      workspaces: [],
+      themeId: 'dark',
+      noWorkspaceThemeId: 'dark',
+      activeLlmModelId: modelId,
+      llmProviders: [],
+      audioTranscription: {
+        provider: 'openai',
+        baseUrl: '',
+        model: 'gpt-4o-mini-transcribe',
+        apiKey: '',
+      },
+      workspaceTools: {
+        editToolsMode: 'standard',
+        maxFileReadLines: 400,
+        maxSearchResults: 40,
+        defaultWorkspaceEncoding: 'utf-8',
+        defaultWorkspaceNewline: 'lf',
+        allowStagingOverlayCommands: false,
+        exposeAllWorkspaceFiles: false,
+      },
+      contextCompression: getDefaultContextCompression(),
+      healthMonitor: {
+        logLevel: 'info',
+        metricsEnabled: false,
+      },
+      modelManager: {
+        customModelsDir: '',
+        huggingFaceToken: '',
+      },
+    });
+  }
+
+  patchHealthMonitor(patch: Partial<HealthMonitorConfig>): Promise<AppConfig> {
+    return (
+      this.api?.patchHealthMonitor(patch) ??
+      Promise.resolve({
+        currentWorkspaceId: null,
+        workspaces: [],
+        themeId: 'dark',
+        noWorkspaceThemeId: 'dark',
+        activeLlmModelId: 'default-lmstudio',
+        llmProviders: [],
+        audioTranscription: {
+          provider: 'openai',
+          baseUrl: '',
+          model: 'gpt-4o-mini-transcribe',
+          apiKey: '',
+        },
+        workspaceTools: {
+          editToolsMode: 'standard',
+          maxFileReadLines: 400,
+          maxSearchResults: 40,
+          defaultWorkspaceEncoding: 'utf-8',
+          defaultWorkspaceNewline: 'lf',
+          allowStagingOverlayCommands: false,
+          exposeAllWorkspaceFiles: false,
+        },
+        contextCompression: getDefaultContextCompression(),
+        healthMonitor: {
+          logLevel: 'info',
+          metricsEnabled: false,
+          ...patch,
+        },
+        modelManager: {
+          customModelsDir: '',
+          huggingFaceToken: '',
+        },
+      })
+    );
   }
 
   llamaServerStart(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStartResult> {

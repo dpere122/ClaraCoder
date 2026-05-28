@@ -19,7 +19,10 @@ from nemo_backend.workspace_index.index_build import (
 )
 from nemo_backend.workspace_index import lifecycle as lc
 from nemo_backend.workspace_index.paths import index_persist_dir, workspace_index_persist_dir
-from nemo_backend.workspace_index.incremental import flush_semantic_index_patches
+from nemo_backend.workspace_index.incremental import (
+    flush_semantic_index_patches,
+    schedule_semantic_index_background,
+)
 from nemo_backend.workspace_index.semantic_tool import (
     retrieve_workspace_checkpoint_semantic,
     retrieve_workspace_semantic,
@@ -272,3 +275,57 @@ def test_merge_workspace_staging_prefers_workspace_on_score_tie() -> None:
     assert len(merged) == 2
     assert merged[0].tag == 'w'
     assert merged[1].tag == 's'
+
+
+def test_schedule_semantic_index_background_coalesces_ensure_corpus(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_backend.workspace_index import incremental as inc
+
+    calls: list[tuple[str, bool]] = []
+
+    def _fake_run(session_id: str, *, ensure_corpus: bool) -> None:
+        calls.append((session_id, ensure_corpus))
+
+    monkeypatch.setattr(inc, '_BACKGROUND_INDEX_DEBOUNCE_SEC', 0.01)
+    monkeypatch.setattr(inc, '_run_semantic_index_background', _fake_run)
+    inc._background_index_jobs.clear()
+    for t in inc._background_index_timers.values():
+        t.cancel()
+    inc._background_index_timers.clear()
+
+    schedule_semantic_index_background('sess-a', ensure_corpus=False)
+    schedule_semantic_index_background('sess-a', ensure_corpus=True)
+    time.sleep(0.05)
+
+    assert calls == [('sess-a', True)]
+
+
+def test_run_semantic_index_background_builds_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_backend.workspace_index import incremental as inc
+    from nemo_backend import state as st
+
+    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'main.py').write_text('print("hi")\n', encoding='utf-8')
+
+    conn = st.get_active_connection()
+    conn.provider = 'openai'
+    conn.model = 'gpt-test'
+    conn.api_key = 'test-key'
+
+    sess = st.get_session('bg-sess')
+    sess.workspace_path = str(root)
+    sess.workspace_id = 'wid-bg'
+
+    def _fake_build(_conn: object) -> tuple[_FakeEmb, str]:
+        return _FakeEmb(), ''
+
+    monkeypatch.setattr(
+        'nemo_backend.workspace_index.embeddings_factory.build_embedding_model',
+        _fake_build,
+    )
+
+    inc._run_semantic_index_background('bg-sess', ensure_corpus=True)
+
+    pdir = workspace_index_persist_dir('wid-bg', root)
+    assert (pdir / 'manifest.json').is_file()

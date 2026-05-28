@@ -44,7 +44,7 @@ import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
 import { LlamaServerTile } from '../chat/llama-server-tile/llama-server-tile';
 import { TalkMode } from '../speech/talk-mode/talk-mode';
-import { buildContextCapacitySnapshot } from '../status/context-capacity/context-capacity.utils';
+import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../status/context-capacity/context-capacity.utils';
 import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
@@ -56,7 +56,6 @@ import { PendingDiffReviewService } from '../diff/pending-diff-review.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import {
   activeStreamWorkspaceSwitchPrompt,
-  contextCapacityNearLimitPrompt,
   unsavedCloseFileTabPrompt,
   unsavedWorkspaceSwitchPrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
@@ -113,7 +112,6 @@ export class App implements OnInit, OnDestroy {
    * Persists across conversation switches until a newer measurement replaces it.
    */
   protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
-  protected readonly contextCompressionNoticeByConversation = signal<Record<string, string>>({});
   protected readonly activeMeasuredPromptTokens = computed(() => {
     const id = this.activeConversationId();
     if (!id) {
@@ -121,13 +119,6 @@ export class App implements OnInit, OnDestroy {
     }
     const tokens = this.measuredPromptTokensByConversation()[id];
     return typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0 ? tokens : null;
-  });
-  protected readonly activeContextCompressionNotice = computed(() => {
-    const id = this.activeConversationId();
-    if (!id) {
-      return '';
-    }
-    return this.contextCompressionNoticeByConversation()[id] ?? '';
   });
   protected readonly settingsWindowOpen = signal(false);
   /** Main window zoom state (frameless window controls). */
@@ -217,8 +208,12 @@ export class App implements OnInit, OnDestroy {
     workspaceContextText: this.workspaceContextText(),
     measuredPromptTokens: this.activeMeasuredPromptTokens(),
   }));
-
-  private static readonly CONTEXT_NEAR_LIMIT_PERCENT = 95;
+  protected readonly contextChatBlocked = computed(
+    () => this.contextCapacity().usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT,
+  );
+  protected readonly activeContextStatusNotice = computed(() =>
+    this.contextChatBlocked() ? 'Context full — start a new conversation to continue.' : '',
+  );
 
   /** Flattened model presets for the status-bar selector (under the message box). */
   protected readonly llmModelPresetOptions = computed(() => {
@@ -346,24 +341,6 @@ export class App implements OnInit, OnDestroy {
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
       if (inputTokens > 0) {
         this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
-      }
-    });
-
-    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe((msg) => {
-      const freed = Math.max(0, msg.tokensBefore - msg.tokensAfter);
-      const parts: string[] = ['Compressed'];
-      if (freed > 0) {
-        parts.push(`~${this.formatCompactTokenCount(freed)} tokens freed`);
-      }
-      if (msg.toolMessagesCompacted > 0) {
-        parts.push(`${msg.toolMessagesCompacted} tool result${msg.toolMessagesCompacted === 1 ? '' : 's'}`);
-      }
-      if (msg.toolRoundsDropped > 0) {
-        parts.push(`${msg.toolRoundsDropped} round${msg.toolRoundsDropped === 1 ? '' : 's'} dropped`);
-      }
-      this.setContextCompressionNoticeForConversation(msg.conversationId, parts.join(' · '));
-      if (msg.tokensAfter > 0) {
-        this.setMeasuredPromptTokensForConversation(msg.conversationId, msg.tokensAfter);
       }
     });
 
@@ -643,7 +620,7 @@ export class App implements OnInit, OnDestroy {
     if (!convId) return;
     const normalized = text.trim();
     if (!normalized || this.pendingIds().has(convId)) return;
-    if (!(await this.confirmSendWhenContextNearLimit())) {
+    if (this.contextChatBlocked()) {
       return;
     }
     this.pushMessage('user', normalized);
@@ -679,7 +656,7 @@ export class App implements OnInit, OnDestroy {
     const config = await this.electron.loadConfig();
     applyAppTheme(resolveAppThemeId(config, workspaceId));
     await this.refreshConversationList();
-    void this.rememberLastActiveForWorkspace(conv);
+    await this.rememberLastActiveForWorkspace(conv);
   }
 
   onAbortRequested(): void {
@@ -917,14 +894,10 @@ export class App implements OnInit, OnDestroy {
   }
 
   protected async onActiveLlmModelChange(modelId: string): Promise<void> {
-    const config = await this.electron.loadConfig();
-    if (!modelId || modelId === config.activeLlmModelId) {
+    if (!modelId) {
       return;
     }
-    if (!findLlmModelLocation(config.llmProviders, modelId)) {
-      return;
-    }
-    await this.electron.saveConfig({ ...config, activeLlmModelId: modelId });
+    await this.electron.setActiveLlmModel(modelId);
   }
 
   // Workspace management
@@ -1102,18 +1075,7 @@ export class App implements OnInit, OnDestroy {
 
   private async rememberLastActiveForWorkspace(conv: Conversation): Promise<void> {
     const key = conv.workspaceId ?? '';
-    const config = await this.electron.loadConfig();
-    if (config.lastActiveConversationByWorkspaceId?.[key] === conv.id) {
-      return;
-    }
-    const next: AppConfig = {
-      ...config,
-      lastActiveConversationByWorkspaceId: {
-        ...(config.lastActiveConversationByWorkspaceId ?? {}),
-        [key]: conv.id,
-      },
-    };
-    await this.electron.saveConfig(next);
+    await this.electron.setLastActiveConversation(key, conv.id);
   }
 
   private async loadConversation(
@@ -1144,7 +1106,7 @@ export class App implements OnInit, OnDestroy {
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
     applyAppTheme(resolveAppThemeId(config, workspaceId));
-    void this.rememberLastActiveForWorkspace(conv);
+    await this.rememberLastActiveForWorkspace(conv);
   }
 
   private async saveCurrentConversation(): Promise<void> {
@@ -1427,20 +1389,6 @@ export class App implements OnInit, OnDestroy {
     this.electron.windowClose();
   }
 
-  private formatCompactTokenCount(value: number): string {
-    return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(
-      Math.max(0, value),
-    );
-  }
-
-  private async confirmSendWhenContextNearLimit(): Promise<boolean> {
-    const cap = this.contextCapacity();
-    if (cap.usedPercentage < App.CONTEXT_NEAR_LIMIT_PERCENT) {
-      return true;
-    }
-    return this.themedConfirm.open(contextCapacityNearLimitPrompt(cap));
-  }
-
   private setMeasuredPromptTokensForConversation(conversationId: string, tokens: number): void {
     if (!conversationId || tokens <= 0) {
       return;
@@ -1451,29 +1399,11 @@ export class App implements OnInit, OnDestroy {
     }));
   }
 
-  private setContextCompressionNoticeForConversation(conversationId: string, notice: string): void {
-    if (!conversationId || !notice.trim()) {
-      return;
-    }
-    this.contextCompressionNoticeByConversation.update((prev) => ({
-      ...prev,
-      [conversationId]: notice,
-    }));
-  }
-
   private removeContextMetricsForConversation(conversationId: string): void {
     if (!conversationId) {
       return;
     }
     this.measuredPromptTokensByConversation.update((prev) => {
-      if (!(conversationId in prev)) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[conversationId];
-      return next;
-    });
-    this.contextCompressionNoticeByConversation.update((prev) => {
       if (!(conversationId in prev)) {
         return prev;
       }

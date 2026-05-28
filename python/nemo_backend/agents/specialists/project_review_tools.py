@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -18,11 +20,18 @@ from nemo_backend.lsp.tools import (
 )
 from nemo_backend.angular_cli_tool import angular_cli_tool
 from nemo_backend.node_dependency_agent import (
+    _build_run_script_args,
+    _package_json_script_gate,
+    _resolve_project_dir,
+    detect_package_manager,
     install_npm_packages_tool,
     npm_install_project_tool,
     remove_npm_packages_tool,
     run_npm_script_tool,
 )
+from nemo_backend.node_project_discovery import discover_npm_projects_tool
+from nemo_backend.npm_registry_search import search_npm_packages_tool
+from nemo_backend.process_tools import kill_process_tool, search_netstat_ports_tool
 from nemo_backend.python_dependency_agent import (
     freeze_python_requirements_tool,
     install_python_packages_tool,
@@ -30,7 +39,12 @@ from nemo_backend.python_dependency_agent import (
     write_frozen_python_requirements_file_tool,
 )
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
-from nemo_backend.subprocess_smoke import SmokeOutputTracker, SmokeStopReason, wait_for_smoke_completion
+from nemo_backend.subprocess_smoke import (
+    SmokeOutputTracker,
+    SmokeStopReason,
+    argv_implies_watch_mode,
+    wait_for_smoke_completion,
+)
 from nemo_backend.python_env import (
     _terminate_subprocess_tree,
     ensure_session_python_workspace_env,
@@ -52,12 +66,16 @@ logger = logging.getLogger('nemo.project_review')
 
 RUN_WORKSPACE_PYTEST_TESTS_NAME = 'run_workspace_pytest_tests'
 RUN_WORKSPACE_PYTHON_SMOKE_TEST_NAME = 'run_workspace_python_smoke_test'
+RUN_WORKSPACE_NODE_SMOKE_TEST_NAME = 'run_workspace_node_smoke_test'
 APPROVE_PROJECT_REVIEW_NAME = 'approve_project_review'
 REJECT_PROJECT_REVIEW_NAME = 'reject_project_review'
 _PYTEST_STREAM_TAG = 'spec-project_review-tests'
 _PYTEST_STREAM_LABEL = 'Workspace Pytest'
 _SMOKE_STREAM_TAG = 'spec-project_review-smoke'
 _SMOKE_STREAM_LABEL = 'Workspace Smoke Test'
+_NODE_SMOKE_STREAM_TAG = 'spec-project_review-node-smoke'
+_NODE_SMOKE_STREAM_LABEL = 'Workspace Node Smoke Test'
+_NODE_SMOKE_SCRIPT_CANDIDATES = ('smoke', 'dev', 'start', 'serve', 'preview')
 _SMOKE_ENTRYPOINT_CANDIDATES = (
     'main.py',
     'app.py',
@@ -668,6 +686,242 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
     )
 
 
+def _package_json_scripts(project_dir: Path) -> dict[str, str]:
+    path = project_dir / 'package.json'
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    scripts = data.get('scripts')
+    if not isinstance(scripts, dict):
+        return {}
+    return {str(k): str(v) for k, v in scripts.items() if str(k).strip()}
+
+
+def _discover_node_smoke_script(project_dir: Path) -> str:
+    scripts = _package_json_scripts(project_dir)
+    for candidate in _NODE_SMOKE_SCRIPT_CANDIDATES:
+        if candidate in scripts:
+            return candidate
+    return ''
+
+
+def _build_node_smoke_result(
+    *,
+    exit_code: int | None,
+    project_label: str,
+    command_text: str,
+    script_name: str,
+    stdout_chunks: list[str],
+    stderr_chunks: list[str],
+    steady_state: bool,
+    readiness_detected: bool = False,
+    passed: bool | None = None,
+    failure_detail: str = '',
+) -> str:
+    stdout = ''.join(stdout_chunks)
+    stderr = ''.join(stderr_chunks)
+    combined = stdout
+    if stderr:
+        combined = f'{combined}\n[stderr]\n{stderr}' if combined else f'[stderr]\n{stderr}'
+    combined = combined.strip()
+    if passed is None:
+        passed = exit_code == 0 if not steady_state else True
+    if steady_state and readiness_detected:
+        status = 'passed (dev server readiness detected)'
+    elif steady_state:
+        status = 'passed (startup reached steady state)'
+    elif passed:
+        status = 'passed'
+    else:
+        status = 'failed'
+    body = (
+        'Workspace Node.js smoke-test summary:\n'
+        f'- Command: `{command_text}`\n'
+        f'- Project: `{project_label}`\n'
+        f'- Script: `{script_name}`\n'
+        f'- Result: {status}\n'
+        f'- Exit code: {exit_code if exit_code is not None else "unknown"}\n'
+    )
+    if failure_detail.strip():
+        body += f'- Failure signal: {failure_detail.strip()}\n'
+    if combined:
+        body += f'\nCaptured output:\n{combined}'
+    return truncate_text_head_tail(body, 120_000)
+
+
+@tool(RUN_WORKSPACE_NODE_SMOKE_TEST_NAME)
+async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_name: str = '') -> str:
+    """Run a Node.js package script smoke test (npm/pnpm/yarn ``run``) and stop watch-mode dev servers when ready.
+
+    Discovers ``smoke``, ``dev``, ``start``, ``serve``, or ``preview`` from ``package.json`` when ``script_name`` is
+    omitted. Detects Vite/Angular/electronmon-style readiness in output; use ``search_netstat_ports`` + ``kill_process``
+    if the port is already in use.
+    """
+
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    session = get_session(sid)
+    try:
+        workspace_root = get_active_workspace_root()
+    except ValueError as exc:
+        return f'Tool error: {exc}'
+
+    project_dir, perr, proj_label = _resolve_project_dir(workspace_root, relative_project_dir)
+    if perr:
+        return perr
+    assert project_dir is not None
+    if not (project_dir / 'package.json').is_file():
+        return (
+            f'Tool error: no `package.json` in project `{proj_label}`. '
+            'Use `discover_npm_projects` or set `relative_project_dir`.'
+        )
+
+    script = (script_name or '').strip()
+    if not script:
+        script = _discover_node_smoke_script(project_dir)
+    if not script:
+        keys = sorted(_package_json_scripts(project_dir).keys())
+        preview = ', '.join(f'`{k}`' for k in keys[:24])
+        suffix = ' …' if len(keys) > 24 else ''
+        return (
+            'Workspace Node.js smoke test skipped:\n'
+            f'- Project: `{proj_label}`\n'
+            '- Reason: no smoke/dev/start/serve/preview script found in package.json.\n'
+            f'- Available scripts: {preview or "(none)"}{suffix}'
+        )
+
+    gate = _package_json_script_gate(project_dir, script)
+    if gate:
+        return gate
+
+    pm = detect_package_manager(project_dir)
+    exe = shutil.which(pm)
+    if not exe:
+        return f'Tool error: `{pm}` is not on PATH; install Node.js and the package manager.'
+    args = _build_run_script_args(pm, exe, script)
+    command_text = ' '.join(args)
+    watch_mode = argv_implies_watch_mode(args)
+
+    await _emit_project_review_chunk(
+        sid,
+        f'$ {command_text}\n',
+        stream_tag=_NODE_SMOKE_STREAM_TAG,
+        label=_NODE_SMOKE_STREAM_LABEL,
+    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=str(project_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=session_workspace_subprocess_env(session),
+        )
+    except OSError as exc:
+        await _emit_project_review_tool_complete(
+            sid,
+            stream_tag=_NODE_SMOKE_STREAM_TAG,
+            label=_NODE_SMOKE_STREAM_LABEL,
+            exit_code=None,
+            output_excerpt='',
+        )
+        return f'Tool error: could not start Node smoke test ({exc}).'
+
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    tracker = SmokeOutputTracker()
+
+    def _track_output(text: str) -> None:
+        tracker.feed(text)
+
+    stdout_task = asyncio.create_task(
+        _pump_subprocess_stream(
+            proc.stdout,
+            session_id=sid,
+            emit_prefix='',
+            capture_chunks=stdout_chunks,
+            stream_tag=_NODE_SMOKE_STREAM_TAG,
+            label=_NODE_SMOKE_STREAM_LABEL,
+            on_text=_track_output,
+        )
+    )
+    stderr_task = asyncio.create_task(
+        _pump_subprocess_stream(
+            proc.stderr,
+            session_id=sid,
+            emit_prefix='[stderr] ',
+            capture_chunks=stderr_chunks,
+            stream_tag=_NODE_SMOKE_STREAM_TAG,
+            label=_NODE_SMOKE_STREAM_LABEL,
+            on_text=_track_output,
+        )
+    )
+    wait_task = asyncio.create_task(proc.wait())
+    abort_task = asyncio.create_task(session.abort_event.wait())
+
+    async def _emit_smoke_status(message: str) -> None:
+        await _emit_project_review_chunk(
+            sid,
+            message,
+            stream_tag=_NODE_SMOKE_STREAM_TAG,
+            label=_NODE_SMOKE_STREAM_LABEL,
+        )
+
+    try:
+        smoke_result = await wait_for_smoke_completion(
+            proc,
+            wait_task=wait_task,
+            abort_task=abort_task,
+            tracker=tracker,
+            terminate_fn=_terminate_process,
+            emit_status=_emit_smoke_status,
+            watch_mode=watch_mode,
+        )
+    finally:
+        if not abort_task.done():
+            abort_task.cancel()
+            try:
+                await abort_task
+            except asyncio.CancelledError:
+                pass
+        await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+
+    if smoke_result.stop_reason is SmokeStopReason.ABORTED:
+        replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+        await _emit_project_review_tool_complete(
+            sid,
+            stream_tag=_NODE_SMOKE_STREAM_TAG,
+            label=_NODE_SMOKE_STREAM_LABEL,
+            exit_code=smoke_result.exit_code,
+            output_excerpt=replay,
+            outcome='failed',
+        )
+        return 'Aborted by user.'
+
+    replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+    await _emit_project_review_tool_complete(
+        sid,
+        stream_tag=_NODE_SMOKE_STREAM_TAG,
+        label=_NODE_SMOKE_STREAM_LABEL,
+        exit_code=smoke_result.exit_code,
+        output_excerpt=replay,
+        outcome='passed' if smoke_result.passed else 'failed',
+    )
+    return _build_node_smoke_result(
+        exit_code=smoke_result.exit_code,
+        project_label=proj_label,
+        command_text=command_text,
+        script_name=script,
+        stdout_chunks=stdout_chunks,
+        stderr_chunks=stderr_chunks,
+        steady_state=smoke_result.steady_state,
+        readiness_detected=smoke_result.readiness_detected,
+        passed=smoke_result.passed,
+        failure_detail=smoke_result.failure_detail,
+    )
+
+
 @tool(APPROVE_PROJECT_REVIEW_NAME)
 def approve_project_review(summary: str = '') -> str:
     """Mark the final project review as passed."""
@@ -714,12 +968,17 @@ def project_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
         install_python_requirements_file_tool,
         freeze_python_requirements_tool,
         write_frozen_python_requirements_file_tool,
+        discover_npm_projects_tool,
+        search_npm_packages_tool,
         install_npm_packages_tool,
         remove_npm_packages_tool,
         npm_install_project_tool,
         run_npm_script_tool,
         angular_cli_tool,
+        search_netstat_ports_tool,
+        kill_process_tool,
         run_workspace_python_smoke_test,
+        run_workspace_node_smoke_test,
         run_workspace_pytest_tests,
         approve_project_review,
         reject_project_review,

@@ -600,7 +600,12 @@ async def run_npm_script_tool(script_name: str, relative_project_dir: str = '') 
 
 
 def node_dependency_tools() -> tuple[list[object], dict[str, object]]:
+    from nemo_backend.node_project_discovery import discover_npm_projects_tool
+    from nemo_backend.npm_registry_search import search_npm_packages_tool
+
     tools: list[object] = [
+        discover_npm_projects_tool,
+        search_npm_packages_tool,
         install_npm_packages_tool,
         remove_npm_packages_tool,
         npm_install_project_tool,

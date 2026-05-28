@@ -98,15 +98,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
 
   protected async onMetricsToggle(enabled: boolean): Promise<void> {
     this.syncMetricsEnabled(enabled);
-    const cfg = await this.electron.loadConfig();
-    const next: AppConfig = {
-      ...cfg,
-      healthMonitor: {
-        ...cfg.healthMonitor,
-        metricsEnabled: enabled,
-      },
-    };
-    await this.electron.saveConfig(next);
+    await this.electron.patchHealthMonitor({ metricsEnabled: enabled });
   }
 
   /** Match main app: workspace theme, else no-workspace theme, else dark. */

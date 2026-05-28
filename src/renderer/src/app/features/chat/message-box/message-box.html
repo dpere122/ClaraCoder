@@ -23,13 +23,15 @@
     [ngModel]="userInput()"
     (ngModelChange)="userInput.set($event)"
     (keydown.enter)="send()"
+    [disabled]="contextBlocked()"
+    [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
   />
   @if (loading()) {
     <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">
       <lucide-icon name="square" [size]="16" class="stop-icon"></lucide-icon>
     </button>
   } @else {
-    <button class="btn" type="button" (click)="send()">
+    <button class="btn" type="button" (click)="send()" [disabled]="contextBlocked()">
       SEND >>
     </button>
   }

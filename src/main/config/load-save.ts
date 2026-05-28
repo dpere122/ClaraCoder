@@ -957,37 +957,176 @@ export function migrateConfig(config: AppConfig): AppConfig {
   return migrated ? newConfig : config;
 }
 
-/** Async load; creates default file on first run. */
-export async function loadConfig(): Promise<AppConfig> {
-  const configPath = getConfigPath();
-  try {
-    const raw = await fs.readFile(configPath, 'utf-8');
-    const config = JSON.parse(raw) as AppConfig;
-    const migrated = migrateConfig(config);
-    if (migrated !== config) {
-      await saveConfig(migrated);
+const CONFIG_BACKUP_SUFFIX = '.bak';
+const CONFIG_TEMP_SUFFIX = '.tmp';
+const CONFIG_READ_RETRIES = 3;
+const CONFIG_READ_RETRY_MS = 25;
+
+let configMutationChain: Promise<unknown> = Promise.resolve();
+
+function runSerializedConfigMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const run = configMutationChain.then(operation, operation);
+  configMutationChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readConfigRawFromPath(filePath: string): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < CONFIG_READ_RETRIES; attempt++) {
+    try {
+      const raw = await fs.readFile(filePath, 'utf-8');
+      if (raw.trim()) {
+        return raw;
+      }
+      lastError = new Error('Config file is empty.');
+    } catch (err) {
+      lastError = err;
     }
-    return migrated;
+    if (attempt < CONFIG_READ_RETRIES - 1) {
+      await sleep(CONFIG_READ_RETRY_MS * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+function readConfigRawFromPathSync(filePath: string): string {
+  const raw = syncFs.readFileSync(filePath, 'utf-8');
+  if (!raw.trim()) {
+    throw new Error('Config file is empty.');
+  }
+  return raw;
+}
+
+async function configFileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
   } catch {
-    const defaultConfig = createDefaultConfig();
-    await saveConfig(defaultConfig);
-    return defaultConfig;
+    return false;
   }
 }
 
-export async function saveConfig(config: AppConfig): Promise<void> {
+async function readConfigFromDiskForMutation(): Promise<AppConfig> {
   const configPath = getConfigPath();
+  const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+
+  for (const filePath of [configPath, backupPath]) {
+    try {
+      const raw = await readConfigRawFromPath(filePath);
+      const parsed = migrateConfig(JSON.parse(raw) as AppConfig);
+      if (filePath === backupPath) {
+        console.warn('[config] restored config from backup file.');
+        await writeConfigToDiskUnsafe(parsed);
+      }
+      return parsed;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+    }
+  }
+
+  if (await configFileExists(configPath)) {
+    console.error('[config] config file exists but could not be parsed; refusing to reset.');
+    throw new Error('Config file is corrupt and no valid backup is available.');
+  }
+
+  const defaultConfig = createDefaultConfig();
+  await writeConfigToDiskUnsafe(defaultConfig);
+  return defaultConfig;
+}
+
+async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
+  const configPath = getConfigPath();
+  const tempPath = `${configPath}${CONFIG_TEMP_SUFFIX}`;
+  const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  const payload = JSON.stringify(config, null, 2);
+  await fs.writeFile(tempPath, payload, 'utf-8');
+  if (await configFileExists(configPath)) {
+    await fs.copyFile(configPath, backupPath);
+  }
+  await fs.rename(tempPath, configPath);
+}
+
+/** Preserve workspace registry fields owned by dedicated IPC handlers. */
+export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): AppConfig {
+  const clientMigrated = migrateConfig(client);
+  return {
+    ...clientMigrated,
+    workspaces: disk.workspaces,
+    currentWorkspaceId: disk.currentWorkspaceId,
+    lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,
+  };
+}
+
+/** Serialized load → mutate → save. Mutator may mutate in place or return a replacement config. */
+export async function updateConfig(
+  mutator: (config: AppConfig) => AppConfig | void | Promise<AppConfig | void>,
+): Promise<AppConfig> {
+  return runSerializedConfigMutation(async () => {
+    let config = await readConfigFromDiskForMutation();
+    const result = await mutator(config);
+    if (result !== undefined) {
+      config = result;
+    }
+    const migrated = migrateConfig(config);
+    await writeConfigToDiskUnsafe(migrated);
+    return migrated;
+  });
+}
+
+/** Async load; creates default file on first run. */
+export async function loadConfig(): Promise<AppConfig> {
+  return runSerializedConfigMutation(async () => {
+    const config = await readConfigFromDiskForMutation();
+    const migrated = migrateConfig(config);
+    if (migrated !== config) {
+      await writeConfigToDiskUnsafe(migrated);
+      return migrated;
+    }
+    return config;
+  });
+}
+
+export async function saveConfig(config: AppConfig): Promise<void> {
+  await runSerializedConfigMutation(async () => {
+    await writeConfigToDiskUnsafe(migrateConfig(config));
+  });
 }
 
 /** Sync read for menu “recent” without async file IO in the menu builder path. */
 export function loadConfigSync(): AppConfig {
   const configPath = getConfigPath();
-  try {
-    const raw = syncFs.readFileSync(configPath, 'utf-8');
-    return migrateConfig(JSON.parse(raw) as AppConfig);
-  } catch {
-    return createDefaultConfig();
+  const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+
+  for (const filePath of [configPath, backupPath]) {
+    try {
+      const raw = readConfigRawFromPathSync(filePath);
+      return migrateConfig(JSON.parse(raw) as AppConfig);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+    }
   }
+
+  try {
+    syncFs.accessSync(configPath);
+    console.error('[config] config file exists but could not be parsed; refusing to reset.');
+    throw new Error('Config file is corrupt and no valid backup is available.');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err;
+    }
+  }
+
+  return createDefaultConfig();
 }

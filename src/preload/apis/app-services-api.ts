@@ -1,11 +1,15 @@
 import { ipcRenderer } from 'electron';
-import type { AppConfig } from '../../shared';
+import type { AppConfig, HealthMonitorConfig } from '../../shared';
 
 /** App config, window chrome, scripts, and LLM server IPC. */
 export const appServicesApi = {
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
+  setLastActiveConversation: (workspaceKey: string, conversationId: string) =>
+    ipcRenderer.invoke('set-last-active-conversation', workspaceKey, conversationId),
+  setActiveLlmModel: (modelId: string) => ipcRenderer.invoke('set-active-llm-model', modelId),
+  patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => ipcRenderer.invoke('patch-health-monitor', patch),
   onConfigUpdated: (callback: (event: unknown, config: unknown) => void) => ipcRenderer.on('config-updated', callback),
   onSettingsWindowVisibilityChanged: (callback: (event: unknown, isOpen: boolean) => void) =>
     ipcRenderer.on('settings-window-visibility-changed', callback),

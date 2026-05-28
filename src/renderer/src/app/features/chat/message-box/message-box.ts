@@ -15,6 +15,7 @@ export class MessageBox {
   readonly talkStatus = input('');
   readonly talkDetail = input('');
   readonly loading = input(false);
+  readonly contextBlocked = input(false);
   readonly messageSent = output<string>();
   readonly abortRequested = output<void>();
   protected readonly userInput = signal('');
@@ -25,7 +26,7 @@ export class MessageBox {
   }
 
   send(): void {
-    if (this.loading()) return;
+    if (this.loading() || this.contextBlocked()) return;
     const msg = this.userInput().trim();
     if (!msg) return;
     this.messageSent.emit(msg);

@@ -6,7 +6,7 @@
 Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``);
 plus the same staging review/transfer tools as nested graphs. When Editor is on, the outer tool list also
 includes the same **Python dependency** and **code-review specialist** tool surfaces as the nested graphs (merge by
-name with the existing ``python_dependency_tools`` / LSP read tools), plus **local Angular CLI** (``angular_cli_tool``)
+name with the existing ``python_dependency_tools`` / LSP read tools), ``discover_npm_projects`` / ``search_npm_packages`` for Node discovery and registry lookup, plus **local Angular CLI** (``angular_cli_tool``)
 and **workspace pytest/smoke** tools shared with
 final project review (without ``approve_project_review`` / ``reject_project_review`` on the standard outer graph).
 
@@ -130,6 +130,8 @@ def hitl_copy_pause_tools() -> frozenset[str]:
 
 
 def hitl_accept_command_pause_tools() -> frozenset[str]:
+    from nemo_backend.process_tools import KILL_PROCESS_NAME
+
     return frozenset(
         {
             INSTALL_PYTHON_PACKAGES_NAME,
@@ -140,6 +142,7 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
             NPM_INSTALL_PROJECT_NAME,
             RUN_NPM_SCRIPT_NAME,
             ANGULAR_CLI_TOOL_NAME,
+            KILL_PROCESS_NAME,
         }
     )
 
@@ -155,8 +158,11 @@ def worker_tools_and_map(
     ``edit_tools_strict_override`` — when set, drives staged/direct write tools instead of runtime Settings.
   When ``session`` is provided and Editor + Auto-apply are on, binds direct workspace mutators instead of staging.
     """
-    tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS]
+    from nemo_backend.process_tools import kill_process_tool, search_netstat_ports_tool
+
+    tools: list[Any] = [*TOOLS, *PYTHON_LSP_READ_TOOLS, search_netstat_ports_tool]
     mapping: dict[str, Any] = dict(TOOL_MAP)
+    mapping[search_netstat_ports_tool.name] = search_netstat_ports_tool
     for tool_ in PYTHON_LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
     if apply_mode:
@@ -197,7 +203,10 @@ def worker_tools_and_map(
         mapping[DELETE_WORKSPACE_ENTRY_NAME] = delete_workspace_entry
         tools.append(batch_delete_workspace_entries)
         mapping[BATCH_DELETE_WORKSPACE_ENTRIES_NAME] = batch_delete_workspace_entries
+        tools.append(kill_process_tool)
+        mapping[kill_process_tool.name] = kill_process_tool
         from nemo_backend.agents.specialists.project_review_tools import (
+            run_workspace_node_smoke_test,
             run_workspace_python_smoke_test,
             run_workspace_pytest_tests,
         )
@@ -213,7 +222,11 @@ def worker_tools_and_map(
                 ('code_review_specialist', code_review_specialist_tools(direct=direct)[0]),
                 (
                     'outer_workspace_verification',
-                    [run_workspace_pytest_tests, run_workspace_python_smoke_test],
+                    [
+                        run_workspace_pytest_tests,
+                        run_workspace_python_smoke_test,
+                        run_workspace_node_smoke_test,
+                    ],
                 ),
             ],
         )

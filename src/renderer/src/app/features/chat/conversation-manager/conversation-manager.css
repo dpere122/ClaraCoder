@@ -108,33 +108,22 @@ app-conversation-manager .delete-btn:hover {
   color: #ff4444;
 }
 
-app-conversation-manager .conv-pending-ngx-host {
+app-conversation-manager .conv-pending-spinner {
   flex-shrink: 0;
-  position: relative;
-  width: 0;
-  height: 1rem;
-  overflow: hidden;
-  pointer-events: none;
-  transition: width 0.12s ease, margin 0.12s ease;
-}
-
-app-conversation-manager .conv-pending-ngx-host--visible {
-  width: 1.15rem;
+  width: 0.75rem;
+  height: 0.75rem;
   margin-right: 0.4em;
+  border: 2px solid var(--t-border);
+  border-top-color: var(--t-secondary);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: conv-pending-spin 0.7s linear infinite;
 }
 
-app-conversation-manager .conv-pending-ngx-host ngx-spinner {
-  display: block;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-app-conversation-manager .conv-pending-ngx-host .ngx-spinner-overlay {
-  pointer-events: none;
-  z-index: 1 !important;
+@keyframes conv-pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 app-conversation-manager .empty-hint {

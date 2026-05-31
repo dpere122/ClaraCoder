@@ -67,6 +67,22 @@ def _read_workspace_file_not_a_file_message(relative_path: str) -> str:
     )
 
 
+def _list_workspace_directory_missing_message(relative_path: str) -> str:
+    """Return as tool output (do not raise): uncaught tool exceptions abort nested LangGraph agents."""
+    return (
+        f'Tool note: `{relative_path}` is not on the workspace disk. '
+        'Use `.` to list the workspace root, `search_workspace` to find paths by name, '
+        'or `read_workspace_file` if you already know a file path.'
+    )
+
+
+def _list_workspace_directory_not_dir_message(relative_path: str) -> str:
+    return (
+        f'Tool note: `{relative_path}` exists but is not a directory. '
+        'Use `read_workspace_file` for file contents, or list the parent directory.'
+    )
+
+
 def _read_workspace_plain_text_header(
     *,
     rel_display: str,
@@ -219,11 +235,14 @@ def list_workspace_directory(relative_path: str = '.') -> str:
     Shape: `relative_path` workspace-relative POSIX (e.g. `.`, `src/app`); omits `.gitignore` subset and built-in skips (same as `search_workspace`). For gitignored paths, read that path directly with `read_workspace_file`."""
 
     root = get_active_workspace_root()
-    target = normalize_relative_path(root, relative_path)
+    try:
+        target = normalize_relative_path(root, relative_path)
+    except ValueError as exc:
+        return f'Tool note: {exc}'
     if not target.exists():
-        raise ValueError(f'Path does not exist: {relative_path}')
+        return _list_workspace_directory_missing_message(relative_path)
     if not target.is_dir():
-        raise ValueError(f'Path is not a directory: {relative_path}')
+        return _list_workspace_directory_not_dir_message(relative_path)
 
     rel_display = '.' if target == root else target.relative_to(root).as_posix()
     if is_node_modules_bulk_listing_path(rel_display):

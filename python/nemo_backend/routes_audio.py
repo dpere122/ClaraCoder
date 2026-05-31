@@ -20,6 +20,8 @@ logger = logging.getLogger('nemo.http.routes.audio')
 
 router = APIRouter()
 
+_TTS_SYNTHESIS_LOCK = asyncio.Lock()
+
 
 @router.post('/transcribe')
 async def transcribe(request: Request) -> dict[str, str]:
@@ -62,24 +64,32 @@ async def transcribe(request: Request) -> dict[str, str]:
 
 
 @router.post('/tts')
-async def tts(request: TtsRequest) -> StreamingResponse:
+async def tts(http_request: Request, request: TtsRequest) -> StreamingResponse:
     """Synthesize speech with local Kokoro TTS and stream WAV audio bytes."""
     try:
         validate_voice_name(request.voice)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    loop = asyncio.get_running_loop()
-    try:
-        wav = await loop.run_in_executor(
-            None,
-            lambda: synthesize_wav_bytes(request.text, request.voice, request.speed),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.warning('Kokoro TTS failed: %s', exc)
-        raise HTTPException(status_code=503, detail=f'TTS synthesis failed: {exc}') from exc
+    async with _TTS_SYNTHESIS_LOCK:
+        if await http_request.is_disconnected():
+            return StreamingResponse(
+                iter([]),
+                media_type='audio/wav',
+                headers={'Cache-Control': 'no-store'},
+            )
+
+        loop = asyncio.get_running_loop()
+        try:
+            wav = await loop.run_in_executor(
+                None,
+                lambda: synthesize_wav_bytes(request.text, request.voice, request.speed),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.warning('Kokoro TTS failed: %s', exc)
+            raise HTTPException(status_code=503, detail=f'TTS synthesis failed: {exc}') from exc
 
     chunk_size = 65_536
 

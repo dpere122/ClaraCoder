@@ -54,6 +54,36 @@ from nemo_backend.tool_registry import worker_tools_and_map
 logger = logging.getLogger('nemo.agent.langgraph')
 
 
+def _stream_watchdog_timeout_sec() -> float:
+    """Idle-stall watchdog interval: above the model idle read timeout so the clearer model-timeout
+    error normally fires first; this is the last-resort backstop against an infinite silent hang."""
+    from nemo_backend.llm import llm_idle_timeout_sec
+
+    return llm_idle_timeout_sec() + 60.0
+
+
+def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamState) -> bool:
+    """True only when the stream is idle for a reason that should never persist.
+
+    A tool currently running (``pending_tool_runs``) covers long-running tools (npm/pytest), nested
+    specialists (the outer routing tool is still pending), and active HITL pauses (the tool node has
+    not emitted ``on_tool_end`` yet). A HITL pause that is awaiting confirmation also keeps
+    ``agent_pause_event`` set or a ``pending_*_request`` populated. In all those cases the idle wait is
+    legitimate and the watchdog must not fire.
+    """
+    if main_state.pending_tool_runs:
+        return False
+    if session.agent_pause_event is not None:
+        return False
+    if (
+        session.pending_delete_request
+        or session.pending_copy_request
+        or session.pending_accept_command_request
+    ):
+        return False
+    return True
+
+
 def build_nemo_single_outer_graph(
     llm: Any,
     session: SessionState,
@@ -135,14 +165,23 @@ async def _race_stream_inputs(
     *queues: asyncio.Queue,
     labels: tuple[str, ...],
     abort_event: asyncio.Event,
+    timeout: float | None = None,
 ) -> tuple[str, Any]:
-    """Wait for the next queue item or an abort signal."""
+    """Wait for the next queue item or an abort signal.
+
+    When ``timeout`` elapses before any queue item or abort, return ``('watchdog', None)`` so the
+    caller can decide whether the stream is genuinely stalled (see :func:`_stream_is_genuinely_stalled`).
+    """
 
     queue_tasks = [asyncio.create_task(q.get()) for q in queues]
     abort_task = asyncio.create_task(abort_event.wait())
     all_tasks = [*queue_tasks, abort_task]
     try:
-        done, _pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
+        done, _pending = await asyncio.wait(
+            all_tasks, return_when=asyncio.FIRST_COMPLETED, timeout=timeout
+        )
+        if not done:
+            return 'watchdog', None
         if abort_task in done and abort_event.is_set():
             return 'abort', None
         finished = next(iter(done))
@@ -349,6 +388,7 @@ async def _stream_langgraph_tool_agent(
 
     queues = (events_q, hitl_q, nested_stream_q)
     queue_labels = ('ev', 'hitl', 'nested')
+    watchdog_timeout = _stream_watchdog_timeout_sec()
 
     try:
         try:
@@ -358,11 +398,43 @@ async def _stream_langgraph_tool_agent(
                     kind = 'hitl'
                 except asyncio.QueueEmpty:
                     kind, item = await _race_stream_inputs(
-                        *queues, labels=queue_labels, abort_event=session.abort_event
+                        *queues,
+                        labels=queue_labels,
+                        abort_event=session.abort_event,
+                        timeout=watchdog_timeout,
                     )
 
                 if kind == 'abort':
                     outcome.mark_aborted(partial_text=main_state.partial_stream_text)
+                    break
+
+                if kind == 'watchdog':
+                    if not _stream_is_genuinely_stalled(session, main_state):
+                        # Long-running tool, nested specialist, or HITL pause in progress: keep waiting.
+                        continue
+                    logger.warning(
+                        'Stream stall watchdog tripped (%s): no progress for %.0fs with no active '
+                        'tool or HITL pause; ending stream.',
+                        cfg.graph_name,
+                        watchdog_timeout,
+                    )
+                    yield sse_line(
+                        status_event(
+                            cfg.run_error_event_id,
+                            cfg.status_label,
+                            detail=(
+                                'The agent stopped producing output and appears stalled '
+                                f'(no activity for {int(watchdog_timeout)}s). Please try again.'
+                            ),
+                            state='error',
+                            agent_role=cfg.agent_role,
+                        )
+                    )
+                    outcome.mark_failed_runtime(
+                        'stream stall watchdog: no progress and no active tool/HITL pause',
+                        final_text=cfg.failed_run_message.format(exc='stream stalled (watchdog timeout)'),
+                        partial_text=main_state.partial_stream_text,
+                    )
                     break
 
                 if kind == 'hitl':
@@ -394,7 +466,9 @@ async def _stream_langgraph_tool_agent(
                 ):
                     yield line
                 outcome.partial_text = main_state.partial_stream_text
-            if outcome.state == AgentLoopOutcome.ABORTED:
+            # Aborts and the stall watchdog break out while ``pump_task`` is still blocked inside
+            # ``astream_events`` (e.g. a hung model call); cancel rather than await it forever.
+            if outcome.state in (AgentLoopOutcome.ABORTED, AgentLoopOutcome.FAILED_RUNTIME):
                 if not pump_task.done():
                     pump_task.cancel()
                 try:
@@ -424,6 +498,9 @@ async def _stream_langgraph_tool_agent(
             outcome.partial_text = main_state.partial_stream_text
             if outcome.state == AgentLoopOutcome.ABORTED:
                 outcome.mark_aborted(partial_text=main_state.partial_stream_text)
+            elif outcome.state == AgentLoopOutcome.FAILED_RUNTIME:
+                # Stall watchdog already reported the failure; do not overwrite it with a completion.
+                pass
             else:
                 final_text = main_state.last_final_text
                 if not final_text.strip():

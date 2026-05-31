@@ -408,7 +408,7 @@ export class TtsPlaybackService {
         resolve();
         return;
       }
-      const blob = new Blob([new Uint8Array(data)], { type: mimeType });
+      const blob = new Blob([data as BlobPart], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       this.currentAudio = audio;

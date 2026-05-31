@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from nemo_backend.domain import RuntimeConnection
 
 
@@ -127,6 +129,66 @@ def test_build_llm_passes_reasoning_effort_for_gemma_model_when_preset_generic(
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
     assert kwargs.get('reasoning_effort') == 'high'
+
+
+@patch('nemo_backend.llm.ChatOpenAI')
+@patch('nemo_backend.llm.log_llm_connection_settings')
+@patch('nemo_backend.llm.get_active_connection')
+def test_build_llm_sets_idle_read_timeout_and_no_retries(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+    monkeypatch,
+) -> None:
+    """A stalled stream must fail via httpx read timeout instead of hanging forever."""
+    monkeypatch.delenv('NEMO_LLM_IDLE_TIMEOUT_SEC', raising=False)
+    mock_get.return_value = _openai_conn()
+    from nemo_backend.llm import _DEFAULT_LLM_IDLE_TIMEOUT_SEC, build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    timeout = kwargs.get('timeout')
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.read == _DEFAULT_LLM_IDLE_TIMEOUT_SEC
+    assert kwargs.get('max_retries') == 0
+
+
+@patch('nemo_backend.llm.ChatOpenAI')
+@patch('nemo_backend.llm.log_llm_connection_settings')
+@patch('nemo_backend.llm.get_active_connection')
+def test_build_llm_idle_timeout_env_override(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv('NEMO_LLM_IDLE_TIMEOUT_SEC', '45')
+    mock_get.return_value = _openai_conn()
+    from nemo_backend.llm import build_llm
+
+    build_llm()
+    timeout = mock_ctor.call_args.kwargs.get('timeout')
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.read == 45.0
+
+
+@patch('nemo_backend.llm.ChatOpenAI')
+@patch('nemo_backend.llm.log_llm_connection_settings')
+@patch('nemo_backend.llm.get_active_connection')
+def test_build_llm_idle_timeout_invalid_env_falls_back(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv('NEMO_LLM_IDLE_TIMEOUT_SEC', 'not-a-number')
+    mock_get.return_value = _openai_conn()
+    from nemo_backend.llm import _DEFAULT_LLM_IDLE_TIMEOUT_SEC, build_llm
+
+    build_llm()
+    timeout = mock_ctor.call_args.kwargs.get('timeout')
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.read == _DEFAULT_LLM_IDLE_TIMEOUT_SEC
 
 
 @patch('nemo_backend.llm.ChatOpenAI')

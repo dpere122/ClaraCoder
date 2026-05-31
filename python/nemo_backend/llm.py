@@ -24,6 +24,7 @@ import logging
 import os
 from typing import Any
 
+import httpx
 from fastapi import HTTPException
 from langchain_openai import ChatOpenAI
 
@@ -41,6 +42,25 @@ logger = logging.getLogger('nemo.llm')
 
 # OpenAI (and aligned gateways) reject arbitrary strings; ``on``/``off`` are app UI aliases only.
 _REASONING_API_VALUES = frozenset({'none', 'minimal', 'low', 'medium', 'high', 'xhigh'})
+
+# Idle (inter-token) read timeout so a stalled stream surfaces as an error instead of an infinite
+# silent hang. httpx ``read`` governs the max wait between received chunks, so this does NOT cap the
+# total generation time of a legitimately long response. Override with ``NEMO_LLM_IDLE_TIMEOUT_SEC``.
+_DEFAULT_LLM_IDLE_TIMEOUT_SEC = 120.0
+
+
+def llm_idle_timeout_sec() -> float:
+    """Resolve the idle/inter-token read timeout (seconds) from env, with a safe default."""
+    raw = (os.getenv('NEMO_LLM_IDLE_TIMEOUT_SEC', '') or '').strip()
+    if not raw:
+        return _DEFAULT_LLM_IDLE_TIMEOUT_SEC
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning('Invalid NEMO_LLM_IDLE_TIMEOUT_SEC=%r; using default %.0fs', raw, _DEFAULT_LLM_IDLE_TIMEOUT_SEC)
+        return _DEFAULT_LLM_IDLE_TIMEOUT_SEC
+    # Guard against accidental 0 / negative values that would disable or break the timeout.
+    return value if value > 0 else _DEFAULT_LLM_IDLE_TIMEOUT_SEC
 
 
 def _resolve_reasoning_effort(raw: str) -> str | None:
@@ -89,6 +109,11 @@ def build_llm() -> ChatOpenAI:
         # completions include usage chunks (OpenAI + many OpenAI-compatible servers, e.g. llama-server).
         # Without this, custom ``base_url`` disables stream_usage by default.
         'stream_usage': True,
+        # Idle read timeout: a stalled stream (socket open, no tokens) raises httpx.ReadTimeout instead
+        # of hanging the SSE stream forever. ``read`` is per-chunk, so long generations are unaffected.
+        'timeout': httpx.Timeout(connect=30.0, read=llm_idle_timeout_sec(), write=60.0, pool=30.0),
+        # Fail fast on a stalled/timed-out stream rather than silently re-attempting in the background.
+        'max_retries': 0,
     }
     if base_url:
         kwargs['base_url'] = base_url
@@ -133,8 +158,11 @@ def build_llm() -> ChatOpenAI:
     }
     if 'reasoning_effort' in kwargs:
         safe['reasoning_effort'] = kwargs['reasoning_effort']
+    timeout_obj = kwargs.get('timeout')
+    if isinstance(timeout_obj, httpx.Timeout):
+        safe['idle_read_timeout_sec'] = timeout_obj.read
     for k, v in kwargs.items():
-        if k in ('api_key', 'model', 'temperature', 'streaming', 'base_url', 'reasoning_effort'):
+        if k in ('api_key', 'model', 'temperature', 'streaming', 'base_url', 'reasoning_effort', 'timeout'):
             continue
         safe[k] = v
     log_llm_connection_settings(safe)

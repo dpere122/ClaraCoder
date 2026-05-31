@@ -168,7 +168,7 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
             NPM_INSTALL_PROJECT_NAME,
             RUN_NPM_SCRIPT_NAME,
             ANGULAR_CLI_TOOL_NAME,
-            KILL_PROCESS_NAME,
+            KILL_PROCESS_NAME,  
         }
     )
 

@@ -427,12 +427,13 @@ export class App implements OnInit, OnDestroy {
     });
 
     this.electron.diff$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, diff }) => {
-      if (conversationId !== this.activeConversationId()) return;
       if (diff.version !== 1 || !Array.isArray(diff.rows)) return;
-      this.messages.update((prev) => [
-        ...prev,
-        { role: 'diff', payload: diff, reviewStatus: 'pending' as const },
-      ]);
+      const artifact = { role: 'diff', payload: diff, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
       if (this.activeConversation) {
         this.activeConversation.messages = [...this.messages()];
         this.pendingSave = true;
@@ -440,12 +441,13 @@ export class App implements OnInit, OnDestroy {
     });
 
     this.electron.acceptCommand$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
-      if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
-      this.messages.update((prev) => [
-        ...prev,
-        { role: 'accept_command', payload, reviewStatus: 'pending' as const },
-      ]);
+      const artifact = { role: 'accept_command', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
       if (this.activeConversation) {
         this.activeConversation.messages = [...this.messages()];
         this.pendingSave = true;
@@ -453,12 +455,13 @@ export class App implements OnInit, OnDestroy {
     });
 
     this.electron.copyConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
-      if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId || !Array.isArray(payload.copies) || payload.copies.length === 0) return;
-      this.messages.update((prev) => [
-        ...prev,
-        { role: 'copy_confirm', payload, reviewStatus: 'pending' as const },
-      ]);
+      const artifact = { role: 'copy_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
       if (this.activeConversation) {
         this.activeConversation.messages = [...this.messages()];
         this.pendingSave = true;
@@ -466,15 +469,16 @@ export class App implements OnInit, OnDestroy {
     });
 
     this.electron.deleteConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
-      if (conversationId !== this.activeConversationId()) return;
       if (payload.version !== 1 || !payload.requestId) return;
       const batchOk = Array.isArray(payload.entries) && payload.entries.length > 0;
       const singleOk = typeof payload.relativePath === 'string' && payload.relativePath.trim().length > 0;
       if (!batchOk && !singleOk) return;
-      this.messages.update((prev) => [
-        ...prev,
-        { role: 'delete_confirm', payload, reviewStatus: 'pending' as const },
-      ]);
+      const artifact = { role: 'delete_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
       if (this.activeConversation) {
         this.activeConversation.messages = [...this.messages()];
         this.pendingSave = true;
@@ -1195,6 +1199,37 @@ export class App implements OnInit, OnDestroy {
     this.backgroundConversationSaveChains.set(
       conversationId,
       mine.catch((err) => console.error('[App] background conversation save failed:', err)),
+    );
+    return mine;
+  }
+
+  /**
+   * Persist a HITL artifact (diff / delete / copy / accept-command confirmation) to a conversation
+   * that is not currently active. Without this, the artifact is dropped and the backend agent stays
+   * paused forever waiting for a confirmation the user can never send. Persisting lets the pending
+   * card re-surface when the conversation is reopened so the user can still confirm or cancel.
+   */
+  private async persistArtifactToConversation(
+    conversationId: string,
+    message: ChatMessage,
+  ): Promise<void> {
+    const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
+    const mine = prev.then(async () => {
+      try {
+        const convMeta = this.conversations().find(c => c.id === conversationId);
+        const workspaceId = convMeta?.workspaceId ?? this.currentWorkspaceId();
+        const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
+        conv.messages.push(message);
+        conv.updatedAt = new Date().toISOString();
+        await this.electron.saveConversation(conv);
+        this.bumpConversation(conversationId);
+      } catch {
+        // conversation may have been deleted
+      }
+    });
+    this.backgroundConversationSaveChains.set(
+      conversationId,
+      mine.catch((err) => console.error('[App] background artifact save failed:', err)),
     );
     return mine;
   }

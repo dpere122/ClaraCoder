@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from starlette.testclient import TestClient
 
@@ -27,6 +27,23 @@ def test_tts_rejects_invalid_voice() -> None:
         with TestClient(app) as client:
             res = client.post('/tts', json={'text': 'Hello', 'voice': 'not-a-voice!!'})
     assert res.status_code == 400
+
+
+def test_tts_skips_synthesis_when_client_disconnected() -> None:
+    from nemo_backend.main import app
+
+    with patch('nemo_backend.routes_audio.synthesize_wav_bytes', return_value=b'unused') as mock_syn:
+        with patch(
+            'starlette.requests.Request.is_disconnected',
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
+            with TestClient(app) as client:
+                res = client.post('/tts', json={'text': 'Hello', 'voice': 'af_heart', 'speed': 1.0})
+    assert res.status_code == 200
+    assert res.headers.get('content-type', '').startswith('audio/wav')
+    assert res.content == b''
+    mock_syn.assert_not_called()
 
 
 def test_tts_accepts_speech_speed_alias() -> None:

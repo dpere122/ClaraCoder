@@ -20,6 +20,7 @@ logger = logging.getLogger('nemo.kokoro_tts')
 
 _PIPELINE_CACHE: dict[str, Any] = {}
 _PIPELINE_LOCK = Lock()
+_INFERENCE_LOCK = Lock()
 
 _VOICE_RE = re.compile(r'^[a-z]{2}_[a-z0-9]{2,40}$')
 
@@ -68,19 +69,20 @@ def synthesize_wav_bytes(text: str, voice: str, speed: float) -> bytes:
     chunks: list[np.ndarray] = []
     sample_rate = 24_000
     try:
-        generator = pipeline(
-            text.strip(),
-            voice=voice,
-            speed=float(speed),
-            split_pattern=r'\n+',
-        )
-        for _gs, _ps, audio in generator:
-            if audio is None:
-                continue
-            arr = _audio_to_float_numpy(audio)
-            if arr.size == 0:
-                continue
-            chunks.append(arr)
+        with _INFERENCE_LOCK:
+            generator = pipeline(
+                text.strip(),
+                voice=voice,
+                speed=float(speed),
+                split_pattern=r'\n+',
+            )
+            for _gs, _ps, audio in generator:
+                if audio is None:
+                    continue
+                arr = _audio_to_float_numpy(audio)
+                if arr.size == 0:
+                    continue
+                chunks.append(arr)
     except Exception:
         logger.exception('Kokoro synthesis failed (voice=%s)', voice)
         raise

@@ -1,11 +1,24 @@
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { lucideAppProviders } from '../../lucide-setup';
 import { App } from './app';
 
+type DeleteConfirmHandler = (event: unknown, conversationId: string, payload: unknown) => void;
+
+interface StubRefs {
+  /** Captured `onMessageDeleteConfirm` callback so tests can simulate a backend delete-confirm event. */
+  deleteConfirmHandler: DeleteConfirmHandler | null;
+  saveConversation: Mock;
+}
+
 /** Minimal `window.electronAPI` so `App.ngOnInit` does not reject (no real Electron in unit tests). */
-function stubElectronApi(): void {
+function stubElectronApi(): StubRefs {
   const noop = (): void => {};
+  const refs: StubRefs = {
+    deleteConfirmHandler: null,
+    saveConversation: vi.fn(async () => noop()),
+  };
   const defaultConfig = {
     currentWorkspaceId: null as string | null,
     lastActiveConversationByWorkspaceId: {} as Record<string, string>,
@@ -131,7 +144,10 @@ function stubElectronApi(): void {
       messages: [],
       themeId: 'dark',
     }),
-    saveConversation: async () => noop(),
+    saveConversation: refs.saveConversation,
+    onMessageDeleteConfirm: (cb: DeleteConfirmHandler) => {
+      refs.deleteConfirmHandler = cb;
+    },
     maybeAutoTitleConversation: async () => ({ ok: false as const, reason: 'not_due' as const }),
     setWorkspaceContext: async () => noop(),
     listPythonInterpreters: async () => ({
@@ -160,11 +176,14 @@ function stubElectronApi(): void {
     reportWorkspaceMonacoUnsavedPaths: noop,
     readWorkspaceFile: async () => ({ ok: false as const, error: 'stub' }),
   };
+  return refs;
 }
 
 describe('App', () => {
+  let refs: StubRefs;
+
   beforeEach(async () => {
-    stubElectronApi();
+    refs = stubElectronApi();
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [provideNoopAnimations(), ...lucideAppProviders],
@@ -189,5 +208,27 @@ describe('App', () => {
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-status-bar')).not.toBeNull();
+  });
+
+  it('persists a delete-confirm for a non-active conversation so it re-surfaces on reopen', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    expect(refs.deleteConfirmHandler).toBeTruthy();
+
+    refs.saveConversation.mockClear();
+    refs.deleteConfirmHandler!(null, 'background-conv-id', {
+      version: 1,
+      requestId: 'req-bg-1',
+      relativePath: 'tmp.txt',
+      kind: 'file',
+      recursive: false,
+    });
+
+    // persistArtifactToConversation runs on a background save-chain promise.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(refs.saveConversation).toHaveBeenCalledTimes(1);
+    const savedConv = refs.saveConversation.mock.calls[0][0] as { messages: { role: string }[] };
+    expect(savedConv.messages.some((m) => m.role === 'delete_confirm')).toBe(true);
   });
 });

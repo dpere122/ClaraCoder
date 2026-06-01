@@ -1,5 +1,6 @@
 import { AfterViewInit, Directive, ElementRef, NgZone, inject, OnDestroy } from '@angular/core';
 import { ElectronService } from '../../../core/electron.service';
+import { ansiTerminalOutputHtml } from '../../../core/ansi-terminal-output';
 import { Subscription } from 'rxjs';
 
 interface InteractiveProcess {
@@ -154,10 +155,10 @@ export class RunButtonDirective implements AfterViewInit, OnDestroy {
     const terminalBody = process.wrapper.querySelector('.terminal-shell-body');
 
     if (stdoutPre) {
-      stdoutPre.textContent = process.stdout;
+      stdoutPre.innerHTML = ansiTerminalOutputHtml(process.stdout);
     }
     if (stderrPre) {
-      stderrPre.textContent = process.stderr;
+      stderrPre.innerHTML = ansiTerminalOutputHtml(process.stderr);
     }
 
     stdoutSection?.classList.toggle('is-hidden', !process.stdout);
@@ -296,11 +297,11 @@ export class RunButtonDirective implements AfterViewInit, OnDestroy {
           <div class="terminal-placeholder">Waiting for terminal output...</div>
           <div class="terminal-stream terminal-stream-stdout is-hidden">
             <div class="terminal-stream-label">stdout</div>
-            <pre class="output-pre terminal-output terminal-output-stdout"></pre>
+            <pre class="output-pre terminal-output terminal-output-stdout terminal-ansi"></pre>
           </div>
           <div class="terminal-stream terminal-stream-stderr is-hidden">
             <div class="terminal-stream-label terminal-stream-label-error">stderr</div>
-            <pre class="output-pre output-stderr terminal-output terminal-output-stderr"></pre>
+            <pre class="output-pre output-stderr terminal-output terminal-output-stderr terminal-ansi"></pre>
           </div>
         </div>
       </div>
@@ -463,7 +464,7 @@ export class RunButtonDirective implements AfterViewInit, OnDestroy {
       streamsHtml += `
         <div class="terminal-stream terminal-stream-stdout">
           <div class="terminal-stream-label">stdout</div>
-          <pre class="output-pre terminal-output">${this.escapeHtml(stdout)}</pre>
+          <pre class="output-pre terminal-output terminal-ansi">${ansiTerminalOutputHtml(stdout)}</pre>
         </div>
       `;
     }
@@ -472,7 +473,7 @@ export class RunButtonDirective implements AfterViewInit, OnDestroy {
       streamsHtml += `
         <div class="terminal-stream terminal-stream-stderr">
           <div class="terminal-stream-label terminal-stream-label-error">stderr</div>
-          <pre class="output-pre output-stderr terminal-output">${this.escapeHtml(stderr)}</pre>
+          <pre class="output-pre output-stderr terminal-output terminal-ansi">${ansiTerminalOutputHtml(stderr)}</pre>
         </div>
       `;
     }
@@ -494,12 +495,6 @@ export class RunButtonDirective implements AfterViewInit, OnDestroy {
         </div>
       </div>
     `;
-  }
-
-  private escapeHtml(text: string): string {
-    const div = this.document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   private dispatchSendResponseEvent(text: string): void {

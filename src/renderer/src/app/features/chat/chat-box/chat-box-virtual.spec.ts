@@ -25,11 +25,11 @@ describe('chat-box-virtual', () => {
     expect(sumHeights([10, 20, 30], 1, 3)).toBe(50);
   });
 
-  it('estimateChatRowHeight uses auxiliaryStreamTimeline as a single fused block', () => {
+  it('estimateChatRowHeight adds collapsed auxiliary panel header for persisted timeline', () => {
     const base = estimateChatRowHeight(
       {
         kind: 'assistant-turn',
-        assistant: { text: 'Short.', toolStreams: [], moeStreams: [] },
+        assistant: { text: 'Short.', toolStreams: [], reasoningStreams: [] },
         chainGroups: [],
         artifacts: [],
       },
@@ -40,7 +40,7 @@ describe('chat-box-virtual', () => {
         kind: 'assistant-turn',
         assistant: {
           text: 'Short.',
-          auxiliaryStreamTimeline: [{ streamTag: 'moe', label: 'R', text: 'a' }],
+          auxiliaryStreamTimeline: [{ streamTag: 'reasoning', label: 'R', text: 'a' }],
         },
         chainGroups: [],
         artifacts: [],

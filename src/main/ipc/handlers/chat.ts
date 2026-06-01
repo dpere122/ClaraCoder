@@ -40,6 +40,7 @@ export function registerChatIpc(): void {
       autoApplyMode = false,
       structuredContent?: unknown,
       workspaceId?: string | null,
+      composerMode = 'agent',
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
@@ -53,6 +54,7 @@ export function registerChatIpc(): void {
         message: msg,
         apply_mode: applyMode,
         auto_apply_mode: autoApplyMode,
+        composer_mode: composerMode,
       };
       if (Array.isArray(structuredContent) && structuredContent.length > 0) {
         const ok = structuredContent.every((p) => p !== null && typeof p === 'object' && !Array.isArray(p));
@@ -137,6 +139,8 @@ export function registerChatIpc(): void {
       acceptCommandAction?: 'confirm' | 'cancel',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
+      planConfirmAction?: 'confirm' | 'cancel',
+      planConfirmRequestId?: string,
     ) => {
       try {
         const res = await pythonControlFetch('/chat/agent-continue', {
@@ -152,6 +156,8 @@ export function registerChatIpc(): void {
             accept_command_action: acceptCommandAction ?? null,
             accept_command_request_id: acceptCommandRequestId ?? '',
             staged_transfer_action: stagedTransferAction ?? null,
+            plan_confirm_action: planConfirmAction ?? null,
+            plan_confirm_request_id: planConfirmRequestId ?? '',
           }),
         });
         if (!res.ok) {

@@ -2,7 +2,8 @@ import type { AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
-import type { LlmStatusPayload } from './types/llm';
+import type { LlmStatusPayload, PlannerProgress } from './types/llm';
+import type { PlanConfirmPayload } from './types/plan-confirm';
 
 export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
@@ -30,6 +31,8 @@ export type ParsedAgentStreamPayload =
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
+  | { type: 'planner_progress'; planner: PlannerProgress }
+  | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
   | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
   | { type: 'final_text'; text: string }
   | {
@@ -65,6 +68,8 @@ type RawAgentStreamPayload = {
   acceptCommand?: unknown;
   copyConfirm?: unknown;
   deleteConfirm?: unknown;
+  planner?: unknown;
+  planConfirm?: unknown;
 };
 
 function optionalTrimmedString(value: unknown): string | undefined {
@@ -122,6 +127,20 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       return {
         type: 'delete_confirm',
         deleteConfirm: parsed.deleteConfirm as DeleteConfirmPayload,
+      };
+    }
+
+    if (parsed.type === 'planner_progress' && parsed.planner && typeof parsed.planner === 'object') {
+      return {
+        type: 'planner_progress',
+        planner: parsed.planner as PlannerProgress,
+      };
+    }
+
+    if (parsed.type === 'plan_confirm' && parsed.planConfirm && typeof parsed.planConfirm === 'object') {
+      return {
+        type: 'plan_confirm',
+        planConfirm: parsed.planConfirm as PlanConfirmPayload,
       };
     }
 

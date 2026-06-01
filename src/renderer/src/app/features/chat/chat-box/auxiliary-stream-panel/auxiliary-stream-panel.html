@@ -1,54 +1,41 @@
 <div
-  class="auxiliary-stream-panel"
-  [class.auxiliary-stream-panel--live]="live()"
+  class="stream-trail-panel auxiliary-stream-panel"
+  [class.stream-trail-panel--live]="live()"
+  [class.stream-trail-panel--collapsed]="mode() === 'collapsed'"
+  [class.stream-trail-panel--preview]="mode() === 'preview'"
+  [class.stream-trail-panel--expanded]="mode() === 'expanded'"
 >
   <button
     type="button"
-    class="auxiliary-stream-panel__toggle"
-    (click)="toggleExpanded()"
-    [attr.aria-expanded]="expanded()"
+    class="stream-trail-panel__toggle"
+    (click)="toggleMode()"
+    [attr.aria-expanded]="contentVisible()"
   >
     <span
-      class="auxiliary-stream-panel__title"
-      [class.auxiliary-stream-panel__title--custom]="hasCustomTitle()"
+      class="stream-trail-panel__title"
+      [class.stream-trail-panel__title--custom]="hasCustomTitle()"
       [attr.title]="title()"
     >{{ title() }}</span>
-    <span class="auxiliary-stream-panel__chevron" aria-hidden="true">{{ expanded() ? '▼' : '▶' }}</span>
+    <span class="stream-trail-panel__chevron" aria-hidden="true">{{ isExpanded() ? '▼' : '▶' }}</span>
   </button>
-  <div
-    #viewport
-    class="auxiliary-stream-panel__viewport"
-    [class.auxiliary-stream-panel__viewport--peek]="!expanded()"
-    [class.auxiliary-stream-panel__viewport--full]="expanded()"
-  >
-    @for (part of parts(); track trackPartId(part, $index)) {
-      @if (isMoe(part.streamTag)) {
-        <pre class="llm-moe-body auxiliary-stream-panel__moe">{{ part.text }}</pre>
-      } @else if (isToolTrailStatus(part.streamTag)) {
-        <div
-          class="tool-trail-row auxiliary-stream-panel__tool-trail"
-          [class.tool-trail-row--running]="live() && part.toolChainState === 'running'"
-        >
-          @if (part.text) {
-            <span class="tool-trail-detail">{{ part.text }}</span>
-            <span class="tool-trail-sep">&middot;</span>
-          }
-          <span class="tool-trail-name">{{ part.label }}</span>
-        </div>
-      } @else if (isShellTool(part.streamTag)) {
-        <app-delegated-shell-terminal
-          [label]="part.label || 'Tool output'"
-          [text]="part.text"
-          [runComplete]="live() ? !!part.runComplete : true"
-          [exitCode]="part.exitCode ?? null"
-          [outcome]="part.outcome"
-        />
-      } @else {
-        <div class="streaming-delegated-block auxiliary-stream-panel__delegated">
-          <div class="streaming-delegated-label">{{ part.label || 'Tool output' }}</div>
-          <pre class="streaming-delegated-text">{{ part.text }}</pre>
-        </div>
+  @if (contentVisible()) {
+    <div
+      #viewport
+      class="stream-trail-panel__viewport"
+      [class.stream-trail-panel__viewport--peek]="mode() === 'preview'"
+      [class.stream-trail-panel__viewport--full]="mode() === 'expanded'"
+    >
+      @for (part of parts(); track trackPartId(part, $index)) {
+        @if (isReasoning(part.streamTag)) {
+          <pre class="llm-reasoning-body auxiliary-stream-panel__reasoning">{{ part.text }}</pre>
+        } @else {
+          <app-aux-stream-tool-part
+            [part]="part"
+            [live]="live()"
+            [compactDetails]="planPanelVisible()"
+          />
+        }
       }
-    }
-  </div>
+    </div>
+  }
 </div>

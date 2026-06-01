@@ -41,6 +41,7 @@ function estimateMessageTokens(message: ConversationMessage): number {
     case 'accept_command':
     case 'copy_confirm':
     case 'delete_confirm':
+    case 'plan_confirm':
       return (
         TOOL_ARTIFACT_OVERHEAD_TOKENS +
         estimateTextTokens(JSON.stringify(message.payload)) +

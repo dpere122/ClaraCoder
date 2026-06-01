@@ -5,120 +5,71 @@
     <div
       class="d-flex mb-2"
       [class.justify-content-end]="slot.row.kind === 'user'"
-      [class.w-100]="slot.row.kind === 'assistant-turn' && slot.row.artifacts.length > 0"
     >
       <div
         class="msg-bubble px-3 py-2"
         [class.user-bubble]="slot.row.kind === 'user'"
         [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
-        [class.diff-msg-bubble]="slot.row.kind === 'assistant-turn' && slot.row.artifacts.length > 0"
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
-        [style.max-width]="slot.row.kind === 'assistant-turn' && slot.row.artifacts.length > 0 ? '100%' : '80%'"
       >
         @if (slot.row.kind === 'user') {
           {{ slot.row.msg.text }}
         } @else {
           @let row = slot.row;
           @for (chainGroup of chainGroupsForPersistedTurn(row); track chainGroup.key) {
-            <details class="tool-trail-collapse">
-              <summary class="tool-trail-summary">
-                <span class="tool-trail-count">{{ toolChainSummary(chainGroup) }}</span>
-              </summary>
-              <div class="tool-trail-persisted">
-                @for (trail of chainGroup.rows; track trail.statusId) {
-                  @if (isClaraOuterBriefTrail(trail)) {
-                    <div class="clara-outer-brief" role="status" [attr.aria-label]="trail.label">
-                      <div class="clara-outer-brief-header">
-                        <span class="clara-outer-brief-brand">Clara</span>
-                        <span class="clara-outer-brief-chip">{{ trail.label }}</span>
-                      </div>
-                      @if (trail.text) {
-                        <pre class="clara-outer-brief-body">{{ trail.text }}</pre>
-                      }
+            <div class="tool-trail-pills">
+              @for (trail of chainGroup.rows; track trail.statusId) {
+                @if (isClaraOuterBriefTrail(trail)) {
+                  <div class="clara-outer-brief" role="status" [attr.aria-label]="trail.label">
+                    <div class="clara-outer-brief-header">
+                      <span class="clara-outer-brief-brand">Clara</span>
+                      <span class="clara-outer-brief-chip">{{ trail.label }}</span>
                     </div>
-                  } @else {
-                    <div class="tool-trail-row">
-                      @if (trail.text) {
-                        <span class="tool-trail-detail">{{ trail.text }}</span>
-                        <span class="tool-trail-sep">&middot;</span>
-                      }
-                      <span class="tool-trail-name">{{ trail.label }}</span>
-                    </div>
-                  }
+                    @if (trail.text) {
+                      <pre class="clara-outer-brief-body">{{ trail.text }}</pre>
+                    }
+                  </div>
+                } @else {
+                  <app-tool-chain-pill [trail]="trail" [live]="false" />
                 }
-              </div>
-            </details>
+              }
+            </div>
           }
 
-          @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
+          @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant) ?? [];
           @if (auxPersisted.length > 0) {
             <div aria-live="polite">
               <app-auxiliary-stream-panel
                 [parts]="auxPersisted"
                 [live]="false"
+                [planPanelVisible]="!!planPanelForTurn(row)"
                 [title]="auxiliaryPanelTitleForTurn(row)"
               />
             </div>
           }
 
-          @for (artifact of row.artifacts; track artifactTrackKey(artifact)) {
-            @if (artifact.role === 'diff') {
-              <div class="turn-artifact turn-artifact--diff">
-                <div class="diff-msg-header small text-secondary mb-2">
-                  <span class="diff-msg-title">Proposed file edit</span>
-                  <span class="diff-msg-subtitle"> — Accept, Skip, accept entire diff once, or Cancel.</span>
-                </div>
-                <app-diff-apply
-                  [conversationId]="conversationId()"
-                  [payload]="artifact.payload"
-                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                  [reviewSummary]="artifact.reviewSummary"
-                  (diffReviewFinished)="diffReviewFinished.emit($event)"
-                />
-              </div>
-            } @else if (artifact.role === 'delete_confirm') {
-              <div class="turn-artifact turn-artifact--delete">
-                <div class="diff-msg-header small text-secondary mb-2">
-                  <span class="diff-msg-title">Workspace delete</span>
-                  <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
-                </div>
-                <app-delete-confirm
-                  [conversationId]="conversationId()"
-                  [payload]="artifact.payload"
-                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                  [reviewSummary]="artifact.reviewSummary"
-                  (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-                />
-              </div>
-            } @else if (artifact.role === 'accept_command') {
-              <div class="turn-artifact turn-artifact--copy">
-                <div class="diff-msg-header small text-secondary mb-2">
-                  <span class="diff-msg-title">{{ artifact.payload.title }}</span>
-                  <span class="diff-msg-subtitle"> — Approve or cancel before the assistant continues.</span>
-                </div>
-                <app-accept-command
-                  [conversationId]="conversationId()"
-                  [payload]="artifact.payload"
-                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                  [reviewSummary]="artifact.reviewSummary"
-                  (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-                />
-              </div>
-            } @else if (artifact.role === 'copy_confirm') {
-              <div class="turn-artifact turn-artifact--copy">
-                <div class="diff-msg-header small text-secondary mb-2">
-                  <span class="diff-msg-title">Workspace copy</span>
-                  <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
-                </div>
-                <app-copy-confirm
-                  [conversationId]="conversationId()"
-                  [payload]="artifact.payload"
-                  [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                  [reviewSummary]="artifact.reviewSummary"
-                  (copyReviewFinished)="copyReviewFinished.emit($event)"
-                />
-              </div>
-            }
+          @if (hitlArtifactsForTurn(row).length > 0) {
+            <app-hitl-trail-panel
+              [artifacts]="hitlArtifactsForTurn(row)"
+              [live]="false"
+              [conversationId]="conversationId()"
+              (diffReviewFinished)="diffReviewFinished.emit($event)"
+              (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+              (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+              (copyReviewFinished)="copyReviewFinished.emit($event)"
+            />
+          }
+
+          @if (planPanelForTurn(row); as planCtx) {
+            <app-planner-checklist
+              [planner]="planCtx.planner"
+              [planConfirm]="planCtx.planConfirm ?? null"
+              [planConfirmReviewStatus]="planCtx.planConfirmReviewStatus ?? 'pending'"
+              [planConfirmReviewSummary]="planCtx.planConfirmReviewSummary"
+              [conversationId]="conversationId()"
+              [live]="false"
+              (planConfirmFinished)="planConfirmFinished.emit($event)"
+            />
           }
 
           @if (row.assistant?.text) {
@@ -150,11 +101,11 @@
   @if (liveTurn(); as liveTurn) {
     <div class="d-flex mb-2">
       <div
-        class="msg-bubble px-3 py-2 assistant-bubble streaming-bubble assistant-turn-bubble"
-        [style.max-width]="liveTurn.artifacts.length > 0 ? '100%' : '80%'"
+        class="msg-bubble px-3 py-2 assistant-bubble assistant-turn-bubble"
+        [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
         @for (chainGroup of liveChainGroupsForDisplay(); track chainGroup.key) {
-          <div class="tool-trail-live">
+          <div class="tool-trail-pills tool-trail-pills--live">
             @for (trail of chainGroup.rows; track trail.statusId) {
               @if (isClaraOuterBriefTrail(trail)) {
                 <div class="clara-outer-brief clara-outer-brief--live" role="status" [attr.aria-label]="trail.label">
@@ -167,22 +118,8 @@
                   }
                 </div>
               } @else {
-                <div class="tool-trail-row">
-                  @if (trail.text) {
-                    <span class="tool-trail-detail">{{ trail.text }}</span>
-                    <span class="tool-trail-sep">&middot;</span>
-                  }
-                  <span class="tool-trail-name">{{ trail.label }}</span>
-                </div>
+                <app-tool-chain-pill [trail]="trail" [live]="liveChainToolLive()" />
               }
-            }
-          </div>
-        }
-        @if (primaryStreamLiveText().length > 0) {
-          <div class="streaming-primary-live" aria-live="polite">
-            <div class="assistant-md streaming-live-md" [innerHTML]="primaryStreamLiveText() | markdown"></div>
-            @if (showStreamingPrimaryCursor()) {
-              <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
             }
           </div>
         }
@@ -191,68 +128,40 @@
             <app-auxiliary-stream-panel
               [parts]="liveAuxiliaryTimeline()"
               [live]="true"
+              [planPanelVisible]="!!livePlanPanel()"
               [title]="liveAuxiliaryPanelTitle()"
             />
           </div>
         }
-        @for (artifact of liveTurn.artifacts; track artifactTrackKey(artifact)) {
-          @if (artifact.role === 'diff') {
-            <div class="turn-artifact turn-artifact--diff">
-              <div class="diff-msg-header small text-secondary mb-2">
-                <span class="diff-msg-title">Proposed file edit</span>
-                <span class="diff-msg-subtitle"> — Accept, Skip, accept entire diff once, or Cancel.</span>
-              </div>
-              <app-diff-apply
-                [conversationId]="conversationId()"
-                [payload]="artifact.payload"
-                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                [reviewSummary]="artifact.reviewSummary"
-                (diffReviewFinished)="diffReviewFinished.emit($event)"
-              />
-            </div>
-          } @else if (artifact.role === 'delete_confirm') {
-            <div class="turn-artifact turn-artifact--delete">
-              <div class="diff-msg-header small text-secondary mb-2">
-                <span class="diff-msg-title">Workspace delete</span>
-                <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
-              </div>
-              <app-delete-confirm
-                [conversationId]="conversationId()"
-                [payload]="artifact.payload"
-                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                [reviewSummary]="artifact.reviewSummary"
-                (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-              />
-            </div>
-          } @else if (artifact.role === 'accept_command') {
-            <div class="turn-artifact turn-artifact--copy">
-              <div class="diff-msg-header small text-secondary mb-2">
-                <span class="diff-msg-title">{{ artifact.payload.title }}</span>
-                <span class="diff-msg-subtitle"> — Approve or cancel before the assistant continues.</span>
-              </div>
-              <app-accept-command
-                [conversationId]="conversationId()"
-                [payload]="artifact.payload"
-                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                [reviewSummary]="artifact.reviewSummary"
-                (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-              />
-            </div>
-          } @else if (artifact.role === 'copy_confirm') {
-            <div class="turn-artifact turn-artifact--copy">
-              <div class="diff-msg-header small text-secondary mb-2">
-                <span class="diff-msg-title">Workspace copy</span>
-                <span class="diff-msg-subtitle"> — Confirm or cancel before the assistant continues.</span>
-              </div>
-              <app-copy-confirm
-                [conversationId]="conversationId()"
-                [payload]="artifact.payload"
-                [reviewStatus]="artifact.reviewStatus ?? 'pending'"
-                [reviewSummary]="artifact.reviewSummary"
-                (copyReviewFinished)="copyReviewFinished.emit($event)"
-              />
-            </div>
-          }
+        @if (liveHitlArtifacts().length > 0) {
+          <app-hitl-trail-panel
+            [artifacts]="liveHitlArtifacts()"
+            [live]="true"
+            [conversationId]="conversationId()"
+            (diffReviewFinished)="diffReviewFinished.emit($event)"
+            (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+            (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+            (copyReviewFinished)="copyReviewFinished.emit($event)"
+          />
+        }
+        @if (livePlanPanel(); as planCtx) {
+          <app-planner-checklist
+            [planner]="planCtx.planner"
+            [planConfirm]="planCtx.planConfirm ?? null"
+            [planConfirmReviewStatus]="planCtx.planConfirmReviewStatus ?? 'pending'"
+            [planConfirmReviewSummary]="planCtx.planConfirmReviewSummary"
+            [conversationId]="conversationId()"
+            [live]="true"
+            (planConfirmFinished)="planConfirmFinished.emit($event)"
+          />
+        }
+        @if (primaryStreamLiveText().length > 0) {
+          <div class="streaming-primary-live" aria-live="polite">
+            <div class="assistant-md streaming-live-md" [innerHTML]="primaryStreamLiveText() | markdown"></div>
+            @if (showStreamingPrimaryCursor()) {
+              <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
+            }
+          </div>
         }
         @if (!liveAwaitingHitlReview()) {
           <div class="processing-bubble" role="status" aria-live="polite">

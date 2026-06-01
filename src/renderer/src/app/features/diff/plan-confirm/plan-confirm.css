@@ -1,0 +1,11 @@
+app-plan-confirm .plan-confirm-steps {
+  padding-left: 1.25rem;
+}
+
+app-plan-confirm .plan-confirm-steps__item {
+  margin: 0.15rem 0;
+}
+
+app-plan-confirm .plan-confirm-code {
+  word-break: break-word;
+}

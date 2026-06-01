@@ -6,7 +6,7 @@ export function joinAllStreamPartTexts(parts: StreamPart[]): string {
   return parts.map((p) => p.text).join('');
 }
 
-/** Join primary (`agent` / `mgr`) stream parts for live display — preserves newlines (no one-line collapse). */
+/** Join primary (`agent`) stream parts for live display — preserves newlines (no one-line collapse). */
 export function joinPrimaryAssistantStreamText(parts: StreamPart[]): string {
   return primaryStreamPartsForDisplay(parts, null)
     .map((p) => p.text)
@@ -18,13 +18,12 @@ export function streamPlainOneLine(text: string): string {
   return text.replace(/\s+/g, ' ');
 }
 
-/** Outer Clara model stream (`agent`). `mgr` included for legacy saved streams only. */
+/** Outer Clara primary reply lane. */
 export function isPrimaryAssistantStreamTag(streamTag: string): boolean {
-  const t = streamTag.trim();
-  return t === 'agent' || t === 'mgr';
+  return streamTag.trim() === 'agent';
 }
 
-/** Multiplexed nested handoffs surfaced as status rows for outer Clara (planner plan, review outcomes). */
+/** Multiplexed nested handoffs surfaced as status rows for outer Clara. */
 export const CLARA_OUTER_BRIEF_STREAM_TAG = 'clara';
 
 export function isClaraOuterBriefStreamTag(streamTag: string | undefined): boolean {
@@ -32,16 +31,126 @@ export function isClaraOuterBriefStreamTag(streamTag: string | undefined): boole
 }
 
 /** Canonical SSE `stream_tag` for auxiliary model output (e.g. reasoning_content). */
-export const MOE_AUXILIARY_STREAM_TAG = 'moe';
+export const REASONING_AUXILIARY_STREAM_TAG = 'reasoning';
 
-export function isMoeAuxiliaryStreamTag(streamTag: string): boolean {
-  return streamTag.trim() === MOE_AUXILIARY_STREAM_TAG;
+/** Pre-rename wire tag (`moe`); still accepted when loading saved conversations. */
+const LEGACY_REASONING_STREAM_TAG = 'moe';
+
+export function isReasoningAuxiliaryStreamTag(streamTag: string): boolean {
+  const t = streamTag.trim();
+  return t === REASONING_AUXILIARY_STREAM_TAG || t === LEGACY_REASONING_STREAM_TAG;
+}
+
+/** Normalize legacy reasoning tags to {@link REASONING_AUXILIARY_STREAM_TAG} before persisting. */
+export function normalizeReasoningStreamPart(part: StreamPart): StreamPart {
+  if (part.streamTag.trim() !== LEGACY_REASONING_STREAM_TAG) {
+    return part;
+  }
+  return { ...part, streamTag: REASONING_AUXILIARY_STREAM_TAG };
+}
+
+/**
+ * Legacy multiplex tag for read-tool preview chunks (merged into the matching `tool-trail:*` row).
+ * New streams append preview text directly on the read tool status part.
+ */
+export const READ_TOOL_PREVIEW_STREAM_TAG = 'tool-read-preview';
+
+/** Tool names whose streamed preview is folded into the matching tool-trail status row. */
+export const WORKSPACE_READ_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  'list_workspace_directory',
+  'retrieve_workspace_semantic',
+  'search_workspace',
+  'read_workspace_file',
+  'read_workspace_image',
+  'read_staged_edit',
+]);
+
+export function isReadToolPreviewStreamTag(streamTag: string): boolean {
+  return streamTag.trim() === READ_TOOL_PREVIEW_STREAM_TAG;
+}
+
+export function isWorkspaceReadToolLabel(label: string): boolean {
+  return WORKSPACE_READ_TOOL_NAMES.has(label.trim());
+}
+
+/** Staging overlay subprocess output (code review). */
+export const TOOL_OVERLAY_STREAM_TAG = 'tool-overlay';
+
+/** Workspace pytest subprocess terminal lane. */
+export const TOOL_PYTEST_STREAM_TAG = 'tool-pytest';
+
+/** Workspace Python smoke-test subprocess lane. */
+export const TOOL_SMOKE_STREAM_TAG = 'tool-smoke';
+
+/** Workspace Node smoke-test subprocess lane. */
+export const TOOL_NODE_SMOKE_STREAM_TAG = 'tool-node-smoke';
+
+/** Plan-and-execute planner lane (status rows + progress payloads). */
+export const PLANNER_STREAM_TAG = 'planner';
+
+const REMOVED_STREAM_TAGS = new Set(['planning', 'mgr', 'worker']);
+
+const LEGACY_SPEC_TAG_MAP: Readonly<Record<string, string>> = {
+  'spec-read-preview': READ_TOOL_PREVIEW_STREAM_TAG,
+  'spec-code_review-overlay': TOOL_OVERLAY_STREAM_TAG,
+  'spec-project_review-tests': TOOL_PYTEST_STREAM_TAG,
+  'spec-project_review-smoke': TOOL_SMOKE_STREAM_TAG,
+  'spec-project_review-node-smoke': TOOL_NODE_SMOKE_STREAM_TAG,
+};
+
+/**
+ * Map a wire or saved `streamTag` to a canonical tag, or `null` to omit (removed legacy lanes).
+ */
+export function normalizeStreamTag(streamTag: string): string | null {
+  const t = streamTag.trim();
+  if (!t || REMOVED_STREAM_TAGS.has(t)) {
+    return null;
+  }
+  const mapped = LEGACY_SPEC_TAG_MAP[t];
+  if (mapped) {
+    return mapped;
+  }
+  if (t.startsWith('spec-')) {
+    if (t.endsWith('-node-smoke')) {
+      return TOOL_NODE_SMOKE_STREAM_TAG;
+    }
+    if (t.endsWith('-tests')) {
+      return TOOL_PYTEST_STREAM_TAG;
+    }
+    if (t.endsWith('-smoke')) {
+      return TOOL_SMOKE_STREAM_TAG;
+    }
+    if (t.includes('overlay')) {
+      return TOOL_OVERLAY_STREAM_TAG;
+    }
+    if (t.includes('read')) {
+      return READ_TOOL_PREVIEW_STREAM_TAG;
+    }
+    return null;
+  }
+  return t;
+}
+
+/** Normalize tag and drop removed legacy parts. */
+export function normalizeStreamPart(part: StreamPart): StreamPart | null {
+  const tag = normalizeStreamTag(part.streamTag);
+  if (tag === null) {
+    return null;
+  }
+  const reasoning =
+    part.streamTag.trim() === LEGACY_REASONING_STREAM_TAG
+      ? { ...part, streamTag: REASONING_AUXILIARY_STREAM_TAG }
+      : part;
+  if (reasoning.streamTag.trim() === tag) {
+    return reasoning;
+  }
+  return { ...reasoning, streamTag: tag };
 }
 
 /** Prefix for synthetic stream tags that mirror `LlmStatus` rows with `source: tool` into the auxiliary timeline. */
 export const TOOL_TRAIL_STATUS_STREAM_PREFIX = 'tool-trail:';
 
-/** Stable multiplex tag for one tool status row (interleaved with `moe` / delegated streams). */
+/** Stable multiplex tag for one tool status row (interleaved with reasoning / tool output). */
 export function toolTrailStatusStreamTag(statusId: string): string {
   return `${TOOL_TRAIL_STATUS_STREAM_PREFIX}${encodeURIComponent(statusId)}`;
 }
@@ -50,17 +159,118 @@ export function isToolTrailStatusStreamTag(streamTag: string): boolean {
   return streamTag.trim().startsWith(TOOL_TRAIL_STATUS_STREAM_PREFIX);
 }
 
+/** Decode the backend status `id` embedded in a `tool-trail:*` multiplex tag. */
+export function toolTrailStatusIdFromStreamTag(streamTag: string): string | null {
+  const tag = streamTag.trim();
+  if (!tag.startsWith(TOOL_TRAIL_STATUS_STREAM_PREFIX)) {
+    return null;
+  }
+  const encoded = tag.slice(TOOL_TRAIL_STATUS_STREAM_PREFIX.length);
+  if (!encoded) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+/** Index of the tool-trail row that should receive read preview text, or -1. */
+export function findReadToolTrailTargetIndex(parts: readonly StreamPart[]): number {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    if (isToolTrailStatusStreamTag(part.streamTag) && isWorkspaceReadToolLabel(part.label)) {
+      return i;
+    }
+  }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (isToolTrailStatusStreamTag(parts[i].streamTag)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** Fold legacy `tool-read-preview` parts into the preceding read tool-trail row. */
+export function mergeReadPreviewIntoToolTrailParts(parts: StreamPart[]): StreamPart[] {
+  const out: StreamPart[] = [];
+  for (const raw of parts) {
+    const normalized = normalizeStreamPart(raw);
+    if (!normalized) {
+      continue;
+    }
+    if (isReadToolPreviewStreamTag(normalized.streamTag)) {
+      const target = findReadToolTrailTargetIndex(out);
+      if (target >= 0) {
+        const prev = out[target]!;
+        out[target] = { ...prev, text: prev.text + normalized.text };
+        continue;
+      }
+    }
+    out.push(normalized);
+  }
+  return out;
+}
+
+/** Append a `tool_read_chunk` delta onto the active read tool-trail row (single combined UI). */
+export function appendReadToolPreviewChunk(parts: StreamPart[], delta: string): StreamPart[] {
+  const idx = findReadToolTrailTargetIndex(parts);
+  if (idx < 0) {
+    return appendStreamPartWithTag(parts, READ_TOOL_PREVIEW_STREAM_TAG, delta, '');
+  }
+  const next = parts.map((p) => ({ ...p }));
+  const row = next[idx]!;
+  next[idx] = { ...row, text: row.text + delta };
+  return next;
+}
+
+/** Append read preview deltas and fold any orphan `tool-read-preview` lane into the tool-trail row. */
+export function appendAndMergeReadToolPreviewChunk(parts: StreamPart[], delta: string): StreamPart[] {
+  return mergeReadPreviewIntoToolTrailParts(appendReadToolPreviewChunk(parts, delta));
+}
+
+function appendStreamPartWithTag(
+  parts: StreamPart[],
+  t: string,
+  delta: string,
+  label: string,
+): StreamPart[] {
+  const next = [...parts];
+  const last = next[next.length - 1];
+  if (last?.streamTag === t) {
+    next[next.length - 1] = { ...last, label: last.label || label, text: last.text + delta };
+    return next;
+  }
+  next.push({ streamTag: t, label, text: delta });
+  return next;
+}
+
 /** True when the saved or live auxiliary timeline already includes embedded tool-status segments. */
 export function auxiliaryTimelineEmbedsToolStatus(parts: readonly StreamPart[]): boolean {
   return parts.some((p) => isToolTrailStatusStreamTag(p.streamTag));
 }
 
 /** In-flight reasoning segments (same shape as tool multiplexing, distinct tag). */
-export function moeStreamPartsForDisplay(
+export function reasoningStreamPartsForDisplay(
   parts: StreamPart[],
   _processingAgentRole: LlmAgentRole | null,
 ): StreamPart[] {
-  return parts.filter((p) => isMoeAuxiliaryStreamTag(p.streamTag));
+  return parts.filter((p) => isReasoningAuxiliaryStreamTag(p.streamTag));
+}
+
+/**
+ * Stream tags whose multiplexed output uses the Run-style terminal shell in chat
+ * (workspace pytest, smoke tests, etc.).
+ */
+export const SHELL_STYLE_TOOL_STREAM_TAGS: ReadonlySet<string> = new Set<string>([
+  TOOL_PYTEST_STREAM_TAG,
+  TOOL_SMOKE_STREAM_TAG,
+  TOOL_NODE_SMOKE_STREAM_TAG,
+]);
+
+export function isShellStyleToolStreamTag(streamTag: string): boolean {
+  return SHELL_STYLE_TOOL_STREAM_TAGS.has(streamTag.trim());
 }
 
 /** Delegated streams rendered in the shell-style terminal (pytest, smoke, etc.). */
@@ -73,27 +283,20 @@ export function shellDelegatedStreamPartsForDisplay(
   );
 }
 
-/** Planner, specialists, etc. — excludes shell tools and reasoning auxiliary streams. */
+/** Non-shell tool output (overlay, read preview, etc.). */
 export function otherDelegatedStreamPartsForDisplay(
   parts: StreamPart[],
   processingAgentRole: LlmAgentRole | null,
 ): StreamPart[] {
   return delegatedStreamPartsForDisplay(parts, processingAgentRole).filter(
-    (p) => !isShellStyleToolStreamTag(p.streamTag) && !isMoeAuxiliaryStreamTag(p.streamTag),
+    (p) =>
+      !isShellStyleToolStreamTag(p.streamTag) &&
+      !isReasoningAuxiliaryStreamTag(p.streamTag) &&
+      !isToolTrailStatusStreamTag(p.streamTag),
   );
 }
 
-/**
- * Delegated subprocess / specialist streams (`planning`, `spec-*`, legacy `planner` tag).
- */
-export function streamIndicatesNestedSpecialistRouting(parts: StreamPart[]): boolean {
-  return parts.some((p) => {
-    const t = p.streamTag.trim();
-    return t === 'planner' || t === 'planning' || t.startsWith('spec-');
-  });
-}
-
-/** Primary (main) live stream: outer `agent` chunks (and legacy `mgr`). */
+/** Primary (main) live stream: outer `agent` chunks. */
 export function primaryStreamPartsForDisplay(
   parts: StreamPart[],
   _processingAgentRole: LlmAgentRole | null,
@@ -101,7 +304,7 @@ export function primaryStreamPartsForDisplay(
   return parts.filter((p) => isPrimaryAssistantStreamTag(p.streamTag));
 }
 
-/** Subprocess and legacy side streams: planning, specialists, legacy `worker`, etc. */
+/** Non-primary multiplex segments (reasoning, tools, Clara briefs, tool-trail rows). */
 export function delegatedStreamPartsForDisplay(
   parts: StreamPart[],
   _processingAgentRole: LlmAgentRole | null,
@@ -110,72 +313,66 @@ export function delegatedStreamPartsForDisplay(
 }
 
 /**
- * Non-primary multiplex segments in arrival order: reasoning (`moe`), delegated tools, planner
- * chunks, `worker`, etc. Primary (`agent` / `mgr`) chunks are omitted — the main reply still renders
- * in its own slot, so wall-clock order vs. primary text can differ if the backend interleaves them.
+ * Non-primary multiplex segments in arrival order. Primary (`agent`) chunks are omitted.
  */
 export function multiplexAuxiliaryStreamTimeline(parts: StreamPart[]): StreamPart[] {
-  return parts.filter((p) => !isPrimaryAssistantStreamTag(p.streamTag));
+  return mergeReadPreviewIntoToolTrailParts(
+    parts
+      .map(normalizeStreamPart)
+      .filter((p): p is StreamPart => p !== null)
+      .filter((p) => !isPrimaryAssistantStreamTag(p.streamTag)),
+  );
 }
-
-/** Multiplex tag for live read-tool file preview (backend `tool_read_chunk` channel). */
-export const READ_TOOL_PREVIEW_STREAM_TAG = 'spec-read-preview';
 
 /** Subset of persisted assistant fields used to resolve auxiliary timeline for display. */
 export type PersistedAssistantStreamFields = {
   auxiliaryStreamTimeline?: StreamPart[];
   toolStreams?: StreamPart[];
+  reasoningStreams?: StreamPart[];
+  /** Legacy on-disk field from pre-rename builds. */
   moeStreams?: StreamPart[];
 };
 
 /**
  * Ordered auxiliary stream for the chat UI: prefer {@link PersistedAssistantStreamFields.auxiliaryStreamTimeline}
- * when present; otherwise legacy merge matching the pre-timeline template (shell tools, then moe).
+ * when present; otherwise merge shell tool streams then reasoning.
  */
+export function persistedReasoningStreams(
+  assistant: PersistedAssistantStreamFields | null | undefined,
+): StreamPart[] | undefined {
+  const streams = assistant?.reasoningStreams ?? assistant?.moeStreams;
+  if (!streams?.length) {
+    return undefined;
+  }
+  return streams
+    .map(normalizeStreamPart)
+    .filter((p): p is StreamPart => p !== null)
+    .map(normalizeReasoningStreamPart);
+}
+
 export function persistedAuxiliaryStreamTimeline(
   assistant: PersistedAssistantStreamFields | null | undefined,
 ): StreamPart[] {
   if (!assistant) return [];
   const t = assistant.auxiliaryStreamTimeline;
   if (t?.length) {
-    return t;
+    return mergeReadPreviewIntoToolTrailParts(
+      t
+        .map(normalizeStreamPart)
+        .filter((p): p is StreamPart => p !== null),
+    );
   }
-  return [...(assistant.toolStreams ?? []), ...(assistant.moeStreams ?? [])];
+  const tools = mergeReadPreviewIntoToolTrailParts(
+    (assistant.toolStreams ?? [])
+      .map(normalizeStreamPart)
+      .filter((p): p is StreamPart => p !== null),
+  );
+  return [...tools, ...(persistedReasoningStreams(assistant) ?? [])];
 }
 
-/**
- * Fixed stream tags that always use the delegated terminal shell.
- * Extend this when adding new `tool_exec_chunk` tools that are not named with `-tests` / `-smoke`.
- */
-export const SHELL_STYLE_TOOL_STREAM_TAGS: ReadonlySet<string> = new Set<string>([
-  // e.g. 'spec-project_review-custom_run'
-]);
-
-/**
- * Stream tags whose multiplexed output should use the Run-style terminal shell in chat
- * (workspace pytest, smoke tests, etc.).
- *
- * Matches {@link SHELL_STYLE_TOOL_STREAM_TAGS} or tags ending with `-tests` / `-smoke`.
- */
-export function isShellStyleToolStreamTag(streamTag: string): boolean {
-  const t = streamTag.trim();
-  if (SHELL_STYLE_TOOL_STREAM_TAGS.has(t)) {
-    return true;
-  }
-  return t.endsWith('-tests') || t.endsWith('-smoke');
-}
-
-/**
- * Text to persist and pass to TTS: `agent` first, then legacy `mgr`/`worker`.
- * Nested `planner` / `planning` / `spec-*` chunks are never persisted (outer agent should stream the user-facing reply).
- */
 /**
  * Persisted assistant line when {@link primaryAssistantTextFromParts} is empty but the stream had
- * multiplexed activity (tools, planner, reasoning sidecar, etc.).
- *
- * Reasoning models often fill the auxiliary (`moe`) channel while the main channel only contains
- * pseudo tool-call XML, which the backend strips from SSE—so the saved "agent" text can be blank
- * even though the UI showed reasoning.
+ * multiplexed activity (tools, reasoning sidecar, etc.).
  */
 export function emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText: boolean): string {
   if (hasReasoningStreamText) {
@@ -188,31 +385,14 @@ export function emptyPrimaryAssistantFallbackMessage(hasReasoningStreamText: boo
   return 'Workspace tooling finished for this turn. Use the tool trail and nested workspace output above for specifics.';
 }
 
-export function primaryAssistantTextFromParts(parts: StreamPart[], _processingAgentRoleAtEnd: LlmAgentRole | null = null): string {
-  const agent = parts
+export function primaryAssistantTextFromParts(
+  parts: StreamPart[],
+  _processingAgentRoleAtEnd: LlmAgentRole | null = null,
+): string {
+  return parts
     .filter((p) => p.streamTag.trim() === 'agent')
     .map((p) => p.text)
     .join('');
-  if (agent.length > 0) {
-    return agent;
-  }
-
-  const mgr = parts
-    .filter((p) => p.streamTag.trim() === 'mgr')
-    .map((p) => p.text)
-    .join('');
-  if (mgr.length > 0) {
-    return mgr;
-  }
-
-  const worker = parts
-    .filter((p) => p.streamTag.trim() === 'worker')
-    .map((p) => p.text)
-    .join('');
-  if (worker.length > 0) {
-    return worker;
-  }
-  return '';
 }
 
 /**

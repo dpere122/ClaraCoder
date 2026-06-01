@@ -399,12 +399,23 @@ def _prefixed_path(existing_path: str, *prefixes: str) -> str:
     return os.pathsep.join(ordered)
 
 
+def with_subprocess_color_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Ensure piped tool subprocesses still emit ANSI colors for the in-app terminal UI."""
+    out = dict(env or os.environ)
+    out['FORCE_COLOR'] = '1'
+    out['CLICOLOR_FORCE'] = '1'
+    out['PY_COLORS'] = '1'
+    out['TERM'] = 'xterm-256color'
+    out.pop('NO_COLOR', None)
+    return out
+
+
 def build_workspace_python_env(
     venv_path: Path,
     *,
     base_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    env = dict(base_env or os.environ)
+    env = with_subprocess_color_env(base_env)
     bin_path = str(workspace_python_bin_path(venv_path.parent))
     env['PATH'] = _prefixed_path(env.get('PATH', ''), bin_path)
     env['VIRTUAL_ENV'] = str(venv_path)

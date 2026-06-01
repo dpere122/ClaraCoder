@@ -19,12 +19,11 @@
   <div class="accept-command-card border border-primary border-opacity-50 rounded-2 overflow-hidden">
     <div class="accept-command-toolbar p-2 border-bottom bg-primary bg-opacity-10">
       <div class="fw-medium text-primary">{{ payload().title }}</div>
-      <div class="small text-secondary">{{ payload().message }}</div>
+      @if (payload().message) {
+        <div class="small text-secondary">{{ payload().message }}</div>
+      }
       @if (payload().commandText) {
-        <div class="small mt-2">
-          <div class="text-secondary mb-1">Command</div>
-          <code class="accept-command-code">{{ payload().commandText }}</code>
-        </div>
+        <code class="accept-command-code small d-block mt-1">{{ payload().commandText }}</code>
       }
       @if (payload().details.length > 0) {
         <div class="accept-command-list small mt-2">

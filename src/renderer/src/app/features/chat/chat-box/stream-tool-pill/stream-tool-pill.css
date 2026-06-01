@@ -1,0 +1,138 @@
+app-stream-tool-pill .stream-tool-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  max-width: 100%;
+  margin: 0.12rem 0.18rem 0.12rem 0;
+  padding: 0.16rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--t-primary) 48%, var(--t-border-subtle));
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--t-primary) 16%, var(--t-code-inline-bg)),
+    color-mix(in srgb, var(--t-primary) 9%, var(--t-bg-deep))
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 28%, transparent),
+    0 1px 5px color-mix(in srgb, var(--t-edge-darkest) 22%, transparent);
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--t-code-text);
+  cursor: default;
+  text-align: left;
+  vertical-align: middle;
+}
+
+app-stream-tool-pill .stream-tool-pill--expandable {
+  cursor: pointer;
+}
+
+app-stream-tool-pill .stream-tool-pill--expandable:hover {
+  border-color: color-mix(in srgb, var(--t-primary) 72%, var(--t-border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--t-primary) 24%, var(--t-code-inline-bg)),
+    color-mix(in srgb, var(--t-primary) 14%, var(--t-hover-bg))
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 55%, transparent),
+    0 0 10px color-mix(in srgb, var(--t-glow) 28%, transparent);
+}
+
+app-stream-tool-pill .stream-tool-pill--running {
+  border-color: color-mix(in srgb, var(--t-primary) 70%, var(--t-secondary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--t-primary) 26%, var(--t-code-inline-bg)),
+    color-mix(in srgb, var(--t-secondary) 14%, var(--t-bg-deep))
+  );
+  animation: stream-tool-pill-running-glow 1.85s ease-in-out infinite;
+}
+
+app-stream-tool-pill .stream-tool-pill--complete {
+  border-color: color-mix(in srgb, var(--t-process-a) 58%, var(--t-primary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--t-process-a) 20%, var(--t-code-inline-bg)),
+    color-mix(in srgb, var(--t-primary) 10%, var(--t-bg-deep))
+  );
+}
+
+app-stream-tool-pill .stream-tool-pill--error {
+  border-color: color-mix(in srgb, var(--t-log-level-error) 72%, var(--t-border-subtle));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--t-log-level-error) 22%, var(--t-code-inline-bg)),
+    color-mix(in srgb, var(--t-log-level-error) 10%, var(--t-bg-deep))
+  );
+}
+
+app-stream-tool-pill .stream-tool-pill__name {
+  flex-shrink: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-weight: 700;
+  font-size: 0.67rem;
+  letter-spacing: 0.03em;
+  color: var(--t-primary);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-glow-soft) 70%, transparent);
+}
+
+app-stream-tool-pill .stream-tool-pill--error .stream-tool-pill__name {
+  color: color-mix(in srgb, var(--t-log-level-error) 88%, var(--t-primary));
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-log-level-error) 35%, transparent);
+}
+
+app-stream-tool-pill .stream-tool-pill__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t-secondary);
+  opacity: 0.95;
+}
+
+app-stream-tool-pill .stream-tool-pill--error .stream-tool-pill__meta {
+  color: color-mix(in srgb, var(--t-log-level-error) 82%, var(--t-secondary));
+}
+
+app-stream-tool-pill .stream-tool-pill--complete .stream-tool-pill__meta {
+  color: color-mix(in srgb, var(--t-process-a) 78%, var(--t-secondary));
+}
+
+app-stream-tool-pill .stream-tool-pill__sep {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--t-primary) 55%, transparent);
+  opacity: 0.65;
+}
+
+app-stream-tool-pill .stream-tool-pill__chevron {
+  flex-shrink: 0;
+  margin-left: 0.08rem;
+  font-size: 0.5rem;
+  color: var(--t-primary);
+  opacity: 0.72;
+}
+
+app-stream-tool-pill .stream-tool-pill:disabled {
+  opacity: 1;
+}
+
+@keyframes stream-tool-pill-running-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 40%, transparent),
+      0 0 6px color-mix(in srgb, var(--t-glow) 18%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 65%, transparent),
+      0 0 12px color-mix(in srgb, var(--t-glow) 38%, transparent);
+  }
+}

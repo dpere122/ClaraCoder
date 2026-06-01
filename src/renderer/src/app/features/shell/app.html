@@ -104,12 +104,14 @@
               [processingToolsActive]='processingToolsActive()'
               [ttsLoading]='tts.ttsLoading()'
               [streamingParts]='streamingParts()'
+              [streamingPlanner]='streamingPlanner()'
               [fontSize]='fontSize()'
               (sendResponse)='onSendResponse($event)'
               (diffReviewFinished)='onDiffReviewFinished($event)'
               (acceptCommandFinished)='onAcceptCommandFinished($event)'
               (copyReviewFinished)='onCopyReviewFinished($event)'
               (deleteReviewFinished)='onDeleteReviewFinished($event)'
+              (planConfirmFinished)='onPlanConfirmFinished($event)'
             />
           </div>
           <div
@@ -154,6 +156,7 @@
         />
         <app-message-box
           class='message-box-host'
+          [(composerMode)]='composerMode'
           [voiceActive]='talkEnabled() && speechEnabled()'
           (voiceToggle)='toggleVoice()'
           [talkStatus]='talkStatus()'

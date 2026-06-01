@@ -10,9 +10,11 @@ ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY = 'python_dependency'
 ACCEPT_COMMAND_KIND_NODE_DEPENDENCY = 'node_dependency'
 ACCEPT_COMMAND_KIND_ANGULAR_CLI = 'angular_cli'
 ACCEPT_COMMAND_KIND_PROCESS_KILL = 'process_kill'
+ACCEPT_COMMAND_KIND_DEFERRED_TOOL = 'deferred_tool'
 
 __all__ = [
     'ACCEPT_COMMAND_KIND_ANGULAR_CLI',
+    'ACCEPT_COMMAND_KIND_DEFERRED_TOOL',
     'ACCEPT_COMMAND_KIND_NODE_DEPENDENCY',
     'ACCEPT_COMMAND_KIND_PROCESS_KILL',
     'ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY',
@@ -72,4 +74,8 @@ async def execute_pending_accept_command_decision(
         from nemo_backend.process_tools import execute_pending_process_kill_request
 
         return await execute_pending_process_kill_request(session, pending)
+    if kind == ACCEPT_COMMAND_KIND_DEFERRED_TOOL:
+        from nemo_backend.deferred_tool_hitl import execute_pending_deferred_tool
+
+        return await execute_pending_deferred_tool(session, pending)
     return f'Command confirmation failed: unsupported request kind `{kind or "unknown"}`.'

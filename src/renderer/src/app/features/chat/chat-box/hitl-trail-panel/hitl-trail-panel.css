@@ -1,0 +1,20 @@
+/**
+ * HITL expanded review cards — list chrome in stream-trail-panel-shared.css.
+ */
+app-hitl-trail-panel .hitl-trail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+app-hitl-trail-panel .hitl-trail-panel__details {
+  margin-top: 0.45rem;
+}
+
+app-hitl-trail-panel .hitl-trail-detail + .hitl-trail-detail {
+  margin-top: 0.65rem;
+}
+
+app-hitl-trail-panel .stream-trail-panel--live .stream-trail-row--pending {
+  opacity: 0.95;
+}

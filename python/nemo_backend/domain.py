@@ -92,6 +92,10 @@ class SessionState:
     pending_copy_request: dict | None = None
     # Generic HITL command approval request (for example, deferred Python dependency actions).
     pending_accept_command_request: dict | None = None
+    # Plan-and-execute: proposed step list awaiting user approval before execution.
+    pending_plan_confirm_request: dict | None = None
+    #: Set by plan-confirm HITL when the user cancels; read by the plan orchestrator after pause.
+    plan_execute_aborted: bool = False
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).

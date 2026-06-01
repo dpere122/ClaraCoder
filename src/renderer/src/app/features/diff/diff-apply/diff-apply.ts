@@ -104,10 +104,10 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     const done = order.filter((h) => acc.has(h) || sk.has(h)).length;
     const cur = this.currentFocusHunk();
     if (cur == null) {
-      return `${done} / ${order.length} changes (done)`;
+      return `${done}/${order.length}`;
     }
     const at = order.indexOf(cur) + 1;
-    return `Change ${at} of ${order.length} (${done} resolved)`;
+    return `${at}/${order.length}`;
   });
 
   readonly baseRows = computed(() => {

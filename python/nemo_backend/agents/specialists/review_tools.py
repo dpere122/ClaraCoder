@@ -32,7 +32,11 @@ from nemo_backend.lsp.diagnostics import format_diagnostics_summary, indentation
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.lsp.tools import lsp_get_diagnostics
-from nemo_backend.python_env import ensure_session_python_workspace_env, session_workspace_subprocess_env
+from nemo_backend.python_env import (
+    ensure_session_python_workspace_env,
+    session_workspace_subprocess_env,
+    with_subprocess_color_env,
+)
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search
 from nemo_backend.staging_test_overlay import (
     build_staging_test_overlay,
@@ -40,6 +44,8 @@ from nemo_backend.staging_test_overlay import (
     remove_overlay_parent,
     resolve_overlay_cwd,
 )
+from nemo_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+from nemo_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
 from nemo_backend.state import (
     current_session_id,
     direct_workspace_edits_active,
@@ -63,7 +69,7 @@ FORMAT_WORKSPACE_FILE_PRETTIER_NAME = 'format_workspace_file_prettier'
 TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME = 'transfer_staged_file_to_workspace'
 DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME = 'diff_staged_edit_against_baseline'
 RUN_STAGING_OVERLAY_COMMAND_NAME = 'run_staging_overlay_command'
-_OVERLAY_STREAM_TAG = 'spec-code_review-overlay'
+_OVERLAY_STREAM_TAG = TOOL_OVERLAY_STREAM_TAG
 _OVERLAY_STREAM_LABEL = 'Staging overlay'
 _SUBPROCESS_READ_SIZE = 65_536
 _MAX_OVERLAY_OUTPUT_CHARS = 120_000
@@ -772,6 +778,13 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
     argv, parse_err = parse_command_argv_json(command_argv_json)
     if argv is None:
         return parse_err
+    pending = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name=RUN_STAGING_OVERLAY_COMMAND_NAME,
+        tool_input={'command_argv_json': command_argv_json, 'cwd_relative': cwd_relative},
+    )
+    if pending:
+        return pending
     try:
         workspace_root = get_active_workspace_root()
     except ValueError as exc:
@@ -802,7 +815,7 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
         bootstrap_dependencies=False,
         emit_chunk=None,
     )
-    proc_env = session_workspace_subprocess_env(session) or dict(os.environ)
+    proc_env = with_subprocess_color_env(session_workspace_subprocess_env(session))
 
     rendered = ' '.join(argv)
     await _emit_project_review_chunk(

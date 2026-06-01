@@ -1,119 +1,24 @@
 /**
- * Reasoning + tool multiplex: log-style trail (no card chrome).
- * Top content fades under a soft mask when collapsed (“peek”).
+ * Auxiliary panel content (reasoning, delegated tools, shells) — chrome in stream-trail-panel-shared.css.
  */
-app-auxiliary-stream-panel .auxiliary-stream-panel {
-  margin-top: 0.35rem;
-  margin-bottom: 0.15rem;
-  max-width: 100%;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-}
 
-app-auxiliary-stream-panel .auxiliary-stream-panel__toggle {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  width: 100%;
-  gap: 0.35rem;
-  min-width: 0;
-  padding: 0 0 0.2rem;
-  margin: 0;
-  border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
-  border-radius: 0;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-  opacity: 0.82;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__toggle:hover {
-  opacity: 1;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.68rem;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--t-text-muted);
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__title--custom {
-  font-size: 0.72rem;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: color-mix(in srgb, var(--t-secondary) 92%, transparent);
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__chevron {
-  flex-shrink: 0;
-  font-size: 0.55rem;
-  color: var(--t-text-muted);
-  opacity: 0.65;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__viewport {
-  margin-top: 0.25rem;
-  padding-left: 0.15rem;
-  border-left: 1px solid color-mix(in srgb, var(--t-border-subtle) 45%, transparent);
-}
-
-/** Collapsed tail: scroll with a longer soft fade at the top = “trail” feel */
-app-auxiliary-stream-panel .auxiliary-stream-panel__viewport--peek {
-  max-height: 10rem;
+/** Expanded mode: capped height with a single outer scroll (overrides shared --full). */
+app-auxiliary-stream-panel .stream-trail-panel__viewport--full {
+  max-height: min(50vh, 28rem);
   overflow-x: hidden;
   overflow-y: auto;
-  mask-image: linear-gradient(to bottom, transparent 0%, transparent 8%, rgba(0, 0, 0, 0.35) 22%, black 38%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 8%, rgba(0, 0, 0, 0.35) 22%, black 38%);
 }
 
-app-auxiliary-stream-panel .auxiliary-stream-panel__viewport--full {
-  max-height: none;
-  overflow-x: hidden;
-  overflow-y: visible;
-  mask-image: none;
-  -webkit-mask-image: none;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__moe {
+app-auxiliary-stream-panel .auxiliary-stream-panel__reasoning {
   margin: 0.28rem 0 0;
 }
 
-app-auxiliary-stream-panel .auxiliary-stream-panel__moe:first-child {
+app-auxiliary-stream-panel .auxiliary-stream-panel__reasoning:first-child {
   margin-top: 0;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__delegated {
-  margin-top: 0.35rem;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__delegated:first-child {
-  margin-top: 0;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__tool-trail {
-  margin-top: 0.3rem;
-}
-
-app-auxiliary-stream-panel .auxiliary-stream-panel__tool-trail:first-child {
-  margin-top: 0;
-}
-
-app-auxiliary-stream-panel .tool-trail-row--running .tool-trail-name {
-  opacity: 0.92;
 }
 
 /** Reasoning lines: plain log text, no inner box */
-app-chat-box app-auxiliary-stream-panel .llm-moe-body.auxiliary-stream-panel__moe {
+app-chat-box app-auxiliary-stream-panel .llm-reasoning-body.auxiliary-stream-panel__reasoning {
   margin: 0.25rem 0 0;
   padding: 0;
   max-height: none;
@@ -129,73 +34,12 @@ app-chat-box app-auxiliary-stream-panel .llm-moe-body.auxiliary-stream-panel__mo
   word-break: break-word;
 }
 
-/** Delegated text blocks: flat log, not cards */
-app-auxiliary-stream-panel .streaming-delegated-block {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  overflow: visible;
-}
-
-app-auxiliary-stream-panel .streaming-delegated-label {
-  padding: 0 0 0.12rem;
-  font-size: 0.65rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--t-text-muted);
-  border-bottom: none;
-}
-
-app-auxiliary-stream-panel .streaming-delegated-text {
-  margin: 0;
-  padding: 0.1rem 0 0;
-  max-height: none;
-  overflow: visible;
-  border: none;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  font-size: 0.72rem;
-  line-height: 1.45;
-  color: color-mix(in srgb, var(--t-secondary) 85%, transparent);
-}
-
-/** Tool status rows inside log */
-app-auxiliary-stream-panel .tool-trail-row {
-  font-size: 0.72rem;
-  color: color-mix(in srgb, var(--t-secondary) 82%, transparent);
-}
-
-/** Single outer viewport scrolls; avoid nested max-height scroll areas from chat-box / terminal styles. */
-app-chat-box app-auxiliary-stream-panel .llm-moe-body {
+app-chat-box app-auxiliary-stream-panel .llm-reasoning-body {
   max-height: none;
   overflow: visible;
 }
 
-app-chat-box app-auxiliary-stream-panel .streaming-delegated-text {
-  max-height: none;
-  overflow: visible;
-}
-
-app-chat-box app-auxiliary-stream-panel .terminal-shell-body {
-  max-height: none;
-  overflow: visible;
-}
-
-app-auxiliary-stream-panel .delegated-shell-terminal-details {
-  margin: 0.3rem 0 0;
-  border: none;
-  border-left: 1px solid color-mix(in srgb, var(--t-border-subtle) 40%, transparent);
-  border-radius: 0;
-  padding-left: 0.35rem;
-  background: transparent;
-}
-
-app-auxiliary-stream-panel .delegated-shell-terminal-summary {
-  padding: 0.1rem 0 0.2rem;
-  font-size: 0.68rem;
-  font-weight: 500;
-  color: var(--t-text-muted);
-}
-
-app-auxiliary-stream-panel .delegated-shell-terminal-details[open] .delegated-shell-terminal-summary {
-  border-bottom: none;
+/** Flatten nested terminal max-heights — outer viewport or pill expansion owns scroll. */
+app-chat-box app-auxiliary-stream-panel .delegated-shell-terminal-wrap--full .terminal-shell-body {
+  max-height: min(40vh, 24rem);
 }

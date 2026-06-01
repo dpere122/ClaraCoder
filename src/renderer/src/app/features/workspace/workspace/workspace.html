@@ -28,9 +28,6 @@
         (contextmenu)='onFileTreePaneContextMenu($event)'
         (keydown)='onTreeKeydown($event)'
       >
-        @if (lastWorkspaceChange()) {
-          <p class='workspace-change-indicator'>Updated: {{ lastWorkspaceChange() }}</p>
-        }
         @if (loadError()) {
           <p class='empty-hint'>{{ loadError() }}</p>
         } @else {

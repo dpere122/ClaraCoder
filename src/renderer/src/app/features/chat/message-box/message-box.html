@@ -16,6 +16,20 @@
   >
     <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
   </button>
+  <div class="composer-mode-wrap">
+    <select
+      class="composer-mode-select"
+      [ngModel]="composerMode()"
+      (ngModelChange)="composerMode.set($event)"
+      title="Run mode: Agent executes directly; Plan drafts steps first."
+      aria-label="Composer run mode"
+    >
+      @for (mode of composerModes; track mode) {
+        <option [value]="mode">{{ composerModeLabels[mode] }}</option>
+      }
+    </select>
+    <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
+  </div>
   <input
     #messageInput
     type="text"

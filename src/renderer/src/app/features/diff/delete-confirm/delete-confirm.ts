@@ -57,7 +57,7 @@ export class DeleteConfirmComponent {
   recursiveWarning(): string {
     const entries = this.resolvedEntries();
     const anyRecDir = entries.some((e) => e.recursive && e.kind === 'directory');
-    return anyRecDir ? 'This batch includes recursive directory deletes (all contents under those folders are removed).' : '';
+    return anyRecDir ? 'Includes recursive directory deletes.' : '';
   }
 
   async onConfirm(): Promise<void> {

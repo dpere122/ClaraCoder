@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+from nemo_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
 from nemo_backend.python_env import ensure_session_python_workspace_env
 from nemo_backend.state import current_session_id, get_session
 
@@ -22,6 +23,9 @@ async def ensure_python_workspace_env_tool() -> str:
     if not sid:
         return 'Tool error: no active session.'
     session = get_session(sid)
+    pending = maybe_await_hitl_for_deferred_tool(session, tool_name=ENSURE_PYTHON_WORKSPACE_ENV_NAME, tool_input={})
+    if pending:
+        return pending
     result = await ensure_session_python_workspace_env(
         session,
         allow_workspace_root_fallback=True,

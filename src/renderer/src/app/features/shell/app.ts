@@ -6,18 +6,24 @@ import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal, 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
+  ComposerRunMode,
   Conversation,
   ConversationMeta,
   FileDiffPayload,
   LlmStatus,
   StreamPart,
   Workspace,
+  PlannerProgress,
 } from '@shared/index';
 import {
+  DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
   findLlmModelLocation,
   primaryAssistantTextFromParts,
-  READ_TOOL_PREVIEW_STREAM_TAG,
+  appendAndMergeReadToolPreviewChunk,
+  findReadToolTrailTargetIndex,
+  toolTrailStatusIdFromStreamTag,
+  toolTrailStatusStreamTag,
   resolveActiveLlmConnection,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   TTS_SPEECH_SPEED_DEFAULT,
@@ -106,7 +112,11 @@ export class App implements OnInit, OnDestroy {
   protected readonly editorMode = model(true);
   /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
   protected readonly autoApplyMode = model(false);
+  /** Composer run mode: agent (ReAct) or plan (plan-and-execute). */
+  protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
   protected readonly streamingParts = signal<StreamPart[]>([]);
+  protected readonly streamingPlanner = signal<PlannerProgress | null>(null);
+  private readonly backgroundStreamPlanner = new Map<string, PlannerProgress>();
   /**
    * Last measured prompt token count per conversation (from API usage metadata).
    * Persists across conversation switches until a newer measurement replaces it.
@@ -389,17 +399,16 @@ export class App implements OnInit, OnDestroy {
     });
 
     this.electron.toolReadChunk$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, delta }) => {
-      const label = 'File read preview';
+      const mergeRead = (prev: StreamPart[]) => appendAndMergeReadToolPreviewChunk(prev, delta);
       if (conversationId === this.activeConversationId()) {
-        this.streamingParts.update((prev) =>
-          appendStreamPart(prev, READ_TOOL_PREVIEW_STREAM_TAG, delta, label),
-        );
+        this.streamingParts.update((prev) => {
+          const next = mergeRead(prev);
+          this.syncChainTextFromReadToolTrail(next);
+          return next;
+        });
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-        this.backgroundStreamParts.set(
-          conversationId,
-          appendStreamPart(prev, READ_TOOL_PREVIEW_STREAM_TAG, delta, label),
-        );
+        this.backgroundStreamParts.set(conversationId, mergeRead(prev));
       }
     });
 
@@ -485,27 +494,39 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.plannerProgress$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, planner }) => {
+      if (conversationId === this.activeConversationId()) {
+        this.streamingPlanner.set(planner);
+      } else {
+        this.backgroundStreamPlanner.set(conversationId, planner);
+      }
+    });
+
+    this.electron.planConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
+      if (payload.version !== 1 || !payload.requestId || !payload.title) return;
+      const artifact = { role: 'plan_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...this.messages()];
+        this.pendingSave = true;
+      }
+    });
+
     this.electron.llmStatus$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, status }) => {
       if (conversationId !== this.activeConversationId()) return;
       const src = (status.source ?? 'agent').toLowerCase();
       if (src === 'tool') {
         this.toolPhaseEngaged.set(true);
-      }
-      if (src === 'tool' && status.state === 'running') {
-        this.toolRunIds.update((s) => new Set(s).add(status.id));
-        this.streamingParts.update((prev) => upsertToolTrailStatusStreamPart(prev, status));
-        this.upsertChainMessage(status);
-        return;
-      }
-      if (src === 'tool' && (status.state === 'complete' || status.state === 'error')) {
-        this.toolRunIds.update((s) => {
-          const next = new Set(s);
-          next.delete(status.id);
-          return next;
+        // Defer so RAF-batched `tool_read_chunk` updates land before complete/error overwrites text.
+        queueMicrotask(() => {
+          if (conversationId !== this.activeConversationId()) return;
+          this.applyToolLlmStatus(status);
         });
-      }
-      if (src === 'tool') {
-        this.streamingParts.update((prev) => upsertToolTrailStatusStreamPart(prev, status));
+        return;
       }
       this.upsertChainMessage(status);
     });
@@ -521,19 +542,26 @@ export class App implements OnInit, OnDestroy {
           ? this.streamingParts()
           : (this.backgroundStreamParts.get(conversationId) ?? []);
       const turn = buildAssistantTurnFromStreamParts(parts, this.pendingFinalText.get(conversationId));
+      const planner =
+        conversationId === this.activeConversationId()
+          ? this.streamingPlanner()
+          : (this.backgroundStreamPlanner.get(conversationId) ?? null);
       this.pendingFinalText.delete(conversationId);
+      this.backgroundStreamPlanner.delete(conversationId);
 
       if (conversationId === this.activeConversationId()) {
         this.toolRunIds.set(new Set());
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
+        this.streamingPlanner.set(null);
         if (turn) {
           this.pushMessage(
             'assistant',
             turn.text,
             turn.toolStreams,
-            turn.moeStreams,
+            turn.reasoningStreams,
             turn.auxiliaryStreamTimeline,
+            planner ?? undefined,
           );
           if (this.speechEnabled() && turn.text.trim()) {
             void this.tts.flushStreamingAssistantText(turn.text, this.selectedVoice(), this.ttsSpeechSpeed());
@@ -549,8 +577,9 @@ export class App implements OnInit, OnDestroy {
             conversationId,
             turn.text,
             turn.toolStreams,
-            turn.moeStreams,
+            turn.reasoningStreams,
             turn.auxiliaryStreamTimeline,
+            planner ?? undefined,
           )
             .then(() => this.applyMaybeAutoTitleFromMain(conversationId))
             .catch((err) => console.error('[App] background save / auto-title failed', err));
@@ -634,6 +663,7 @@ export class App implements OnInit, OnDestroy {
       this.tts.beginAssistantSpeechTurn();
     }
     this.streamingParts.set([]);
+    this.streamingPlanner.set(null);
     const workspaceId = this.activeConversation?.workspaceId ?? this.currentWorkspaceId();
     this.electron.sendMessage(
       convId,
@@ -642,6 +672,7 @@ export class App implements OnInit, OnDestroy {
       this.editorMode() && this.autoApplyMode(),
       undefined,
       workspaceId,
+      this.composerMode(),
     );
     this.autoSave();
   }
@@ -746,6 +777,37 @@ export class App implements OnInit, OnDestroy {
         const m = copy[i];
         if (
           m.role === 'accept_command' &&
+          m.payload.requestId === event.requestId &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+      this.autoSave();
+    }
+  }
+
+  onPlanConfirmFinished(event: {
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'plan_confirm' &&
           m.payload.requestId === event.requestId &&
           (m.reviewStatus ?? 'pending') === 'pending'
         ) {
@@ -1055,8 +1117,9 @@ export class App implements OnInit, OnDestroy {
     role: 'user' | 'assistant',
     text: string,
     toolStreams?: StreamPart[],
-    moeStreams?: StreamPart[],
+    reasoningStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
+    planner?: PlannerProgress,
   ): void {
     console.log('[App] pushMessage:', role, 'text length:', text.length);
     let nextMessage: ChatMessage;
@@ -1065,8 +1128,9 @@ export class App implements OnInit, OnDestroy {
     } else {
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
-      if (moeStreams?.length) assistant.moeStreams = moeStreams;
+      if (reasoningStreams?.length) assistant.reasoningStreams = reasoningStreams;
       if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
+      if (planner) assistant.planner = planner;
       nextMessage = assistant;
     }
     this.messages.update((prev) => [...prev, nextMessage]);
@@ -1175,8 +1239,9 @@ export class App implements OnInit, OnDestroy {
     conversationId: string,
     text: string,
     toolStreams?: StreamPart[],
-    moeStreams?: StreamPart[],
+    reasoningStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
+    planner?: PlannerProgress,
   ): Promise<void> {
     const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
     const mine = prev.then(async () => {
@@ -1186,8 +1251,9 @@ export class App implements OnInit, OnDestroy {
         const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
         const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
         if (toolStreams?.length) assistant.toolStreams = toolStreams;
-        if (moeStreams?.length) assistant.moeStreams = moeStreams;
+        if (reasoningStreams?.length) assistant.reasoningStreams = reasoningStreams;
         if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
+        if (planner) assistant.planner = planner;
         conv.messages.push(assistant);
         conv.updatedAt = new Date().toISOString();
         await this.electron.saveConversation(conv);
@@ -1246,13 +1312,70 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  /** Apply one tool-row status after batched read-preview chunks have been merged. */
+  private applyToolLlmStatus(status: LlmStatus): void {
+    if (status.state === 'running') {
+      this.toolRunIds.update((s) => new Set(s).add(status.id));
+    }
+    if (status.state === 'complete' || status.state === 'error') {
+      this.toolRunIds.update((s) => {
+        const next = new Set(s);
+        next.delete(status.id);
+        return next;
+      });
+    }
+    this.streamingParts.update((prev) => {
+      const next = upsertToolTrailStatusStreamPart(prev, status);
+      this.upsertChainMessage(status, this.chainTextForToolStatus(next, status));
+      return next;
+    });
+  }
+
+  /** Prefer multiplex tool-trail text (includes streamed read preview) over the status one-liner. */
+  private chainTextForToolStatus(parts: StreamPart[], status: LlmStatus): string {
+    const streamTag = toolTrailStatusStreamTag(status.id);
+    const part = parts.find((p) => p.streamTag === streamTag);
+    if (part?.text?.trim()) {
+      return part.text;
+    }
+    return status.detail ?? '';
+  }
+
+  private syncChainTextFromReadToolTrail(parts: StreamPart[]): void {
+    const idx = findReadToolTrailTargetIndex(parts);
+    if (idx < 0) {
+      return;
+    }
+    const part = parts[idx]!;
+    const statusId = toolTrailStatusIdFromStreamTag(part.streamTag);
+    if (!statusId) {
+      return;
+    }
+    this.messages.update((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const m = prev[i];
+        if (m.role === 'chain' && m.statusId === statusId) {
+          const copy = [...prev];
+          copy[i] = { ...m, text: part.text };
+          return copy;
+        }
+      }
+      return prev;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+    }
+  }
+
   /** Merge status updates by backend `id` so a later `complete`/`error` row replaces the running row instead of leaving it spinning. */
-  private upsertChainMessage(status: LlmStatus): void {
+  private upsertChainMessage(status: LlmStatus, textOverride?: string): void {
+    const text = textOverride ?? status.detail ?? '';
     this.messages.update((prev) => {
       const nextRow: ChatMessage = {
         role: 'chain',
         label: status.label,
-        text: status.detail,
+        text,
         state: status.state,
         source: status.source,
         statusId: status.id,

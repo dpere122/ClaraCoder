@@ -3,6 +3,12 @@
  * No Node or Electron imports — safe to import from any compilation unit.
  */
 export type { Workspace } from './types/workspace';
+export type { ComposerRunMode } from './types/composer-mode';
+export {
+  COMPOSER_RUN_MODES,
+  COMPOSER_RUN_MODE_LABELS,
+  DEFAULT_COMPOSER_RUN_MODE,
+} from './types/composer-mode';
 export { looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel } from './llama-model-download';
 export type {
   LlamaServerLifecycleEvent,
@@ -101,32 +107,65 @@ export type {
 export {
   auxiliaryTimelineEmbedsToolStatus,
   CLARA_OUTER_BRIEF_STREAM_TAG,
-  MOE_AUXILIARY_STREAM_TAG,
+  REASONING_AUXILIARY_STREAM_TAG,
+  PLANNER_STREAM_TAG,
   delegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
   isClaraOuterBriefStreamTag,
-  isMoeAuxiliaryStreamTag,
+  isReasoningAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
   isToolTrailStatusStreamTag,
   joinAllStreamPartTexts,
   joinPrimaryAssistantStreamText,
-  moeStreamPartsForDisplay,
+  normalizeReasoningStreamPart,
+  normalizeStreamPart,
+  normalizeStreamTag,
+  persistedReasoningStreams,
+  reasoningStreamPartsForDisplay,
   multiplexAuxiliaryStreamTimeline,
   otherDelegatedStreamPartsForDisplay,
   persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   primaryStreamPartsForDisplay,
+  appendAndMergeReadToolPreviewChunk,
+  appendReadToolPreviewChunk,
+  findReadToolTrailTargetIndex,
+  isReadToolPreviewStreamTag,
+  isWorkspaceReadToolLabel,
+  mergeReadPreviewIntoToolTrailParts,
   READ_TOOL_PREVIEW_STREAM_TAG,
+  WORKSPACE_READ_TOOL_NAMES,
+  TOOL_NODE_SMOKE_STREAM_TAG,
+  TOOL_OVERLAY_STREAM_TAG,
+  TOOL_PYTEST_STREAM_TAG,
+  TOOL_SMOKE_STREAM_TAG,
   SHELL_STYLE_TOOL_STREAM_TAGS,
   shellDelegatedStreamPartsForDisplay,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
-  streamIndicatesNestedSpecialistRouting,
   streamPlainOneLine,
+  toolTrailStatusIdFromStreamTag,
   toolTrailStatusStreamTag,
   TOOL_TRAIL_STATUS_STREAM_PREFIX,
 } from './stream-parts';
 export type { PersistedAssistantStreamFields } from './stream-parts';
+export {
+  condenseToolTrailText,
+  readToolPreviewBody,
+  readToolPreviewTail,
+  readToolPreviewTailForDisplay,
+  readToolStatusHeadline,
+  READ_TOOL_STREAM_BODY_MARKER,
+  delegatedStreamPartMeta,
+  shellStreamPartBadgeMeta,
+  shellStreamPartPillState,
+  shouldShowReadToolPreview,
+  streamPartIsExpandable,
+  terminalTailPreview,
+  toolStatusStreamPartMeta,
+  toolStatusStreamPartPillState,
+} from './tool-trail-pill';
+export type { ToolTrailPillState } from './tool-trail-pill';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { parseAgentStreamPayload } from './stream-payload';
 export type {
@@ -144,6 +183,16 @@ export type { TtsStreamPacket } from './types/tts';
 export type { HostOsInfo } from './types/host-os';
 export type { ScriptLaunchPlan } from './types/script';
 export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
+export { diffLineChangeCounts, formatDiffLineChangeSummary } from './diff-stats';
+export type { DiffLineChangeCounts } from './diff-stats';
+export {
+  hitlTrailItemsFromArtifacts,
+  hitlTrailKindLabel,
+  hitlTrailPanelTitle,
+  hitlTrailRowKindText,
+  hitlTrailStatusLabel,
+} from './hitl-trail';
+export type { HitlTrailArtifact, HitlTrailItem, HitlTrailKind } from './hitl-trail';
 export type { LspDashboardServerEntry, LspDashboardStatus } from './types/lsp-dashboard';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
 export type { LspServerKind } from './lsp-file-policy';
@@ -155,6 +204,7 @@ export {
   lspServerIdForMonacoLanguageId,
 } from './lsp-file-policy';
 export type { AcceptCommandPayload } from './types/accept-command';
+export type { PlanConfirmPayload } from './types/plan-confirm';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';
 export type {

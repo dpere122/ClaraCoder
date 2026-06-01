@@ -7,6 +7,8 @@ export interface PlannerStep {
   id: string;
   text: string;
   state: PlannerStepState;
+  /** Set when the replanner adds this step mid-execution. */
+  addedDuringExecution?: boolean;
 }
 
 export interface PlannerProgress {

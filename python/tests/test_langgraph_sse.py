@@ -66,7 +66,7 @@ def test_tool_exec_chunk_event_is_forwarded() -> None:
             'event': 'tool_exec_chunk',
             'data': {
                 'delta': 'test output line\n',
-                'stream_tag': 'spec-code_review-tests',
+                'stream_tag': 'tool-pytest',
                 'label': 'Pytest',
             },
         },
@@ -79,7 +79,7 @@ def test_tool_exec_chunk_event_is_forwarded() -> None:
 
     assert len(lines) == 1
     assert '"type": "tool_exec_chunk"' in lines[0]
-    assert '"stream_tag": "spec-code_review-tests"' in lines[0]
+    assert '"stream_tag": "tool-pytest"' in lines[0]
     assert '"label": "Pytest"' in lines[0]
 
 
@@ -115,7 +115,7 @@ def test_tool_exec_complete_event_is_forwarded() -> None:
         {
             'event': 'tool_exec_complete',
             'data': {
-                'stream_tag': 'spec-project_review-tests',
+                'stream_tag': 'tool-pytest',
                 'label': 'Workspace Pytest',
                 'exit_code': 1,
             },
@@ -129,7 +129,7 @@ def test_tool_exec_complete_event_is_forwarded() -> None:
 
     assert len(lines) == 1
     assert '"type": "tool_exec_complete"' in lines[0]
-    assert '"stream_tag": "spec-project_review-tests"' in lines[0]
+    assert '"stream_tag": "tool-pytest"' in lines[0]
     assert '"exit_code": 1' in lines[0]
 
 
@@ -139,7 +139,7 @@ def test_tool_exec_complete_forwards_output_excerpt() -> None:
         {
             'event': 'tool_exec_complete',
             'data': {
-                'stream_tag': 'spec-project_review-tests',
+                'stream_tag': 'tool-pytest',
                 'label': 'Workspace Pytest',
                 'exit_code': 2,
                 'output_excerpt': 'FAILED tests/test_x.py::test_a',
@@ -241,7 +241,7 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
     assert state.partial_stream_text == 'Hello world'
 
 
-def test_chat_model_stream_emits_moe_for_reasoning_chunk() -> None:
+def test_chat_model_stream_emits_reasoning_tag_for_reasoning_chunk() -> None:
     state = GraphStreamState()
     lines = sse_lines_for_graph_event(
         {
@@ -264,11 +264,11 @@ def test_chat_model_stream_emits_moe_for_reasoning_chunk() -> None:
     assert '"delta": "Hi"' in lines[0]
     assert '"stream_tag": "agent"' in lines[0]
     assert '"delta": "think"' in lines[1]
-    assert '"stream_tag": "moe"' in lines[1]
-    assert state.moe_emitted_this_step is True
+    assert '"stream_tag": "reasoning"' in lines[1]
+    assert state.reasoning_emitted_this_step is True
 
 
-def test_chat_model_end_emits_moe_sidecar_when_not_streamed() -> None:
+def test_chat_model_end_emits_reasoning_sidecar_when_not_streamed() -> None:
     state = GraphStreamState()
     sse_lines_for_graph_event(
         {
@@ -298,7 +298,7 @@ def test_chat_model_end_emits_moe_sidecar_when_not_streamed() -> None:
     assert len(lines) == 2
     assert '"type": "chunk"' in lines[0]
     assert 'Side reasoning only' in lines[0]
-    assert '"stream_tag": "moe"' in lines[0]
+    assert '"stream_tag": "reasoning"' in lines[0]
     assert '"type": "status"' in lines[1]
 
 

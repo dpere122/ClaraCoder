@@ -28,55 +28,46 @@
     <div class="diff-card border rounded-2 overflow-hidden" [class.diff-card--in-expand]="diffExpanded()">
     <div class="diff-toolbar diff-toolbar--labeled p-2 border-bottom">
       <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2 mb-2">
-        <div class="diff-toolbar-group">
-          <span class="diff-toolbar-label">File</span>
-          <code class="diff-filename small mb-0">{{ payload().relativePath }}</code>
-        </div>
+        <code class="diff-filename small mb-0">{{ payload().relativePath }}</code>
         @if (payload().truncated) {
           <span class="badge text-bg-warning">{{
-            isStagedTransferHitl()
-              ? 'Truncated — review carefully before approving the workspace transfer'
-              : 'Truncated — use “Accept entire diff once” only'
+            isStagedTransferHitl() ? 'Truncated' : 'Truncated — apply all only'
           }}</span>
         }
         @if (!isStagedTransferHitl() && changeProgressLabel()) {
-          <div class="diff-toolbar-group">
-            <span class="diff-toolbar-label">Progress</span>
-            <span class="small fw-medium">{{ changeProgressLabel() }}</span>
-          </div>
+          <span class="small fw-medium text-secondary">{{ changeProgressLabel() }}</span>
         }
       </div>
       <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2">
         <div class="diff-toolbar-group flex-grow-1" style="min-width: 160px; max-width: 320px">
-          <span class="diff-toolbar-label">Search</span>
           <input
             type="search"
             class="form-control form-control-sm diff-search"
-            [attr.aria-label]="'Search in diff for ' + payload().relativePath"
-            placeholder="Filter lines in this diff"
+            [attr.aria-label]="'Filter diff for ' + payload().relativePath"
+            placeholder="Filter…"
             [ngModel]="searchQuery()"
             (ngModelChange)="searchQuery.set($event)"
           />
         </div>
         @if (isStagedTransferHitl()) {
-          <span class="badge text-bg-info">Staged → workspace</span>
+          <span class="badge text-bg-info">Staged</span>
           <button
             type="button"
             class="btn btn-sm btn-success"
             [disabled]="applying()"
             (click)="approveStagedTransferHitl()"
-            title="Write staged content to the real workspace and resume the assistant"
+            title="Write staged content to workspace"
           >
-            Approve transfer
+            Approve
           </button>
           <button
             type="button"
             class="btn btn-sm btn-outline-primary"
             [disabled]="applying()"
             (click)="returnStagedTransferForReReview()"
-            title="Do not write yet; send back to code review / writer with your notes"
+            title="Return to review with notes"
           >
-            Return for re-review
+            Re-review
           </button>
           <button
             type="button"
@@ -113,9 +104,9 @@
             class="btn btn-sm btn-outline-primary"
             [disabled]="applying()"
             (click)="applyAllAtOnce()"
-            title="Write the full proposed file at once"
+            title="Apply full proposed file"
           >
-            Accept entire diff once
+            Apply all
           </button>
           <button
             type="button"
@@ -142,16 +133,14 @@
       </div>
       @if (isStagedTransferHitl()) {
         <div class="diff-toolbar-row px-2 pb-2">
-          <label class="form-label small text-secondary mb-1" for="staged-rereview-notes">
-            Notes for code review / writer (optional, used with “Return for re-review”)
-          </label>
+          <label class="form-label small text-secondary mb-1" for="staged-rereview-notes">Notes</label>
           <textarea
             id="staged-rereview-notes"
             class="form-control form-control-sm"
             rows="2"
             [ngModel]="reReviewFeedback()"
             (ngModelChange)="reReviewFeedback.set($event)"
-            placeholder="What should change before this lands in the workspace?"
+            placeholder="Optional feedback"
           ></textarea>
         </div>
       }
@@ -159,7 +148,7 @@
 
     <div class="diff-panes" [class.diff-panes--stacked]="stacked()">
       <div class="diff-pane">
-        <div class="diff-pane-label">Original (workspace)</div>
+        <div class="diff-pane-label">Before</div>
         <cdk-virtual-scroll-viewport #leftVp [itemSize]="itemSize" class="diff-viewport">
           <div *cdkVirtualFor="let item of listItems(); trackBy: trackByIndex" class="diff-vrow">
             @if (item.t === 'h') {
@@ -182,7 +171,7 @@
                 @if (hunkAccepted(item.hunkIndex)) {
                   <span class="badge text-bg-success diff-accepted-badge">Accepted</span>
                 }
-                <button type="button" class="btn btn-sm btn-link py-0" (click)="copyHunk(item.hunkIndex)">Copy hunk</button>
+                <button type="button" class="btn btn-sm btn-link py-0" (click)="copyHunk(item.hunkIndex)">Copy</button>
               </div>
             } @else {
               <div
@@ -210,7 +199,7 @@
       </div>
 
       <div class="diff-pane">
-        <div class="diff-pane-label">Proposed (after edits)</div>
+        <div class="diff-pane-label">After</div>
         <cdk-virtual-scroll-viewport #rightVp [itemSize]="itemSize" class="diff-viewport">
           <div *cdkVirtualFor="let item of listItems(); trackBy: trackByIndex" class="diff-vrow">
             @if (item.t === 'h') {
@@ -233,7 +222,7 @@
                 @if (hunkAccepted(item.hunkIndex)) {
                   <span class="badge text-bg-success diff-accepted-badge">Accepted</span>
                 }
-                <button type="button" class="btn btn-sm btn-link py-0" (click)="copyHunk(item.hunkIndex)">Copy hunk</button>
+                <button type="button" class="btn btn-sm btn-link py-0" (click)="copyHunk(item.hunkIndex)">Copy</button>
               </div>
             } @else {
               <div
@@ -259,12 +248,6 @@
           </div>
         </cdk-virtual-scroll-viewport>
       </div>
-    </div>
-    <div class="diff-hint small text-secondary px-2 py-2 border-top">
-      <strong>How it works:</strong> Accept writes the current change and moves on. Skip keeps the original text for
-      that change. When every change is resolved (or you use Accept entire diff once), the assistant resumes on the same
-      reply. Cancel abandons the proposal. Shortcut: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (or <kbd>Cmd</kbd>+<kbd>Enter</kbd>)
-      accepts the current change.
     </div>
     </div>
   </div>

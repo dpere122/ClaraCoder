@@ -15,25 +15,23 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { StreamPart } from '@shared/index';
+import type { StreamPart, PlannerProgress } from '@shared/index';
 import {
-  auxiliaryTimelineEmbedsToolStatus,
   isClaraOuterBriefStreamTag,
   joinPrimaryAssistantStreamText,
   multiplexAuxiliaryStreamTimeline,
   persistedAuxiliaryStreamTimeline,
   primaryStreamPartsForDisplay,
 } from '@shared/index';
-import { AcceptCommandComponent } from '../../diff/accept-command/accept-command';
-import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
-import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
-import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { MarkdownPipe } from './markdown.pipe';
 import {
   AuxiliaryStreamPanelComponent,
   DEFAULT_AUXILIARY_STREAM_PANEL_TITLE,
   PERSISTED_AUXILIARY_STREAM_PANEL_TITLE,
 } from './auxiliary-stream-panel/auxiliary-stream-panel';
+import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
+import { HitlTrailPanelComponent } from './hitl-trail-panel/hitl-trail-panel';
+import { ToolChainPillComponent } from './tool-chain-pill/tool-chain-pill';
 import { RunButtonDirective } from './run-button.directive';
 import { TalkUiState } from '../../../core/talk-ui-state';
 import {
@@ -50,10 +48,17 @@ import {
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   hashChatToolPhaseKey,
+  hitlArtifactsExcludingPlanConfirm,
   isHitlActivationMessage,
   isScrollWorthyAppendMessage,
+  planPanelContext,
+  resolveLiveAssistantTurn,
   stripClaraChainRowsFromChainGroups,
+  stripPlannerChainRowsFromChainGroups,
   stripToolChainRowsFromChainGroups,
+  shouldStripToolChainRowsForAuxPanel,
+  liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
+  turnHasPlanPanel,
   toolChainSummary,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
@@ -68,9 +73,15 @@ export {
   buildChatDisplayRows,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
+  hitlArtifactsExcludingPlanConfirm,
   isHitlActivationMessage,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  planPanelContext,
+  stripPlannerChainRowsFromChainGroups,
+  shouldStripToolChainRowsForAuxPanel,
+  liveTurnPresentationSettled,
+  turnHasPlanPanel,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
   type ArtifactMessage,
@@ -102,12 +113,11 @@ type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
   imports: [
     MarkdownPipe,
     RunButtonDirective,
-    DiffApplyComponent,
-    AcceptCommandComponent,
-    CopyConfirmComponent,
-    DeleteConfirmComponent,
     NgxSpinnerComponent,
     AuxiliaryStreamPanelComponent,
+    HitlTrailPanelComponent,
+    PlannerChecklistComponent,
+    ToolChainPillComponent,
   ],
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
@@ -159,6 +169,7 @@ export class ChatBox implements OnDestroy {
   readonly processingToolsActive = input(false);
   readonly ttsLoading = input(false);
   readonly streamingParts = input<StreamPart[]>([]);
+  readonly streamingPlanner = input<PlannerProgress | null>(null);
   readonly fontSize = input(0.9);
   readonly sendResponse = output<string>();
   readonly diffReviewFinished = output<{
@@ -177,6 +188,11 @@ export class ChatBox implements OnDestroy {
     summary?: string;
   }>();
   readonly copyReviewFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  readonly planConfirmFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
@@ -257,6 +273,16 @@ export class ChatBox implements OnDestroy {
 
   readonly liveAuxiliaryTimeline = computed(() => multiplexAuxiliaryStreamTimeline(this.streamingParts()));
 
+  readonly liveTurnPresentationSettled = computed(() =>
+    computeLiveTurnPresentationSettled(
+      !!this.livePlanPanel(),
+      this.rawPrimaryStreamText(),
+      this.primaryStreamLiveText(),
+    ),
+  );
+
+  readonly liveChainToolLive = computed(() => this.loading() && !this.liveTurnPresentationSettled());
+
   /**
    * Raw primary stream text - used for extracting the brief to show as panel title.
    * During streaming, briefs update the panel title; the main response area stays empty.
@@ -279,12 +305,8 @@ export class ChatBox implements OnDestroy {
 
   readonly liveTurn = computed<Extract<ChatDisplayRow, { kind: 'assistant-turn' }> | null>(() => {
     if (!this.loading()) return null;
-    const rows = this.transcriptRows();
-    const last = rows.at(-1);
-    const trailingTurn = last?.kind === 'assistant-turn' && !last.assistant ? last : null;
-    // In-flight turn (tool trail, HITL cards, stream text) always renders in the live bubble.
     return (
-      trailingTurn ?? {
+      resolveLiveAssistantTurn(this.transcriptRows()) ?? {
         kind: 'assistant-turn',
         assistant: null,
         chainGroups: [],
@@ -293,7 +315,18 @@ export class ChatBox implements OnDestroy {
     );
   });
 
-  /** True while the live bubble is blocked on diff / delete / copy / command approval. */
+  readonly livePlanPanel = computed(() => {
+    if (!this.loading()) return null;
+    return planPanelContext(this.streamingPlanner(), this.liveTurn()?.artifacts ?? []);
+  });
+
+  readonly liveHitlArtifacts = computed(() => {
+    const turn = this.liveTurn();
+    if (!turn) return [];
+    return hitlArtifactsExcludingPlanConfirm(turn.artifacts);
+  });
+
+  /** True while the live bubble is blocked on diff / delete / copy / command / plan approval. */
   readonly liveAwaitingHitlReview = computed(() => {
     const turn = this.liveTurn();
     return turn != null && turnHasPendingHitlArtifacts(turn.artifacts);
@@ -309,7 +342,10 @@ export class ChatBox implements OnDestroy {
   readonly liveChainGroupsForDisplay = computed(() => {
     let base = this.liveVisibleChainGroups();
     base = stripClaraChainRowsFromChainGroups(base);
-    if (auxiliaryTimelineEmbedsToolStatus(this.liveAuxiliaryTimeline())) {
+    if (this.livePlanPanel()) {
+      base = stripPlannerChainRowsFromChainGroups(base);
+    }
+    if (shouldStripToolChainRowsForAuxPanel(this.liveAuxiliaryTimeline(), !!this.livePlanPanel())) {
       base = stripToolChainRowsFromChainGroups(base);
     }
     return base;
@@ -333,10 +369,17 @@ export class ChatBox implements OnDestroy {
 
   /**
    * Show the auxiliary panel during streaming when there's a brief or auxiliary content.
+   * When the unified plan panel is visible, omit a title-only shell (no multiplex segments).
    */
-  readonly showLiveAuxiliaryPanel = computed(() =>
-    this.liveAuxiliaryTimeline().length > 0 || this.rawPrimaryStreamText().trim().length > 0,
-  );
+  readonly showLiveAuxiliaryPanel = computed(() => {
+    if (this.liveAuxiliaryTimeline().length > 0) {
+      return true;
+    }
+    if (this.livePlanPanel()) {
+      return false;
+    }
+    return this.rawPrimaryStreamText().trim().length > 0;
+  });
 
   readonly processingBubbleLabel = computed(() => {
     if (!this.loading()) {
@@ -605,24 +648,6 @@ export class ChatBox implements OnDestroy {
     return index === this.persistedRows().length - 1;
   }
 
-  /** Stable keys for `\@for` over artifacts (avoid `$index` reuse bugs). */
-  protected artifactTrackKey(artifact: ArtifactMessage): string {
-    switch (artifact.role) {
-      case 'diff': {
-        const p = artifact.payload;
-        return `diff:${p.relativePath}|${p.baseSha256 ?? ''}|${p.rows.length}|${p.fullNewContent.length}`;
-      }
-      case 'accept_command':
-        return `accept:${artifact.payload.requestId}`;
-      case 'copy_confirm':
-        return `copy:${artifact.payload.requestId}`;
-      case 'delete_confirm':
-        return `del:${artifact.payload.requestId}`;
-      default:
-        return 'artifact';
-    }
-  }
-
   private scheduleMeasureVisibleRows(): void {
     if (this.chatDestroyed || this.measurePassScheduled) return;
     this.measurePassScheduled = true;
@@ -702,11 +727,25 @@ export class ChatBox implements OnDestroy {
     }
     let groups = row.chainGroups;
     const timeline = persistedAuxiliaryStreamTimeline(row.assistant ?? undefined);
-    if (auxiliaryTimelineEmbedsToolStatus(timeline)) {
+    const hasPlan = turnHasPlanPanel(row.assistant?.planner, row.artifacts);
+    if (shouldStripToolChainRowsForAuxPanel(timeline, hasPlan)) {
       groups = stripToolChainRowsFromChainGroups(groups);
     }
     groups = stripClaraChainRowsFromChainGroups(groups);
+    if (hasPlan) {
+      groups = stripPlannerChainRowsFromChainGroups(groups);
+    }
     return groups;
+  }
+
+  planPanelForTurn(row: ChatDisplayRow): ReturnType<typeof planPanelContext> {
+    if (row.kind !== 'assistant-turn') return null;
+    return planPanelContext(row.assistant?.planner, row.artifacts);
+  }
+
+  hitlArtifactsForTurn(row: ChatDisplayRow): ArtifactMessage[] {
+    if (row.kind !== 'assistant-turn') return [];
+    return hitlArtifactsExcludingPlanConfirm(row.artifacts);
   }
 
   auxiliaryPanelTitleForTurn(_row: ChatDisplayRow): string {

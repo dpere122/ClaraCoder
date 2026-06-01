@@ -22,6 +22,7 @@ export type ChatRowHeightInput =
         text?: string;
         planner?: { steps: readonly unknown[] };
         toolStreams?: readonly unknown[] | null;
+        reasoningStreams?: readonly unknown[] | null;
         moeStreams?: readonly unknown[] | null;
         auxiliaryStreamTimeline?: readonly unknown[] | null;
       } | null;
@@ -46,9 +47,12 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
   let h = bubblePad + 6;
   const planner = row.assistant?.planner;
   if (planner && planner.steps.length > 0) {
-    h += 40 + planner.steps.length * 26;
+    h += 72 + planner.steps.length * 44;
+    if (row.artifacts.some((a) => a.role === 'plan_confirm')) {
+      h += 52;
+    }
   }
-  h += row.chainGroups.length * 34;
+  h += row.chainGroups.length * 24;
   for (const g of row.chainGroups) {
     for (const r of g.rows) {
       const rec = r as { streamTag?: string; text?: string };
@@ -57,27 +61,29 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
         const lines = Math.max(2, Math.ceil((rec.text?.length ?? 0) / 52));
         h += Math.min(420, 40 + lines * 16);
       } else {
-        h += 20;
+        h += 24;
       }
     }
   }
   const timeline = row.assistant?.auxiliaryStreamTimeline?.length ?? 0;
   if (timeline > 0) {
-    h += Math.min(520, 72 + timeline * Math.min(140, 56 + linePx * 2.5));
+    // Persisted auxiliary panel defaults to collapsed (header only).
+    h += 40;
   } else {
     const streams = row.assistant?.toolStreams?.length ?? 0;
     if (streams > 0) {
       h += streams * Math.min(200, 80 + linePx * 3);
     }
-    const moeStreams = row.assistant?.moeStreams?.length ?? 0;
-    if (moeStreams > 0) {
-      h += moeStreams * Math.min(220, 56 + linePx * 4);
+    const reasoningStreams =
+      row.assistant?.reasoningStreams?.length ?? row.assistant?.moeStreams?.length ?? 0;
+    if (reasoningStreams > 0) {
+      h += reasoningStreams * Math.min(220, 56 + linePx * 4);
     }
   }
   for (const art of row.artifacts) {
-    if (art.role === 'diff') h += 240;
-    else if (art.role === 'delete_confirm' || art.role === 'copy_confirm' || art.role === 'accept_command') {
-      h += 200;
+    if (art.role === 'diff' || art.role === 'delete_confirm' || art.role === 'copy_confirm' || art.role === 'accept_command') {
+      h += 40;
+      break;
     }
   }
   const textLen = row.assistant?.text?.length ?? 0;

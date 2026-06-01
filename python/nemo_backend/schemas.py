@@ -30,6 +30,11 @@ class ChatRequest(BaseModel):
     auto_apply_mode: bool = False
     #: Optional LangGraph ``checkpoint_id`` to continue or replay from (fork head / time-travel).
     checkpoint_id: str = ''
+    #: Composer run mode: ``agent`` (ReAct) or ``plan`` (plan-and-execute orchestrator).
+    composer_mode: Literal['agent', 'plan'] = Field(
+        default='agent',
+        validation_alias=AliasChoices('composer_mode', 'composerMode'),
+    )
 
     @field_validator('structured_content')
     @classmethod
@@ -84,6 +89,15 @@ class AgentContinueRequest(BaseModel):
     staged_transfer_action: Literal['confirm', 're_review'] | None = Field(
         default=None,
         validation_alias=AliasChoices('staged_transfer_action', 'stagedTransferAction'),
+    )
+    #: When set with a pending plan-confirm request, approve or cancel before execution begins.
+    plan_confirm_action: Literal['confirm', 'cancel'] | None = Field(
+        default=None,
+        validation_alias=AliasChoices('plan_confirm_action', 'planConfirmAction'),
+    )
+    plan_confirm_request_id: str = Field(
+        default='',
+        validation_alias=AliasChoices('plan_confirm_request_id', 'planConfirmRequestId'),
     )
 
 

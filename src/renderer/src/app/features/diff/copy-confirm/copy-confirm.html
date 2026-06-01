@@ -18,13 +18,8 @@
 } @else {
   <div class="copy-card border border-primary border-opacity-50 rounded-2 overflow-hidden">
     <div class="copy-toolbar p-2 border-bottom bg-primary bg-opacity-10">
-      <div class="fw-medium text-primary">Confirm workspace copy</div>
       <div class="small text-secondary">
-        This will copy {{ copyCountLabel() }}
-        @if (payload().overwrite) {
-          <span> with overwrite enabled</span>
-        }
-        .
+        {{ copyCountLabel() }}@if (payload().overwrite) { · overwrite}
       </div>
       <div class="copy-list small mt-2">
         @for (item of payload().copies; track $index) {
@@ -42,7 +37,7 @@
           [disabled]="busy()"
           (click)="onConfirm()"
         >
-          Confirm copy
+          Copy
         </button>
         <button
           type="button"

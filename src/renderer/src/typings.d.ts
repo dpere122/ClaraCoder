@@ -114,6 +114,12 @@ declare global {
     onMessageDeleteConfirm?: (
       callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
     ) => void;
+    onMessagePlannerProgress?: (
+      callback: (event: unknown, conversationId: string, planner: import('@shared/index').PlannerProgress) => void,
+    ) => void;
+    onMessagePlanConfirm?: (
+      callback: (event: unknown, conversationId: string, payload: import('@shared/index').PlanConfirmPayload) => void,
+    ) => void;
     sendMessage: (
       conversationId: string,
       msg: string,
@@ -121,6 +127,7 @@ declare global {
       autoApplyMode?: boolean,
       structuredContent?: ChatStructuredContentPart[],
       workspaceId?: string | null,
+      composerMode?: 'agent' | 'plan',
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     getPendingStreamIdsForWorkspace: (workspaceId: string | null) => Promise<string[]>;
@@ -135,6 +142,8 @@ declare global {
       acceptCommandAction?: 'confirm' | 'cancel',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
+      planConfirmAction?: 'confirm' | 'cancel',
+      planConfirmRequestId?: string,
     ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (

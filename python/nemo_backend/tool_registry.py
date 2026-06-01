@@ -18,6 +18,8 @@ When Editor and Auto-apply are both on, staging tools are replaced by direct wor
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
 ``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
 the user confirms in chat (or returns for re-review) unless auto-apply is on.
+Workspace **execute** tools (venv bootstrap, pytest/smoke, staging overlay commands) use the same
+accept-command pause when auto-apply is off (see :mod:`nemo_backend.deferred_tool_hitl`).
 """
 
 from __future__ import annotations
@@ -137,6 +139,8 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
         names |= _LSP_CREATE_UPDATE_NAMES
         names.add(FORMAT_WORKSPACE_FILE_BLACK_NAME)
         names.add(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
+        # Staged→workspace transfer can still run under direct bindings (plan mode / auto-apply off).
+        names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
         return frozenset(names)
     names = {t.name for t in staging_workspace_write_tools(edit_strict)}
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
@@ -156,6 +160,7 @@ def hitl_copy_pause_tools() -> frozenset[str]:
 
 
 def hitl_accept_command_pause_tools() -> frozenset[str]:
+    from nemo_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
     from nemo_backend.process_tools import KILL_PROCESS_NAME
 
     return frozenset(
@@ -168,9 +173,9 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
             NPM_INSTALL_PROJECT_NAME,
             RUN_NPM_SCRIPT_NAME,
             ANGULAR_CLI_TOOL_NAME,
-            KILL_PROCESS_NAME,  
+            KILL_PROCESS_NAME,
         }
-    )
+    ) | DEFERRED_HITL_TOOL_NAMES
 
 
 def worker_tools_and_map(
@@ -257,3 +262,16 @@ def worker_tools_and_map(
             ],
         )
     return tools, mapping
+
+
+def format_tools_catalog(tools: list[Any]) -> str:
+    """Name + description listing for planner/replanner prompts (mirrors executor bindings)."""
+    lines: list[str] = []
+    for tool in tools:
+        name = getattr(tool, 'name', None) or getattr(tool, '__name__', 'unknown')
+        desc = (getattr(tool, 'description', None) or '').strip()
+        if desc:
+            lines.append(f'- `{name}`: {desc}')
+        else:
+            lines.append(f'- `{name}`')
+    return '\n'.join(lines)

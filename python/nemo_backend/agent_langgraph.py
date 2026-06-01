@@ -79,6 +79,7 @@ def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamS
         session.pending_delete_request
         or session.pending_copy_request
         or session.pending_accept_command_request
+        or session.pending_staged_transfer_hitl is not None
     ):
         return False
     return True
@@ -294,6 +295,8 @@ class AgentGraphConfig:
     failed_run_message: str
     thread_kind: str
     done_detail: str
+    #: When set, used for LangGraph ``thread_id`` instead of ``session_id`` (per-step executor isolation).
+    checkpoint_session_key: str | None = None
 
 
 async def _stream_langgraph_tool_agent(
@@ -336,7 +339,7 @@ async def _stream_langgraph_tool_agent(
     _graph_make = outer_graph_builder or _default_outer_graph_builder
     graph = _graph_make(llm, session, apply_mode, extra_middleware)
     thread_id = outer_agent_thread_id(
-        cfg.session_id,
+        cfg.checkpoint_session_key or cfg.session_id,
         cfg.thread_kind,
         apply_mode=apply_mode,
     )
@@ -374,17 +377,19 @@ async def _stream_langgraph_tool_agent(
     main_state = GraphStreamState()
     nested_states: dict[str, GraphStreamState] = {}
     main_stream_tag = 'agent'
-    pump_task = asyncio.create_task(pump_events())
+    # Subprocess / nested tool streaming (pytest, smoke, overlay) shares one queue.
+    # Outer chat streams always allocate a queue so project-review tools can emit tool_exec_* SSE.
+    nested_stream_q = nested_planning_queue if nested_planning_queue is not None else asyncio.Queue()
 
     session.active_langgraph_agent_streams += 1
     if apply_mode:
         session.active_editor_langgraph_streams += 1
     session.worker_apply_mode = session.active_editor_langgraph_streams > 0
+    # Assign before ``pump_events`` so diff/copy/delete middleware can queue HITL on the first tool turn.
     session.hitl_sse_queue = hitl_q
-    # Subprocess / nested tool streaming (pytest, smoke, overlay) shares one queue.
-    # Outer chat streams always allocate a queue so project-review tools can emit tool_exec_* SSE.
-    nested_stream_q = nested_planning_queue if nested_planning_queue is not None else asyncio.Queue()
     session.planning_nested_events_q = nested_stream_q
+
+    pump_task = asyncio.create_task(pump_events())
 
     queues = (events_q, hitl_q, nested_stream_q)
     queue_labels = ('ev', 'hitl', 'nested')

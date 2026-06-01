@@ -115,15 +115,11 @@ export function findParentPathInFlatTree(flat: FlatNode[], childPath: string): s
   return null;
 }
 
-export function describeWorkspaceChange(event: { paths: string[]; kinds: WorkspaceChangeKind[] }): string {
-  const kind = event.kinds[0] ?? 'unknown';
-  const pathLabel = event.paths[0] ?? 'workspace';
-  const moreCount = Math.max(0, event.paths.length - 1);
-  const kindLabel = kind === 'unknown' ? 'changed' : kind;
-  if (moreCount === 0) {
-    return `${pathLabel} ${kindLabel}`;
-  }
-  return `${pathLabel} ${kindLabel} (+${moreCount} more)`;
+/** Basename for status-bar workspace change toasts. */
+export function workspaceFileBasename(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  const slash = normalized.lastIndexOf('/');
+  return slash >= 0 ? normalized.slice(slash + 1) : normalized;
 }
 
 export function scrollWorkspaceTreeNodeToPath(absolutePath: string): void {

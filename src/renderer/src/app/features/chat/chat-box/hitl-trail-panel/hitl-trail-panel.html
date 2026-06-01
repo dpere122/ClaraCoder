@@ -1,0 +1,89 @@
+<div
+  class="stream-trail-panel hitl-trail-panel"
+  [class.stream-trail-panel--live]="live()"
+  [class.stream-trail-panel--collapsed]="mode() === 'collapsed'"
+  [class.stream-trail-panel--preview]="mode() === 'preview'"
+  [class.stream-trail-panel--expanded]="mode() === 'expanded'"
+>
+  <button
+    type="button"
+    class="stream-trail-panel__toggle"
+    (click)="toggleMode()"
+    [attr.aria-expanded]="contentVisible()"
+  >
+    <span class="stream-trail-panel__title" [attr.title]="panelTitle()">{{ panelTitle() }}</span>
+    <span class="stream-trail-panel__chevron" aria-hidden="true">{{ isExpanded() ? '▼' : '▶' }}</span>
+  </button>
+
+  @if (contentVisible()) {
+    <div
+      #viewport
+      class="stream-trail-panel__viewport"
+      [class.stream-trail-panel__viewport--peek]="mode() === 'preview'"
+      [class.stream-trail-panel__viewport--full]="mode() === 'expanded'"
+    >
+      <ul class="hitl-trail-list" role="list">
+        @for (item of trailItems(); track trackItemId(item)) {
+          <li
+            class="stream-trail-row hitl-trail-row"
+            [class.stream-trail-row--pending]="item.pending"
+            [class.stream-trail-row--complete]="item.reviewStatus === 'complete'"
+            [class.stream-trail-row--cancelled]="item.reviewStatus === 'cancelled'"
+          >
+            <span class="stream-trail-row__meta">{{ rowKindText(item) }}</span>
+            <span class="stream-trail-row__sep">&middot;</span>
+            <span class="stream-trail-row__name" [attr.title]="item.detailPath ?? item.label">{{ item.label }}</span>
+          </li>
+        }
+      </ul>
+    </div>
+  }
+
+  @if (showExpandedDetails()) {
+    <div class="hitl-trail-panel__details">
+      @for (artifact of pendingArtifacts(); track artifactTrackKey(artifact)) {
+        @if (artifact.role === 'diff') {
+          <div class="hitl-trail-detail hitl-trail-detail--diff">
+            <app-diff-apply
+              [conversationId]="conversationId()"
+              [payload]="artifact.payload"
+              [reviewStatus]="reviewStatus(artifact)"
+              [reviewSummary]="artifact.reviewSummary"
+              (diffReviewFinished)="diffReviewFinished.emit($event)"
+            />
+          </div>
+        } @else if (artifact.role === 'delete_confirm') {
+          <div class="hitl-trail-detail hitl-trail-detail--delete">
+            <app-delete-confirm
+              [conversationId]="conversationId()"
+              [payload]="artifact.payload"
+              [reviewStatus]="reviewStatus(artifact)"
+              [reviewSummary]="artifact.reviewSummary"
+              (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+            />
+          </div>
+        } @else if (artifact.role === 'accept_command') {
+          <div class="hitl-trail-detail hitl-trail-detail--accept">
+            <app-accept-command
+              [conversationId]="conversationId()"
+              [payload]="artifact.payload"
+              [reviewStatus]="reviewStatus(artifact)"
+              [reviewSummary]="artifact.reviewSummary"
+              (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+            />
+          </div>
+        } @else if (artifact.role === 'copy_confirm') {
+          <div class="hitl-trail-detail hitl-trail-detail--copy">
+            <app-copy-confirm
+              [conversationId]="conversationId()"
+              [payload]="artifact.payload"
+              [reviewStatus]="reviewStatus(artifact)"
+              [reviewSummary]="artifact.reviewSummary"
+              (copyReviewFinished)="copyReviewFinished.emit($event)"
+            />
+          </div>
+        }
+      }
+    </div>
+  }
+</div>

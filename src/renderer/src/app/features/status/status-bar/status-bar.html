@@ -12,4 +12,11 @@
     [(editorMode)]="editorMode"
     [(autoApplyMode)]="autoApplyMode"
   />
+  @if (workspaceFileChange.visible()) {
+    <span
+      class="status-bar__workspace-file"
+      [class.status-bar__workspace-file--fading]="workspaceFileChange.fading()"
+      [attr.title]="workspaceFileChange.fileName()"
+    >{{ workspaceFileChange.fileName() }}</span>
+  }
 </div>

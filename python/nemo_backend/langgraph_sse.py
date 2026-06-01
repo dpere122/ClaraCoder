@@ -30,7 +30,7 @@ from nemo_backend.llm_interaction_logging import (
     log_llm_chat_response,
 )
 from nemo_backend.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
-from nemo_backend.stream_tags import MOE_AUXILIARY_STREAM_TAG
+from nemo_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
 from nemo_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
 from nemo_backend.tool_harness_feedback_middleware import pending_harness_crystal_polarity
 
@@ -46,8 +46,8 @@ class GraphStreamState:
     llm_step: int = 0
     stream_chunks: int = 0
     stream_chars: int = 0
-    #: True once a ``stream_tag=moe`` chunk was emitted for the current LLM step.
-    moe_emitted_this_step: bool = False
+    #: True once a ``stream_tag=reasoning`` chunk was emitted for the current LLM step.
+    reasoning_emitted_this_step: bool = False
 
 
 def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
@@ -144,7 +144,7 @@ def _on_chat_model_start(
     state.llm_step += 1
     state.stream_chunks = 0
     state.stream_chars = 0
-    state.moe_emitted_this_step = False
+    state.reasoning_emitted_this_step = False
     log_llm_chat_request_from_event_input(
         data.get('input'),
         context=llm_log_context,
@@ -179,8 +179,8 @@ def _on_chat_model_stream(
     delta = aimessage_chunk_sse_delta(raw)
     reason_delta = aimessage_chunk_reasoning_delta(raw)
     main_ok = is_meaningful_stream_delta(delta)
-    moe_ok = is_meaningful_stream_delta(reason_delta)
-    if not main_ok and not moe_ok:
+    reasoning_ok = is_meaningful_stream_delta(reason_delta)
+    if not main_ok and not reasoning_ok:
         return []
     if main_ok:
         state.stream_chunks += 1
@@ -192,9 +192,9 @@ def _on_chat_model_stream(
     out: list[str] = []
     if main_ok:
         out.append(model_chunk_sse_line(delta, stream_tag))
-    if moe_ok:
-        out.append(model_chunk_sse_line(reason_delta, MOE_AUXILIARY_STREAM_TAG))
-        state.moe_emitted_this_step = True
+    if reasoning_ok:
+        out.append(model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG))
+        state.reasoning_emitted_this_step = True
     return out
 
 
@@ -215,11 +215,11 @@ def _on_chat_model_end(
     if msg is None:
         return []
     lines: list[str] = []
-    if emit_model_token_sse and not state.moe_emitted_this_step:
+    if emit_model_token_sse and not state.reasoning_emitted_this_step:
         side = reasoning_sidecar_text(msg)
         if side and is_meaningful_stream_delta(side):
-            lines.append(model_chunk_sse_line(side, MOE_AUXILIARY_STREAM_TAG))
-            state.moe_emitted_this_step = True
+            lines.append(model_chunk_sse_line(side, REASONING_AUXILIARY_STREAM_TAG))
+            state.reasoning_emitted_this_step = True
     lines.append(
         sse_line(
             status_event(

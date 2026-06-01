@@ -33,5 +33,15 @@ export function envForChildProcess(): NodeJS.ProcessEnv {
   if (!env.PYTHONUTF8?.trim()) {
     env.PYTHONUTF8 = '1';
   }
+  if (!env.TERM?.trim()) {
+    env.TERM = 'xterm-256color';
+  }
+  if (!env.FORCE_COLOR?.trim()) {
+    env.FORCE_COLOR = '1';
+  }
+  if (!env.PY_COLORS?.trim()) {
+    env.PY_COLORS = '1';
+  }
+  delete env.NO_COLOR;
   return env;
 }

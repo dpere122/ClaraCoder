@@ -1,15 +1,28 @@
-import { Component, computed, effect, HostListener, input, OnDestroy, output, signal, untracked, ViewEncapsulation } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  HostListener,
+  inject,
+  input,
+  OnDestroy,
+  output,
+  signal,
+  untracked,
+  ViewEncapsulation,
+} from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { PythonInterpreterListItem, Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
 import { EditorLspStatusComponent } from '../../shell/editor-lsp-status/editor-lsp-status';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
   collectExpandedPaths,
-  describeWorkspaceChange,
   fileNodesFromDirectoryEntries,
+  workspaceFileBasename,
   findFileNode,
   findFileNodeByNormalizedPath,
   findParentPathInFlatTree,
@@ -34,6 +47,8 @@ import { workspaceTreeTextHintsPython } from './workspace-python-hints';
   encapsulation: ViewEncapsulation.None,
 })
 export class WorkspaceComponent implements OnDestroy {
+  private readonly workspaceFileChangeStatus = inject(WorkspaceFileChangeStatusService);
+
   readonly workspaces = input<Workspace[]>([]);
   readonly currentWorkspaceId = input<string | null>(null);
   /** Active chat session id — Python LSP / interpreter APIs key off this. */
@@ -48,7 +63,6 @@ export class WorkspaceComponent implements OnDestroy {
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   protected readonly loadError = signal('');
-  protected readonly lastWorkspaceChange = signal<string>('');
 
   /** Currently selected node path (keyboard/click selection, distinct from open file). */
   protected readonly selectedPath = signal<string | null>(null);
@@ -206,7 +220,10 @@ export class WorkspaceComponent implements OnDestroy {
         return;
       }
 
-      this.lastWorkspaceChange.set(describeWorkspaceChange(event));
+      const path = event.paths[0] ?? '';
+      if (path) {
+        this.workspaceFileChangeStatus.showFileName(workspaceFileBasename(path));
+      }
       void this.reloadPreservingExpansion(currentWorkspace.path);
       this.lastInterpreterChromeWorkspaceRoot = '';
       const sid = this.activeConversationId()?.trim();
@@ -716,7 +733,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (!pathToLoad) {
       this.tree = [];
       this.loadError.set('');
-      this.lastWorkspaceChange.set('');
+      this.workspaceFileChangeStatus.clear();
       this.rebuildFlat();
       this.initialLoadComplete = false;
       return;

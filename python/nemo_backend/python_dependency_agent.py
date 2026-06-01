@@ -10,6 +10,7 @@ from typing import Awaitable, Callable
 from langchain_core.tools import tool
 
 from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY
+from nemo_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
 from nemo_backend.domain import SessionState
 from nemo_backend.python_env import (
     _python_module_available,
@@ -627,6 +628,13 @@ async def bootstrap_python_testing_dependencies_tool() -> str:
     if not sid:
         return 'Tool error: no active session.'
     session = get_session(sid)
+    pending = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name=BOOTSTRAP_PYTHON_TESTING_DEPENDENCIES_NAME,
+        tool_input={},
+    )
+    if pending:
+        return pending
     result = await bootstrap_session_python_dependencies(session)
     if result is None:
         return 'Tool error: no active workspace Python environment is attached to this session.'

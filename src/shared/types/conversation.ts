@@ -2,6 +2,7 @@ import type { FileDiffPayload } from './diff';
 import type { AcceptCommandPayload } from './accept-command';
 import type { CopyConfirmPayload } from './copy-confirm';
 import type { DeleteConfirmPayload } from './delete-confirm';
+import type { PlanConfirmPayload } from './plan-confirm';
 import type { LlmAgentRole, PlannerProgress } from './llm';
 
 /** One OpenAI-style multimodal block for POST /chat/stream (`structuredContent` / `structured_content`). */
@@ -45,6 +46,8 @@ export type ConversationMessage =
       planner?: PlannerProgress;
       toolStreams?: StreamPart[];
       /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
+      reasoningStreams?: StreamPart[];
+      /** Legacy on-disk field from pre-rename builds. */
       moeStreams?: StreamPart[];
       /** Multiplex order for reasoning + delegated streams (non-primary tags), when available. */
       auxiliaryStreamTimeline?: StreamPart[];
@@ -80,6 +83,12 @@ export type ConversationMessage =
   | {
       role: 'delete_confirm';
       payload: DeleteConfirmPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    }
+  | {
+      role: 'plan_confirm';
+      payload: PlanConfirmPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
     };
@@ -100,6 +109,8 @@ export type ConversationFileMessage =
       planner?: PlannerProgress;
       toolStreams?: StreamPart[];
       /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
+      reasoningStreams?: StreamPart[];
+      /** Legacy on-disk field from pre-rename builds. */
       moeStreams?: StreamPart[];
       /** Multiplex order for reasoning + delegated streams (non-primary tags), when available. */
       auxiliaryStreamTimeline?: StreamPart[];
@@ -135,6 +146,12 @@ export type ConversationFileMessage =
   | {
       role: 'delete_confirm';
       payload: DeleteConfirmPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    }
+  | {
+      role: 'plan_confirm';
+      payload: PlanConfirmPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
     };

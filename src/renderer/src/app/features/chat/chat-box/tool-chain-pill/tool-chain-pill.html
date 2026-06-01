@@ -1,0 +1,51 @@
+<div class="tool-chain-pill">
+
+  <app-stream-tool-pill
+
+    [name]="trail().label"
+
+    [meta]="pillMeta()"
+
+    [state]="pillState()"
+
+    [expandable]="expandable()"
+
+    [expanded]="expanded()"
+
+    [live]="live()"
+
+    (toggle)="toggleExpanded()"
+
+  />
+
+  @if (showReadPreview()) {
+
+    <app-ansi-terminal-pre
+
+      class="tool-chain-pill__read-preview"
+
+      preClass="output-pre terminal-output terminal-ansi"
+
+      [text]="readPreviewTailText()"
+
+    />
+
+  }
+
+  @if (expanded() && expandable()) {
+
+    <app-ansi-terminal-pre
+
+      class="tool-chain-pill__detail"
+
+      preClass="output-pre terminal-output terminal-ansi"
+
+      [text]="isReadTool() ? readExpandedText() : trail().text"
+
+    />
+
+  }
+
+</div>
+
+

@@ -6,6 +6,9 @@ import {
   filterLiveToolChainGroups,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  liveTurnPresentationSettled,
+  resolveLiveAssistantTurn,
+  shouldStripToolChainRowsForAuxPanel,
   turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
   type ChatMessage,
@@ -75,6 +78,7 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].assistant).toBeNull();
     expect(rows[1].chainGroups.length).toBe(1);
     expect(rows[1].artifacts.length).toBe(1);
+    expect(resolveLiveAssistantTurn(rows)).toBe(rows[1]);
   });
 
   it('keeps copy confirmation artifacts grouped with the assistant turn', () => {
@@ -179,7 +183,7 @@ describe('buildChatDisplayRows', () => {
 
   it('preserves persisted shell tool streams on the assistant row', () => {
     const toolStreams = [
-      { streamTag: 'spec-project_review-tests', label: 'Workspace Pytest', text: '1 passed\n' },
+      { streamTag: 'tool-pytest', label: 'Workspace Pytest', text: '1 passed\n' },
     ];
     const messages: ChatMessage[] = [
       { role: 'user', text: 'Review' },
@@ -194,23 +198,25 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].assistant?.toolStreams).toEqual(toolStreams);
   });
 
-  it('preserves persisted moeStreams on the assistant row', () => {
-    const moeStreams = [{ streamTag: 'moe', label: 'Model reasoning', text: 'internal chain' }];
+  it('preserves persisted reasoningStreams on the assistant row', () => {
+    const reasoningStreams = [
+      { streamTag: 'reasoning', label: 'Model reasoning', text: 'internal chain' },
+    ];
     const messages: ChatMessage[] = [
       { role: 'user', text: 'Q' },
-      { role: 'assistant', text: 'A.', moeStreams },
+      { role: 'assistant', text: 'A.', reasoningStreams },
     ];
     const rows = buildChatDisplayRows(messages);
     expect(rows.length).toBe(2);
     expect(rows[1].kind).toBe('assistant-turn');
     if (rows[1].kind !== 'assistant-turn') return;
-    expect(rows[1].assistant?.moeStreams).toEqual(moeStreams);
+    expect(rows[1].assistant?.reasoningStreams).toEqual(reasoningStreams);
   });
 
   it('preserves persisted auxiliaryStreamTimeline on the assistant row', () => {
     const auxiliaryStreamTimeline: StreamPart[] = [
-      { streamTag: 'moe', label: 'Model reasoning', text: 'think' },
-      { streamTag: 'spec-x-tests', label: 'Pytest', text: 'ok\n' },
+      { streamTag: 'reasoning', label: 'Model reasoning', text: 'think' },
+      { streamTag: 'tool-pytest', label: 'Pytest', text: 'ok\n' },
     ];
     const messages: ChatMessage[] = [
       { role: 'user', text: 'Q' },
@@ -367,5 +373,25 @@ describe('filterLiveToolChainGroups', () => {
   it('drops empty tool chain groups', () => {
     const emptyGroup: ToolChainGroup = { key: 'empty', toolCallCount: 0, rows: [] };
     expect(filterLiveToolChainGroups([groups[0], emptyGroup])).toEqual([groups[0]]);
+  });
+});
+
+describe('shouldStripToolChainRowsForAuxPanel', () => {
+  it('strips when plan panel is visible even without embedded tool status', () => {
+    expect(shouldStripToolChainRowsForAuxPanel([], true)).toBe(true);
+    expect(shouldStripToolChainRowsForAuxPanel([], false)).toBe(false);
+  });
+
+  it('strips when auxiliary timeline embeds tool status', () => {
+    const timeline = [{ streamTag: 'tool-trail:read_workspace_file', label: 'read', text: '' }];
+    expect(shouldStripToolChainRowsForAuxPanel(timeline, false)).toBe(true);
+  });
+});
+
+describe('liveTurnPresentationSettled', () => {
+  it('is true when plan is visible without final prose', () => {
+    expect(liveTurnPresentationSettled(true, '', '')).toBe(true);
+    expect(liveTurnPresentationSettled(true, 'brief', '')).toBe(false);
+    expect(liveTurnPresentationSettled(false, '', '')).toBe(false);
   });
 });

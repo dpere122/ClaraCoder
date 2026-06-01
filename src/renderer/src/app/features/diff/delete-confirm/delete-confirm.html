@@ -18,12 +18,11 @@
 } @else {
   <div class="delete-card border border-danger border-opacity-50 rounded-2 overflow-hidden">
     <div class="delete-toolbar p-2 border-bottom bg-danger bg-opacity-10">
-      <div class="fw-medium text-danger">Confirm workspace delete</div>
       <div class="small text-secondary">
         @if (resolvedEntries().length === 1) {
-          {{ kindLabel() }}: <code>{{ resolvedEntries()[0].relativePath }}</code>
+          <code>{{ resolvedEntries()[0].relativePath }}</code>
         } @else {
-          Permanently remove {{ deleteCountLabel() }}:
+          {{ deleteCountLabel() }}
         }
         @if (recursiveWarning()) {
           <div class="mt-1 text-danger-emphasis">{{ recursiveWarning() }}</div>
@@ -48,7 +47,7 @@
           [disabled]="busy()"
           (click)="onConfirm()"
         >
-          Delete permanently
+          Delete
         </button>
         <button
           type="button"

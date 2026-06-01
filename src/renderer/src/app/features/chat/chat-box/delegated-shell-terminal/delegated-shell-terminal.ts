@@ -2,38 +2,48 @@ import {
   Component,
   ElementRef,
   ViewEncapsulation,
+  computed,
   effect,
   input,
   untracked,
   viewChild,
 } from '@angular/core';
+import { terminalTailPreview } from '@shared/index';
+import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
+
+export type DelegatedShellTerminalDisplayMode = 'preview' | 'full';
 
 @Component({
   selector: 'app-delegated-shell-terminal',
   standalone: true,
+  imports: [AnsiTerminalPreComponent],
   templateUrl: './delegated-shell-terminal.html',
   styleUrl: './delegated-shell-terminal.css',
   encapsulation: ViewEncapsulation.None,
 })
 export class DelegatedShellTerminalComponent {
-  /** Shown in the summary line and terminal title row. */
   readonly label = input<string>('Tool output');
-  /** Full multiplexed stream text (e.g. pytest stdout + prefixed stderr lines). */
   readonly text = input.required<string>();
-  /** Whether the subprocess has finished (`tool_exec_complete` or persisted turn). */
   readonly runComplete = input(false);
-  /** Exit code when known; omitted before complete or when the backend could not start the process. */
   readonly exitCode = input<number | null | undefined>(undefined);
-  /** Smoke-test verdict when a watch process was stopped after readiness/steady state. */
   readonly outcome = input<'passed' | 'failed' | undefined>(undefined);
+  readonly displayMode = input<DelegatedShellTerminalDisplayMode>('full');
 
   private readonly terminalBody = viewChild<ElementRef<HTMLElement>>('terminalBody');
+
+  readonly renderText = computed(() => {
+    const raw = this.text();
+    if (this.displayMode() === 'preview') {
+      return terminalTailPreview(raw, 4);
+    }
+    return raw;
+  });
 
   constructor() {
     effect(() => {
       this.text();
+      this.displayMode();
       this.runComplete();
-      this.exitCode();
       untracked(() => {
         queueMicrotask(() => this.scrollBodyToBottom());
       });

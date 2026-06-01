@@ -1,7 +1,12 @@
+@import './stream-trail-panel-shared.css';
+
 app-chat-box {
   display: flex;
   flex-direction: column;
   --chat-font-size: 0.9rem;
+  /** Fixed bubble width: text wraps instead of stretching the bubble horizontally. */
+  --chat-bubble-width: min(80%, 36rem);
+  --chat-response-bubble-width: min(80%, 72rem);
 }
 
 app-chat-box .chat-box {
@@ -20,6 +25,12 @@ app-chat-box .msg-bubble {
   font-size: var(--chat-font-size);
   line-height: 1.5;
   border: 1px solid var(--t-border-subtle);
+  width: var(--chat-bubble-width);
+  max-width: var(--chat-bubble-width);
+  min-width: 0;
+  box-sizing: border-box;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 app-chat-box .assistant-turn-bubble {
@@ -47,13 +58,13 @@ app-chat-box .tts-loading-label {
 app-chat-box .user-bubble {
   background-color: var(--t-user-bg);
   color: var(--t-primary);
-  border-left: 3px solid var(--t-primary);
 }
 
-.assistant-bubble {
+app-chat-box .assistant-bubble {
+  width: var(--chat-response-bubble-width);
+  max-width: var(--chat-response-bubble-width);
   background-color: var(--t-assistant-bg);
   color: var(--t-secondary);
-  border-left: 3px solid var(--t-assistant-border);
 }
 
 /* Block wrapper for rendered markdown (must not use <span>: headings/pre are flow content). */
@@ -306,7 +317,6 @@ app-chat-box .assistant-md {
 /* --- Streaming bubble --- */
 
 app-chat-box .streaming-bubble {
-  max-width: 80%;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -401,37 +411,26 @@ app-chat-box .streaming-cursor {
   50% { opacity: 0; }
 }
 
-/* --- Tool trail (live + persisted) --- */
+/* --- Tool trail pills (live + persisted) --- */
 
-app-chat-box .tool-trail-live {
-  margin-bottom: 0.4rem;
+app-chat-box .tool-trail-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.1rem 0.05rem;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.3rem;
   border-bottom: 1px solid var(--t-border-subtle);
-  padding-bottom: 0.4rem;
 }
 
-app-chat-box .tool-trail-live:last-child {
+app-chat-box .tool-trail-pills--live {
+  margin-bottom: 0.4rem;
+}
+
+app-chat-box .tool-trail-pills:last-child {
   margin-bottom: 0;
-}
-
-app-chat-box .tool-trail-row {
-  font-size: 0.75rem;
-  line-height: 1.4;
-  color: var(--t-text-muted);
-  padding: 0.08rem 0;
-}
-
-app-chat-box .tool-trail-detail {
-  word-break: break-word;
-}
-
-app-chat-box .tool-trail-sep {
-  margin: 0 0.3em;
-  opacity: 0.5;
-}
-
-app-chat-box .tool-trail-name {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  opacity: 0.7;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 /* --- Clara outer briefs (planner / review handoffs from nested runs) --- */
@@ -441,7 +440,6 @@ app-chat-box .clara-outer-brief {
   padding: 0.45rem 0.55rem 0.5rem;
   border-radius: 6px;
   border: 1px solid var(--t-border-subtle);
-  border-left: 3px solid var(--t-assistant-border);
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--t-assistant-bg) 88%, var(--t-primary) 12%) 0%,
@@ -561,7 +559,7 @@ app-chat-box .processing-bubble {
   margin-top: 0.15rem;
 }
 
-app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel)):not(:has(.tool-trail-live)) .processing-bubble {
+app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel)):not(:has(.tool-trail-pills)) .processing-bubble {
   border-top: none;
   margin-top: 0;
   padding-top: 0;
@@ -605,7 +603,6 @@ app-chat-box .talk-voice-row {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  max-width: 80%;
 }
 
 app-chat-box .talk-voice-label {
@@ -627,7 +624,7 @@ app-chat-box .empty-state {
 }
 
 /* Auxiliary reasoning stream (distinct from tool delegated blocks). */
-app-chat-box .llm-moe-panel {
+app-chat-box .llm-reasoning-panel {
   margin-top: 0.15rem;
   border: 1px solid var(--t-border-subtle);
   border-radius: 0.35rem;
@@ -636,11 +633,11 @@ app-chat-box .llm-moe-panel {
   max-width: 100%;
 }
 
-app-chat-box .llm-moe-panel--live {
+app-chat-box .llm-reasoning-panel--live {
   border-style: dashed;
 }
 
-app-chat-box .llm-moe-summary {
+app-chat-box .llm-reasoning-summary {
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 600;
@@ -650,11 +647,11 @@ app-chat-box .llm-moe-summary {
   list-style: none;
 }
 
-app-chat-box .llm-moe-summary::-webkit-details-marker {
+app-chat-box .llm-reasoning-summary::-webkit-details-marker {
   display: none;
 }
 
-app-chat-box .llm-moe-body {
+app-chat-box .llm-reasoning-body {
   margin: 0.4rem 0 0;
   padding: 0.45rem 0.5rem;
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
@@ -671,10 +668,6 @@ app-chat-box .llm-moe-body {
 }
 
 /* --- Diff message bubbles --- */
-
-app-chat-box .diff-msg-bubble {
-  border-left: 3px solid var(--bs-info, #0dcaf0);
-}
 
 app-chat-box .turn-artifact {
   padding-top: 0.15rem;

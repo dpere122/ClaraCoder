@@ -1,0 +1,161 @@
+/**
+ * Shared chrome + row typography for auxiliary (reasoning/tools) and HITL trail panels.
+ */
+
+app-auxiliary-stream-panel .stream-trail-panel,
+app-hitl-trail-panel .stream-trail-panel {
+  margin-top: 0.35rem;
+  margin-bottom: 0.15rem;
+  max-width: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__toggle,
+app-hitl-trail-panel .stream-trail-panel__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0 0 0.2rem;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  opacity: 0.82;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__toggle:hover,
+app-hitl-trail-panel .stream-trail-panel__toggle:hover {
+  opacity: 1;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel--collapsed .stream-trail-panel__toggle,
+app-hitl-trail-panel .stream-trail-panel--collapsed .stream-trail-panel__toggle {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__title,
+app-hitl-trail-panel .stream-trail-panel__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__title--custom {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: color-mix(in srgb, var(--t-secondary) 92%, transparent);
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__chevron,
+app-hitl-trail-panel .stream-trail-panel__chevron {
+  flex-shrink: 0;
+  font-size: 0.55rem;
+  color: var(--t-text-muted);
+  opacity: 0.65;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__viewport,
+app-hitl-trail-panel .stream-trail-panel__viewport {
+  margin-top: 0.25rem;
+  padding-left: 0.15rem;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__viewport--peek,
+app-hitl-trail-panel .stream-trail-panel__viewport--peek {
+  max-height: 10rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  mask-image: linear-gradient(to bottom, transparent 0%, transparent 8%, rgba(0, 0, 0, 0.35) 22%, black 38%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 8%, rgba(0, 0, 0, 0.35) 22%, black 38%);
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__viewport--full,
+app-hitl-trail-panel .stream-trail-panel__viewport--full {
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: visible;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/** Log-style rows: meta · name (tools, HITL list, chain trail). */
+app-chat-box .stream-trail-row,
+app-auxiliary-stream-panel .stream-trail-row,
+app-hitl-trail-panel .stream-trail-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 0.18rem 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--t-secondary) 86%, transparent);
+}
+
+app-chat-box .stream-trail-row + .stream-trail-row,
+app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
+  border-top: 1px solid color-mix(in srgb, var(--t-border-subtle) 35%, transparent);
+}
+
+app-chat-box .stream-trail-row__meta,
+app-auxiliary-stream-panel .stream-trail-row__meta,
+app-hitl-trail-panel .stream-trail-row__meta {
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  color: inherit;
+}
+
+app-chat-box .stream-trail-row__sep,
+app-auxiliary-stream-panel .stream-trail-row__sep,
+app-hitl-trail-panel .stream-trail-row__sep {
+  margin: 0 0.3em;
+  opacity: 0.5;
+}
+
+app-chat-box .stream-trail-row__name,
+app-auxiliary-stream-panel .stream-trail-row__name,
+app-hitl-trail-panel .stream-trail-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: inherit;
+  opacity: 0.92;
+}
+
+app-hitl-trail-panel .stream-trail-row--pending .stream-trail-row__meta {
+  font-style: italic;
+}
+
+app-hitl-trail-panel .stream-trail-row--complete .stream-trail-row__meta {
+  color: color-mix(in srgb, var(--bs-success, #198754) 78%, var(--t-secondary));
+}
+
+app-hitl-trail-panel .stream-trail-row--cancelled .stream-trail-row__meta {
+  opacity: 0.72;
+}
+
+app-auxiliary-stream-panel .stream-trail-row--running .stream-trail-row__name {
+  opacity: 1;
+}

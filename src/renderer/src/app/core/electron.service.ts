@@ -34,6 +34,8 @@ import type {
   ModelManagerMigrateProgressPayload,
   ModelManagerMutationResult,
   MaybeAutoTitleResult,
+  PlanConfirmPayload,
+  PlannerProgress,
   PythonInterpreterListItem,
   TtsStreamPacket,
   Workspace,
@@ -119,6 +121,16 @@ export interface CopyConfirmMessage {
 export interface DeleteConfirmMessage {
   conversationId: string;
   payload: DeleteConfirmPayload;
+}
+
+export interface PlanConfirmMessage {
+  conversationId: string;
+  payload: PlanConfirmPayload;
+}
+
+export interface PlannerProgressMessage {
+  conversationId: string;
+  planner: PlannerProgress;
 }
 
 export interface ScriptOutputMessage {
@@ -229,6 +241,8 @@ export class ElectronService {
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
+  private readonly plannerProgressSubject = new Subject<PlannerProgressMessage>();
+  private readonly planConfirmSubject = new Subject<PlanConfirmMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
@@ -265,6 +279,8 @@ export class ElectronService {
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
+  readonly plannerProgress$ = this.plannerProgressSubject.asObservable();
+  readonly planConfirm$ = this.planConfirmSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
@@ -418,6 +434,16 @@ export class ElectronService {
     this.api?.onMessageDeleteConfirm?.((_event, conversationId, payload) => {
       this.zone.run(() => this.deleteConfirmSubject.next({ conversationId, payload }));
     });
+    this.api?.onMessagePlannerProgress?.((_event, conversationId, planner) => {
+      this.zone.run(() =>
+        this.plannerProgressSubject.next({ conversationId, planner: planner as PlannerProgress }),
+      );
+    });
+    this.api?.onMessagePlanConfirm?.((_event, conversationId, payload) => {
+      this.zone.run(() =>
+        this.planConfirmSubject.next({ conversationId, payload: payload as PlanConfirmPayload }),
+      );
+    });
     this.api?.onConfigUpdated((_event, config) => {
       this.zone.run(() => this.configSubject.next(config));
     });
@@ -485,6 +511,7 @@ export class ElectronService {
     autoApplyMode = false,
     structuredContent?: readonly ChatStructuredContentPart[],
     workspaceId?: string | null,
+    composerMode: 'agent' | 'plan' = 'agent',
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -493,6 +520,7 @@ export class ElectronService {
       autoApplyMode,
       structuredContent ? [...structuredContent] : undefined,
       workspaceId ?? null,
+      composerMode,
     );
   }
 
@@ -525,6 +553,8 @@ export class ElectronService {
     acceptCommandAction?: 'confirm' | 'cancel',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
+    planConfirmAction?: 'confirm' | 'cancel',
+    planConfirmRequestId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     return (
       this.api?.agentContinue(
@@ -537,6 +567,8 @@ export class ElectronService {
         acceptCommandAction,
         acceptCommandRequestId,
         stagedTransferAction,
+        planConfirmAction,
+        planConfirmRequestId,
       ) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );

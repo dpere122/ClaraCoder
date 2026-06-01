@@ -184,17 +184,6 @@ app-workspace .workspace-theme-footer app-theme-selector .theme-dropdown {
   box-sizing: border-box;
 }
 
-app-workspace .workspace-change-indicator {
-  margin: 0 0.5rem 0.4rem;
-  padding: 0.35rem 0.45rem;
-  border: 1px solid var(--t-border-subtle);
-  background: var(--t-bg);
-  color: var(--t-text-muted);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 app-workspace .tree-node {
   display: flex;
   align-items: center;

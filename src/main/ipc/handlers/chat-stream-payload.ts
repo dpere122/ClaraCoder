@@ -48,5 +48,9 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-harness-crystal', conversationId, parsed.polarity);
   } else if (parsed.type === 'final_text') {
     event.reply('message-final-text', conversationId, parsed.text);
+  } else if (parsed.type === 'planner_progress') {
+    event.reply('message-planner-progress', conversationId, parsed.planner);
+  } else if (parsed.type === 'plan_confirm') {
+    event.reply('message-plan-confirm', conversationId, parsed.planConfirm);
   }
 }

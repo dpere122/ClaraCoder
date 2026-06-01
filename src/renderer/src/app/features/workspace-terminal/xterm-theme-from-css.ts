@@ -12,10 +12,12 @@ export function buildXtermThemeFromCssVars(root: CSSStyleDeclaration): ITheme {
   const primary = readVar(root, '--t-primary', '#00ff41');
   const muted = readVar(root, '--t-text-muted', '#4a7a4a');
   const selectionBg = readVar(root, '--t-selection-bg', '#00ff4140');
-  const red = readVar(root, '--t-hljs-string', '#7dff7d');
-  const cyan = readVar(root, '--t-process-a', '#41ffc9');
-  const magenta = readVar(root, '--t-process-b', '#ff41c8');
-  const yellow = readVar(root, '--t-hljs-number', '#41ffc9');
+  const red = '#f14c4c';
+  const green = '#23d18b';
+  const yellow = '#f5f543';
+  const blue = '#3b8eea';
+  const magenta = '#d670d6';
+  const cyan = '#29b8db';
 
   return {
     background,
@@ -27,19 +29,19 @@ export function buildXtermThemeFromCssVars(root: CSSStyleDeclaration): ITheme {
     selectionInactiveBackground: selectionBg,
     black: background,
     red,
-    green: primary,
+    green,
     yellow,
-    blue: cyan,
+    blue,
     magenta,
     cyan,
     white: foreground,
     brightBlack: muted,
-    brightRed: red,
-    brightGreen: primary,
-    brightYellow: yellow,
-    brightBlue: cyan,
-    brightMagenta: magenta,
-    brightCyan: cyan,
+    brightRed: '#ff6b6b',
+    brightGreen: '#7ae69b',
+    brightYellow: '#ffff8f',
+    brightBlue: '#79b8ff',
+    brightMagenta: '#ff9cff',
+    brightCyan: '#7eeeff',
     brightWhite: foreground,
   };
 }

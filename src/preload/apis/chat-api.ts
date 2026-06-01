@@ -73,6 +73,12 @@ export const chatApi = {
   onMessageDeleteConfirm: (
     callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
   ) => ipcRenderer.on('message-delete-confirm', callback),
+  onMessagePlannerProgress: (
+    callback: (event: unknown, conversationId: string, planner: unknown) => void,
+  ) => ipcRenderer.on('message-planner-progress', callback),
+  onMessagePlanConfirm: (
+    callback: (event: unknown, conversationId: string, payload: unknown) => void,
+  ) => ipcRenderer.on('message-plan-confirm', callback),
   sendMessage: (
     conversationId: string,
     msg: string,
@@ -80,6 +86,7 @@ export const chatApi = {
     autoApplyMode?: boolean,
     structuredContent?: Record<string, unknown>[],
     workspaceId?: string | null,
+    composerMode?: 'agent' | 'plan',
   ) =>
     ipcRenderer.send(
       'message',
@@ -89,6 +96,7 @@ export const chatApi = {
       autoApplyMode ?? false,
       structuredContent,
       workspaceId ?? null,
+      composerMode ?? 'agent',
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   getPendingStreamIdsForWorkspace: (workspaceId: string | null) =>
@@ -105,6 +113,8 @@ export const chatApi = {
     acceptCommandAction?: 'confirm' | 'cancel',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
+    planConfirmAction?: 'confirm' | 'cancel',
+    planConfirmRequestId?: string,
   ) => ipcRenderer.invoke(
     'agent-continue',
     conversationId,
@@ -116,6 +126,8 @@ export const chatApi = {
     acceptCommandAction,
     acceptCommandRequestId,
     stagedTransferAction,
+    planConfirmAction,
+    planConfirmRequestId,
   ),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),

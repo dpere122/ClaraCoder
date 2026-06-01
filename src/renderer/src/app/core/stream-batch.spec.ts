@@ -18,7 +18,7 @@ describe('mergeStreamBatchQueue', () => {
   it('does not merge chunks across different stream tags', () => {
     const q: StreamBatchItem[] = [
       { kind: 'chunk', msg: { conversationId: 'c1', delta: 'a', streamTag: 'agent' } },
-      { kind: 'chunk', msg: { conversationId: 'c1', delta: 'b', streamTag: 'planning' } },
+      { kind: 'chunk', msg: { conversationId: 'c1', delta: 'b', streamTag: 'reasoning' } },
     ];
     const out = mergeStreamBatchQueue(q);
     expect(out).toHaveLength(2);

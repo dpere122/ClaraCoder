@@ -1,9 +1,16 @@
 import type { LlmStatus, StreamPart } from '@shared/index';
 import {
-  isMoeAuxiliaryStreamTag,
+  isReasoningAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
+  isWorkspaceReadToolLabel,
+  mergeReadPreviewIntoToolTrailParts,
+  normalizeStreamTag,
+  READ_TOOL_STREAM_BODY_MARKER,
   toolTrailStatusStreamTag,
 } from '@shared/index';
+
+/** Matches streamed read-tool body prefix from {@link appendReadToolPreviewChunk}. */
+const READ_TOOL_PREVIEW_MARKER = READ_TOOL_STREAM_BODY_MARKER;
 
 export const DEFAULT_REASONING_STREAM_LABEL = 'Model reasoning';
 
@@ -13,8 +20,24 @@ export function appendStreamPart(
   delta: string,
   label = '',
 ): StreamPart[] {
-  const t = streamTag?.trim() ? streamTag.trim() : 'agent';
-  const resolvedLabel = label || (isMoeAuxiliaryStreamTag(t) ? DEFAULT_REASONING_STREAM_LABEL : '');
+  const raw = streamTag?.trim();
+  if (!raw) {
+    return appendStreamPartWithTag(parts, 'agent', delta, label);
+  }
+  const t = normalizeStreamTag(raw);
+  if (t === null) {
+    return parts;
+  }
+  return appendStreamPartWithTag(parts, t, delta, label);
+}
+
+function appendStreamPartWithTag(
+  parts: StreamPart[],
+  t: string,
+  delta: string,
+  label: string,
+): StreamPart[] {
+  const resolvedLabel = label || (isReasoningAuxiliaryStreamTag(t) ? DEFAULT_REASONING_STREAM_LABEL : '');
   const next = [...parts];
   const last = next[next.length - 1];
   if (last?.streamTag === t) {
@@ -25,7 +48,31 @@ export function appendStreamPart(
   return next;
 }
 
-/** Insert or update a tool-status row in the multiplex timeline (wall-clock order vs. `moe` chunks). */
+/**
+ * Keep streamed read preview text when a later status row only updates headline / state.
+ * Without this, the `complete` one-liner overwrites chunks appended via `tool_read_chunk`.
+ */
+export function mergeToolTrailStatusText(
+  prev: StreamPart | undefined,
+  incoming: Pick<StreamPart, 'label' | 'text'>,
+): string {
+  const incomingText = incoming.text ?? '';
+  if (!prev?.text?.includes(READ_TOOL_PREVIEW_MARKER) || !isWorkspaceReadToolLabel(incoming.label)) {
+    return incomingText;
+  }
+  if (incomingText.includes(READ_TOOL_PREVIEW_MARKER)) {
+    return incomingText;
+  }
+  const markerIdx = prev.text.indexOf(READ_TOOL_PREVIEW_MARKER);
+  const previewBody = prev.text.slice(markerIdx);
+  const headline = incomingText.trim();
+  if (!headline) {
+    return prev.text;
+  }
+  return `${headline}${previewBody}`;
+}
+
+/** Insert or update a tool-status row in the multiplex timeline (wall-clock order vs. reasoning chunks). */
 export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
   const src = (status.source ?? 'agent').toLowerCase();
   if (src !== 'tool') {
@@ -41,10 +88,12 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
     toolChainState: status.state,
   };
   if (idx >= 0) {
-    next[idx] = { ...next[idx], ...row };
-    return next;
+    const prev = next[idx];
+    const text = mergeToolTrailStatusText(prev, row);
+    next[idx] = { ...prev, ...row, text };
+    return mergeReadPreviewIntoToolTrailParts(next);
   }
-  return [...next, row];
+  return mergeReadPreviewIntoToolTrailParts([...next, row]);
 }
 
 export function markToolExecStreamComplete(
@@ -54,7 +103,8 @@ export function markToolExecStreamComplete(
   outputExcerpt?: string,
   outcome?: 'passed' | 'failed',
 ): StreamPart[] {
-  const t = streamTag?.trim();
+  const raw = streamTag?.trim();
+  const t = raw ? normalizeStreamTag(raw) : null;
   const next = parts.map((p) => ({ ...p }));
   const ex = outputExcerpt?.trim();
 
@@ -70,7 +120,7 @@ export function markToolExecStreamComplete(
     for (let i = next.length - 1; i >= 0; i--) {
       if (next[i].runComplete) continue;
       const tag = next[i].streamTag?.trim() ?? '';
-      if (tag.startsWith('spec-') || isShellStyleToolStreamTag(tag)) {
+      if (isShellStyleToolStreamTag(tag)) {
         targetIdx = i;
         break;
       }

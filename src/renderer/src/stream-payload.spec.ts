@@ -48,14 +48,14 @@ describe('parseAgentStreamPayload', () => {
         JSON.stringify({
           type: 'tool_exec_chunk',
           delta: '1 passed\n',
-          stream_tag: 'spec-code_review-tests',
+          stream_tag: 'tool-pytest',
           label: 'Pytest',
         }),
       ),
     ).toEqual({
       type: 'tool_exec_chunk',
       delta: '1 passed\n',
-      streamTag: 'spec-code_review-tests',
+      streamTag: 'tool-pytest',
       label: 'Pytest',
     });
   });
@@ -65,14 +65,14 @@ describe('parseAgentStreamPayload', () => {
       parseAgentStreamPayload(
         JSON.stringify({
           type: 'tool_exec_complete',
-          stream_tag: 'spec-project_review-smoke',
+          stream_tag: 'tool-smoke',
           exit_code: -15,
           outcome: 'passed',
         }),
       ),
     ).toEqual({
       type: 'tool_exec_complete',
-      streamTag: 'spec-project_review-smoke',
+      streamTag: 'tool-smoke',
       exitCode: -15,
       outcome: 'passed',
     });
@@ -83,14 +83,14 @@ describe('parseAgentStreamPayload', () => {
       parseAgentStreamPayload(
         JSON.stringify({
           type: 'tool_exec_complete',
-          stream_tag: 'spec-project_review-tests',
+          stream_tag: 'tool-pytest',
           label: 'Workspace Pytest',
           exit_code: 0,
         }),
       ),
     ).toEqual({
       type: 'tool_exec_complete',
-      streamTag: 'spec-project_review-tests',
+      streamTag: 'tool-pytest',
       label: 'Workspace Pytest',
       exitCode: 0,
     });
@@ -99,13 +99,13 @@ describe('parseAgentStreamPayload', () => {
       parseAgentStreamPayload(
         JSON.stringify({
           type: 'tool_exec_complete',
-          stream_tag: 'spec-project_review-tests',
+          stream_tag: 'tool-pytest',
           exit_code: null,
         }),
       ),
     ).toEqual({
       type: 'tool_exec_complete',
-      streamTag: 'spec-project_review-tests',
+      streamTag: 'tool-pytest',
       exitCode: null,
     });
 
@@ -113,14 +113,14 @@ describe('parseAgentStreamPayload', () => {
       parseAgentStreamPayload(
         JSON.stringify({
           type: 'tool_exec_complete',
-          stream_tag: 'spec-project_review-smoke',
+          stream_tag: 'tool-smoke',
           exit_code: 1,
           output_excerpt: 'Traceback (most recent call last):',
         }),
       ),
     ).toEqual({
       type: 'tool_exec_complete',
-      streamTag: 'spec-project_review-smoke',
+      streamTag: 'tool-smoke',
       exitCode: 1,
       outputExcerpt: 'Traceback (most recent call last):',
     });
@@ -210,6 +210,60 @@ describe('parseAgentStreamPayload', () => {
       tokensAfter: 8000,
       toolMessagesCompacted: 3,
       toolRoundsDropped: 1,
+    });
+  });
+
+  it('parses planner_progress payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'planner_progress',
+          planner: {
+            streamTag: 'planner',
+            phase: 'planning',
+            planReady: true,
+            steps: [{ id: 'step-1', text: 'Inspect', state: 'pending' }],
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'planner_progress',
+      planner: {
+        streamTag: 'planner',
+        phase: 'planning',
+        planReady: true,
+        steps: [{ id: 'step-1', text: 'Inspect', state: 'pending' }],
+      },
+    });
+  });
+
+  it('parses plan_confirm payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'plan_confirm',
+          planConfirm: {
+            version: 1,
+            requestId: 'plan-abc',
+            title: 'Review plan',
+            message: 'Approve steps',
+            confirmLabel: 'Run plan',
+            cancelLabel: 'Cancel',
+            steps: ['Step one'],
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'plan_confirm',
+      planConfirm: {
+        version: 1,
+        requestId: 'plan-abc',
+        title: 'Review plan',
+        message: 'Approve steps',
+        confirmLabel: 'Run plan',
+        cancelLabel: 'Cancel',
+        steps: ['Step one'],
+      },
     });
   });
 });

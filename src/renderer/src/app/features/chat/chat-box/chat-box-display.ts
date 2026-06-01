@@ -1,5 +1,5 @@
-import type { ConversationMessage } from '@shared/index';
-import { isClaraOuterBriefStreamTag } from '@shared/index';
+import type { ConversationMessage, DiffReviewStatus, PlanConfirmPayload, PlannerProgress, StreamPart } from '@shared/index';
+import { auxiliaryTimelineEmbedsToolStatus, isClaraOuterBriefStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
 import { DEFAULT_AUXILIARY_STREAM_PANEL_TITLE } from './auxiliary-stream-panel/auxiliary-stream-panel';
 
 /** Shown in the live processing row while tools are active; index chosen when tool phase starts. */
@@ -22,7 +22,107 @@ export const TOOL_BUILDING_SYNONYMS = [
 export type ChatMessage = ConversationMessage;
 type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
-export type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' }>;
+export type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' | 'plan_confirm' }>;
+
+const PLANNER_CHAIN_LABELS = new Set(['record_plan', 'execute_plan_step']);
+
+export interface PlanPanelContext {
+  planner: PlannerProgress;
+  planConfirm?: PlanConfirmPayload;
+  planConfirmReviewStatus?: DiffReviewStatus;
+  planConfirmReviewSummary?: string;
+}
+
+function plannerFromPlanConfirm(payload: PlanConfirmPayload): PlannerProgress {
+  return {
+    streamTag: PLANNER_STREAM_TAG,
+    phase: 'planning',
+    planReady: true,
+    steps: payload.steps.map((text, i) => ({
+      id: `step-${i + 1}`,
+      text,
+      state: 'pending' as const,
+    })),
+  };
+}
+
+/** Merge live or persisted planner progress with an optional plan-confirm HITL artifact. */
+export function planPanelContext(
+  planner: PlannerProgress | null | undefined,
+  artifacts: readonly ArtifactMessage[],
+): PlanPanelContext | null {
+  const planArtifact = artifacts.find((a): a is Extract<ArtifactMessage, { role: 'plan_confirm' }> => a.role === 'plan_confirm');
+  if (planner) {
+    return {
+      planner,
+      planConfirm: planArtifact?.payload,
+      planConfirmReviewStatus: planArtifact?.reviewStatus,
+      planConfirmReviewSummary: planArtifact?.reviewSummary,
+    };
+  }
+  if (planArtifact) {
+    return {
+      planner: plannerFromPlanConfirm(planArtifact.payload),
+      planConfirm: planArtifact.payload,
+      planConfirmReviewStatus: planArtifact.reviewStatus ?? 'pending',
+      planConfirmReviewSummary: planArtifact.reviewSummary,
+    };
+  }
+  return null;
+}
+
+/** True when the unified plan checklist should render for this turn. */
+export function turnHasPlanPanel(
+  planner: PlannerProgress | null | undefined,
+  artifacts: readonly ArtifactMessage[],
+): boolean {
+  return planPanelContext(planner, artifacts) != null;
+}
+
+/** Plan is the terminal UI — no streamed final prose yet — so present like a completed turn. */
+export function liveTurnPresentationSettled(
+  planVisible: boolean,
+  rawPrimaryText: string,
+  livePrimaryText: string,
+): boolean {
+  if (!planVisible) {
+    return false;
+  }
+  return rawPrimaryText.trim().length === 0 && livePrimaryText.trim().length === 0;
+}
+
+/** Tool multiplex belongs in the auxiliary panel — omit duplicate chain pills above it. */
+export function shouldStripToolChainRowsForAuxPanel(
+  auxiliaryTimeline: readonly StreamPart[] | undefined,
+  planVisible: boolean,
+): boolean {
+  return planVisible || auxiliaryTimelineEmbedsToolStatus(auxiliaryTimeline ?? []);
+}
+
+/** Plan approval is rendered inside the unified plan panel — omit from the HITL detail stack. */
+export function hitlArtifactsExcludingPlanConfirm(artifacts: readonly ArtifactMessage[]): ArtifactMessage[] {
+  return artifacts.filter((a) => a.role !== 'plan_confirm');
+}
+
+/** Hide planner lane tool pills when the unified plan panel already shows step progress. */
+export function stripPlannerChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
+  return groups
+    .map((g) => {
+      const rows = g.rows.filter(
+        (row) => row.streamTag !== PLANNER_STREAM_TAG && !PLANNER_CHAIN_LABELS.has(row.label),
+      );
+      return {
+        ...g,
+        rows,
+        toolCallCount: rows.filter((row) => row.source === 'tool').length,
+      };
+    })
+    .filter((g) => g.rows.length > 0);
+}
+
+export function planPanelCompleteCount(planner: PlannerProgress): number {
+  return planner.steps.filter((s) => s.state === 'complete').length;
+}
 
 export interface ToolChainGroup {
   key: string;
@@ -47,7 +147,8 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
     m.role === 'diff' ||
     m.role === 'delete_confirm' ||
     m.role === 'copy_confirm' ||
-    m.role === 'accept_command'
+    m.role === 'accept_command' ||
+    m.role === 'plan_confirm'
   );
 }
 
@@ -57,7 +158,8 @@ export function isHitlActivationMessage(m: ChatMessage): boolean {
     m.role === 'diff' ||
     m.role === 'delete_confirm' ||
     m.role === 'copy_confirm' ||
-    m.role === 'accept_command'
+    m.role === 'accept_command' ||
+    m.role === 'plan_confirm'
   );
 }
 
@@ -68,6 +170,22 @@ export function isPendingHitlArtifact(m: ArtifactMessage): boolean {
 
 export function turnHasPendingHitlArtifacts(artifacts: readonly ArtifactMessage[]): boolean {
   return artifacts.some(isPendingHitlArtifact);
+}
+
+/** In-flight assistant turn for the live bubble (no final ``assistant`` message yet). */
+export function resolveLiveAssistantTurn(
+  rows: readonly ChatDisplayRow[],
+): Extract<ChatDisplayRow, { kind: 'assistant-turn' }> | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row?.kind === 'assistant-turn' && !row.assistant) {
+      return row;
+    }
+    if (row?.kind === 'user') {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** Small stable hash for synonym index (FNV-1a 32-bit). */
@@ -202,7 +320,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
       pendingChainRows.push(msg);
       continue;
     }
-    if (msg.role === 'diff' || msg.role === 'copy_confirm' || msg.role === 'delete_confirm') {
+    if (msg.role === 'diff' || msg.role === 'copy_confirm' || msg.role === 'delete_confirm' || msg.role === 'plan_confirm') {
       flushChainGroup();
       pendingArtifacts.push(msg);
       continue;

@@ -1,0 +1,22 @@
+<button
+  type="button"
+  class="stream-tool-pill"
+  [class.stream-tool-pill--running]="state() === 'running'"
+  [class.stream-tool-pill--complete]="state() === 'complete'"
+  [class.stream-tool-pill--error]="state() === 'error'"
+  [class.stream-tool-pill--expandable]="expandable()"
+  [class.stream-tool-pill--expanded]="expanded()"
+  [class.stream-tool-pill--live]="live()"
+  [attr.aria-expanded]="expandable() ? expanded() : null"
+  [disabled]="!expandable()"
+  (click)="onClick()"
+>
+  <span class="stream-tool-pill__name" [attr.title]="name()">{{ name() }}</span>
+  @if (meta()) {
+    <span class="stream-tool-pill__sep" aria-hidden="true">·</span>
+    <span class="stream-tool-pill__meta" [attr.title]="meta()">{{ meta() }}</span>
+  }
+  @if (expandable()) {
+    <span class="stream-tool-pill__chevron" aria-hidden="true">{{ expanded() ? '▼' : '▶' }}</span>
+  }
+</button>

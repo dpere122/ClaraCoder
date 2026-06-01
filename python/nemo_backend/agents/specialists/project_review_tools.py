@@ -49,9 +49,16 @@ from nemo_backend.python_env import (
     _terminate_subprocess_tree,
     ensure_session_python_workspace_env,
     session_workspace_subprocess_env,
+    with_subprocess_color_env,
 )
+from nemo_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
 from nemo_backend.state import current_session_id, get_session
+from nemo_backend.stream_tags import (
+    TOOL_NODE_SMOKE_STREAM_TAG,
+    TOOL_PYTEST_STREAM_TAG,
+    TOOL_SMOKE_STREAM_TAG,
+)
 from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
 from nemo_backend.workspace_tools import (
     get_active_workspace_root,
@@ -69,11 +76,11 @@ RUN_WORKSPACE_PYTHON_SMOKE_TEST_NAME = 'run_workspace_python_smoke_test'
 RUN_WORKSPACE_NODE_SMOKE_TEST_NAME = 'run_workspace_node_smoke_test'
 APPROVE_PROJECT_REVIEW_NAME = 'approve_project_review'
 REJECT_PROJECT_REVIEW_NAME = 'reject_project_review'
-_PYTEST_STREAM_TAG = 'spec-project_review-tests'
+_PYTEST_STREAM_TAG = TOOL_PYTEST_STREAM_TAG
 _PYTEST_STREAM_LABEL = 'Workspace Pytest'
-_SMOKE_STREAM_TAG = 'spec-project_review-smoke'
+_SMOKE_STREAM_TAG = TOOL_SMOKE_STREAM_TAG
 _SMOKE_STREAM_LABEL = 'Workspace Smoke Test'
-_NODE_SMOKE_STREAM_TAG = 'spec-project_review-node-smoke'
+_NODE_SMOKE_STREAM_TAG = TOOL_NODE_SMOKE_STREAM_TAG
 _NODE_SMOKE_STREAM_LABEL = 'Workspace Node Smoke Test'
 _NODE_SMOKE_SCRIPT_CANDIDATES = ('smoke', 'dev', 'start', 'serve', 'preview')
 _SMOKE_ENTRYPOINT_CANDIDATES = (
@@ -388,6 +395,9 @@ async def run_workspace_pytest_tests() -> str:
     if not sid:
         return 'Tool error: no active session.'
     session = get_session(sid)
+    pending = maybe_await_hitl_for_deferred_tool(session, tool_name=RUN_WORKSPACE_PYTEST_TESTS_NAME, tool_input={})
+    if pending:
+        return pending
     env_result = await ensure_session_python_workspace_env(
         session,
         allow_workspace_root_fallback=False,
@@ -417,10 +427,11 @@ async def run_workspace_pytest_tests() -> str:
             'pytest',
             'tests',
             '-v',
+            '--color=yes',
             cwd=str(project_root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=session_workspace_subprocess_env(session),
+            env=with_subprocess_color_env(session_workspace_subprocess_env(session)),
         )
     except OSError as exc:
         await _emit_project_review_tool_complete(
@@ -538,6 +549,14 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
     if not sid:
         return 'Tool error: no active session.'
     session = get_session(sid)
+    tool_input = {'relative_path': relative_path}
+    pending = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name=RUN_WORKSPACE_PYTHON_SMOKE_TEST_NAME,
+        tool_input=tool_input,
+    )
+    if pending:
+        return pending
     env_result = await ensure_session_python_workspace_env(
         session,
         allow_workspace_root_fallback=False,
@@ -580,7 +599,7 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
             cwd=str(project_root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=session_workspace_subprocess_env(session),
+            env=with_subprocess_color_env(session_workspace_subprocess_env(session)),
         )
     except OSError as exc:
         await _emit_project_review_tool_complete(
@@ -763,6 +782,14 @@ async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_n
     if not sid:
         return 'Tool error: no active session.'
     session = get_session(sid)
+    tool_input = {'relative_project_dir': relative_project_dir, 'script_name': script_name}
+    pending = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name=RUN_WORKSPACE_NODE_SMOKE_TEST_NAME,
+        tool_input=tool_input,
+    )
+    if pending:
+        return pending
     try:
         workspace_root = get_active_workspace_root()
     except ValueError as exc:
@@ -816,7 +843,7 @@ async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_n
             cwd=str(project_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=session_workspace_subprocess_env(session),
+            env=with_subprocess_color_env(session_workspace_subprocess_env(session)),
         )
     except OSError as exc:
         await _emit_project_review_tool_complete(

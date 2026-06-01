@@ -21,7 +21,9 @@ from nemo_backend.domain import RuntimeToolsConfig
 from nemo_backend.node_dependency_agent import node_dependency_tools
 from nemo_backend.python_dependency_agent import python_dependency_tools
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
+from nemo_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
 from nemo_backend.tool_registry import (
+    hitl_accept_command_pause_tools,
     hitl_copy_pause_tools,
     hitl_delete_pause_tools,
     hitl_diff_pause_tools,
@@ -68,6 +70,7 @@ def test_standard_includes_staging_write_tools() -> None:
         {'batch_delete_workspace_entries', 'delete_workspace_entry'}
     ) | {n for n in _LSP_MUTATION_NAMES if n.startswith('lsp_delete_')}
     assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
+    assert DEFERRED_HITL_TOOL_NAMES <= hitl_accept_command_pause_tools()
 
 
 def test_strict_omits_snippet_tool() -> None:
@@ -89,6 +92,7 @@ def test_hitl_diff_pause_tools_direct_mode() -> None:
     direct_names |= {
         'format_workspace_file_black',
         'format_workspace_file_prettier',
+        'transfer_staged_file_to_workspace',
     }
     assert hitl_diff_pause_tools(direct=True) == frozenset(direct_names)
 

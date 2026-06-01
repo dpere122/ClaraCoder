@@ -24,6 +24,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         request.apply_mode,
         request.auto_apply_mode,
         ck,
+        request.composer_mode,
     )
     return StreamingResponse(generator, media_type='text/event-stream')
 
@@ -83,6 +84,15 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
                 note = extra
             else:
                 note = f'{extra}\n\n{note}'.strip() if note else extra
+    elif request.plan_confirm_action:
+        from nemo_backend.plan_confirm import execute_pending_plan_confirm_decision
+
+        extra = execute_pending_plan_confirm_decision(
+            sess,
+            confirm=request.plan_confirm_action == 'confirm',
+            request_id=request.plan_confirm_request_id or None,
+        )
+        note = extra if extra else note
     sess.agent_pause_note = note
     ev = sess.agent_pause_event
     if ev is not None:

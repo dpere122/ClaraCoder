@@ -1,0 +1,54 @@
+<div class="aux-stream-tool-part">
+  <app-stream-tool-pill
+    [name]="pillName()"
+    [meta]="pillMeta()"
+    [state]="pillState()"
+    [expandable]="expandable()"
+    [expanded]="expanded()"
+    [live]="live()"
+    (toggle)="toggleExpanded()"
+  />
+  @if (showReadPreview()) {
+    <app-ansi-terminal-pre
+      class="aux-stream-tool-part__read-preview"
+      preClass="output-pre terminal-output terminal-ansi"
+      [text]="readPreviewTailText()"
+    />
+  }
+  @if (showShellPreview()) {
+    <app-delegated-shell-terminal
+      class="aux-stream-tool-part__terminal"
+      [label]="part().label || 'Tool output'"
+      [text]="part().text"
+      [runComplete]="live() ? !!part().runComplete : true"
+      [exitCode]="part().exitCode ?? null"
+      [outcome]="part().outcome"
+      displayMode="preview"
+    />
+  }
+  @if (expanded()) {
+    @if (kind() === 'shell') {
+      <app-delegated-shell-terminal
+        class="aux-stream-tool-part__terminal"
+        [label]="part().label || 'Tool output'"
+        [text]="part().text"
+        [runComplete]="live() ? !!part().runComplete : true"
+        [exitCode]="part().exitCode ?? null"
+        [outcome]="part().outcome"
+        displayMode="full"
+      />
+    } @else if (isReadToolRow()) {
+      <app-ansi-terminal-pre
+        class="aux-stream-tool-part__detail"
+        preClass="output-pre terminal-output terminal-ansi"
+        [text]="readExpandedText()"
+      />
+    } @else {
+      <app-ansi-terminal-pre
+        class="aux-stream-tool-part__detail"
+        preClass="output-pre terminal-output terminal-ansi"
+        [text]="part().text"
+      />
+    }
+  }
+</div>

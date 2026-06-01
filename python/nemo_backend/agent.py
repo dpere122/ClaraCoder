@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from nemo_backend.agent_langgraph import stream_single_agent_langgraph
+from nemo_backend.plan_execute import stream_plan_execute_langgraph, PLAN_EXECUTE_APPLY_MODE
 from nemo_backend.agent_loop import AgentLoopOutcome, DEFAULT_AGENT_LOOP_POLICY, LangGraphWorkerOutcome
 from nemo_backend.checkpointing import delete_outer_thread
 from nemo_backend.agent_streaming import model_chunk_sse_line, sse_line, status_event
@@ -39,11 +40,14 @@ async def stream_agent_reply(
     apply_mode: bool = True,
     auto_apply_mode: bool = False,
     resume_checkpoint_id: str | None = None,
+    composer_mode: str = 'agent',
 ) -> AsyncIterator[str]:
     """Run the tool-capable agent and yield SSE lines until [DONE]."""
     session = get_session(session_id)
     session.agent_pause_event = None
     session.agent_pause_note = None
+    session.pending_plan_confirm_request = None
+    session.plan_execute_aborted = False
     session.auto_apply_mode = auto_apply_mode
     session.last_stream_apply_mode = apply_mode
     session.last_stream_auto_apply_mode = auto_apply_mode
@@ -79,14 +83,18 @@ async def stream_agent_reply(
             return
 
         graph_outcome = LangGraphWorkerOutcome()
-        async for line in stream_single_agent_langgraph(
-            session,
-            user_message,
-            apply_mode,
-            session_id=session_id,
-            outcome=graph_outcome,
-            resume_checkpoint_id=resume_checkpoint_id,
-        ):
+        mode = (composer_mode or 'agent').strip().lower()
+        stream_fn = stream_plan_execute_langgraph if mode == 'plan' else stream_single_agent_langgraph
+        stream_kwargs: dict[str, Any] = {
+            'session': session,
+            'user_message': user_message,
+            'apply_mode': apply_mode,
+            'session_id': session_id,
+            'outcome': graph_outcome,
+        }
+        if mode != 'plan':
+            stream_kwargs['resume_checkpoint_id'] = resume_checkpoint_id
+        async for line in stream_fn(**stream_kwargs):
             if session.abort_event.is_set():
                 if graph_outcome.state == AgentLoopOutcome.RUNNING:
                     graph_outcome.mark_aborted(partial_text=graph_outcome.partial_text)
@@ -95,7 +103,9 @@ async def stream_agent_reply(
             yield line
 
         if graph_outcome.state != AgentLoopOutcome.COMPLETED:
-            await delete_outer_thread(session_id, 'single', apply_mode=apply_mode)
+            thread_kind = 'plan' if mode == 'plan' else 'single'
+            ck_apply = PLAN_EXECUTE_APPLY_MODE if mode == 'plan' else apply_mode
+            await delete_outer_thread(session_id, thread_kind, apply_mode=ck_apply)
 
         if DEFAULT_AGENT_LOOP_POLICY.should_commit_history(graph_outcome):
             session.history.append({'role': 'user', 'content': user_message})
@@ -109,7 +119,9 @@ async def stream_agent_reply(
         yield 'data: [DONE]\n\n'
     except Exception as exc:
         try:
-            await delete_outer_thread(session_id, 'single', apply_mode=apply_mode)
+            thread_kind = 'plan' if (composer_mode or 'agent').strip().lower() == 'plan' else 'single'
+            ck_apply = PLAN_EXECUTE_APPLY_MODE if thread_kind == 'plan' else apply_mode
+            await delete_outer_thread(session_id, thread_kind, apply_mode=ck_apply)
         except Exception:
             logger.debug('checkpoint cleanup after agent error failed', exc_info=True)
         yield sse_line(

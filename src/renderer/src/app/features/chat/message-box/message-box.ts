@@ -1,5 +1,11 @@
-import { Component, ElementRef, input, output, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, input, model, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import {
+  COMPOSER_RUN_MODES,
+  COMPOSER_RUN_MODE_LABELS,
+  DEFAULT_COMPOSER_RUN_MODE,
+  type ComposerRunMode,
+} from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 
 @Component({
@@ -9,6 +15,11 @@ import { LucideAngularModule } from 'lucide-angular';
   styleUrl: './message-box.css'
 })
 export class MessageBox {
+  /** Agent executes directly; plan mode runs plan-and-execute with approval before steps. */
+  readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
+  readonly composerModes = COMPOSER_RUN_MODES;
+  readonly composerModeLabels = COMPOSER_RUN_MODE_LABELS;
+
   /** Mic + spoken replies (synced with parent `talkEnabled` && `speechEnabled`). */
   readonly voiceActive = input(false);
   readonly voiceToggle = output<void>();

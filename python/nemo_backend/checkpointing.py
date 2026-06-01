@@ -81,14 +81,14 @@ def reset_graph_checkpointing_for_tests() -> None:
     _checkpointer = None
 
 
-# ``moe`` kept for clearing legacy checkpoints from older builds that used a separate outer graph id.
-OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe')
+# Legacy thread kind ``moe`` (old outer graph id) is still cleared alongside ``single``.
+OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe', 'plan', 'plan_exec')
 
 
 async def delete_outer_threads_for_session(session_id: str, thread_kind: str | None = None) -> None:
     """Remove LangGraph checkpoints for outer threads (conversation reset or resync).
 
-    When ``thread_kind`` is None, clears every known outer graph kind (``single`` plus legacy ``moe``).
+    When ``thread_kind`` is None, clears every known outer graph kind (see ``OUTER_AGENT_THREAD_KINDS``).
     Deletes current thread-id shapes (apply × orchestration) and legacy ids without ``:orch*``.
     """
     if _checkpointer is None:

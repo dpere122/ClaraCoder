@@ -11,6 +11,9 @@ from langchain_core.messages import AIMessageChunk, BaseMessageChunk
 
 from nemo_backend.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STATUS_LINE, TEXT_CHUNK_WORDS
 from nemo_backend.tool_registry import WORKSPACE_READ_TOOL_NAMES
+
+# Staged reads use the same multiplex preview lane as workspace reads in the UI.
+_READ_TOOL_STREAM_PREVIEW_NAMES = WORKSPACE_READ_TOOL_NAMES | frozenset({'read_staged_edit'})
 from nemo_backend.workspace_tools import truncate_text
 
 
@@ -37,6 +40,16 @@ def status_event(
     if stream_tag:
         row['stream_tag'] = stream_tag
     return {'type': 'status', 'status': row}
+
+
+def planner_progress_event(planner: dict[str, Any]) -> dict[str, Any]:
+    """Structured plan checklist for the renderer (live + persisted assistant turns)."""
+    return {'type': 'planner_progress', 'planner': planner}
+
+
+def plan_confirm_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """HITL card payload before plan execution begins."""
+    return {'type': 'plan_confirm', 'planConfirm': payload}
 
 
 def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: str = '') -> dict[str, Any]:
@@ -137,7 +150,7 @@ def is_meaningful_stream_delta(delta: str) -> bool:
 
 def iter_read_tool_stream_sse(tool_name: str, tool_result: str) -> Iterator[str]:
     """Yield SSE ``tool_read_chunk`` lines (separate channel from model ``chunk`` in the Electron UI)."""
-    if tool_name not in WORKSPACE_READ_TOOL_NAMES:
+    if tool_name not in _READ_TOOL_STREAM_PREVIEW_NAMES:
         return
     body = tool_result
     if len(body) > MAX_READ_TOOL_STREAM_CHARS:

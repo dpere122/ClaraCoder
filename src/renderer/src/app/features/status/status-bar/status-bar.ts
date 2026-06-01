@@ -1,4 +1,5 @@
-import { Component, input, model, output } from '@angular/core';
+import { Component, inject, input, model, output } from '@angular/core';
+import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { ContextCapacityComponent, type LlmModelPresetOption } from '../context-capacity/context-capacity';
 
 @Component({
@@ -8,6 +9,7 @@ import { ContextCapacityComponent, type LlmModelPresetOption } from '../context-
   styleUrl: './status-bar.css',
 })
 export class StatusBarComponent {
+  protected readonly workspaceFileChange = inject(WorkspaceFileChangeStatusService);
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);

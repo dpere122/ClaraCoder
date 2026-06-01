@@ -1037,6 +1037,118 @@ app-shell > router-outlet + * {
   color: #ff9f9f;
 }
 
+.terminal-ansi .ansi-bold {
+  font-weight: 700;
+}
+
+.terminal-ansi .ansi-dim {
+  opacity: 0.72;
+}
+
+.terminal-ansi .ansi-italic {
+  font-style: italic;
+}
+
+.terminal-ansi .ansi-underline {
+  text-decoration: underline;
+}
+
+.terminal-ansi .ansi-fg-black {
+  color: #4a4a4a;
+}
+
+.terminal-ansi .ansi-fg-red {
+  color: #f14c4c;
+}
+
+.terminal-ansi .ansi-fg-green {
+  color: #23d18b;
+}
+
+.terminal-ansi .ansi-fg-yellow {
+  color: #f5f543;
+}
+
+.terminal-ansi .ansi-fg-blue {
+  color: #3b8eea;
+}
+
+.terminal-ansi .ansi-fg-magenta {
+  color: #d670d6;
+}
+
+.terminal-ansi .ansi-fg-cyan {
+  color: #29b8db;
+}
+
+.terminal-ansi .ansi-fg-white {
+  color: #e5e5e5;
+}
+
+.terminal-ansi .ansi-fg-bright-black {
+  color: #767676;
+}
+
+.terminal-ansi .ansi-fg-bright-red {
+  color: #ff6b6b;
+}
+
+.terminal-ansi .ansi-fg-bright-green {
+  color: #7ae69b;
+}
+
+.terminal-ansi .ansi-fg-bright-yellow {
+  color: #ffff8f;
+}
+
+.terminal-ansi .ansi-fg-bright-blue {
+  color: #79b8ff;
+}
+
+.terminal-ansi .ansi-fg-bright-magenta {
+  color: #ff9cff;
+}
+
+.terminal-ansi .ansi-fg-bright-cyan {
+  color: #7eeeff;
+}
+
+.terminal-ansi .ansi-fg-bright-white {
+  color: #ffffff;
+}
+
+.terminal-ansi .ansi-bg-black {
+  background-color: rgb(0 0 0 / 35%);
+}
+
+.terminal-ansi .ansi-bg-red {
+  background-color: rgb(241 76 76 / 28%);
+}
+
+.terminal-ansi .ansi-bg-green {
+  background-color: rgb(35 209 139 / 22%);
+}
+
+.terminal-ansi .ansi-bg-yellow {
+  background-color: rgb(245 245 67 / 18%);
+}
+
+.terminal-ansi .ansi-bg-blue {
+  background-color: rgb(59 142 234 / 22%);
+}
+
+.terminal-ansi .ansi-bg-magenta {
+  background-color: rgb(214 112 214 / 22%);
+}
+
+.terminal-ansi .ansi-bg-cyan {
+  background-color: rgb(41 184 219 / 22%);
+}
+
+.terminal-ansi .ansi-bg-white {
+  background-color: rgb(229 229 229 / 14%);
+}
+
 .interactive-input-container,
 .output-actions {
   display: flex;
@@ -1767,13 +1879,11 @@ html.theme-woodland .msg-bubble {
 
 html.theme-woodland .user-bubble {
   border: none;
-  border-left: 3px solid var(--t-primary);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
 html.theme-woodland .assistant-bubble {
   border: none;
-  border-left: 3px solid var(--t-assistant-border);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
@@ -1958,13 +2068,11 @@ html.theme-ion .msg-bubble {
 
 html.theme-ion .user-bubble {
   border: none;
-  border-left: 3px solid var(--t-primary);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
 html.theme-ion .assistant-bubble {
   border: none;
-  border-left: 3px solid var(--t-assistant-border);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
@@ -2149,13 +2257,11 @@ html.theme-ps2 .msg-bubble {
 
 html.theme-ps2 .user-bubble {
   border: none;
-  border-left: 3px solid var(--t-primary);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
 html.theme-ps2 .assistant-bubble {
   border: none;
-  border-left: 3px solid var(--t-assistant-border);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
@@ -2340,13 +2446,11 @@ html.theme-halo3 .msg-bubble {
 
 html.theme-halo3 .user-bubble {
   border: none;
-  border-left: 3px solid var(--t-primary);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
 html.theme-halo3 .assistant-bubble {
   border: none;
-  border-left: 3px solid var(--t-assistant-border);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
@@ -2531,13 +2635,11 @@ html.theme-phantom-hourglass .msg-bubble {
 
 html.theme-phantom-hourglass .user-bubble {
   border: none;
-  border-left: 3px solid var(--t-primary);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
 html.theme-phantom-hourglass .assistant-bubble {
   border: none;
-  border-left: 3px solid var(--t-assistant-border);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 

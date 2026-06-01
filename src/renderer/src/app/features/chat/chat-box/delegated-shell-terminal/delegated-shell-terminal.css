@@ -1,37 +1,34 @@
-.delegated-shell-terminal-details {
-  margin: 0.35rem 0 0.55rem;
-  border: 1px solid var(--t-border-subtle);
-  background: transparent;
+.delegated-shell-terminal-wrap {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
-/** Bound vertical growth on huge pytest/logs output so layout stays responsive. */
-.delegated-shell-terminal-details .terminal-shell-body {
-  max-height: min(60vh, 520px);
-  overflow-y: auto;
+.delegated-shell-terminal-wrap .terminal-shell {
+  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
+  border-radius: 0.35rem;
+  background: linear-gradient(180deg, var(--t-bg-deep), var(--t-code-bg));
 }
 
-.delegated-shell-terminal-summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 0.35rem 0.45rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--t-primary);
+.delegated-shell-terminal-wrap--preview .terminal-shell-body {
+  max-height: 4.5rem;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 18%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%);
 }
 
-.delegated-shell-terminal-summary::-webkit-details-marker {
+.delegated-shell-terminal-wrap--full .terminal-shell-body {
+  max-height: min(40vh, 24rem);
+  overflow: auto;
+}
+
+.delegated-shell-terminal-wrap--preview .terminal-shell-header {
   display: none;
 }
 
-.delegated-shell-terminal-summary-label {
-  letter-spacing: 0.04em;
+.delegated-shell-terminal-wrap .terminal-stream-label {
+  display: none;
 }
 
-.delegated-shell-terminal-wrap {
-  margin: 0 !important;
-  padding: 0 0.35rem 0.45rem !important;
-}
-
-.delegated-shell-terminal-details[open] .delegated-shell-terminal-summary {
-  border-bottom: 1px solid var(--t-border-subtle);
+.delegated-shell-terminal-wrap .terminal-shell-body {
+  padding: 0.3rem 0.45rem 0.4rem;
 }

@@ -18,6 +18,10 @@ app-planner-checklist .plan-panel--awaiting {
   background: color-mix(in srgb, var(--bs-primary) 6%, var(--t-surface, transparent));
 }
 
+app-planner-checklist .plan-panel--discovering {
+  border-color: color-mix(in srgb, var(--t-secondary) 32%, transparent);
+}
+
 app-planner-checklist .plan-panel--complete {
   border-color: color-mix(in srgb, var(--bs-success) 32%, transparent);
 }

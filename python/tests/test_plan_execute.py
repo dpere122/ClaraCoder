@@ -12,6 +12,7 @@ from nemo_backend.plan_confirm import (
     plan_confirm_sse_payload,
     stage_plan_confirm_request,
 )
+from nemo_backend.plan_discovery import DiscoveryIntentModel
 from nemo_backend.plan_execute import (
     PLAN_EXECUTE_APPLY_MODE,
     PlanModel,
@@ -112,6 +113,7 @@ def test_execute_pending_plan_confirm_cancel_sets_abort_flag() -> None:
     assert 'cancelled' in note.lower()
 
 
+@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
 @patch('nemo_backend.plan_execute._invoke_planner')
@@ -122,7 +124,9 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     mock_planner: AsyncMock,
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
+    mock_discovery_intent: AsyncMock,
 ) -> None:
+    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
 
     async def _pause_and_cancel(sid: str) -> None:
@@ -157,6 +161,7 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     mock_replanner.assert_not_called()
 
 
+@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -169,7 +174,9 @@ async def test_stream_plan_execute_runs_executor_after_confirm(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
+    mock_discovery_intent: AsyncMock,
 ) -> None:
+    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
     mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
     mock_pause.return_value = None
@@ -201,6 +208,7 @@ async def test_stream_plan_execute_runs_executor_after_confirm(
     assert outcome.final_text == 'All done.'
 
 
+@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -213,7 +221,9 @@ async def test_stream_plan_execute_runs_all_approved_steps_before_replan(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
+    mock_discovery_intent: AsyncMock,
 ) -> None:
+    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Step A', 'Step B', 'Step C'])
     mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
     mock_pause.return_value = None
@@ -252,6 +262,7 @@ async def test_stream_plan_execute_runs_all_approved_steps_before_replan(
     assert outcome.final_text == 'All done.'
 
 
+@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -264,7 +275,9 @@ async def test_stream_plan_execute_does_not_stop_after_first_step(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
+    mock_discovery_intent: AsyncMock,
 ) -> None:
+    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Step A', 'Step B'])
     mock_replanner.return_value = ReplanAct(
         response='Remaining steps are queued; plan complete.',
@@ -298,6 +311,7 @@ async def test_stream_plan_execute_does_not_stop_after_first_step(
     assert outcome.state == AgentLoopOutcome.COMPLETED
 
 
+@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -310,7 +324,9 @@ async def test_stream_plan_execute_uses_full_tool_apply_mode_when_editor_off(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
+    mock_discovery_intent: AsyncMock,
 ) -> None:
+    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
     mock_replanner.return_value = ReplanAct(response='Done.', steps=[])
     mock_pause.return_value = None
@@ -341,6 +357,7 @@ async def test_stream_plan_execute_uses_full_tool_apply_mode_when_editor_off(
     assert 'transfer_staged_file_to_workspace' in {t.name for t in tools}
 
 
+@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -353,7 +370,9 @@ async def test_stream_plan_execute_retries_executor_when_verifier_rejects(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
+    mock_discovery_intent: AsyncMock,
 ) -> None:
+    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
     mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
     mock_pause.return_value = None

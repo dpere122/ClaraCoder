@@ -64,9 +64,12 @@ export class PlannerChecklistComponent implements OnDestroy {
     return Math.round((this.completeCount() / total) * 100);
   });
 
-  readonly showHeaderSpinner = computed(
-    () => this.live() && this.planner().phase === 'executing' && this.completeCount() < this.totalSteps(),
-  );
+  readonly showHeaderSpinner = computed(() => {
+    if (!this.live()) return false;
+    const phase = this.planner().phase;
+    if (phase === 'discovery') return true;
+    return phase === 'executing' && this.completeCount() < this.totalSteps();
+  });
 
   readonly runningStepId = computed(() => {
     const activeId = this.planner().activeStepId;
@@ -94,7 +97,11 @@ export class PlannerChecklistComponent implements OnDestroy {
   }
 
   isRunningStep(step: PlannerStep): boolean {
-    return step.state === 'running' || (this.isActiveStep(step) && this.planner().phase === 'executing');
+    const phase = this.planner().phase;
+    return (
+      step.state === 'running' ||
+      (this.isActiveStep(step) && (phase === 'executing' || phase === 'discovery'))
+    );
   }
 
   constructor() {

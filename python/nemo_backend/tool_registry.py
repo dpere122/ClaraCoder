@@ -264,6 +264,14 @@ def worker_tools_and_map(
     return tools, mapping
 
 
+def planner_discovery_tools_and_map(
+    *,
+    session: SessionState | None = None,
+) -> tuple[list[Any], dict[str, Any]]:
+    """Read-only tool surface for plan-mode discovery (no writes, staging, or execute tools)."""
+    return worker_tools_and_map(False, session=session)
+
+
 def format_tools_catalog(tools: list[Any]) -> str:
     """Name + description listing for planner/replanner prompts (mirrors executor bindings)."""
     lines: list[str] = []

@@ -1,6 +1,7 @@
 """Plan-and-execute orchestrator (LangGraph tutorial control flow, nemo streaming/HITL).
 
-Planner proposes steps; user approves via :mod:`nemo_backend.plan_confirm`; each step runs
+Read-only discovery (:mod:`nemo_backend.plan_discovery`) runs before planning; the planner
+proposes steps; user approves via :mod:`nemo_backend.plan_confirm`; each step runs
 through the existing ReAct executor (:func:`~nemo_backend.agent_langgraph._stream_langgraph_tool_agent`);
 a lightweight structured LLM verifier (:mod:`nemo_backend.plan_step_verify`) gates step completion;
 replanner decides whether to finish or extend the remaining plan.
@@ -33,6 +34,15 @@ from nemo_backend.llm import build_llm
 from nemo_backend.llm_interaction_logging import log_llm_failure
 from nemo_backend.messages import build_system_prompt, stringify_content
 from nemo_backend.plan_confirm import plan_confirm_sse_payload, stage_plan_confirm_request
+from nemo_backend.plan_discovery import (
+    PLAN_DISCOVERY_EVALUATE_LABEL,
+    PLAN_DISCOVERY_EXECUTE_LABEL,
+    PLAN_DISCOVERY_INTENT_LABEL,
+    PLAN_DISCOVERY_MAX_ROUNDS,
+    build_discovery_task_prompt,
+    invoke_discovery_evaluation,
+    invoke_discovery_intent,
+)
 from nemo_backend.plan_step_verify import (
     PLAN_STEP_VERIFY_MAX_RETRIES,
     VERIFY_PLAN_STEP_LABEL,
@@ -82,12 +92,21 @@ def build_planner_context_block(session: SessionState, apply_mode: bool) -> str:
     )
 
 
-def _planner_chain(planner_context: str):
+def _planner_chain(planner_context: str, *, discovery_summary: str = ''):
+    discovery_block = ''
+    summary = (discovery_summary or '').strip()
+    if summary:
+        discovery_block = (
+            '\n\nDiscovery has already run. Findings (authoritative — ground plan steps in these facts):\n'
+            f'{summary}\n\n'
+            'Do not add plan steps whose only purpose is re-discovery unless execution truly requires '
+            'mutating tools not available during discovery.'
+        )
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 'system',
-                f'{planner_context}\n\n'
+                f'{planner_context}{discovery_block}\n\n'
                 'You are in plan mode. For the given objective, come up with a simple step-by-step plan. '
                 'Each step should be individually actionable with the available tools listed above. '
                 'Use coarse-grained steps (roughly one major action per step). '
@@ -224,9 +243,240 @@ async def _invoke_planner(
     *,
     session: SessionState,
     apply_mode: bool,
+    discovery_summary: str = '',
 ) -> PlanModel:
-    chain = _planner_chain(build_planner_context_block(session, apply_mode))
+    chain = _planner_chain(
+        build_planner_context_block(session, apply_mode),
+        discovery_summary=discovery_summary,
+    )
     return await chain.ainvoke({'messages': [HumanMessage(content=user_input)]})
+
+
+async def _stream_plan_discovery_phase(
+    session: SessionState,
+    user_input: str,
+    *,
+    session_id: str,
+    summary_out: list[str],
+) -> AsyncIterator[str]:
+    """Run discovery intent → read-only ReAct → evaluation (up to max rounds). Yields SSE lines."""
+
+    discovery_summary = ''
+    next_actions: list[str] | None = None
+
+    yield sse_line(
+        planner_progress_event(
+            _planner_progress_payload(phase='discovery', steps=[], plan_ready=False),
+        )
+    )
+
+    for round_idx in range(PLAN_DISCOVERY_MAX_ROUNDS):
+        if session.abort_event.is_set():
+            return
+
+        actions: list[str] = []
+        if next_actions is not None:
+            actions = [a.strip() for a in next_actions if a.strip()]
+            next_actions = None
+        else:
+            intent_status_id = f'plan-disc-intent-{uuid.uuid4().hex[:10]}'
+            yield sse_line(
+                status_event(
+                    intent_status_id,
+                    PLAN_DISCOVERY_INTENT_LABEL,
+                    detail=f'Round {round_idx + 1}: deciding discovery actions.',
+                    state='running',
+                    source='tool',
+                    stream_tag=PLANNER_STREAM_TAG,
+                )
+            )
+            try:
+                intent = await invoke_discovery_intent(
+                    objective=user_input,
+                    session=session,
+                    prior_summary=discovery_summary,
+                )
+            except Exception as exc:
+                logger.exception('Plan mode discovery intent failed')
+                log_llm_failure(exc, context='plan:discovery_intent', agent_role=None)
+                yield sse_line(
+                    status_event(
+                        intent_status_id,
+                        PLAN_DISCOVERY_INTENT_LABEL,
+                        detail=str(exc).replace('\n', ' ')[:200],
+                        state='error',
+                        source='tool',
+                        stream_tag=PLANNER_STREAM_TAG,
+                    )
+                )
+                return
+            actions = [a.strip() for a in intent.actions if a.strip()]
+            yield sse_line(
+                status_event(
+                    intent_status_id,
+                    PLAN_DISCOVERY_INTENT_LABEL,
+                    detail=f'{len(actions)} discovery action(s).',
+                    state='complete',
+                    source='tool',
+                    stream_tag=PLANNER_STREAM_TAG,
+                )
+            )
+
+        if not actions:
+            break
+
+        action_states = ['running'] * len(actions)
+        yield sse_line(
+            planner_progress_event(
+                _planner_progress_payload(
+                    phase='discovery',
+                    steps=_steps_from_texts(actions, states=action_states),
+                    plan_ready=False,
+                    active_step_id=_step_id(0),
+                )
+            )
+        )
+
+        exec_status_id = f'plan-disc-exec-{uuid.uuid4().hex[:10]}'
+        yield sse_line(
+            status_event(
+                exec_status_id,
+                PLAN_DISCOVERY_EXECUTE_LABEL,
+                detail=truncate_text(actions[0], 200),
+                state='running',
+                source='tool',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+
+        discovery_prompt = build_discovery_task_prompt(actions, objective=user_input)
+        discover_outcome = LangGraphWorkerOutcome()
+        discover_cfg = AgentGraphConfig(
+            session_id=session_id,
+            checkpoint_session_key=f'{session_id}:plan_discover:r{round_idx}',
+            graph_name='plan_discover',
+            agent_role=None,
+            status_label='Discover',
+            llm_event_prefix='discover',
+            config_error_event_id='plan-discover-graph',
+            run_error_event_id='plan-discover-graph-error',
+            done_event_id='plan-discover-done',
+            empty_final_user_hint='Discovery finished without a summary.',
+            failed_start_message='Discovery failed: {exc}',
+            failed_run_message='Discovery error: {exc}',
+            thread_kind='plan_discover',
+            done_detail='Discovery complete',
+        )
+
+        hitl_bypass_token = deferred_tool_hitl_bypass.set(True)
+        try:
+            async for line in _stream_langgraph_tool_agent(
+                session,
+                False,
+                discovery_prompt,
+                cfg=discover_cfg,
+                outcome=discover_outcome,
+            ):
+                if session.abort_event.is_set():
+                    discover_outcome.mark_aborted()
+                    break
+                yield line
+        finally:
+            deferred_tool_hitl_bypass.reset(hitl_bypass_token)
+
+        executor_summary = discover_outcome.best_available_text()
+        exec_ok = discover_outcome.state == AgentLoopOutcome.COMPLETED
+        yield sse_line(
+            status_event(
+                exec_status_id,
+                PLAN_DISCOVERY_EXECUTE_LABEL,
+                detail=truncate_text(executor_summary or actions[0], 200),
+                state='complete' if exec_ok else 'error',
+                source='tool',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+
+        action_states = ['complete' if exec_ok else 'error'] * len(actions)
+        yield sse_line(
+            planner_progress_event(
+                _planner_progress_payload(
+                    phase='discovery',
+                    steps=_steps_from_texts(actions, states=action_states),
+                    plan_ready=False,
+                )
+            )
+        )
+
+        eval_status_id = f'plan-disc-eval-{uuid.uuid4().hex[:10]}'
+        yield sse_line(
+            status_event(
+                eval_status_id,
+                PLAN_DISCOVERY_EVALUATE_LABEL,
+                detail=f'Round {round_idx + 1}: synthesizing findings.',
+                state='running',
+                source='tool',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+        try:
+            evaluation = await invoke_discovery_evaluation(
+                objective=user_input,
+                actions=actions,
+                executor_summary=executor_summary,
+                session=session,
+                prior_summary=discovery_summary,
+            )
+        except Exception as exc:
+            logger.exception('Plan mode discovery evaluation failed')
+            log_llm_failure(exc, context='plan:discovery_eval', agent_role=None)
+            yield sse_line(
+                status_event(
+                    eval_status_id,
+                    PLAN_DISCOVERY_EVALUATE_LABEL,
+                    detail=str(exc).replace('\n', ' ')[:200],
+                    state='error',
+                    source='tool',
+                    stream_tag=PLANNER_STREAM_TAG,
+                )
+            )
+            if executor_summary.strip():
+                discovery_summary = (
+                    f'{discovery_summary}\n\n{executor_summary}'.strip()
+                    if discovery_summary
+                    else executor_summary.strip()
+                )
+            break
+
+        eval_detail = truncate_text(evaluation.summary or 'Evaluation complete.', 200)
+        yield sse_line(
+            status_event(
+                eval_status_id,
+                PLAN_DISCOVERY_EVALUATE_LABEL,
+                detail=eval_detail,
+                state='complete',
+                source='tool',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+
+        round_summary = (evaluation.summary or '').strip()
+        if round_summary:
+            discovery_summary = (
+                f'{discovery_summary}\n\n{round_summary}'.strip()
+                if discovery_summary
+                else round_summary
+            )
+        elif executor_summary.strip() and not discovery_summary:
+            discovery_summary = executor_summary.strip()
+
+        if evaluation.ready_to_plan or not evaluation.additional_actions:
+            break
+
+        next_actions = [a.strip() for a in evaluation.additional_actions if a.strip()]
+
+    summary_out.clear()
+    summary_out.append(discovery_summary)
 
 
 def _format_remaining_steps(remaining_steps: list[str]) -> str:
@@ -320,7 +570,24 @@ async def stream_plan_execute_langgraph(
     )
 
     try:
-        plan_model = await _invoke_planner(user_input, session=session, apply_mode=tool_apply_mode)
+        discovery_summary_box: list[str] = ['']
+        async for line in _stream_plan_discovery_phase(
+            session,
+            user_input,
+            session_id=session_id,
+            summary_out=discovery_summary_box,
+        ):
+            if session.abort_event.is_set():
+                outcome.mark_aborted()
+                return
+            yield line
+        discovery_summary = discovery_summary_box[0] if discovery_summary_box else ''
+        plan_model = await _invoke_planner(
+            user_input,
+            session=session,
+            apply_mode=tool_apply_mode,
+            discovery_summary=discovery_summary,
+        )
     except Exception as exc:
         logger.exception('Plan mode planner failed')
         log_llm_failure(exc, context='plan:planner', agent_role=None)

@@ -14,10 +14,13 @@ from nemo_backend.plan_confirm import (
 )
 from nemo_backend.plan_discovery import DiscoveryIntentModel
 from nemo_backend.plan_execute import (
+    PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
     PlanModel,
     ReplanAct,
     _append_new_plan_steps,
+    _build_discovery_preamble,
+    _planner_chain,
     build_planner_context_block,
     build_step_task_prompt,
     stream_plan_execute_langgraph,
@@ -93,6 +96,56 @@ def test_build_planner_context_block_read_only_when_editor_off() -> None:
     tools, _ = worker_tools_and_map(False, session=session)
     assert len(tools) > 0
     assert all(f'`{t.name}`' in block for t in tools)
+
+
+def test_build_planner_context_block_includes_plan_drafting_override_for_initial_plan() -> None:
+    session = SessionState()
+    block = build_planner_context_block(session, apply_mode=True, for_initial_plan=True)
+    assert PLAN_DRAFTING_OVERRIDE.split('\n')[0] in block
+    assert 'do not plan exploration steps' in block.lower()
+
+
+def test_build_planner_context_block_omits_plan_drafting_override_for_replanner() -> None:
+    session = SessionState()
+    block = build_planner_context_block(session, apply_mode=True, for_initial_plan=False)
+    assert 'Plan drafting override' not in block
+
+
+def test_build_discovery_preamble_empty_summary() -> None:
+    preamble = _build_discovery_preamble('')
+    assert 'Discovery has already run' in preamble
+    assert 'no additional findings' in preamble.lower()
+    assert 'read-only discovery' in preamble.lower()
+
+
+def test_build_discovery_preamble_includes_findings() -> None:
+    preamble = _build_discovery_preamble('Auth is in middleware/auth.py')
+    assert 'Auth is in middleware/auth.py' in preamble
+    assert 'read-only discovery' in preamble.lower()
+
+
+@patch('nemo_backend.plan_execute.build_llm')
+def test_planner_chain_prompt_requires_implementation_only_empty_discovery(
+    mock_llm: MagicMock,
+) -> None:
+    mock_llm.return_value.with_structured_output.return_value = MagicMock()
+    chain = _planner_chain('planner-context', discovery_summary='')
+    system = chain.first.format_messages(messages=[])[0].content
+    assert 'implementation' in system.lower()
+    assert 'read-only discovery' in system.lower()
+    assert 'Discovery has already run' in system
+
+
+@patch('nemo_backend.plan_execute.build_llm')
+def test_planner_chain_prompt_includes_findings_and_no_discovery_rule(
+    mock_llm: MagicMock,
+) -> None:
+    mock_llm.return_value.with_structured_output.return_value = MagicMock()
+    chain = _planner_chain('planner-context', discovery_summary='Auth is in middleware/auth.py')
+    system = chain.first.format_messages(messages=[])[0].content
+    assert 'Auth is in middleware/auth.py' in system
+    assert 'read-only discovery' in system.lower()
+    assert 'implementation' in system.lower()
 
 
 def test_plan_confirm_sse_payload_shape() -> None:

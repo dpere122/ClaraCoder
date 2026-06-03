@@ -66,7 +66,11 @@ class PlanModel(BaseModel):
     """Structured planner output."""
 
     steps: list[str] = Field(
-        description='Ordered steps to accomplish the objective; each step should be actionable.',
+        description=(
+            'Ordered implementation steps to accomplish the objective; each step must mutate or '
+            'deliver work (edit, create, delete, stage/transfer, configure, test, install deps, etc.). '
+            'Do not include read-only discovery steps (search, explore, inspect, read files).'
+        ),
     )
 
 
@@ -80,38 +84,69 @@ class ReplanAct(BaseModel):
     )
 
 
-def build_planner_context_block(session: SessionState, apply_mode: bool) -> str:
+PLAN_DRAFTING_OVERRIDE = (
+    'Plan drafting override (for initial plan only — supersedes general inspect-first guidance above):\n'
+    '- Read-only discovery already completed in a prior phase; do not plan exploration steps.\n'
+    '- Plan only work the step executor should mutate or deliver.'
+)
+
+
+def build_planner_context_block(
+    session: SessionState,
+    apply_mode: bool,
+    *,
+    for_initial_plan: bool = False,
+) -> str:
     """System prompt + tool catalog shared by planner and replanner (matches step executor bindings)."""
     system_prompt = build_system_prompt(session, apply_mode)
     tools, _ = worker_tools_and_map(apply_mode, session=session)
     catalog = format_tools_catalog(tools)
+    override = f'{PLAN_DRAFTING_OVERRIDE}\n\n' if for_initial_plan else ''
     return (
         f'{system_prompt}\n\n'
+        f'{override}'
         'Available tools (same bindings the step executor will use):\n'
         f'{catalog}'
     )
 
 
-def _planner_chain(planner_context: str, *, discovery_summary: str = ''):
-    discovery_block = ''
+def _build_discovery_preamble(discovery_summary: str) -> str:
     summary = (discovery_summary or '').strip()
     if summary:
-        discovery_block = (
-            '\n\nDiscovery has already run. Findings (authoritative — ground plan steps in these facts):\n'
-            f'{summary}\n\n'
-            'Do not add plan steps whose only purpose is re-discovery unless execution truly requires '
-            'mutating tools not available during discovery.'
+        findings = (
+            'Discovery has already run. Findings (authoritative — ground plan steps in these facts):\n'
+            f'{summary}'
         )
+    else:
+        findings = (
+            'Discovery has already run in a prior phase and produced no additional findings beyond '
+            'the workspace context above.'
+        )
+    return (
+        f'\n\n{findings}\n\n'
+        'Do not add plan steps whose only purpose is read-only discovery (search, explore, inspect, '
+        'locate, read files, semantic lookup, or "understand the codebase"). '
+        'Assume sufficient context exists to start implementation.'
+    )
+
+
+def _planner_chain(planner_context: str, *, discovery_summary: str = ''):
+    discovery_block = _build_discovery_preamble(discovery_summary)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 'system',
                 f'{planner_context}{discovery_block}\n\n'
-                'You are in plan mode. For the given objective, come up with a simple step-by-step plan. '
-                'Each step should be individually actionable with the available tools listed above. '
-                'Use coarse-grained steps (roughly one major action per step). '
-                'Do not list substeps, nested bullets, or micro-tasks inside a step. '
-                'Do not add superfluous steps. The final step should complete the objective.',
+                'You are in plan mode. For the given objective, come up with a simple implementation '
+                'step-by-step plan.\n\n'
+                'Rules:\n'
+                '- Each step must describe mutating or delivering work (edit, create, delete, '
+                'stage/transfer, configure, run tests or smoke checks, install dependencies, etc.).\n'
+                '- Do not add steps whose primary purpose is read-only discovery.\n'
+                '- Each step should be individually actionable with the available tools listed above.\n'
+                '- Use coarse-grained steps (roughly one major action per step).\n'
+                '- Do not list substeps, nested bullets, or micro-tasks inside a step.\n'
+                '- Do not add superfluous steps. The final step should complete the objective.',
             ),
             ('placeholder', '{messages}'),
         ]
@@ -246,7 +281,7 @@ async def _invoke_planner(
     discovery_summary: str = '',
 ) -> PlanModel:
     chain = _planner_chain(
-        build_planner_context_block(session, apply_mode),
+        build_planner_context_block(session, apply_mode, for_initial_plan=True),
         discovery_summary=discovery_summary,
     )
     return await chain.ainvoke({'messages': [HumanMessage(content=user_input)]})

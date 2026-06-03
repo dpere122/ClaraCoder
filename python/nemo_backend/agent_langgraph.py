@@ -172,6 +172,13 @@ async def _race_stream_inputs(
 
     When ``timeout`` elapses before any queue item or abort, return ``('watchdog', None)`` so the
     caller can decide whether the stream is genuinely stalled (see :func:`_stream_is_genuinely_stalled`).
+
+    ``asyncio.wait(FIRST_COMPLETED)`` can report several ``q.get()`` tasks as done in the
+    same batch (e.g. a HITL diff lands on ``hitl_q`` while the graph pump floods ``events_q``).
+    Only one item can be returned per call, so any *other* completed get() tasks must have their
+    items put back on their queues — otherwise they are consumed by the task and then lost when it
+    is cancelled in ``finally``, which silently drops the diff and leaves the agent paused forever.
+    Labels are ordered so earlier queues win (``hitl`` is prioritized by the caller's drain loop).
     """
 
     queue_tasks = [asyncio.create_task(q.get()) for q in queues]
@@ -185,11 +192,19 @@ async def _race_stream_inputs(
             return 'watchdog', None
         if abort_task in done and abort_event.is_set():
             return 'abort', None
-        finished = next(iter(done))
-        for task, label in zip(queue_tasks, labels):
-            if task is finished:
-                return label, finished.result()
-        return labels[0], finished.result()
+        selected: tuple[str, Any] | None = None
+        for task, queue, label in zip(queue_tasks, queues, labels):
+            if task not in done or task.cancelled() or task.exception() is not None:
+                continue
+            item = task.result()
+            if selected is None:
+                selected = (label, item)
+            else:
+                # Re-queue items we cannot return this round so they are not lost.
+                queue.put_nowait(item)
+        if selected is not None:
+            return selected
+        return 'abort', None
     finally:
         await _cancel_pending_waiters(all_tasks)
 

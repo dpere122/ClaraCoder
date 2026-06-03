@@ -26,7 +26,7 @@
       ></div>
     }
     <div class="diff-card border rounded-2 overflow-hidden" [class.diff-card--in-expand]="diffExpanded()">
-    <div class="diff-toolbar diff-toolbar--labeled p-2 border-bottom">
+    <div class="diff-toolbar diff-toolbar--labeled p-2">
       <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2 mb-2">
         <code class="diff-filename small mb-0">{{ payload().relativePath }}</code>
         @if (payload().truncated) {

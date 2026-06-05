@@ -59,6 +59,8 @@ export class TtsPlaybackService {
   private readonly streamingSegmentQueue: string[] = [];
   private streamingPipelineBusy = false;
   private streamingQueueSignal: (() => void) | null = null;
+  /** True from {@link beginAssistantSpeechTurn} until {@link flushStreamingAssistantText} queues the tail. */
+  private streamingSpeechTurnOpen = false;
 
   constructor(
     private readonly electron: ElectronService,
@@ -87,6 +89,7 @@ export class TtsPlaybackService {
     this.streamingCommittedCleanLen = 0;
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
+    this.streamingSpeechTurnOpen = false;
     this.notifyStreamingQueueChanged();
     this.zone.run(() => this.ttsLoading.set(false));
   }
@@ -97,6 +100,7 @@ export class TtsPlaybackService {
    */
   beginAssistantSpeechTurn(): void {
     this.invalidateSpeechPipeline();
+    this.streamingSpeechTurnOpen = true;
   }
 
   /** Same normalization as full-turn {@link speakText} so incremental synthesis matches batch playback. */
@@ -149,6 +153,8 @@ export class TtsPlaybackService {
       this.notifyStreamingQueueChanged();
     }
     this.streamingCommittedCleanLen = clean.length;
+    this.streamingSpeechTurnOpen = false;
+    this.notifyStreamingQueueChanged();
     await this.ensureStreamingPipeline(voice, speed);
   }
 
@@ -159,29 +165,54 @@ export class TtsPlaybackService {
     signal();
   }
 
-  private waitForQueueOrPlayback(playback: Promise<void>): Promise<'queue' | 'playback'> {
-    if (this.streamingSegmentQueue.length > 0) {
-      return Promise.resolve('queue');
-    }
+  /**
+   * Wait for the next queued segment. While the assistant is still streaming, do not resolve
+   * when the current clip ends — only when more text is queued or the turn is flushed.
+   */
+  private waitForNextSegmentDuringPlayback(playback: Promise<void>, gen: number): Promise<string | null> {
+    if (gen !== this.speechGen) return Promise.resolve(null);
+
+    const take = (): string | null => {
+      if (gen !== this.speechGen) return null;
+      return this.takeNextStreamingBatch();
+    };
+
+    const immediate = take();
+    if (immediate) return Promise.resolve(immediate);
+    if (!this.streamingSpeechTurnOpen) return Promise.resolve(null);
+
     return new Promise((resolve) => {
       let settled = false;
-      const signal = (): void => {
+
+      const settle = (seg: string | null): void => {
         if (settled) return;
         settled = true;
-        if (this.streamingQueueSignal === signal) {
+        if (this.streamingQueueSignal === onQueue) {
           this.streamingQueueSignal = null;
         }
-        resolve('queue');
+        resolve(seg);
       };
-      this.streamingQueueSignal = signal;
-      void playback.finally(() => {
+
+      const poll = (): void => {
         if (settled) return;
-        settled = true;
-        if (this.streamingQueueSignal === signal) {
-          this.streamingQueueSignal = null;
+        if (gen !== this.speechGen) {
+          settle(null);
+          return;
         }
-        resolve('playback');
-      });
+        const seg = take();
+        if (seg) {
+          settle(seg);
+          return;
+        }
+        if (!this.streamingSpeechTurnOpen) {
+          settle(null);
+        }
+      };
+
+      const onQueue = (): void => poll();
+      this.streamingQueueSignal = onQueue;
+      poll();
+      void playback.finally(() => poll());
     });
   }
 
@@ -257,16 +288,11 @@ export class TtsPlaybackService {
           }
           const playback = this.playAudioBufferFromUint8(wav, gen, 'audio/wav');
           if (!nextSeg) {
-            const outcome = await this.waitForQueueOrPlayback(playback);
+            nextSeg = await this.waitForNextSegmentDuringPlayback(playback, gen);
             if (gen !== this.speechGen) return;
-            if (outcome === 'queue' && gen === this.speechGen) {
-              nextSeg = this.takeNextStreamingBatch();
-              if (nextSeg) {
-                seq = ++this.ttsStreamSeq;
-                nextWavPromise = this.collectTtsWav(nextSeg, voice, speed, seq, gen, () => {});
-                await playback;
-                continue;
-              }
+            if (nextSeg) {
+              seq = ++this.ttsStreamSeq;
+              nextWavPromise = this.collectTtsWav(nextSeg, voice, speed, seq, gen, () => {});
             }
           }
           await playback;
@@ -388,6 +414,7 @@ export class TtsPlaybackService {
     this.streamingCommittedCleanLen = 0;
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
+    this.streamingSpeechTurnOpen = false;
     await this.electron.abortTtsStream();
     this.stopSpeech();
     this.zone.run(() => this.ttsLoading.set(false));

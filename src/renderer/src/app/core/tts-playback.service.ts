@@ -26,11 +26,33 @@ export class TtsPlaybackService {
   /** Shown on the latest assistant bubble while the first chunk is in flight. */
   readonly ttsLoading = signal(false);
 
+  private static readonly PLAYBACK_RMS_ALPHA = 0.2;
+
   private speechGen = 0;
   private ttsStreamSeq = 0;
   private currentAudio: HTMLAudioElement | null = null;
   /** True after we paused assistant TTS because talk mode picked up voice; cleared after capture ends. */
   private ttsPausedForTalk = false;
+
+  private playbackContext: AudioContext | null = null;
+  private playbackAnalyser: AnalyserNode | null = null;
+  private playbackMediaSource: MediaElementAudioSourceNode | null = null;
+  private playbackRafId: number | null = null;
+  private playbackRmsSmoothed = 0;
+  private readonly playbackTimeData = new Float32Array(2048);
+  private readonly tickPlaybackMeter = (): void => {
+    const el = this.currentAudio;
+    if (!el || el.ended) {
+      this.stopPlaybackMetering();
+      return;
+    }
+    if (!el.paused && this.playbackAnalyser) {
+      const instant = this.samplePlaybackAnalyserRms();
+      const a = TtsPlaybackService.PLAYBACK_RMS_ALPHA;
+      this.playbackRmsSmoothed = this.playbackRmsSmoothed * (1 - a) + instant * a;
+    }
+    this.playbackRafId = requestAnimationFrame(this.tickPlaybackMeter);
+  };
 
   /** Prefix length of {@link stripForTts} output already emitted into the segment queue for this turn. */
   private streamingCommittedCleanLen = 0;
@@ -45,6 +67,16 @@ export class TtsPlaybackService {
 
   getCurrentAudio(): HTMLAudioElement | null {
     return this.currentAudio;
+  }
+
+  /** Smoothed RMS of assistant TTS output (0 when idle). Used for talk-mode barge-in gating. */
+  getPlaybackRms(): number {
+    return this.playbackRmsSmoothed;
+  }
+
+  isAssistantPlaying(): boolean {
+    const el = this.currentAudio;
+    return el != null && !el.ended && !el.paused;
   }
 
   /** Bump generation, stop playback, clear TTS loading UI (e.g. speech toggled off). */
@@ -401,6 +433,57 @@ export class TtsPlaybackService {
     return out;
   }
 
+  private ensurePlaybackContext(): AudioContext {
+    if (!this.playbackContext) {
+      this.playbackContext = new AudioContext();
+      this.playbackAnalyser = this.playbackContext.createAnalyser();
+      this.playbackAnalyser.fftSize = 2048;
+      this.playbackAnalyser.connect(this.playbackContext.destination);
+    }
+    return this.playbackContext;
+  }
+
+  private samplePlaybackAnalyserRms(): number {
+    const analyser = this.playbackAnalyser;
+    if (!analyser) return 0;
+    analyser.getFloatTimeDomainData(this.playbackTimeData);
+    let sum = 0;
+    for (let i = 0; i < this.playbackTimeData.length; i++) {
+      const v = this.playbackTimeData[i];
+      sum += v * v;
+    }
+    return Math.sqrt(sum / this.playbackTimeData.length);
+  }
+
+  private stopPlaybackMetering(): void {
+    if (this.playbackRafId != null) {
+      cancelAnimationFrame(this.playbackRafId);
+      this.playbackRafId = null;
+    }
+    this.playbackRmsSmoothed = 0;
+  }
+
+  private disconnectPlaybackMediaSource(): void {
+    this.stopPlaybackMetering();
+    try {
+      this.playbackMediaSource?.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+    this.playbackMediaSource = null;
+  }
+
+  private connectPlaybackGraph(audio: HTMLAudioElement): void {
+    const ctx = this.ensurePlaybackContext();
+    if (ctx.state === 'suspended') {
+      void ctx.resume();
+    }
+    this.disconnectPlaybackMediaSource();
+    this.playbackMediaSource = ctx.createMediaElementSource(audio);
+    this.playbackMediaSource.connect(this.playbackAnalyser!);
+    this.playbackRafId = requestAnimationFrame(this.tickPlaybackMeter);
+  }
+
   private async playAudioBufferFromUint8(data: Uint8Array, gen: number, mimeType: string): Promise<void> {
     if (data.byteLength === 0) return;
     return new Promise((resolve) => {
@@ -412,9 +495,13 @@ export class TtsPlaybackService {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       this.currentAudio = audio;
+      this.connectPlaybackGraph(audio);
       const done = (): void => {
         URL.revokeObjectURL(url);
-        if (this.currentAudio === audio) this.currentAudio = null;
+        if (this.currentAudio === audio) {
+          this.disconnectPlaybackMediaSource();
+          this.currentAudio = null;
+        }
         resolve();
       };
       audio.onended = done;
@@ -492,6 +579,7 @@ export class TtsPlaybackService {
       this.currentAudio.pause();
       this.currentAudio = null;
     }
+    this.disconnectPlaybackMediaSource();
   }
 
   onTalkRecordingBegan(talkEnabled: boolean, speechEnabled: boolean): void {
@@ -502,22 +590,26 @@ export class TtsPlaybackService {
     this.ttsPausedForTalk = true;
   }
 
-  onTalkCaptureFinished(event: { hadSpeech: boolean }, talkEnabled: boolean): void {
-    if (!talkEnabled) {
+  onTalkCaptureFinished(
+    event: { hadSpeech: boolean; userBargeIn: boolean },
+    talkEnabled: boolean,
+  ): void {
+    const resumePaused = (): void => {
       if (this.ttsPausedForTalk && this.currentAudio && !this.currentAudio.ended) {
         void this.currentAudio.play().catch(() => {});
       }
       this.ttsPausedForTalk = false;
+    };
+
+    if (!talkEnabled) {
+      resumePaused();
       return;
     }
-    if (event.hadSpeech) {
+    if (event.userBargeIn && event.hadSpeech) {
       this.ttsPausedForTalk = false;
       this.invalidateSpeechPipeline();
       return;
     }
-    if (this.ttsPausedForTalk && this.currentAudio && !this.currentAudio.ended) {
-      void this.currentAudio.play().catch(() => {});
-    }
-    this.ttsPausedForTalk = false;
+    resumePaused();
   }
 }

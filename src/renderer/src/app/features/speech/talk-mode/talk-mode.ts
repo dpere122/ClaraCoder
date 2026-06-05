@@ -1,8 +1,11 @@
 import { Component, effect, input, model, NgZone, OnDestroy, output, signal, ViewEncapsulation } from '@angular/core';
 import { ElectronService } from '../../../core/electron.service';
+import { TtsPlaybackService } from '../../../core/tts-playback.service';
 import { TalkUiState } from '../../../core/talk-ui-state';
-
-const SILENCE_RMS = 0.015;
+import {
+  BARGE_SUSTAIN_BUFFERS,
+  micExceedsBargeThreshold,
+} from '../barge-in-threshold';
 
 @Component({
   selector: 'app-talk-mode',
@@ -23,7 +26,7 @@ export class TalkMode implements OnDestroy {
   /** Fired when voice crosses the activity threshold and capture for an utterance begins. */
   readonly recordingBegan = output<void>();
   /** Fired when a capture cycle ends (after transcription or empty audio). */
-  readonly talkCaptureFinished = output<{ hadSpeech: boolean }>();
+  readonly talkCaptureFinished = output<{ hadSpeech: boolean; userBargeIn: boolean }>();
   /** Shown in the composer status row (errors, “no speech”, etc.). */
   readonly statusMessage = model('');
 
@@ -34,11 +37,15 @@ export class TalkMode implements OnDestroy {
   private hasVoice = false;
   private silentMs = 0;
   private transcribing = false;
+  private aboveThresholdStreak = 0;
+  /** Set when sustained mic energy exceeds assistant playback (real barge-in). */
+  private userBargeIn = false;
 
   constructor(
     private zone: NgZone,
     private electron: ElectronService,
     private talkUi: TalkUiState,
+    private tts: TtsPlaybackService,
   ) {
     effect(() => {
       const enabled = this.talkEnabled();
@@ -101,6 +108,8 @@ export class TalkMode implements OnDestroy {
     this.hasVoice = false;
     this.silentMs = 0;
     this.transcribing = false;
+    this.aboveThresholdStreak = 0;
+    this.userBargeIn = false;
     this.zone.run(() => this.talkUi.reset());
 
     this.processorNode.onaudioprocess = (event) => {
@@ -108,19 +117,29 @@ export class TalkMode implements OnDestroy {
       const rms = this.maxChannelRms(buf);
       const input = this.getMonoPcm(buf);
       const silenceThresholdSec = this.talkSilenceThresholdSec();
+      const playbackRms = this.tts.getPlaybackRms();
+      const aboveBarge = micExceedsBargeThreshold(rms, playbackRms);
 
-      if (rms > SILENCE_RMS) {
+      if (aboveBarge) {
         if (!this.hasVoice && !this.transcribing) {
-          this.hasVoice = true;
-          this.zone.run(() => {
-            this.currentTranscript.set('Recording...');
-            this.talkUi.capturing.set(true);
-            this.recordingBegan.emit();
-          });
+          this.aboveThresholdStreak++;
+          if (this.aboveThresholdStreak >= BARGE_SUSTAIN_BUFFERS) {
+            this.hasVoice = true;
+            this.userBargeIn = true;
+            this.zone.run(() => {
+              this.currentTranscript.set('Recording...');
+              this.talkUi.capturing.set(true);
+              this.recordingBegan.emit();
+            });
+          }
         }
         this.silentMs = 0;
-      } else if (this.hasVoice) {
-        this.silentMs += bufferDurationMs;
+      } else {
+        if (!this.hasVoice) {
+          this.aboveThresholdStreak = 0;
+        } else if (this.hasVoice) {
+          this.silentMs += bufferDurationMs;
+        }
       }
 
       if (this.hasVoice) {
@@ -138,6 +157,7 @@ export class TalkMode implements OnDestroy {
         this.pcmChunks = [];
         this.hasVoice = false;
         this.silentMs = 0;
+        this.aboveThresholdStreak = 0;
 
         this.transcribe(wav);
       }
@@ -166,6 +186,8 @@ export class TalkMode implements OnDestroy {
     this.hasVoice = false;
     this.silentMs = 0;
     this.transcribing = false;
+    this.aboveThresholdStreak = 0;
+    this.userBargeIn = false;
     this.listening.set(false);
     this.currentTranscript.set('');
     this.zone.run(() => this.talkUi.reset());
@@ -196,9 +218,11 @@ export class TalkMode implements OnDestroy {
     } finally {
       this.transcribing = false;
       const captured = hadSpeech;
+      const bargeIn = this.userBargeIn;
+      this.userBargeIn = false;
       this.zone.run(() => {
         this.talkUi.transcribing.set(false);
-        this.talkCaptureFinished.emit({ hadSpeech: captured });
+        this.talkCaptureFinished.emit({ hadSpeech: captured, userBargeIn: bargeIn });
         this.currentTranscript.set('');
         if (this.statusMessage() && this.statusMessage() !== 'Microphone permission is required') {
           setTimeout(() => {

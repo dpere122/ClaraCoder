@@ -1467,7 +1467,7 @@ export class App implements OnInit, OnDestroy {
     this.tts.onTalkRecordingBegan(this.talkEnabled(), this.speechEnabled());
   }
 
-  protected onTalkCaptureFinished(event: { hadSpeech: boolean }): void {
+  protected onTalkCaptureFinished(event: { hadSpeech: boolean; userBargeIn: boolean }): void {
     this.tts.onTalkCaptureFinished(event, this.talkEnabled());
   }
 

@@ -4,10 +4,31 @@ from __future__ import annotations
 
 import logging
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
+from nemo_backend.domain import RuntimeConnection
 from nemo_backend.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
+
+
+def _gemma_connection() -> RuntimeConnection:
+    return RuntimeConnection(
+        id='g',
+        name='g',
+        provider='llamacpp',
+        base_url='http://127.0.0.1:8080/v1',
+        model='google/gemma-4-12B-it',
+        api_key='',
+        reasoning_effort='',
+        temperature=1.0,
+        parallel_tool_calls=False,
+        optimization_preset='gemma',
+        max_output_tokens=0,
+        plan_retry_attempts_count=2,
+        thinking_mode='on',
+    )
 
 
 def _tool_end_event(*, name: str, run_id: str, output: str) -> dict[str, object]:
@@ -239,6 +260,34 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
     assert len(chunk_lines) == 1
     assert 'Hello world' in chunk_lines[0]
     assert state.partial_stream_text == 'Hello world'
+
+
+@patch('nemo_backend.langgraph_sse.get_active_connection')
+def test_chat_model_stream_splits_gemma_channel_to_reasoning(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content="<|channel>thought\nI'm\nthinking<channel|>Hello!",
+                ),
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert len(lines) == 2
+    assert '"delta": "Hello!"' in lines[0]
+    assert '"stream_tag": "agent"' in lines[0]
+    assert "I'm" in lines[1]
+    assert '"stream_tag": "reasoning"' in lines[1]
+    assert state.reasoning_emitted_this_step is True
 
 
 def test_chat_model_stream_emits_reasoning_tag_for_reasoning_chunk() -> None:

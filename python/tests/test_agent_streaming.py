@@ -37,9 +37,10 @@ def test_sse_delta_passes_through_tool_call_xml_in_string_content() -> None:
     assert aimessage_chunk_sse_delta(chunk) == 'a<tool_call>x</tool_call>b'
 
 
-def test_sse_delta_passes_through_gemma_channel_tag() -> None:
-    chunk = AIMessageChunk(content='<|channel> 思考过程:\n\nHi')
-    assert aimessage_chunk_sse_delta(chunk) == '<|channel> 思考过程:\n\nHi'
+def test_sse_delta_raw_extract_includes_gemma_channel_markup() -> None:
+    """Channel splitting happens in :mod:`langgraph_sse`; raw delta extraction is unchanged."""
+    chunk = AIMessageChunk(content='<|channel>thought\n\nHi')
+    assert aimessage_chunk_sse_delta(chunk) == '<|channel>thought\n\nHi'
 
 
 def test_sse_delta_passes_through_placeholder_question_wall() -> None:

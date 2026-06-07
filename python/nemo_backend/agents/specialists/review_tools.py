@@ -199,6 +199,11 @@ def _review_pending_entries(session) -> list[tuple[str, object]]:
     ]
 
 
+def pending_untransferred_staging_paths(session) -> list[str]:
+    """Workspace-relative paths with staged drafts not yet transferred for this chain."""
+    return [rel_key for rel_key, _ in _review_pending_entries(session)]
+
+
 def _post_transfer_lsp_section(session: SessionState, *, session_id: str | None) -> str:
     """After ``workspace_applied`` is set for the path just transferred, either defer LSP or run one batch pass.
 

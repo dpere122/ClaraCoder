@@ -17,6 +17,7 @@ from nemo_backend.lsp.manager import (
     sync_session_document,
 )
 from nemo_backend.staging_snapshot_session import prepare_new_staging_snapshot_session
+from nemo_backend.lsp.file_policy import suggest_edit_tool_for_path
 from nemo_backend.lsp.tools import (
     lsp_find_definition,
     lsp_find_references,
@@ -397,9 +398,59 @@ def test_lsp_update_typescript_file_passes_through_tool_errors(monkeypatch, lsp_
     assert result == 'Tool error: staged overwrite failed for src/app.ts'
 
 
+def test_suggest_edit_tool_for_path() -> None:
+    assert 'lsp_create_python_file' in suggest_edit_tool_for_path('pkg/mod.py')
+    assert 'lsp_create_typescript_file' in suggest_edit_tool_for_path('src/app.ts')
+    assert 'stage_create_file' in suggest_edit_tool_for_path('src/app.component.html')
+    assert 'stage_create_file' in suggest_edit_tool_for_path('config.json')
+    assert 'lsp_create_gdscript_file' in suggest_edit_tool_for_path('game/Main.gd')
+
+
+def test_lsp_read_tools_suggest_edit_tool_on_html() -> None:
+    html_path = 'src/app.component.html'
+    diag = lsp_get_diagnostics.invoke({'relative_path': html_path})
+    hover = lsp_hover.invoke({'relative_path': html_path, 'line': 1, 'character': 1})
+
+    for result in (diag, hover):
+        assert result.startswith('Tool error:')
+        assert 'only support' in result.lower()
+        assert 'stage_create_file' in result
+
+
 def test_typescript_path_guard_rejects_python_extension() -> None:
-    with pytest.raises(ValueError, match='TypeScript/JavaScript LSP mutation tools'):
-        lsp_create_typescript_file.invoke({'relative_path': 'pkg/mod.py', 'new_content': 'value = 1\n'})
+    result = lsp_create_typescript_file.invoke({'relative_path': 'pkg/mod.py', 'new_content': 'value = 1\n'})
+
+    assert result.startswith('Tool error:')
+    assert 'TypeScript/JavaScript LSP mutation tools' in result
+    assert 'lsp_create_python_file' in result
+
+
+def test_lsp_mutation_tools_return_tool_error_for_html() -> None:
+    result = lsp_update_typescript_file.invoke(
+        {'relative_path': 'src/app.component.html', 'new_content': '<p>hi</p>\n'}
+    )
+
+    assert result.startswith('Tool error:')
+    assert 'TypeScript/JavaScript LSP mutation tools' in result
+    assert 'stage_create_file' in result
+
+
+def test_lsp_create_python_file_on_html_suggests_staging() -> None:
+    result = lsp_create_python_file.invoke(
+        {'relative_path': 'src/app.component.html', 'new_content': '<p>hi</p>\n'}
+    )
+
+    assert result.startswith('Tool error:')
+    assert 'Python LSP mutation tools' in result
+    assert 'stage_create_file' in result
+
+
+def test_lsp_update_python_file_on_ts_suggests_typescript_lsp() -> None:
+    result = lsp_update_python_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
+
+    assert result.startswith('Tool error:')
+    assert 'Python LSP mutation tools' in result
+    assert 'lsp_create_typescript_file' in result
 
 
 def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
@@ -442,8 +493,11 @@ def test_lsp_update_gdscript_file_passes_through_tool_errors(monkeypatch, lsp_en
 
 
 def test_gdscript_path_guard_rejects_typescript_extension() -> None:
-    with pytest.raises(ValueError, match='GDScript LSP mutation tools'):
-        lsp_create_gdscript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
+    result = lsp_create_gdscript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
+
+    assert result.startswith('Tool error:')
+    assert 'GDScript LSP mutation tools' in result
+    assert 'lsp_create_typescript_file' in result
 
 
 def test_diagnostics_route_returns_cached_python_results(lsp_env) -> None:

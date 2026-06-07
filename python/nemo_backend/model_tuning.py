@@ -53,6 +53,23 @@ def gemma_optimize_profile_active(connection: RuntimeConnection) -> bool:
     return optimization_preset(connection) == 'gemma'
 
 
+def gemma_output_parsing_active(connection: RuntimeConnection) -> bool:
+    """True when Gemma 4 ``<|channel>`` output should be split into reasoning vs visible text."""
+    return gemma_optimize_profile_active(connection)
+
+
+def gemma_enable_thinking_for_llm(connection: RuntimeConnection) -> bool | None:
+    """Map Settings ``thinking_mode`` to llama-server ``chat_template_kwargs.enable_thinking``."""
+    if not gemma_optimize_profile_active(connection):
+        return None
+    mode = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower()
+    if mode == 'on':
+        return True
+    if mode == 'off':
+        return False
+    return None
+
+
 def sparse_expert_variant_for_prompts(connection: RuntimeConnection) -> bool:
     """True when Gemma-style sparse-expert layout notes should apply (model id only; not a separate agent graph)."""
     h = (getattr(connection, 'architecture_hint', None) or 'auto').strip().lower()
@@ -233,6 +250,16 @@ def qwen_specific_prompt_suffix() -> str:
     )
 
 
+def gemma_specific_prompt_suffix() -> str:
+    """Gemma-family staging/transfer discipline; use with :func:`tool_calling_and_edit_semantics_suffix`."""
+    return (
+        '\nModel note (Gemma): Prefer one tool call per assistant turn when you can; wait for the tool result '
+        'before issuing the next call. After any successful `stage_*` or LSP staging mutation, continue the same '
+        'turn chain with `transfer_staged_file_to_workspace`—staging alone is not finished work. When Auto-apply is '
+        'off, only that transfer tool triggers the diff card; do not ask the user to approve in chat instead.\n'
+    )
+
+
 def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
     """Hint to use ``read_workspace_image`` when Qwen preset is active on a Qwen3.5 vision model."""
     if not qwen_optimize_profile_active(connection):
@@ -255,7 +282,7 @@ def gemma_thinking_prompt_suffix(connection: RuntimeConnection) -> str:
     if mode == 'on':
         parts.append(
             '\nModel note (Gemma thinking): Use structured reasoning for harder tasks when helpful. '
-            'The local server chat template may inject thinking tokens (e.g. <|think|>) when thinking is enabled.\n'
+            'The local server chat template opens a `<|channel>thought` block when thinking is enabled.\n'
         )
     elif mode == 'off':
         parts.append(
@@ -317,6 +344,8 @@ def combined_model_prompt_suffix(
     if qwen_optimize_profile_active(connection):
         parts.append(qwen_specific_prompt_suffix())
         parts.append(qwen_vision_prompt_suffix(connection))
+    if gemma_optimize_profile_active(connection):
+        parts.append(gemma_specific_prompt_suffix())
     parts.append(gemma_thinking_prompt_suffix(connection))
     parts.append(gemma_sparse_expert_workspace_suffix(connection))
     return ''.join(parts)

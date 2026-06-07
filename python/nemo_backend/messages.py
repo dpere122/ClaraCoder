@@ -14,7 +14,9 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from nemo_backend.domain import SessionState
-from nemo_backend.model_tuning import combined_model_prompt_suffix
+from nemo_backend.gemma_output import gemma_content_needs_parsing, split_gemma_channels
+from nemo_backend.model_tuning import combined_model_prompt_suffix, gemma_output_parsing_active
+from nemo_backend.state import get_active_connection
 from nemo_backend.prompt_blocks import (
     harness_mindset_block,
     routing_handoff_contract,
@@ -140,10 +142,29 @@ def _reasoning_body(message: AIMessage) -> str:
     return ''
 
 
-def assistant_visible_answer(message: AIMessage) -> str:
-    """User-visible assistant text from normal content only (no reasoning-channel fallback)."""
+def _should_split_gemma_content(text: str) -> bool:
+    if not gemma_content_needs_parsing(text):
+        return False
+    try:
+        if gemma_output_parsing_active(get_active_connection()):
+            return True
+    except Exception:
+        pass
+    return True
+
+
+def _raw_assistant_content(message: AIMessage) -> str:
     via_lc = str(getattr(message, 'text', None) or '').strip()
     return via_lc if via_lc else stringify_content(message.content).strip()
+
+
+def assistant_visible_answer(message: AIMessage) -> str:
+    """User-visible assistant text from normal content only (no reasoning-channel fallback)."""
+    raw = _raw_assistant_content(message)
+    if raw and _should_split_gemma_content(raw):
+        visible, _ = split_gemma_channels(raw)
+        return visible
+    return raw
 
 
 def final_assistant_text(message: AIMessage) -> str:
@@ -157,11 +178,14 @@ def final_assistant_text(message: AIMessage) -> str:
 def reasoning_sidecar_text(message: AIMessage) -> str:
     """Reasoning to show separately when the model also returned a visible main answer."""
     body = _reasoning_body(message)
+    raw = _raw_assistant_content(message)
+    if not body and raw and _should_split_gemma_content(raw):
+        _, body = split_gemma_channels(raw)
     if not body:
         return ''
     vis = assistant_visible_answer(message)
     if not vis:
-        return ''
+        return body
     if body.strip() == vis.strip():
         return ''
     return body

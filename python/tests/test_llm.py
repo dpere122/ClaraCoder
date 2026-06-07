@@ -229,3 +229,51 @@ def test_build_llm_generic_merges_optional_sampling(
     assert eb.get('top_k') == 20
     assert eb.get('min_p') == 0.0
     assert eb.get('repeat_penalty') == 1.0
+
+
+@patch('nemo_backend.llm.ChatOpenAI')
+@patch('nemo_backend.llm.log_llm_connection_settings')
+@patch('nemo_backend.llm.get_active_connection')
+def test_build_llm_gemma_thinking_mode_on(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _gemma_conn(thinking_mode='on')
+    from nemo_backend.llm import build_llm
+
+    build_llm()
+    ctk = (mock_ctor.call_args.kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is True
+
+
+@patch('nemo_backend.llm.ChatOpenAI')
+@patch('nemo_backend.llm.log_llm_connection_settings')
+@patch('nemo_backend.llm.get_active_connection')
+def test_build_llm_gemma_thinking_mode_off(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _gemma_conn(thinking_mode='off')
+    from nemo_backend.llm import build_llm
+
+    build_llm()
+    ctk = (mock_ctor.call_args.kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is False
+
+
+@patch('nemo_backend.llm.ChatOpenAI')
+@patch('nemo_backend.llm.log_llm_connection_settings')
+@patch('nemo_backend.llm.get_active_connection')
+def test_build_llm_gemma_thinking_mode_default_omits_kwarg(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _gemma_conn(thinking_mode='default')
+    from nemo_backend.llm import build_llm
+
+    build_llm()
+    eb = mock_ctor.call_args.kwargs.get('extra_body') or {}
+    assert 'chat_template_kwargs' not in eb

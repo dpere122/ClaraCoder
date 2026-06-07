@@ -82,6 +82,15 @@ try:
 except ValueError:
     MAX_AGENT_PSEUDO_TOOL_NUDGES = 2
 
+# When staged drafts exist but the model tries to finish without calling transfer_staged_file_to_workspace.
+try:
+    MAX_AGENT_STAGING_CONTINUATION_NUDGES = max(
+        0,
+        min(int(os.getenv('NEMO_MAX_AGENT_STAGING_CONTINUATION_NUDGES', '2') or '2'), 20),
+    )
+except ValueError:
+    MAX_AGENT_STAGING_CONTINUATION_NUDGES = 2
+
 # ---------------------------------------------------------------------------
 # Workspace tool limits
 # ---------------------------------------------------------------------------

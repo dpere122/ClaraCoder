@@ -1,4 +1,5 @@
 import {
+  appendChatTemplateFileFlags,
   appendQwenChatTemplateFlagsToManagedChatCommand,
   argvToShellCommandLine,
   buildLlamaServerArgv,
@@ -7,6 +8,7 @@ import {
   migrateLegacyLlamaCppManagedToCommands,
   parseHostFromLlamaCommand,
   prepareManagedLlamaShellCommand,
+  GEMMA4_CHAT_TEMPLATE_FILENAME,
   QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME,
   type LlamaCppManagedLegacy,
 } from '@shared/index';
@@ -14,6 +16,12 @@ import {
 describe('QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME', () => {
   it('matches the bundled resource name used by main getQwenInferenceChatTemplatePath and electron-builder LLM_Templates', () => {
     expect(QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME).toBe('qwen_inference_template.jinja');
+  });
+});
+
+describe('GEMMA4_CHAT_TEMPLATE_FILENAME', () => {
+  it('matches the bundled resource name used by main getGemma4ChatTemplatePath and electron-builder LLM_Templates', () => {
+    expect(GEMMA4_CHAT_TEMPLATE_FILENAME).toBe('gemma4_12b_chat_template.jinja');
   });
 });
 
@@ -64,6 +72,16 @@ describe('prepareManagedLlamaShellCommand', () => {
   it('errors when placeholder appears twice', () => {
     const r = prepareManagedLlamaShellCommand('llama-server --port {{PORT}} --x {{PORT}}', 1);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('appendChatTemplateFileFlags', () => {
+  it('matches Qwen wrapper behavior', () => {
+    const cmd = 'llama-server --port {{PORT}} -m a.gguf';
+    const path = '/tmp/gemma.jinja';
+    expect(appendChatTemplateFileFlags(cmd, path, 'posix')).toBe(
+      appendQwenChatTemplateFlagsToManagedChatCommand(cmd, path, 'posix'),
+    );
   });
 });
 

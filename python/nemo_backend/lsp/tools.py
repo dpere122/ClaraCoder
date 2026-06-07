@@ -17,6 +17,7 @@ from nemo_backend.lsp.file_policy import (
     get_typescript_lsp_policy,
     lsp_server_for_path,
     normalize_relative_posix_path,
+    suggest_edit_tool_for_path,
 )
 from nemo_backend.lsp.manager import (
     LspServerKind,
@@ -98,7 +99,7 @@ def _require_lsp_read_path(relative_path: str) -> tuple[str, LspServerKind]:
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(
-            f'LSP read tools support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and `.gd`. Got `{rel}`.'
+            f'LSP read tools only support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and `.gd`. Got `{rel}`.'
         )
     return rel, server
 
@@ -193,7 +194,18 @@ def _format_lsp_tool_error(
         or 'typescript-language-server' in lowered
     ):
         message += ' The backend could not start the configured language server (check Node for TS/JS or Python env for .py).'
+    elif 'only support' in lowered and rel:
+        message += f' To edit this path, retry with the appropriate tool: {suggest_edit_tool_for_path(rel)}'
     return message
+
+
+def _format_lsp_mutation_path_error(exc: ValueError, *, relative_path: str) -> str:
+    rel = normalize_relative_posix_path(relative_path)
+    detail = ' '.join(str(exc).strip().split()) or exc.__class__.__name__
+    return (
+        f'Tool error: {detail} '
+        f'Retry with the appropriate tool: {suggest_edit_tool_for_path(rel)}'
+    )
 
 
 def _run_lsp_mutation_tool(
@@ -204,7 +216,10 @@ def _run_lsp_mutation_tool(
     path_guard: Callable[[str], str],
     language_label: str,
 ) -> str:
-    rel = path_guard(relative_path)
+    try:
+        rel = path_guard(relative_path)
+    except ValueError as exc:
+        return _format_lsp_mutation_path_error(exc, relative_path=relative_path)
     sid = (current_session_id.get() or '').strip()
     session = get_session(sid) if sid else None
     direct = bool(
@@ -505,7 +520,10 @@ def lsp_update_python_file(
 def lsp_delete_python_file(relative_path: str) -> str:
     """Use to remove a `.py` file from the workspace; clears LSP state for that document."""
 
-    _require_python_path(relative_path)
+    try:
+        _require_python_path(relative_path)
+    except ValueError as exc:
+        return _format_lsp_mutation_path_error(exc, relative_path=relative_path)
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 
@@ -559,7 +577,10 @@ def lsp_update_typescript_file(
 def lsp_delete_typescript_file(relative_path: str) -> str:
     """Use to remove a `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs` file from the workspace; clears LSP state for that document."""
 
-    _require_typescript_path(relative_path)
+    try:
+        _require_typescript_path(relative_path)
+    except ValueError as exc:
+        return _format_lsp_mutation_path_error(exc, relative_path=relative_path)
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 
@@ -613,7 +634,10 @@ def lsp_update_gdscript_file(
 def lsp_delete_gdscript_file(relative_path: str) -> str:
     """Use to remove a `.gd` file from the workspace; clears LSP state for that document."""
 
-    _require_gdscript_path(relative_path)
+    try:
+        _require_gdscript_path(relative_path)
+    except ValueError as exc:
+        return _format_lsp_mutation_path_error(exc, relative_path=relative_path)
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 

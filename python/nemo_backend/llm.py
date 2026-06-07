@@ -32,6 +32,7 @@ from nemo_backend.config import DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BAS
 from nemo_backend.llm_interaction_logging import log_llm_connection_settings
 from nemo_backend.model_tuning import (
     connection_user_sampling_kwargs_for_llm,
+    gemma_enable_thinking_for_llm,
     gemma_optimize_profile_active,
     gemma_sampling_kwargs_for_llm,
     llm_optional_kwargs,
@@ -147,6 +148,14 @@ def build_llm() -> ChatOpenAI:
         base_eb.update(eb_extra)
         kwargs['extra_body'] = base_eb
     kwargs.update(gemma_sampling)
+
+    enable_thinking = gemma_enable_thinking_for_llm(connection)
+    if enable_thinking is not None:
+        base_eb = dict(kwargs.get('extra_body') or {})
+        ctk = dict(base_eb.get('chat_template_kwargs') or {})
+        ctk['enable_thinking'] = enable_thinking
+        base_eb['chat_template_kwargs'] = ctk
+        kwargs['extra_body'] = base_eb
 
     safe: dict[str, Any] = {
         'provider': connection.provider,

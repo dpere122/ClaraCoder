@@ -563,8 +563,12 @@ export class App implements OnInit, OnDestroy {
             turn.auxiliaryStreamTimeline,
             planner ?? undefined,
           );
-          if (this.speechEnabled() && turn.text.trim()) {
-            void this.tts.flushStreamingAssistantText(turn.text, this.selectedVoice(), this.ttsSpeechSpeed());
+          if (this.speechEnabled()) {
+            const streamedPrimary = primaryAssistantTextFromParts(parts);
+            const ttsText = streamedPrimary.trim() ? streamedPrimary : turn.text;
+            if (ttsText.trim()) {
+              void this.tts.flushStreamingAssistantText(ttsText, this.selectedVoice(), this.ttsSpeechSpeed());
+            }
           }
           void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
             console.error('[App] persist assistant / auto-title failed', err),

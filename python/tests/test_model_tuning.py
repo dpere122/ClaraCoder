@@ -87,6 +87,9 @@ def test_combined_suffix_gemma_thinking_on() -> None:
     c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='gemma', thinking_mode='on')
     s = combined_model_prompt_suffix(c)
     assert 'Model note (Gemma thinking)' in s
+    assert '<|channel>thought' in s
+    assert 'Model note (Gemma):' in s
+    assert 'transfer_staged_file_to_workspace' in s
 
 
 def test_combined_suffix_gemma_sparse_expert_hint() -> None:

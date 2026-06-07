@@ -15,7 +15,7 @@ import type {
   ManagedServerHealthState,
 } from '../shared';
 import {
-  appendQwenChatTemplateFlagsToManagedChatCommand,
+  appendChatTemplateFileFlags,
   detectShellQuotingPlatform,
   findLlmModelLocation,
   looksLikeLlamaModelDownload,
@@ -25,7 +25,7 @@ import {
 import { loadConfigSync } from './config/load-save';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
-import { getQwenInferenceChatTemplatePath } from './paths';
+import { getGemma4ChatTemplatePath, getQwenInferenceChatTemplatePath } from './paths';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 
 type StreamKind = 'chat' | 'embed';
@@ -281,7 +281,18 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
         error: `Qwen optimization is enabled but the chat template was not found at ${tplPath}. Set NEMO_QWEN_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/qwen_inference_template.jinja is present (packaged builds ship it under resources).`,
       };
     }
-    chatCmd = appendQwenChatTemplateFlagsToManagedChatCommand(chatCmd, tplPath, detectShellQuotingPlatform());
+    chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());
+  }
+
+  if (loc.model.optimizationPreset === 'gemma') {
+    const tplPath = getGemma4ChatTemplatePath();
+    if (!existsSync(tplPath)) {
+      return {
+        ok: false,
+        error: `Gemma optimization is enabled but the chat template was not found at ${tplPath}. Set NEMO_GEMMA4_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/gemma4_12b_chat_template.jinja is present (packaged builds ship it under resources).`,
+      };
+    }
+    chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());
   }
 
   const chatPort = await pickPort();

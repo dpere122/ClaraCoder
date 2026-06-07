@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { app } from 'electron';
 import path = require('path');
+import { GEMMA4_CHAT_TEMPLATE_FILENAME } from '../shared/gemma-template';
 import { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from '../shared/qwen-template';
 import { DEV_SERVER_URL } from './constants';
 
@@ -83,6 +84,21 @@ export function getQwenInferenceChatTemplatePath(): string {
     return path.join(process.resourcesPath, 'LLM_Templates', QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME);
   }
   return path.join(__dirname, '..', '..', 'LLM_Templates', QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME);
+}
+
+/**
+ * Path to the bundled Gemma 4 Jinja chat template for managed ``llama-server`` (``--chat-template-file``).
+ * Override with ``NEMO_GEMMA4_CHAT_TEMPLATE_PATH`` (absolute path recommended).
+ */
+export function getGemma4ChatTemplatePath(): string {
+  const fromEnv = process.env.NEMO_GEMMA4_CHAT_TEMPLATE_PATH?.trim();
+  if (fromEnv) {
+    return path.isAbsolute(fromEnv) ? fromEnv : path.resolve(fromEnv);
+  }
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'LLM_Templates', GEMMA4_CHAT_TEMPLATE_FILENAME);
+  }
+  return path.join(__dirname, '..', '..', 'LLM_Templates', GEMMA4_CHAT_TEMPLATE_FILENAME);
 }
 
 /**

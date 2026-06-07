@@ -23,6 +23,7 @@ __all__ = [
     'is_programming_path',
     'outer_workspace_edit_guard_error',
     'requires_code_review',
+    'suggest_edit_tool_for_path',
 ]
 
 
@@ -230,6 +231,37 @@ def requires_code_review(relative_path: str) -> bool:
         return policy.requires_review
     suf = _suffix(relative_path)
     return suf in LEGACY_CODE_REVIEW_EXTENSIONS or suf in CONFIG_CODE_REVIEW_EXTENSIONS
+
+
+def suggest_edit_tool_for_path(relative_path: str) -> str:
+    """Return a short hint naming the edit tools appropriate for this path extension."""
+    rel = normalize_relative_posix_path(relative_path)
+    policy = get_lsp_file_policy(rel)
+    if policy is not None and policy.use_lsp:
+        if policy.lsp_server == 'python':
+            return (
+                'Use `lsp_create_python_file`, `lsp_update_python_file`, or `lsp_delete_python_file` '
+                'for `.py` paths.'
+            )
+        if policy.lsp_server == 'typescript':
+            return (
+                'Use `lsp_create_typescript_file`, `lsp_update_typescript_file`, or `lsp_delete_typescript_file` '
+                'for TypeScript/JavaScript paths.'
+            )
+        if policy.lsp_server == 'gdscript':
+            return (
+                'Use `lsp_create_gdscript_file`, `lsp_update_gdscript_file`, or `lsp_delete_gdscript_file` '
+                'for `.gd` paths.'
+            )
+    if requires_code_review(rel):
+        return (
+            'Use staging tools: `stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, '
+            'or `stage_snippet_edit` (then `transfer_staged_file_to_workspace` when ready).'
+        )
+    return (
+        'Use `stage_create_file` or `stage_workspace_file_overwrite` for edits '
+        '(or `apply_workspace_full_file` when direct workspace writes are enabled).'
+    )
 
 
 def outer_workspace_edit_guard_error(relative_workspace_path: str) -> str | None:

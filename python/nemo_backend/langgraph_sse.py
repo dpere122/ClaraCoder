@@ -29,7 +29,10 @@ from nemo_backend.llm_interaction_logging import (
     log_llm_chat_request_from_event_input,
     log_llm_chat_response,
 )
+from nemo_backend.gemma_output import GemmaStreamSplitter, gemma_content_needs_parsing
 from nemo_backend.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
+from nemo_backend.model_tuning import gemma_output_parsing_active
+from nemo_backend.state import get_active_connection
 from nemo_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
 from nemo_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
 from nemo_backend.tool_harness_feedback_middleware import pending_harness_crystal_polarity
@@ -48,6 +51,8 @@ class GraphStreamState:
     stream_chars: int = 0
     #: True once a ``stream_tag=reasoning`` chunk was emitted for the current LLM step.
     reasoning_emitted_this_step: bool = False
+    gemma_split_for_step: bool = False
+    gemma_splitter: GemmaStreamSplitter = field(default_factory=GemmaStreamSplitter)
 
 
 def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
@@ -145,6 +150,8 @@ def _on_chat_model_start(
     state.stream_chunks = 0
     state.stream_chars = 0
     state.reasoning_emitted_this_step = False
+    state.gemma_split_for_step = False
+    state.gemma_splitter = GemmaStreamSplitter()
     log_llm_chat_request_from_event_input(
         data.get('input'),
         context=llm_log_context,
@@ -166,6 +173,21 @@ def _on_chat_model_start(
     ]
 
 
+def _gemma_stream_split_enabled(state: GraphStreamState, delta: str) -> bool:
+    if state.gemma_split_for_step:
+        return True
+    try:
+        if gemma_output_parsing_active(get_active_connection()):
+            state.gemma_split_for_step = True
+            return True
+    except Exception:
+        pass
+    if gemma_content_needs_parsing(delta):
+        state.gemma_split_for_step = True
+        return True
+    return False
+
+
 def _on_chat_model_stream(
     data: dict[str, Any],
     state: GraphStreamState,
@@ -178,6 +200,11 @@ def _on_chat_model_stream(
         return []
     delta = aimessage_chunk_sse_delta(raw)
     reason_delta = aimessage_chunk_reasoning_delta(raw)
+    if not reason_delta.strip() and delta and _gemma_stream_split_enabled(state, delta):
+        main_delta, split_reason = state.gemma_splitter.feed(delta)
+        delta = main_delta
+        if split_reason:
+            reason_delta = f'{reason_delta}{split_reason}'
     main_ok = is_meaningful_stream_delta(delta)
     reasoning_ok = is_meaningful_stream_delta(reason_delta)
     if not main_ok and not reasoning_ok:
@@ -215,6 +242,14 @@ def _on_chat_model_end(
     if msg is None:
         return []
     lines: list[str] = []
+    if state.gemma_split_for_step:
+        flush_main, flush_reason = state.gemma_splitter.flush()
+        if emit_model_token_sse:
+            if is_meaningful_stream_delta(flush_main):
+                lines.append(model_chunk_sse_line(flush_main, stream_tag))
+            if is_meaningful_stream_delta(flush_reason):
+                lines.append(model_chunk_sse_line(flush_reason, REASONING_AUXILIARY_STREAM_TAG))
+                state.reasoning_emitted_this_step = True
     if emit_model_token_sse and not state.reasoning_emitted_this_step:
         side = reasoning_sidecar_text(msg)
         if side and is_meaningful_stream_delta(side):

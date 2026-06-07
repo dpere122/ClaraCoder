@@ -56,6 +56,10 @@ export class TtsPlaybackService {
 
   /** Prefix length of {@link stripForTts} output already emitted into the segment queue for this turn. */
   private streamingCommittedCleanLen = 0;
+  /** Last raw primary text length fed for this turn (detect true turn resets vs strip shrink). */
+  private streamingRawLen = 0;
+  /** Previous full {@link stripForTts} snapshot — used to realign when stripping shortens text. */
+  private streamingCleanSnapshot = '';
   private readonly streamingSegmentQueue: string[] = [];
   private streamingPipelineBusy = false;
   private streamingQueueSignal: (() => void) | null = null;
@@ -85,6 +89,8 @@ export class TtsPlaybackService {
     void this.electron.abortTtsStream();
     this.stopSpeech();
     this.streamingCommittedCleanLen = 0;
+    this.streamingRawLen = 0;
+    this.streamingCleanSnapshot = '';
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
     this.notifyStreamingQueueChanged();
@@ -118,12 +124,19 @@ export class TtsPlaybackService {
    * Feed cumulative sanitized primary-assistant text while the model streams; queues speech at sentence/word boundaries.
    */
   feedStreamingAssistantText(sanitizedFullPrimary: string, voice: string, speed: number): void {
-    const clean = this.stripForTts(sanitizedFullPrimary);
-    if (!clean) return;
-    if (clean.length < this.streamingCommittedCleanLen) {
+    const raw = sanitizedFullPrimary;
+    if (!raw) return;
+    if (raw.length < this.streamingRawLen) {
       this.streamingCommittedCleanLen = 0;
+      this.streamingRawLen = 0;
+      this.streamingCleanSnapshot = '';
       this.streamingSegmentQueue.length = 0;
     }
+    this.streamingRawLen = raw.length;
+
+    const clean = this.stripForTts(raw);
+    if (!clean) return;
+    this.realignStreamingCommitAfterStripShrink(clean);
     const tail = clean.slice(this.streamingCommittedCleanLen);
     const { segments, keep } = this.extractStreamingSegments(tail);
     for (const s of segments) {
@@ -133,7 +146,27 @@ export class TtsPlaybackService {
       this.notifyStreamingQueueChanged();
     }
     this.streamingCommittedCleanLen = clean.length - keep.length;
+    this.streamingCleanSnapshot = clean;
     void this.ensureStreamingPipeline(voice, speed);
+  }
+
+  /**
+   * {@link stripForTts} is not monotonic while markdown/code fences stream in (a completed fence
+   * removes text that was already counted). Realign to the longest common prefix instead of
+   * resetting to zero, which would re-queue and replay from the beginning.
+   */
+  private realignStreamingCommitAfterStripShrink(clean: string): void {
+    if (clean.length >= this.streamingCommittedCleanLen) {
+      return;
+    }
+    const prev = this.streamingCleanSnapshot;
+    let lcp = 0;
+    const limit = Math.min(prev.length, clean.length);
+    while (lcp < limit && prev[lcp] === clean[lcp]) {
+      lcp++;
+    }
+    this.streamingCommittedCleanLen = lcp;
+    this.streamingSegmentQueue.length = 0;
   }
 
   /**
@@ -141,6 +174,7 @@ export class TtsPlaybackService {
    */
   async flushStreamingAssistantText(sanitizedFullPrimary: string, voice: string, speed: number): Promise<void> {
     const clean = this.stripForTts(sanitizedFullPrimary);
+    this.realignStreamingCommitAfterStripShrink(clean);
     const tail = clean.slice(this.streamingCommittedCleanLen);
     if (tail.trim()) {
       for (const s of this.splitTextForTts(tail.trim())) {
@@ -149,6 +183,8 @@ export class TtsPlaybackService {
       this.notifyStreamingQueueChanged();
     }
     this.streamingCommittedCleanLen = clean.length;
+    this.streamingRawLen = sanitizedFullPrimary.length;
+    this.streamingCleanSnapshot = clean;
     await this.ensureStreamingPipeline(voice, speed);
   }
 
@@ -386,6 +422,8 @@ export class TtsPlaybackService {
     // cancelled by a late `tts-stream-abort` (fire-and-forget abort raced `tts-stream-start`).
     this.speechGen++;
     this.streamingCommittedCleanLen = 0;
+    this.streamingRawLen = 0;
+    this.streamingCleanSnapshot = '';
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
     await this.electron.abortTtsStream();
@@ -494,6 +532,7 @@ export class TtsPlaybackService {
       const blob = new Blob([data as BlobPart], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.preload = 'auto';
       this.currentAudio = audio;
       this.connectPlaybackGraph(audio);
       const done = (): void => {
@@ -506,7 +545,15 @@ export class TtsPlaybackService {
       };
       audio.onended = done;
       audio.onerror = done;
-      void audio.play().catch(() => done());
+      const start = (): void => {
+        void audio.play().catch(() => done());
+      };
+      if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        start();
+      } else {
+        audio.addEventListener('canplay', start, { once: true });
+        audio.load();
+      }
     });
   }
 

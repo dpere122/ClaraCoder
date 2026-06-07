@@ -50,9 +50,11 @@ export {
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,
 } from './types/app-config';
+export { GEMMA4_CHAT_TEMPLATE_FILENAME } from './gemma-template';
 export { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from './qwen-template';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export {
+  appendChatTemplateFileFlags,
   appendQwenChatTemplateFlagsToManagedChatCommand,
   argvToShellCommandLine,
   buildLlamaServerArgv,

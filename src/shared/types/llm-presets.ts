@@ -34,7 +34,7 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     id: 'gemma',
     label: 'Gemma (local)',
     description:
-      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off), recommended sampling (temp 1 / top_p 0.95 / top_k 64), higher default max output, and sparse-expert layout notes when the model id suggests a 26B A4B–style variant. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx, often tens of thousands of tokens) caps prompt plus completion; it can be far below the model’s trained context in GGUF metadata.',
+      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, recommended sampling (temp 1 / top_p 0.95 / top_k 64), higher default max output, sparse-expert layout notes when the model id suggests a 26B A4B–style variant, managed llama-server adds --jinja and the bundled Gemma 4 Jinja template, and <|channel>thought output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
     providers: ['lmstudio', 'llamacpp'],
   },
 ] as const;

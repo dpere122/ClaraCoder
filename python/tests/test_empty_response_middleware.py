@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
+from nemo_backend.domain import EditStagingEntry, PendingStagedTransferHitl
 from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from nemo_backend.state import current_session_id, get_session
 
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
@@ -30,6 +32,7 @@ async def test_empty_response_nudge_resets_after_tool_call() -> None:
     assert result == {
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
+        'staging_continuation_nudge_streak': 0,
     }
 
 
@@ -105,4 +108,118 @@ async def test_prose_only_resets_pseudo_streak() -> None:
     assert result == {
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
+        'staging_continuation_nudge_streak': 0,
+    }
+
+
+async def test_prose_with_pending_staging_nudges_transfer() -> None:
+    middleware = EmptyResponseNudgeMiddleware()
+    session_id = 'empty-mw-staging-prose'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.worker_apply_mode = True
+    session.auto_apply_mode = False
+    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
+        temp_path='/tmp/staged.html',
+        old_text='',
+        merged_text='<p>hi</p>\n',
+        disk_encoding='utf-8',
+        disk_newline='lf',
+        edit_mode='full-file',
+        workspace_applied=False,
+    )
+    try:
+        result = await middleware.aafter_model(
+            {
+                'messages': [AIMessage(content='Done staging.')],
+                'staging_continuation_nudge_streak': 0,
+            },
+            MagicMock(),
+        )
+    finally:
+        session.pending_edit_stagings.clear()
+        current_session_id.reset(token)
+
+    assert result is not None
+    assert result.get('jump_to') == 'model'
+    assert result.get('staging_continuation_nudge_streak') == 1
+    assert 'transfer_staged_file_to_workspace' in result['messages'][0].content
+    assert 'Auto-apply is off' in result['messages'][0].content
+
+
+async def test_empty_after_stage_tool_nudges_transfer_not_do_not_call_tools() -> None:
+    middleware = EmptyResponseNudgeMiddleware()
+    session_id = 'empty-mw-staging-empty'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.worker_apply_mode = True
+    session.auto_apply_mode = False
+    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
+        temp_path='/tmp/staged.html',
+        old_text='',
+        merged_text='<p>hi</p>\n',
+        disk_encoding='utf-8',
+        disk_newline='lf',
+        edit_mode='full-file',
+        workspace_applied=False,
+    )
+    try:
+        result = await middleware.aafter_model(
+            {
+                'messages': [
+                    ToolMessage(
+                        content='Staged `src/app.html` for review. Next: transfer_staged_file_to_workspace',
+                        tool_call_id='tool-1',
+                        name='stage_create_file',
+                    ),
+                    AIMessage(content=''),
+                ],
+                'staging_continuation_nudge_streak': 0,
+            },
+            MagicMock(),
+        )
+    finally:
+        session.pending_edit_stagings.clear()
+        current_session_id.reset(token)
+
+    assert result is not None
+    assert result.get('jump_to') == 'model'
+    assert 'transfer_staged_file_to_workspace' in result['messages'][0].content
+    assert 'do NOT call tools again' not in result['messages'][0].content.lower()
+
+
+async def test_staging_continuation_skipped_when_transfer_hitl_pending() -> None:
+    middleware = EmptyResponseNudgeMiddleware()
+    session_id = 'empty-mw-staging-hitl'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.worker_apply_mode = True
+    session.auto_apply_mode = False
+    session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path='src/app.html')
+    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
+        temp_path='/tmp/staged.html',
+        old_text='',
+        merged_text='<p>hi</p>\n',
+        disk_encoding='utf-8',
+        disk_newline='lf',
+        edit_mode='full-file',
+        workspace_applied=False,
+    )
+    try:
+        result = await middleware.aafter_model(
+            {
+                'messages': [AIMessage(content='Done staging.')],
+                'staging_continuation_nudge_streak': 0,
+            },
+            MagicMock(),
+        )
+    finally:
+        session.pending_edit_stagings.clear()
+        session.pending_staged_transfer_hitl = None
+        current_session_id.reset(token)
+
+    assert result == {
+        'empty_response_nudge_streak': 0,
+        'pseudo_tool_markup_nudge_streak': 0,
+        'staging_continuation_nudge_streak': 0,
     }

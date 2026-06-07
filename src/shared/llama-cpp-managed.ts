@@ -344,11 +344,10 @@ export function parseHostFromLlamaCommand(command: string): string {
 }
 
 /**
- * For managed ``llama-server`` when the Qwen optimization preset is on: append ``--jinja`` and
- * ``--chat-template-file`` so llama.cpp uses the bundled Qwen template. Skips if the user command
- * already contains ``--chat-template-file``.
+ * Append ``--jinja`` and ``--chat-template-file`` for managed ``llama-server``.
+ * Skips if the user command already contains ``--chat-template-file``.
  */
-export function appendQwenChatTemplateFlagsToManagedChatCommand(
+export function appendChatTemplateFileFlags(
   chatRunCommand: string,
   templatePath: string,
   platform: ShellQuotingPlatform,
@@ -362,6 +361,15 @@ export function appendQwenChatTemplateFlagsToManagedChatCommand(
   const hasJinja = /(?:^|[\s"'])--jinja(?:\s|$)/i.test(cmd);
   const tail = hasJinja ? `--chat-template-file ${quoted}` : `--jinja --chat-template-file ${quoted}`;
   return `${cmd} ${tail}`;
+}
+
+/** @deprecated Use :func:`appendChatTemplateFileFlags`. */
+export function appendQwenChatTemplateFlagsToManagedChatCommand(
+  chatRunCommand: string,
+  templatePath: string,
+  platform: ShellQuotingPlatform,
+): string {
+  return appendChatTemplateFileFlags(chatRunCommand, templatePath, platform);
 }
 
 /**

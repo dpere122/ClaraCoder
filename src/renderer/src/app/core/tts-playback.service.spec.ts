@@ -54,6 +54,31 @@ describe('TtsPlaybackService feedStreamingAssistantText', () => {
     expect(state.streamingSegmentQueue.join(' ')).not.toContain('opening sentence');
   });
 
+  it('keeps inline code content for speech while still dropping fenced code blocks', () => {
+    const { electron } = mockElectron();
+    TestBed.configureTestingModule({
+      providers: [
+        TtsPlaybackService,
+        { provide: ElectronService, useValue: electron },
+        { provide: NgZone, useValue: new NgZone({}) },
+      ],
+    });
+    const svc = TestBed.inject(TtsPlaybackService);
+    const state = internals(svc);
+
+    const text =
+      'Run `npm install` before you start. ' +
+      '```ts\nconst x = 1;\n``` ' +
+      'Then call `main()` when ready.';
+    svc.feedStreamingAssistantText(text, 'af_heart', 1);
+
+    const spoken = state.streamingSegmentQueue.join(' ');
+    expect(spoken).toContain('npm install');
+    expect(spoken).toContain('main()');
+    expect(spoken).not.toContain('`');
+    expect(spoken).not.toContain('const x = 1');
+  });
+
   it('resets commit tracking when raw primary text shrinks (new assistant turn)', () => {
     const { electron } = mockElectron();
     TestBed.configureTestingModule({

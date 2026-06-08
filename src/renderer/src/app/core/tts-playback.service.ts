@@ -115,7 +115,7 @@ export class TtsPlaybackService {
       .replace(/<details class="llm-reasoning"[\s\S]*?<\/details>/gi, '')
       .replace(/<details class="llm-(?:moe|reasoning)-panel[^"]*"[\s\S]*?<\/details>/gi, '')
       .replace(/```[\s\S]*?```/g, '')
-      .replace(/`[^`]+`/g, '')
+      .replace(/`([^`]+)`/g, '$1')
       .replace(/#{1,6}\s+/g, '')
       .replace(/[*_~]{1,3}/g, '')
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')

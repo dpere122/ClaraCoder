@@ -82,11 +82,43 @@
       }
     </div>
   }
+  @if (isMarkdownFile() && !monacoDiffActive()) {
+    <div class="workspace-monaco-md-toolbar border-bottom px-2 py-1 d-flex align-items-center">
+      <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="Markdown view mode">
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="!mdPreviewActive()"
+          [class.btn-outline-secondary]="mdPreviewActive()"
+          (click)="setMdViewMode('edit')"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="mdPreviewActive()"
+          [class.btn-outline-secondary]="!mdPreviewActive()"
+          (click)="setMdViewMode('preview')"
+        >
+          Preview
+        </button>
+      </div>
+    </div>
+  }
   <div
     #editorHost
     class="workspace-monaco-editor workspace-monaco-pane"
-    [class.workspace-monaco-pane--hidden]="monacoDiffActive()"
+    [class.workspace-monaco-pane--hidden]="monacoDiffActive() || mdPreviewActive()"
     aria-label="Workspace file editor"
+  ></div>
+  <div
+    #previewHost
+    class="workspace-monaco-md-preview workspace-monaco-pane"
+    [class.workspace-monaco-pane--hidden]="!mdPreviewActive() || monacoDiffActive()"
+    [innerHTML]="mdPreviewHtml()"
+    tabindex="0"
+    aria-label="Markdown preview"
   ></div>
   <div
     #diffHost

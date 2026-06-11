@@ -1,9 +1,10 @@
 import { protocol } from 'electron';
 
 /**
- * Must run before `app.ready` so renderer can use `nemo-tts://` with stream + fetch privileges.
+ * Must run before `app.ready`. `registerSchemesAsPrivileged` may only be called once,
+ * so every privileged scheme (TTS audio streaming, workspace image assets) registers here.
  */
-export function registerPrivilegedNemoTtsScheme(): void {
+export function registerPrivilegedSchemes(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: 'nemo-tts',
@@ -13,6 +14,14 @@ export function registerPrivilegedNemoTtsScheme(): void {
         stream: true,
         supportFetchAPI: true,
         corsEnabled: true,
+      },
+    },
+    {
+      scheme: 'nemo-asset',
+      privileges: {
+        secure: true,
+        standard: true,
+        stream: true,
       },
     },
   ]);

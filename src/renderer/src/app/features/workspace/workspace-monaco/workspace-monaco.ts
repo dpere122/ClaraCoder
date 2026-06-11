@@ -15,8 +15,10 @@ import {
   signal,
   untracked,
   viewChild,
+  ViewEncapsulation,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import type * as Monaco from 'monaco-editor';
 import {
   LSP_MONACO_LANGUAGE_IDS,
@@ -32,6 +34,7 @@ import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import { PendingDiffReviewService } from '../../diff/pending-diff-review.service';
 import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
+import { renderMarkdownDoc } from './markdown-doc-renderer';
 import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
 import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
 
@@ -91,12 +94,16 @@ const EXT_TO_LANG: Record<string, string> = {
   imports: [CommonModule, FormsModule],
   templateUrl: './workspace-monaco.html',
   styleUrl: './workspace-monaco.css',
+  // Markdown preview HTML is injected via [innerHTML]; emulated encapsulation cannot
+  // style it. All class names are `workspace-monaco-`/`md-doc-` prefixed to avoid leaks.
+  encapsulation: ViewEncapsulation.None,
 })
 export class WorkspaceMonacoComponent {
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
   private readonly pendingDiffReview = inject(PendingDiffReviewService);
+  private readonly sanitizer = inject(DomSanitizer);
 
   /** Absolute workspace root (empty when none). */
   readonly workspacePath = input<string>('');
@@ -157,6 +164,20 @@ export class WorkspaceMonacoComponent {
 
   private readonly editorHost = viewChild.required<ElementRef<HTMLElement>>('editorHost');
   private readonly diffHost = viewChild.required<ElementRef<HTMLElement>>('diffHost');
+  private readonly previewHost = viewChild.required<ElementRef<HTMLElement>>('previewHost');
+
+  /** True while the rendered markdown preview pane replaces the editor pane. */
+  protected readonly mdPreviewActive = signal(false);
+  /** Sanitized preview HTML (DOMPurify in {@link renderMarkdownDoc}; Angular sanitizer bypassed). */
+  protected readonly mdPreviewHtml = signal<SafeHtml>('');
+  protected readonly isMarkdownFile = computed(() => {
+    const rel = this.relativePath()?.trim();
+    return !!rel && rel.toLowerCase().endsWith('.md');
+  });
+  /** Session-scoped view-mode memory per file (default: edit). */
+  private readonly mdViewModeByPath = new Map<string, 'edit' | 'preview'>();
+  private mdPreviewContentDisposable: Monaco.IDisposable | null = null;
+  private mdPreviewRenderTimer: number | null = null;
 
   private monaco: typeof Monaco | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
@@ -252,6 +273,21 @@ export class WorkspaceMonacoComponent {
       });
     });
 
+    // Diff review wins over markdown preview: entering review force-exits preview
+    // and resets the remembered mode so the review surface is never obscured.
+    effect(() => {
+      if (!this.monacoDiffActive()) {
+        return;
+      }
+      untracked(() => {
+        const rel = this.relativePath()?.trim();
+        if (rel) {
+          this.mdViewModeByPath.set(normalizePathSlashes(rel), 'edit');
+        }
+        this.exitMdPreview(false);
+      });
+    });
+
     this.electron.workspaceFilesChanged$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((event) => this.onWorkspaceFilesChanged(event));
@@ -286,6 +322,12 @@ export class WorkspaceMonacoComponent {
     });
 
     this.destroyRef.onDestroy(() => {
+      this.mdPreviewContentDisposable?.dispose();
+      this.mdPreviewContentDisposable = null;
+      if (this.mdPreviewRenderTimer != null) {
+        clearTimeout(this.mdPreviewRenderTimer);
+        this.mdPreviewRenderTimer = null;
+      }
       for (const d of this.lspHoverDisposables) {
         d.dispose();
       }
@@ -392,6 +434,12 @@ export class WorkspaceMonacoComponent {
 
   @HostListener('keydown', ['$event'])
   protected onKeydown(ev: KeyboardEvent): void {
+    // Monaco's own Ctrl+S binding only fires while the (hidden) editor has focus.
+    if (this.mdPreviewActive() && (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
+      ev.preventDefault();
+      void this.saveCurrent();
+      return;
+    }
     if (!this.monacoDiffActive()) {
       return;
     }
@@ -399,6 +447,115 @@ export class WorkspaceMonacoComponent {
       ev.preventDefault();
       void this.onAcceptCurrentChange();
     }
+  }
+
+  protected setMdViewMode(mode: 'edit' | 'preview'): void {
+    const rel = this.relativePath()?.trim();
+    if (!rel || !this.isMarkdownFile()) {
+      return;
+    }
+    const key = normalizePathSlashes(rel);
+    this.mdViewModeByPath.set(key, mode);
+    if (mode === 'preview') {
+      this.enterMdPreview(key);
+    } else {
+      this.exitMdPreview(true);
+    }
+  }
+
+  /** Shows the rendered preview for {@param key} and keeps it live against model changes. */
+  private enterMdPreview(key: string): void {
+    const model = this.modelByPath.get(key);
+    if (!model || model.isDisposed()) {
+      return;
+    }
+    const ratio = this.editorScrollRatio();
+    this.renderMdPreview(key);
+    this.mdPreviewActive.set(true);
+
+    // Live re-render: covers typing (n/a while hidden) and external file changes
+    // reloading the model via workspaceFilesChanged$ → reloadModelFromDiskIfUnmodified.
+    this.mdPreviewContentDisposable?.dispose();
+    this.mdPreviewContentDisposable = model.onDidChangeContent(() => this.scheduleMdPreviewRerender(key));
+
+    requestAnimationFrame(() => {
+      const el = this.previewHost().nativeElement;
+      this.applyScrollRatio(el, ratio);
+      el.focus();
+    });
+  }
+
+  /** @param syncBackToEditor map preview scroll position onto the editor and refocus it. */
+  private exitMdPreview(syncBackToEditor: boolean): void {
+    if (this.mdPreviewRenderTimer != null) {
+      clearTimeout(this.mdPreviewRenderTimer);
+      this.mdPreviewRenderTimer = null;
+    }
+    this.mdPreviewContentDisposable?.dispose();
+    this.mdPreviewContentDisposable = null;
+    if (!this.mdPreviewActive()) {
+      return;
+    }
+    const ed = this.editor;
+    const el = this.previewHost().nativeElement;
+    const range = el.scrollHeight - el.clientHeight;
+    const ratio = range > 0 ? Math.min(1, Math.max(0, el.scrollTop / range)) : 0;
+    this.mdPreviewActive.set(false);
+    if (syncBackToEditor && ed) {
+      requestAnimationFrame(() => {
+        const edRange = ed.getScrollHeight() - ed.getLayoutInfo().height;
+        ed.setScrollTop(edRange > 0 ? ratio * edRange : 0);
+        ed.focus();
+      });
+    }
+  }
+
+  private scheduleMdPreviewRerender(key: string): void {
+    if (this.mdPreviewRenderTimer != null) {
+      clearTimeout(this.mdPreviewRenderTimer);
+    }
+    this.mdPreviewRenderTimer = window.setTimeout(() => {
+      this.mdPreviewRenderTimer = null;
+      this.zone.run(() => {
+        if (!this.mdPreviewActive()) {
+          return;
+        }
+        const el = this.previewHost().nativeElement;
+        const prevScrollTop = el.scrollTop;
+        this.renderMdPreview(key);
+        requestAnimationFrame(() => {
+          el.scrollTop = prevScrollTop;
+        });
+      });
+    }, 150);
+  }
+
+  private renderMdPreview(key: string): void {
+    const model = this.modelByPath.get(key);
+    const root = this.workspacePath()?.trim();
+    if (!model || model.isDisposed() || !root) {
+      return;
+    }
+    const html = renderMarkdownDoc(model.getValue(), { workspaceRoot: root, fileRelativePath: key });
+    this.mdPreviewHtml.set(this.sanitizer.bypassSecurityTrustHtml(html));
+  }
+
+  /** Scrolled fraction of the editor in [0, 1] (0 when content fits the viewport). */
+  private editorScrollRatio(): number {
+    const ed = this.editor;
+    if (!ed) {
+      return 0;
+    }
+    const range = ed.getScrollHeight() - ed.getLayoutInfo().height;
+    if (range <= 0) {
+      return 0;
+    }
+    return Math.min(1, Math.max(0, ed.getScrollTop() / range));
+  }
+
+  private applyScrollRatio(el: HTMLElement, ratio: number): void {
+    const range = el.scrollHeight - el.clientHeight;
+    el.scrollTop = range > 0 ? ratio * range : 0;
   }
 
   protected readonly applying = computed(() => {
@@ -945,7 +1102,13 @@ export class WorkspaceMonacoComponent {
     ed.updateOptions({
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
-    ed.focus();
+    const mdMode = this.mdViewModeByPath.get(key) ?? 'edit';
+    if (key.toLowerCase().endsWith('.md') && mdMode === 'preview') {
+      this.enterMdPreview(key);
+    } else {
+      this.exitMdPreview(false);
+      ed.focus();
+    }
     this.emitDirtyPaths();
   }
 

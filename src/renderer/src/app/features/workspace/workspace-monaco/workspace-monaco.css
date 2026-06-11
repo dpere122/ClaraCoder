@@ -43,3 +43,144 @@
   min-height: 0;
   min-width: 0;
 }
+
+.workspace-monaco-md-toolbar {
+  flex-shrink: 0;
+  background: var(--t-panel-bg, var(--bs-body-bg, #1e1e1e));
+}
+
+/* Document-style markdown preview (component uses ViewEncapsulation.None so
+   these rules reach [innerHTML] content; keep everything scoped to this class). */
+.workspace-monaco-md-preview {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 1.25rem 2rem 3rem;
+  background: var(--t-panel-bg, var(--bs-body-bg, #1e1e1e));
+  color: var(--t-text, var(--bs-body-color, #ddd));
+  font-size: 0.95rem;
+  line-height: 1.6;
+  outline: none;
+}
+
+.workspace-monaco-md-preview h1,
+.workspace-monaco-md-preview h2,
+.workspace-monaco-md-preview h3,
+.workspace-monaco-md-preview h4,
+.workspace-monaco-md-preview h5,
+.workspace-monaco-md-preview h6 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.25;
+  color: var(--t-heading, var(--t-text, inherit));
+}
+
+.workspace-monaco-md-preview h1:first-child,
+.workspace-monaco-md-preview h2:first-child {
+  margin-top: 0;
+}
+
+.workspace-monaco-md-preview h1 {
+  font-size: 1.7rem;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--t-border-subtle, #333);
+}
+
+.workspace-monaco-md-preview h2 {
+  font-size: 1.35rem;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--t-border-subtle, #333);
+}
+
+.workspace-monaco-md-preview h3 {
+  font-size: 1.15rem;
+}
+
+.workspace-monaco-md-preview p {
+  margin: 0 0 0.9em;
+}
+
+.workspace-monaco-md-preview a {
+  color: var(--t-primary, #4ea1ff);
+}
+
+.workspace-monaco-md-preview ul,
+.workspace-monaco-md-preview ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.6em;
+}
+
+.workspace-monaco-md-preview li + li {
+  margin-top: 0.2em;
+}
+
+.workspace-monaco-md-preview blockquote {
+  margin: 0 0 0.9em;
+  padding: 0.25em 1em;
+  border-left: 3px solid var(--t-border, #555);
+  color: var(--t-text-muted, #999);
+}
+
+.workspace-monaco-md-preview code {
+  font-family: var(--t-mono-font, 'JetBrains Mono', monospace);
+  font-size: 0.875em;
+  background: var(--t-code-bg, #1a1a1a);
+  color: var(--t-code-text, #d4d4d4);
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+}
+
+.workspace-monaco-md-preview pre {
+  margin: 0 0 1em;
+  padding: 0.75rem 1rem;
+  background: var(--t-code-bg, #1a1a1a);
+  border: 1px solid var(--t-border-subtle, #333);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.workspace-monaco-md-preview pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.workspace-monaco-md-preview table {
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+
+.workspace-monaco-md-preview th,
+.workspace-monaco-md-preview td {
+  border: 1px solid var(--t-border-subtle, #333);
+  padding: 0.35em 0.7em;
+}
+
+.workspace-monaco-md-preview th {
+  background: var(--t-hover-bg, rgba(255, 255, 255, 0.05));
+}
+
+.workspace-monaco-md-preview img {
+  max-width: 100%;
+  height: auto;
+}
+
+.workspace-monaco-md-preview hr {
+  border: 0;
+  border-top: 1px solid var(--t-border-subtle, #333);
+  margin: 1.5em 0;
+}
+
+.workspace-monaco-md-preview .md-doc-broken-image {
+  display: inline-block;
+  padding: 0.1em 0.4em;
+  border: 1px dashed var(--t-border, #555);
+  border-radius: 4px;
+  color: var(--t-text-muted, #999);
+  font-size: 0.85em;
+}

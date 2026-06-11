@@ -1,11 +1,12 @@
 /**
  * Electron main process entry: Python sidecar, IPC, workspace watch, and BrowserWindows.
- * Privileged `nemo-tts` scheme must register before `app.whenReady`.
+ * Privileged schemes (`nemo-tts`, `nemo-asset`) must register before `app.whenReady`.
  */
 import { app, BrowserWindow } from 'electron';
-import { registerPrivilegedNemoTtsScheme } from './protocol/register-privileged';
+import { registerPrivilegedSchemes } from './protocol/register-privileged';
 import { ensurePythonServer } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
+import { registerNemoAssetProtocol } from './protocol/nemo-asset';
 import { loadConfig } from './config/load-save';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
 import { getLlamaManagedRuntimeOverrides } from './llama-server-manager';
@@ -19,7 +20,7 @@ import { mainState } from './state';
 
 app.setName('Clara Coder');
 
-registerPrivilegedNemoTtsScheme();
+registerPrivilegedSchemes();
 registerAllIpc();
 
 app
@@ -31,6 +32,7 @@ app
       console.error('[Main] Python sidecar unavailable — UI will still open:', err);
     }
     registerNemoTtsStreamProtocol();
+    registerNemoAssetProtocol();
     const config = await loadConfig();
     try {
       await syncPythonLogLevel(config.healthMonitor.logLevel);

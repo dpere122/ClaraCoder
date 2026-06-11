@@ -18,3 +18,15 @@ app-hitl-trail-panel .hitl-trail-detail + .hitl-trail-detail {
 app-hitl-trail-panel .stream-trail-panel--live .stream-trail-row--pending {
   opacity: 0.95;
 }
+
+app-hitl-trail-panel .stream-trail-panel--expanded .hitl-trail-panel__details,
+app-hitl-trail-panel .stream-trail-panel--expanded .hitl-trail-detail--staged-batch {
+  width: 100%;
+  max-width: 100%;
+}
+
+app-chat-box .assistant-bubble:has(app-hitl-trail-panel .stream-trail-panel--expanded),
+app-chat-box .assistant-turn-bubble:has(app-hitl-trail-panel .stream-trail-panel--expanded) {
+  width: 100%;
+  max-width: 100%;
+}

@@ -72,7 +72,8 @@ def staging_continuation_nudge_text(paths: list[str], *, auto_apply: bool) -> st
     )
     return (
         f'You have staged draft(s) {quoted} not yet transferred to the workspace. '
-        f'Call `transfer_staged_file_to_workspace` for each path (do not summarize and stop).{hitl}'
+        f'Call `transfer_staged_file_to_workspace` with `relative_paths` listing every pending path '
+        f'in one batch (do not summarize and stop).{hitl}'
     )
 
 

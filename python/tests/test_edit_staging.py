@@ -15,6 +15,7 @@ from nemo_backend.agents.specialists.review_tools import (
     list_staged_edits,
     read_staged_edit,
     reject_staged_workspace_edit,
+    resolve_staged_transfer_batch_file,
     search_staged_edits,
     transfer_staged_file_to_workspace,
 )
@@ -573,14 +574,15 @@ def test_transfer_sets_diff_payload(staging_env) -> None:
     assert 'human confirmation' in out.lower()
     assert (ws / 'q.py').read_text(encoding='utf-8') == 'n=0\n'
     assert session.pending_staged_transfer_hitl is not None
-    assert session.pending_staged_transfer_hitl.relative_path == 'q.py'
-    assert session.pending_diff_payload is not None
-    assert session.pending_diff_payload.get('stagedTransferHitl') is True
+    assert session.pending_staged_transfer_hitl.relative_paths == ['q.py']
+    assert session.pending_staged_transfer_batch_payload is not None
+    assert session.pending_staged_transfer_batch_payload['files'][0].get('stagedTransferHitl') is True
+    assert session.pending_diff_payload is None
     assert 'q.py' in session.pending_edit_stagings
     assert session.pending_edit_stagings['q.py'].workspace_applied is False
 
     msg = finalize_staged_transfer_after_hitl(session, 'confirm', '')
-    assert 'User confirmed' in msg
+    assert 'User approved staged transfer' in msg
     assert (ws / 'q.py').read_text(encoding='utf-8') == 'n = 0\n'
     assert session.pending_edit_stagings['q.py'].workspace_applied is True
     assert session.pending_staged_transfer_hitl is None
@@ -603,7 +605,7 @@ def test_transfer_tool_sets_diff_payload(staging_env) -> None:
     assert 'human confirmation' in out.lower()
     assert (ws / 'transfer.py').read_text(encoding='utf-8') == 'x=1\n'
     assert session.pending_staged_transfer_hitl is not None
-    assert session.pending_diff_payload is not None
+    assert session.pending_staged_transfer_batch_payload is not None
     assert 'transfer.py' in session.pending_edit_stagings
     assert session.pending_edit_stagings['transfer.py'].workspace_applied is False
 
@@ -630,9 +632,9 @@ def test_stage_create_file_land_in_workspace_sets_hitl(staging_env) -> None:
     assert 'human confirmation' in out.lower()
     assert (ws / 'land1.py').read_text(encoding='utf-8') == 'a=0\n'
     assert session.pending_staged_transfer_hitl is not None
-    assert session.pending_staged_transfer_hitl.relative_path == 'land1.py'
-    assert session.pending_diff_payload is not None
-    assert session.pending_diff_payload.get('stagedTransferHitl') is True
+    assert session.pending_staged_transfer_hitl.relative_paths == ['land1.py']
+    assert session.pending_staged_transfer_batch_payload is not None
+    assert session.pending_staged_transfer_batch_payload['files'][0].get('stagedTransferHitl') is True
     assert 'land1.py' in session.pending_edit_stagings
     assert session.pending_edit_stagings['land1.py'].workspace_applied is False
 
@@ -721,6 +723,94 @@ def test_transfer_defers_workspace_lsp_until_all_paths_transferred(staging_env, 
     assert set(calls) == {'first.py', 'second.py'}
     assert len(calls) == 2
     assert 'Post-transfer LSP' in out2
+
+
+def test_batch_transfer_hitl_builds_batch_payload(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = False
+    for name, content in (('a.py', 'a=0\n'), ('b.py', 'b=0\n')):
+        (ws / name).write_text(content, encoding='utf-8')
+        stage_create_file.invoke(
+            {
+                'relative_path': name,
+                'new_content': content.replace('=', ' = '),
+                'encoding': 'utf-8',
+                'newline': 'lf',
+            }
+        )
+    out = transfer_staged_file_to_workspace.invoke({'relative_paths': ['a.py', 'b.py']})
+    assert 'human confirmation' in out.lower()
+    assert session.pending_staged_transfer_hitl is not None
+    assert session.pending_staged_transfer_hitl.relative_paths == ['a.py', 'b.py']
+    batch = session.pending_staged_transfer_batch_payload
+    assert batch is not None
+    assert batch['requestId'] == session.pending_staged_transfer_hitl.request_id
+    assert len(batch['files']) == 2
+
+
+def test_batch_transfer_partial_confirm_then_complete(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = False
+    for name, content in (('one.py', 'one=0\n'), ('two.py', 'two=0\n')):
+        (ws / name).write_text(content, encoding='utf-8')
+        stage_create_file.invoke(
+            {
+                'relative_path': name,
+                'new_content': content.replace('=', ' = '),
+                'encoding': 'utf-8',
+                'newline': 'lf',
+            }
+        )
+    transfer_staged_file_to_workspace.invoke({'relative_paths': ['one.py', 'two.py']})
+    pending = session.pending_staged_transfer_hitl
+    assert pending is not None
+    complete, msg = resolve_staged_transfer_batch_file(
+        session,
+        request_id=pending.request_id,
+        relative_path='one.py',
+        action='confirm',
+        user_note='',
+    )
+    assert complete is False
+    assert msg == ''
+    assert (ws / 'one.py').read_text(encoding='utf-8') == 'one = 0\n'
+    assert session.pending_staged_transfer_hitl is not None
+    assert session.pending_edit_stagings['one.py'].workspace_applied is True
+    assert session.pending_edit_stagings['two.py'].workspace_applied is False
+
+    complete, msg = resolve_staged_transfer_batch_file(
+        session,
+        request_id=pending.request_id,
+        relative_path='two.py',
+        action='re_review',
+        user_note='fix naming',
+    )
+    assert complete is True
+    assert 're-review' in msg.lower()
+    assert (ws / 'two.py').read_text(encoding='utf-8') == 'two=0\n'
+    assert session.pending_staged_transfer_hitl is None
+
+
+def test_batch_transfer_auto_apply_writes_all(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = True
+    for name, content in (('x.py', 'x=0\n'), ('y.py', 'y=0\n')):
+        (ws / name).write_text(content, encoding='utf-8')
+        stage_create_file.invoke(
+            {
+                'relative_path': name,
+                'new_content': content.replace('=', ' = '),
+                'encoding': 'utf-8',
+                'newline': 'lf',
+            }
+        )
+    out = transfer_staged_file_to_workspace.invoke({'relative_paths': ['x.py', 'y.py']})
+    assert 'Transferred 2 staged path(s)' in out
+    assert (ws / 'x.py').read_text(encoding='utf-8') == 'x = 0\n'
+    assert (ws / 'y.py').read_text(encoding='utf-8') == 'y = 0\n'
 
 
 def test_staged_transfer_re_review_skips_disk_write(staging_env) -> None:

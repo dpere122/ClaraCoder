@@ -120,6 +120,13 @@ declare global {
     onMessagePlanConfirm?: (
       callback: (event: unknown, conversationId: string, payload: import('@shared/index').PlanConfirmPayload) => void,
     ) => void;
+    onMessageStagedTransferBatch?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: import('@shared/index').StagedTransferBatchPayload,
+      ) => void,
+    ) => void;
     sendMessage: (
       conversationId: string,
       msg: string,
@@ -142,9 +149,11 @@ declare global {
       acceptCommandAction?: 'confirm' | 'cancel',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
+      stagedTransferRequestId?: string,
+      stagedTransferPath?: string,
       planConfirmAction?: 'confirm' | 'cancel',
       planConfirmRequestId?: string,
-    ) => Promise<{ ok: boolean; error?: string }>;
+    ) => Promise<{ ok: boolean; error?: string; batchComplete?: boolean }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (
       workspaceRoot: string,

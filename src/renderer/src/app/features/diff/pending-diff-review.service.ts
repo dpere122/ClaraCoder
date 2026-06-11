@@ -1,5 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
-import type { FileDiffPayload } from '@shared/index';
+import type { FileDiffPayload, StagedTransferBatchPayload, StagedTransferFileResolution } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
 import { changeHunkOrderFromRows, rebuildFileWithAcceptedHunks } from './diff-rebuild';
 
@@ -9,8 +9,16 @@ export type DiffReviewFinishedEvent = {
   summary?: string;
 };
 
+export type StagedTransferBatchFinishedEvent = {
+  requestId: string;
+  status: 'complete' | 'cancelled';
+  summary?: string;
+  fileResolutions: Record<string, StagedTransferFileResolution>;
+};
+
 export type FlashFn = (message: string, ms: number) => void;
 export type FinishFn = (event: DiffReviewFinishedEvent) => void;
+export type BatchFinishFn = (event: StagedTransferBatchFinishedEvent) => void;
 
 /** Mutable review state for one pending diff payload (shared by chat + Monaco). */
 export interface PendingDiffReviewSession {
@@ -20,10 +28,50 @@ export interface PendingDiffReviewSession {
   readonly agentContinueSent: ReturnType<typeof signal<boolean>>;
 }
 
+export interface PendingStagedTransferBatchSession {
+  readonly currentFileIndex: ReturnType<typeof signal<number>>;
+  readonly resolutions: ReturnType<typeof signal<Record<string, StagedTransferFileResolution>>>;
+  readonly applyingPath: ReturnType<typeof signal<string | null>>;
+  readonly agentContinueSent: ReturnType<typeof signal<boolean>>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PendingDiffReviewService {
   private readonly electron = inject(ElectronService);
   private readonly sessions = new Map<string, PendingDiffReviewSession>();
+  private readonly batchSessions = new Map<string, PendingStagedTransferBatchSession>();
+
+  batchSessionKey(payload: StagedTransferBatchPayload): string {
+    return payload.requestId;
+  }
+
+  batchSessionFor(payload: StagedTransferBatchPayload): PendingStagedTransferBatchSession {
+    const k = this.batchSessionKey(payload);
+    let s = this.batchSessions.get(k);
+    if (!s) {
+      s = {
+        currentFileIndex: signal(0),
+        resolutions: signal({}),
+        applyingPath: signal(null),
+        agentContinueSent: signal(false),
+      };
+      this.batchSessions.set(k, s);
+    }
+    return s;
+  }
+
+  clearBatchSession(payload: StagedTransferBatchPayload): void {
+    this.batchSessions.delete(this.batchSessionKey(payload));
+  }
+
+  clearAllBatchSessions(): void {
+    this.batchSessions.clear();
+  }
+
+  nextUnresolvedFileIndex(payload: StagedTransferBatchPayload, resolutions: Record<string, StagedTransferFileResolution>): number {
+    const idx = payload.files.findIndex((f) => (resolutions[f.relativePath] ?? 'pending') === 'pending');
+    return idx >= 0 ? idx : Math.max(0, payload.files.length - 1);
+  }
 
   /** Stable key so chat and Monaco share state for the same proposal. */
   sessionKey(payload: FileDiffPayload): string {
@@ -54,6 +102,7 @@ export class PendingDiffReviewService {
   /** Clears all in-flight review UI state (e.g. when switching conversations). */
   clearAllSessions(): void {
     this.sessions.clear();
+    this.batchSessions.clear();
   }
 
   incrementalOk(payload: FileDiffPayload): boolean {
@@ -106,10 +155,12 @@ export class PendingDiffReviewService {
     note: string,
     flashMessage: FlashFn,
     stagedTransferAction?: 'confirm' | 're_review',
-  ): Promise<boolean> {
+    stagedTransferRequestId?: string,
+    stagedTransferPath?: string,
+  ): Promise<{ ok: boolean; batchComplete?: boolean }> {
     if (!conversationId?.trim()) {
       flashMessage('No conversation id.', 3000);
-      return false;
+      return { ok: false };
     }
     const res = await this.electron.notifyAgentContinue(
       conversationId,
@@ -121,12 +172,14 @@ export class PendingDiffReviewService {
       undefined,
       undefined,
       stagedTransferAction,
+      stagedTransferRequestId,
+      stagedTransferPath,
     );
     if (!res.ok) {
       flashMessage(res.error ?? 'Could not resume assistant.', 5000);
-      return false;
+      return { ok: false };
     }
-    return true;
+    return { ok: true, batchComplete: res.batchComplete !== false };
   }
 
   private async finishReview(
@@ -144,8 +197,8 @@ export class PendingDiffReviewService {
       return;
     }
     session.agentContinueSent.set(true);
-    const ok = await this.resumeAgent(conversationId, note, flashMessage, stagedTransferAction);
-    if (!ok) {
+    const res = await this.resumeAgent(conversationId, note, flashMessage, stagedTransferAction);
+    if (!res.ok) {
       session.agentContinueSent.set(false);
       return;
     }
@@ -381,6 +434,66 @@ export class PendingDiffReviewService {
       await this.maybeCompleteReview(payload, conversationId, session, flashMessage, onFinished);
     } finally {
       session.applying.set(false);
+    }
+  }
+
+  async resolveStagedTransferBatchFile(
+    payload: StagedTransferBatchPayload,
+    relativePath: string,
+    action: 'confirm' | 're_review',
+    feedback: string,
+    conversationId: string | null,
+    flashMessage: FlashFn,
+    onFinished: BatchFinishFn,
+  ): Promise<void> {
+    const session = this.batchSessionFor(payload);
+    const resolutions = session.resolutions();
+    if ((resolutions[relativePath] ?? 'pending') !== 'pending') {
+      return;
+    }
+    if (session.applyingPath() || session.agentContinueSent()) {
+      return;
+    }
+    session.applyingPath.set(relativePath);
+    try {
+      const note = action === 're_review' ? feedback.trim() || '(no details)' : '';
+      const res = await this.resumeAgent(
+        conversationId,
+        note,
+        flashMessage,
+        action,
+        payload.requestId,
+        relativePath,
+      );
+      if (!res.ok) {
+        return;
+      }
+      const nextRes: Record<string, StagedTransferFileResolution> = {
+        ...session.resolutions(),
+        [relativePath]: action === 'confirm' ? 'approved' : 're_review',
+      };
+      session.resolutions.set(nextRes);
+      if (res.batchComplete) {
+        session.agentContinueSent.set(true);
+        flashMessage('Batch transfer review complete. Resuming assistant…', 3500);
+        this.clearBatchSession(payload);
+        const anyReReview = Object.values(nextRes).some((v) => v === 're_review');
+        onFinished({
+          requestId: payload.requestId,
+          status: anyReReview ? 'cancelled' : 'complete',
+          summary: anyReReview ? 'Some files returned for re-review' : 'All transfers approved',
+          fileResolutions: nextRes,
+        });
+        return;
+      }
+      const nextIdx = this.nextUnresolvedFileIndex(payload, nextRes);
+      session.currentFileIndex.set(nextIdx);
+      flashMessage(
+        action === 'confirm' ? 'Transfer approved for this file.' : 'Returned for re-review.',
+        2500,
+      );
+    } finally {
+      session.applyingPath.set(null);
     }
   }
 

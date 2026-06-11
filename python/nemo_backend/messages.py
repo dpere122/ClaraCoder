@@ -474,7 +474,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         '**staging** until `transfer_staged_file_to_workspace` succeeds—use `list_staged_edits`, '
         '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
         '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage changes, run review/diagnostics '
-        'on drafts, then **`transfer_staged_file_to_workspace`**—same as other text files.\n'
+        'on drafts, then **`transfer_staged_file_to_workspace`** with **`relative_paths`** when multiple files are ready—same as other text files.\n'
         '- **All other text files** (e.g. .md, .txt): same staging tools and **`transfer_staged_file_to_workspace`** '
         'after review.\n'
         '- **Python dependencies**, **Node/npm** tools (`discover_npm_projects` for package roots; `search_npm_packages` for registry search and latest versions), and '

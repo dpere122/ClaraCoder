@@ -197,6 +197,12 @@ export class ChatBox implements OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
+  readonly stagedTransferBatchFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }>();
 
   readonly transcriptRows = computed(() => buildChatDisplayRows(this.messages()));
 

@@ -65,9 +65,9 @@ describe('WorkspaceTerminalDockComponent', () => {
       isElectron: true,
       workspacePtyData$: workspacePtyDataSubject.asObservable(),
       workspacePtyExit$: workspacePtyExitSubject.asObservable(),
-      llamaServerOutput$: new Subject().asObservable(),
-      llamaServerProcessExit$: new Subject().asObservable(),
-      llamaServerLifecycle$: new Subject().asObservable(),
+      llamaServerOutput$: new Subject<never>().asObservable(),
+      llamaServerProcessExit$: new Subject<never>().asObservable(),
+      llamaServerLifecycle$: new Subject<never>().asObservable(),
       config$: configSubject.asObservable(),
       workspacePtySpawn: vi.fn().mockResolvedValue({ success: true, sessionId: 'test-session-1' }),
       workspacePtyWrite: vi.fn().mockResolvedValue({ success: true }),
@@ -302,7 +302,7 @@ describe('WorkspaceTerminalDockComponent', () => {
 
   describe('color support', () => {
     it('uses xterm-256color terminal type', () => {
-      expect((Terminal as Mock).mock.calls.length).toBe(0);
+      expect((Terminal as unknown as Mock).mock.calls.length).toBe(0);
 
       component.expanded.set(true);
       fixture.componentRef.setInput('workspacePath', '/test/workspace');
@@ -542,9 +542,9 @@ describe('WorkspaceTerminalDockComponent - ANSI color rendering', () => {
       isElectron: true,
       workspacePtyData$: workspacePtyDataSubject.asObservable(),
       workspacePtyExit$: new Subject().asObservable(),
-      llamaServerOutput$: new Subject().asObservable(),
-      llamaServerProcessExit$: new Subject().asObservable(),
-      llamaServerLifecycle$: new Subject().asObservable(),
+      llamaServerOutput$: new Subject<never>().asObservable(),
+      llamaServerProcessExit$: new Subject<never>().asObservable(),
+      llamaServerLifecycle$: new Subject<never>().asObservable(),
       config$: new Subject().asObservable(),
       workspacePtySpawn: vi.fn().mockResolvedValue({ success: true, sessionId: 'test-session' }),
       workspacePtyWrite: vi.fn().mockResolvedValue({ success: true }),

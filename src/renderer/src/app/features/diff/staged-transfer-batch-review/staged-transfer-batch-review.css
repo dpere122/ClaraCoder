@@ -1,0 +1,63 @@
+/*
+ * ViewEncapsulation.None + plain class selectors: the expand shell is portaled to
+ * document.body when fullscreen, so rules must NOT be scoped under the
+ * app-staged-transfer-batch-review element or they stop matching after the move.
+ */
+.staged-batch-card {
+  max-width: 100%;
+  background: var(--bs-body-bg);
+}
+
+.staged-batch-toolbar {
+  background: var(--bs-body-bg);
+  flex-shrink: 0;
+}
+
+.staged-batch-file-tabs .btn {
+  min-width: 2rem;
+}
+
+.staged-batch-expand-shell {
+  display: contents;
+}
+
+.staged-batch-expand-shell--active {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 1055;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 100vw;
+  padding: max(0.5rem, env(safe-area-inset-top, 0px)) max(0.5rem, env(safe-area-inset-right, 0px))
+    max(0.5rem, env(safe-area-inset-bottom, 0px)) max(0.5rem, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
+
+.staged-batch-expand-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.48);
+  cursor: pointer;
+}
+
+.staged-batch-card--in-expand {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.35);
+}
+
+.staged-batch-card--in-expand app-diff-apply {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

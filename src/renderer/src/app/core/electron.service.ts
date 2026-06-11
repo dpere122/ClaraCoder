@@ -36,6 +36,7 @@ import type {
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   PlannerProgress,
+  StagedTransferBatchPayload,
   PythonInterpreterListItem,
   TtsStreamPacket,
   Workspace,
@@ -106,6 +107,11 @@ export interface ContextCompressedMessage {
 export interface DiffMessage {
   conversationId: string;
   diff: FileDiffPayload;
+}
+
+export interface StagedTransferBatchMessage {
+  conversationId: string;
+  payload: StagedTransferBatchPayload;
 }
 
 export interface AcceptCommandMessage {
@@ -238,6 +244,7 @@ export class ElectronService {
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
+  private readonly stagedTransferBatchSubject = new Subject<StagedTransferBatchMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
@@ -276,6 +283,7 @@ export class ElectronService {
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
+  readonly stagedTransferBatch$ = this.stagedTransferBatchSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
@@ -425,6 +433,9 @@ export class ElectronService {
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
     });
+    this.api?.onMessageStagedTransferBatch?.((_event, conversationId, payload) => {
+      this.zone.run(() => this.stagedTransferBatchSubject.next({ conversationId, payload }));
+    });
     this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
       this.zone.run(() => this.acceptCommandSubject.next({ conversationId, payload }));
     });
@@ -553,9 +564,11 @@ export class ElectronService {
     acceptCommandAction?: 'confirm' | 'cancel',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
+    stagedTransferRequestId?: string,
+    stagedTransferPath?: string,
     planConfirmAction?: 'confirm' | 'cancel',
     planConfirmRequestId?: string,
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; batchComplete?: boolean }> {
     return (
       this.api?.agentContinue(
         conversationId,
@@ -567,6 +580,8 @@ export class ElectronService {
         acceptCommandAction,
         acceptCommandRequestId,
         stagedTransferAction,
+        stagedTransferRequestId,
+        stagedTransferPath,
         planConfirmAction,
         planConfirmRequestId,
       ) ??

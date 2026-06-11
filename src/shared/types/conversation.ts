@@ -3,6 +3,10 @@ import type { AcceptCommandPayload } from './accept-command';
 import type { CopyConfirmPayload } from './copy-confirm';
 import type { DeleteConfirmPayload } from './delete-confirm';
 import type { PlanConfirmPayload } from './plan-confirm';
+import type {
+  StagedTransferBatchPayload,
+  StagedTransferFileResolution,
+} from './staged-transfer-batch';
 import type { LlmAgentRole, PlannerProgress } from './llm';
 
 /** One OpenAI-style multimodal block for POST /chat/stream (`structuredContent` / `structured_content`). */
@@ -91,6 +95,13 @@ export type ConversationMessage =
       payload: PlanConfirmPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
+    }
+  | {
+      role: 'staged_transfer_batch';
+      payload: StagedTransferBatchPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+      fileResolutions?: Record<string, StagedTransferFileResolution>;
     };
 
 /** Full conversation as used in the renderer. */
@@ -154,6 +165,13 @@ export type ConversationFileMessage =
       payload: PlanConfirmPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
+    }
+  | {
+      role: 'staged_transfer_batch';
+      payload: StagedTransferBatchPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+      fileResolutions?: Record<string, StagedTransferFileResolution>;
     };
 
 /**

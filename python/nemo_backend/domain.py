@@ -40,9 +40,13 @@ class WorkspaceTestMaterializationEntry:
 
 @dataclass
 class PendingStagedTransferHitl:
-    """While user reviews a staged→workspace transfer in the chat diff UI (auto_apply off)."""
+    """While user reviews staged→workspace transfer(s) in the chat diff UI (auto_apply off)."""
 
-    relative_path: str
+    request_id: str
+    relative_paths: list[str]
+    #: path -> ``confirm`` | ``re_review`` once the user decides per file.
+    resolved: dict[str, str] = field(default_factory=dict)
+    feedback: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -78,6 +82,8 @@ class SessionState:
     pending_diff_payload: dict | None = None
     # Staged transfer awaiting human confirm (``transfer_staged_file_to_workspace`` / approve when auto_apply off).
     pending_staged_transfer_hitl: PendingStagedTransferHitl | None = None
+    # Batch diff payloads for staged transfer HITL; consumed by SSE ``staged_transfer_batch``.
+    pending_staged_transfer_batch_payload: dict | None = None
     # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
     pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
     # Active staging snapshot namespace for temp drafts and the seeded workspace mirror.

@@ -25,122 +25,151 @@
         (click)="collapseDiffExpanded()"
       ></div>
     }
-    <div class="diff-card border rounded-2 overflow-hidden" [class.diff-card--in-expand]="diffExpanded()">
-    <div class="diff-toolbar diff-toolbar--labeled p-2">
-      <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2 mb-2">
-        <code class="diff-filename small mb-0">{{ payload().relativePath }}</code>
+    <div
+      class="diff-card overflow-hidden"
+      [class.border]="!suppressStagedTransferActions()"
+      [class.rounded-2]="!suppressStagedTransferActions()"
+      [class.diff-card--in-expand]="diffExpanded()"
+    >
+    <div class="diff-toolbar p-2">
+      <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2">
+        @if (!suppressStagedTransferActions()) {
+          <code class="diff-filename small mb-0">{{ payload().relativePath }}</code>
+        }
         @if (payload().truncated) {
           <span class="badge text-bg-warning">{{
             isStagedTransferHitl() ? 'Truncated' : 'Truncated — apply all only'
           }}</span>
         }
-        @if (!isStagedTransferHitl() && changeProgressLabel()) {
+        @if (!isStagedTransferHitl() && !suppressStagedTransferActions() && changeProgressLabel()) {
           <span class="small fw-medium text-secondary">{{ changeProgressLabel() }}</span>
         }
-      </div>
-      <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2">
-        <div class="diff-toolbar-group flex-grow-1" style="min-width: 160px; max-width: 320px">
-          <input
-            type="search"
-            class="form-control form-control-sm diff-search"
-            [attr.aria-label]="'Filter diff for ' + payload().relativePath"
-            placeholder="Filter…"
-            [ngModel]="searchQuery()"
-            (ngModelChange)="searchQuery.set($event)"
-          />
-        </div>
-        @if (isStagedTransferHitl()) {
-          <span class="badge text-bg-info">Staged</span>
+        @if (applyMessage()) {
+          <span class="small text-secondary diff-status" role="status">{{ applyMessage() }}</span>
+        }
+        <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
           <button
             type="button"
-            class="btn btn-sm btn-success"
-            [disabled]="applying()"
-            (click)="approveStagedTransferHitl()"
-            title="Write staged content to workspace"
+            class="btn btn-sm btn-outline-secondary"
+            [class.active]="filterOpen()"
+            (click)="toggleFilter()"
+            [attr.aria-expanded]="filterOpen()"
+            title="Filter diff lines"
           >
-            Approve
+            <lucide-icon name="search" [size]="14" />
           </button>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-primary"
-            [disabled]="applying()"
-            (click)="returnStagedTransferForReReview()"
-            title="Return to review with notes"
-          >
-            Re-review
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-danger"
-            [disabled]="applying()"
-            (click)="cancelProposal()"
-            title="Dismiss without approving — same as return for re-review with a default note"
-          >
-            Cancel
-          </button>
-        } @else {
-          @if (incrementalOk() && changeHunkOrder().length > 0) {
+          @if (filterOpen()) {
+            <input
+              type="search"
+              class="form-control form-control-sm diff-search"
+              style="width: 180px"
+              [attr.aria-label]="'Filter diff for ' + payload().relativePath"
+              placeholder="Filter…"
+              [ngModel]="searchQuery()"
+              (ngModelChange)="searchQuery.set($event)"
+            />
+          }
+          @if (isStagedTransferHitl()) {
             <button
               type="button"
               class="btn btn-sm btn-success"
               [disabled]="applying()"
-              (click)="acceptCurrentChange()"
-              title="Write this change to disk, then move to the next (Ctrl+Enter)"
+              (click)="approveStagedTransferHitl()"
+              title="Write staged content to workspace"
             >
-              Accept
+              Approve
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary"
+              [disabled]="applying()"
+              (click)="returnStagedTransferForReReview()"
+              title="Return to review with notes"
+            >
+              Re-review
             </button>
             <button
               type="button"
               class="btn btn-sm btn-outline-secondary"
-              [disabled]="applying()"
-              (click)="skipCurrentChange()"
-              title="Leave this change out of the file and move to the next"
+              [class.active]="feedbackOpen()"
+              (click)="feedbackOpen.set(!feedbackOpen())"
+              [attr.aria-expanded]="feedbackOpen()"
+              title="Optional feedback when returning for re-review"
             >
-              Skip
+              Notes
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-danger"
+              [disabled]="applying()"
+              (click)="cancelProposal()"
+              title="Dismiss without approving — same as return for re-review with a default note"
+            >
+              Cancel
+            </button>
+          } @else if (!suppressStagedTransferActions()) {
+            @if (incrementalOk() && changeHunkOrder().length > 0) {
+              <button
+                type="button"
+                class="btn btn-sm btn-success"
+                [disabled]="applying()"
+                (click)="acceptCurrentChange()"
+                title="Write this change to disk, then move to the next (Ctrl+Enter)"
+              >
+                Accept
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                [disabled]="applying()"
+                (click)="skipCurrentChange()"
+                title="Leave this change out of the file and move to the next"
+              >
+                Skip
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary"
+              [disabled]="applying()"
+              (click)="applyAllAtOnce()"
+              title="Apply full proposed file"
+            >
+              Apply all
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-danger"
+              [disabled]="applying()"
+              (click)="cancelProposal()"
+              title="Discard this proposal and tell the assistant to continue"
+            >
+              Cancel
             </button>
           }
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-primary"
-            [disabled]="applying()"
-            (click)="applyAllAtOnce()"
-            title="Apply full proposed file"
-          >
-            Apply all
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-danger"
-            [disabled]="applying()"
-            (click)="cancelProposal()"
-            title="Discard this proposal and tell the assistant to continue"
-          >
-            Cancel
-          </button>
-        }
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-secondary"
-          [disabled]="applying()"
-          (click)="toggleDiffExpanded()"
-          [attr.title]="diffExpanded() ? 'Return diff to inline view (Esc)' : 'Expand diff to full window'"
-        >
-          {{ diffExpanded() ? 'Collapse' : 'Expand' }}
-        </button>
-        @if (applyMessage()) {
-          <span class="small text-secondary diff-status" role="status">{{ applyMessage() }}</span>
-        }
+          @if (!hideExpandButton()) {
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary"
+              [disabled]="applying()"
+              (click)="toggleDiffExpanded()"
+              [attr.title]="diffExpanded() ? 'Return diff to inline view (Esc)' : 'Expand diff to full window'"
+            >
+              {{ diffExpanded() ? 'Collapse' : 'Expand' }}
+            </button>
+          }
+        </div>
       </div>
-      @if (isStagedTransferHitl()) {
-        <div class="diff-toolbar-row px-2 pb-2">
-          <label class="form-label small text-secondary mb-1" for="staged-rereview-notes">Notes</label>
+      @if (isStagedTransferHitl() && feedbackOpen()) {
+        <div class="diff-toolbar-row pt-2">
           <textarea
             id="staged-rereview-notes"
             class="form-control form-control-sm"
             rows="2"
+            aria-label="Notes for re-review"
             [ngModel]="reReviewFeedback()"
             (ngModelChange)="reReviewFeedback.set($event)"
-            placeholder="Optional feedback"
+            placeholder="Optional feedback when returning for re-review"
           ></textarea>
         </div>
       }

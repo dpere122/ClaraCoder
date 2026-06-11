@@ -1,6 +1,7 @@
 import { EnvironmentProviders, importProvidersFrom, Provider } from '@angular/core';
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Copy,
   FileText,
@@ -12,6 +13,7 @@ import {
   Minus,
   Pin,
   Plus,
+  Search,
   Settings,
   Square,
   Trash,
@@ -30,6 +32,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
   importProvidersFrom(
     LucideAngularModule.pick({
       ChevronDown,
+      ChevronLeft,
       ChevronRight,
       Copy,
       FileText,
@@ -39,6 +42,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
       Minus,
       Pin,
       Plus,
+      Search,
       Settings,
       Square,
       Trash,

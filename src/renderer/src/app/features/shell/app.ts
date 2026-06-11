@@ -195,6 +195,17 @@ export class App implements OnInit, OnDestroy {
     const msgs = this.messages();
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
+      if (m.role === 'staged_transfer_batch' && (m.reviewStatus ?? 'pending') === 'pending') {
+        const resolutions = m.fileResolutions ?? {};
+        for (const file of m.payload.files) {
+          if (normalizePathSlashes(file.relativePath) === norm) {
+            const res = resolutions[file.relativePath] ?? 'pending';
+            if (res === 'pending') {
+              return file;
+            }
+          }
+        }
+      }
       if (m.role === 'diff' && (m.reviewStatus ?? 'pending') === 'pending') {
         if (normalizePathSlashes(m.payload.relativePath) === norm) {
           return m.payload;
@@ -438,6 +449,26 @@ export class App implements OnInit, OnDestroy {
     this.electron.diff$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, diff }) => {
       if (diff.version !== 1 || !Array.isArray(diff.rows)) return;
       const artifact = { role: 'diff', payload: diff, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...this.messages()];
+        this.pendingSave = true;
+      }
+    });
+
+    this.electron.stagedTransferBatch$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
+      if (payload.version !== 1 || !payload.requestId || !Array.isArray(payload.files) || payload.files.length === 0) {
+        return;
+      }
+      const artifact = {
+        role: 'staged_transfer_batch',
+        payload,
+        reviewStatus: 'pending' as const,
+      } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
         return;
@@ -846,6 +877,39 @@ export class App implements OnInit, OnDestroy {
             ...m,
             reviewStatus: event.status,
             reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+      this.autoSave();
+    }
+  }
+
+  onStagedTransferBatchFinished(event: {
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'staged_transfer_batch' &&
+          m.payload.requestId === event.requestId &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+            fileResolutions: event.fileResolutions,
           };
           break;
         }

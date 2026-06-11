@@ -5,8 +5,15 @@ import type { AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
+import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
 
-export type HitlTrailKind = 'diff' | 'delete_confirm' | 'copy_confirm' | 'accept_command' | 'plan_confirm';
+export type HitlTrailKind =
+  | 'diff'
+  | 'delete_confirm'
+  | 'copy_confirm'
+  | 'accept_command'
+  | 'plan_confirm'
+  | 'staged_transfer_batch';
 
 export interface HitlTrailItem {
   id: string;
@@ -26,7 +33,14 @@ export type HitlTrailArtifact =
   | { role: 'delete_confirm'; payload: DeleteConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | { role: 'copy_confirm'; payload: CopyConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | { role: 'accept_command'; payload: AcceptCommandPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
-  | { role: 'plan_confirm'; payload: PlanConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string };
+  | { role: 'plan_confirm'; payload: PlanConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
+  | {
+      role: 'staged_transfer_batch';
+      payload: StagedTransferBatchPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+      fileResolutions?: Record<string, 'pending' | 'approved' | 're_review'>;
+    };
 
 function pathBasename(relativePath: string): string {
   const normalized = relativePath.replace(/\\/g, '/');
@@ -122,6 +136,39 @@ function acceptCommandTrailItem(
   };
 }
 
+function stagedTransferBatchTrailItems(
+  artifact: Extract<HitlTrailArtifact, { role: 'staged_transfer_batch' }>,
+): HitlTrailItem[] {
+  const batchStatus = reviewStatusOf(artifact.reviewStatus);
+  const resolutions = artifact.fileResolutions ?? {};
+  return artifact.payload.files.map((file, index) => {
+    const rel = file.relativePath;
+    const fileRes = resolutions[rel] ?? 'pending';
+    let reviewStatus: DiffReviewStatus = batchStatus;
+    let pending = batchStatus === 'pending';
+    if (batchStatus === 'pending') {
+      if (fileRes === 'approved') {
+        reviewStatus = 'complete';
+        pending = false;
+      } else if (fileRes === 're_review') {
+        reviewStatus = 'cancelled';
+        pending = false;
+      } else {
+        pending = true;
+      }
+    }
+    return {
+      id: `staged:${artifact.payload.requestId}:${index}`,
+      kind: 'staged_transfer_batch' as const,
+      label: pathBasename(rel),
+      detailPath: rel,
+      lineSummary: formatDiffLineChangeSummary(diffLineChangeCounts(file.rows)),
+      reviewStatus,
+      pending,
+    };
+  });
+}
+
 /** Flatten HITL artifacts into compact trail rows for the chat panel list. */
 export function hitlTrailItemsFromArtifacts(artifacts: readonly HitlTrailArtifact[]): HitlTrailItem[] {
   const out: HitlTrailItem[] = [];
@@ -141,6 +188,9 @@ export function hitlTrailItemsFromArtifacts(artifacts: readonly HitlTrailArtifac
         break;
       case 'plan_confirm':
         out.push(planConfirmTrailItem(artifact.payload, artifact.reviewStatus));
+        break;
+      case 'staged_transfer_batch':
+        out.push(...stagedTransferBatchTrailItems(artifact));
         break;
       default:
         break;
@@ -175,6 +225,8 @@ export function hitlTrailKindLabel(kind: HitlTrailKind): string {
       return 'approve';
     case 'plan_confirm':
       return 'plan';
+    case 'staged_transfer_batch':
+      return 'transfer';
     default:
       return kind;
   }

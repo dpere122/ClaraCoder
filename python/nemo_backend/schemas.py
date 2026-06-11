@@ -90,6 +90,14 @@ class AgentContinueRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices('staged_transfer_action', 'stagedTransferAction'),
     )
+    staged_transfer_request_id: str = Field(
+        default='',
+        validation_alias=AliasChoices('staged_transfer_request_id', 'stagedTransferRequestId'),
+    )
+    staged_transfer_path: str = Field(
+        default='',
+        validation_alias=AliasChoices('staged_transfer_path', 'stagedTransferPath'),
+    )
     #: When set with a pending plan-confirm request, approve or cancel before execution begins.
     plan_confirm_action: Literal['confirm', 'cancel'] | None = Field(
         default=None,

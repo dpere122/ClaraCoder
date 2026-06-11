@@ -22,7 +22,6 @@ import {
   appendReadToolPreviewChunk,
   mergeReadPreviewIntoToolTrailParts,
   READ_TOOL_PREVIEW_STREAM_TAG,
-  toolTrailStatusStreamTag,
   reasoningStreamPartsForDisplay,
   REASONING_AUXILIARY_STREAM_TAG,
   shellDelegatedStreamPartsForDisplay,

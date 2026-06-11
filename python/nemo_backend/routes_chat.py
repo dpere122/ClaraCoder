@@ -42,15 +42,19 @@ async def chat_abort(request: AbortRequest) -> dict[str, bool]:
 
 
 @router.post('/chat/agent-continue')
-async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
+async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]:
     """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
     from nemo_backend.accept_command import execute_pending_accept_command_decision
-    from nemo_backend.agents.specialists.review_tools import finalize_staged_transfer_after_hitl
+    from nemo_backend.agents.specialists.review_tools import (
+        finalize_staged_transfer_after_hitl,
+        resolve_staged_transfer_batch_file,
+    )
     from nemo_backend.copy_tool import execute_pending_copy_decision
     from nemo_backend.delete_tool import execute_pending_delete_decision
 
     sess = state.get_session(request.session_id)
     note = (request.note or '').strip()
+    batch_complete = True
     if request.delete_action:
         extra = execute_pending_delete_decision(
             sess,
@@ -73,17 +77,33 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
         )
         note = extra if extra else note
     elif request.staged_transfer_action:
-        extra = finalize_staged_transfer_after_hitl(
-            sess,
-            request.staged_transfer_action,
-            note,
-            session_id=request.session_id,
-        )
-        if extra:
-            if request.staged_transfer_action == 're_review':
+        rel_path = (request.staged_transfer_path or '').strip().replace('\\', '/')
+        req_id = (request.staged_transfer_request_id or '').strip()
+        if rel_path and req_id:
+            batch_complete, extra = resolve_staged_transfer_batch_file(
+                sess,
+                request_id=req_id,
+                relative_path=rel_path,
+                action=request.staged_transfer_action,
+                user_note=note,
+                session_id=request.session_id,
+            )
+            if extra and not batch_complete:
+                return {'ok': False, 'batchComplete': False}
+            if extra:
                 note = extra
-            else:
-                note = f'{extra}\n\n{note}'.strip() if note else extra
+        else:
+            extra = finalize_staged_transfer_after_hitl(
+                sess,
+                request.staged_transfer_action,
+                note,
+                session_id=request.session_id,
+            )
+            if extra:
+                if request.staged_transfer_action == 're_review':
+                    note = extra
+                else:
+                    note = f'{extra}\n\n{note}'.strip() if note else extra
     elif request.plan_confirm_action:
         from nemo_backend.plan_confirm import execute_pending_plan_confirm_decision
 
@@ -93,8 +113,9 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool]:
             request_id=request.plan_confirm_request_id or None,
         )
         note = extra if extra else note
-    sess.agent_pause_note = note
-    ev = sess.agent_pause_event
-    if ev is not None:
-        ev.set()
-    return {'ok': True}
+    if batch_complete:
+        sess.agent_pause_note = note
+        ev = sess.agent_pause_event
+        if ev is not None:
+            ev.set()
+    return {'ok': True, 'batchComplete': batch_complete}

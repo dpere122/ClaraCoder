@@ -17,6 +17,7 @@ def prepare_new_staging_snapshot_session(session: SessionState, session_id: str)
         rollback_test_run_materializations(session)
     session.pending_diff_payload = None
     session.pending_staged_transfer_hitl = None
+    session.pending_staged_transfer_batch_payload = None
     session.pending_delete_request = None
     session.pending_copy_request = None
     session.pending_accept_command_request = None

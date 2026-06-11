@@ -57,6 +57,7 @@
               (deleteReviewFinished)="deleteReviewFinished.emit($event)"
               (acceptCommandFinished)="acceptCommandFinished.emit($event)"
               (copyReviewFinished)="copyReviewFinished.emit($event)"
+              (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
             />
           }
 
@@ -142,6 +143,7 @@
             (deleteReviewFinished)="deleteReviewFinished.emit($event)"
             (acceptCommandFinished)="acceptCommandFinished.emit($event)"
             (copyReviewFinished)="copyReviewFinished.emit($event)"
+            (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
           />
         }
         @if (livePlanPanel(); as planCtx) {

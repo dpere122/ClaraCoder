@@ -7,6 +7,7 @@ import difflib
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -78,6 +79,7 @@ _MAX_STAGED_UNIFIED_DIFF_LINES = 2500
 _MAX_STAGED_DIFF_CHARS = 480_000
 _READ_FILE_GUTTER_SEP = ' │ '
 _POST_TRANSFER_BATCH_LSP_MAX_CHARS = 14_000
+_MAX_TRANSFER_BATCH = 50
 
 
 def _max_staged_read_chars() -> int:
@@ -343,6 +345,189 @@ def _mark_materialization_approved(session, rel_key: str) -> None:
     session.test_run_materializations.pop(rel_key, None)
 
 
+def _normalize_transfer_paths(
+    relative_paths: list[str] | None,
+    relative_path: str,
+) -> tuple[list[str] | None, str | None]:
+    """Normalize ``relative_paths`` / legacy ``relative_path`` into a deduped POSIX list."""
+    raw: list[str] = []
+    if relative_paths:
+        raw.extend(str(p) for p in relative_paths)
+    rp = (relative_path or '').strip()
+    if rp:
+        raw.append(rp)
+    if not raw:
+        return None, 'Tool error: provide at least one path via `relative_paths` or `relative_path`.'
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        p = item.strip().replace('\\', '/')
+        if not p or p == '.':
+            continue
+        while p.startswith('./'):
+            p = p[2:]
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+    if not out:
+        return None, 'Tool error: no valid workspace-relative paths provided.'
+    if len(out) > _MAX_TRANSFER_BATCH:
+        return None, f'Tool error: transfer batch is limited to {_MAX_TRANSFER_BATCH} paths at a time.'
+    return out, None
+
+
+def _validate_transfer_batch(session: SessionState, paths: list[str]) -> tuple[list[str], str | None]:
+    """Validate every path has a pending staged draft not yet transferred."""
+    errors: list[str] = []
+    validated: list[str] = []
+    for rel_key in paths:
+        entry = session.pending_edit_stagings.get(rel_key)
+        if not entry:
+            errors.append(f'no staged edit for `{rel_key}`')
+            continue
+        if _entry_workspace_applied(entry):
+            errors.append(
+                f'staged `{rel_key}` is already approved in the workspace for this chain '
+                '(use `read_workspace_file` and stage a follow-up revision if needed)'
+            )
+            continue
+        validated.append(rel_key)
+    if errors:
+        return [], 'Tool error: ' + '; '.join(errors) + '.'
+    return validated, None
+
+
+def _apply_staged_transfer_confirm(
+    session: SessionState,
+    rel_key: str,
+    entry: object,
+    *,
+    session_id: str | None,
+) -> str | None:
+    """Write one confirmed staged path to the real workspace. Returns error text or None on success."""
+    if _entry_workspace_applied(entry):
+        return None
+    if rel_key in session.test_run_materializations:
+        _mark_materialization_approved(session, rel_key)
+        entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
+        entry.workspace_applied = True  # type: ignore[attr-defined]
+        logger.info('_apply_staged_transfer_confirm test_run path=%s', rel_key)
+        return None
+    wp = (session.workspace_path or '').strip()
+    if not wp:
+        return f'Tool error after user confirmation: no workspace is attached to this session.'
+    root = Path(wp).resolve()
+    target = normalize_relative_path(root, rel_key)
+    try:
+        write_file_resolved(
+            target,
+            str(entry.merged_text),  # type: ignore[attr-defined]
+            str(entry.disk_encoding),  # type: ignore[attr-defined]
+            'crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
+        )
+    except OSError as exc:
+        return f'Tool error after user confirmation: could not write staged file `{rel_key}` into the workspace ({exc}).'
+    except Exception as exc:
+        return f'Tool error after user confirmation: could not encode staged file `{rel_key}` for the workspace ({exc}).'
+    entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
+    entry.workspace_applied = True  # type: ignore[attr-defined]
+    logger.info('_apply_staged_transfer_confirm path=%s session_id=%s', rel_key, session_id)
+    return None
+
+
+def _re_review_message(rel_key: str, user_note: str) -> str:
+    fb = (user_note or '').strip() or '(no details)'
+    return (
+        f'**Staged transfer returned for re-review (user did not approve landing this draft in the workspace '
+        f'yet).** Path: `{rel_key}`.\n\n'
+        'Route back to the **code review** specialist (or file-write specialist as appropriate). Use '
+        '`diff_staged_edit_against_baseline` / `read_staged_edit`, revise the staged draft, then call '
+        '`transfer_staged_file_to_workspace` again when ready.\n\n'
+        f'User / reviewer feedback:\n{fb}'
+    )
+
+
+def _build_batch_complete_message(
+    session: SessionState,
+    pending: PendingStagedTransferHitl,
+    *,
+    session_id: str | None,
+) -> str:
+    approved = [p for p in pending.relative_paths if pending.resolved.get(p) == 'confirm']
+    re_review = [p for p in pending.relative_paths if pending.resolved.get(p) == 're_review']
+    parts: list[str] = []
+    if approved:
+        quoted = ', '.join(f'`{p}`' for p in approved)
+        parts.append(f'User approved staged transfer for: {quoted}.')
+    for rel_key in re_review:
+        parts.append(_re_review_message(rel_key, pending.feedback.get(rel_key, '')))
+    lsp_section = _post_transfer_lsp_section(session, session_id=session_id)
+    body = '\n\n'.join(parts)
+    if lsp_section:
+        body = f'{body}{lsp_section}'
+    if approved or re_review:
+        body = f'{body}\n\nContinue the nested review / router turn from here.'
+    return body
+
+
+def staged_transfer_batch_sse_payload(pending: PendingStagedTransferHitl, files: list[dict]) -> dict:
+    """Shape for SSE ``stagedTransferBatch`` / frontend ``StagedTransferBatchPayload``."""
+    return {
+        'version': 1,
+        'requestId': pending.request_id,
+        'files': files,
+    }
+
+
+def resolve_staged_transfer_batch_file(
+    session: SessionState,
+    *,
+    request_id: str,
+    relative_path: str,
+    action: Literal['confirm', 're_review'],
+    user_note: str,
+    session_id: str | None = None,
+) -> tuple[bool, str]:
+    """Apply one per-file decision in a batch HITL. Returns ``(batch_complete, message)``."""
+    pending = session.pending_staged_transfer_hitl
+    if pending is None:
+        return False, ''
+    rid = (request_id or '').strip()
+    if not rid or pending.request_id != rid:
+        return False, 'Staged transfer confirmation ignored (stale or mismatched request).'
+    rel_key = relative_path.strip().replace('\\', '/')
+    if rel_key not in pending.relative_paths:
+        return False, f'Staged transfer confirmation ignored: `{rel_key}` is not in the pending batch.'
+    if rel_key in pending.resolved:
+        return False, f'Staged transfer confirmation ignored: `{rel_key}` was already resolved in this batch.'
+
+    entry = session.pending_edit_stagings.get(rel_key)
+    if action == 'confirm':
+        if entry is None:
+            pending.resolved[rel_key] = 'confirm'
+        elif _entry_workspace_applied(entry):
+            pending.resolved[rel_key] = 'confirm'
+        else:
+            err = _apply_staged_transfer_confirm(session, rel_key, entry, session_id=session_id)
+            if err:
+                return False, err
+            pending.resolved[rel_key] = 'confirm'
+    else:
+        pending.resolved[rel_key] = 're_review'
+        pending.feedback[rel_key] = (user_note or '').strip() or '(no details)'
+
+    remaining = [p for p in pending.relative_paths if p not in pending.resolved]
+    if remaining:
+        return False, ''
+
+    sid = (session_id or current_session_id.get() or '').strip() or None
+    msg = _build_batch_complete_message(session, pending, session_id=sid)
+    session.pending_staged_transfer_hitl = None
+    session.pending_staged_transfer_batch_payload = None
+    return True, msg
+
+
 def finalize_staged_transfer_after_hitl(
     session,
     action: Literal['confirm', 're_review'],
@@ -350,72 +535,25 @@ def finalize_staged_transfer_after_hitl(
     *,
     session_id: str | None = None,
 ) -> str:
-    """Apply or abandon a deferred ``transfer_staged_file_to_workspace`` after chat HITL (``agent-continue``).
+    """Legacy single-call finalize when the UI resolves the whole pending batch at once.
 
-    ``session_id`` should be the chat session id when called from HTTP (``current_session_id`` is unset there).
-    Returns text to append as a HumanMessage for the resumed agent (empty when nothing was pending).
+    When ``pending.relative_paths`` has one entry, applies that path in one step (backward compat).
     """
     pending = session.pending_staged_transfer_hitl
     if pending is None:
         return ''
-    rel_key = pending.relative_path.strip().replace('\\', '/')
-    session.pending_staged_transfer_hitl = None
-    entry = session.pending_edit_stagings.get(rel_key)
-
-    if action == 're_review':
-        fb = (user_note or '').strip() or '(no details)'
-        return (
-            '**Staged transfer returned for re-review (user did not approve landing this draft in the workspace '
-            f'yet).** Path: `{rel_key}`.\n\n'
-            'Route back to the **code review** specialist (or file-write specialist as appropriate). Use '
-            '`diff_staged_edit_against_baseline` / `read_staged_edit`, revise the staged draft, then call '
-            '`transfer_staged_file_to_workspace` again when ready.\n\n'
-            f'User / reviewer feedback:\n{fb}'
-        )
-
-    if entry is None:
-        return f'User confirmed staged transfer for `{rel_key}`, but no staging entry remained (ignored).'
-    if _entry_workspace_applied(entry):
-        return f'User confirmed staged transfer for `{rel_key}` (already applied for this chain).'
-
-    if rel_key in session.test_run_materializations:
-        _mark_materialization_approved(session, rel_key)
-        entry.old_text = str(entry.merged_text)
-        entry.workspace_applied = True
-        logger.info('finalize_staged_transfer_after_hitl confirm test_run path=%s', rel_key)
-        lsp_sid = (session_id or current_session_id.get() or '').strip() or None
-        lsp_section = _post_transfer_lsp_section(session, session_id=lsp_sid)
-        return (
-            f'User confirmed: staged `{rel_key}` (reviewer test-run materialization) finalized for this chain.'
-            f'{lsp_section} '
-            'Continue the nested review / router turn from here.'
-        )
-
-    wp = (session.workspace_path or '').strip()
-    if not wp:
-        return 'Tool error after user confirmation: no workspace is attached to this session.'
-    root = Path(wp).resolve()
-    lsp_sid = (session_id or current_session_id.get() or '').strip() or None
-    target = normalize_relative_path(root, rel_key)
-    try:
-        write_file_resolved(
-            target,
-            str(entry.merged_text),
-            str(entry.disk_encoding),
-            'crlf' if entry.disk_newline == 'crlf' else 'lf',
-        )
-    except OSError as exc:
-        return f'Tool error after user confirmation: could not write staged file `{rel_key}` into the workspace ({exc}).'
-    except Exception as exc:
-        return f'Tool error after user confirmation: could not encode staged file `{rel_key}` for the workspace ({exc}).'
-    entry.old_text = str(entry.merged_text)
-    entry.workspace_applied = True
-    logger.info('finalize_staged_transfer_after_hitl confirm path=%s', rel_key)
-    lsp_section = _post_transfer_lsp_section(session, session_id=lsp_sid)
-    return (
-        f'User confirmed: staged `{rel_key}` written to the real workspace.{lsp_section} '
-        'Continue the nested review / router turn from here.'
+    if len(pending.relative_paths) != 1:
+        return ''
+    rel_key = pending.relative_paths[0]
+    complete, msg = resolve_staged_transfer_batch_file(
+        session,
+        request_id=pending.request_id,
+        relative_path=rel_key,
+        action=action,
+        user_note=user_note,
+        session_id=session_id,
     )
+    return msg if complete else ''
 
 
 def _materialize_staged_python_files(session, overlays: list[tuple[str, object]]) -> tuple[bool, str]:
@@ -1055,97 +1193,130 @@ def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[d
     return payload, None
 
 
-def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str:
-    """Apply the same path as :func:`transfer_staged_file_to_workspace` after a staging entry is present (tool or inline)."""
-    rel_key = rel_key.strip().replace('\\', '/')
-    sid = current_session_id.get()
-    if not sid:
-        return 'Tool error: no active session.'
-    blocked = mutation_tools_blocked_reason(sid)
-    if blocked:
-        return blocked
-    entry = session.pending_edit_stagings.get(rel_key)
-    if not entry:
-        return f'Tool error: no staged edit for `{rel_key}`.'
-    if _entry_workspace_applied(entry):
-        return (
-            f'Tool error: staged `{rel_key}` is already approved in the workspace for this chain. '
-            'It is no longer pending review. For follow-up edits, read the live file with `read_workspace_file` and '
-            'then stage the next revision with `stage_workspace_file_overwrite` or the matching '
-            '`lsp_update_python_file` / `lsp_update_typescript_file` / `lsp_update_gdscript_file`.'
-        )
-
-    if not session.auto_apply_mode:
-        if rel_key in session.test_run_materializations:
-            payload, err = _build_staged_transfer_hitl_payload(session, rel_key, entry)
-            if err:
-                return f'Tool error: {err}'
-            session.pending_diff_payload = payload
-            session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path=rel_key)
-            logger.info('run_staged_transfer_to_workspace awaiting hitl (test_run) path=%s', rel_key)
-            return (
-                f'Staged `{rel_key}` is already on disk from the reviewer test run; **human confirmation** is '
-                'required before this chain treats it as approved. A diff card will appear in chat—approve the '
-                'transfer or return it for re-review with feedback for the code review / writer path. '
-                'Stop this review turn after calling this tool.'
-            )
-        payload, err = _build_staged_transfer_hitl_payload(session, rel_key, entry)
-        if err:
-            return f'Tool error: {err}'
-        session.pending_diff_payload = payload
-        session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path=rel_key)
-        logger.info('run_staged_transfer_to_workspace awaiting hitl path=%s', rel_key)
-        return (
-            f'Staged `{rel_key}` is ready to land in the real workspace; **human confirmation** is required. '
-            'A diff card will appear in chat—approve the transfer to write the workspace, or return for re-review '
-            'with feedback so the code review specialist can iterate. Stop this review turn after calling this tool.'
-        )
-
+def _apply_staged_transfer_auto(session: SessionState, rel_key: str, entry: object) -> str:
+    """Auto-apply one staged path to the real workspace; returns a short status fragment."""
     if rel_key in session.test_run_materializations:
+        _mark_materialization_approved(session, rel_key)
         out = (
             f'Staged `{rel_key}` is already saved in the workspace from the reviewer test run. '
             'Keeping the workspace copy as the approved version.'
         )
-        _mark_materialization_approved(session, rel_key)
     else:
         root = get_active_workspace_root()
         target = (root / rel_key).resolve()
         try:
             write_file_resolved(
                 target,
-                str(entry.merged_text),
-                str(entry.disk_encoding),
-                'crlf' if entry.disk_newline == 'crlf' else 'lf',
+                str(entry.merged_text),  # type: ignore[attr-defined]
+                str(entry.disk_encoding),  # type: ignore[attr-defined]
+                'crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
             )
         except OSError as exc:
             return f'Tool error: could not write staged file `{rel_key}` into the workspace ({exc}).'
         except Exception as exc:
             return f'Tool error: could not encode staged file `{rel_key}` for the workspace ({exc}).'
         out = f'Approved staged `{rel_key}` into the real workspace.'
-    entry.old_text = str(entry.merged_text)
-    entry.workspace_applied = True
-    lsp_section = _post_transfer_lsp_section(session, session_id=current_session_id.get())
+    entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
+    entry.workspace_applied = True  # type: ignore[attr-defined]
     logger.info('run_staged_transfer_to_workspace path=%s', rel_key)
+    return out
+
+
+def run_staged_transfer_batch(session: SessionState, paths: list[str]) -> str:
+    """Transfer one or more staged paths to the real workspace (auto-apply or batch HITL)."""
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    blocked = mutation_tools_blocked_reason(sid)
+    if blocked:
+        return blocked
+    validated, err = _validate_transfer_batch(session, paths)
+    if err:
+        return err
+
+    if not session.auto_apply_mode:
+        file_payloads: list[dict] = []
+        any_test_run = False
+        for rel_key in validated:
+            entry = session.pending_edit_stagings[rel_key]
+            payload, build_err = _build_staged_transfer_hitl_payload(session, rel_key, entry)
+            if build_err:
+                return f'Tool error: `{rel_key}`: {build_err}'
+            file_payloads.append(payload)
+            if rel_key in session.test_run_materializations:
+                any_test_run = True
+        request_id = uuid.uuid4().hex
+        pending = PendingStagedTransferHitl(request_id=request_id, relative_paths=list(validated))
+        session.pending_staged_transfer_hitl = pending
+        session.pending_staged_transfer_batch_payload = staged_transfer_batch_sse_payload(pending, file_payloads)
+        session.pending_diff_payload = None
+        quoted = ', '.join(f'`{p}`' for p in validated)
+        test_note = (
+            ' Some paths are already on disk from reviewer test runs; confirm before this chain treats them as approved.'
+            if any_test_run
+            else ''
+        )
+        logger.info(
+            'run_staged_transfer_batch awaiting hitl paths=%s count=%d',
+            ','.join(validated),
+            len(validated),
+        )
+        return (
+            f'Staged {len(validated)} path(s) ({quoted}) ready to land in the real workspace; '
+            f'**human confirmation** is required.{test_note} '
+            'A batch diff card will appear in chat—approve or return each file for re-review. '
+            'Stop this review turn after calling this tool.'
+        )
+
+    fragments: list[str] = []
+    for rel_key in validated:
+        entry = session.pending_edit_stagings[rel_key]
+        fragment = _apply_staged_transfer_auto(session, rel_key, entry)
+        if fragment.startswith('Tool error:'):
+            return fragment
+        fragments.append(fragment)
+    lsp_section = _post_transfer_lsp_section(session, session_id=current_session_id.get())
+    quoted = ', '.join(f'`{p}`' for p in validated)
+    if len(validated) == 1:
+        rel_key = validated[0]
+        return (
+            f'Transferred staged `{rel_key}` to the real workspace and kept the staged draft for the current chain. '
+            f'{fragments[0]}{lsp_section} Stop this review turn after calling this tool.'
+        )
+    summary = '; '.join(fragments)
     return (
-        f'Transferred staged `{rel_key}` to the real workspace and kept the staged draft for the current chain. '
-        f'{out}{lsp_section} Stop this review turn after calling this tool.'
+        f'Transferred {len(validated)} staged path(s) ({quoted}) to the real workspace. '
+        f'{summary}{lsp_section} Stop this review turn after calling this tool.'
     )
 
 
-@tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
-def transfer_staged_file_to_workspace(relative_path: str) -> str:
-    """Approve landing staged draft: writes workspace (or queues HITL diff when auto-apply off).
+def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str:
+    """Apply the same path as :func:`transfer_staged_file_to_workspace` after a staging entry is present (tool or inline)."""
+    return run_staged_transfer_batch(session, [rel_key.strip().replace('\\', '/')])
 
-    When: draft is correct and should become the on-disk checkpoint for this path.
+
+@tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
+def transfer_staged_file_to_workspace(
+    relative_paths: list[str] | None = None,
+    relative_path: str = '',
+) -> str:
+    """Approve landing staged draft(s): writes workspace (or queues HITL diff batch when auto-apply off).
+
+    When: draft(s) are correct and should become the on-disk checkpoint.
     Not: request writer changes (use `reject_staged_workspace_edit` with feedback); reading only (use `read_staged_edit`).
-    Shape: `relative_path` workspace-relative POSIX. After approval, follow-up reads use `read_workspace_file` / LSP on disk.
+    Shape: `relative_paths` is a non-empty list of workspace-relative POSIX paths (preferred for multiple files).
+    Legacy `relative_path` accepts a single path. After approval, follow-up reads use `read_workspace_file` / LSP on disk.
     Workspace LSP refresh runs **once** after every staged path in this chain is transferred (not after each file)."""
 
-    got = _get_staging_entry(relative_path)
-    if isinstance(got, str):
-        return got
-    session, rel_key = got
-    return run_staged_transfer_to_workspace(session, rel_key)
+    paths, norm_err = _normalize_transfer_paths(relative_paths, relative_path)
+    if norm_err:
+        return norm_err
+    assert paths is not None
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    session = get_session(sid)
+    return run_staged_transfer_batch(session, paths)
 
 
 @tool(REJECT_STAGED_WORKSPACE_EDIT_NAME)

@@ -1,10 +1,89 @@
-.diff-apply-host {
+/*
+ * Host styling must use :host(...) — emulated encapsulation appends an
+ * _ngcontent attribute to plain class selectors, which never matches the host
+ * element (it only carries _nghost). Plain `.diff-apply-host--*` rules are dead.
+ */
+:host {
   outline: none;
   display: block;
   max-width: 100%;
 }
 
-.diff-apply-host--expanded {
+:host(.diff-apply-host--batch-expand) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-expand-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-toolbar {
+  flex-shrink: 0;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-panes {
+  max-height: none;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-pane-label {
+  flex-shrink: 0;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-viewport {
+  max-height: none !important;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 0;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-panes--stacked .diff-viewport {
+  max-height: none !important;
+}
+
+:host(.diff-apply-host--batch-expand) .diff-panes--stacked {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-panes {
+  max-height: min(78vh, calc(100dvh - 11rem));
+  min-height: 320px;
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-viewport {
+  max-height: min(72vh, calc(100dvh - 14rem));
+  min-height: 240px;
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-panes--stacked .diff-viewport {
+  max-height: min(36vh, calc(50dvh - 8rem));
+}
+
+:host(.diff-apply-host--expanded) {
   z-index: 1055;
 }
 
@@ -67,7 +146,7 @@
   flex-shrink: 0;
 }
 
-.diff-apply-host:focus-visible {
+:host(:focus-visible) {
   box-shadow: 0 0 0 2px var(--bs-primary);
   border-radius: 0.375rem;
 }
@@ -241,21 +320,6 @@
 .diff-hint kbd {
   font-size: 0.65rem;
   padding: 0.1rem 0.25rem;
-}
-
-.diff-toolbar--labeled .diff-toolbar-label {
-  display: block;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--bs-secondary-color);
-  margin-bottom: 0.15rem;
-}
-
-.diff-toolbar-group {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
 }
 
 .diff-row--current-change.diff-row--equal {

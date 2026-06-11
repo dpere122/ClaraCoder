@@ -37,17 +37,23 @@ class DiffReviewAfterToolMiddleware(AgentMiddleware):
         staged_transfer = (
             name == TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME and sess.pending_staged_transfer_hitl is not None
         )
+        batch_payload = sess.pending_staged_transfer_batch_payload
         # Require an active SSE pump (``hitl_sse_queue``), not ``worker_apply_mode``: nested
         # specialist tools can run during streamed agent work while refcount edge cases exist.
         if (
             sess.hitl_sse_queue is None
             or (name not in pause_tools and not staged_transfer)
-            or not payload
+            or (not payload and not batch_payload)
             or sess.auto_apply_mode
         ):
             return result
 
-        await sess.hitl_sse_queue.put(('diff', payload))
+        if staged_transfer and batch_payload:
+            await sess.hitl_sse_queue.put(('staged_transfer_batch', batch_payload))
+        elif payload:
+            await sess.hitl_sse_queue.put(('diff', payload))
+        else:
+            return result
         note = await await_diff_review_note(session_id)
 
         tm: ToolMessage

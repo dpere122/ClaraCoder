@@ -4,6 +4,7 @@ import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
 import type { LlmStatusPayload, PlannerProgress } from './types/llm';
 import type { PlanConfirmPayload } from './types/plan-confirm';
+import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
 
 export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
@@ -33,6 +34,7 @@ export type ParsedAgentStreamPayload =
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
   | { type: 'planner_progress'; planner: PlannerProgress }
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
+  | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
   | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
   | { type: 'final_text'; text: string }
   | {
@@ -70,6 +72,7 @@ type RawAgentStreamPayload = {
   deleteConfirm?: unknown;
   planner?: unknown;
   planConfirm?: unknown;
+  stagedTransferBatch?: unknown;
 };
 
 function optionalTrimmedString(value: unknown): string | undefined {
@@ -141,6 +144,17 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       return {
         type: 'plan_confirm',
         planConfirm: parsed.planConfirm as PlanConfirmPayload,
+      };
+    }
+
+    if (
+      parsed.type === 'staged_transfer_batch' &&
+      parsed.stagedTransferBatch &&
+      typeof parsed.stagedTransferBatch === 'object'
+    ) {
+      return {
+        type: 'staged_transfer_batch',
+        stagedTransferBatch: parsed.stagedTransferBatch as StagedTransferBatchPayload,
       };
     }
 

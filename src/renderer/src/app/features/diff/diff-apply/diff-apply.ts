@@ -2,15 +2,19 @@ import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrollin
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
   HostListener,
+  Injector,
   OnDestroy,
+  afterNextRender,
   computed,
   effect,
   inject,
   input,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -34,6 +38,8 @@ type DiffListItem = { t: 'h'; hunkIndex: number } | { t: 'r'; row: DiffRow };
     tabindex: '0',
     class: 'diff-apply-host',
     '[class.diff-apply-host--expanded]': 'diffExpanded()',
+    '[class.diff-apply-host--batch-expand]': 'embeddedInBatchExpand()',
+    '[class.diff-apply-host--hitl-expand]': 'embeddedInHitlExpand()',
   },
 })
 export class DiffApplyComponent implements AfterViewInit, OnDestroy {
@@ -41,6 +47,14 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   readonly conversationId = input<string | null>(null);
   readonly reviewStatus = input<DiffReviewStatus>('pending');
   readonly reviewSummary = input<string | undefined>(undefined);
+  /** When true, hide staged-transfer approve/re-review (parent batch card owns those actions). */
+  readonly suppressStagedTransferActions = input(false);
+  /** When true, hide the toolbar Expand control (parent batch card owns fullscreen expand). */
+  readonly hideExpandButton = input(false);
+  /** When true, stretch diff panes for a parent batch fullscreen shell. */
+  readonly embeddedInBatchExpand = input(false);
+  /** When true, use taller inline panes inside an expanded HITL trail (not fullscreen). */
+  readonly embeddedInHitlExpand = input(false);
 
   readonly diffReviewFinished = output<{
     relativePath: string;
@@ -50,8 +64,14 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly pendingDiff = inject(PendingDiffReviewService);
+  private readonly inj = inject(Injector);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   readonly searchQuery = signal('');
+  /** Filter input visibility — collapsed by default to keep the toolbar compact. */
+  readonly filterOpen = signal(false);
+  /** Re-review notes textarea visibility — collapsed by default. */
+  readonly feedbackOpen = signal(false);
   /** Full-screen overlay for the pending diff (toolbar “Expand”). */
   readonly diffExpanded = signal(false);
   readonly collapsedHunks = signal<Set<number>>(new Set());
@@ -70,6 +90,8 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   private syncFrom: 'left' | 'right' | null = null;
   private highlightCache = new Map<string, SafeHtml>();
   private scrollWired = false;
+  private viewportResizeObserver: ResizeObserver | null = null;
+  private viewportResizeObserved = false;
   /** Invalidates in-flight scroll retries when a newer scroll is scheduled. */
   private scrollGeneration = 0;
   private lastPayloadSigForScroll = '';
@@ -85,7 +107,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   readonly changeHunkOrder = computed(() => this.pendingDiff.changeHunkOrder(this.payload()));
 
   /** Code-review staged file awaiting human gate before writing the real workspace. */
-  readonly isStagedTransferHitl = computed(() => !!this.payload().stagedTransferHitl);
+  readonly isStagedTransferHitl = computed(
+    () => !!this.payload().stagedTransferHitl && !this.suppressStagedTransferActions(),
+  );
 
   readonly incrementalOk = computed(() => this.pendingDiff.incrementalOk(this.payload()));
 
@@ -159,6 +183,21 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     });
 
     effect(() => {
+      if (!this.embeddedInBatchExpand() && !this.embeddedInHitlExpand()) {
+        return;
+      }
+      const gen = ++this.scrollGeneration;
+      requestAnimationFrame(() => {
+        if (gen !== this.scrollGeneration) return;
+        this.refreshVirtualScrollViewports();
+        requestAnimationFrame(() => {
+          if (gen !== this.scrollGeneration) return;
+          this.scheduleScrollWithRetry(() => this.firstDiffIndexInHunk(this.currentFocusHunk()), gen);
+        });
+      });
+    });
+
+    effect(() => {
       const hunk = this.currentFocusHunk();
       if (hunk != null) {
         this.collapsedHunks.update((s) => {
@@ -185,6 +224,24 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
       });
     });
 
+    effect(() => {
+      if (this.reviewStatus() !== 'pending') {
+        return;
+      }
+      this.leftVp();
+      this.rightVp();
+      this.listItems();
+      untracked(() => {
+        afterNextRender(
+          () => {
+            this.refreshVirtualScrollViewports();
+            this.ensureViewportResizeObserver();
+          },
+          { injector: this.inj },
+        );
+      });
+    });
+
     if (typeof window !== 'undefined') {
       this.stackedMediaQuery = window.matchMedia('(max-width: 900px)');
       this.stackedMediaQuery.addEventListener('change', this.onStackedMediaChange);
@@ -194,7 +251,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     const retry = (n: number) => {
       this.tryWireScrollSync();
-      if (!this.scrollWired && n < 12) {
+      this.ensureViewportResizeObserver();
+      this.refreshVirtualScrollViewports();
+      if ((!this.scrollWired || !this.viewportResizeObserved) && n < 12) {
         setTimeout(() => retry(n + 1), 0);
       }
     };
@@ -202,6 +261,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.viewportResizeObserver?.disconnect();
+    this.viewportResizeObserver = null;
+    this.viewportResizeObserved = false;
     this.stackedMediaQuery?.removeEventListener('change', this.onStackedMediaChange);
     this.stackedMediaQuery = null;
     this.destroy$.next();
@@ -212,6 +274,32 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     if (index < 0) return;
     this.leftVp()?.scrollToIndex(index);
     this.rightVp()?.scrollToIndex(index);
+  }
+
+  private refreshVirtualScrollViewports(): void {
+    this.leftVp()?.checkViewportSize();
+    this.rightVp()?.checkViewportSize();
+    // Zoneless: this often runs from rAF/timeout callbacks, which schedule no
+    // change detection on their own — request a tick so the rows actually paint.
+    this.cdr.markForCheck();
+  }
+
+  private ensureViewportResizeObserver(): void {
+    if (this.viewportResizeObserved || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const left = this.leftVp();
+    const right = this.rightVp();
+    if (!left || !right) {
+      return;
+    }
+    this.viewportResizeObserved = true;
+    this.viewportResizeObserver = new ResizeObserver(() => {
+      this.refreshVirtualScrollViewports();
+    });
+    this.viewportResizeObserver.observe(left.getElementRef().nativeElement);
+    this.viewportResizeObserver.observe(right.getElementRef().nativeElement);
+    this.refreshVirtualScrollViewports();
   }
 
   private firstGlobalChangeListIndex(): number {
@@ -247,8 +335,7 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
       const h = el?.clientHeight ?? 0;
       const idx = resolveIndex();
       if (idx < 0) return;
-      left?.checkViewportSize();
-      right?.checkViewportSize();
+      this.refreshVirtualScrollViewports();
       this.scrollBothToListIndex(idx);
       const viable = h > 0;
       if (viable && attempts >= 2) return;
@@ -256,6 +343,14 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
       requestAnimationFrame(step);
     };
     queueMicrotask(step);
+  }
+
+  toggleFilter(): void {
+    const next = !this.filterOpen();
+    this.filterOpen.set(next);
+    if (!next) {
+      this.searchQuery.set('');
+    }
   }
 
   collapseDiffExpanded(): void {
@@ -269,8 +364,7 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     const gen = ++this.scrollGeneration;
     requestAnimationFrame(() => {
       if (gen !== this.scrollGeneration) return;
-      this.leftVp()?.checkViewportSize();
-      this.rightVp()?.checkViewportSize();
+      this.refreshVirtualScrollViewports();
       requestAnimationFrame(() => {
         if (gen !== this.scrollGeneration) return;
         this.scheduleScrollWithRetry(() => this.firstDiffIndexInHunk(this.currentFocusHunk()), gen);

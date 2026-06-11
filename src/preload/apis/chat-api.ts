@@ -4,6 +4,7 @@ import type {
   CopyConfirmPayload,
   DeleteConfirmPayload,
   FileDiffPayload,
+  StagedTransferBatchPayload,
   TtsStreamPacket,
 } from '../../shared';
 
@@ -79,6 +80,9 @@ export const chatApi = {
   onMessagePlanConfirm: (
     callback: (event: unknown, conversationId: string, payload: unknown) => void,
   ) => ipcRenderer.on('message-plan-confirm', callback),
+  onMessageStagedTransferBatch: (
+    callback: (event: unknown, conversationId: string, payload: StagedTransferBatchPayload) => void,
+  ) => ipcRenderer.on('message-staged-transfer-batch', callback),
   sendMessage: (
     conversationId: string,
     msg: string,
@@ -113,6 +117,8 @@ export const chatApi = {
     acceptCommandAction?: 'confirm' | 'cancel',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
+    stagedTransferRequestId?: string,
+    stagedTransferPath?: string,
     planConfirmAction?: 'confirm' | 'cancel',
     planConfirmRequestId?: string,
   ) => ipcRenderer.invoke(
@@ -126,6 +132,8 @@ export const chatApi = {
     acceptCommandAction,
     acceptCommandRequestId,
     stagedTransferAction,
+    stagedTransferRequestId,
+    stagedTransferPath,
     planConfirmAction,
     planConfirmRequestId,
   ),

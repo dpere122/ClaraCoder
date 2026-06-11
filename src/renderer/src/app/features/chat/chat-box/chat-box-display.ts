@@ -22,7 +22,10 @@ export const TOOL_BUILDING_SYNONYMS = [
 export type ChatMessage = ConversationMessage;
 type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
-export type ArtifactMessage = Extract<ChatMessage, { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' | 'plan_confirm' }>;
+export type ArtifactMessage = Extract<
+  ChatMessage,
+  { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' | 'plan_confirm' | 'staged_transfer_batch' }
+>;
 
 const PLANNER_CHAIN_LABELS = new Set(['record_plan', 'execute_plan_step']);
 
@@ -148,7 +151,8 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
     m.role === 'delete_confirm' ||
     m.role === 'copy_confirm' ||
     m.role === 'accept_command' ||
-    m.role === 'plan_confirm'
+    m.role === 'plan_confirm' ||
+    m.role === 'staged_transfer_batch'
   );
 }
 
@@ -159,7 +163,8 @@ export function isHitlActivationMessage(m: ChatMessage): boolean {
     m.role === 'delete_confirm' ||
     m.role === 'copy_confirm' ||
     m.role === 'accept_command' ||
-    m.role === 'plan_confirm'
+    m.role === 'plan_confirm' ||
+    m.role === 'staged_transfer_batch'
   );
 }
 
@@ -320,7 +325,13 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
       pendingChainRows.push(msg);
       continue;
     }
-    if (msg.role === 'diff' || msg.role === 'copy_confirm' || msg.role === 'delete_confirm' || msg.role === 'plan_confirm') {
+    if (
+      msg.role === 'diff' ||
+      msg.role === 'copy_confirm' ||
+      msg.role === 'delete_confirm' ||
+      msg.role === 'plan_confirm' ||
+      msg.role === 'staged_transfer_batch'
+    ) {
       flushChainGroup();
       pendingArtifacts.push(msg);
       continue;

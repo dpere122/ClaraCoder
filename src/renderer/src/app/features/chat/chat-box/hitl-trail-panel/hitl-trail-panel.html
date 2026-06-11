@@ -49,6 +49,7 @@
               [payload]="artifact.payload"
               [reviewStatus]="reviewStatus(artifact)"
               [reviewSummary]="artifact.reviewSummary"
+              [embeddedInHitlExpand]="isExpanded()"
               (diffReviewFinished)="diffReviewFinished.emit($event)"
             />
           </div>
@@ -80,6 +81,18 @@
               [reviewStatus]="reviewStatus(artifact)"
               [reviewSummary]="artifact.reviewSummary"
               (copyReviewFinished)="copyReviewFinished.emit($event)"
+            />
+          </div>
+        } @else if (artifact.role === 'staged_transfer_batch') {
+          <div class="hitl-trail-detail hitl-trail-detail--staged-batch">
+            <app-staged-transfer-batch-review
+              [conversationId]="conversationId()"
+              [payload]="artifact.payload"
+              [reviewStatus]="reviewStatus(artifact)"
+              [reviewSummary]="artifact.reviewSummary"
+              [fileResolutions]="artifact.fileResolutions ?? {}"
+              [preferFullscreen]="isExpanded()"
+              (batchReviewFinished)="stagedTransferBatchFinished.emit($event)"
             />
           </div>
         }

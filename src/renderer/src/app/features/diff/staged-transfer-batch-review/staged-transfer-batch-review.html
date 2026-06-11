@@ -1,0 +1,146 @@
+@if (batchComplete()) {
+  <div class="staged-batch-card staged-batch-card--collapsed border rounded-2 px-3 py-2">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <div>
+        <span class="fw-medium">Staged transfer batch</span>
+        <span class="text-secondary small ms-2">{{ payload().files.length }} file(s)</span>
+        @if (reviewSummary()) {
+          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
+        }
+      </div>
+      <span
+        class="badge"
+        [class.text-bg-success]="reviewStatus() === 'complete'"
+        [class.text-bg-secondary]="reviewStatus() === 'cancelled'"
+        >{{ reviewStatus() === 'complete' ? 'Complete' : 'Cancelled' }}</span
+      >
+    </div>
+  </div>
+} @else {
+  <div
+    #expandShell
+    class="staged-batch-expand-shell"
+    [class.staged-batch-expand-shell--active]="batchExpanded()"
+  >
+    @if (batchExpanded()) {
+      <div
+        class="staged-batch-expand-backdrop"
+        role="presentation"
+        aria-hidden="true"
+        (click)="collapseBatchExpanded()"
+      ></div>
+    }
+    <div
+      class="staged-batch-card border rounded-2 overflow-hidden"
+      [class.staged-batch-card--in-expand]="batchExpanded()"
+    >
+      <div class="staged-batch-toolbar p-2 border-bottom">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <span class="badge text-bg-info">Staged batch</span>
+          <span class="small fw-medium text-secondary">File {{ fileProgressLabel() }}</span>
+          <code class="small mb-0">{{ currentFile()?.relativePath }}</code>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-secondary ms-auto"
+            [disabled]="applying()"
+            (click)="toggleBatchExpanded()"
+            [attr.title]="batchExpanded() ? 'Return batch to inline view (Esc)' : 'Expand batch to full window'"
+          >
+            {{ batchExpanded() ? 'Collapse' : 'Expand' }}
+          </button>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          @if (payload().files.length > 1) {
+            <button type="button" class="btn btn-sm btn-outline-secondary" [disabled]="currentFileIndex() === 0" (click)="goPrev()">
+              <lucide-icon name="chevron-left" [size]="14" />
+              Prev
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary"
+              [disabled]="currentFileIndex() >= payload().files.length - 1"
+              (click)="goNext()"
+            >
+              Next
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+            <div class="staged-batch-file-tabs d-flex flex-wrap gap-1">
+              @for (file of payload().files; track file.relativePath; let i = $index) {
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  [class.btn-primary]="i === currentFileIndex()"
+                  [class.btn-outline-secondary]="i !== currentFileIndex()"
+                  (click)="selectFile(i)"
+                  [title]="file.relativePath"
+                >
+                  {{ i + 1 }}
+                  @if ((mergedResolutions()[file.relativePath] ?? 'pending') !== 'pending') {
+                    <span class="ms-1 small">✓</span>
+                  }
+                </button>
+              }
+            </div>
+          }
+          @if (applyMessage()) {
+            <span class="small text-secondary" role="status">{{ applyMessage() }}</span>
+          }
+          @if (currentFileResolved() === 'pending') {
+            <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+              <button type="button" class="btn btn-sm btn-success" [disabled]="applying()" (click)="approveCurrentFile()">
+                Approve file
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-primary"
+                [disabled]="applying()"
+                (click)="returnCurrentForReReview()"
+              >
+                Re-review file
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                [class.active]="feedbackOpen()"
+                (click)="feedbackOpen.set(!feedbackOpen())"
+                [attr.aria-expanded]="feedbackOpen()"
+                title="Optional feedback when returning for re-review"
+              >
+                Notes
+              </button>
+            </div>
+          } @else {
+            <span class="small text-secondary ms-auto">
+              This file is {{ resolutionBadge(currentFileResolved()) | lowercase }}. Use Prev/Next to review remaining files.
+            </span>
+          }
+        </div>
+        @if (currentFileResolved() === 'pending' && feedbackOpen()) {
+          <div class="pt-2">
+            <textarea
+              id="batch-rereview-notes"
+              class="form-control form-control-sm"
+              rows="2"
+              aria-label="Notes for this file"
+              [ngModel]="reReviewFeedback()"
+              (ngModelChange)="reReviewFeedback.set($event)"
+              placeholder="Optional feedback when returning for re-review"
+            ></textarea>
+          </div>
+        }
+      </div>
+      @if (currentFile(); as file) {
+        <app-diff-apply
+          [conversationId]="conversationId()"
+          [payload]="file"
+          [reviewStatus]="'pending'"
+          [reviewSummary]="undefined"
+          [suppressStagedTransferActions]="true"
+          [hideExpandButton]="true"
+          [embeddedInBatchExpand]="batchExpanded()"
+          [embeddedInHitlExpand]="preferFullscreen() && !batchExpanded()"
+        />
+      }
+    </div>
+  </div>
+}

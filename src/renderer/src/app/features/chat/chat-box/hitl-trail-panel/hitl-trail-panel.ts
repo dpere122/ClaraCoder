@@ -24,6 +24,7 @@ import { AcceptCommandComponent } from '../../../diff/accept-command/accept-comm
 import { CopyConfirmComponent } from '../../../diff/copy-confirm/copy-confirm';
 import { DeleteConfirmComponent } from '../../../diff/delete-confirm/delete-confirm';
 import { DiffApplyComponent } from '../../../diff/diff-apply/diff-apply';
+import { StagedTransferBatchReviewComponent } from '../../../diff/staged-transfer-batch-review/staged-transfer-batch-review';
 import {
   type AuxiliaryPanelMode,
   auxiliaryPanelContentVisible,
@@ -36,7 +37,7 @@ import {
 @Component({
   selector: 'app-hitl-trail-panel',
   standalone: true,
-  imports: [DiffApplyComponent, DeleteConfirmComponent, CopyConfirmComponent, AcceptCommandComponent],
+  imports: [DiffApplyComponent, DeleteConfirmComponent, CopyConfirmComponent, AcceptCommandComponent, StagedTransferBatchReviewComponent],
   templateUrl: './hitl-trail-panel.html',
   styleUrls: ['../stream-trail-panel-shared.css', './hitl-trail-panel.css'],
   encapsulation: ViewEncapsulation.None,
@@ -67,6 +68,12 @@ export class HitlTrailPanelComponent {
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+  }>();
+  readonly stagedTransferBatchFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }>();
 
   readonly mode = signal<AuxiliaryPanelMode>(initialAuxiliaryPanelMode(false));
@@ -101,6 +108,8 @@ export class HitlTrailPanelComponent {
         return `del:${artifact.payload.requestId}`;
       case 'plan_confirm':
         return `plan:${artifact.payload.requestId}`;
+      case 'staged_transfer_batch':
+        return `staged:${artifact.payload.requestId}|${artifact.payload.files.length}`;
       default:
         return 'artifact';
     }
@@ -127,7 +136,9 @@ export class HitlTrailPanelComponent {
       const prevCount = this.prevPendingCount;
       this.prevPendingCount = pendingCount;
       const stagedTransferPending = this.pendingArtifacts().some(
-        (a) => a.role === 'diff' && a.payload.stagedTransferHitl,
+        (a) =>
+          a.role === 'staged_transfer_batch' ||
+          (a.role === 'diff' && a.payload.stagedTransferHitl),
       );
       if (isLive && pendingCount > 0 && (pendingCount > prevCount || stagedTransferPending)) {
         this.mode.set('expanded');

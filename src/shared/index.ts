@@ -210,6 +210,10 @@ export type { PlanConfirmPayload } from './types/plan-confirm';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';
 export type {
+  StagedTransferBatchPayload,
+  StagedTransferFileResolution,
+} from './types/staged-transfer-batch';
+export type {
   WorkspaceContextState,
   WorkspaceChangeKind,
   WorkspaceFilesChangedPayload,

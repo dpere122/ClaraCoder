@@ -195,7 +195,10 @@ async def test_staging_continuation_skipped_when_transfer_hitl_pending() -> None
     session = get_session(session_id)
     session.worker_apply_mode = True
     session.auto_apply_mode = False
-    session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path='src/app.html')
+    session.pending_staged_transfer_hitl = PendingStagedTransferHitl(
+        request_id='hitl-test',
+        relative_paths=['src/app.html'],
+    )
     session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
         temp_path='/tmp/staged.html',
         old_text='',

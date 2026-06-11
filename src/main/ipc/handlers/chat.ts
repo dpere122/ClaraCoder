@@ -139,6 +139,8 @@ export function registerChatIpc(): void {
       acceptCommandAction?: 'confirm' | 'cancel',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
+      stagedTransferRequestId?: string,
+      stagedTransferPath?: string,
       planConfirmAction?: 'confirm' | 'cancel',
       planConfirmRequestId?: string,
     ) => {
@@ -156,6 +158,8 @@ export function registerChatIpc(): void {
             accept_command_action: acceptCommandAction ?? null,
             accept_command_request_id: acceptCommandRequestId ?? '',
             staged_transfer_action: stagedTransferAction ?? null,
+            staged_transfer_request_id: stagedTransferRequestId ?? '',
+            staged_transfer_path: stagedTransferPath ?? '',
             plan_confirm_action: planConfirmAction ?? null,
             plan_confirm_request_id: planConfirmRequestId ?? '',
           }),
@@ -164,7 +168,8 @@ export function registerChatIpc(): void {
           const text = await res.text();
           return { ok: false, error: text || `HTTP ${res.status}` };
         }
-        return { ok: true };
+        const data = (await res.json()) as { ok?: boolean; batchComplete?: boolean };
+        return { ok: data.ok !== false, batchComplete: data.batchComplete !== false };
       } catch (err) {
         console.error('agent-continue failed:', err);
         return { ok: false, error: err instanceof Error ? err.message : String(err) };

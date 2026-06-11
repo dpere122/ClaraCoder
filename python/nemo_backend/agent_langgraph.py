@@ -236,6 +236,12 @@ def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
             session.pending_diff_payload = None
             return [sse_line({'type': 'diff', 'diff': pending_diff})]
         return []
+    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'staged_transfer_batch':
+        batch = raw_hitl[1] if len(raw_hitl) > 1 else session.pending_staged_transfer_batch_payload
+        if batch:
+            session.pending_staged_transfer_batch_payload = None
+            return [sse_line({'type': 'staged_transfer_batch', 'stagedTransferBatch': batch})]
+        return []
     return []
 
 

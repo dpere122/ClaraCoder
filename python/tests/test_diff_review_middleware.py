@@ -29,7 +29,10 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
     session.worker_apply_mode = False
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    payload = {
+    from nemo_backend.domain import PendingStagedTransferHitl
+    from nemo_backend.agents.specialists.review_tools import staged_transfer_batch_sse_payload
+
+    file_payload = {
         'version': 1,
         'relativePath': 'a.py',
         'rows': [],
@@ -37,7 +40,11 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
         'truncated': False,
         'stagedTransferHitl': True,
     }
-    session.pending_diff_payload = payload
+    pending = PendingStagedTransferHitl(request_id='req-1', relative_paths=['a.py'])
+    session.pending_staged_transfer_hitl = pending
+    batch_payload = staged_transfer_batch_sse_payload(pending, [file_payload])
+    session.pending_staged_transfer_batch_payload = batch_payload
+    session.pending_diff_payload = None
 
     mw = DiffReviewAfterToolMiddleware()
 
@@ -57,7 +64,7 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
         current_session_id.reset(token)
 
     item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('diff', payload)
+    assert item == ('staged_transfer_batch', batch_payload)
 
 
 @patch('nemo_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
@@ -72,9 +79,9 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
     from nemo_backend.domain import PendingStagedTransferHitl
+    from nemo_backend.agents.specialists.review_tools import staged_transfer_batch_sse_payload
 
-    session.pending_staged_transfer_hitl = PendingStagedTransferHitl(relative_path='a.py')
-    payload = {
+    file_payload = {
         'version': 1,
         'relativePath': 'a.py',
         'rows': [],
@@ -82,7 +89,11 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
         'truncated': False,
         'stagedTransferHitl': True,
     }
-    session.pending_diff_payload = payload
+    pending = PendingStagedTransferHitl(request_id='req-2', relative_paths=['a.py'])
+    session.pending_staged_transfer_hitl = pending
+    batch_payload = staged_transfer_batch_sse_payload(pending, [file_payload])
+    session.pending_staged_transfer_batch_payload = batch_payload
+    session.pending_diff_payload = None
 
     mw = DiffReviewAfterToolMiddleware()
 
@@ -102,4 +113,4 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
         current_session_id.reset(token)
 
     item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('diff', payload)
+    assert item == ('staged_transfer_batch', batch_payload)

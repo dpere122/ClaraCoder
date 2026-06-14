@@ -1,0 +1,59 @@
+<div class='image-viewer'>
+  <div class='image-viewer-toolbar'>
+    <div class='image-viewer-toolbar-group'>
+      <button
+        type='button'
+        class='image-viewer-btn'
+        [class.image-viewer-btn--active]='isFit()'
+        (click)='fitToWindow()'
+        title='Fit to window'
+      >
+        <lucide-icon name='maximize' [size]='15' />
+        <span>Fit</span>
+      </button>
+      <button
+        type='button'
+        class='image-viewer-btn'
+        [class.image-viewer-btn--active]='zoomPercent() === 100'
+        (click)='actualSize()'
+        title='Actual size (100%)'
+      >
+        <lucide-icon name='scan' [size]='15' />
+        <span>1:1</span>
+      </button>
+      <button type='button' class='image-viewer-btn' (click)='zoomOut()' title='Zoom out'>
+        <lucide-icon name='zoom-out' [size]='15' />
+      </button>
+      <button type='button' class='image-viewer-btn' (click)='zoomIn()' title='Zoom in'>
+        <lucide-icon name='zoom-in' [size]='15' />
+      </button>
+      <span class='image-viewer-zoom-label'>{{ isFit() ? 'Fit' : zoomPercent() + '%' }}</span>
+    </div>
+    <div class='image-viewer-toolbar-info'>
+      <span class='image-viewer-name' [title]='fileName()'>{{ fileName() }}</span>
+      @if (naturalWidth() > 0 && !loadError()) {
+        <span class='image-viewer-dims'>{{ naturalWidth() }} &times; {{ naturalHeight() }}</span>
+      }
+    </div>
+  </div>
+
+  <div class='image-viewer-stage' [class.image-viewer-stage--fit]='isFit()'>
+    @if (!imageSrc()) {
+      <div class='image-viewer-message'>No image selected.</div>
+    } @else if (loadError()) {
+      <div class='image-viewer-message'>
+        Unable to display this image. The file may be missing, corrupt, or an unsupported format.
+      </div>
+    } @else {
+      <img
+        class='image-viewer-img'
+        [class.image-viewer-img--fit]='isFit()'
+        [src]='imageSrc()'
+        [style.width.px]='isFit() ? null : naturalWidth() * (zoom() ?? 1)'
+        [alt]='fileName()'
+        (load)='onImageLoad($event)'
+        (error)='onImageError()'
+      />
+    }
+  </div>
+</div>

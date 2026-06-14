@@ -1,0 +1,131 @@
+app-image-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+app-image-viewer .image-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  background-color: var(--t-bg-deep);
+}
+
+app-image-viewer .image-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--t-border-subtle);
+  flex-shrink: 0;
+}
+
+app-image-viewer .image-viewer-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+app-image-viewer .image-viewer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--t-bg);
+  border: 1px solid var(--t-border);
+  color: var(--t-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+app-image-viewer .image-viewer-btn:hover {
+  border-color: var(--t-primary);
+  background-color: var(--t-hover-bg);
+}
+
+app-image-viewer .image-viewer-btn--active {
+  border-color: var(--t-primary);
+  background-color: var(--t-hover-bg);
+}
+
+app-image-viewer .image-viewer-zoom-label {
+  margin-left: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--t-text-muted);
+  min-width: 3rem;
+}
+
+app-image-viewer .image-viewer-toolbar-info {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--t-text-muted);
+}
+
+app-image-viewer .image-viewer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22rem;
+  color: var(--t-primary);
+}
+
+app-image-viewer .image-viewer-dims {
+  flex-shrink: 0;
+}
+
+app-image-viewer .image-viewer-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem;
+  /* Checkerboard backdrop so transparent images are readable. */
+  background-color: #808080;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.25) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.25) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+
+app-image-viewer .image-viewer-stage--fit {
+  align-items: center;
+}
+
+app-image-viewer .image-viewer-img {
+  display: block;
+  image-rendering: auto;
+}
+
+app-image-viewer .image-viewer-img--fit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+app-image-viewer .image-viewer-message {
+  margin: auto;
+  padding: 1rem 1.25rem;
+  max-width: 28rem;
+  text-align: center;
+  color: var(--t-primary);
+  background: var(--t-bg);
+  border: 1px solid var(--t-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}

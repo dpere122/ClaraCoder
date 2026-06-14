@@ -57,6 +57,8 @@ import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../s
 import { StatusBarComponent } from '../status/status-bar/status-bar';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
+import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
+import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-formats';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
@@ -83,6 +85,7 @@ import { LucideAngularModule } from 'lucide-angular';
     LucideAngularModule,
     WorkspaceComponent,
     WorkspaceMonacoComponent,
+    ImageViewerComponent,
     WorkspaceTerminalDockComponent,
     StatusBarComponent,
     ThemedConfirmDialogComponent,
@@ -190,6 +193,22 @@ export class App implements OnInit, OnDestroy {
     }
     return tabId.slice(5);
   });
+
+  /** True when the active file tab is an image the dedicated viewer should render. */
+  protected readonly activeFileIsImage = computed(() => {
+    const p = this.activeFileRelativePath();
+    return !!p && isViewableImagePath(p);
+  });
+
+  /** Active file path for Monaco only — image tabs are routed to the image viewer instead. */
+  protected readonly monacoActiveFileRelativePath = computed(() =>
+    this.activeFileIsImage() ? null : this.activeFileRelativePath(),
+  );
+
+  /** Open file paths Monaco should manage — excludes images (rendered by the image viewer). */
+  protected readonly monacoOpenFileRelativePaths = computed(() =>
+    this.openFileRelativePaths().filter((p) => !isViewableImagePath(p)),
+  );
 
   /** Latest pending file diff for the currently focused editor tab (Monaco inline review). */
   protected readonly pendingDiffForActiveEditor = computed((): FileDiffPayload | null => {

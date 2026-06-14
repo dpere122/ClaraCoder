@@ -118,13 +118,13 @@
           </div>
           <div
             class='chat-main-tab-panel chat-main-tab-panel--monaco'
-            [class.chat-main-tab-panel--hidden]='!activeMainTabId().startsWith("file:")'
+            [class.chat-main-tab-panel--hidden]='!activeMainTabId().startsWith("file:") || activeFileIsImage()'
           >
             <app-workspace-monaco
               class='chat-main-inner-host d-flex h-100 min-h-0'
               [workspacePath]='currentWorkspacePath()'
-              [relativePath]='activeFileRelativePath()'
-              [openFileRelativePaths]='openFileRelativePaths()'
+              [relativePath]='monacoActiveFileRelativePath()'
+              [openFileRelativePaths]='monacoOpenFileRelativePaths()'
               [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
               [pendingDiffPayload]='pendingDiffForActiveEditor()'
               [conversationId]='activeConversationId()'
@@ -133,6 +133,16 @@
               (diffReviewFinished)='onDiffReviewFinished($event)'
               (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
               (pendingEditorRevealHandled)='onMonacoRevealHandled()'
+            />
+          </div>
+          <div
+            class='chat-main-tab-panel chat-main-tab-panel--image'
+            [class.chat-main-tab-panel--hidden]='!activeFileIsImage()'
+          >
+            <app-image-viewer
+              class='chat-main-inner-host d-flex h-100 min-h-0'
+              [workspacePath]='currentWorkspacePath()'
+              [relativePath]='activeFileRelativePath()'
             />
           </div>
         </div>

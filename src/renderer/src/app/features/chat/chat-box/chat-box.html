@@ -13,7 +13,21 @@
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
       >
         @if (slot.row.kind === 'user') {
-          {{ slot.row.msg.text }}
+          @let userImages = userImageUrls(slot.row.msg);
+          @let userFiles = userAttachedFiles(slot.row.msg);
+          @if (userImages.length || userFiles.length) {
+            <div class="user-attachments">
+              @for (url of userImages; track $index) {
+                <img class="user-attachment-image" [src]="url" alt="Attached image" />
+              }
+              @for (file of userFiles; track file) {
+                <span class="user-attachment-file" [title]="file">{{ file }}</span>
+              }
+            </div>
+          }
+          @if (slot.row.msg.text) {
+            <div class="user-message-text">{{ slot.row.msg.text }}</div>
+          }
         } @else {
           @let row = slot.row;
           @for (chainGroup of chainGroupsForPersistedTurn(row); track chainGroup.key) {

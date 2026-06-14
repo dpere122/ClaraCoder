@@ -1,0 +1,90 @@
+.chat-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.4rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--t-border);
+  border-radius: 0.35rem;
+  background-color: var(--t-input-bg, var(--t-bg));
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.chat-context-bar--drag {
+  border-color: var(--t-primary);
+  box-shadow: 0 0 0 1px var(--t-primary);
+}
+
+.chat-context-bar--empty {
+  border-style: dashed;
+}
+
+.chat-context-bar-hint {
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--t-text-muted);
+  padding: 0.1rem 0.25rem;
+  pointer-events: none;
+}
+
+.chat-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 14rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.35rem;
+  border: 1px solid var(--t-border);
+  border-radius: 0.3rem;
+  background-color: var(--t-bg);
+  color: var(--t-input-fg, var(--t-primary));
+  font-size: 0.78rem;
+}
+
+.chat-context-chip-thumb {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 0.2rem;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.chat-context-chip-icon {
+  flex-shrink: 0;
+  color: var(--t-text-muted);
+}
+
+.chat-context-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-context-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.2rem;
+  background-color: transparent;
+  color: var(--t-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.chat-context-chip-remove:hover {
+  background-color: var(--t-hover-bg);
+  color: var(--t-fg);
+}
+
+:host ::ng-deep .chat-context-chip-icon svg,
+:host ::ng-deep .chat-context-chip-remove svg {
+  stroke: currentColor;
+  fill: none;
+}

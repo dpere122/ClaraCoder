@@ -142,6 +142,43 @@ export type ChatDisplayRow =
       artifacts: ArtifactMessage[];
     };
 
+/** Inline image data URLs attached to a user turn (from `image_url` blocks). */
+export function userMessageImageUrls(msg: UserMessage): string[] {
+  const parts = msg.structuredContent;
+  if (!parts?.length) {
+    return [];
+  }
+  const urls: string[] = [];
+  for (const part of parts) {
+    const rec = part as { type?: unknown; image_url?: { url?: unknown } };
+    if (String(rec.type ?? '') === 'image_url') {
+      const url = rec.image_url?.url;
+      if (typeof url === 'string' && url) {
+        urls.push(url);
+      }
+    }
+  }
+  return urls;
+}
+
+const ATTACHED_FILE_PREFIX = 'Attached file: ';
+
+/** Workspace-relative paths of non-image files referenced in a user turn. */
+export function userMessageAttachedFiles(msg: UserMessage): string[] {
+  const parts = msg.structuredContent;
+  if (!parts?.length) {
+    return [];
+  }
+  const files: string[] = [];
+  for (const part of parts) {
+    const rec = part as { type?: unknown; text?: unknown };
+    if (String(rec.type ?? '') === 'text' && typeof rec.text === 'string' && rec.text.startsWith(ATTACHED_FILE_PREFIX)) {
+      files.push(rec.text.slice(ATTACHED_FILE_PREFIX.length));
+    }
+  }
+  return files;
+}
+
 export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
   return (
     m.role === 'user' ||

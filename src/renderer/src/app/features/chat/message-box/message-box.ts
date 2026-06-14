@@ -27,6 +27,8 @@ export class MessageBox {
   readonly talkDetail = input('');
   readonly loading = input(false);
   readonly contextBlocked = input(false);
+  /** Number of files staged in the reference bar; allows sending with empty text. */
+  readonly attachmentCount = input(0);
   readonly messageSent = output<string>();
   readonly abortRequested = output<void>();
   protected readonly userInput = signal('');
@@ -39,7 +41,7 @@ export class MessageBox {
   send(): void {
     if (this.loading() || this.contextBlocked()) return;
     const msg = this.userInput().trim();
-    if (!msg) return;
+    if (!msg && this.attachmentCount() === 0) return;
     this.messageSent.emit(msg);
     this.userInput.set('');
     this.focusInput();

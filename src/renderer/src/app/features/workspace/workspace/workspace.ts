@@ -38,6 +38,7 @@ import {
   parentDirectoryPath,
 } from './workspace-path-utils';
 import { workspaceTreeTextHintsPython } from './workspace-python-hints';
+import { WORKSPACE_TREE_DRAG_MIME } from '../../chat/chat-context-bar/chat-context-file';
 
 @Component({
   selector: 'app-workspace',
@@ -60,6 +61,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly addWorkspace = output<void>();
   /** User double-clicked a file in the tree (absolute path on disk). */
   readonly workspaceFileOpen = output<{ absolutePath: string }>();
+  /** User chose "Add to chat" or dragged a file out of the tree (absolute path on disk). */
+  readonly addToChatContext = output<{ absolutePath: string }>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   protected readonly loadError = signal('');
@@ -552,6 +555,25 @@ export class WorkspaceComponent implements OnDestroy {
         this.pendingCreateSkipBlurCancel = false;
       }, 0);
     }, 0);
+  }
+
+  onContextMenuAddToChat(): void {
+    const node = this.contextMenuNode();
+    this.closeContextMenu();
+    if (!node || node.isDirectory) {
+      return;
+    }
+    this.addToChatContext.emit({ absolutePath: node.path });
+  }
+
+  onTreeNodeDragStart(event: DragEvent, node: FlatNode): void {
+    if (node.isDirectory || this.inlineRenamePath() === node.path || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(WORKSPACE_TREE_DRAG_MIME, node.path);
+    event.dataTransfer.setData('text/plain', node.path);
   }
 
   onContextMenuRename(): void {

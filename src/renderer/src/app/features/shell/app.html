@@ -40,6 +40,7 @@
         (workspaceChanged)='onWorkspaceChanged($event)'
         (addWorkspace)='onAddWorkspace()'
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'
+        (addToChatContext)='addChatContextFile($event.absolutePath)'
       />
       @if (llamaServerDock() === 'workspace') {
         <app-llama-server-tile
@@ -155,6 +156,13 @@
           (recordingBegan)='onTalkRecordingBegan()'
           (talkCaptureFinished)='onTalkCaptureFinished($event)'
         />
+        <app-chat-context-bar
+          class='chat-context-bar-host'
+          [files]='chatContextFiles()'
+          [workspaceRoot]='currentWorkspacePath()'
+          (removeFile)='removeChatContextFile($event)'
+          (pathsDropped)='onChatContextPathsDropped($event)'
+        />
         <app-message-box
           class='message-box-host'
           [(composerMode)]='composerMode'
@@ -164,6 +172,7 @@
           [talkDetail]='talkModeDetailStatus()'
           [loading]='loading()'
           [contextBlocked]='contextChatBlocked()'
+          [attachmentCount]='chatContextFiles().length'
           (messageSent)='onMessageSent($event)'
           (abortRequested)='onAbortRequested()'
         />

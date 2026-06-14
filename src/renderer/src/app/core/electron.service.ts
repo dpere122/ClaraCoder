@@ -662,6 +662,16 @@ export class ElectronService {
     );
   }
 
+  readWorkspaceImageBase64(
+    workspaceRoot: string,
+    relativePath: string,
+  ): Promise<{ ok: boolean; dataUrl?: string; mime?: string; path?: string; error?: string }> {
+    return (
+      this.api?.readWorkspaceImageBase64?.(workspaceRoot, relativePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   setAlwaysOnTop(pinned: boolean): void {
     this.api?.setAlwaysOnTop(pinned);
   }

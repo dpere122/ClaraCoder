@@ -15,7 +15,7 @@ export { sumHeights, computeVirtualRange };
 
 /** Structural copy of display rows used for height estimation (avoids circular imports with chat-box.ts). */
 export type ChatRowHeightInput =
-  | { kind: 'user'; msg: { text: string } }
+  | { kind: 'user'; msg: { text: string; structuredContent?: readonly Readonly<Record<string, unknown>>[] } }
   | {
       kind: 'assistant-turn';
       assistant: {
@@ -41,7 +41,15 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
   if (row.kind === 'user') {
     const cpl = 44;
     const lines = Math.max(1, Math.ceil(row.msg.text.length / cpl));
-    return Math.max(MIN_ROW, Math.round(bubblePad + lines * linePx));
+    let imageCount = 0;
+    for (const part of row.msg.structuredContent ?? []) {
+      if (String((part as { type?: unknown }).type ?? '') === 'image_url') {
+        imageCount++;
+      }
+    }
+    // Inline image thumbnails cap at 12rem tall (see chat-box.css) plus chip gap.
+    const attachmentsPx = imageCount > 0 ? 192 + 8 : 0;
+    return Math.max(MIN_ROW, Math.round(bubblePad + lines * linePx + attachmentsPx));
   }
 
   let h = bubblePad + 6;

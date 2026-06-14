@@ -1,0 +1,36 @@
+<div
+  class="chat-context-bar"
+  [class.chat-context-bar--drag]="dragActive()"
+  [class.chat-context-bar--empty]="!hasFiles()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave()"
+  (drop)="onDrop($event)"
+>
+  @if (hasFiles()) {
+    @for (file of files(); track file.relativePath) {
+      <div class="chat-context-chip" [title]="file.relativePath">
+        @if (file.kind === 'image' && thumbnailFor(file)) {
+          <img class="chat-context-chip-thumb" [src]="thumbnailFor(file)" [alt]="file.name" />
+        } @else {
+          <lucide-icon
+            [name]="file.kind === 'image' ? 'image' : 'file-text'"
+            [size]="14"
+            class="chat-context-chip-icon"
+          ></lucide-icon>
+        }
+        <span class="chat-context-chip-name">{{ file.name }}</span>
+        <button
+          type="button"
+          class="chat-context-chip-remove"
+          (click)="onRemove(file)"
+          [attr.aria-label]="'Remove ' + file.name"
+          title="Remove"
+        >
+          <lucide-icon name="x" [size]="12"></lucide-icon>
+        </button>
+      </div>
+    }
+  } @else {
+    <span class="chat-context-bar-hint">Drop files here, or right-click a file in the tree to add</span>
+  }
+</div>

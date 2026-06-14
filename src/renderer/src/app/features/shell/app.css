@@ -436,6 +436,11 @@ body.llama-dock-drag--active {
   min-width: 0;
 }
 
+.composer-row .chat-context-bar-host {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 .status-bar-host {
   flex-shrink: 0;
   width: 100%;

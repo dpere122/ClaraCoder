@@ -19,6 +19,8 @@ export const workspaceApi = {
     ipcRenderer.invoke('rename-workspace-entry', workspaceRoot, absolutePath, newName),
   readWorkspaceFile: (workspaceRoot: string, relativePath: string) =>
     ipcRenderer.invoke('read-workspace-file', workspaceRoot, relativePath),
+  readWorkspaceImageBase64: (workspaceRoot: string, relativePath: string) =>
+    ipcRenderer.invoke('read-workspace-image-base64', workspaceRoot, relativePath),
   openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
   readDirectory: (dirPath: string) => ipcRenderer.invoke('read-directory', dirPath),
   readDirectoryRecursive: (dirPath: string) => ipcRenderer.invoke('read-directory-recursive', dirPath),

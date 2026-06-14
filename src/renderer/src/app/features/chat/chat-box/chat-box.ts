@@ -62,6 +62,8 @@ import {
   toolChainSummary,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
+  userMessageAttachedFiles,
+  userMessageImageUrls,
   type ArtifactMessage,
   type ChatDisplayRow,
   type ChatMessage,
@@ -84,6 +86,8 @@ export {
   turnHasPlanPanel,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
+  userMessageAttachedFiles,
+  userMessageImageUrls,
   type ArtifactMessage,
   type ChatDisplayRow,
   type ChatMessage,
@@ -133,6 +137,10 @@ export class ChatBox implements OnDestroy {
 
   /** Template helper: nested workspace handoff rows for outer Clara (stream tag `clara`). */
   readonly isClaraOuterBriefTrail = (trail: ChainMessage) => isClaraOuterBriefStreamTag(trail.streamTag);
+
+  /** Template helpers: attachments rendered above a user bubble's text. */
+  readonly userImageUrls = userMessageImageUrls;
+  readonly userAttachedFiles = userMessageAttachedFiles;
 
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
 

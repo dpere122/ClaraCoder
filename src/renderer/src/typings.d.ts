@@ -184,6 +184,10 @@ declare global {
       workspaceRoot: string,
       relativePath: string,
     ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
+    readWorkspaceImageBase64?: (
+      workspaceRoot: string,
+      relativePath: string,
+    ) => Promise<{ ok: boolean; dataUrl?: string; mime?: string; path?: string; error?: string }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;

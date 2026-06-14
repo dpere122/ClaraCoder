@@ -6,6 +6,7 @@ import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal, 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
+  ChatStructuredContentPart,
   ComposerRunMode,
   Conversation,
   ConversationMeta,
@@ -31,6 +32,8 @@ import {
   TTS_SPEECH_SPEED_MIN,
 } from '@shared/index';
 import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
+import { ChatContextBar } from '../chat/chat-context-bar/chat-context-bar';
+import { type ChatContextFile, isImagePath } from '../chat/chat-context-bar/chat-context-file';
 import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
   chatFileTabBasename,
@@ -72,6 +75,7 @@ import { LucideAngularModule } from 'lucide-angular';
   selector: 'app-root',
   imports: [
     ChatBox,
+    ChatContextBar,
     MessageBox,
     ConversationManager,
     LlamaServerTile,
@@ -155,6 +159,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly currentWorkspacePath = computed(() => this.currentWorkspace()?.path?.trim() ?? '');
   /** Open file tabs (paths relative to current workspace). */
   protected readonly fileTabs = signal<ChatFileTab[]>([]);
+  /** Files attached to the next chat turn (images sent inline; others referenced by path). */
+  protected readonly chatContextFiles = signal<ChatContextFile[]>([]);
   /** Relative paths with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
   protected readonly monacoUnsavedPaths = signal<ReadonlySet<string>>(new Set());
   /** One-shot scroll target after cross-file go-to-definition from Monaco. */
@@ -687,11 +693,14 @@ export class App implements OnInit, OnDestroy {
     const convId = this.activeConversationId();
     if (!convId) return;
     const normalized = text.trim();
-    if (!normalized || this.pendingIds().has(convId)) return;
+    const attachments = this.chatContextFiles();
+    if ((!normalized && attachments.length === 0) || this.pendingIds().has(convId)) return;
     if (this.contextChatBlocked()) {
       return;
     }
-    this.pushMessage('user', normalized);
+    const structuredContent = await this.buildStructuredContent(normalized, attachments);
+    this.clearChatContextFiles();
+    this.pushMessage('user', normalized, undefined, undefined, undefined, undefined, structuredContent);
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
     if (this.speechEnabled()) {
@@ -705,11 +714,41 @@ export class App implements OnInit, OnDestroy {
       normalized,
       this.editorMode(),
       this.editorMode() && this.autoApplyMode(),
-      undefined,
+      structuredContent,
       workspaceId,
       this.composerMode(),
     );
     this.autoSave();
+  }
+
+  /**
+   * Build OpenAI-style multimodal blocks for the staged attachments.
+   * Images are embedded inline as base64 `image_url`; other files are referenced by workspace path
+   * so the model can read them with `read_workspace_file`.
+   */
+  private async buildStructuredContent(
+    text: string,
+    attachments: readonly ChatContextFile[],
+  ): Promise<ChatStructuredContentPart[] | undefined> {
+    if (attachments.length === 0) {
+      return undefined;
+    }
+    const root = this.currentWorkspacePath().trim();
+    const blocks: ChatStructuredContentPart[] = [];
+    if (text) {
+      blocks.push({ type: 'text', text });
+    }
+    for (const file of attachments) {
+      if (file.kind === 'image' && root) {
+        const res = await this.electron.readWorkspaceImageBase64(root, file.relativePath);
+        if (res.ok && res.dataUrl) {
+          blocks.push({ type: 'image_url', image_url: { url: res.dataUrl } });
+          continue;
+        }
+      }
+      blocks.push({ type: 'text', text: `Attached file: ${file.relativePath}` });
+    }
+    return blocks.length > 0 ? blocks : undefined;
   }
 
   async onNewConversation(): Promise<void> {
@@ -1140,6 +1179,45 @@ export class App implements OnInit, OnDestroy {
     this.openOrFocusFileTab(rel);
   }
 
+  /** Add a file (from the tree context menu or a drop) to the chat reference bar. */
+  protected addChatContextFile(absolutePath: string): void {
+    const root = this.currentWorkspacePath().trim();
+    if (!root) {
+      return;
+    }
+    const rel = workspaceRelativePathIfUnderRoot(root, absolutePath);
+    if (rel === null || rel === '') {
+      return;
+    }
+    const name = rel.split('/').filter(Boolean).pop() ?? rel;
+    const file: ChatContextFile = {
+      absolutePath,
+      relativePath: rel,
+      name,
+      kind: isImagePath(rel) ? 'image' : 'file',
+    };
+    this.chatContextFiles.update((files) => {
+      if (files.some((f) => f.relativePath === file.relativePath)) {
+        return files;
+      }
+      return [...files, file];
+    });
+  }
+
+  protected onChatContextPathsDropped(absolutePaths: readonly string[]): void {
+    for (const p of absolutePaths) {
+      this.addChatContextFile(p);
+    }
+  }
+
+  protected removeChatContextFile(file: ChatContextFile): void {
+    this.chatContextFiles.update((files) => files.filter((f) => f.relativePath !== file.relativePath));
+  }
+
+  protected clearChatContextFiles(): void {
+    this.chatContextFiles.set([]);
+  }
+
   protected fileTabIdForPath(relativePath: string): string {
     return chatFileTabId(relativePath);
   }
@@ -1188,11 +1266,12 @@ export class App implements OnInit, OnDestroy {
     reasoningStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
     planner?: PlannerProgress,
+    structuredContent?: readonly ChatStructuredContentPart[],
   ): void {
     console.log('[App] pushMessage:', role, 'text length:', text.length);
     let nextMessage: ChatMessage;
     if (role === 'user') {
-      nextMessage = { role, text };
+      nextMessage = structuredContent?.length ? { role, text, structuredContent } : { role, text };
     } else {
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
       if (toolStreams?.length) assistant.toolStreams = toolStreams;

@@ -64,9 +64,11 @@
               [attr.data-path]='node.path'
               [style.padding-left.rem]='0.5 + node.depth * 1'
               [class.is-directory]='node.isDirectory'
+              [attr.draggable]='!node.isDirectory && inlineRenamePath() !== node.path'
               (click)='onTreeNodeClick(node)'
               (dblclick)='onTreeNodeDoubleClick(node)'
               (contextmenu)='onTreeNodeContextMenu($event, node)'
+              (dragstart)='onTreeNodeDragStart($event, node)'
             >
               @if (inlineRenamePath() === node.path) {
                 <span class='node-chevron-spacer'></span>
@@ -166,6 +168,16 @@
       </button>
       @if (contextMenuNode()) {
         <div class='workspace-context-menu-sep' role='separator'></div>
+        @if (!contextMenuNode()?.isDirectory) {
+          <button
+            type='button'
+            class='workspace-context-menu-item'
+            role='menuitem'
+            (mousedown)='onContextMenuItemMousedown($event); onContextMenuAddToChat()'
+          >
+            Add to chat
+          </button>
+        }
         <button
           type='button'
           class='workspace-context-menu-item'

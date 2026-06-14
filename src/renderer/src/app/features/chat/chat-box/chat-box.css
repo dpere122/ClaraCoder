@@ -60,6 +60,38 @@ app-chat-box .user-bubble {
   color: var(--t-primary);
 }
 
+app-chat-box .user-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+app-chat-box .user-attachment-image {
+  max-width: 12rem;
+  max-height: 12rem;
+  border-radius: 0.35rem;
+  object-fit: contain;
+  border: 1px solid var(--t-border);
+}
+
+app-chat-box .user-attachment-file {
+  display: inline-flex;
+  align-items: center;
+  max-width: 16rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--t-border);
+  border-radius: 0.3rem;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+app-chat-box .user-message-text {
+  white-space: pre-wrap;
+}
+
 app-chat-box .assistant-bubble {
   width: var(--chat-response-bubble-width);
   max-width: var(--chat-response-bubble-width);

@@ -253,6 +253,261 @@ def ensure_lsp_staging_overlay(session: SessionState, workspace_root: Path, *, s
     return overlay_root.resolve()
 
 
+_MAX_OVERLAY_ARGV_LEN = 64
+_MAX_OVERLAY_ARG_LEN = 512
+_FORBIDDEN_SUBPROCESS_CHARS = frozenset(';|&$`\n\r<>()')
+
+_SHELL_EXECUTABLES = frozenset(
+    {
+        'bash',
+        'cscript',
+        'csh',
+        'cmd',
+        'fish',
+        'ksh',
+        'msiexec',
+        'powershell',
+        'pwsh',
+        'sh',
+        'tcsh',
+        'wscript',
+        'zsh',
+    }
+)
+
+_OVERLAY_EXECUTABLE_ALLOWLIST = frozenset(
+    {
+        'black',
+        'bun',
+        'cargo',
+        'cmake',
+        'dotnet',
+        'eslint',
+        'flake8',
+        'go',
+        'gradle',
+        'gradlew',
+        'isort',
+        'jest',
+        'make',
+        'mocha',
+        'mvn',
+        'mvnw',
+        'mypy',
+        'ninja',
+        'node',
+        'npm',
+        'npx',
+        'pnpm',
+        'py',
+        'pylint',
+        'pytest',
+        'python',
+        'python3',
+        'ruff',
+        'tsc',
+        'vitest',
+        'yarn',
+    }
+)
+
+_PM_EXECUTABLES = frozenset({'bun', 'npm', 'npx', 'pnpm', 'yarn'})
+_PM_ALLOWED_SUBCOMMANDS = frozenset(
+    {
+        'audit',
+        'build',
+        'check',
+        'ci',
+        'exec',
+        'lint',
+        'outdated',
+        'run',
+        'start',
+        'test',
+        'why',
+    }
+)
+_PM_BLOCKED_SUBCOMMANDS = frozenset(
+    {
+        'access',
+        'add',
+        'create',
+        'dedupe',
+        'deprecate',
+        'fund',
+        'hook',
+        'i',
+        'init',
+        'install',
+        'link',
+        'login',
+        'logout',
+        'owner',
+        'pack',
+        'profile',
+        'publish',
+        'remove',
+        'rm',
+        'set',
+        'team',
+        'token',
+        'un',
+        'unlink',
+        'uninstall',
+        'update',
+        'upgrade',
+    }
+)
+
+_NPX_ALLOWED_TOOLS = frozenset(
+    {
+        'eslint',
+        'jest',
+        'mocha',
+        'tsc',
+        'vite',
+        'vitest',
+        'webpack',
+        'webpack-dev-server',
+    }
+)
+
+_PYTHON_M_ALLOWLIST = frozenset(
+    {
+        'black',
+        'compileall',
+        'coverage',
+        'flake8',
+        'isort',
+        'mypy',
+        'nox',
+        'pylint',
+        'pytest',
+        'ruff',
+        'tox',
+        'unittest',
+    }
+)
+
+_SCRIPT_EXTENSIONS = frozenset({'.cjs', '.js', '.mjs', '.py'})
+
+
+def _overlay_executable_basename(argv0: str) -> str:
+    name = Path(str(argv0).replace('\\', '/')).name
+    if sys.platform.startswith('win'):
+        for ext in ('.exe', '.cmd', '.bat', '.com', '.ps1'):
+            if name.lower().endswith(ext):
+                return name[: -len(ext)].lower()
+    return name.lower()
+
+
+def _overlay_arg_has_path_traversal(arg: str) -> bool:
+    return '..' in str(arg).replace('\\', '/').split('/')
+
+
+def _overlay_is_relative_script_path(arg: str) -> bool:
+    s = str(arg).replace('\\', '/')
+    if not s or s.startswith(('/', '-')):
+        return False
+    if re.match(r'^[A-Za-z]:/', s):
+        return False
+    return Path(s).suffix.lower() in _SCRIPT_EXTENSIONS
+
+
+def validate_overlay_command_argv(argv: list[str]) -> tuple[list[str] | None, str]:
+    """Reject overlay commands outside test/build/lint runners (no shells or inline code)."""
+
+    if not argv:
+        return None, 'Tool error: command argv must be non-empty.'
+    if len(argv) > _MAX_OVERLAY_ARGV_LEN:
+        return None, f'Tool error: at most {_MAX_OVERLAY_ARGV_LEN} argv entries are allowed.'
+    for i, raw in enumerate(argv):
+        if not isinstance(raw, str):
+            return None, f'Tool error: argv[{i}] must be a string.'
+        if not raw.strip():
+            return None, f'Tool error: argv[{i}] is empty.'
+        if len(raw) > _MAX_OVERLAY_ARG_LEN:
+            return None, f'Tool error: argv[{i}] exceeds {_MAX_OVERLAY_ARG_LEN} characters.'
+        if _overlay_arg_has_path_traversal(raw):
+            return None, f'Tool error: argv[{i}] must not contain `..` path segments.'
+
+    exe = _overlay_executable_basename(argv[0])
+    if exe in _SHELL_EXECUTABLES:
+        return None, 'Tool error: shell interpreters are not allowed in staging overlay commands.'
+    if exe not in _OVERLAY_EXECUTABLE_ALLOWLIST:
+        return (
+            None,
+            'Tool error: staging overlay commands may only invoke test/build/lint runners '
+            f'(got `{argv[0]}`). Prefer `run_workspace_pytest_tests`, `run_workspace_python_smoke_test`, '
+            'or `run_workspace_node_smoke_test` when those suffice.',
+        )
+
+    if exe in {'python', 'python3', 'py'}:
+        if '-c' in argv:
+            return None, 'Tool error: `python -c` inline code is not allowed in staging overlay commands.'
+        if '-m' in argv:
+            idx = argv.index('-m')
+            if idx + 1 >= len(argv):
+                return None, 'Tool error: `python -m` requires a module name.'
+            module = argv[idx + 1].split('.')[0].lower()
+            if module not in _PYTHON_M_ALLOWLIST:
+                return (
+                    None,
+                    'Tool error: `python -m` is limited to test/lint modules '
+                    f'(got `{argv[idx + 1]}`). Allowed: {", ".join(sorted(_PYTHON_M_ALLOWLIST))}.',
+                )
+        elif len(argv) >= 2 and not _overlay_is_relative_script_path(argv[1]):
+            return (
+                None,
+                'Tool error: python overlay commands must use `-m <module>` or a relative `.py` script path.',
+            )
+
+    if exe == 'node':
+        for flag in ('-e', '--eval', '-p', '--print'):
+            if flag in argv:
+                return None, 'Tool error: `node -e` / `--eval` inline code is not allowed in staging overlay commands.'
+        if len(argv) >= 2 and not _overlay_is_relative_script_path(argv[1]):
+            return None, 'Tool error: node overlay commands must run a relative `.js`/`.mjs`/`.cjs` script path.'
+
+    if exe in _PM_EXECUTABLES:
+        if len(argv) < 2:
+            return None, f'Tool error: `{exe}` requires a subcommand (e.g. `run`, `test`, `build`).'
+        sub = argv[1].lower()
+        if sub in _PM_BLOCKED_SUBCOMMANDS:
+            return (
+                None,
+                f'Tool error: `{exe} {sub}` mutates dependencies or publishes packages and is not allowed '
+                'in staging overlay commands.',
+            )
+        if exe == 'npx':
+            tool_idx = 1
+            while tool_idx < len(argv) and argv[tool_idx].startswith('-'):
+                tool_idx += 1
+            if tool_idx >= len(argv):
+                return None, 'Tool error: `npx` requires a package or binary name.'
+            tool = _overlay_executable_basename(argv[tool_idx])
+            if tool not in _NPX_ALLOWED_TOOLS:
+                return (
+                    None,
+                    'Tool error: `npx` is limited to common test/build tools '
+                    f'(got `{argv[tool_idx]}`). Allowed: {", ".join(sorted(_NPX_ALLOWED_TOOLS))}.',
+                )
+        elif sub not in _PM_ALLOWED_SUBCOMMANDS:
+            return (
+                None,
+                f'Tool error: `{exe} {sub}` is not allowed in staging overlay commands. '
+                f'Allowed subcommands: {", ".join(sorted(_PM_ALLOWED_SUBCOMMANDS))}.',
+            )
+
+    for i, raw in enumerate(argv):
+        if any(ch in raw for ch in _FORBIDDEN_SUBPROCESS_CHARS):
+            return None, f'Tool error: argv[{i}] contains disallowed shell metacharacters.'
+        if '\t' in raw:
+            return None, f'Tool error: argv[{i}] contains tabs.'
+
+    return argv, ''
+
+
 def parse_command_argv_json(raw: str) -> tuple[list[str] | None, str]:
     """Parse ``command_argv_json`` as a JSON array of strings for ``create_subprocess_exec``."""
     s = (raw or '').strip()

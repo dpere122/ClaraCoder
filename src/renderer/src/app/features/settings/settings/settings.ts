@@ -56,6 +56,12 @@ import { LucideAngularModule } from 'lucide-angular';
 
 type SettingsTab = 'general' | 'appearance' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
 
+type SettingsSubTabEntry = {
+  id: string;
+  label: string;
+  description: string;
+};
+
 const TALK_SILENCE_THRESHOLD_MIN = 0.5;
 const TALK_SILENCE_THRESHOLD_MAX = 5;
 const TALK_SILENCE_THRESHOLD_STEP = 0.5;
@@ -144,6 +150,108 @@ export class Settings implements OnInit, OnDestroy {
     id,
     label: MONACO_EDITOR_THEME_LABELS[id],
   }));
+  protected readonly settingsSubTabCatalog: Partial<Record<SettingsTab, SettingsSubTabEntry[]>> = {
+    general: [
+      {
+        id: 'chat',
+        label: 'Chat appearance',
+        description: 'Font size for message text in the chat area.',
+      },
+    ],
+    tools: [
+      {
+        id: 'editTools',
+        label: 'Edit tools',
+        description:
+          'File-edit tool mode and workspace exposure when Editor mode is on in the chat toolbar.',
+      },
+      {
+        id: 'limits',
+        label: 'Read & search limits',
+        description: 'Caps how much one read or search tool call can return.',
+      },
+      {
+        id: 'compression',
+        label: 'Context compression',
+        description:
+          'Shortens older tool result bodies in the LangGraph checkpoint when usage exceeds the trigger threshold.',
+      },
+      {
+        id: 'encoding',
+        label: 'Encoding & newlines',
+        description:
+          'Default encoding and newline style when the model omits them on read, search, and edit tools.',
+      },
+    ],
+    monaco: [
+      {
+        id: 'theme',
+        label: 'Color theme',
+        description:
+          'Monaco color theme for workspace files. Clara tracks the app code colors; VS and high-contrast themes are built-ins.',
+      },
+      {
+        id: 'typography',
+        label: 'Typography',
+        description: 'Font size, line height, and optional font family. Leave family empty for the app monospace stack.',
+      },
+      {
+        id: 'wrapMinimap',
+        label: 'Wrap & minimap',
+        description: 'Word wrap mode, wrap column, and minimap visibility and behavior.',
+      },
+      {
+        id: 'display',
+        label: 'Display',
+        description: 'Scrolling, whitespace, line numbers, folding, and editor padding.',
+      },
+      {
+        id: 'guides',
+        label: 'Guides & indent',
+        description: 'Indent and bracket guides, tab size, and space-vs-tab behavior.',
+      },
+      {
+        id: 'cursor',
+        label: 'Cursor',
+        description: 'Cursor blink animation, shape, and width (0 = default).',
+      },
+      {
+        id: 'editing',
+        label: 'Editing',
+        description: 'Formatting, auto-close pairs, and IntelliSense-style suggestions.',
+      },
+    ],
+    audio: [
+      {
+        id: 'provider',
+        label: 'Provider',
+        description: 'Enable transcription or turn it off completely.',
+      },
+      {
+        id: 'endpoint',
+        label: 'Endpoint',
+        description: 'OpenAI-compatible transcription base URL, model name, and API key.',
+      },
+      {
+        id: 'capture',
+        label: 'Voice capture',
+        description: 'Talk-mode microphone and end-of-speech silence timing.',
+      },
+      {
+        id: 'tts',
+        label: 'Assistant voice',
+        description: 'Local Kokoro voice and speech speed for spoken assistant replies.',
+      },
+    ],
+    appearance: [
+      {
+        id: 'themes',
+        label: 'Theme defaults',
+        description: 'Global theme and the fallback when no workspace is active.',
+      },
+    ],
+  };
+  protected readonly selectedSubTabs = signal<Partial<Record<SettingsTab, string>>>({});
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspace = signal<Workspace | null>(null);
   protected readonly themeId = signal('dark');
@@ -226,7 +334,17 @@ export class Settings implements OnInit, OnDestroy {
     }
     return this.llmProviders().length > 1;
   });
-  protected readonly selectedTabMeta = computed(() => this.tabs.find((tab) => tab.id === this.selectedSettingsTab()) ?? this.tabs[0]);
+  protected readonly settingsOverviewMeta = computed(() => {
+    const parent = this.selectedSettingsTab();
+    const subTabs = this.subTabsFor(parent);
+    if (subTabs.length > 0) {
+      const activeId = this.activeSubTabId(parent);
+      const sub = subTabs.find((t) => t.id === activeId) ?? subTabs[0];
+      return { label: sub.label, description: sub.description };
+    }
+    const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
+    return { label: tab.label, description: tab.description };
+  });
   /** Pinned sources first: LM Studio, remote llama URL, local managed llama; remaining rows keep file order. */
   protected readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
@@ -301,6 +419,85 @@ export class Settings implements OnInit, OnDestroy {
     if (this.configSnapshot && this.settingsDirty) {
       void this.enqueuePersist();
     }
+  }
+
+  protected selectSettingsSubTab(tab: SettingsTab, id: string): void {
+    this.selectedSubTabs.update((prev) => ({ ...prev, [tab]: id }));
+  }
+
+  protected subTabsFor(tab: SettingsTab): SettingsSubTabEntry[] {
+    return this.settingsSubTabCatalog[tab] ?? [];
+  }
+
+  protected activeSubTabId(tab: SettingsTab): string {
+    const entries = this.subTabsFor(tab);
+    if (entries.length === 0) {
+      return '';
+    }
+    const saved = this.selectedSubTabs()[tab];
+    if (saved && entries.some((e) => e.id === saved)) {
+      return saved;
+    }
+    return entries[0].id;
+  }
+
+  protected settingsSubTabSummary(tab: SettingsTab, id: string): string {
+    switch (tab) {
+      case 'general':
+        if (id === 'chat') {
+          return `${this.chatFontSizeRem()}rem`;
+        }
+        break;
+      case 'tools':
+        if (id === 'editTools') {
+          return this.editToolsMode() === 'strict' ? 'Strict' : 'Standard';
+        }
+        if (id === 'limits') {
+          return `${this.maxFileReadLines()} · ${this.maxSearchResults()}`;
+        }
+        if (id === 'compression') {
+          return this.contextCompressionEnabled() ? 'On' : 'Off';
+        }
+        if (id === 'encoding') {
+          return this.defaultWorkspaceEncoding();
+        }
+        break;
+      case 'monaco':
+        return this.monacoSubTabSummary(id);
+      case 'audio': {
+        if (id === 'provider') {
+          const p = this.audioProvider();
+          if (p === 'disabled') return 'Disabled';
+          if (p === 'google') return 'Google';
+          return 'OpenAI';
+        }
+        if (id === 'endpoint') {
+          const url = this.audioBaseUrl().trim();
+          if (!url) return '—';
+          try {
+            return new URL(url).host;
+          } catch {
+            return url.length > 12 ? `${url.slice(0, 12)}…` : url;
+          }
+        }
+        if (id === 'capture') {
+          return `${this.talkSilenceThresholdSeconds()}s`;
+        }
+        if (id === 'tts') {
+          return `${this.ttsSpeechSpeed()}×`;
+        }
+        break;
+      }
+      case 'appearance':
+        if (id === 'themes') {
+          const theme = this.themes.find((t) => t.id === this.themeId());
+          return theme?.label.split(/\s+/)[0] ?? this.themeId();
+        }
+        break;
+      default:
+        break;
+    }
+    return '';
   }
 
   protected selectTab(tab: SettingsTab): void {
@@ -1401,6 +1598,45 @@ export class Settings implements OnInit, OnDestroy {
 
   protected monacoEditorThemeLabel(id: MonacoWorkspaceEditorThemeId): string {
     return MONACO_EDITOR_THEME_LABELS[id];
+  }
+
+  protected monacoSubTabSummary(id: string): string {
+    const s = this.monacoWorkspaceEditor();
+    switch (id) {
+      case 'theme':
+        return this.monacoEditorThemeShortLabel(s.theme);
+      case 'typography':
+        return `${s.fontSize}px`;
+      case 'wrapMinimap':
+        return s.minimapEnabled ? 'Map on' : 'Map off';
+      case 'display':
+        return s.lineNumbers;
+      case 'guides':
+        return `Tab ${s.tabSize}`;
+      case 'cursor':
+        return s.cursorStyle;
+      case 'editing':
+        return s.quickSuggestions ? 'On' : 'Off';
+      default:
+        return '';
+    }
+  }
+
+  protected monacoEditorThemeShortLabel(id: MonacoWorkspaceEditorThemeId): string {
+    switch (id) {
+      case 'clara-monaco':
+        return 'Clara';
+      case 'vs':
+        return 'VS';
+      case 'vs-dark':
+        return 'Dark';
+      case 'hc-black':
+        return 'HC-';
+      case 'hc-light':
+        return 'HC+';
+      default:
+        return id;
+    }
   }
 
   protected parseMonacoFloat(raw: string | number, fallback: number): number {

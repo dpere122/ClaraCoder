@@ -44,6 +44,7 @@ from nemo_backend.staging_test_overlay import (
     parse_command_argv_json,
     remove_overlay_parent,
     resolve_overlay_cwd,
+    validate_overlay_command_argv,
 )
 from nemo_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
 from nemo_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
@@ -904,7 +905,8 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
 
     When: pytest/npm tests against drafts without writing real workspace (requires Settings → Allow staging overlay commands).
     Not: substitute for `transfer_staged_file_to_workspace`; real workspace unchanged until transfer/reject flow.
-    Shape: `cwd_relative` optional under overlay root. Heavy dirs linked from workspace. Still finish review with transfer/reject."""
+    Shape: `cwd_relative` optional under overlay root. Heavy dirs linked from workspace. Still finish review with transfer/reject.
+    Allowed: test/build/lint runners only (pytest, python -m pytest, npm/pnpm/yarn run, etc.)—no shells, `python -c`, or `node -e`."""
 
     if not getattr(runtime_config.tools, 'allow_staging_overlay_commands', False):
         return (
@@ -921,6 +923,9 @@ async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str 
     argv, parse_err = parse_command_argv_json(command_argv_json)
     if argv is None:
         return parse_err
+    argv, validate_err = validate_overlay_command_argv(argv)
+    if argv is None:
+        return validate_err
     pending = maybe_await_hitl_for_deferred_tool(
         session,
         tool_name=RUN_STAGING_OVERLAY_COMMAND_NAME,

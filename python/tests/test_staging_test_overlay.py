@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from nemo_backend.deferred_tool_hitl import deferred_tool_hitl_bypass
 from nemo_backend.domain import EditStagingEntry
 from nemo_backend import staging_test_overlay as sto
 from nemo_backend.agents.specialists.review_tools import run_staging_overlay_command
@@ -21,6 +22,46 @@ def test_parse_command_argv_json() -> None:
     assert ok == ['a', 'b'] and err == ''
     bad, err2 = sto.parse_command_argv_json('not json')
     assert bad is None and 'not valid JSON' in err2
+
+
+def test_validate_overlay_command_argv_allows_pytest() -> None:
+    ok, err = sto.validate_overlay_command_argv(['pytest', 'tests', '-v'])
+    assert ok == ['pytest', 'tests', '-v'] and err == ''
+
+
+def test_validate_overlay_command_argv_allows_python_m_pytest() -> None:
+    ok, err = sto.validate_overlay_command_argv([sys.executable, '-m', 'pytest', 'tests'])
+    assert ok is not None and err == ''
+
+
+def test_validate_overlay_command_argv_allows_relative_script() -> None:
+    ok, err = sto.validate_overlay_command_argv([sys.executable, 'scripts/check.py'])
+    assert ok is not None and err == ''
+
+
+def test_validate_overlay_command_argv_blocks_python_c() -> None:
+    ok, err = sto.validate_overlay_command_argv([sys.executable, '-c', 'print(1)'])
+    assert ok is None and 'inline code' in err.lower()
+
+
+def test_validate_overlay_command_argv_blocks_shell() -> None:
+    ok, err = sto.validate_overlay_command_argv(['powershell', '-Command', 'Get-ChildItem'])
+    assert ok is None and 'shell' in err.lower()
+
+
+def test_validate_overlay_command_argv_blocks_npm_install() -> None:
+    ok, err = sto.validate_overlay_command_argv(['npm', 'install', 'left-pad'])
+    assert ok is None and 'mutates dependencies' in err
+
+
+def test_validate_overlay_command_argv_allows_npx_vite() -> None:
+    ok, err = sto.validate_overlay_command_argv(['npx', 'vite'])
+    assert ok == ['npx', 'vite'] and err == ''
+
+
+def test_validate_overlay_command_argv_blocks_unknown_npx_tool() -> None:
+    ok, err = sto.validate_overlay_command_argv(['npx', 'some-random-pkg'])
+    assert ok is None and 'npx' in err.lower()
 
 
 def test_resolve_overlay_cwd(tmp_path: Path) -> None:
@@ -76,7 +117,7 @@ async def test_run_staging_overlay_command_respects_disable_flag(tmp_path: Path)
         session.workspace_path = str(ws.resolve())
         session.worker_apply_mode = True
         out = await run_staging_overlay_command.ainvoke(
-            {'command_argv_json': json.dumps([sys.executable, '-c', 'print(1)']), 'cwd_relative': ''}
+            {'command_argv_json': json.dumps([sys.executable, '-m', 'pytest', '--version']), 'cwd_relative': ''}
         )
         assert 'disabled' in out.lower()
     finally:
@@ -98,7 +139,12 @@ async def test_run_staging_overlay_command_runs_in_overlay(tmp_path: Path, monke
         session = get_session(session_id)
         session.workspace_path = str(ws.resolve())
         session.worker_apply_mode = True
+        session.auto_apply_mode = False
         session.abort_event.clear()
+        (ws / 'read_touched.py').write_text(
+            "from pathlib import Path\nprint(Path('touched.txt').read_text(encoding='utf-8').strip())\n",
+            encoding='utf-8',
+        )
         draft = tmp_path / 'd2.txt'
         draft.write_text('z', encoding='utf-8')
         session.pending_edit_stagings['touched.txt'] = EditStagingEntry(
@@ -109,8 +155,12 @@ async def test_run_staging_overlay_command_runs_in_overlay(tmp_path: Path, monke
             disk_newline='lf',
             edit_mode='full-file',
         )
-        argv_json = json.dumps([sys.executable, '-c', "print(open('touched.txt', encoding='utf-8').read().strip())"])
-        out = await run_staging_overlay_command.ainvoke({'command_argv_json': argv_json, 'cwd_relative': ''})
+        argv_json = json.dumps([sys.executable, 'read_touched.py'])
+        hitl_token = deferred_tool_hitl_bypass.set(True)
+        try:
+            out = await run_staging_overlay_command.ainvoke({'command_argv_json': argv_json, 'cwd_relative': ''})
+        finally:
+            deferred_tool_hitl_bypass.reset(hitl_token)
         assert 'from_staging' in out
         assert (ws / 'touched.txt').read_text(encoding='utf-8') == 'orig'
     finally:
@@ -127,6 +177,10 @@ async def test_run_staging_overlay_command_runs_in_workspace_when_direct(tmp_pat
     try:
         ws = tmp_path / 'ws-direct'
         ws.mkdir()
+        (ws / 'read_on_disk.py').write_text(
+            "from pathlib import Path\nprint(Path('on_disk.txt').read_text(encoding='utf-8').strip())\n",
+            encoding='utf-8',
+        )
         marker = ws / 'on_disk.txt'
         marker.write_text('workspace_body', encoding='utf-8')
         session = get_session(session_id)
@@ -134,7 +188,7 @@ async def test_run_staging_overlay_command_runs_in_workspace_when_direct(tmp_pat
         session.worker_apply_mode = True
         session.auto_apply_mode = True
         session.abort_event.clear()
-        argv_json = json.dumps([sys.executable, '-c', "print(open('on_disk.txt', encoding='utf-8').read().strip())"])
+        argv_json = json.dumps([sys.executable, 'read_on_disk.py'])
         out = await run_staging_overlay_command.ainvoke({'command_argv_json': argv_json, 'cwd_relative': ''})
         assert 'workspace_body' in out
         assert 'Working directory (workspace)' in out

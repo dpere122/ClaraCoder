@@ -20,6 +20,11 @@ export type FlashFn = (message: string, ms: number) => void;
 export type FinishFn = (event: DiffReviewFinishedEvent) => void;
 export type BatchFinishFn = (event: StagedTransferBatchFinishedEvent) => void;
 
+export type BatchPartialFn = (event: {
+  requestId: string;
+  fileResolutions: Record<string, StagedTransferFileResolution>;
+}) => void;
+
 /** Mutable review state for one pending diff payload (shared by chat + Monaco). */
 export interface PendingDiffReviewSession {
   readonly accepted: ReturnType<typeof signal<Set<number>>>;
@@ -445,6 +450,7 @@ export class PendingDiffReviewService {
     conversationId: string | null,
     flashMessage: FlashFn,
     onFinished: BatchFinishFn,
+    onPartialResolved?: BatchPartialFn,
   ): Promise<void> {
     const session = this.batchSessionFor(payload);
     const resolutions = session.resolutions();
@@ -486,6 +492,10 @@ export class PendingDiffReviewService {
         });
         return;
       }
+      onPartialResolved?.({
+        requestId: payload.requestId,
+        fileResolutions: nextRes,
+      });
       const nextIdx = this.nextUnresolvedFileIndex(payload, nextRes);
       session.currentFileIndex.set(nextIdx);
       flashMessage(

@@ -13,6 +13,7 @@ import type {
   FileDiffPayload,
   LlmStatus,
   StreamPart,
+  StagedTransferBatchPayload,
   Workspace,
   PlannerProgress,
 } from '@shared/index';
@@ -221,7 +222,7 @@ export class App implements OnInit, OnDestroy {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === 'staged_transfer_batch' && (m.reviewStatus ?? 'pending') === 'pending') {
-        const resolutions = m.fileResolutions ?? {};
+        const resolutions = this.mergedStagedTransferBatchResolutions(m.payload, m.fileResolutions);
         for (const file of m.payload.files) {
           if (normalizePathSlashes(file.relativePath) === norm) {
             const res = resolutions[file.relativePath] ?? 'pending';
@@ -234,6 +235,32 @@ export class App implements OnInit, OnDestroy {
       if (m.role === 'diff' && (m.reviewStatus ?? 'pending') === 'pending') {
         if (normalizePathSlashes(m.payload.relativePath) === norm) {
           return m.payload;
+        }
+      }
+    }
+    return null;
+  });
+
+  /** Batch context when the active editor tab is reviewing one file in a staged-transfer batch. */
+  protected readonly pendingStagedTransferBatchForActiveEditor = computed((): StagedTransferBatchPayload | null => {
+    const path = this.activeFileRelativePath();
+    if (!path?.trim()) {
+      return null;
+    }
+    const norm = normalizePathSlashes(path.trim());
+    const msgs = this.messages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== 'staged_transfer_batch' || (m.reviewStatus ?? 'pending') !== 'pending') {
+        continue;
+      }
+      const resolutions = this.mergedStagedTransferBatchResolutions(m.payload, m.fileResolutions);
+      for (const file of m.payload.files) {
+        if (normalizePathSlashes(file.relativePath) === norm) {
+          const res = resolutions[file.relativePath] ?? 'pending';
+          if (res === 'pending') {
+            return m.payload;
+          }
         }
       }
     }
@@ -954,20 +981,54 @@ export class App implements OnInit, OnDestroy {
     summary?: string;
     fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }): void {
+    this.applyStagedTransferBatchMessageUpdate(event.requestId, {
+      reviewStatus: event.status,
+      reviewSummary: event.summary,
+      fileResolutions: event.fileResolutions,
+    });
+  }
+
+  onStagedTransferBatchFileResolved(event: {
+    requestId: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }): void {
+    this.applyStagedTransferBatchMessageUpdate(event.requestId, {
+      fileResolutions: event.fileResolutions,
+    });
+  }
+
+  private mergedStagedTransferBatchResolutions(
+    payload: StagedTransferBatchPayload,
+    persisted: Record<string, 'pending' | 'approved' | 're_review'> | undefined,
+  ): Record<string, 'pending' | 'approved' | 're_review'> {
+    return {
+      ...(persisted ?? {}),
+      ...this.pendingDiffReview.batchSessionFor(payload).resolutions(),
+    };
+  }
+
+  private applyStagedTransferBatchMessageUpdate(
+    requestId: string,
+    patch: {
+      reviewStatus?: 'complete' | 'cancelled';
+      reviewSummary?: string;
+      fileResolutions?: Record<string, 'pending' | 'approved' | 're_review'>;
+    },
+  ): void {
     this.messages.update((prev) => {
       const copy = [...prev];
       for (let i = copy.length - 1; i >= 0; i--) {
         const m = copy[i];
         if (
           m.role === 'staged_transfer_batch' &&
-          m.payload.requestId === event.requestId &&
+          m.payload.requestId === requestId &&
           (m.reviewStatus ?? 'pending') === 'pending'
         ) {
           copy[i] = {
             ...m,
-            reviewStatus: event.status,
-            reviewSummary: event.summary,
-            fileResolutions: event.fileResolutions,
+            ...(patch.reviewStatus !== undefined ? { reviewStatus: patch.reviewStatus } : {}),
+            ...(patch.reviewSummary !== undefined ? { reviewSummary: patch.reviewSummary } : {}),
+            ...(patch.fileResolutions !== undefined ? { fileResolutions: patch.fileResolutions } : {}),
           };
           break;
         }

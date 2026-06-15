@@ -26,12 +26,14 @@ import {
   lspServerKindForWorkspaceRelativePath,
   type FileDiffPayload,
   type MonacoWorkspaceEditorSettings,
+  type StagedTransferBatchPayload,
+  type StagedTransferFileResolution,
   type WorkspaceFilesChangedMessage,
 } from '@shared/index';
 import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
-import { PendingDiffReviewService } from '../../diff/pending-diff-review.service';
+import { PendingDiffReviewService, type BatchFinishFn, type BatchPartialFn } from '../../diff/pending-diff-review.service';
 import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
 import { renderMarkdownDoc } from './markdown-doc-renderer';
@@ -115,6 +117,8 @@ export class WorkspaceMonacoComponent {
   readonly editorSettings = input<MonacoWorkspaceEditorSettings | null | undefined>(undefined);
   /** Pending diff for this path from the shell (same artifact as chat review). */
   readonly pendingDiffPayload = input<FileDiffPayload | null>(null);
+  /** When the active file is part of a pending staged-transfer batch, the batch payload. */
+  readonly pendingStagedTransferBatch = input<StagedTransferBatchPayload | null>(null);
   readonly conversationId = input<string | null>(null);
   /** After cross-file go-to-definition: reveal cursor once this path is the active editor model. */
   readonly pendingEditorReveal = input<{ relativePath: string; line: number; column: number } | null>(null);
@@ -125,6 +129,16 @@ export class WorkspaceMonacoComponent {
     relativePath: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+  }>();
+  readonly stagedTransferBatchFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+    fileResolutions: Record<string, StagedTransferFileResolution>;
+  }>();
+  readonly stagedTransferBatchFileResolved = output<{
+    requestId: string;
+    fileResolutions: Record<string, StagedTransferFileResolution>;
   }>();
   /** Cross-file definition navigation (shell opens/focuses tab; optional reveal via {@link pendingEditorReveal}). */
   readonly navigateWorkspaceFile = output<{ relativePath: string; line: number; column: number }>();
@@ -360,6 +374,35 @@ export class WorkspaceMonacoComponent {
     this.diffReviewFinished.emit(e);
   };
 
+  private readonly batchFinishEmit: BatchFinishFn = (e) => {
+    this.stagedTransferBatchFinished.emit(e);
+  };
+
+  private readonly batchPartialEmit: BatchPartialFn = (e) => {
+    this.stagedTransferBatchFileResolved.emit(e);
+  };
+
+  private async resolveBatchStagedTransfer(
+    action: 'confirm' | 're_review',
+    feedback: string,
+  ): Promise<void> {
+    const batch = this.pendingStagedTransferBatch();
+    const file = this.pendingDiffPayload();
+    if (!batch || !file || !this.isBatchStagedTransfer()) {
+      return;
+    }
+    await this.pendingDiffReview.resolveStagedTransferBatchFile(
+      batch,
+      file.relativePath,
+      action,
+      feedback,
+      this.conversationId(),
+      (msg, ms) => this.flashApplyMessage(msg, ms),
+      this.batchFinishEmit,
+      this.batchPartialEmit,
+    );
+  }
+
   private flashApplyMessage(msg: string, ms: number): void {
     this.applyMessage.set(msg);
     setTimeout(() => this.applyMessage.set(''), ms);
@@ -401,6 +444,13 @@ export class WorkspaceMonacoComponent {
   protected async onCancelProposal(): Promise<void> {
     const p = this.pendingDiffPayload();
     if (!p) return;
+    if (this.isBatchStagedTransfer()) {
+      await this.resolveBatchStagedTransfer(
+        're_review',
+        '(user dismissed the transfer review without approving)',
+      );
+      return;
+    }
     await this.pendingDiffReview.cancelProposal(
       p,
       this.conversationId(),
@@ -412,6 +462,10 @@ export class WorkspaceMonacoComponent {
   protected async onApproveStagedTransfer(): Promise<void> {
     const p = this.pendingDiffPayload();
     if (!p) return;
+    if (this.isBatchStagedTransfer()) {
+      await this.resolveBatchStagedTransfer('confirm', '');
+      return;
+    }
     await this.pendingDiffReview.approveStagedTransferHitl(
       p,
       this.conversationId(),
@@ -423,6 +477,11 @@ export class WorkspaceMonacoComponent {
   protected async onReturnStagedForReReview(): Promise<void> {
     const p = this.pendingDiffPayload();
     if (!p) return;
+    if (this.isBatchStagedTransfer()) {
+      await this.resolveBatchStagedTransfer('re_review', this.reReviewFeedback());
+      this.reReviewFeedback.set('');
+      return;
+    }
     await this.pendingDiffReview.returnStagedTransferForReReview(
       p,
       this.conversationId(),
@@ -571,6 +630,17 @@ export class WorkspaceMonacoComponent {
   });
 
   protected readonly isStagedTransferHitl = computed(() => !!this.pendingDiffPayload()?.stagedTransferHitl);
+
+  /** True when the pending diff is one file inside an active staged-transfer batch. */
+  protected readonly isBatchStagedTransfer = computed(() => {
+    const batch = this.pendingStagedTransferBatch();
+    const file = this.pendingDiffPayload();
+    if (!batch || !file?.stagedTransferHitl) {
+      return false;
+    }
+    const norm = normalizePathSlashes(file.relativePath);
+    return batch.files.some((f) => normalizePathSlashes(f.relativePath) === norm);
+  });
 
   protected readonly changeHunkOrder = computed(() => {
     const p = this.pendingDiffPayload();

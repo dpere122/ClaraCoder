@@ -127,10 +127,13 @@
               [openFileRelativePaths]='monacoOpenFileRelativePaths()'
               [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
               [pendingDiffPayload]='pendingDiffForActiveEditor()'
+              [pendingStagedTransferBatch]='pendingStagedTransferBatchForActiveEditor()'
               [conversationId]='activeConversationId()'
               [pendingEditorReveal]='monacoRevealPending()'
               (unsavedPathsChange)='onMonacoUnsavedPathsChange($event)'
               (diffReviewFinished)='onDiffReviewFinished($event)'
+              (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
+              (stagedTransferBatchFileResolved)='onStagedTransferBatchFileResolved($event)'
               (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
               (pendingEditorRevealHandled)='onMonacoRevealHandled()'
             />

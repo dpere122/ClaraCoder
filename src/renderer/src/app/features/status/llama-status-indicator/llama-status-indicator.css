@@ -1,0 +1,65 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.llama-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.1rem 0.2rem;
+  white-space: nowrap;
+}
+
+.llama-status__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  cursor: default;
+}
+
+.llama-status__label {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--t-text-muted);
+}
+
+.llama-status__dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background-color: var(--dot-color, #6b7280);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dot-color, #6b7280) 55%, transparent),
+    0 0 6px color-mix(in srgb, var(--dot-color, #6b7280) 70%, transparent);
+}
+
+.llama-status__dot--green {
+  --dot-color: #2ecc71;
+}
+
+.llama-status__dot--yellow {
+  --dot-color: #f1c40f;
+  animation: llama-status-pulse 1.2s ease-in-out infinite;
+}
+
+.llama-status__dot--red {
+  --dot-color: #e74c3c;
+}
+
+@keyframes llama-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .llama-status__dot--yellow {
+    animation: none;
+  }
+}

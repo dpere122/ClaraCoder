@@ -31,7 +31,7 @@
   </div>
 
   <div class='app-content'>
-    <div class='workspace-panel' [style.width.px]='workspaceWidth()' [attr.data-llama-dock]='"workspace"'>
+    <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
       <app-workspace
         [workspaces]='workspaces()'
         [currentWorkspaceId]='currentWorkspaceId()'
@@ -42,15 +42,6 @@
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'
         (addToChatContext)='addChatContextFile($event.absolutePath)'
       />
-      @if (llamaServerDock() === 'workspace') {
-        <app-llama-server-tile
-          [appConfig]='appConfig()'
-          [llmStreamActive]='loading()'
-          [activeConversationId]='activeConversationId()'
-          [dockTarget]='"workspace"'
-          (dockTargetChange)='onLlamaServerDockChange($event)'
-        />
-      }
     </div>
 
     <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
@@ -193,6 +184,7 @@
 
       <app-status-bar
         class='status-bar-host'
+        [appConfig]='appConfig()'
         [usedTokens]='contextCapacity().usedTokens'
         [maxTokens]='contextCapacity().maxTokens'
         [remainingTokens]='contextCapacity().remainingTokens'
@@ -209,7 +201,7 @@
 
     <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
 
-    <div class='sidebar' [style.width.px]='sidebarWidth()' [attr.data-llama-dock]='"conversations"'>
+    <div class='sidebar' [style.width.px]='sidebarWidth()'>
       <app-conversation-manager
         [conversations]='conversations()'
         [activeId]='activeConversationId()'
@@ -219,15 +211,6 @@
         (deleteConversation)='onDeleteConversation($event)'
         (renameConversation)='onRenameConversation($event)'
       />
-      @if (llamaServerDock() === 'conversations') {
-        <app-llama-server-tile
-          [appConfig]='appConfig()'
-          [llmStreamActive]='loading()'
-          [activeConversationId]='activeConversationId()'
-          [dockTarget]='"conversations"'
-          (dockTargetChange)='onLlamaServerDockChange($event)'
-        />
-      }
     </div>
   </div>
 

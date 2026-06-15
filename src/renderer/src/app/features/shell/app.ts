@@ -39,10 +39,7 @@ import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
   chatFileTabBasename,
   chatFileTabId,
-  readLlamaServerDockFromStorage,
-  writeLlamaServerDockToStorage,
   type ChatFileTab,
-  type LlamaServerDockSide,
 } from './app-chat-file-tabs';
 import {
   appendStreamPart,
@@ -52,7 +49,6 @@ import {
 import { applyAppTheme, resolveAppThemeId } from './app-theme';
 import { MessageBox } from '../chat/message-box/message-box';
 import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
-import { LlamaServerTile } from '../chat/llama-server-tile/llama-server-tile';
 import { TalkMode } from '../speech/talk-mode/talk-mode';
 import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../status/context-capacity/context-capacity.utils';
 import { StatusBarComponent } from '../status/status-bar/status-bar';
@@ -81,7 +77,6 @@ import { LucideAngularModule } from 'lucide-angular';
     ChatContextBar,
     MessageBox,
     ConversationManager,
-    LlamaServerTile,
     TalkMode,
     LucideAngularModule,
     WorkspaceComponent,
@@ -319,8 +314,6 @@ export class App implements OnInit, OnDestroy {
   // Layout
   protected readonly workspaceWidth = signal(220);
   protected readonly sidebarWidth = signal(220);
-  /** Where the managed llama.cpp status tile is docked (persisted in localStorage). */
-  protected readonly llamaServerDock = signal<LlamaServerDockSide>(readLlamaServerDockFromStorage());
 
   private static readonly MIN_WORKSPACE = 140;
   private static readonly MAX_WORKSPACE = 500;
@@ -1094,14 +1087,6 @@ export class App implements OnInit, OnDestroy {
       updatedAt: new Date().toISOString(),
       customTitle: true,
     });
-  }
-
-  onLlamaServerDockChange(target: LlamaServerDockSide): void {
-    if (target !== 'conversations' && target !== 'workspace') {
-      return;
-    }
-    this.llamaServerDock.set(target);
-    writeLlamaServerDockToStorage(target);
   }
 
   onWorkspaceResizeStart(event: MouseEvent): void {

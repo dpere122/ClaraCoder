@@ -182,10 +182,6 @@
   min-height: 0;
 }
 
-.workspace-panel > app-llama-server-tile {
-  flex: 0 0 auto;
-}
-
 .workspace-resize-handle {
   width: 4px;
   cursor: col-resize;
@@ -218,20 +214,6 @@
 .sidebar > app-conversation-manager {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-.sidebar > app-llama-server-tile {
-  flex: 0 0 auto;
-}
-
-body.llama-dock-drag--active {
-  cursor: grabbing;
-}
-
-[data-llama-dock].llama-dock-zone--hover {
-  outline: 2px dashed color-mix(in srgb, var(--t-primary) 72%, transparent);
-  outline-offset: -3px;
-  border-radius: 2px;
 }
 
 .sidebar-resize-handle {

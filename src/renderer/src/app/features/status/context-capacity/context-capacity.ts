@@ -1,6 +1,8 @@
 import { Component, computed, input, model, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import type { AppConfig } from '@shared/index';
 import { EditorMode } from '../../layout/editor-mode/editor-mode';
+import { LlamaStatusIndicator } from '../llama-status-indicator/llama-status-indicator';
 
 export interface LlmModelPresetOption {
   id: string;
@@ -9,11 +11,13 @@ export interface LlmModelPresetOption {
 
 @Component({
   selector: 'app-context-capacity',
-  imports: [FormsModule, EditorMode],
+  imports: [FormsModule, EditorMode, LlamaStatusIndicator],
   templateUrl: './context-capacity.html',
   styleUrl: './context-capacity.css',
 })
 export class ContextCapacityComponent {
+  /** Active app config — drives the llama.cpp model/embeddings status dots shown beside the meter. */
+  readonly appConfig = input<AppConfig | null>(null);
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);

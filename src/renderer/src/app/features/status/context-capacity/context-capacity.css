@@ -14,9 +14,16 @@
 
 .context-capacity__details {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 0.18rem;
+}
+
+.context-capacity app-llama-status-indicator {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  padding-bottom: 0.12rem;
 }
 
 .context-capacity__title-row,

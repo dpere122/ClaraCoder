@@ -1,0 +1,12 @@
+@if (show()) {
+  <div class="llama-status" role="group" aria-label="llama.cpp server status">
+    <span class="llama-status__item" [attr.title]="modelTitle()">
+      <span class="llama-status__dot" [class]="'llama-status__dot--' + modelDot()" aria-hidden="true"></span>
+      <span class="llama-status__label">Model</span>
+    </span>
+    <span class="llama-status__item" [attr.title]="embedTitle()">
+      <span class="llama-status__dot" [class]="'llama-status__dot--' + embedDot()" aria-hidden="true"></span>
+      <span class="llama-status__label">Embeddings</span>
+    </span>
+  </div>
+}

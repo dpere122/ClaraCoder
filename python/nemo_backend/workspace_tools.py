@@ -511,6 +511,9 @@ def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> s
 
 
 from nemo_backend.workspace_image_tools import read_workspace_image
+from nemo_backend.wsdl.tools import WSDL_TOOLS
+from nemo_backend.xml.tools import XML_TOOLS
+from nemo_backend.json.tools import JSON_TOOLS
 
 TOOLS = [
     list_workspace_directory,
@@ -518,5 +521,8 @@ TOOLS = [
     search_workspace,
     read_workspace_file,
     read_workspace_image,
+    *WSDL_TOOLS,
+    *XML_TOOLS,
+    *JSON_TOOLS,
 ]
 TOOL_MAP = {tool_.name: tool_ for tool_ in TOOLS}

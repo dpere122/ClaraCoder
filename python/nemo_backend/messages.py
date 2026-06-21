@@ -422,6 +422,9 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         )
         + '  5. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
         + '  6. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
+        + '  7. `.wsdl` (SOAP contracts): prefer `wsdl_overview` → `search_wsdl` → `read_wsdl_section`; avoid reading whole WSDL/XSD with `read_workspace_file` unless debugging raw XML.\n'
+        + '  8. `.xml`/`.xsd`/`.xsl`/etc.: prefer `xml_overview` → `search_xml` → `read_xml_section`; avoid whole-file reads unless debugging raw markup.\n'
+        + '  9. `.json`/`.jsonc`: prefer `json_overview` → `search_json` → `read_json_section`; avoid whole-file reads for large configs.\n'
         + '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
     )

@@ -9,6 +9,7 @@ from typing import Any
 
 from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
 from nemo_backend.domain import SessionState
+from nemo_backend.state import current_session_id, sessions
 
 deferred_tool_hitl_bypass: ContextVar[bool] = ContextVar('deferred_tool_hitl_bypass', default=False)
 
@@ -138,6 +139,13 @@ def maybe_await_hitl_for_deferred_tool(
     )
 
 
+def _session_id_for(session: SessionState) -> str:
+    for sid, state in sessions.items():
+        if state is session:
+            return sid
+    return ''
+
+
 async def execute_pending_deferred_tool(session: SessionState, pending: dict[str, Any]) -> str:
     """Run a deferred tool after the user accepts the accept-command card."""
 
@@ -147,12 +155,16 @@ async def execute_pending_deferred_tool(session: SessionState, pending: dict[str
     tool = _resolve_deferred_tool(tool_name)
     if tool is None:
         return f'Command confirmation failed: unsupported deferred tool `{tool_name or "unknown"}`.'
-    token = deferred_tool_hitl_bypass.set(True)
+    sid = _session_id_for(session)
+    sid_token = current_session_id.set(sid) if sid else None
+    hitl_token = deferred_tool_hitl_bypass.set(True)
     try:
         result = await tool.ainvoke(tool_input)
         return str(result)
     finally:
-        deferred_tool_hitl_bypass.reset(token)
+        deferred_tool_hitl_bypass.reset(hitl_token)
+        if sid_token is not None:
+            current_session_id.reset(sid_token)
 
 
 def _resolve_deferred_tool(tool_name: str) -> Any | None:

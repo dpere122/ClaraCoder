@@ -62,6 +62,48 @@ def test_maybe_await_hitl_skips_when_plan_step_bypass_active() -> None:
 
 
 @pytest.mark.asyncio(loop_scope='function')
+async def test_execute_pending_deferred_tool_sets_session_context_for_hitl_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: agent-continue runs outside the streaming task, so session context must be restored."""
+
+    session_id = 'deferred-hitl-session-context'
+    session = get_session(session_id)
+    session.workspace_path = '/tmp/workspace'
+    session.pending_accept_command_request = {
+        'request_id': 'req-deferred-env',
+        'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
+        'title': 'Initialize workspace Python environment',
+        'message': 'm',
+        'confirm_label': 'Run',
+        'cancel_label': 'Cancel',
+        'command_text': 'python -m venv .venv',
+        'details': [],
+        'cancel_note': 'cancelled',
+        'action': {'tool_name': ENSURE_PYTHON_WORKSPACE_ENV_NAME, 'tool_input': {}},
+    }
+
+    async def _fake_ensure(session_arg, **kwargs):
+        assert (current_session_id.get() or '').strip() == session_id
+        assert session_arg is session
+        return type('R', (), {'summary': 'venv ready'})()
+
+    monkeypatch.setattr(
+        'nemo_backend.python_env_tools.ensure_session_python_workspace_env',
+        _fake_ensure,
+    )
+
+    note = await execute_pending_accept_command_decision(
+        session,
+        confirm=True,
+        request_id='req-deferred-env',
+    )
+    assert note == 'venv ready'
+    assert session.pending_accept_command_request is None
+    assert (current_session_id.get() or '').strip() == ''
+
+
+@pytest.mark.asyncio(loop_scope='function')
 async def test_execute_pending_deferred_tool_runs_after_confirm() -> None:
     session_id = 'deferred-hitl-exec'
     token = current_session_id.set(session_id)

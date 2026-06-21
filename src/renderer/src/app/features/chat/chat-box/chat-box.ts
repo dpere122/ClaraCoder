@@ -53,6 +53,7 @@ import {
   isScrollWorthyAppendMessage,
   planPanelContext,
   resolveLiveAssistantTurn,
+  resolvePrimaryStreamLiveText,
   stripClaraChainRowsFromChainGroups,
   stripPlannerChainRowsFromChainGroups,
   stripToolChainRowsFromChainGroups,
@@ -80,6 +81,7 @@ export {
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
   planPanelContext,
+  resolvePrimaryStreamLiveText,
   stripPlannerChainRowsFromChainGroups,
   shouldStripToolChainRowsForAuxPanel,
   liveTurnPresentationSettled,
@@ -177,6 +179,8 @@ export class ChatBox implements OnDestroy {
   readonly processingToolsActive = input(false);
   readonly ttsLoading = input(false);
   readonly streamingParts = input<StreamPart[]>([]);
+  /** Clean final reply from backend (`final_text` SSE), available before `[DONE]`. */
+  readonly streamingFinalText = input<string | undefined>(undefined);
   readonly streamingPlanner = input<PlannerProgress | null>(null);
   readonly fontSize = input(0.9);
   readonly sendResponse = output<string>();
@@ -307,14 +311,13 @@ export class ChatBox implements OnDestroy {
   );
 
   /**
-   * Live primary stream text for display - returns empty during streaming.
-   * Briefs are shown only as the panel title, not in the main response area.
-   * The final persisted message comes from the backend's last_final_text.
+   * Live primary stream text for display — only the backend's clean `final_text`, not interim
+   * agent briefs. Interim prose updates the auxiliary panel title instead.
    */
-  readonly primaryStreamLiveText = computed(() => '');
+  readonly primaryStreamLiveText = computed(() => resolvePrimaryStreamLiveText(this.streamingFinalText()));
 
   readonly showStreamingPrimaryCursor = computed(
-    () => this.loading() && this.primaryStreamParts().some((p) => p.text.length > 0),
+    () => this.loading() && this.primaryStreamLiveText().length > 0,
   );
 
   readonly liveTurn = computed<Extract<ChatDisplayRow, { kind: 'assistant-turn' }> | null>(() => {
@@ -366,8 +369,7 @@ export class ChatBox implements OnDestroy {
   });
 
   /**
-   * Panel title: uses the latest brief from the primary stream.
-   * Every brief updates this title during streaming.
+   * Update label: one-line brief from the primary stream or Clara brief status rows.
    */
   readonly liveAuxiliaryPanelTitle = computed(() => {
     const brief = extractLatestBriefLine(this.rawPrimaryStreamText());
@@ -382,8 +384,7 @@ export class ChatBox implements OnDestroy {
   });
 
   /**
-   * Show the auxiliary panel during streaming when there's a brief or auxiliary content.
-   * When the unified plan panel is visible, omit a title-only shell (no multiplex segments).
+   * Show the auxiliary panel during streaming when there is auxiliary content or a brief title.
    */
   readonly showLiveAuxiliaryPanel = computed(() => {
     if (this.liveAuxiliaryTimeline().length > 0) {

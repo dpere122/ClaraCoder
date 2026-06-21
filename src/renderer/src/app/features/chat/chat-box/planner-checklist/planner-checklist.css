@@ -293,6 +293,62 @@ app-planner-checklist .plan-panel__btn-spinner-host .ngx-spinner-overlay {
   z-index: 1 !important;
 }
 
+/*
+ * Inlined Load Awesome `ball-clip-rotate` ring so the active-step spinner never
+ * depends on angular.json global-style registration (which only applies after a
+ * dev-server restart / successful production build). ViewEncapsulation.None makes
+ * these rules global once the panel renders.
+ */
+.la-ball-clip-rotate,
+.la-ball-clip-rotate > div {
+  position: relative;
+  box-sizing: border-box;
+}
+
+.la-ball-clip-rotate {
+  display: block;
+  font-size: 0;
+  color: #fff;
+  overflow: hidden;
+  width: 32px;
+  height: 32px;
+}
+
+.la-ball-clip-rotate > div {
+  display: inline-block;
+  float: none;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 2px solid currentColor;
+  border-bottom-color: transparent;
+  border-radius: 100%;
+  animation: ball-clip-rotate 0.75s linear infinite;
+}
+
+.la-ball-clip-rotate.la-sm {
+  width: 16px;
+  height: 16px;
+}
+
+.la-ball-clip-rotate.la-sm > div {
+  width: 16px;
+  height: 16px;
+  border-width: 1px;
+}
+
+@keyframes ball-clip-rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(180deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 /* ── Actions ── */
 
 app-planner-checklist .plan-panel__actions {

@@ -17,6 +17,12 @@ _READ_TOOL_STREAM_PREVIEW_NAMES = WORKSPACE_READ_TOOL_NAMES | frozenset({'read_s
 from nemo_backend.workspace_tools import truncate_text
 
 
+def status_detail_one_line(detail: str, *, max_len: int = MAX_TOOL_STATUS_LINE) -> str:
+    """Collapse status detail to a single line for UI labels."""
+    line = detail.replace('\n', ' ').strip()
+    return truncate_text(line, max_len) if line else ''
+
+
 def status_event(
     status_id: str,
     label: str,
@@ -31,7 +37,7 @@ def status_event(
     row: dict[str, Any] = {
         'id': status_id,
         'label': label,
-        'detail': detail,
+        'detail': status_detail_one_line(detail),
         'state': state,
         'source': source,
     }

@@ -3,11 +3,13 @@ import { persistedAuxiliaryStreamTimeline } from '@shared/index';
 import {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  extractLatestBriefLine,
   filterLiveToolChainGroups,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
   liveTurnPresentationSettled,
   resolveLiveAssistantTurn,
+  resolvePrimaryStreamLiveText,
   shouldStripToolChainRowsForAuxPanel,
   turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
@@ -393,5 +395,24 @@ describe('liveTurnPresentationSettled', () => {
     expect(liveTurnPresentationSettled(true, '', '')).toBe(true);
     expect(liveTurnPresentationSettled(true, 'brief', '')).toBe(false);
     expect(liveTurnPresentationSettled(false, '', '')).toBe(false);
+  });
+});
+
+describe('resolvePrimaryStreamLiveText', () => {
+  it('returns empty when no final text is available', () => {
+    expect(resolvePrimaryStreamLiveText(undefined)).toBe('');
+    expect(resolvePrimaryStreamLiveText('   ')).toBe('');
+  });
+
+  it('returns trimmed final text only', () => {
+    expect(resolvePrimaryStreamLiveText('  Hello world  ')).toBe('Hello world');
+  });
+});
+
+describe('extractLatestBriefLine', () => {
+  it('uses the last non-empty line and truncates long titles', () => {
+    expect(extractLatestBriefLine('first\n\nChecking files…')).toBe('Checking files…');
+    const long = 'x'.repeat(130);
+    expect(extractLatestBriefLine(long).endsWith('...')).toBe(true);
   });
 });

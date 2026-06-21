@@ -33,6 +33,7 @@ export function createMainWindow(): void {
     width: 1920,
     height: 1080,
     frame: false,
+    show: false,
     title: 'Clara Coder',
     ...(icon ? { icon } : {}),
     webPreferences: secureWebPreferences(preload),
@@ -40,6 +41,10 @@ export function createMainWindow(): void {
   mainState.mainWindow = win;
   hardenBrowserWindow(win);
   registerSelectableTextContextMenu(win);
+  win.once('ready-to-show', () => {
+    win.show();
+    win.focus();
+  });
 
   win.webContents.on('preload-error', (_event, failedPreload, error) => {
     console.error('[Main] Preload failed:', failedPreload, error);

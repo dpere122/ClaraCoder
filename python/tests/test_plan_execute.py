@@ -12,7 +12,6 @@ from nemo_backend.plan_confirm import (
     plan_confirm_sse_payload,
     stage_plan_confirm_request,
 )
-from nemo_backend.plan_discovery import DiscoveryIntentModel
 from nemo_backend.plan_execute import (
     PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
@@ -166,7 +165,6 @@ def test_execute_pending_plan_confirm_cancel_sets_abort_flag() -> None:
     assert 'cancelled' in note.lower()
 
 
-@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
 @patch('nemo_backend.plan_execute._invoke_planner')
@@ -177,10 +175,18 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     mock_planner: AsyncMock,
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
-    mock_discovery_intent: AsyncMock,
 ) -> None:
-    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
+
+    exec_apply_modes: list[bool] = []
+
+    async def _fake_exec(*_args: Any, **_kwargs: Any):
+        exec_apply_modes.append(bool(_args[1] if len(_args) > 1 else _kwargs.get('apply_mode')))
+        outcome: LangGraphWorkerOutcome = _kwargs['outcome']
+        outcome.mark_completed(final_text='Discovery done.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
 
     async def _pause_and_cancel(sid: str) -> None:
         sess = get_session(sid)
@@ -210,11 +216,11 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
 
     assert any('"type": "plan_confirm"' in line for line in lines)
     assert outcome.state == AgentLoopOutcome.ABORTED
-    mock_exec.assert_not_called()
+    # Only the read-only discovery pass runs; no plan step executes after cancel.
+    assert exec_apply_modes == [False]
     mock_replanner.assert_not_called()
 
 
-@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -227,9 +233,7 @@ async def test_stream_plan_execute_runs_executor_after_confirm(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
-    mock_discovery_intent: AsyncMock,
 ) -> None:
-    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
     mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
     mock_pause.return_value = None
@@ -261,7 +265,6 @@ async def test_stream_plan_execute_runs_executor_after_confirm(
     assert outcome.final_text == 'All done.'
 
 
-@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -274,9 +277,7 @@ async def test_stream_plan_execute_runs_all_approved_steps_before_replan(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
-    mock_discovery_intent: AsyncMock,
 ) -> None:
-    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Step A', 'Step B', 'Step C'])
     mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
     mock_pause.return_value = None
@@ -306,16 +307,17 @@ async def test_stream_plan_execute_runs_all_approved_steps_before_replan(
         )
     )
 
-    assert len(exec_calls) == 3
-    assert 'step 1' in exec_calls[0].lower()
-    assert 'step 2' in exec_calls[1].lower()
-    assert 'step 3' in exec_calls[2].lower()
+    # exec_calls[0] is the free-form discovery pass; steps follow.
+    step_calls = exec_calls[1:]
+    assert len(step_calls) == 3
+    assert 'step 1' in step_calls[0].lower()
+    assert 'step 2' in step_calls[1].lower()
+    assert 'step 3' in step_calls[2].lower()
     assert mock_replanner.call_count == 1
     assert outcome.state == AgentLoopOutcome.COMPLETED
     assert outcome.final_text == 'All done.'
 
 
-@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -328,9 +330,7 @@ async def test_stream_plan_execute_does_not_stop_after_first_step(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
-    mock_discovery_intent: AsyncMock,
 ) -> None:
-    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Step A', 'Step B'])
     mock_replanner.return_value = ReplanAct(
         response='Remaining steps are queued; plan complete.',
@@ -359,12 +359,12 @@ async def test_stream_plan_execute_does_not_stop_after_first_step(
         )
     )
 
-    assert mock_exec.call_count == 2
+    # 1 discovery pass + 2 plan steps.
+    assert mock_exec.call_count == 3
     assert mock_replanner.call_count == 1
     assert outcome.state == AgentLoopOutcome.COMPLETED
 
 
-@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -377,9 +377,7 @@ async def test_stream_plan_execute_uses_full_tool_apply_mode_when_editor_off(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
-    mock_discovery_intent: AsyncMock,
 ) -> None:
-    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
     mock_replanner.return_value = ReplanAct(response='Done.', steps=[])
     mock_pause.return_value = None
@@ -410,7 +408,6 @@ async def test_stream_plan_execute_uses_full_tool_apply_mode_when_editor_off(
     assert 'transfer_staged_file_to_workspace' in {t.name for t in tools}
 
 
-@patch('nemo_backend.plan_execute.invoke_discovery_intent', new_callable=AsyncMock)
 @patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
 @patch('nemo_backend.plan_execute._invoke_replanner')
@@ -423,9 +420,7 @@ async def test_stream_plan_execute_retries_executor_when_verifier_rejects(
     mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
     mock_verify: AsyncMock,
-    mock_discovery_intent: AsyncMock,
 ) -> None:
-    mock_discovery_intent.return_value = DiscoveryIntentModel(actions=[])
     mock_planner.return_value = PlanModel(steps=['Do work'])
     mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
     mock_pause.return_value = None
@@ -458,8 +453,9 @@ async def test_stream_plan_execute_retries_executor_when_verifier_rejects(
         )
     )
 
-    assert len(exec_calls) == 2
-    assert 'Verifier feedback' in exec_calls[1]
+    # exec_calls[0] is the discovery pass; the step runs twice (initial + verifier retry).
+    assert len(exec_calls) == 3
+    assert 'Verifier feedback' in exec_calls[2]
     assert mock_verify.call_count == 2
     assert outcome.state == AgentLoopOutcome.COMPLETED
 

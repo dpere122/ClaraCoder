@@ -2,7 +2,12 @@
 
 from langchain_core.messages import AIMessageChunk
 
-from nemo_backend.agent_streaming import aimessage_chunk_reasoning_delta, aimessage_chunk_sse_delta
+from nemo_backend.agent_streaming import (
+    aimessage_chunk_reasoning_delta,
+    aimessage_chunk_sse_delta,
+    status_detail_one_line,
+    status_event,
+)
 
 
 def test_empty() -> None:
@@ -60,3 +65,12 @@ def test_reasoning_delta_passes_through_single_slash_chunks() -> None:
 
 def test_sse_delta_keeps_single_slash_in_main_content() -> None:
     assert aimessage_chunk_sse_delta(AIMessageChunk(content='/')) == '/'
+
+
+def test_status_detail_one_line_collapses_newlines() -> None:
+    assert status_detail_one_line('1. First step\n2. Second step') == '1. First step 2. Second step'
+
+
+def test_status_event_detail_is_one_line() -> None:
+    payload = status_event('id-1', 'Planner', detail='line one\nline two', state='complete')
+    assert payload['status']['detail'] == 'line one line two'

@@ -16,8 +16,8 @@
     "pack": "npm run build && node scripts/run-electron-builder.mjs",
     "pack:dir": "npm run build && node scripts/run-electron-builder.mjs --dir",
     "render:icon": "python scripts/render_clara_coder_icon.py",
-    "start": "electron dist/main/index.js",
-    "dev": "concurrently \"npm start --prefix src/renderer\" \"tsc -p ./ --watch --preserveWatchOutput\" \"wait-on http://localhost:4200 && cross-env DEV_SERVER_URL=http://localhost:4200 electronmon dist/main/index.js\"",
+    "start": "cross-env ELECTRON_RUN_AS_NODE= electron dist/main/index.js",
+    "dev": "concurrently \"npm start --prefix src/renderer\" \"tsc -p ./ --watch --preserveWatchOutput\" \"wait-on http://localhost:4200 && cross-env ELECTRON_RUN_AS_NODE= DEV_SERVER_URL=http://localhost:4200 electronmon dist/main/index.js\"",
     "dev:lmstudio": "cross-env NEMO_LLM_PROVIDER=lmstudio NEMO_AUDIO_PROVIDER=openai npm run dev"
   },
   "keywords": [],

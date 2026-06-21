@@ -306,6 +306,12 @@ export function extractLatestBriefLine(text: string): string {
   return '';
 }
 
+/** Live markdown zone: only backend `final_text`, never interim agent stream chunks. */
+export function resolvePrimaryStreamLiveText(streamingFinalText: string | undefined): string {
+  const final = streamingFinalText?.trim();
+  return final ?? '';
+}
+
 export function auxiliaryPanelTitleFromChainGroups(groups: readonly ToolChainGroup[]): string {
   for (let i = groups.length - 1; i >= 0; i--) {
     const rows = groups[i].rows;

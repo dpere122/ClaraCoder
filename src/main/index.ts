@@ -18,6 +18,37 @@ import { killAllWorkspacePtySessions } from './ipc/handlers/workspace-pty';
 import { stopAllManagedLlamaServers } from './llama-server-manager';
 import { mainState } from './state';
 
+/**
+ * Chromium GPU process often segfaults on Linux Wayland when Vulkan is enabled.
+ * Keep native Wayland (x11/XWayland breaks window mapping on Hyprland) but disable
+ * hardware GPU. Set NEMO_ENABLE_GPU=1 to opt in to GPU acceleration.
+ */
+function applyLinuxDisplayWorkarounds(): void {
+  if (process.platform !== 'linux') return;
+  if (process.env.NEMO_ENABLE_GPU === '1') return;
+
+  const onWayland =
+    (process.env.XDG_SESSION_TYPE ?? '').toLowerCase() === 'wayland' ||
+    Boolean(process.env.WAYLAND_DISPLAY);
+  const disableGpu = process.env.NEMO_DISABLE_GPU === '1' || onWayland;
+
+  const ozoneOverride = process.env.NEMO_ELECTRON_OZONE_PLATFORM?.trim();
+  if (ozoneOverride) {
+    app.commandLine.appendSwitch('ozone-platform', ozoneOverride);
+  } else if (onWayland) {
+    app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations');
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+    app.commandLine.appendSwitch('ozone-platform', 'wayland');
+  }
+
+  if (disableGpu) {
+    app.commandLine.appendSwitch('disable-gpu');
+    app.commandLine.appendSwitch('disable-features', 'Vulkan');
+  }
+}
+
+applyLinuxDisplayWorkarounds();
+
 app.setName('Clara Coder');
 
 registerPrivilegedSchemes();

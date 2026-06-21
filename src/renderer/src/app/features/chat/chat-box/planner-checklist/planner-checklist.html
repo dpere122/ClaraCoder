@@ -45,12 +45,12 @@
           </div>
         </div>
       </div>
-      @if (planner().phase === 'discovery' || planner().phase === 'executing' || planner().phase === 'complete' || planner().phase === 'error') {
+      @if (totalSteps() > 0 && (planner().phase === 'executing' || planner().phase === 'complete' || planner().phase === 'error')) {
         <span class="plan-panel__counter">{{ completeCount() }}/{{ totalSteps() }}</span>
       }
     </div>
 
-    @if (planner().phase === 'discovery' || planner().phase === 'executing' || planner().phase === 'complete' || planner().phase === 'error') {
+    @if (totalSteps() > 0 && (planner().phase === 'executing' || planner().phase === 'complete' || planner().phase === 'error')) {
       <div
         class="plan-panel__progress"
         role="progressbar"
@@ -77,8 +77,8 @@
           [class.plan-panel__step--new]="step.addedDuringExecution"
         >
           <div class="plan-panel__step-marker" aria-hidden="true">
-            @if (isRunningStep(step)) {
-              <span class="plan-panel__step-spinner-host">
+            @if (runningStepId() === step.id) {
+              <span class="plan-panel__step-spinner-host" aria-label="Running">
                 <ngx-spinner
                   [name]="stepSpinnerName"
                   type="ball-clip-rotate"

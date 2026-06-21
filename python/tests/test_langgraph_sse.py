@@ -124,10 +124,10 @@ def test_outer_agent_brief_emits_status() -> None:
     assert len(lines) == 1
     assert '"type": "status"' in lines[0]
     assert '"label": "Planner checklist"' in lines[0]
-    assert '"current_task"' in lines[0]
     assert 'First step' in lines[0]
+    assert 'Second step' not in lines[0]
     assert '"stream_tag": "clara"' in lines[0]
-    assert '"id": "clara-current-task"' in lines[0]
+    assert '"id": "outer-brief-' in lines[0]
 
 
 def test_tool_exec_complete_event_is_forwarded() -> None:

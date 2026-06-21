@@ -119,6 +119,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
   protected readonly streamingParts = signal<StreamPart[]>([]);
   protected readonly streamingPlanner = signal<PlannerProgress | null>(null);
+  /** Clean final reply for the active conversation (`final_text` SSE), before `[DONE]`. */
+  protected readonly streamingFinalText = signal<string | undefined>(undefined);
   private readonly backgroundStreamPlanner = new Map<string, PlannerProgress>();
   /**
    * Last measured prompt token count per conversation (from API usage metadata).
@@ -609,6 +611,9 @@ export class App implements OnInit, OnDestroy {
 
     this.electron.finalText$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, text }) => {
       this.pendingFinalText.set(conversationId, text);
+      if (conversationId === this.activeConversationId()) {
+        this.streamingFinalText.set(text);
+      }
     });
 
     this.electron.done$.pipe(takeUntilDestroyed()).subscribe(({ conversationId }) => {
@@ -630,6 +635,7 @@ export class App implements OnInit, OnDestroy {
         this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
         this.streamingPlanner.set(null);
+        this.streamingFinalText.set(undefined);
         if (turn) {
           this.pushMessage(
             'assistant',
@@ -747,6 +753,7 @@ export class App implements OnInit, OnDestroy {
     }
     this.streamingParts.set([]);
     this.streamingPlanner.set(null);
+    this.streamingFinalText.set(undefined);
     const workspaceId = this.activeConversation?.workspaceId ?? this.currentWorkspaceId();
     this.electron.sendMessage(
       convId,
@@ -800,6 +807,7 @@ export class App implements OnInit, OnDestroy {
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
     this.streamingParts.set([]);
+    this.streamingFinalText.set(undefined);
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
     applyAppTheme(resolveAppThemeId(config, workspaceId));
@@ -1378,9 +1386,11 @@ export class App implements OnInit, OnDestroy {
       const bgParts = this.backgroundStreamParts.get(conv.id) ?? [];
       this.streamingParts.set(bgParts.length ? [...bgParts] : []);
       this.backgroundStreamParts.delete(conv.id);
+      this.streamingFinalText.set(this.pendingFinalText.get(conv.id));
     } else {
       this.streamingParts.set([]);
       this.backgroundStreamParts.delete(conv.id);
+      this.streamingFinalText.set(undefined);
     }
 
     // Resolve theme: workspace theme > noWorkspaceThemeId > dark

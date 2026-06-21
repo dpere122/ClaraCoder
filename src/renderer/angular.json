@@ -37,8 +37,11 @@
               "node_modules/ngx-spinner/animations/ball-triangle-path.css",
               "node_modules/ngx-spinner/animations/ball-atom.css",
               "node_modules/ngx-spinner/animations/line-scale.css",
+              "node_modules/ngx-spinner/animations/ball-clip-rotate.css",
               "node_modules/ngx-spinner/animations/ball-clip-rotate-pulse.css",
               "node_modules/ngx-spinner/animations/ball-pulse-sync.css",
+              "node_modules/ngx-spinner/animations/line-spin-fade.css",
+              "node_modules/ngx-spinner/animations/ball-scale-multiple.css",
               "node_modules/@xterm/xterm/css/xterm.css",
               "node_modules/monaco-editor/min/vs/editor/editor.main.css",
               "src/styles.css"

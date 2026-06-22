@@ -968,11 +968,11 @@ app-shell > router-outlet + * {
 }
 
 .terminal-shell-badge-complete {
-  color: #7ae69b;
+  color: var(--t-hljs-string);
 }
 
 .terminal-shell-badge-error {
-  color: #ff8f8f;
+  color: var(--t-log-level-error);
 }
 
 .terminal-shell-body {
@@ -1007,7 +1007,7 @@ app-shell > router-outlet + * {
 }
 
 .terminal-stream-label-error {
-  color: #ff9f9f;
+  color: var(--t-log-level-error);
 }
 
 .terminal-placeholder {
@@ -1034,7 +1034,7 @@ app-shell > router-outlet + * {
 
 .output-pre.terminal-output.output-stderr,
 .terminal-output-stderr {
-  color: #ff9f9f;
+  color: var(--t-log-level-error);
 }
 
 .terminal-ansi .ansi-bold {
@@ -1054,99 +1054,99 @@ app-shell > router-outlet + * {
 }
 
 .terminal-ansi .ansi-fg-black {
-  color: #4a4a4a;
+  color: var(--t-edge-darkest);
 }
 
 .terminal-ansi .ansi-fg-red {
-  color: #f14c4c;
+  color: var(--t-log-level-error);
 }
 
 .terminal-ansi .ansi-fg-green {
-  color: #23d18b;
+  color: var(--t-hljs-string);
 }
 
 .terminal-ansi .ansi-fg-yellow {
-  color: #f5f543;
+  color: var(--t-log-level-warning);
 }
 
 .terminal-ansi .ansi-fg-blue {
-  color: #3b8eea;
+  color: var(--t-hljs-number);
 }
 
 .terminal-ansi .ansi-fg-magenta {
-  color: #d670d6;
+  color: var(--t-hljs-class);
 }
 
 .terminal-ansi .ansi-fg-cyan {
-  color: #29b8db;
+  color: var(--t-hljs-function);
 }
 
 .terminal-ansi .ansi-fg-white {
-  color: #e5e5e5;
+  color: var(--t-code-text);
 }
 
 .terminal-ansi .ansi-fg-bright-black {
-  color: #767676;
+  color: var(--t-text-muted);
 }
 
 .terminal-ansi .ansi-fg-bright-red {
-  color: #ff6b6b;
+  color: var(--t-log-level-error);
 }
 
 .terminal-ansi .ansi-fg-bright-green {
-  color: #7ae69b;
+  color: var(--t-hljs-string);
 }
 
 .terminal-ansi .ansi-fg-bright-yellow {
-  color: #ffff8f;
+  color: var(--t-log-level-warning);
 }
 
 .terminal-ansi .ansi-fg-bright-blue {
-  color: #79b8ff;
+  color: var(--t-hljs-number);
 }
 
 .terminal-ansi .ansi-fg-bright-magenta {
-  color: #ff9cff;
+  color: var(--t-hljs-class);
 }
 
 .terminal-ansi .ansi-fg-bright-cyan {
-  color: #7eeeff;
+  color: var(--t-hljs-function);
 }
 
 .terminal-ansi .ansi-fg-bright-white {
-  color: #ffffff;
+  color: var(--t-primary);
 }
 
 .terminal-ansi .ansi-bg-black {
-  background-color: rgb(0 0 0 / 35%);
+  background-color: color-mix(in srgb, var(--t-edge-darkest) 35%, transparent);
 }
 
 .terminal-ansi .ansi-bg-red {
-  background-color: rgb(241 76 76 / 28%);
+  background-color: color-mix(in srgb, var(--t-log-level-error) 28%, transparent);
 }
 
 .terminal-ansi .ansi-bg-green {
-  background-color: rgb(35 209 139 / 22%);
+  background-color: color-mix(in srgb, var(--t-hljs-string) 22%, transparent);
 }
 
 .terminal-ansi .ansi-bg-yellow {
-  background-color: rgb(245 245 67 / 18%);
+  background-color: color-mix(in srgb, var(--t-log-level-warning) 18%, transparent);
 }
 
 .terminal-ansi .ansi-bg-blue {
-  background-color: rgb(59 142 234 / 22%);
+  background-color: color-mix(in srgb, var(--t-hljs-number) 22%, transparent);
 }
 
 .terminal-ansi .ansi-bg-magenta {
-  background-color: rgb(214 112 214 / 22%);
+  background-color: color-mix(in srgb, var(--t-hljs-class) 22%, transparent);
 }
 
 .terminal-ansi .ansi-bg-cyan {
-  background-color: rgb(41 184 219 / 22%);
+  background-color: color-mix(in srgb, var(--t-hljs-function) 22%, transparent);
 }
 
 .terminal-ansi .ansi-bg-white {
-  background-color: rgb(229 229 229 / 14%);
+  background-color: color-mix(in srgb, var(--t-code-text) 14%, transparent);
 }
 
 .interactive-input-container,

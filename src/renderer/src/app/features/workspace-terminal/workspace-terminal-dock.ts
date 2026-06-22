@@ -22,7 +22,7 @@ import type {
 } from '@shared/index';
 import { findLlmModelLocation, resolveActiveLlmConnection } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
-import { buildXtermThemeFromCssVars } from './xterm-theme-from-css';
+import { buildXtermThemeFromCssVars, invalidateTerminalPaletteCache } from './xterm-theme-from-css';
 
 /** Prefix for read-only llama.cpp server log tabs (not PTYs). */
 const LLAMA_SERVER_TAB_PREFIX = 'managed-llama-server-tab';
@@ -75,6 +75,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   private readonly llamaBacklogByTab = new Map<string, string>();
   private readonly spawningTabs = new Set<string>();
   private resizeObserver: ResizeObserver | null = null;
+  private themeObserver: MutationObserver | null = null;
   private resizeRaf = 0;
   private panelDrag: { startY: number; startH: number } | null = null;
   private panelDragListenersActive = false;
@@ -247,8 +248,20 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
     this.electron.config$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       if (!this.destroyed) {
+        invalidateTerminalPaletteCache();
         this.applyXtermThemes();
       }
+    });
+
+    this.themeObserver = new MutationObserver(() => {
+      if (!this.destroyed) {
+        invalidateTerminalPaletteCache();
+        this.applyXtermThemes();
+      }
+    });
+    this.themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
     });
 
     effect(() => {
@@ -305,6 +318,8 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.themeObserver?.disconnect();
+    this.themeObserver = null;
     this.endPanelDrag();
     this.teardownResizeTracking();
     this.spawningTabs.clear();

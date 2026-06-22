@@ -1,3 +1,9 @@
+:host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
 .editor-lsp-status__shell {
   display: flex;
   flex-direction: column;
@@ -13,7 +19,7 @@
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--t-text-muted, #888);
+  color: var(--t-text-muted);
 }
 
 .editor-lsp-status {
@@ -25,13 +31,13 @@
   padding: 0.35rem 0.5rem;
   border-radius: 4px;
   font-size: 0.72rem;
-  font-family: var(--t-font-mono, monospace);
+  font-family: var(--t-font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--t-text-muted, #888);
-  border: 1px solid var(--t-border-subtle, #333);
-  background: color-mix(in srgb, var(--t-bg-elevated, #222) 88%, transparent);
+  color: var(--t-secondary);
+  border: 1px solid var(--t-border);
+  background: var(--t-bg);
 }
 
 .editor-lsp-status__label {
@@ -40,21 +46,26 @@
 }
 
 .editor-lsp-status--ok {
-  color: color-mix(in srgb, var(--t-primary, #0f0) 82%, var(--t-text-muted, #888));
-  border-color: color-mix(in srgb, var(--t-primary, #0f0) 28%, var(--t-border-subtle, #333));
+  color: var(--t-primary);
+  border-color: color-mix(in srgb, var(--t-primary) 45%, var(--t-border));
+  background: color-mix(in srgb, var(--t-primary) 8%, var(--t-bg));
 }
 
 .editor-lsp-status--warn {
-  color: color-mix(in srgb, var(--t-log-level-warn, #fa0) 85%, var(--t-fg, #eee));
-  border-color: color-mix(in srgb, var(--t-log-level-warn, #fa0) 35%, var(--t-border-subtle, #333));
+  color: color-mix(in srgb, var(--t-log-level-warning) 85%, var(--t-fg));
+  border-color: color-mix(in srgb, var(--t-log-level-warning) 45%, var(--t-border));
+  background: color-mix(in srgb, var(--t-log-level-warning) 10%, var(--t-bg));
 }
 
 .editor-lsp-status--error {
-  color: color-mix(in srgb, var(--t-log-level-error, #f66) 88%, var(--t-fg, #eee));
-  border-color: color-mix(in srgb, var(--t-log-level-error, #f66) 38%, var(--t-border-subtle, #333));
+  color: color-mix(in srgb, var(--t-log-level-error) 88%, var(--t-fg));
+  border-color: color-mix(in srgb, var(--t-log-level-error) 45%, var(--t-border));
+  background: color-mix(in srgb, var(--t-log-level-error) 10%, var(--t-bg));
 }
 
 .editor-lsp-status--muted,
 .editor-lsp-status--pending {
-  opacity: 0.92;
+  color: var(--t-text-muted);
+  border-color: var(--t-border-subtle);
+  background: var(--t-bg);
 }

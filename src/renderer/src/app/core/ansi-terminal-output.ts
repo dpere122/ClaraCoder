@@ -1,4 +1,6 @@
 /** Escape sequences we render as styled spans in static terminal output. */
+import { buildXterm256PaletteFromCss } from '../features/workspace-terminal/xterm-theme-from-css';
+
 const SGR_PATTERN = /\x1b\[([0-9;]*)m/g;
 /** Other CSI / OSC sequences are stripped (cursor moves, title changes, etc.). */
 const STRIP_PATTERN = /\x1b(?:\][^\x07]*(?:\x07|\x1b\\)|\[[0-?9;]*[ -/]*[@-~])/g;
@@ -41,54 +43,14 @@ const BG_CLASS: Record<number, string> = {
   107: 'ansi-bg-bright-white',
 };
 
-const XTERM_256 = buildXterm256Palette();
-
 interface AnsiStyleState {
   readonly classes: Set<string>;
   fgColor: string | null;
   bgColor: string | null;
 }
 
-function buildXterm256Palette(): string[] {
-  const palette: string[] = [];
-  for (let i = 0; i < 256; i++) {
-    palette.push(xterm256Color(i));
-  }
-  return palette;
-}
-
 function xterm256Color(index: number): string {
-  if (index < 16) {
-    const base = [
-      '#000000',
-      '#cd3131',
-      '#0dbc79',
-      '#e5e510',
-      '#2472c8',
-      '#bc3fbc',
-      '#11a8cd',
-      '#e5e5e5',
-      '#666666',
-      '#f14c4c',
-      '#23d18b',
-      '#f5f543',
-      '#3b8eea',
-      '#d670d6',
-      '#29b8db',
-      '#ffffff',
-    ];
-    return base[index] ?? '#ffffff';
-  }
-  if (index < 232) {
-    const i = index - 16;
-    const r = Math.floor(i / 36);
-    const g = Math.floor((i % 36) / 6);
-    const b = i % 6;
-    const channel = (step: number) => (step === 0 ? 0 : 55 + step * 40);
-    return rgb(channel(r), channel(g), channel(b));
-  }
-  const gray = 8 + (index - 232) * 10;
-  return rgb(gray, gray, gray);
+  return buildXterm256PaletteFromCss()[index] ?? '#ffffff';
 }
 
 function rgb(r: number, g: number, b: number): string {
@@ -221,14 +183,14 @@ function applySgrParams(state: AnsiStyleState, params: number[]): void {
         const colorIndex = params[i + 2]!;
         i += 2;
         if (isFg) {
-          state.fgColor = XTERM_256[colorIndex] ?? null;
+          state.fgColor = xterm256Color(colorIndex) ?? null;
           for (const cls of [...state.classes]) {
             if (cls.startsWith('ansi-fg-')) {
               state.classes.delete(cls);
             }
           }
         } else {
-          state.bgColor = XTERM_256[colorIndex] ?? null;
+          state.bgColor = xterm256Color(colorIndex) ?? null;
           for (const cls of [...state.classes]) {
             if (cls.startsWith('ansi-bg-')) {
               state.classes.delete(cls);

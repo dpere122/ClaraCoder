@@ -343,69 +343,7 @@ app-workspace .workspace-context-menu-item.danger:hover {
   color: var(--t-danger, #d55);
 }
 
-app-workspace .workspace-create-inline {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin: 0 0.5rem 0.5rem;
-  padding: 0.5rem 0.55rem;
-  border: 1px solid var(--t-border);
-  border-radius: 4px;
-  background: var(--t-bg);
+app-workspace .file-tree.is-inline-editing:focus {
   outline: none;
-}
-
-app-workspace .workspace-create-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--t-text-muted);
-}
-
-app-workspace .workspace-create-input {
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0.35rem 0.45rem;
-  font: inherit;
-  font-size: 0.8rem;
-  line-height: 1.25;
-  color: var(--t-primary);
-  background: var(--t-bg-deep);
-  border: 1px solid var(--t-border);
-  border-radius: 3px;
-  outline: none;
-}
-
-app-workspace .workspace-create-input:focus {
-  border-color: var(--t-primary);
-}
-
-app-workspace .workspace-create-actions {
-  display: flex;
-  gap: 0.35rem;
-  justify-content: flex-end;
-}
-
-app-workspace .workspace-create-btn {
-  padding: 0.25rem 0.55rem;
-  font: inherit;
-  font-size: 0.72rem;
-  border-radius: 3px;
-  border: 1px solid var(--t-border);
-  background: var(--t-bg-deep);
-  color: var(--t-secondary);
-  cursor: pointer;
-}
-
-app-workspace .workspace-create-btn.primary {
-  border-color: var(--t-primary);
-  color: var(--t-primary);
-  background: var(--t-bg);
-}
-
-app-workspace .workspace-create-btn:hover {
-  background: var(--t-hover-bg);
 }
 

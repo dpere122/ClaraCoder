@@ -25,6 +25,7 @@
       <div
         class='file-tree'
         [class.is-drop-target]='fileTreeDropActive()'
+        [class.is-inline-editing]='pendingCreate() || inlineRenamePath()'
         tabindex='0'
         (contextmenu)='onFileTreePaneContextMenu($event)'
         (keydown)='onTreeKeydown($event)'
@@ -35,41 +36,18 @@
         @if (loadError()) {
           <p class='empty-hint'>{{ loadError() }}</p>
         } @else {
-          @if (pendingCreate(); as pc) {
-            <div class='workspace-create-inline' tabindex='-1' (focusout)='onPendingCreateFocusOut($event)'>
-              <span class='workspace-create-label'>
-                New {{ pc.kind === 'file' ? 'file' : 'folder' }}
-              </span>
-              <input
-                type='text'
-                class='workspace-create-input'
-                spellcheck='false'
-                autocomplete='off'
-                [value]='pendingCreateDraft()'
-                (input)='onPendingCreateDraftInput($event)'
-                (keydown)='onPendingCreateKeydown($event)'
-              />
-              <div class='workspace-create-actions'>
-                <button type='button' class='workspace-create-btn primary' (click)='submitPendingCreate()'>
-                  Create
-                </button>
-                <button type='button' class='workspace-create-btn' (click)='cancelPendingCreate()'>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          }
-          @for (node of flatTree(); track node.path) {
+          @for (node of displayFlatTree(); track node.path) {
             <div
               class='tree-node'
-              [class.is-renaming]='inlineRenamePath() === node.path'
+              [class.is-renaming]='isTreeNodeInlineEditing(node)'
+              [class.is-pending-create]='isPendingCreateTreeNode(node)'
               [class.is-active]='activeFileAbsolutePath() && normalizePathSlashes(node.path) === activeFileAbsolutePath()'
               [class.is-selected]='selectedPath() === node.path'
               [class.is-drop-target]='isTreeDropTarget(node)'
               [attr.data-path]='node.path'
               [style.padding-left.rem]='0.5 + node.depth * 1'
               [class.is-directory]='node.isDirectory'
-              [attr.draggable]='inlineRenamePath() !== node.path'
+              [attr.draggable]='!isTreeNodeInlineEditing(node)'
               (click)='onTreeNodeClick(node)'
               (dblclick)='onTreeNodeDoubleClick(node)'
               (contextmenu)='onTreeNodeContextMenu($event, node)'
@@ -79,25 +57,40 @@
               (dragleave)='onTreeNodeDragLeave($event, node)'
               (drop)='onTreeNodeDrop($event, node)'
             >
-              @if (inlineRenamePath() === node.path) {
+              @if (isTreeNodeInlineEditing(node)) {
                 <span class='node-chevron-spacer'></span>
                 @if (node.isDirectory) {
                   <lucide-icon name='folder' class='folder-icon' [size]='14' />
                 } @else {
                   <lucide-icon name='file-text' class='file-icon' [size]='14' />
                 }
-                <input
-                  type='text'
-                  class='tree-node-rename-input'
-                  spellcheck='false'
-                  autocomplete='off'
-                  [value]='inlineRenameDraft()'
-                  (input)='onRenameDraftInput($event)'
-                  (keydown)='onRenameInputKeydown($event)'
-                  (blur)='onRenameInputBlur()'
-                  (click)='$event.stopPropagation()'
-                  (mousedown)='$event.stopPropagation()'
-                />
+                @if (isPendingCreateTreeNode(node)) {
+                  <input
+                    type='text'
+                    class='tree-node-rename-input'
+                    spellcheck='false'
+                    autocomplete='off'
+                    [value]='pendingCreateDraft()'
+                    (input)='onPendingCreateDraftInput($event)'
+                    (keydown)='onPendingCreateKeydown($event)'
+                    (blur)='onPendingCreateInputBlur()'
+                    (click)='$event.stopPropagation()'
+                    (mousedown)='$event.stopPropagation()'
+                  />
+                } @else {
+                  <input
+                    type='text'
+                    class='tree-node-rename-input'
+                    spellcheck='false'
+                    autocomplete='off'
+                    [value]='inlineRenameDraft()'
+                    (input)='onRenameDraftInput($event)'
+                    (keydown)='onRenameInputKeydown($event)'
+                    (blur)='onRenameInputBlur()'
+                    (click)='$event.stopPropagation()'
+                    (mousedown)='$event.stopPropagation()'
+                  />
+                }
               } @else {
                 @if (node.isDirectory) {
                   <lucide-icon
@@ -114,7 +107,35 @@
               }
             </div>
           } @empty {
-            <p class='empty-hint'>// No files found.</p>
+            @if (pendingCreate(); as pc) {
+              <div
+                class='tree-node is-renaming is-pending-create'
+                [class.is-directory]='pc.kind === "folder"'
+                [style.padding-left.rem]='0.5'
+                (click)='$event.stopPropagation()'
+              >
+                <span class='node-chevron-spacer'></span>
+                @if (pc.kind === 'folder') {
+                  <lucide-icon name='folder' class='folder-icon' [size]='14' />
+                } @else {
+                  <lucide-icon name='file-text' class='file-icon' [size]='14' />
+                }
+                <input
+                  type='text'
+                  class='tree-node-rename-input'
+                  spellcheck='false'
+                  autocomplete='off'
+                  [value]='pendingCreateDraft()'
+                  (input)='onPendingCreateDraftInput($event)'
+                  (keydown)='onPendingCreateKeydown($event)'
+                  (blur)='onPendingCreateInputBlur()'
+                  (click)='$event.stopPropagation()'
+                  (mousedown)='$event.stopPropagation()'
+                />
+              </div>
+            } @else {
+              <p class='empty-hint'>// No files found.</p>
+            }
           }
         }
       </div>

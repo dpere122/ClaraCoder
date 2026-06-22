@@ -20,6 +20,41 @@ export interface FlatNode {
   hasChildren: boolean;
 }
 
+/** Sentinel path for the inline “new file / folder” row injected into the flat tree. */
+export const PENDING_CREATE_TREE_PATH = '\0__pending_create__';
+
+export function isPendingCreateTreeNode(node: FlatNode): boolean {
+  return node.path === PENDING_CREATE_TREE_PATH;
+}
+
+/** Insert index and depth for a pending-create row under `parentDirAbs`. */
+export function findPendingCreateInsertIndex(
+  flat: readonly FlatNode[],
+  parentDirAbs: string,
+  workspaceRootAbs: string,
+): { index: number; depth: number } {
+  const parentNorm = normalizePathSlashes(parentDirAbs).replace(/\/$/, '');
+  const rootNorm = normalizePathSlashes(workspaceRootAbs).replace(/\/$/, '');
+
+  if (parentNorm === rootNorm) {
+    return { index: flat.length, depth: 0 };
+  }
+
+  const parentIndex = flat.findIndex(
+    (n) => normalizePathSlashes(n.path).replace(/\/$/, '') === parentNorm,
+  );
+  if (parentIndex < 0) {
+    return { index: flat.length, depth: 0 };
+  }
+
+  const parentDepth = flat[parentIndex].depth;
+  let insertAt = parentIndex + 1;
+  while (insertAt < flat.length && flat[insertAt].depth > parentDepth) {
+    insertAt++;
+  }
+  return { index: insertAt, depth: parentDepth + 1 };
+}
+
 export interface DirectoryEntry {
   name: string;
   path: string;

@@ -25,6 +25,9 @@ import {
   findFileNode,
   findFileNodeByNormalizedPath,
   findParentPathInFlatTree,
+  findPendingCreateInsertIndex,
+  isPendingCreateTreeNode,
+  PENDING_CREATE_TREE_PATH,
   rebuildFlatTree,
   scrollWorkspaceTreeNodeToPath,
   scrollWorkspaceTreeNodeToSelected,
@@ -64,6 +67,28 @@ export class WorkspaceComponent implements OnDestroy {
   readonly addToChatContext = output<{ absolutePath: string }>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
+  /** Flat tree with an inline pending-create row when the user is naming a new file/folder. */
+  protected readonly displayFlatTree = computed(() => {
+    const flat = this.flatTree();
+    const pc = this.pendingCreate();
+    if (!pc) {
+      return flat;
+    }
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!ws?.path) {
+      return flat;
+    }
+    const { index, depth } = findPendingCreateInsertIndex(flat, pc.parentDir, ws.path);
+    const placeholder: FlatNode = {
+      name: '',
+      path: PENDING_CREATE_TREE_PATH,
+      isDirectory: pc.kind === 'folder',
+      expanded: false,
+      depth,
+      hasChildren: false,
+    };
+    return [...flat.slice(0, index), placeholder, ...flat.slice(index)];
+  });
   protected readonly loadError = signal('');
 
   /** Currently selected node path (keyboard/click selection, distinct from open file). */
@@ -131,7 +156,9 @@ export class WorkspaceComponent implements OnDestroy {
   /** Skip one blur-driven commit while programmatically focusing the rename field. */
   private renameSkipBlurCommit = false;
   private renameBlurTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingCreateSkipBlurCancel = false;
+  /** Skip one blur-driven commit while programmatically focusing the create field. */
+  private pendingCreateSkipBlurCommit = false;
+  private pendingCreateBlurTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEffectWorkspaceId: string | null | undefined = undefined;
   /** Track last revealed path to avoid redundant reveals. */
   private lastRevealedAbsolutePath: string | null = null;
@@ -244,6 +271,9 @@ export class WorkspaceComponent implements OnDestroy {
     this.workspaceFilesChangedSubscription?.unsubscribe();
     if (this.renameBlurTimer !== null) {
       clearTimeout(this.renameBlurTimer);
+    }
+    if (this.pendingCreateBlurTimer !== null) {
+      clearTimeout(this.pendingCreateBlurTimer);
     }
   }
 
@@ -386,7 +416,7 @@ export class WorkspaceComponent implements OnDestroy {
   onTreeNodeContextMenu(event: MouseEvent, node: FlatNode): void {
     event.preventDefault();
     event.stopPropagation();
-    if (this.loadError() || !this.currentWorkspaceId()) {
+    if (isPendingCreateTreeNode(node) || this.loadError() || !this.currentWorkspaceId()) {
       return;
     }
     const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
@@ -450,7 +480,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (!dir || !ws?.path) {
       return;
     }
-    this.beginPendingCreate('file', dir);
+    void this.beginPendingCreate('file', dir);
   }
 
   onContextMenuNewFolder(): void {
@@ -460,7 +490,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (!dir || !ws?.path) {
       return;
     }
-    this.beginPendingCreate('folder', dir);
+    void this.beginPendingCreate('folder', dir);
   }
 
   onPendingCreateDraftInput(event: Event): void {
@@ -469,41 +499,45 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   onPendingCreateKeydown(event: KeyboardEvent): void {
+    event.stopPropagation();
     if (event.key === 'Enter') {
       event.preventDefault();
-      event.stopPropagation();
-      void this.submitPendingCreate();
+      void this.commitPendingCreate();
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      event.stopPropagation();
       this.cancelPendingCreate();
     }
   }
 
-  onPendingCreateFocusOut(event: FocusEvent): void {
-    if (this.pendingCreateSkipBlurCancel) {
+  onPendingCreateInputBlur(): void {
+    if (this.pendingCreateSkipBlurCommit) {
       return;
     }
-    const next = event.relatedTarget as Node | null;
-    const host = event.currentTarget as HTMLElement;
-    if (next && host.contains(next)) {
-      return;
+    if (this.pendingCreateBlurTimer !== null) {
+      clearTimeout(this.pendingCreateBlurTimer);
     }
-    setTimeout(() => {
-      if (this.pendingCreateSkipBlurCancel || !this.pendingCreate()) {
-        return;
-      }
-      const active = document.activeElement;
-      if (active && host.contains(active)) {
-        return;
-      }
-      this.cancelPendingCreate();
+    this.pendingCreateBlurTimer = setTimeout(() => {
+      this.pendingCreateBlurTimer = null;
+      void this.commitPendingCreate();
     }, 0);
   }
 
   cancelPendingCreate(): void {
+    if (this.pendingCreateBlurTimer !== null) {
+      clearTimeout(this.pendingCreateBlurTimer);
+      this.pendingCreateBlurTimer = null;
+    }
     this.pendingCreate.set(null);
     this.pendingCreateDraft.set('');
+  }
+
+  async commitPendingCreate(): Promise<void> {
+    const draft = this.pendingCreateDraft().trim();
+    if (!draft) {
+      this.cancelPendingCreate();
+      return;
+    }
+    await this.submitPendingCreate();
   }
 
   async submitPendingCreate(): Promise<void> {
@@ -515,7 +549,7 @@ export class WorkspaceComponent implements OnDestroy {
       return;
     }
     if (!draft) {
-      window.alert('Enter a name.');
+      this.cancelPendingCreate();
       return;
     }
     if (!isSafeNewFileRelativeName(draft)) {
@@ -538,26 +572,66 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  private beginPendingCreate(kind: 'file' | 'folder', parentDir: string): void {
+  private async beginPendingCreate(kind: 'file' | 'folder', parentDir: string): Promise<void> {
     this.cancelInlineRename();
     this.treeInteractionSuppressUntil = Date.now() + 600;
+    await this.ensureDirectoryExpanded(parentDir);
     this.pendingCreate.set({ kind, parentDir });
     this.pendingCreateDraft.set(kind === 'file' ? 'untitled.txt' : 'New folder');
     this.schedulePendingCreateFocus();
   }
 
+  private async ensureDirectoryExpanded(absoluteDir: string): Promise<void> {
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!ws?.path) {
+      return;
+    }
+    const rootNorm = normalizePathSlashes(ws.path).replace(/\/$/, '');
+    const dirNorm = normalizePathSlashes(absoluteDir).replace(/\/$/, '');
+    if (dirNorm === rootNorm) {
+      return;
+    }
+    const node = findFileNode(this.tree, absoluteDir);
+    if (!node?.isDirectory || node.expanded) {
+      return;
+    }
+    if (node.children === null) {
+      try {
+        const entries = await this.electron.readDirectory(node.path);
+        node.children = fileNodesFromDirectoryEntries(entries, node.depth + 1);
+      } catch {
+        node.children = [];
+      }
+    }
+    node.expanded = true;
+    this.rebuildFlat();
+  }
+
   private schedulePendingCreateFocus(): void {
-    this.pendingCreateSkipBlurCancel = true;
+    this.pendingCreateSkipBlurCommit = true;
     setTimeout(() => {
-      const el = document.querySelector('app-workspace .workspace-create-inline .workspace-create-input');
+      const el = document.querySelector(
+        'app-workspace .tree-node.is-pending-create input.tree-node-rename-input',
+      );
       if (el instanceof HTMLInputElement) {
         el.focus();
         el.select();
       }
+      document
+        .querySelector('app-workspace .tree-node.is-pending-create')
+        ?.scrollIntoView({ block: 'nearest' });
       setTimeout(() => {
-        this.pendingCreateSkipBlurCancel = false;
+        this.pendingCreateSkipBlurCommit = false;
       }, 0);
     }, 0);
+  }
+
+  protected isPendingCreateTreeNode(node: FlatNode): boolean {
+    return isPendingCreateTreeNode(node);
+  }
+
+  protected isTreeNodeInlineEditing(node: FlatNode): boolean {
+    return isPendingCreateTreeNode(node) || this.inlineRenamePath() === node.path;
   }
 
   onContextMenuAddToChat(): void {
@@ -570,7 +644,7 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   onTreeNodeDragStart(event: DragEvent, node: FlatNode): void {
-    if (this.inlineRenamePath() === node.path || !event.dataTransfer) {
+    if (this.isTreeNodeInlineEditing(node) || !event.dataTransfer) {
       event.preventDefault();
       return;
     }
@@ -658,6 +732,9 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   protected isTreeDropTarget(node: FlatNode): boolean {
+    if (isPendingCreateTreeNode(node)) {
+      return false;
+    }
     const targetDir = this.treeDropTargetDir();
     if (!targetDir) {
       return false;
@@ -775,6 +852,7 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   onRenameInputKeydown(event: KeyboardEvent): void {
+    event.stopPropagation();
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();
@@ -955,7 +1033,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (Date.now() < this.treeInteractionSuppressUntil) {
       return;
     }
-    if (this.inlineRenamePath() === node.path) {
+    if (this.isTreeNodeInlineEditing(node)) {
       return;
     }
     this.selectedPath.set(node.path);
@@ -969,7 +1047,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (Date.now() < this.treeInteractionSuppressUntil) {
       return;
     }
-    if (this.inlineRenamePath() === node.path) {
+    if (this.isTreeNodeInlineEditing(node)) {
       return;
     }
     this.selectedPath.set(node.path);
@@ -980,6 +1058,9 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   onTreeKeydown(event: KeyboardEvent): void {
+    if (this.pendingCreate() || this.inlineRenamePath()) {
+      return;
+    }
     const flat = this.flatTree();
     if (flat.length === 0) {
       return;

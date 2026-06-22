@@ -1,4 +1,9 @@
 <div class="workspace-monaco-host">
+  @if (detachedBanner()) {
+    <div class="workspace-monaco-detached alert alert-warning py-2 px-3 mb-0 rounded-0 border-start-0 border-end-0 border-top-0 small" role="status">
+      {{ detachedBanner() }}
+    </div>
+  }
   @if (loadError()) {
     <div class="workspace-monaco-error" role="alert">{{ loadError() }}</div>
   }

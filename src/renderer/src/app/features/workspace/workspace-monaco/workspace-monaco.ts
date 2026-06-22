@@ -33,6 +33,14 @@ import {
 import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import {
+  absolutePathFromModelKey,
+  displayPathForModelKey,
+  editorModelKeyForRelativePath,
+  isExternalModelKey,
+  type OpenEditorFileRef,
+  relativePathFromModelKey,
+} from '../open-editor-file-ref';
 import { PendingDiffReviewService, type BatchFinishFn, type BatchPartialFn } from '../../diff/pending-diff-review.service';
 import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
@@ -109,10 +117,10 @@ export class WorkspaceMonacoComponent {
 
   /** Absolute workspace root (empty when none). */
   readonly workspacePath = input<string>('');
-  /** Active file as POSIX relative path, or null when the conversation tab is selected. */
-  readonly relativePath = input<string | null>(null);
-  /** Relative paths of all open file tabs; models for closed tabs are disposed. */
-  readonly openFileRelativePaths = input<readonly string[]>([]);
+  /** Active editor model key (`rel:…` or `abs:…`), or null when no file tab is selected. */
+  readonly activeModelKey = input<string | null>(null);
+  /** Open file tabs Monaco should keep models for. */
+  readonly openEditorFiles = input<readonly OpenEditorFileRef[]>([]);
   /** Persisted Monaco options from app config (optional until loaded). */
   readonly editorSettings = input<MonacoWorkspaceEditorSettings | null | undefined>(undefined);
   /** Pending diff for this path from the shell (same artifact as chat review). */
@@ -123,8 +131,16 @@ export class WorkspaceMonacoComponent {
   /** After cross-file go-to-definition: reveal cursor once this path is the active editor model. */
   readonly pendingEditorReveal = input<{ relativePath: string; line: number; column: number } | null>(null);
 
-  /** Relative paths whose buffer differs from the last disk-synced version (unsaved). */
+  /** Model keys whose buffer differs from the last disk-synced version (unsaved). */
   readonly unsavedPathsChange = output<readonly string[]>();
+  readonly detachedPathsChange = output<readonly string[]>();
+  readonly outsideWorkspacePathsChange = output<readonly string[]>();
+  readonly saveAsCompleted = output<{
+    oldModelKey: string;
+    relativePath?: string;
+    absolutePath?: string;
+    outsideWorkspace: boolean;
+  }>();
   readonly diffReviewFinished = output<{
     relativePath: string;
     status: 'complete' | 'cancelled';
@@ -145,20 +161,21 @@ export class WorkspaceMonacoComponent {
   readonly pendingEditorRevealHandled = output<void>();
 
   protected readonly loadError = signal('');
+  protected readonly detachedBanner = signal('');
   protected readonly applyMessage = signal('');
   /** Notes when returning a staged transfer for re-review (matches chat diff card). */
   protected readonly reReviewFeedback = signal('');
   /** Block inline diff until the buffer matches disk (policy: save or revert first). */
   protected readonly pendingDiffBlockedByDirty = computed(() => {
     const pending = this.pendingDiffPayload();
-    const rel = this.relativePath()?.trim();
+    const rel = relativePathFromModelKey(this.activeModelKey()?.trim() ?? '');
     if (!pending || !rel?.trim()) {
       return false;
     }
     if (normalizePathSlashes(pending.relativePath) !== normalizePathSlashes(rel)) {
       return false;
     }
-    const key = normalizePathSlashes(rel);
+    const key = editorModelKeyForRelativePath(rel);
     const model = this.modelByPath.get(key);
     const synced = this.diskSyncedAltVersionByPath.get(key);
     return !!(model && synced !== undefined && model.getAlternativeVersionId() !== synced);
@@ -166,7 +183,7 @@ export class WorkspaceMonacoComponent {
 
   protected readonly monacoDiffActive = computed(() => {
     const pending = this.pendingDiffPayload();
-    const rel = this.relativePath()?.trim();
+    const rel = relativePathFromModelKey(this.activeModelKey()?.trim() ?? '');
     if (!pending || !rel?.trim()) {
       return false;
     }
@@ -185,8 +202,12 @@ export class WorkspaceMonacoComponent {
   /** Sanitized preview HTML (DOMPurify in {@link renderMarkdownDoc}; Angular sanitizer bypassed). */
   protected readonly mdPreviewHtml = signal<SafeHtml>('');
   protected readonly isMarkdownFile = computed(() => {
-    const rel = this.relativePath()?.trim();
-    return !!rel && rel.toLowerCase().endsWith('.md');
+    const key = this.activeModelKey()?.trim();
+    if (!key) {
+      return false;
+    }
+    const path = displayPathForModelKey(key);
+    return path.toLowerCase().endsWith('.md');
   });
   /** Session-scoped view-mode memory per file (default: edit). */
   private readonly mdViewModeByPath = new Map<string, 'edit' | 'preview'>();
@@ -207,6 +228,11 @@ export class WorkspaceMonacoComponent {
   private readonly modelByPath = new Map<string, Monaco.editor.ITextModel>();
   private readonly diskSyncedAltVersionByPath = new Map<string, number>();
   private readonly modelDirtyDisposables = new Map<string, Monaco.IDisposable>();
+  private readonly fileRefByKey = new Map<string, OpenEditorFileRef>();
+  private readonly detachedByKey = new Map<
+    string,
+    { tempAbsolutePath: string; snapshotAltVersionId: number; defaultRelativePath: string }
+  >();
   private lspHoverDisposables: Monaco.IDisposable[] = [];
   private lspLanguageDisposable: Monaco.IDisposable | null = null;
 
@@ -214,11 +240,15 @@ export class WorkspaceMonacoComponent {
     afterNextRender(() => void this.bootstrapEditor());
 
     effect(() => {
-      const open = [...this.openFileRelativePaths()];
+      const open = this.openEditorFiles().map((f) => f.modelKey);
+      const refs = this.openEditorFiles();
       if (!this.monaco) {
         return;
       }
       untracked(() => {
+        for (const ref of refs) {
+          this.fileRefByKey.set(ref.modelKey, ref);
+        }
         for (const [key, model] of this.modelByPath) {
           if (!open.includes(key)) {
             if (this.editor?.getModel() === model) {
@@ -229,14 +259,19 @@ export class WorkspaceMonacoComponent {
             model.dispose();
             this.modelByPath.delete(key);
             this.diskSyncedAltVersionByPath.delete(key);
+            void this.cleanupDetachedSnapshot(key);
+            this.detachedByKey.delete(key);
+            this.fileRefByKey.delete(key);
           }
         }
+        this.emitDetachedPaths();
+        this.emitOutsideWorkspacePaths();
         this.emitDirtyPaths();
       });
     });
 
     effect(() => {
-      const rel = this.relativePath();
+      const key = this.activeModelKey()?.trim();
       const root = this.workspacePath()?.trim();
       const ready = this.editorReady();
       const diffOn = this.monacoDiffActive();
@@ -246,12 +281,15 @@ export class WorkspaceMonacoComponent {
       if (!ready || !ed || !monacoApi) {
         return;
       }
-      if (!rel?.trim() || !root) {
-        untracked(() => this.loadError.set(''));
+      if (!key || !root) {
+        untracked(() => {
+          this.loadError.set('');
+          this.detachedBanner.set('');
+        });
         return;
       }
-      const key = normalizePathSlashes(rel.trim());
-      if (diffOn && pending) {
+      const rel = relativePathFromModelKey(key);
+      if (diffOn && pending && rel) {
         const s = this.pendingDiffReview.sessionFor(pending);
         s.accepted();
         s.skipped();
@@ -259,7 +297,7 @@ export class WorkspaceMonacoComponent {
       } else {
         untracked(() => {
           this.disposeDiffSurface();
-          void this.syncActiveModel(root, rel.trim());
+          void this.syncActiveModel(root, key);
         });
       }
     });
@@ -294,9 +332,9 @@ export class WorkspaceMonacoComponent {
         return;
       }
       untracked(() => {
-        const rel = this.relativePath()?.trim();
-        if (rel) {
-          this.mdViewModeByPath.set(normalizePathSlashes(rel), 'edit');
+        const key = this.activeModelKey()?.trim();
+        if (key) {
+          this.mdViewModeByPath.set(key, 'edit');
         }
         this.exitMdPreview(false);
       });
@@ -316,11 +354,12 @@ export class WorkspaceMonacoComponent {
 
     effect(() => {
       const pending = this.pendingEditorReveal();
-      const rel = this.relativePath()?.trim();
+      const key = this.activeModelKey()?.trim();
+      const rel = key ? relativePathFromModelKey(key) : null;
       const ready = this.editorReady();
       const ed = this.editor;
       const diffOn = this.monacoDiffActive();
-      if (!pending || !rel?.trim() || !ready || !ed || diffOn) {
+      if (!pending || !rel?.trim() || !key || !ready || !ed || diffOn) {
         return;
       }
       if (normalizePathSlashes(rel) !== normalizePathSlashes(pending.relativePath)) {
@@ -360,6 +399,8 @@ export class WorkspaceMonacoComponent {
       }
       this.modelByPath.clear();
       this.diskSyncedAltVersionByPath.clear();
+      this.detachedByKey.clear();
+      this.fileRefByKey.clear();
       this.editor?.dispose();
       this.editor = null;
       this.monaco = null;
@@ -509,11 +550,10 @@ export class WorkspaceMonacoComponent {
   }
 
   protected setMdViewMode(mode: 'edit' | 'preview'): void {
-    const rel = this.relativePath()?.trim();
-    if (!rel || !this.isMarkdownFile()) {
+    const key = this.activeModelKey()?.trim();
+    if (!key || !this.isMarkdownFile()) {
       return;
     }
-    const key = normalizePathSlashes(rel);
     this.mdViewModeByPath.set(key, mode);
     if (mode === 'preview') {
       this.enterMdPreview(key);
@@ -595,7 +635,8 @@ export class WorkspaceMonacoComponent {
     if (!model || model.isDisposed() || !root) {
       return;
     }
-    const html = renderMarkdownDoc(model.getValue(), { workspaceRoot: root, fileRelativePath: key });
+    const rel = relativePathFromModelKey(key) ?? displayPathForModelKey(key);
+    const html = renderMarkdownDoc(model.getValue(), { workspaceRoot: root, fileRelativePath: rel });
     this.mdPreviewHtml.set(this.sanitizer.bypassSecurityTrustHtml(html));
   }
 
@@ -728,50 +769,201 @@ export class WorkspaceMonacoComponent {
         if (p.startsWith('[staging] ')) {
           continue;
         }
-        const k = normalizePathSlashes(p);
-        if (this.modelByPath.has(k)) {
+        const relKey = editorModelKeyForRelativePath(normalizePathSlashes(p));
+        if (this.modelByPath.has(relKey)) {
+          keys.add(relKey);
+        }
+      }
+      for (const k of this.modelByPath.keys()) {
+        if (!isExternalModelKey(k) && !this.detachedByKey.has(k)) {
           keys.add(k);
         }
       }
     }
 
     for (const key of keys) {
+      if (isExternalModelKey(key) || this.detachedByKey.has(key)) {
+        continue;
+      }
+      void this.ensureWorkspaceLink(key);
       void this.reloadModelFromDiskIfUnmodified(key);
     }
   }
 
-  private async reloadModelFromDiskIfUnmodified(relativeKey: string): Promise<void> {
+  private async ensureWorkspaceLink(modelKey: string): Promise<void> {
+    if (isExternalModelKey(modelKey) || this.detachedByKey.has(modelKey)) {
+      return;
+    }
+    const rel = relativePathFromModelKey(modelKey);
+    const root = this.workspacePath()?.trim();
+    if (!rel || !root) {
+      return;
+    }
+    const res = await this.electron.workspaceFileExists(root, rel);
+    if (!res.ok) {
+      return;
+    }
+    if (!res.exists || !res.isFile) {
+      await this.detachModel(modelKey, rel);
+    }
+  }
+
+  private async detachModel(modelKey: string, defaultRelativePath: string): Promise<void> {
+    if (this.detachedByKey.has(modelKey)) {
+      return;
+    }
+    const model = this.modelByPath.get(modelKey);
+    if (!model || model.isDisposed()) {
+      return;
+    }
+    const snap = await this.electron.writeEditorDetachedSnapshot(model.getValue());
+    if (!snap.ok || !snap.path) {
+      this.loadError.set(snap.error ?? 'Failed to snapshot detached file.');
+      return;
+    }
+    const alt = model.getAlternativeVersionId();
+    this.detachedByKey.set(modelKey, {
+      tempAbsolutePath: snap.path,
+      snapshotAltVersionId: alt,
+      defaultRelativePath,
+    });
+    this.emitDetachedPaths();
+    this.updateDetachedBanner(modelKey);
+    this.emitDirtyPaths();
+  }
+
+  private updateDetachedBanner(modelKey: string): void {
+    if (this.activeModelKey()?.trim() === modelKey) {
+      this.detachedBanner.set('This file no longer exists at this path. Save to choose a location.');
+      this.loadError.set('');
+    }
+  }
+
+  private async cleanupDetachedSnapshot(modelKey: string): Promise<void> {
+    const d = this.detachedByKey.get(modelKey);
+    if (!d) {
+      return;
+    }
+    await this.electron.deleteEditorDetachedSnapshot(d.tempAbsolutePath);
+  }
+
+  private emitDetachedPaths(): void {
+    const list = [...this.detachedByKey.keys()].sort();
+    this.zone.run(() => this.detachedPathsChange.emit(list));
+  }
+
+  private emitOutsideWorkspacePaths(): void {
+    const list = [...this.fileRefByKey.entries()]
+      .filter(([, ref]) => ref.outsideWorkspace)
+      .map(([k]) => k)
+      .sort();
+    this.zone.run(() => this.outsideWorkspacePathsChange.emit(list));
+  }
+
+  /** Shell: close tab after discard — remove temp snapshot for a detached key. */
+  async cleanupDetachedForKey(modelKey: string): Promise<void> {
+    await this.cleanupDetachedSnapshot(modelKey);
+    this.detachedByKey.delete(modelKey);
+    this.emitDetachedPaths();
+    if (this.activeModelKey()?.trim() === modelKey) {
+      this.detachedBanner.set('');
+    }
+  }
+
+  isDetachedKey(modelKey: string): boolean {
+    return this.detachedByKey.has(modelKey);
+  }
+
+  /** Shell: Save As for detached/dirty tab; returns new model key when saved. */
+  async saveAsForKey(modelKey: string): Promise<string | null> {
+    return this.promptSaveAs(modelKey);
+  }
+
+  private retargetModelKey(fromKey: string, toKey: string): void {
+    if (fromKey === toKey) {
+      return;
+    }
+    const model = this.modelByPath.get(fromKey);
+    if (!model || model.isDisposed()) {
+      return;
+    }
+    this.modelByPath.delete(fromKey);
+    this.modelByPath.set(toKey, model);
+    const synced = this.diskSyncedAltVersionByPath.get(fromKey);
+    if (synced !== undefined) {
+      this.diskSyncedAltVersionByPath.set(toKey, synced);
+      this.diskSyncedAltVersionByPath.delete(fromKey);
+    }
+    const dirty = this.modelDirtyDisposables.get(fromKey);
+    if (dirty) {
+      dirty.dispose();
+      this.modelDirtyDisposables.delete(fromKey);
+      this.ensureModelDirtyListener(toKey, model);
+    }
+    const mdMode = this.mdViewModeByPath.get(fromKey);
+    if (mdMode) {
+      this.mdViewModeByPath.set(toKey, mdMode);
+      this.mdViewModeByPath.delete(fromKey);
+    }
+    void this.cleanupDetachedSnapshot(fromKey);
+    this.detachedByKey.delete(fromKey);
+    const ref = this.fileRefByKey.get(fromKey);
+    if (ref) {
+      this.fileRefByKey.delete(fromKey);
+      const rel = relativePathFromModelKey(toKey);
+      this.fileRefByKey.set(toKey, {
+        ...ref,
+        modelKey: toKey,
+        relativePath: rel ?? ref.relativePath,
+        absolutePath: undefined,
+        outsideWorkspace: false,
+      });
+    }
+    this.emitDetachedPaths();
+    this.emitOutsideWorkspacePaths();
+    this.emitDirtyPaths();
+  }
+
+  private async reloadModelFromDiskIfUnmodified(modelKey: string): Promise<void> {
     const monacoApi = this.monaco;
     const root = this.workspacePath()?.trim();
-    const model = this.modelByPath.get(relativeKey);
+    const model = this.modelByPath.get(modelKey);
     if (!monacoApi || !root || !model || model.isDisposed()) {
       return;
     }
+    if (isExternalModelKey(modelKey) || this.detachedByKey.has(modelKey)) {
+      return;
+    }
+    const rel = relativePathFromModelKey(modelKey);
+    if (!rel) {
+      return;
+    }
 
-    let baseline = this.diskSyncedAltVersionByPath.get(relativeKey);
+    let baseline = this.diskSyncedAltVersionByPath.get(modelKey);
     if (baseline === undefined) {
       baseline = model.getAlternativeVersionId();
-      this.diskSyncedAltVersionByPath.set(relativeKey, baseline);
+      this.diskSyncedAltVersionByPath.set(modelKey, baseline);
     }
     if (model.getAlternativeVersionId() !== baseline) {
       return;
     }
 
-    const res = await this.electron.readWorkspaceFile(root, relativeKey);
-    const activeKey = this.relativePath()?.trim() ? normalizePathSlashes(this.relativePath()!.trim()) : '';
+    const res = await this.electron.readWorkspaceFile(root, rel);
+    const activeKey = this.activeModelKey()?.trim() ?? '';
 
     if (!res.ok || res.content === undefined) {
-      if (relativeKey === activeKey) {
-        this.loadError.set(res.error ?? 'File is no longer available.');
-      }
+      await this.detachModel(modelKey, rel);
       return;
     }
 
-    this.loadError.set('');
+    if (modelKey === activeKey) {
+      this.loadError.set('');
+      this.detachedBanner.set('');
+    }
     if (model.getValue() !== res.content) {
       model.setValue(res.content);
     }
-    this.diskSyncedAltVersionByPath.set(relativeKey, model.getAlternativeVersionId());
+    this.diskSyncedAltVersionByPath.set(modelKey, model.getAlternativeVersionId());
     this.emitDirtyPaths();
   }
 
@@ -956,7 +1148,7 @@ export class WorkspaceMonacoComponent {
   private workspaceRelativePathForModel(model: Monaco.editor.ITextModel): string | undefined {
     for (const [k, m] of this.modelByPath) {
       if (m === model) {
-        return k;
+        return relativePathFromModelKey(k) ?? undefined;
       }
     }
     return undefined;
@@ -993,7 +1185,7 @@ export class WorkspaceMonacoComponent {
     let relKey: string | undefined;
     for (const [k, m] of this.modelByPath) {
       if (m === model) {
-        relKey = k;
+        relKey = relativePathFromModelKey(k) ?? undefined;
         break;
       }
     }
@@ -1038,13 +1230,14 @@ export class WorkspaceMonacoComponent {
     this.diffMountedPayloadKey = '';
   }
 
-  private async mountOrUpdateDiffEditor(workspaceRoot: string, key: string, payload: FileDiffPayload): Promise<void> {
+  private async mountOrUpdateDiffEditor(workspaceRoot: string, modelKey: string, payload: FileDiffPayload): Promise<void> {
     const monacoApi = this.monaco;
     if (!monacoApi) {
       return;
     }
     const payloadKey = this.pendingDiffReview.sessionKey(payload);
-    const wsModel = await this.getOrCreateWorkspaceModel(workspaceRoot, key);
+    const wsModel = await this.getOrCreateModel(workspaceRoot, modelKey);
+    const displayPath = relativePathFromModelKey(modelKey) ?? displayPathForModelKey(modelKey);
     const baseline =
       typeof payload.fullOriginalContent === 'string'
         ? payload.fullOriginalContent
@@ -1056,7 +1249,7 @@ export class WorkspaceMonacoComponent {
 
     const session = this.pendingDiffReview.sessionFor(payload);
     const modifiedText = mergedContentForDiffPreview(payload, session.accepted(), session.skipped());
-    const lang = this.languageIdForPath(monacoApi, key);
+    const lang = this.languageIdForPath(monacoApi, displayPath);
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
     const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
 
@@ -1080,12 +1273,12 @@ export class WorkspaceMonacoComponent {
       this.diffOriginalModel = monacoApi.editor.createModel(
         baseline,
         lang,
-        monacoApi.Uri.parse(`clara-diff-org://${encodeURI(key)}`),
+        monacoApi.Uri.parse(`clara-diff-org://${encodeURI(displayPath)}`),
       );
       this.diffModifiedModel = monacoApi.editor.createModel(
         modifiedText,
         lang,
-        monacoApi.Uri.parse(`clara-diff-mod://${encodeURI(key)}`),
+        monacoApi.Uri.parse(`clara-diff-mod://${encodeURI(displayPath)}`),
       );
       this.diffEditor.setModel({
         original: this.diffOriginalModel,
@@ -1129,52 +1322,91 @@ export class WorkspaceMonacoComponent {
   }
 
   /**
-   * Loads or creates the workspace text model for {@param relativeKey} without attaching the standalone editor.
+   * Loads or creates a text model for {@param modelKey} without attaching the standalone editor.
    */
-  private async getOrCreateWorkspaceModel(workspaceRoot: string, relativeKey: string): Promise<Monaco.editor.ITextModel | null> {
+  private async getOrCreateModel(workspaceRoot: string, modelKey: string): Promise<Monaco.editor.ITextModel | null> {
     const monacoApi = this.monaco;
     if (!monacoApi) {
       return null;
     }
-    let model = this.modelByPath.get(relativeKey);
+    let model = this.modelByPath.get(modelKey);
     if (!model || model.isDisposed()) {
       this.loadError.set('');
-      const res = await this.electron.readWorkspaceFile(workspaceRoot, relativeKey);
-      if (!res.ok || res.content === undefined) {
-        this.loadError.set(res.error ?? 'Failed to read file.');
-        return null;
+      const ref = this.fileRefByKey.get(modelKey);
+      const displayPath = displayPathForModelKey(modelKey);
+      let content: string | undefined;
+      if (isExternalModelKey(modelKey)) {
+        const abs = absolutePathFromModelKey(modelKey) ?? ref?.absolutePath;
+        if (!abs) {
+          this.loadError.set('No external file path.');
+          return null;
+        }
+        const res = await this.electron.readAbsoluteFile(abs);
+        if (!res.ok || res.content === undefined) {
+          this.loadError.set(res.error ?? 'Failed to read file.');
+          return null;
+        }
+        content = res.content;
+      } else if (this.detachedByKey.has(modelKey)) {
+        const d = this.detachedByKey.get(modelKey)!;
+        const res = await this.electron.readAbsoluteFile(d.tempAbsolutePath);
+        if (!res.ok || res.content === undefined) {
+          this.loadError.set(res.error ?? 'Failed to read detached snapshot.');
+          return null;
+        }
+        content = res.content;
+      } else {
+        const rel = relativePathFromModelKey(modelKey);
+        if (!rel) {
+          return null;
+        }
+        const res = await this.electron.readWorkspaceFile(workspaceRoot, rel);
+        if (!res.ok || res.content === undefined) {
+          if (this.modelByPath.has(modelKey)) {
+            await this.detachModel(modelKey, rel);
+            return this.modelByPath.get(modelKey) ?? null;
+          }
+          this.loadError.set(res.error ?? 'Failed to read file.');
+          return null;
+        }
+        content = res.content;
       }
-      const lang = this.languageIdForPath(monacoApi, relativeKey);
-      const uri = monacoApi.Uri.parse(`clara-workspace:///${encodeURI(relativeKey)}`);
-      model = monacoApi.editor.createModel(res.content, lang, uri);
-      this.modelByPath.set(relativeKey, model);
-      this.diskSyncedAltVersionByPath.set(relativeKey, model.getAlternativeVersionId());
+      const lang = this.languageIdForPath(monacoApi, displayPath);
+      const uri = isExternalModelKey(modelKey)
+        ? monacoApi.Uri.parse(`clara-external:///${encodeURI(absolutePathFromModelKey(modelKey) ?? displayPath)}`)
+        : monacoApi.Uri.parse(`clara-workspace:///${encodeURI(relativePathFromModelKey(modelKey) ?? displayPath)}`);
+      model = monacoApi.editor.createModel(content, lang, uri);
+      this.modelByPath.set(modelKey, model);
+      this.diskSyncedAltVersionByPath.set(modelKey, model.getAlternativeVersionId());
     }
-    this.ensureModelDirtyListener(relativeKey, model);
+    this.ensureModelDirtyListener(modelKey, model);
     return model;
   }
 
-  private async syncActiveModel(workspaceRoot: string, relativePath: string): Promise<void> {
+  private async syncActiveModel(workspaceRoot: string, modelKey: string): Promise<void> {
     const monacoApi = this.monaco;
     const ed = this.editor;
     if (!monacoApi || !ed) {
       return;
     }
-    const key = normalizePathSlashes(relativePath);
-    const model = await this.getOrCreateWorkspaceModel(workspaceRoot, key);
+    const model = await this.getOrCreateModel(workspaceRoot, modelKey);
     if (!model) {
       return;
     }
+    if (this.detachedByKey.has(modelKey)) {
+      this.updateDetachedBanner(modelKey);
+    } else {
+      this.detachedBanner.set('');
+    }
     this.loadError.set('');
     ed.setModel(model);
-    // Models are created before attach; toggling semantic highlighting after `setModel`
-    // ensures the feature attaches (monaco-editor#1833 / configuration event ordering).
     ed.updateOptions({
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
-    const mdMode = this.mdViewModeByPath.get(key) ?? 'edit';
-    if (key.toLowerCase().endsWith('.md') && mdMode === 'preview') {
-      this.enterMdPreview(key);
+    const mdMode = this.mdViewModeByPath.get(modelKey) ?? 'edit';
+    const displayPath = displayPathForModelKey(modelKey);
+    if (displayPath.toLowerCase().endsWith('.md') && mdMode === 'preview') {
+      this.enterMdPreview(modelKey);
     } else {
       this.exitMdPreview(false);
       ed.focus();
@@ -1182,26 +1414,102 @@ export class WorkspaceMonacoComponent {
     this.emitDirtyPaths();
   }
 
+  private async promptSaveAs(modelKey: string): Promise<string | null> {
+    const root = this.workspacePath()?.trim();
+    const model = this.modelByPath.get(modelKey);
+    if (!root || !model || model.isDisposed()) {
+      return null;
+    }
+    const detached = this.detachedByKey.get(modelKey);
+    const defaultRel =
+      detached?.defaultRelativePath ??
+      relativePathFromModelKey(modelKey) ??
+      displayPathForModelKey(modelKey);
+    const content = model.getValue();
+    const res = await this.electron.promptSaveEditorFile(root, defaultRel, content);
+    if (!res.ok) {
+      if (!res.cancelled) {
+        this.loadError.set(res.error ?? 'Save failed.');
+      }
+      return null;
+    }
+    await this.cleanupDetachedSnapshot(modelKey);
+    this.detachedByKey.delete(modelKey);
+    this.emitDetachedPaths();
+    this.detachedBanner.set('');
+
+    const oldKey = modelKey;
+    let newKey = oldKey;
+    if (res.outsideWorkspace && res.absolutePath) {
+      newKey = `abs:${normalizePathSlashes(res.absolutePath)}`;
+    } else if (res.relativePath) {
+      newKey = editorModelKeyForRelativePath(res.relativePath);
+    }
+
+    if (newKey !== oldKey) {
+      this.retargetModelKey(oldKey, newKey);
+      this.fileRefByKey.set(newKey, {
+        modelKey: newKey,
+        relativePath: res.relativePath,
+        absolutePath: res.absolutePath,
+        outsideWorkspace: !!res.outsideWorkspace,
+      });
+    } else {
+      this.diskSyncedAltVersionByPath.set(oldKey, model.getAlternativeVersionId());
+    }
+
+    this.emitOutsideWorkspacePaths();
+    this.emitDirtyPaths();
+    this.loadError.set('');
+    this.zone.run(() =>
+      this.saveAsCompleted.emit({
+        oldModelKey: oldKey,
+        relativePath: res.relativePath,
+        absolutePath: res.absolutePath,
+        outsideWorkspace: !!res.outsideWorkspace,
+      }),
+    );
+    return newKey;
+  }
+
   private async saveCurrent(): Promise<void> {
-    const monacoApi = this.monaco;
     const ed = this.editor;
     const root = this.workspacePath()?.trim();
-    const rel = this.relativePath()?.trim();
-    if (!monacoApi || !ed || !root || !rel) {
+    const modelKey = this.activeModelKey()?.trim();
+    if (!ed || !root || !modelKey) {
       return;
     }
-    const key = normalizePathSlashes(rel);
     const model = ed.getModel();
-    if (!model || this.modelByPath.get(key) !== model) {
+    if (!model || this.modelByPath.get(modelKey) !== model) {
+      return;
+    }
+    if (this.detachedByKey.has(modelKey)) {
+      await this.promptSaveAs(modelKey);
       return;
     }
     const content = model.getValue();
-    const res = await this.electron.writeWorkspaceFile(root, key, content);
-    if (!res.ok) {
-      this.loadError.set(res.error ?? 'Save failed.');
-      return;
+    if (isExternalModelKey(modelKey)) {
+      const abs = absolutePathFromModelKey(modelKey);
+      if (!abs) {
+        return;
+      }
+      const res = await this.electron.writeAbsoluteFile(abs, content);
+      if (!res.ok) {
+        this.loadError.set(res.error ?? 'Save failed.');
+        return;
+      }
+    } else {
+      const rel = relativePathFromModelKey(modelKey);
+      if (!rel) {
+        return;
+      }
+      const res = await this.electron.writeWorkspaceFile(root, rel, content);
+      if (!res.ok) {
+        this.loadError.set(res.error ?? 'Save failed.');
+        return;
+      }
     }
-    this.diskSyncedAltVersionByPath.set(key, model.getAlternativeVersionId());
+    this.diskSyncedAltVersionByPath.set(modelKey, model.getAlternativeVersionId());
     this.loadError.set('');
     this.emitDirtyPaths();
   }

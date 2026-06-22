@@ -127,36 +127,6 @@
   color: var(--t-text-muted);
 }
 
-.context-capacity__model {
-  font-size: 0.8rem;
-  color: var(--t-primary);
-  max-width: min(48vw, 26rem);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.context-capacity__model-select {
-  max-width: min(52vw, 28rem);
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: 0.12rem 1.6rem 0.12rem 0.35rem;
-  font-size: 0.8rem;
-  font-family: inherit;
-  color: var(--t-primary);
-  background-color: color-mix(in srgb, var(--t-bg, #111) 88%, var(--t-primary) 6%);
-  border: 1px solid color-mix(in srgb, var(--t-border) 85%, var(--t-primary) 15%);
-  border-radius: 0.35rem;
-  cursor: pointer;
-  text-overflow: ellipsis;
-}
-
-.context-capacity__model-select:focus {
-  outline: none;
-  border-color: var(--t-primary);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-primary) 35%, transparent);
-}
-
 .context-capacity__metrics {
   font-size: 0.82rem;
   color: var(--t-text-muted);

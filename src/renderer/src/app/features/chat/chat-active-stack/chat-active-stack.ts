@@ -12,7 +12,6 @@ import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { MessageBox } from '../message-box/message-box';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
 import { StatusBarComponent } from '../../status/status-bar/status-bar';
-import type { LlmModelPresetOption } from '../../status/context-capacity/context-capacity';
 
 export type ChatLayoutMode = 'sidebar' | 'expanded';
 
@@ -97,10 +96,6 @@ export class ChatActiveStackComponent {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
-  readonly modelName = input('Unknown model');
-  readonly modelPresetOptions = input<LlmModelPresetOption[]>([]);
-  readonly activeLlmModelId = input('');
-  readonly activeLlmModelChange = output<string>();
   readonly editorMode = model(true);
   readonly autoApplyMode = model(false);
 }

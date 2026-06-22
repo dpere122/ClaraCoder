@@ -567,7 +567,7 @@ export class Settings implements OnInit, OnDestroy {
 
     const unsaved = await this.electron.getWorkspaceMonacoUnsavedPaths();
     if (unsaved.length > 0) {
-      const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
+      const proceed = (await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved))) === 'confirm';
       if (!proceed) {
         return;
       }
@@ -575,7 +575,7 @@ export class Settings implements OnInit, OnDestroy {
 
     const pending = await this.electron.getPendingStreamIdsForWorkspace(fromWorkspaceId);
     if (pending.length > 0) {
-      const proceed = await this.themedConfirm.open(activeStreamWorkspaceSwitchPrompt(pending.length));
+      const proceed = (await this.themedConfirm.open(activeStreamWorkspaceSwitchPrompt(pending.length))) === 'confirm';
       if (!proceed) {
         return;
       }

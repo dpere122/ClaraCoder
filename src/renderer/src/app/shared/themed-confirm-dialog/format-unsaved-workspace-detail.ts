@@ -41,6 +41,18 @@ export function activeStreamWorkspaceSwitchPrompt(count: number): ThemedConfirmO
   };
 }
 
+export function detachedFileClosePrompt(relativePath: string): ThemedConfirmOpenOptions {
+  return {
+    title: 'File removed from workspace',
+    message: 'This file was deleted or moved on disk. Save it elsewhere, discard your edits, or keep editing.',
+    detail: `File:\n${relativePath}`,
+    cancelText: 'Keep editing',
+    middleText: 'Save As…',
+    confirmText: 'Discard',
+    variant: 'warning',
+  };
+}
+
 /** Copy for closing a single workspace file tab that still has editor buffer changes. */
 export function unsavedCloseFileTabPrompt(relativePath: string): ThemedConfirmOpenOptions {
   return {

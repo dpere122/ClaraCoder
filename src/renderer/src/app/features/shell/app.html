@@ -51,23 +51,34 @@
         <div class='chat-area__tabs' role='presentation'>
         <div class='chat-area__tab-strip' role='tablist' aria-label='Open files'>
           <div class='chat-area__tab-strip-tabs'>
-          @for (tab of fileTabs(); track tab.relativePath) {
+          @for (tab of fileTabs(); track fileTabIdForTab(tab)) {
             <button
               type='button'
               class='chat-main-tab'
               role='tab'
-              [attr.aria-selected]='activeMainTabId() === fileTabIdForPath(tab.relativePath)'
-              [class.chat-main-tab--active]='activeMainTabId() === fileTabIdForPath(tab.relativePath)'
-              (click)='selectMainTab(fileTabIdForPath(tab.relativePath))'
+              [attr.aria-selected]='activeMainTabId() === fileTabIdForTab(tab)'
+              [class.chat-main-tab--active]='activeMainTabId() === fileTabIdForTab(tab)'
+              [class.chat-main-tab--detached]='fileTabIsDetached(chatFileTabModelKey(tab))'
+              (click)='selectMainTab(fileTabIdForTab(tab))'
+              [attr.title]='fileTabTitle(tab)'
             >
-              <span class='chat-main-tab-label'>{{ fileTabBasenameForPath(tab.relativePath) }}</span>
-              @if (fileTabIsUnsaved(tab.relativePath)) {
+              @if (tab.outsideWorkspace) {
+                <lucide-icon
+                  name='triangle-alert'
+                  [size]='14'
+                  class='chat-main-tab-outside-warn'
+                  aria-label='This file is outside of the workspace.'
+                  title='This file is outside of the workspace.'
+                ></lucide-icon>
+              }
+              <span class='chat-main-tab-label'>{{ fileTabBasenameForTab(tab) }}</span>
+              @if (fileTabIsUnsaved(chatFileTabModelKey(tab))) {
                 <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
               }
               <span
                 class='chat-main-tab-close'
                 role='presentation'
-                (click)='closeMainFileTab($event, fileTabIdForPath(tab.relativePath))'
+                (click)='closeMainFileTab($event, fileTabIdForTab(tab))'
                 title='Close tab'
               >&times;</span>
             </button>
@@ -92,14 +103,16 @@
             <app-workspace-monaco
               class='chat-area__panel-host'
               [workspacePath]='currentWorkspacePath()'
-              [relativePath]='monacoActiveFileRelativePath()'
-              [openFileRelativePaths]='monacoOpenFileRelativePaths()'
+              [activeModelKey]='monacoActiveModelKey()'
+              [openEditorFiles]='monacoOpenEditorFiles()'
               [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
               [pendingDiffPayload]='pendingDiffForActiveEditor()'
               [pendingStagedTransferBatch]='pendingStagedTransferBatchForActiveEditor()'
               [conversationId]='activeConversationId()'
               [pendingEditorReveal]='monacoRevealPending()'
               (unsavedPathsChange)='onMonacoUnsavedPathsChange($event)'
+              (detachedPathsChange)='onMonacoDetachedPathsChange($event)'
+              (saveAsCompleted)='onMonacoSaveAsCompleted($event)'
               (diffReviewFinished)='onDiffReviewFinished($event)'
               (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
               (stagedTransferBatchFileResolved)='onStagedTransferBatchFileResolved($event)'
@@ -163,10 +176,6 @@
                 [remainingTokens]='contextCapacity().remainingTokens'
                 [usedPercentage]='contextCapacity().usedPercentage'
                 [compressionNotice]='activeContextStatusNotice()'
-                [modelName]='activeLlmModelDisplayName()'
-                [modelPresetOptions]='llmModelPresetOptions()'
-                [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'
-                (activeLlmModelChange)='onActiveLlmModelChange($event)'
                 [(editorMode)]='editorMode'
                 [(autoApplyMode)]='autoApplyMode'
               />
@@ -237,10 +246,6 @@
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
         [compressionNotice]='activeContextStatusNotice()'
-        [modelName]='activeLlmModelDisplayName()'
-        [modelPresetOptions]='llmModelPresetOptions()'
-        [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'
-        (activeLlmModelChange)='onActiveLlmModelChange($event)'
         [(editorMode)]='editorMode'
         [(autoApplyMode)]='autoApplyMode'
       />

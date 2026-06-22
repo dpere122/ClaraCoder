@@ -8,6 +8,7 @@ import { registerScriptsIpc } from './handlers/scripts';
 import { registerWorkspacePtyIpc } from './handlers/workspace-pty';
 import { registerWorkspaceReadIpc } from './handlers/workspace-read';
 import { registerWorkspaceWriteIpc } from './handlers/workspace-write';
+import { registerWorkspaceEditorSnapshotIpc } from './handlers/workspace-editor-snapshot';
 import { registerHealthIpc } from './handlers/health';
 import { registerHealthWindowIpc } from '../windows/health-window';
 import { registerWindowChromeIpc } from './handlers/window-chrome';
@@ -33,6 +34,7 @@ export function registerAllIpc(): void {
   registerWorkspacePtyIpc();
   registerWorkspaceReadIpc();
   registerWorkspaceWriteIpc();
+  registerWorkspaceEditorSnapshotIpc();
   registerHealthIpc();
   registerHealthWindowIpc();
 }

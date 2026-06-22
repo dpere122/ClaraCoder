@@ -28,6 +28,17 @@ export const workspaceApi = {
     ipcRenderer.invoke('read-workspace-file', workspaceRoot, relativePath),
   readWorkspaceImageBase64: (workspaceRoot: string, relativePath: string) =>
     ipcRenderer.invoke('read-workspace-image-base64', workspaceRoot, relativePath),
+  workspaceFileExists: (workspaceRoot: string, relativePath: string) =>
+    ipcRenderer.invoke('workspace-file-exists', workspaceRoot, relativePath),
+  writeEditorDetachedSnapshot: (content: string) =>
+    ipcRenderer.invoke('write-editor-detached-snapshot', content),
+  deleteEditorDetachedSnapshot: (absolutePath: string) =>
+    ipcRenderer.invoke('delete-editor-detached-snapshot', absolutePath),
+  promptSaveEditorFile: (workspaceRoot: string, defaultRelativePath: string, content: string) =>
+    ipcRenderer.invoke('prompt-save-editor-file', workspaceRoot, defaultRelativePath, content),
+  writeAbsoluteFile: (absolutePath: string, content: string) =>
+    ipcRenderer.invoke('write-absolute-file', absolutePath, content),
+  readAbsoluteFile: (absolutePath: string) => ipcRenderer.invoke('read-absolute-file', absolutePath),
   openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
   readDirectory: (dirPath: string) => ipcRenderer.invoke('read-directory', dirPath),
   readDirectoryRecursive: (dirPath: string) => ipcRenderer.invoke('read-directory-recursive', dirPath),

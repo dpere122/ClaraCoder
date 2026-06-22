@@ -7,20 +7,6 @@
   <div class="context-capacity__details">
     <div class="context-capacity__title-row">
       <span class="context-capacity__label">Context</span>
-      @if (modelPresetOptions().length > 0) {
-        <select
-          class="context-capacity__model-select"
-          [ngModel]="activeLlmModelId()"
-          (ngModelChange)="activeLlmModelChange.emit($event)"
-          [attr.title]="modelName()"
-        >
-          @for (opt of modelPresetOptions(); track opt.id) {
-            <option [value]="opt.id">{{ opt.label }}</option>
-          }
-        </select>
-      } @else {
-        <span class="context-capacity__model">{{ modelName() }}</span>
-      }
       <div class="context-capacity__editor-tools">
         <app-editor-mode [(editorMode)]="editorMode" />
         @if (editorMode()) {

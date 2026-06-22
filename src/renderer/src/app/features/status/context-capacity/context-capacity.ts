@@ -1,17 +1,11 @@
-import { Component, computed, input, model, output } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, computed, input, model } from '@angular/core';
 import type { AppConfig } from '@shared/index';
 import { EditorMode } from '../../layout/editor-mode/editor-mode';
 import { LlamaStatusIndicator } from '../llama-status-indicator/llama-status-indicator';
 
-export interface LlmModelPresetOption {
-  id: string;
-  label: string;
-}
-
 @Component({
   selector: 'app-context-capacity',
-  imports: [FormsModule, EditorMode, LlamaStatusIndicator],
+  imports: [EditorMode, LlamaStatusIndicator],
   templateUrl: './context-capacity.html',
   styleUrl: './context-capacity.css',
 })
@@ -21,11 +15,6 @@ export class ContextCapacityComponent {
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
-  readonly modelName = input('Unknown model');
-  /** When non-empty, replaces the static model label with a dropdown to switch presets. */
-  readonly modelPresetOptions = input<LlmModelPresetOption[]>([]);
-  readonly activeLlmModelId = input('');
-  readonly activeLlmModelChange = output<string>();
   readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
   readonly editorMode = model(true);
@@ -56,7 +45,7 @@ export class ContextCapacityComponent {
   protected readonly percentageLabel = computed(() => `${this.usedPercentage()}% used`);
 
   protected readonly tooltip = computed(() => (
-    `${this.percentageLabel()} of ${this.formatFull(this.maxTokens())} tokens for ${this.modelName()}`
+    `${this.percentageLabel()} of ${this.formatFull(this.maxTokens())} tokens`
   ));
 
   protected formatCompact(value: number): string {

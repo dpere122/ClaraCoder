@@ -11,4 +11,6 @@ export interface WorkspaceFilesChangedMessage {
   workspacePath: string;
   paths: string[];
   kinds: Array<'created' | 'updated' | 'deleted' | 'renamed' | 'unknown'>;
+  /** Workspace-relative path before a rename/move, aligned with {@link paths} when present. */
+  previousPaths?: string[];
 }

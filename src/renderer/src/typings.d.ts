@@ -198,6 +198,31 @@ declare global {
       workspaceRoot: string,
       relativePath: string,
     ) => Promise<{ ok: boolean; dataUrl?: string; mime?: string; path?: string; error?: string }>;
+    workspaceFileExists?: (
+      workspaceRoot: string,
+      relativePath: string,
+    ) => Promise<{ ok: boolean; exists?: boolean; isFile?: boolean; error?: string }>;
+    writeEditorDetachedSnapshot?: (content: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    deleteEditorDetachedSnapshot?: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
+    promptSaveEditorFile?: (
+      workspaceRoot: string,
+      defaultRelativePath: string,
+      content: string,
+    ) => Promise<{
+      ok: boolean;
+      cancelled?: boolean;
+      absolutePath?: string;
+      relativePath?: string;
+      outsideWorkspace?: boolean;
+      error?: string;
+    }>;
+    writeAbsoluteFile?: (
+      absolutePath: string,
+      content: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    readAbsoluteFile?: (
+      absolutePath: string,
+    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;

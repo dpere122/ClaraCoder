@@ -312,6 +312,10 @@
   color: var(--t-primary, #0f0);
 }
 
+.chat-main-tab--detached:not(.chat-main-tab--active) {
+  color: color-mix(in srgb, var(--t-warn, #e8b931) 75%, var(--t-text-muted, #888));
+}
+
 .chat-main-tab-label {
   min-width: 0;
   flex: 1 1 auto;
@@ -328,6 +332,12 @@
   color: var(--t-warn, #e8b931);
   opacity: 0.95;
   margin-top: -0.35rem;
+}
+
+.chat-main-tab-outside-warn {
+  flex-shrink: 0;
+  color: var(--t-warn, #e8b931);
+  opacity: 0.95;
 }
 
 .chat-main-tab-close {

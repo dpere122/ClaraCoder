@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal, untracked } from '@angular/core';
+import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -15,12 +15,12 @@ import type {
   StreamPart,
   StagedTransferBatchPayload,
   Workspace,
+  WorkspaceFilesChangedMessage,
   PlannerProgress,
 } from '@shared/index';
 import {
   DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
-  findLlmModelLocation,
   primaryAssistantTextFromParts,
   appendAndMergeReadToolPreviewChunk,
   findReadToolTrailTargetIndex,
@@ -40,8 +40,15 @@ import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
   chatFileTabBasename,
   chatFileTabId,
+  chatFileTabModelKey,
+  findTabByModelKey,
+  openEditorFileRefFromTab,
+  openTabForRenamedFile,
+  replaceFileTabAfterSaveAs,
   type ChatFileTab,
+  workspaceChatFileTab,
 } from './app-chat-file-tabs';
+import { relativePathFromModelKey } from '../workspace/open-editor-file-ref';
 import {
   appendStreamPart,
   markToolExecStreamComplete,
@@ -64,9 +71,16 @@ import {
   activeStreamWorkspaceSwitchPrompt,
   unsavedCloseFileTabPrompt,
   unsavedWorkspaceSwitchPrompt,
+  detachedFileClosePrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
+
+function parentRelativePath(relativePath: string): string {
+  const norm = normalizePathSlashes(relativePath);
+  const slash = norm.lastIndexOf('/');
+  return slash >= 0 ? norm.slice(0, slash) : '';
+}
 
 @Component({
   selector: 'app-root',
@@ -85,6 +99,7 @@ import { LucideAngularModule } from 'lucide-angular';
   styleUrl: './app.css'
 })
 export class App implements OnInit, OnDestroy {
+  @ViewChild(WorkspaceMonacoComponent) private workspaceMonaco?: WorkspaceMonacoComponent;
   protected readonly appConfig = signal<AppConfig | null>(null);
   protected readonly messages = signal<ChatMessage[]>([]);
   protected readonly pinned = model(false);
@@ -157,8 +172,9 @@ export class App implements OnInit, OnDestroy {
   protected readonly fileTabs = signal<ChatFileTab[]>([]);
   /** Files attached to the next chat turn (images sent inline; others referenced by path). */
   protected readonly chatContextFiles = signal<ChatContextFile[]>([]);
-  /** Relative paths with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
+  /** Model keys with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
   protected readonly monacoUnsavedPaths = signal<ReadonlySet<string>>(new Set());
+  protected readonly monacoDetachedPaths = signal<ReadonlySet<string>>(new Set());
   /** One-shot scroll target after cross-file go-to-definition from Monaco. */
   protected readonly monacoRevealPending = signal<{
     relativePath: string;
@@ -172,18 +188,44 @@ export class App implements OnInit, OnDestroy {
   /** When true, active chat stack overlays the main editor stage. */
   protected readonly chatExpanded = model(false);
 
-  protected readonly openFileRelativePaths = computed(() => this.fileTabs().map((t) => t.relativePath));
+  protected readonly openFileRelativePaths = computed(() =>
+    this.fileTabs()
+      .map((t) => t.relativePath)
+      .filter((p): p is string => !!p?.trim()),
+  );
+
+  protected readonly monacoOpenEditorFiles = computed(() =>
+    this.fileTabs()
+      .map((t) => openEditorFileRefFromTab(t))
+      .filter((f): f is NonNullable<typeof f> => {
+        if (!f) {
+          return false;
+        }
+        if (f.outsideWorkspace) {
+          return true;
+        }
+        return !isViewableImagePath(f.relativePath ?? '');
+      }),
+  );
+
+  protected readonly activeModelKey = computed(() => {
+    const tabId = this.activeMainTabId();
+    if (!tabId?.startsWith('file:')) {
+      return null;
+    }
+    return tabId.slice(5) || null;
+  });
 
   protected readonly mainStageShowsEmptyState = computed(
     () => this.activeMainTabId() === null && !this.chatExpanded(),
   );
 
   protected readonly activeFileRelativePath = computed(() => {
-    const tabId = this.activeMainTabId();
-    if (!tabId?.startsWith('file:')) {
+    const key = this.activeModelKey();
+    if (!key) {
       return null;
     }
-    return tabId.slice(5);
+    return relativePathFromModelKey(key);
   });
 
   /** True when the active file tab is an image the dedicated viewer should render. */
@@ -193,13 +235,8 @@ export class App implements OnInit, OnDestroy {
   });
 
   /** Active file path for Monaco only — image tabs are routed to the image viewer instead. */
-  protected readonly monacoActiveFileRelativePath = computed(() =>
-    this.activeFileIsImage() ? null : this.activeFileRelativePath(),
-  );
-
-  /** Open file paths Monaco should manage — excludes images (rendered by the image viewer). */
-  protected readonly monacoOpenFileRelativePaths = computed(() =>
-    this.openFileRelativePaths().filter((p) => !isViewableImagePath(p)),
+  protected readonly monacoActiveModelKey = computed(() =>
+    this.activeFileIsImage() ? null : this.activeModelKey(),
   );
 
   /** Latest pending file diff for the currently focused editor tab (Monaco inline review). */
@@ -279,34 +316,6 @@ export class App implements OnInit, OnDestroy {
     this.contextChatBlocked() ? 'Context full — start a new conversation to continue.' : '',
   );
 
-  /** Flattened model presets for the status-bar selector (under the message box). */
-  protected readonly llmModelPresetOptions = computed(() => {
-    const c = this.appConfig();
-    if (!c?.llmProviders?.length) {
-      return [] as Array<{ id: string; label: string }>;
-    }
-    const opts: Array<{ id: string; label: string }> = [];
-    for (const p of c.llmProviders) {
-      for (const m of p.models) {
-        opts.push({ id: m.id, label: `${p.name} · ${m.name}` });
-      }
-    }
-    return opts;
-  });
-
-  /** Same naming as Settings → Models “Sources”: source display name + preset label (not API model id). */
-  protected readonly activeLlmModelDisplayName = computed(() => {
-    const c = this.appConfig();
-    if (!c?.llmProviders?.length) {
-      return 'No active model';
-    }
-    const loc = findLlmModelLocation(c.llmProviders, c.activeLlmModelId);
-    if (!loc) {
-      return 'No active model';
-    }
-    return `${loc.provider.name} · ${loc.model.name}`;
-  });
-
   // Layout
   protected readonly workspaceWidth = signal(220);
   protected readonly sidebarWidth = signal(0);
@@ -346,6 +355,12 @@ export class App implements OnInit, OnDestroy {
     this.electron.windowMaximized$
       .pipe(takeUntilDestroyed())
       .subscribe((maximized) => this.windowMaximized.set(maximized));
+
+    this.electron.workspaceFilesChanged$
+      .pipe(takeUntilDestroyed())
+      .subscribe((event) => {
+        void this.onWorkspaceFilesChangedForEditorTabs(event);
+      });
 
     effect(() => {
       if (!this.speechEnabled()) this.tts.invalidateSpeechPipeline();
@@ -1250,13 +1265,6 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  protected async onActiveLlmModelChange(modelId: string): Promise<void> {
-    if (!modelId) {
-      return;
-    }
-    await this.electron.setActiveLlmModel(modelId);
-  }
-
   // Workspace management
   async onWorkspaceChanged(workspaceId: string | null): Promise<void> {
     console.log('[App] onWorkspaceChanged:', workspaceId);
@@ -1307,12 +1315,108 @@ export class App implements OnInit, OnDestroy {
     if (!norm) {
       return;
     }
-    const id = chatFileTabId(norm);
+    const tab = workspaceChatFileTab(norm);
+    const id = chatFileTabId(tab);
     const tabs = this.fileTabs();
-    if (!tabs.some((t) => normalizePathSlashes(t.relativePath) === norm)) {
-      this.fileTabs.update((ts) => [...ts, { relativePath: norm }]);
+    if (!tabs.some((t) => chatFileTabModelKey(t) === chatFileTabModelKey(tab))) {
+      this.fileTabs.update((ts) => [...ts, tab]);
     }
     this.activeMainTabId.set(id);
+  }
+
+  private applyFileRenamedTabs(oldRelativePath: string, newRelativePath: string): void {
+    const { tabs, focusTabId } = openTabForRenamedFile(
+      this.fileTabs(),
+      oldRelativePath,
+      newRelativePath,
+    );
+    if (focusTabId) {
+      this.fileTabs.set(tabs);
+      this.activeMainTabId.set(focusTabId);
+    }
+  }
+
+  private async onWorkspaceFilesChangedForEditorTabs(event: WorkspaceFilesChangedMessage): Promise<void> {
+    const workspaceId = this.currentWorkspaceId();
+    const root = this.currentWorkspacePath().trim();
+    if (!workspaceId || !root || event.workspaceId !== workspaceId) {
+      return;
+    }
+
+    for (let i = 0; i < event.paths.length; i++) {
+      if (event.kinds[i] !== 'renamed') {
+        continue;
+      }
+      const newRel = normalizePathSlashes(event.paths[i] ?? '');
+      if (!newRel || newRel === '.') {
+        continue;
+      }
+      const previous = event.previousPaths?.[i];
+      if (previous?.trim()) {
+        const oldRel = normalizePathSlashes(previous);
+        if (oldRel && oldRel !== '.' && oldRel !== newRel) {
+          this.applyFileRenamedTabs(oldRel, newRel);
+        }
+        continue;
+      }
+      await this.inferAndApplyFileRename(root, newRel);
+    }
+  }
+
+  private async inferAndApplyFileRename(workspaceRoot: string, newRelativePath: string): Promise<void> {
+    const newNorm = normalizePathSlashes(newRelativePath);
+    const newParent = parentRelativePath(newNorm);
+
+    for (const tab of this.fileTabs()) {
+      if (tab.outsideWorkspace || !tab.relativePath?.trim()) {
+        continue;
+      }
+      const oldNorm = normalizePathSlashes(tab.relativePath);
+      if (oldNorm === newNorm || parentRelativePath(oldNorm) !== newParent) {
+        continue;
+      }
+      const exists = await this.electron.workspaceFileExists(workspaceRoot, oldNorm);
+      if (!exists.ok || exists.exists) {
+        continue;
+      }
+      this.applyFileRenamedTabs(oldNorm, newNorm);
+      return;
+    }
+  }
+
+  protected onMonacoSaveAsCompleted(payload: {
+    oldModelKey: string;
+    relativePath?: string;
+    absolutePath?: string;
+    outsideWorkspace: boolean;
+  }): void {
+    const oldKey = payload.oldModelKey;
+    this.fileTabs.update((tabs) =>
+      replaceFileTabAfterSaveAs(tabs, oldKey, {
+        relativePath: payload.relativePath,
+        absolutePath: payload.absolutePath,
+        outsideWorkspace: payload.outsideWorkspace,
+      }),
+    );
+    const updated = this.fileTabs().find((t) => {
+      if (payload.outsideWorkspace && payload.absolutePath) {
+        return t.absolutePath === payload.absolutePath;
+      }
+      if (payload.relativePath) {
+        return (
+          !t.outsideWorkspace &&
+          normalizePathSlashes(t.relativePath ?? '') === normalizePathSlashes(payload.relativePath)
+        );
+      }
+      return false;
+    });
+    if (updated && this.activeMainTabId() === `file:${oldKey}`) {
+      this.activeMainTabId.set(chatFileTabId(updated));
+    }
+  }
+
+  protected onMonacoDetachedPathsChange(paths: readonly string[]): void {
+    this.monacoDetachedPaths.set(new Set(paths));
   }
 
   protected onWorkspaceMonacoNavigate(payload: { relativePath: string; line: number; column: number }): void {
@@ -1338,18 +1442,43 @@ export class App implements OnInit, OnDestroy {
     if (!tabId.startsWith('file:')) {
       return;
     }
-    const norm = normalizePathSlashes(tabId.slice(5));
-    if (this.fileTabIsUnsaved(norm)) {
-      const discard = await this.themedConfirm.open(unsavedCloseFileTabPrompt(norm));
-      if (!discard) {
+    const modelKey = tabId.slice(5);
+    let keyToClose = modelKey;
+    const tab = findTabByModelKey(this.fileTabs(), modelKey);
+    const displayPath =
+      relativePathFromModelKey(modelKey) ??
+      (tab ? chatFileTabBasename(tab) : modelKey);
+    const detached = this.monacoDetachedPaths().has(modelKey);
+    const unsaved = this.fileTabIsUnsaved(modelKey);
+
+    if (detached && unsaved) {
+      const choice = await this.themedConfirm.open(detachedFileClosePrompt(displayPath));
+      if (choice === 'cancel') {
         return;
       }
+      if (choice === 'middle') {
+        const newKey = await this.workspaceMonaco?.saveAsForKey(modelKey);
+        if (!newKey) {
+          return;
+        }
+        keyToClose = newKey;
+      } else if (choice === 'confirm') {
+        await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
+      }
+    } else if (unsaved) {
+      const discard = await this.themedConfirm.open(unsavedCloseFileTabPrompt(displayPath));
+      if (discard !== 'confirm') {
+        return;
+      }
+    } else if (detached) {
+      await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
     }
-    const remaining = this.fileTabs().filter((t) => normalizePathSlashes(t.relativePath) !== norm);
-    if (this.activeMainTabId() === tabId) {
+
+    const remaining = this.fileTabs().filter((t) => chatFileTabModelKey(t) !== keyToClose);
+    if (this.activeMainTabId() === tabId || this.activeMainTabId() === `file:${keyToClose}`) {
       if (remaining.length > 0) {
         const last = remaining[remaining.length - 1]!;
-        this.activeMainTabId.set(chatFileTabId(last.relativePath));
+        this.activeMainTabId.set(chatFileTabId(last));
       } else {
         this.activeMainTabId.set(null);
       }
@@ -1408,22 +1537,43 @@ export class App implements OnInit, OnDestroy {
     this.chatContextFiles.set([]);
   }
 
-  protected fileTabIdForPath(relativePath: string): string {
-    return chatFileTabId(relativePath);
+  protected fileTabIdForTab(tab: ChatFileTab): string {
+    return chatFileTabId(tab);
   }
 
-  protected fileTabBasenameForPath(relativePath: string): string {
-    return chatFileTabBasename(relativePath);
+  protected chatFileTabModelKey(tab: ChatFileTab): string {
+    return chatFileTabModelKey(tab);
+  }
+
+  protected fileTabBasenameForTab(tab: ChatFileTab): string {
+    return chatFileTabBasename(tab);
+  }
+
+  protected fileTabIsUnsaved(modelKey: string): boolean {
+    return this.monacoUnsavedPaths().has(modelKey);
+  }
+
+  protected fileTabIsDetached(modelKey: string): boolean {
+    return this.monacoDetachedPaths().has(modelKey);
+  }
+
+  protected fileTabTitle(tab: ChatFileTab): string | null {
+    const key = chatFileTabModelKey(tab);
+    if (tab.outsideWorkspace) {
+      return 'This file is outside of the workspace.';
+    }
+    if (this.fileTabIsDetached(key)) {
+      return 'This file no longer exists at this path — save to choose a location.';
+    }
+    return null;
   }
 
   protected onMonacoUnsavedPathsChange(paths: readonly string[]): void {
-    const next = new Set(paths.map((p) => normalizePathSlashes(p)));
+    const next = new Set(paths);
     this.monacoUnsavedPaths.set(next);
-    this.electron.reportWorkspaceMonacoUnsavedPaths([...next]);
-  }
-
-  protected fileTabIsUnsaved(relativePath: string): boolean {
-    return this.monacoUnsavedPaths().has(normalizePathSlashes(relativePath));
+    this.electron.reportWorkspaceMonacoUnsavedPaths(
+      [...next].map((k) => relativePathFromModelKey(k) ?? k),
+    );
   }
 
   private async syncWorkspaceContext(workspacePath: string): Promise<void> {
@@ -1771,7 +1921,7 @@ export class App implements OnInit, OnDestroy {
   private async prepareWorkspaceLeave(fromWorkspaceId: string | null): Promise<boolean> {
     const unsaved = [...this.monacoUnsavedPaths()];
     if (unsaved.length > 0) {
-      const proceed = await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved));
+      const proceed = (await this.themedConfirm.open(unsavedWorkspaceSwitchPrompt(unsaved))) === 'confirm';
       if (!proceed) {
         return false;
       }
@@ -1779,7 +1929,7 @@ export class App implements OnInit, OnDestroy {
 
     const pending = this.getPendingStreamIdsForWorkspace(fromWorkspaceId);
     if (pending.length > 0) {
-      const proceed = await this.themedConfirm.open(activeStreamWorkspaceSwitchPrompt(pending.length));
+      const proceed = (await this.themedConfirm.open(activeStreamWorkspaceSwitchPrompt(pending.length))) === 'confirm';
       if (!proceed) {
         return false;
       }

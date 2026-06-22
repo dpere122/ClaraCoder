@@ -694,6 +694,67 @@ export class ElectronService {
     );
   }
 
+  workspaceFileExists(
+    workspaceRoot: string,
+    relativePath: string,
+  ): Promise<{ ok: boolean; exists?: boolean; isFile?: boolean; error?: string }> {
+    return (
+      this.api?.workspaceFileExists?.(workspaceRoot, relativePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  writeEditorDetachedSnapshot(content: string): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.writeEditorDetachedSnapshot?.(content) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  deleteEditorDetachedSnapshot(absolutePath: string): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.deleteEditorDetachedSnapshot?.(absolutePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  promptSaveEditorFile(
+    workspaceRoot: string,
+    defaultRelativePath: string,
+    content: string,
+  ): Promise<{
+    ok: boolean;
+    cancelled?: boolean;
+    absolutePath?: string;
+    relativePath?: string;
+    outsideWorkspace?: boolean;
+    error?: string;
+  }> {
+    return (
+      this.api?.promptSaveEditorFile?.(workspaceRoot, defaultRelativePath, content) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  writeAbsoluteFile(
+    absolutePath: string,
+    content: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.writeAbsoluteFile?.(absolutePath, content) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  readAbsoluteFile(
+    absolutePath: string,
+  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string }> {
+    return (
+      this.api?.readAbsoluteFile?.(absolutePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   setAlwaysOnTop(pinned: boolean): void {
     this.api?.setAlwaysOnTop(pinned);
   }

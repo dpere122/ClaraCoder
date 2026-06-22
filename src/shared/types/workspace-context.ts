@@ -18,6 +18,8 @@ export interface WorkspaceFilesChangedPayload {
   workspacePath: string;
   paths: string[];
   kinds: WorkspaceChangeKind[];
+  /** Workspace-relative path before a rename/move, aligned with {@link paths} when present. */
+  previousPaths?: string[];
 }
 
 /** One debounced batch of filesystem events for workspace state summary text. */

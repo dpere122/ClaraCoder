@@ -6,7 +6,6 @@ import { ConversationManager } from '../conversation-manager/conversation-manage
 import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack';
 import type { ChatMessage } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
-import type { LlmModelPresetOption } from '../../status/context-capacity/context-capacity';
 
 export type ChatHubView = 'conversations' | 'activeChat';
 
@@ -99,10 +98,6 @@ export class ChatConversationHubComponent {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
-  readonly modelName = input('Unknown model');
-  readonly modelPresetOptions = input<LlmModelPresetOption[]>([]);
-  readonly activeLlmModelId = input('');
-  readonly activeLlmModelChange = output<string>();
   readonly editorMode = model(true);
   readonly autoApplyMode = model(false);
 

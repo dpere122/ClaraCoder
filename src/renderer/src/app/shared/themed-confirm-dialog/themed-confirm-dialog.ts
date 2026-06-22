@@ -24,14 +24,19 @@ import { ThemedConfirmDialogService } from './themed-confirm-dialog.service';
             <pre class="tcd-detail">{{ req.detail }}</pre>
           }
           <div class="tcd-actions">
-            <button type="button" class="tcd-btn tcd-btn--secondary" (click)="dialog.close(false)">
+            <button type="button" class="tcd-btn tcd-btn--secondary" (click)="dialog.close('cancel')">
               {{ req.cancelText }}
             </button>
+            @if (req.middleText) {
+              <button type="button" class="tcd-btn tcd-btn--primary" (click)="dialog.close('middle')">
+                {{ req.middleText }}
+              </button>
+            }
             <button
               type="button"
               class="tcd-btn tcd-btn--primary"
               [class.tcd-btn--warning]="req.variant === 'warning'"
-              (click)="dialog.close(true)"
+              (click)="dialog.close('confirm')"
             >
               {{ req.confirmText }}
             </button>
@@ -163,13 +168,13 @@ export class ThemedConfirmDialogComponent {
   protected onDocumentKeydown(ev: KeyboardEvent): void {
     if (ev.key === 'Escape' && this.dialog.active()) {
       ev.preventDefault();
-      this.dialog.close(false);
+      this.dialog.close('cancel');
     }
   }
 
   protected onBackdrop(ev: MouseEvent): void {
     if (ev.target === ev.currentTarget) {
-      this.dialog.close(false);
+      this.dialog.close('cancel');
     }
   }
 }

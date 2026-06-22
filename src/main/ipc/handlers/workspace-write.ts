@@ -22,6 +22,7 @@ function emitWorkspaceFilesChanged(
   workspaceRoot: string,
   absolutePath: string,
   kind: WorkspaceChangeKind,
+  previousAbsolutePath?: string,
 ): void {
   const watcher = mainState.activeWorkspaceWatcher;
   if (!watcher) {
@@ -32,11 +33,17 @@ function emitWorkspaceFilesChanged(
   }
   const rel = path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/');
   const relPath = rel && rel !== '' ? rel : '.';
+  let previousPaths: string[] | undefined;
+  if (previousAbsolutePath?.trim()) {
+    const prevRel = path.relative(workspaceRoot, previousAbsolutePath).replace(/\\/g, '/');
+    previousPaths = [prevRel && prevRel !== '' ? prevRel : '.'];
+  }
   mainState.mainWindow?.webContents.send('workspace-files-changed', {
     workspaceId: watcher.workspaceId,
     workspacePath: watcher.workspacePath,
     paths: [relPath],
     kinds: [kind],
+    ...(previousPaths ? { previousPaths } : {}),
   });
 }
 /** Write a text file under an open workspace (used after user confirms a proposed diff). */
@@ -302,7 +309,7 @@ export function registerWorkspaceWriteIpc(): void {
 
       try {
         await fs.rename(source, dest);
-        emitWorkspaceFilesChanged(root, dest, 'renamed');
+        emitWorkspaceFilesChanged(root, dest, 'renamed', source);
         return { ok: true as const, path: dest };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -340,7 +347,7 @@ export function registerWorkspaceWriteIpc(): void {
           return { ok: false as const, error: 'Cannot move the workspace root.' };
         }
         const { dest } = await transferWorkspaceEntry(source, destParent, 'move');
-        emitWorkspaceFilesChanged(root, dest, 'renamed');
+        emitWorkspaceFilesChanged(root, dest, 'renamed', source);
         return { ok: true as const, path: dest };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

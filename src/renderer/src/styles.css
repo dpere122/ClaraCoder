@@ -1757,21 +1757,6 @@ html.theme-win95 .chat-main-tab--active {
   color: var(--t-fg);
 }
 
-html.theme-win95 .chat-main-tab--conversation:not(.chat-main-tab--active) {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--t-fg);
-}
-
-html.theme-win95 .chat-main-tab--active.chat-main-tab--conversation {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid var(--t-primary);
-  color: var(--t-primary);
-  box-shadow: none;
-}
-
 html.theme-win95 .chat-main-tab-close:hover {
   background: #c00000;
   color: #ffffff;

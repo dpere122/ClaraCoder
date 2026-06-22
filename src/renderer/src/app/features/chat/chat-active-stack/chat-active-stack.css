@@ -1,0 +1,67 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-active-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-active-stack__transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-active-stack__composer {
+  flex-shrink: 0;
+  min-width: 0;
+  border-top: 1px solid var(--t-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.25rem 0.35rem;
+}
+
+.chat-active-stack__composer-input {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.chat-active-stack__composer-input app-message-box {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.chat-active-stack__status {
+  flex-shrink: 0;
+  min-width: 0;
+  border-top: 1px solid var(--t-border-subtle);
+  padding: 0;
+}
+
+.composer-talk {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 28rem);
+}
+
+.composer-talk--hidden {
+  display: none !important;
+}

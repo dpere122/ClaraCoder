@@ -49,18 +49,8 @@
     <div class='chat-area'>
       <section class='chat-area__stage'>
         <div class='chat-area__tabs' role='presentation'>
-        <div class='chat-area__tab-strip' role='tablist' aria-label='Chat and files'>
+        <div class='chat-area__tab-strip' role='tablist' aria-label='Open files'>
           <div class='chat-area__tab-strip-tabs'>
-          <button
-            type='button'
-            class='chat-main-tab chat-main-tab--conversation'
-            role='tab'
-            [attr.aria-selected]='activeMainTabId() === "conversation"'
-            [class.chat-main-tab--active]='activeMainTabId() === "conversation"'
-            (click)='selectMainTab("conversation")'
-          >
-            <span class='chat-main-tab-label'>{{ conversationTabTitle() }}</span>
-          </button>
           @for (tab of fileTabs(); track tab.relativePath) {
             <button
               type='button'
@@ -86,32 +76,18 @@
         </div>
         <div class='chat-area__tab-panels'>
           <div
-            class='chat-area__tab-panel chat-area__tab-panel--chat'
-            [class.chat-area__tab-panel--hidden]='activeMainTabId() !== "conversation"'
+            class='chat-area__tab-panel chat-area__tab-panel--empty'
+            [class.chat-area__tab-panel--hidden]='!mainStageShowsEmptyState()'
           >
-            <app-chat-box
+            <app-main-panel-empty-state
               class='chat-area__panel-host'
-              [messages]='messages()'
-              [conversationId]='activeConversationId()'
-              [loading]='loading()'
-              [processingToolsActive]='processingToolsActive()'
-              [ttsLoading]='tts.ttsLoading()'
-              [streamingParts]='streamingParts()'
-              [streamingFinalText]='streamingFinalText()'
-              [streamingPlanner]='streamingPlanner()'
-              [fontSize]='fontSize()'
-              (sendResponse)='onSendResponse($event)'
-              (diffReviewFinished)='onDiffReviewFinished($event)'
-              (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
-              (acceptCommandFinished)='onAcceptCommandFinished($event)'
-              (copyReviewFinished)='onCopyReviewFinished($event)'
-              (deleteReviewFinished)='onDeleteReviewFinished($event)'
-              (planConfirmFinished)='onPlanConfirmFinished($event)'
+              [hasWorkspace]='!!currentWorkspaceId()'
+              (addWorkspace)='onAddWorkspace()'
             />
           </div>
           <div
             class='chat-area__tab-panel chat-area__tab-panel--monaco'
-            [class.chat-area__tab-panel--hidden]='!activeMainTabId().startsWith("file:") || activeFileIsImage()'
+            [class.chat-area__tab-panel--hidden]='!activeMainTabId()?.startsWith("file:") || activeFileIsImage() || chatExpanded()'
           >
             <app-workspace-monaco
               class='chat-area__panel-host'
@@ -133,7 +109,7 @@
           </div>
           <div
             class='chat-area__tab-panel chat-area__tab-panel--image'
-            [class.chat-area__tab-panel--hidden]='!activeFileIsImage()'
+            [class.chat-area__tab-panel--hidden]='!activeFileIsImage() || chatExpanded()'
           >
             <app-image-viewer
               class='chat-area__panel-host'
@@ -141,6 +117,60 @@
               [relativePath]='activeFileRelativePath()'
             />
           </div>
+
+          @if (chatExpanded()) {
+            <div class='chat-area__chat-expanded-overlay'>
+              <app-chat-active-stack
+                class='chat-area__panel-host'
+                [messages]='messages()'
+                [conversationId]='activeConversationId()'
+                [loading]='loading()'
+                [processingToolsActive]='processingToolsActive()'
+                [ttsLoading]='tts.ttsLoading()'
+                [streamingParts]='streamingParts()'
+                [streamingFinalText]='streamingFinalText()'
+                [streamingPlanner]='streamingPlanner()'
+                [fontSize]='fontSize()'
+                (sendResponse)='onSendResponse($event)'
+                (diffReviewFinished)='onDiffReviewFinished($event)'
+                (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
+                (acceptCommandFinished)='onAcceptCommandFinished($event)'
+                (copyReviewFinished)='onCopyReviewFinished($event)'
+                (deleteReviewFinished)='onDeleteReviewFinished($event)'
+                (planConfirmFinished)='onPlanConfirmFinished($event)'
+                [chatContextFiles]='chatContextFiles()'
+                [workspaceRoot]='currentWorkspacePath()'
+                (removeChatContextFile)='removeChatContextFile($event)'
+                (chatContextPathsDropped)='onChatContextPathsDropped($event)'
+                [appConfig]='appConfig()'
+                [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
+                [talkSilenceThresholdSec]='appConfig()?.audioTranscription?.talkSilenceThresholdSeconds ?? 2'
+                [(talkEnabled)]='talkEnabled'
+                [(talkStatus)]='talkStatus'
+                [(talkModeDetailStatus)]='talkModeDetailStatus'
+                (promptCaptured)='onMessageSent($event)'
+                (talkRecordingBegan)='onTalkRecordingBegan()'
+                (talkCaptureFinished)='onTalkCaptureFinished($event)'
+                [(composerMode)]='composerMode'
+                [voiceActive]='talkEnabled() && speechEnabled()'
+                (voiceToggle)='toggleVoice()'
+                [contextBlocked]='contextChatBlocked()'
+                (messageSent)='onMessageSent($event)'
+                (abortRequested)='onAbortRequested()'
+                [usedTokens]='contextCapacity().usedTokens'
+                [maxTokens]='contextCapacity().maxTokens'
+                [remainingTokens]='contextCapacity().remainingTokens'
+                [usedPercentage]='contextCapacity().usedPercentage'
+                [compressionNotice]='activeContextStatusNotice()'
+                [modelName]='activeLlmModelDisplayName()'
+                [modelPresetOptions]='llmModelPresetOptions()'
+                [activeLlmModelId]='appConfig()?.activeLlmModelId ?? ""'
+                (activeLlmModelChange)='onActiveLlmModelChange($event)'
+                [(editorMode)]='editorMode'
+                [(autoApplyMode)]='autoApplyMode'
+              />
+            </div>
+          }
         </div>
         </div>
       </section>
@@ -151,44 +181,56 @@
           [appConfig]='appConfig()'
         />
       </section>
+    </div>
 
-      <section class='chat-area__composer'>
-        <app-chat-context-bar
-          [files]='chatContextFiles()'
-          [workspaceRoot]='currentWorkspacePath()'
-          (removeFile)='removeChatContextFile($event)'
-          (pathsDropped)='onChatContextPathsDropped($event)'
-        />
-        <div class='chat-area__composer-input'>
-        <app-talk-mode
-          class='composer-talk composer-talk--hidden'
-          [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
-          [talkSilenceThresholdSec]='appConfig()?.audioTranscription?.talkSilenceThresholdSeconds ?? 2'
-          [(talkEnabled)]='talkEnabled'
-          [(currentTranscript)]='talkStatus'
-          [(statusMessage)]='talkModeDetailStatus'
-          (promptCaptured)='onMessageSent($event)'
-          (recordingBegan)='onTalkRecordingBegan()'
-          (talkCaptureFinished)='onTalkCaptureFinished($event)'
-        />
-        <app-message-box
-          [(composerMode)]='composerMode'
-          [voiceActive]='talkEnabled() && speechEnabled()'
-          (voiceToggle)='toggleVoice()'
-          [talkStatus]='talkStatus()'
-          [talkDetail]='talkModeDetailStatus()'
-          [loading]='loading()'
-          [contextBlocked]='contextChatBlocked()'
-          [attachmentCount]='chatContextFiles().length'
-          (messageSent)='onMessageSent($event)'
-          (abortRequested)='onAbortRequested()'
-        />
-        </div>
-      </section>
+    <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
 
-      <section class='chat-area__status'>
-      <app-status-bar
+    <div class='sidebar' [style.width.px]='sidebarWidth()'>
+      <app-chat-conversation-hub
+        [(view)]='chatHubView'
+        [(expanded)]='chatExpanded'
+        [conversations]='conversations()'
+        [activeConversationId]='activeConversationId()'
+        [activeFileRelativePath]='activeFileRelativePath()'
+        [pendingIds]='pendingIds()'
+        (newConversation)='onNewConversation()'
+        (selectConversation)='onSelectConversation($event)'
+        (deleteConversation)='onDeleteConversation($event)'
+        (renameConversation)='onRenameConversation($event)'
+        [messages]='messages()'
+        [loading]='loading()'
+        [processingToolsActive]='processingToolsActive()'
+        [ttsLoading]='tts.ttsLoading()'
+        [streamingParts]='streamingParts()'
+        [streamingFinalText]='streamingFinalText()'
+        [streamingPlanner]='streamingPlanner()'
+        [fontSize]='fontSize()'
+        (sendResponse)='onSendResponse($event)'
+        (diffReviewFinished)='onDiffReviewFinished($event)'
+        (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
+        (acceptCommandFinished)='onAcceptCommandFinished($event)'
+        (copyReviewFinished)='onCopyReviewFinished($event)'
+        (deleteReviewFinished)='onDeleteReviewFinished($event)'
+        (planConfirmFinished)='onPlanConfirmFinished($event)'
+        [chatContextFiles]='chatContextFiles()'
+        [workspaceRoot]='currentWorkspacePath()'
+        (removeChatContextFile)='removeChatContextFile($event)'
+        (chatContextPathsDropped)='onChatContextPathsDropped($event)'
         [appConfig]='appConfig()'
+        [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
+        [talkSilenceThresholdSec]='appConfig()?.audioTranscription?.talkSilenceThresholdSeconds ?? 2'
+        [(talkEnabled)]='talkEnabled'
+        [(talkStatus)]='talkStatus'
+        [(talkModeDetailStatus)]='talkModeDetailStatus'
+        (promptCaptured)='onMessageSent($event)'
+        (talkRecordingBegan)='onTalkRecordingBegan()'
+        (talkCaptureFinished)='onTalkCaptureFinished($event)'
+        [(composerMode)]='composerMode'
+        [voiceActive]='talkEnabled() && speechEnabled()'
+        (voiceToggle)='toggleVoice()'
+        [contextBlocked]='contextChatBlocked()'
+        (messageSent)='onMessageSent($event)'
+        (abortRequested)='onAbortRequested()'
         [usedTokens]='contextCapacity().usedTokens'
         [maxTokens]='contextCapacity().maxTokens'
         [remainingTokens]='contextCapacity().remainingTokens'
@@ -200,22 +242,6 @@
         (activeLlmModelChange)='onActiveLlmModelChange($event)'
         [(editorMode)]='editorMode'
         [(autoApplyMode)]='autoApplyMode'
-      />
-      </section>
-    </div>
-
-    <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
-
-    <div class='sidebar' [style.width.px]='sidebarWidth()'>
-      <app-conversation-manager
-        [conversations]='conversations()'
-        [activeId]='activeConversationId()'
-        [activeFileRelativePath]='activeFileRelativePath()'
-        [pendingIds]='pendingIds()'
-        (newConversation)='onNewConversation()'
-        (selectConversation)='onSelectConversation($event)'
-        (deleteConversation)='onDeleteConversation($event)'
-        (renameConversation)='onRenameConversation($event)'
       />
     </div>
   </div>

@@ -1,0 +1,101 @@
+import { Component, input, model, output } from '@angular/core';
+import type {
+  AppConfig,
+  ComposerRunMode,
+  PlannerProgress,
+  StreamPart,
+} from '@shared/index';
+import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
+import { ChatBox, type ChatMessage } from '../chat-box/chat-box';
+import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
+import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
+import { MessageBox } from '../message-box/message-box';
+import { TalkMode } from '../../speech/talk-mode/talk-mode';
+import { StatusBarComponent } from '../../status/status-bar/status-bar';
+import type { LlmModelPresetOption } from '../../status/context-capacity/context-capacity';
+
+/** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
+@Component({
+  selector: 'app-chat-active-stack',
+  imports: [ChatBox, ChatContextBar, MessageBox, TalkMode, StatusBarComponent],
+  templateUrl: './chat-active-stack.html',
+  styleUrl: './chat-active-stack.css',
+})
+export class ChatActiveStackComponent {
+  readonly messages = input<ChatMessage[]>([]);
+  readonly conversationId = input<string | null>(null);
+  readonly loading = input(false);
+  readonly processingToolsActive = input(false);
+  readonly ttsLoading = input(false);
+  readonly streamingParts = input<StreamPart[]>([]);
+  readonly streamingFinalText = input<string | undefined>(undefined);
+  readonly streamingPlanner = input<PlannerProgress | null>(null);
+  readonly fontSize = input(0.9);
+
+  readonly sendResponse = output<string>();
+  readonly diffReviewFinished = output<{
+    relativePath: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  readonly stagedTransferBatchFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }>();
+  readonly acceptCommandFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  readonly copyReviewFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  readonly deleteReviewFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+  readonly planConfirmFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+
+  readonly chatContextFiles = input<readonly ChatContextFile[]>([]);
+  readonly workspaceRoot = input('');
+  readonly removeChatContextFile = output<ChatContextFile>();
+  readonly chatContextPathsDropped = output<string[]>();
+
+  readonly appConfig = input<AppConfig | null>(null);
+  readonly talkInputDeviceId = input('default');
+  readonly talkSilenceThresholdSec = input(2);
+  readonly talkEnabled = model(false);
+  readonly talkStatus = model('');
+  readonly talkModeDetailStatus = model('');
+  readonly promptCaptured = output<string>();
+  readonly talkRecordingBegan = output<void>();
+  readonly talkCaptureFinished = output<{ hadSpeech: boolean; userBargeIn: boolean }>();
+
+  readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
+  readonly voiceActive = input(false);
+  readonly voiceToggle = output<void>();
+  readonly contextBlocked = input(false);
+  readonly messageSent = output<string>();
+  readonly abortRequested = output<void>();
+
+  readonly usedTokens = input(0);
+  readonly maxTokens = input(128_000);
+  readonly remainingTokens = input(128_000);
+  readonly usedPercentage = input(0);
+  readonly compressionNotice = input('');
+  readonly modelName = input('Unknown model');
+  readonly modelPresetOptions = input<LlmModelPresetOption[]>([]);
+  readonly activeLlmModelId = input('');
+  readonly activeLlmModelChange = output<string>();
+  readonly editorMode = model(true);
+  readonly autoApplyMode = model(false);
+}

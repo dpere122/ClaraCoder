@@ -1,0 +1,72 @@
+<div class="chat-active-stack">
+  <app-chat-box
+    class="chat-active-stack__transcript"
+    [messages]="messages()"
+    [conversationId]="conversationId()"
+    [loading]="loading()"
+    [processingToolsActive]="processingToolsActive()"
+    [ttsLoading]="ttsLoading()"
+    [streamingParts]="streamingParts()"
+    [streamingFinalText]="streamingFinalText()"
+    [streamingPlanner]="streamingPlanner()"
+    [fontSize]="fontSize()"
+    (sendResponse)="sendResponse.emit($event)"
+    (diffReviewFinished)="diffReviewFinished.emit($event)"
+    (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+    (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+    (copyReviewFinished)="copyReviewFinished.emit($event)"
+    (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+    (planConfirmFinished)="planConfirmFinished.emit($event)"
+  />
+
+  <section class="chat-active-stack__composer">
+    <app-chat-context-bar
+      [files]="chatContextFiles()"
+      [workspaceRoot]="workspaceRoot()"
+      (removeFile)="removeChatContextFile.emit($event)"
+      (pathsDropped)="chatContextPathsDropped.emit($event)"
+    />
+    <div class="chat-active-stack__composer-input">
+      <app-talk-mode
+        class="composer-talk composer-talk--hidden"
+        [talkInputDeviceId]="talkInputDeviceId()"
+        [talkSilenceThresholdSec]="talkSilenceThresholdSec()"
+        [(talkEnabled)]="talkEnabled"
+        [(currentTranscript)]="talkStatus"
+        [(statusMessage)]="talkModeDetailStatus"
+        (promptCaptured)="promptCaptured.emit($event)"
+        (recordingBegan)="talkRecordingBegan.emit()"
+        (talkCaptureFinished)="talkCaptureFinished.emit($event)"
+      />
+      <app-message-box
+        [(composerMode)]="composerMode"
+        [voiceActive]="voiceActive()"
+        (voiceToggle)="voiceToggle.emit()"
+        [talkStatus]="talkStatus()"
+        [talkDetail]="talkModeDetailStatus()"
+        [loading]="loading()"
+        [contextBlocked]="contextBlocked()"
+        [attachmentCount]="chatContextFiles().length"
+        (messageSent)="messageSent.emit($event)"
+        (abortRequested)="abortRequested.emit()"
+      />
+    </div>
+  </section>
+
+  <section class="chat-active-stack__status">
+    <app-status-bar
+      [appConfig]="appConfig()"
+      [usedTokens]="usedTokens()"
+      [maxTokens]="maxTokens()"
+      [remainingTokens]="remainingTokens()"
+      [usedPercentage]="usedPercentage()"
+      [compressionNotice]="compressionNotice()"
+      [modelName]="modelName()"
+      [modelPresetOptions]="modelPresetOptions()"
+      [activeLlmModelId]="activeLlmModelId()"
+      (activeLlmModelChange)="activeLlmModelChange.emit($event)"
+      [(editorMode)]="editorMode"
+      [(autoApplyMode)]="autoApplyMode"
+    />
+  </section>
+</div>

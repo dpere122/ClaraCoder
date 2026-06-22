@@ -6,10 +6,9 @@
   -webkit-user-select: none;
 }
 
-:host ::ng-deep app-chat-box,
-:host ::ng-deep app-message-box,
 :host ::ng-deep app-workspace-monaco,
 :host ::ng-deep app-workspace-terminal-dock,
+:host ::ng-deep app-chat-active-stack,
 :host ::ng-deep input,
 :host ::ng-deep textarea {
   user-select: text;
@@ -211,7 +210,7 @@
   border-left: 1px solid var(--t-border-subtle);
 }
 
-.sidebar > app-conversation-manager {
+.sidebar > app-chat-conversation-hub {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -313,20 +312,6 @@
   color: var(--t-primary, #0f0);
 }
 
-.chat-main-tab--conversation {
-  margin-inline-end: 0.15rem;
-}
-
-.chat-main-tab--conversation:not(.chat-main-tab--active) {
-  color: color-mix(in srgb, var(--t-process-a) 72%, var(--t-text-muted, #888));
-}
-
-.chat-main-tab--active.chat-main-tab--conversation {
-  border-bottom-color: var(--t-process-a, #41ffc9);
-  color: var(--t-process-a, #41ffc9);
-  box-shadow: none;
-}
-
 .chat-main-tab-label {
   min-width: 0;
   flex: 1 1 auto;
@@ -371,6 +356,18 @@
   flex-direction: column;
 }
 
+.chat-area__chat-expanded-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--t-bg);
+}
+
 .chat-area__tab-panel {
   flex: 1;
   min-height: 0;
@@ -392,47 +389,10 @@
   overflow: hidden;
 }
 
-.chat-area__dock,
-.chat-area__composer,
-.chat-area__status {
+.chat-area__dock {
   flex-shrink: 0;
   min-width: 0;
   border-top: 1px solid var(--t-border-subtle);
-}
-
-.chat-area__composer {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0.25rem 0.35rem;
-}
-
-.chat-area__composer-input {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  width: 100%;
-  min-width: 0;
-}
-
-.chat-area__composer-input app-message-box {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
-.chat-area__status {
-  padding: 0;
-}
-
-.composer-talk {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: min(100%, 28rem);
-}
-
-.composer-talk--hidden {
-  display: none !important;
 }
 
 .title-glow {

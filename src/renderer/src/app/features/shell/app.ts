@@ -32,8 +32,9 @@ import {
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
 } from '@shared/index';
-import { ChatBox, ChatMessage } from '../chat/chat-box/chat-box';
-import { ChatContextBar } from '../chat/chat-context-bar/chat-context-bar';
+import { ChatActiveStackComponent } from '../chat/chat-active-stack/chat-active-stack';
+import { ChatConversationHubComponent, type ChatHubView } from '../chat/chat-conversation-hub/chat-conversation-hub';
+import { type ChatMessage } from '../chat/chat-box/chat-box';
 import { type ChatContextFile, isImagePath } from '../chat/chat-context-bar/chat-context-file';
 import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
@@ -47,11 +48,8 @@ import {
   upsertToolTrailStatusStreamPart,
 } from './app-stream-parts';
 import { applyAppTheme, resolveAppThemeId } from './app-theme';
-import { MessageBox } from '../chat/message-box/message-box';
-import { ConversationManager } from '../chat/conversation-manager/conversation-manager';
-import { TalkMode } from '../speech/talk-mode/talk-mode';
 import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../status/context-capacity/context-capacity.utils';
-import { StatusBarComponent } from '../status/status-bar/status-bar';
+import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
 import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
@@ -73,17 +71,14 @@ import { LucideAngularModule } from 'lucide-angular';
 @Component({
   selector: 'app-root',
   imports: [
-    ChatBox,
-    ChatContextBar,
-    MessageBox,
-    ConversationManager,
-    TalkMode,
+    ChatActiveStackComponent,
+    ChatConversationHubComponent,
+    MainPanelEmptyStateComponent,
     LucideAngularModule,
     WorkspaceComponent,
     WorkspaceMonacoComponent,
     ImageViewerComponent,
     WorkspaceTerminalDockComponent,
-    StatusBarComponent,
     ThemedConfirmDialogComponent,
   ],
   templateUrl: './app.html',
@@ -170,23 +165,22 @@ export class App implements OnInit, OnDestroy {
     line: number;
     column: number;
   } | null>(null);
-  /** `conversation` or `file:<relativePath>`. */
-  protected readonly activeMainTabId = signal<string>('conversation');
-
-  protected readonly conversationTabTitle = computed(() => {
-    const id = this.activeConversationId();
-    if (!id) {
-      return 'Chat';
-    }
-    const t = this.conversations().find((c) => c.id === id)?.title?.trim();
-    return t || 'Chat';
-  });
+  /** Open file tab id (`file:<relativePath>`) or null when no editor tab is selected. */
+  protected readonly activeMainTabId = signal<string | null>(null);
+  /** Sidebar hub body: conversation list or active chat stack. */
+  protected readonly chatHubView = model<ChatHubView>('activeChat');
+  /** When true, active chat stack overlays the main editor stage. */
+  protected readonly chatExpanded = model(false);
 
   protected readonly openFileRelativePaths = computed(() => this.fileTabs().map((t) => t.relativePath));
 
+  protected readonly mainStageShowsEmptyState = computed(
+    () => this.activeMainTabId() === null && !this.chatExpanded(),
+  );
+
   protected readonly activeFileRelativePath = computed(() => {
     const tabId = this.activeMainTabId();
-    if (!tabId.startsWith('file:')) {
+    if (!tabId?.startsWith('file:')) {
       return null;
     }
     return tabId.slice(5);
@@ -379,8 +373,14 @@ export class App implements OnInit, OnDestroy {
       this.currentWorkspaceId();
       untracked(() => {
         this.fileTabs.set([]);
-        this.activeMainTabId.set('conversation');
+        this.activeMainTabId.set(null);
       });
+    });
+
+    effect(() => {
+      if (this.chatHubView() === 'conversations' && this.chatExpanded()) {
+        untracked(() => this.chatExpanded.set(false));
+      }
     });
 
     effect(() => {
@@ -813,6 +813,7 @@ export class App implements OnInit, OnDestroy {
     applyAppTheme(resolveAppThemeId(config, workspaceId));
     await this.refreshConversationList();
     await this.rememberLastActiveForWorkspace(conv);
+    this.chatHubView.set('activeChat');
   }
 
   onAbortRequested(): void {
@@ -1052,6 +1053,7 @@ export class App implements OnInit, OnDestroy {
     const convWorkspaceId = conv?.workspaceId ?? this.currentWorkspaceId();
     console.log('[App] onSelectConversation: convWorkspaceId:', convWorkspaceId);
     await this.loadConversation(id, convWorkspaceId);
+    this.chatHubView.set('activeChat');
   }
 
   async onDeleteConversation(id: string): Promise<void> {
@@ -1224,7 +1226,7 @@ export class App implements OnInit, OnDestroy {
   protected async closeMainFileTab(event: MouseEvent, tabId: string): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
-    if (tabId === 'conversation' || !tabId.startsWith('file:')) {
+    if (!tabId.startsWith('file:')) {
       return;
     }
     const norm = normalizePathSlashes(tabId.slice(5));
@@ -1234,10 +1236,16 @@ export class App implements OnInit, OnDestroy {
         return;
       }
     }
+    const remaining = this.fileTabs().filter((t) => normalizePathSlashes(t.relativePath) !== norm);
     if (this.activeMainTabId() === tabId) {
-      this.activeMainTabId.set('conversation');
+      if (remaining.length > 0) {
+        const last = remaining[remaining.length - 1]!;
+        this.activeMainTabId.set(chatFileTabId(last.relativePath));
+      } else {
+        this.activeMainTabId.set(null);
+      }
     }
-    this.fileTabs.update((ts) => ts.filter((t) => normalizePathSlashes(t.relativePath) !== norm));
+    this.fileTabs.set(remaining);
   }
 
   protected onWorkspaceFileOpen(payload: { absolutePath: string }): void {
@@ -1739,6 +1747,7 @@ export class App implements OnInit, OnDestroy {
     }
 
     await this.loadConversation(conv.id, conv.workspaceId, { skipPythonResync: skipTargetPython });
+    this.chatHubView.set('activeChat');
   }
 
   protected onChromeFileMenu(ev: MouseEvent): void {

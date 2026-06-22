@@ -1,0 +1,25 @@
+<div class="main-panel-empty">
+  <div class="main-panel-empty__glow" aria-hidden="true"></div>
+
+  @if (!hasWorkspace()) {
+    <div class="main-panel-empty__content main-panel-empty__content--no-workspace">
+      <p class="main-panel-empty__eyebrow">&gt; Clara Coder_</p>
+      <h2 class="main-panel-empty__title title-glow">Open a workspace to begin</h2>
+      <p class="main-panel-empty__hint">
+        Add a project folder to browse files, edit code, and chat with Clara.
+      </p>
+      <button type="button" class="main-panel-empty__cta" (click)="addWorkspace.emit()">
+        <lucide-icon name="folder-plus" [size]="18" />
+        <span>Add Workspace</span>
+      </button>
+    </div>
+  } @else {
+    <div class="main-panel-empty__content main-panel-empty__content--select-file">
+      <lucide-icon name="file-search" [size]="40" class="main-panel-empty__icon" />
+      <h2 class="main-panel-empty__title">Select a file</h2>
+      <p class="main-panel-empty__hint">
+        Double-click a file in the workspace tree to open it here.
+      </p>
+    </div>
+  }
+</div>

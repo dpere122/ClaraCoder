@@ -1,0 +1,90 @@
+<div class="chat-hub">
+  <div class="chat-hub__toolbar">
+    <button
+      type="button"
+      class="chat-hub__expand"
+      [disabled]="view() !== 'activeChat'"
+      [attr.aria-pressed]="expanded()"
+      [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
+      [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
+      (click)="toggleExpanded()"
+    >
+      <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="16" />
+    </button>
+
+    <button
+      type="button"
+      class="chat-hub__conv-toggle"
+      [attr.aria-pressed]="view() === 'conversations'"
+      [attr.aria-label]="view() === 'conversations' ? 'Show active chat' : 'Show conversations'"
+      [title]="view() === 'conversations' ? 'Active chat' : 'Conversations'"
+      (click)="toggleView()"
+    >
+      <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="16" />
+    </button>
+  </div>
+
+  @if (view() === 'conversations') {
+    <app-conversation-manager
+      class="chat-hub__body"
+      [conversations]="conversations()"
+      [activeId]="activeConversationId()"
+      [activeFileRelativePath]="activeFileRelativePath()"
+      [pendingIds]="pendingIds()"
+      (newConversation)="newConversation.emit()"
+      (selectConversation)="onSelectFromList($event)"
+      (deleteConversation)="deleteConversation.emit($event)"
+      (renameConversation)="renameConversation.emit($event)"
+    />
+  } @else if (!expanded()) {
+    <app-chat-active-stack
+      class="chat-hub__body"
+      [messages]="messages()"
+      [conversationId]="activeConversationId()"
+      [loading]="loading()"
+      [processingToolsActive]="processingToolsActive()"
+      [ttsLoading]="ttsLoading()"
+      [streamingParts]="streamingParts()"
+      [streamingFinalText]="streamingFinalText()"
+      [streamingPlanner]="streamingPlanner()"
+      [fontSize]="fontSize()"
+      (sendResponse)="sendResponse.emit($event)"
+      (diffReviewFinished)="diffReviewFinished.emit($event)"
+      (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+      (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+      (copyReviewFinished)="copyReviewFinished.emit($event)"
+      (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+      (planConfirmFinished)="planConfirmFinished.emit($event)"
+      [chatContextFiles]="chatContextFiles()"
+      [workspaceRoot]="workspaceRoot()"
+      (removeChatContextFile)="removeChatContextFile.emit($event)"
+      (chatContextPathsDropped)="chatContextPathsDropped.emit($event)"
+      [appConfig]="appConfig()"
+      [talkInputDeviceId]="talkInputDeviceId()"
+      [talkSilenceThresholdSec]="talkSilenceThresholdSec()"
+      [(talkEnabled)]="talkEnabled"
+      [(talkStatus)]="talkStatus"
+      [(talkModeDetailStatus)]="talkModeDetailStatus"
+      (promptCaptured)="promptCaptured.emit($event)"
+      (talkRecordingBegan)="talkRecordingBegan.emit()"
+      (talkCaptureFinished)="talkCaptureFinished.emit($event)"
+      [(composerMode)]="composerMode"
+      [voiceActive]="voiceActive()"
+      (voiceToggle)="voiceToggle.emit()"
+      [contextBlocked]="contextBlocked()"
+      (messageSent)="messageSent.emit($event)"
+      (abortRequested)="abortRequested.emit()"
+      [usedTokens]="usedTokens()"
+      [maxTokens]="maxTokens()"
+      [remainingTokens]="remainingTokens()"
+      [usedPercentage]="usedPercentage()"
+      [compressionNotice]="compressionNotice()"
+      [modelName]="modelName()"
+      [modelPresetOptions]="modelPresetOptions()"
+      [activeLlmModelId]="activeLlmModelId()"
+      (activeLlmModelChange)="activeLlmModelChange.emit($event)"
+      [(editorMode)]="editorMode"
+      [(autoApplyMode)]="autoApplyMode"
+    />
+  }
+</div>

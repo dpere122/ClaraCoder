@@ -112,6 +112,8 @@ export {
   type ToolChainGroup,
 } from './chat-box-display';
 
+export type ChatLayoutMode = 'sidebar' | 'expanded';
+
 /** Pixels from the bottom of the chat viewport to treat as “pinned” for follow-final-message behavior. */
 const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
 
@@ -146,6 +148,9 @@ type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
   encapsulation: ViewEncapsulation.None,
+  host: {
+    '[class.chat-layout-sidebar]': 'layout() === "sidebar"',
+  },
 })
 /**
  * Renders the conversation transcript inside the chat pane.
@@ -231,6 +236,8 @@ export class ChatBox implements OnDestroy {
   readonly streamingPlanner = input<PlannerProgress | null>(null);
   /** Root `--chat-font-size` multiplier (rem). */
   readonly fontSize = input(0.9);
+  /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
+  readonly layout = input<ChatLayoutMode>('expanded');
 
   // --- Outputs (HITL completion + composer send) ---
 

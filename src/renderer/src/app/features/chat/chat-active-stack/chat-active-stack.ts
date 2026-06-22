@@ -14,6 +14,8 @@ import { TalkMode } from '../../speech/talk-mode/talk-mode';
 import { StatusBarComponent } from '../../status/status-bar/status-bar';
 import type { LlmModelPresetOption } from '../../status/context-capacity/context-capacity';
 
+export type ChatLayoutMode = 'sidebar' | 'expanded';
+
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
 @Component({
   selector: 'app-chat-active-stack',
@@ -22,6 +24,9 @@ import type { LlmModelPresetOption } from '../../status/context-capacity/context
   styleUrl: './chat-active-stack.css',
 })
 export class ChatActiveStackComponent {
+  /** Sidebar hub vs main-panel expanded overlay — reserved for layout-specific chrome. */
+  readonly layout = input<ChatLayoutMode>('expanded');
+
   readonly messages = input<ChatMessage[]>([]);
   readonly conversationId = input<string | null>(null);
   readonly loading = input(false);

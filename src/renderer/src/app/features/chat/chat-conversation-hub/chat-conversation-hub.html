@@ -1,5 +1,5 @@
 <div class="chat-hub">
-  <div class="chat-hub__toolbar">
+  <div class="chat-hub__toolbar" [class.chat-hub__toolbar--expanded]="expanded()">
     <button
       type="button"
       class="chat-hub__expand"
@@ -12,19 +12,21 @@
       <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="16" />
     </button>
 
-    <button
-      type="button"
-      class="chat-hub__conv-toggle"
-      [attr.aria-pressed]="view() === 'conversations'"
-      [attr.aria-label]="view() === 'conversations' ? 'Show active chat' : 'Show conversations'"
-      [title]="view() === 'conversations' ? 'Active chat' : 'Conversations'"
-      (click)="toggleView()"
-    >
-      <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="16" />
-    </button>
+    @if (!expanded()) {
+      <button
+        type="button"
+        class="chat-hub__conv-toggle"
+        [attr.aria-pressed]="view() === 'conversations'"
+        [attr.aria-label]="view() === 'conversations' ? 'Show active chat' : 'Show conversations'"
+        [title]="view() === 'conversations' ? 'Active chat' : 'Conversations'"
+        (click)="toggleView()"
+      >
+        <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="16" />
+      </button>
+    }
   </div>
 
-  @if (view() === 'conversations') {
+  @if (expanded() || view() === 'conversations') {
     <app-conversation-manager
       class="chat-hub__body"
       [conversations]="conversations()"
@@ -36,9 +38,10 @@
       (deleteConversation)="deleteConversation.emit($event)"
       (renameConversation)="renameConversation.emit($event)"
     />
-  } @else if (!expanded()) {
+  } @else {
     <app-chat-active-stack
       class="chat-hub__body"
+      layout="sidebar"
       [messages]="messages()"
       [conversationId]="activeConversationId()"
       [loading]="loading()"

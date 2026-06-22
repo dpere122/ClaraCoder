@@ -27,6 +27,10 @@
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+.chat-hub__toolbar--expanded {
+  justify-content: flex-start;
+}
+
 .chat-hub__expand,
 .chat-hub__conv-toggle {
   display: inline-flex;

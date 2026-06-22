@@ -3,7 +3,9 @@
   @for (slot of virtualWindow().slots; track slot.index) {
     <div class="chat-row-mount" [attr.data-chat-row]="slot.index">
     <div
-      class="d-flex mb-2"
+      class="chat-row d-flex mb-2"
+      [class.chat-row--user]="slot.row.kind === 'user'"
+      [class.chat-row--assistant]="slot.row.kind === 'assistant-turn'"
       [class.justify-content-end]="slot.row.kind === 'user'"
     >
       <div
@@ -114,7 +116,7 @@
   }
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().bottomSpacer" aria-hidden="true"></div>
   @if (liveTurn(); as liveTurn) {
-    <div class="d-flex mb-2">
+    <div class="chat-row chat-row--assistant d-flex mb-2">
       <div
         class="msg-bubble px-2 py-1 assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
@@ -206,7 +208,11 @@
     </div>
   }
   @if (talkUi.capturing() || talkUi.transcribing()) {
-    <div class="d-flex mb-2" role="status" aria-live="polite">
+    <div
+      class="chat-row chat-row--assistant d-flex mb-2"
+      role="status"
+      aria-live="polite"
+    >
       <div class="msg-bubble px-2 py-1 assistant-bubble talk-voice-row">
         <div class="talk-voice-ngx-host" aria-hidden="true">
           <ngx-spinner

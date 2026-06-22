@@ -378,12 +378,6 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
-      if (this.chatHubView() === 'conversations' && this.chatExpanded()) {
-        untracked(() => this.chatExpanded.set(false));
-      }
-    });
-
-    effect(() => {
       // Track both workspace and conversation changes to sync workspace context
       // The effect will re-run when either changes, after loadConversationsForWorkspace
       // has had a chance to update activeConversationId

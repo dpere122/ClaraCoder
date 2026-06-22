@@ -4,9 +4,9 @@ app-chat-box {
   display: flex;
   flex-direction: column;
   --chat-font-size: 0.9rem;
-  /** Fixed bubble width: text wraps instead of stretching the bubble horizontally. */
+  /** User bubble width; assistant responses use full transcript width. */
   --chat-bubble-width: min(80%, 36rem);
-  --chat-response-bubble-width: min(80%, 72rem);
+  --chat-response-bubble-width: 100%;
 }
 
 app-chat-box .chat-box {
@@ -14,7 +14,16 @@ app-chat-box .chat-box {
   overflow-y: auto;
   border: none;
   background-color: var(--t-bg);
-  padding: 0.35rem 0.45rem;
+  padding: 0.35rem 0;
+}
+
+app-chat-box .chat-row--assistant {
+  width: 100%;
+}
+
+app-chat-box .chat-row--assistant .msg-bubble {
+  width: 100%;
+  max-width: 100%;
 }
 
 app-chat-box .chat-virtual-spacer,
@@ -59,7 +68,8 @@ app-chat-box .tts-loading-label {
 
 app-chat-box .user-bubble {
   background-color: var(--t-user-bg);
-  color: var(--t-primary);
+  color: var(--t-user-fg, var(--t-primary));
+  border-bottom-color: var(--t-user-border, var(--t-border-subtle));
 }
 
 app-chat-box .user-attachments {
@@ -98,7 +108,8 @@ app-chat-box .assistant-bubble {
   width: var(--chat-response-bubble-width);
   max-width: var(--chat-response-bubble-width);
   background-color: var(--t-assistant-bg);
-  color: var(--t-secondary);
+  color: var(--t-assistant-fg, var(--t-secondary));
+  border-bottom-color: var(--t-assistant-border, var(--t-border-subtle));
 }
 
 /* Block wrapper for rendered markdown (must not use <span>: headings/pre are flow content). */
@@ -578,7 +589,7 @@ app-chat-box .tool-trail-persisted {
 /* --- Planner row --- */
 
 app-chat-box .planner-row-card {
-  width: min(100%, 40rem);
+  width: 100%;
 }
 
 /* --- Processing row --- */

@@ -1,6 +1,7 @@
 <div class="chat-active-stack">
   <app-chat-box
     class="chat-active-stack__transcript"
+    [layout]="layout()"
     [messages]="messages()"
     [conversationId]="conversationId()"
     [loading]="loading()"

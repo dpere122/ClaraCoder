@@ -15,8 +15,11 @@
   --t-selection-bg: #00ff4140;
   --t-text-muted: #00ff4155;
   --t-muted: var(--t-text-muted);
-  --t-user-bg: #003b00;
-  --t-assistant-bg: #0d1a0d;
+  --t-user-bg: #004808;
+  --t-user-fg: #80ff80;
+  --t-user-border: #00cc4466;
+  --t-assistant-bg: #0a100a;
+  --t-assistant-fg: #7ab87a;
   --t-assistant-border: #00cc3366;
   --t-code-bg: #050d05;
   --t-code-inline-bg: #001a00;
@@ -83,8 +86,11 @@ lucide-icon svg {
   --t-active-bg: #ff41c818;
   --t-selection-bg: #ff41c840;
   --t-text-muted: #ff41c855;
-  --t-user-bg: #3b002e;
-  --t-assistant-bg: #1a0d18;
+  --t-user-bg: #4a0838;
+  --t-user-fg: #ff99dd;
+  --t-user-border: #ff41c866;
+  --t-assistant-bg: #140a12;
+  --t-assistant-fg: #cc88bb;
   --t-assistant-border: #cc33aa66;
   --t-code-bg: #0d050c;
   --t-code-inline-bg: #1a0015;
@@ -129,8 +135,11 @@ lucide-icon svg {
   --t-selection-bg: #c9b99a80;
   --t-text-muted: #8a7a68;
   --t-muted: #8a7a68;
-  --t-user-bg: #e8e0d0;
-  --t-assistant-bg: #f0ebe2;
+  --t-user-bg: #ddd0bc;
+  --t-user-fg: #2c1810;
+  --t-user-border: #a0806088;
+  --t-assistant-bg: #f8f4ec;
+  --t-assistant-fg: #5c4030;
   --t-assistant-border: #a08060;
   --t-code-bg: #ebe5d9;
   --t-code-inline-bg: #e5ddd0;
@@ -183,8 +192,11 @@ lucide-icon svg {
   --t-selection-bg: #8b6a3f99;
   --t-text-muted: #b59d81;
   --t-muted: #b59d81;
-  --t-user-bg: #2d241e;
-  --t-assistant-bg: #241d18;
+  --t-user-bg: #3a3028;
+  --t-user-fg: #ffe8c8;
+  --t-user-border: #c9a96e88;
+  --t-assistant-bg: #1a1510;
+  --t-assistant-fg: #c8b090;
   --t-assistant-border: #9a7d5c;
   --t-code-bg: #16110e;
   --t-code-inline-bg: #2a211c;
@@ -244,7 +256,10 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-muted: #404040;
   --t-warn: #996600;
   --t-user-bg: #ffffff;
-  --t-assistant-bg: #f0f0f0;
+  --t-user-fg: #000080;
+  --t-user-border: #000080;
+  --t-assistant-bg: #e8e8e8;
+  --t-assistant-fg: #404040;
   --t-assistant-border: #808080;
   --t-code-bg: #fffff8;
   --t-code-inline-bg: #e8e8e8;
@@ -300,8 +315,11 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-selection-bg: rgba(168, 184, 154, 0.28);
   --t-text-muted: #7a8470;
   --t-muted: #7a8470;
-  --t-user-bg: #252b20;
-  --t-assistant-bg: #1e221b;
+  --t-user-bg: #2e3628;
+  --t-user-fg: #d8c8a0;
+  --t-user-border: #c9a96e66;
+  --t-assistant-bg: #161812;
+  --t-assistant-fg: #a8b89a;
   --t-assistant-border: #8a7a5a;
   --t-code-bg: #151812;
   --t-code-inline-bg: #252b20;
@@ -356,8 +374,11 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-selection-bg: rgba(88, 166, 255, 0.28);
   --t-text-muted: #6b7c95;
   --t-muted: #6b7c95;
-  --t-user-bg: #0f1624;
-  --t-assistant-bg: #090e16;
+  --t-user-bg: #142038;
+  --t-user-fg: #90c8ff;
+  --t-user-border: #58a6ff66;
+  --t-assistant-bg: #060a10;
+  --t-assistant-fg: #80b0e0;
   --t-assistant-border: #39d4d4;
   --t-code-bg: #06090e;
   --t-code-inline-bg: #121a28;
@@ -412,8 +433,11 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-selection-bg: rgba(208, 141, 255, 0.32);
   --t-text-muted: #9f83b8;
   --t-muted: #9f83b8;
-  --t-user-bg: #2a1640;
-  --t-assistant-bg: #170c23;
+  --t-user-bg: #341850;
+  --t-user-fg: #f0c0ff;
+  --t-user-border: #d08dff66;
+  --t-assistant-bg: #100818;
+  --t-assistant-fg: #b898d8;
   --t-assistant-border: #b067ff;
   --t-code-bg: #0d0616;
   --t-code-inline-bg: #241239;
@@ -482,8 +506,11 @@ html.theme-purple-girl .interactive-output .terminal-shell {
   --t-selection-bg: rgba(0, 200, 255, 0.3);
   --t-text-muted: #6a8cad;
   --t-muted: #6a8cad;
-  --t-user-bg: #0a1e34;
-  --t-assistant-bg: #071018;
+  --t-user-bg: #0c2848;
+  --t-user-fg: #70d8ff;
+  --t-user-border: #00c8ff55;
+  --t-assistant-bg: #040810;
+  --t-assistant-fg: #90b8d8;
   --t-assistant-border: #40d8ff;
   --t-code-bg: #040810;
   --t-code-inline-bg: #0f1e32;
@@ -551,8 +578,11 @@ html.theme-ps2 .interactive-output .terminal-shell {
   --t-selection-bg: rgba(244, 176, 48, 0.28);
   --t-text-muted: #8a9a80;
   --t-muted: #8a9a80;
-  --t-user-bg: #1a2318;
-  --t-assistant-bg: #121812;
+  --t-user-bg: #222c1c;
+  --t-user-fg: #ffe090;
+  --t-user-border: #f4b03066;
+  --t-assistant-bg: #0c100a;
+  --t-assistant-fg: #98b088;
   --t-assistant-border: #e09028;
   --t-code-bg: #0a0d09;
   --t-code-inline-bg: #1c2419;
@@ -620,8 +650,11 @@ html.theme-halo3 .interactive-output .terminal-shell {
   --t-selection-bg: rgba(26, 88, 144, 0.22);
   --t-text-muted: #7a7060;
   --t-muted: #7a7060;
-  --t-user-bg: #d4e8f4;
+  --t-user-bg: #b8dce8;
+  --t-user-fg: #1a4878;
+  --t-user-border: #4a9ec888;
   --t-assistant-bg: #faf6ee;
+  --t-assistant-fg: #5a5040;
   --t-assistant-border: #4a9ec8;
   --t-code-bg: #faf4e8;
   --t-code-inline-bg: #ebe3d4;
@@ -689,8 +722,11 @@ html.theme-phantom-hourglass .interactive-output .terminal-shell {
   --t-selection-bg: rgba(255, 182, 214, 0.5);
   --t-text-muted: #9a7186;
   --t-muted: #9a7186;
-  --t-user-bg: #ffe0f0;
-  --t-assistant-bg: #ffffff;
+  --t-user-bg: #ffd0e8;
+  --t-user-fg: #c02868;
+  --t-user-border: #ff3d7a55;
+  --t-assistant-bg: #fffafc;
+  --t-assistant-fg: #6a4860;
   --t-assistant-border: #ffb3d9;
   --t-code-bg: #fff0f7;
   --t-code-inline-bg: #ffe4f1;
@@ -747,8 +783,11 @@ html.theme-phantom-hourglass .interactive-output .terminal-shell {
   --t-selection-bg: rgba(0, 120, 212, 0.22);
   --t-text-muted: #6e6e6e;
   --t-muted: #6e6e6e;
-  --t-user-bg: #e3f2fd;
-  --t-assistant-bg: #ffffff;
+  --t-user-bg: #cce4f8;
+  --t-user-fg: #004578;
+  --t-user-border: #0078d488;
+  --t-assistant-bg: #f8f8f8;
+  --t-assistant-fg: #1e1e1e;
   --t-assistant-border: #8dbddd;
   --t-code-bg: #fafafa;
   --t-code-inline-bg: #e8e8e8;
@@ -1556,12 +1595,14 @@ html.theme-win95 .settings-section {
 }
 
 html.theme-win95 .user-bubble {
-  background-color: #ffffff;
+  background-color: var(--t-user-bg);
+  color: var(--t-user-fg, var(--t-fg));
   border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
 }
 
 html.theme-win95 .assistant-bubble {
-  background-color: #f0f0f0;
+  background-color: var(--t-assistant-bg);
+  color: var(--t-assistant-fg, var(--t-fg));
   line-height: 1.5;
 }
 
@@ -1763,8 +1804,8 @@ html.theme-win95 .chat-main-tab-close:hover {
 }
 
 html.theme-win95 .user-bubble {
-  background-color: #ffffff;
-  color: var(--t-fg);
+  background-color: var(--t-user-bg);
+  color: var(--t-user-fg, var(--t-fg));
   line-height: 1.5;
 }
 

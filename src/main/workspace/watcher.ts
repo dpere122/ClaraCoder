@@ -18,6 +18,7 @@ import { getWorkspaceStagingDir } from '../paths';
 import { mainState } from '../state';
 import { loadConfig } from '../config/load-save';
 import { syncWorkspaceContextToPython } from '../python/workspace-sync';
+import { pushWorkspaceFilesChangedToRenderer } from './emit-files-changed';
 import { buildWorkspaceTree } from './context-tree';
 import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
 import type { WorkspaceWatcherState } from './watcher-state';
@@ -85,11 +86,20 @@ async function syncWatchedWorkspaceTree(
       mainState.activeConversationWorkspaceId === watcherState.workspaceId
     ) {
       try {
+        const contextChanges =
+          changePayload && (changePayload.paths.length > 0 || changePayload.kinds.length > 0)
+            ? filterChangePayloadForContextSync(
+                watcherState.workspacePath,
+                changePayload,
+                watcherState.ignoreRules,
+                watcherState.exposeAllWorkspaceFiles,
+              )
+            : { paths: [] as string[], kinds: [] as WorkspaceChangeKind[] };
         await syncWorkspaceContextToPython(mainState.activeConversationId, watcherState.workspacePath, tree, {
           workspaceId: watcherState.workspaceId,
           workspaceFileChanges:
-            changePayload && (changePayload.paths.length > 0 || changePayload.kinds.length > 0)
-              ? { paths: [...changePayload.paths], kinds: [...changePayload.kinds] }
+            contextChanges.paths.length > 0 || contextChanges.kinds.length > 0
+              ? { paths: contextChanges.paths, kinds: contextChanges.kinds }
               : undefined,
         });
       } catch (err) {
@@ -97,9 +107,6 @@ async function syncWatchedWorkspaceTree(
       }
     }
 
-    if (changePayload) {
-      mainState.mainWindow?.webContents.send('workspace-files-changed', changePayload);
-    }
   } catch (err) {
     console.error('Failed to rebuild watched workspace tree:', err);
   }
@@ -121,6 +128,8 @@ function queueWorkspaceWatcherSync(watcherState: WorkspaceWatcherState): void {
       paths,
       kinds,
     };
+    // Sidebar refresh must not wait on (or be dropped by) LLM context rebuild during heavy builds.
+    pushWorkspaceFilesChangedToRenderer(changePayload);
     void syncWatchedWorkspaceTree(watcherState, changePayload);
   }, WORKSPACE_WATCH_DEBOUNCE_MS);
 }
@@ -202,7 +211,8 @@ function formatWatchedPath(source: WatchSource, relativePath: string): string {
   return source === 'staging' ? `[staging] ${normalizedRelativePath}` : normalizedRelativePath;
 }
 
-function shouldProcessWorkspaceWatchPath(
+/** Whether a path belongs in the LLM workspace context tree (not the sidebar file tree). */
+function shouldIncludeWorkspacePathInContextSync(
   workspacePath: string,
   relativePath: string,
   ignoreRules: string[],
@@ -213,7 +223,7 @@ function shouldProcessWorkspaceWatchPath(
   }
 
   const normalizedRelativePath = normalizeContextPath(relativePath).replace(/^\/+/, '');
-  if (!normalizedRelativePath) {
+  if (!normalizedRelativePath || normalizedRelativePath === '.') {
     return true;
   }
 
@@ -238,6 +248,29 @@ function shouldProcessWorkspaceWatchPath(
   return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, ignoreRules);
 }
 
+function filterChangePayloadForContextSync(
+  workspacePath: string,
+  payload: WorkspaceFilesChangedPayload,
+  ignoreRules: string[],
+  exposeAllWorkspaceFiles: boolean,
+): { paths: string[]; kinds: WorkspaceChangeKind[] } {
+  const paths: string[] = [];
+  const kinds: WorkspaceChangeKind[] = [];
+  for (let i = 0; i < payload.paths.length; i++) {
+    const p = payload.paths[i] ?? '';
+    if (p.startsWith('[staging] ')) {
+      paths.push(p);
+      kinds.push(payload.kinds[i] ?? 'unknown');
+      continue;
+    }
+    if (shouldIncludeWorkspacePathInContextSync(workspacePath, p, ignoreRules, exposeAllWorkspaceFiles)) {
+      paths.push(p);
+      kinds.push(payload.kinds[i] ?? 'unknown');
+    }
+  }
+  return { paths, kinds };
+}
+
 function createDirectoryWatcher(
   watcherState: WorkspaceWatcherState,
   rootPath: string,
@@ -253,19 +286,6 @@ function createDirectoryWatcher(
       }
 
       const relativePath = filename ? filename.toString() : '';
-      if (
-        source === 'workspace' &&
-        relativePath &&
-        !shouldProcessWorkspaceWatchPath(
-          watcherState.workspacePath,
-          relativePath,
-          aw.ignoreRules,
-          aw.exposeAllWorkspaceFiles,
-        )
-      ) {
-        return;
-      }
-
       const changeKind = resolveWatchChangeKind(eventType, rootPath, relativePath);
       aw.pendingChanges.set(formatWatchedPath(source, relativePath), changeKind);
       queueWorkspaceWatcherSync(aw);

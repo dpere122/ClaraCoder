@@ -1166,32 +1166,19 @@ export class WorkspaceComponent implements OnDestroy {
     workspaceRoot: string,
     event: WorkspaceFilesChangedMessage,
   ): Promise<void> {
-    const applied = await this.applyIncrementalWorkspaceFileChanges(workspaceRoot, event);
-    if (!applied) {
-      await this.reloadPreservingExpansion(workspaceRoot);
-    }
-  }
-
-  private async applyIncrementalWorkspaceFileChanges(
-    workspaceRoot: string,
-    event: WorkspaceFilesChangedMessage,
-  ): Promise<boolean> {
     if (!this.initialLoadComplete || this.loadError()) {
-      return false;
+      await this.reloadPreservingExpansion(workspaceRoot);
+      return;
     }
 
     const changes = workspaceFileChangeDescriptorsFromEvent(event);
-    if (changes.length === 0) {
-      return true;
-    }
-
     if (changes.some((change) => change.relativePath === '.gitignore')) {
-      return false;
+      await this.reloadPreservingExpansion(workspaceRoot);
+      return;
     }
 
     const root = normalizeTreeAbsolutePath(workspaceRoot);
     let treeChanged = false;
-    let needsExpandedFolderRefresh = false;
 
     for (const change of changes) {
       const absPath =
@@ -1204,72 +1191,38 @@ export class WorkspaceComponent implements OnDestroy {
           : joinTreeAbsolutePath(root, change.previousRelativePath)
         : null;
 
-      switch (change.kind) {
-        case 'updated': {
-          if (change.relativePath === '.' || change.relativePath === '') {
-            needsExpandedFolderRefresh = true;
-            break;
-          }
-          // Windows often emits a directory "change" when files are added/removed inside it.
-          const node = findFileNodeByNormalizedPath(this.tree, absPath);
-          if (node?.isDirectory) {
-            needsExpandedFolderRefresh = true;
-          }
-          break;
-        }
+      if (change.kind === 'deleted' && removeFileNodeAtPath(this.tree, absPath)) {
+        treeChanged = true;
+        this.updateTreeSelectionAfterDelete(absPath);
+        continue;
+      }
 
-        case 'deleted':
-          if (removeFileNodeAtPath(this.tree, absPath)) {
-            treeChanged = true;
-            this.updateTreeSelectionAfterDelete(absPath);
-          }
-          needsExpandedFolderRefresh = true;
-          break;
-
-        case 'renamed': {
-          if (
-            previousAbs &&
-            parentWorkspaceRelativePath(change.previousRelativePath ?? '.') ===
-              parentWorkspaceRelativePath(change.relativePath) &&
-            renameFileNodeAtPath(
-              this.tree,
-              previousAbs,
-              absPath,
-              workspaceFileBasename(change.relativePath),
-            )
-          ) {
-            treeChanged = true;
-            this.updateTreeSelectionAfterRename(previousAbs, absPath);
-            break;
-          }
-
-          if (previousAbs && removeFileNodeAtPath(this.tree, previousAbs)) {
-            treeChanged = true;
-            this.updateTreeSelectionAfterDelete(previousAbs);
-          }
-          needsExpandedFolderRefresh = true;
-          break;
-        }
-
-        case 'created':
-        case 'unknown':
-          needsExpandedFolderRefresh = true;
-          break;
+      if (
+        change.kind === 'renamed' &&
+        previousAbs &&
+        parentWorkspaceRelativePath(change.previousRelativePath ?? '.') ===
+          parentWorkspaceRelativePath(change.relativePath) &&
+        renameFileNodeAtPath(
+          this.tree,
+          previousAbs,
+          absPath,
+          workspaceFileBasename(change.relativePath),
+        )
+      ) {
+        treeChanged = true;
+        this.updateTreeSelectionAfterRename(previousAbs, absPath);
       }
     }
 
-    if (needsExpandedFolderRefresh) {
-      if (await this.refreshAllExpandedFoldersFromDisk(workspaceRoot)) {
-        treeChanged = true;
-      } else if (!treeChanged) {
-        return false;
-      }
+    if (await this.refreshAllExpandedFoldersFromDisk(workspaceRoot)) {
+      treeChanged = true;
     }
 
     if (treeChanged) {
       this.rebuildFlat();
+    } else {
+      await this.reloadPreservingExpansion(workspaceRoot);
     }
-    return true;
   }
 
   /** Re-read every expanded folder (and root) from disk — authoritative listing sync. */

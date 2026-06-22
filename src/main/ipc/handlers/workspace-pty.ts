@@ -7,8 +7,40 @@ import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { envForChildProcess } from '../../utils/filter-sensitive-env';
 import { validateWorkspacePtyCwd } from '../../utils/workspace-pty-cwd';
+import { notifyWorkspaceTreeRefresh } from '../../workspace/emit-files-changed';
 
 const sessions = new Map<string, pty.IPty>();
+/** PTY session id → workspace root (for debounced file-tree refresh after shell output). */
+const sessionWorkspaceRoots = new Map<string, string>();
+const ptyTreeRefreshTimers = new Map<string, NodeJS.Timeout>();
+const PTY_TREE_REFRESH_IDLE_MS = 1_500;
+
+function schedulePtyWorkspaceTreeRefresh(sessionId: string, workspaceRoot: string): void {
+  const root = workspaceRoot.trim();
+  if (!root) {
+    return;
+  }
+  const existing = ptyTreeRefreshTimers.get(sessionId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  ptyTreeRefreshTimers.set(
+    sessionId,
+    setTimeout(() => {
+      ptyTreeRefreshTimers.delete(sessionId);
+      void notifyWorkspaceTreeRefresh(root);
+    }, PTY_TREE_REFRESH_IDLE_MS),
+  );
+}
+
+function clearPtyWorkspaceTreeRefresh(sessionId: string): void {
+  sessionWorkspaceRoots.delete(sessionId);
+  const timer = ptyTreeRefreshTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    ptyTreeRefreshTimers.delete(sessionId);
+  }
+}
 
 function envForPtyChild(): NodeJS.ProcessEnv {
   return envForChildProcess();
@@ -69,6 +101,9 @@ function sendExit(sessionId: string, exitCode: number, signal: number | null): v
 
 /** Kill every workspace PTY (app quit or workspace switch). */
 export function killAllWorkspacePtySessions(): void {
+  for (const [sessionId] of sessions) {
+    clearPtyWorkspaceTreeRefresh(sessionId);
+  }
   for (const [, term] of sessions) {
     try {
       term.kill();
@@ -119,12 +154,16 @@ export function registerWorkspacePtyIpc(): void {
             ? pty.spawn(file, args, { ...baseOpts, useConpty: false })
             : pty.spawn(file, args, baseOpts);
         sessions.set(sessionId, term);
+        sessionWorkspaceRoots.set(sessionId, wr.trim());
         term.onData((data) => {
           sendData(sessionId, data);
+          schedulePtyWorkspaceTreeRefresh(sessionId, wr.trim());
         });
         term.onExit(({ exitCode, signal }) => {
           sessions.delete(sessionId);
+          clearPtyWorkspaceTreeRefresh(sessionId);
           sendExit(sessionId, exitCode, signal ?? null);
+          void notifyWorkspaceTreeRefresh(wr.trim());
         });
         console.log('[workspace-pty] spawn ok', { sessionId, pid: term.pid });
         return { success: true as const, sessionId };
@@ -150,6 +189,10 @@ export function registerWorkspacePtyIpc(): void {
     }
     try {
       term.write(chunk);
+      const root = sessionWorkspaceRoots.get(id);
+      if (root && (chunk.includes('\r') || chunk.includes('\n'))) {
+        schedulePtyWorkspaceTreeRefresh(id, root);
+      }
       return { success: true as const };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -193,9 +236,11 @@ export function registerWorkspacePtyIpc(): void {
     try {
       term.kill();
       sessions.delete(id);
+      clearPtyWorkspaceTreeRefresh(id);
       return { success: true as const };
     } catch (err: unknown) {
       sessions.delete(id);
+      clearPtyWorkspaceTreeRefresh(id);
       const message = err instanceof Error ? err.message : String(err);
       return { success: false as const, error: message };
     }

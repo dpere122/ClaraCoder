@@ -16,7 +16,6 @@ import type { PythonInterpreterListItem, Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
-import { EditorLspStatusComponent } from '../../shell/editor-lsp-status/editor-lsp-status';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
@@ -38,11 +37,11 @@ import {
   parentDirectoryPath,
 } from './workspace-path-utils';
 import { workspaceTreeTextHintsPython } from './workspace-python-hints';
-import { WORKSPACE_TREE_DRAG_MIME } from '../../chat/chat-context-bar/chat-context-file';
+import { WORKSPACE_TREE_DRAG_MIME, WORKSPACE_TREE_INTERNAL_MOVE_MIME } from '../../chat/chat-context-bar/chat-context-file';
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, ThemeSelector, EditorLspStatusComponent],
+  imports: [LucideAngularModule, ThemeSelector],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -138,6 +137,10 @@ export class WorkspaceComponent implements OnDestroy {
   private lastRevealedAbsolutePath: string | null = null;
   /** Flag to prevent reveal during initial tree load. */
   private initialLoadComplete = false;
+
+  /** Drop target folder (absolute path) while dragging over the tree. */
+  protected readonly treeDropTargetDir = signal<string | null>(null);
+  protected readonly fileTreeDropActive = signal(false);
 
   constructor(protected electron: ElectronService) {
     effect(() => {
@@ -567,13 +570,174 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   onTreeNodeDragStart(event: DragEvent, node: FlatNode): void {
-    if (node.isDirectory || this.inlineRenamePath() === node.path || !event.dataTransfer) {
+    if (this.inlineRenamePath() === node.path || !event.dataTransfer) {
       event.preventDefault();
       return;
     }
-    event.dataTransfer.effectAllowed = 'copy';
-    event.dataTransfer.setData(WORKSPACE_TREE_DRAG_MIME, node.path);
-    event.dataTransfer.setData('text/plain', node.path);
+    event.dataTransfer.effectAllowed = node.isDirectory ? 'move' : 'copyMove';
+    event.dataTransfer.setData(WORKSPACE_TREE_INTERNAL_MOVE_MIME, node.path);
+    if (!node.isDirectory) {
+      event.dataTransfer.setData(WORKSPACE_TREE_DRAG_MIME, node.path);
+      event.dataTransfer.setData('text/plain', node.path);
+    }
+  }
+
+  onTreeNodeDragEnd(): void {
+    this.clearTreeDropTarget();
+  }
+
+  onFileTreeDragOver(event: DragEvent): void {
+    if (!this.canAcceptTreeDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = this.isInternalTreeDrag(event) ? 'move' : 'copy';
+    }
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (ws?.path) {
+      this.fileTreeDropActive.set(true);
+      this.treeDropTargetDir.set(ws.path);
+    }
+  }
+
+  onFileTreeDragLeave(event: DragEvent): void {
+    const related = event.relatedTarget;
+    const tree = event.currentTarget;
+    if (related instanceof Node && tree instanceof Node && tree.contains(related)) {
+      return;
+    }
+    this.clearTreeDropTarget();
+  }
+
+  onFileTreeDrop(event: DragEvent): void {
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    this.clearTreeDropTarget();
+    if (!ws?.path || !this.canAcceptTreeDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    void this.performTreeDrop(event, ws.path, ws.path);
+  }
+
+  onTreeNodeDragOver(event: DragEvent, node: FlatNode): void {
+    if (!this.canAcceptTreeDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = this.isInternalTreeDrag(event) ? 'move' : 'copy';
+    }
+    this.fileTreeDropActive.set(false);
+    this.treeDropTargetDir.set(this.dropTargetDirForNode(node));
+  }
+
+  onTreeNodeDragLeave(event: DragEvent, node: FlatNode): void {
+    const related = event.relatedTarget;
+    const row = event.currentTarget;
+    if (related instanceof Node && row instanceof Node && row.contains(related)) {
+      return;
+    }
+    if (normalizePathSlashes(this.treeDropTargetDir() ?? '') === normalizePathSlashes(this.dropTargetDirForNode(node))) {
+      this.clearTreeDropTarget();
+    }
+  }
+
+  onTreeNodeDrop(event: DragEvent, node: FlatNode): void {
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    const destDir = this.dropTargetDirForNode(node);
+    this.clearTreeDropTarget();
+    if (!ws?.path || !this.canAcceptTreeDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    void this.performTreeDrop(event, ws.path, destDir);
+  }
+
+  protected isTreeDropTarget(node: FlatNode): boolean {
+    const targetDir = this.treeDropTargetDir();
+    if (!targetDir) {
+      return false;
+    }
+    return normalizePathSlashes(this.dropTargetDirForNode(node)) === normalizePathSlashes(targetDir);
+  }
+
+  private dropTargetDirForNode(node: FlatNode): string {
+    return node.isDirectory ? node.path : parentDirectoryPath(node.path);
+  }
+
+  private clearTreeDropTarget(): void {
+    this.treeDropTargetDir.set(null);
+    this.fileTreeDropActive.set(false);
+  }
+
+  private isInternalTreeDrag(event: DragEvent): boolean {
+    return event.dataTransfer?.types.includes(WORKSPACE_TREE_INTERNAL_MOVE_MIME) ?? false;
+  }
+
+  private canAcceptTreeDrop(event: DragEvent): boolean {
+    const dt = event.dataTransfer;
+    if (!dt || this.pendingCreate() || this.inlineRenamePath()) {
+      return false;
+    }
+    if (this.isInternalTreeDrag(event)) {
+      return true;
+    }
+    return dt.types.includes('Files') && dt.files.length > 0;
+  }
+
+  private internalDragSourcePath(event: DragEvent): string | null {
+    const raw = event.dataTransfer?.getData(WORKSPACE_TREE_INTERNAL_MOVE_MIME)?.trim();
+    return raw || null;
+  }
+
+  private externalDragSourcePaths(event: DragEvent): string[] {
+    const dt = event.dataTransfer;
+    if (!dt) {
+      return [];
+    }
+    const paths: string[] = [];
+    for (let i = 0; i < dt.files.length; i++) {
+      const file = dt.files[i] as File & { path?: string };
+      const p = file.path?.trim();
+      if (p) {
+        paths.push(p);
+      }
+    }
+    return paths;
+  }
+
+  private async performTreeDrop(event: DragEvent, workspaceRoot: string, destParentDir: string): Promise<void> {
+    const internalSource = this.internalDragSourcePath(event);
+    if (internalSource) {
+      if (normalizePathSlashes(internalSource) === normalizePathSlashes(destParentDir)) {
+        return;
+      }
+      if (normalizePathSlashes(parentDirectoryPath(internalSource)) === normalizePathSlashes(destParentDir)) {
+        return;
+      }
+      const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
+      if (!res.ok) {
+        window.alert(res.error ?? 'Failed to move item.');
+        return;
+      }
+      await this.reloadPreservingExpansion(workspaceRoot);
+      return;
+    }
+
+    const externalSources = this.externalDragSourcePaths(event);
+    if (externalSources.length === 0) {
+      return;
+    }
+    const res = await this.electron.importPathsIntoWorkspace(workspaceRoot, destParentDir, externalSources);
+    if (!res.ok) {
+      window.alert(res.error ?? 'Failed to import item(s).');
+      return;
+    }
+    await this.reloadPreservingExpansion(workspaceRoot);
   }
 
   onContextMenuRename(): void {

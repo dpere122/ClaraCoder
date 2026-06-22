@@ -35,4 +35,13 @@
       <p class="empty-hint">No conversations yet.</p>
     }
   </div>
+
+  @if (electron.isElectron) {
+    <div class="conv-lsp-footer">
+      <app-editor-lsp-status
+        [conversationId]="activeId()"
+        [activeFileRelativePath]="activeFileRelativePath()"
+      />
+    </div>
+  }
 </div>

@@ -95,6 +95,12 @@ app-workspace .file-tree {
   outline: none;
 }
 
+app-workspace .file-tree.is-drop-target {
+  outline: 1px dashed var(--t-primary);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--t-primary) 6%, transparent);
+}
+
 app-workspace .file-tree:focus-visible {
   outline: 1px solid var(--t-primary);
   outline-offset: -1px;
@@ -107,11 +113,6 @@ app-workspace .workspace-interpreter-footer {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-}
-
-app-workspace .workspace-lsp-block {
-  width: 100%;
-  min-width: 0;
 }
 
 app-workspace .workspace-interpreter-label {
@@ -238,6 +239,12 @@ app-workspace .tree-node.is-active {
   background-color: var(--t-hover-bg);
   border-left: 2px solid var(--t-primary);
   padding-left: calc(0.5rem - 2px);
+}
+
+app-workspace .tree-node.is-drop-target {
+  background-color: color-mix(in srgb, var(--t-primary) 14%, var(--t-hover-bg));
+  outline: 1px dashed var(--t-primary);
+  outline-offset: -1px;
 }
 
 app-workspace .tree-node.is-active .node-name {

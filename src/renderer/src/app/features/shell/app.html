@@ -46,10 +46,11 @@
 
     <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
 
-    <div class='chat-area d-flex flex-column overflow-hidden py-3 px-4'>
-      <div class='chat-main-tabs chat-box-host flex-grow-1 overflow-hidden mb-1 d-flex flex-column min-h-0'>
-        <div class='chat-main-tab-strip' role='tablist' aria-label='Chat and files'>
-          <div class='chat-main-tab-strip-tabs'>
+    <div class='chat-area'>
+      <section class='chat-area__stage'>
+        <div class='chat-area__tabs' role='presentation'>
+        <div class='chat-area__tab-strip' role='tablist' aria-label='Chat and files'>
+          <div class='chat-area__tab-strip-tabs'>
           <button
             type='button'
             class='chat-main-tab chat-main-tab--conversation'
@@ -83,13 +84,13 @@
           }
           </div>
         </div>
-        <div class='chat-main-tab-panels flex-grow-1 min-h-0 d-flex flex-column'>
+        <div class='chat-area__tab-panels'>
           <div
-            class='chat-main-tab-panel chat-main-tab-panel--chat'
-            [class.chat-main-tab-panel--hidden]='activeMainTabId() !== "conversation"'
+            class='chat-area__tab-panel chat-area__tab-panel--chat'
+            [class.chat-area__tab-panel--hidden]='activeMainTabId() !== "conversation"'
           >
             <app-chat-box
-              class='chat-main-inner-host d-flex flex-column h-100 overflow-hidden'
+              class='chat-area__panel-host'
               [messages]='messages()'
               [conversationId]='activeConversationId()'
               [loading]='loading()'
@@ -109,11 +110,11 @@
             />
           </div>
           <div
-            class='chat-main-tab-panel chat-main-tab-panel--monaco'
-            [class.chat-main-tab-panel--hidden]='!activeMainTabId().startsWith("file:") || activeFileIsImage()'
+            class='chat-area__tab-panel chat-area__tab-panel--monaco'
+            [class.chat-area__tab-panel--hidden]='!activeMainTabId().startsWith("file:") || activeFileIsImage()'
           >
             <app-workspace-monaco
-              class='chat-main-inner-host d-flex h-100 min-h-0'
+              class='chat-area__panel-host'
               [workspacePath]='currentWorkspacePath()'
               [relativePath]='monacoActiveFileRelativePath()'
               [openFileRelativePaths]='monacoOpenFileRelativePaths()'
@@ -131,25 +132,34 @@
             />
           </div>
           <div
-            class='chat-main-tab-panel chat-main-tab-panel--image'
-            [class.chat-main-tab-panel--hidden]='!activeFileIsImage()'
+            class='chat-area__tab-panel chat-area__tab-panel--image'
+            [class.chat-area__tab-panel--hidden]='!activeFileIsImage()'
           >
             <app-image-viewer
-              class='chat-main-inner-host d-flex h-100 min-h-0'
+              class='chat-area__panel-host'
               [workspacePath]='currentWorkspacePath()'
               [relativePath]='activeFileRelativePath()'
             />
           </div>
         </div>
-      </div>
+        </div>
+      </section>
 
-      <app-workspace-terminal-dock
-        class='workspace-terminal-dock-host'
-        [workspacePath]='currentWorkspacePath()'
-        [appConfig]='appConfig()'
-      />
+      <section class='chat-area__dock'>
+        <app-workspace-terminal-dock
+          [workspacePath]='currentWorkspacePath()'
+          [appConfig]='appConfig()'
+        />
+      </section>
 
-      <div class='composer-row'>
+      <section class='chat-area__composer'>
+        <app-chat-context-bar
+          [files]='chatContextFiles()'
+          [workspaceRoot]='currentWorkspacePath()'
+          (removeFile)='removeChatContextFile($event)'
+          (pathsDropped)='onChatContextPathsDropped($event)'
+        />
+        <div class='chat-area__composer-input'>
         <app-talk-mode
           class='composer-talk composer-talk--hidden'
           [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
@@ -161,15 +171,7 @@
           (recordingBegan)='onTalkRecordingBegan()'
           (talkCaptureFinished)='onTalkCaptureFinished($event)'
         />
-        <app-chat-context-bar
-          class='chat-context-bar-host'
-          [files]='chatContextFiles()'
-          [workspaceRoot]='currentWorkspacePath()'
-          (removeFile)='removeChatContextFile($event)'
-          (pathsDropped)='onChatContextPathsDropped($event)'
-        />
         <app-message-box
-          class='message-box-host'
           [(composerMode)]='composerMode'
           [voiceActive]='talkEnabled() && speechEnabled()'
           (voiceToggle)='toggleVoice()'
@@ -181,10 +183,11 @@
           (messageSent)='onMessageSent($event)'
           (abortRequested)='onAbortRequested()'
         />
-      </div>
+        </div>
+      </section>
 
+      <section class='chat-area__status'>
       <app-status-bar
-        class='status-bar-host'
         [appConfig]='appConfig()'
         [usedTokens]='contextCapacity().usedTokens'
         [maxTokens]='contextCapacity().maxTokens'
@@ -198,6 +201,7 @@
         [(editorMode)]='editorMode'
         [(autoApplyMode)]='autoApplyMode'
       />
+      </section>
     </div>
 
     <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
@@ -206,6 +210,7 @@
       <app-conversation-manager
         [conversations]='conversations()'
         [activeId]='activeConversationId()'
+        [activeFileRelativePath]='activeFileRelativePath()'
         [pendingIds]='pendingIds()'
         (newConversation)='onNewConversation()'
         (selectConversation)='onSelectConversation($event)'

@@ -17,6 +17,13 @@ export const workspaceApi = {
     ipcRenderer.invoke('delete-workspace-entry', workspaceRoot, absolutePath),
   renameWorkspaceEntry: (workspaceRoot: string, absolutePath: string, newName: string) =>
     ipcRenderer.invoke('rename-workspace-entry', workspaceRoot, absolutePath, newName),
+  moveWorkspaceEntry: (workspaceRoot: string, sourceAbsolutePath: string, destParentAbsolutePath: string) =>
+    ipcRenderer.invoke('move-workspace-entry', workspaceRoot, sourceAbsolutePath, destParentAbsolutePath),
+  importPathsIntoWorkspace: (
+    workspaceRoot: string,
+    destParentAbsolutePath: string,
+    sourceAbsolutePaths: string[],
+  ) => ipcRenderer.invoke('import-paths-into-workspace', workspaceRoot, destParentAbsolutePath, sourceAbsolutePaths),
   readWorkspaceFile: (workspaceRoot: string, relativePath: string) =>
     ipcRenderer.invoke('read-workspace-file', workspaceRoot, relativePath),
   readWorkspaceImageBase64: (workspaceRoot: string, relativePath: string) =>

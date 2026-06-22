@@ -24,9 +24,13 @@
     @if (currentWorkspaceId()) {
       <div
         class='file-tree'
+        [class.is-drop-target]='fileTreeDropActive()'
         tabindex='0'
         (contextmenu)='onFileTreePaneContextMenu($event)'
         (keydown)='onTreeKeydown($event)'
+        (dragover)='onFileTreeDragOver($event)'
+        (dragleave)='onFileTreeDragLeave($event)'
+        (drop)='onFileTreeDrop($event)'
       >
         @if (loadError()) {
           <p class='empty-hint'>{{ loadError() }}</p>
@@ -61,14 +65,19 @@
               [class.is-renaming]='inlineRenamePath() === node.path'
               [class.is-active]='activeFileAbsolutePath() && normalizePathSlashes(node.path) === activeFileAbsolutePath()'
               [class.is-selected]='selectedPath() === node.path'
+              [class.is-drop-target]='isTreeDropTarget(node)'
               [attr.data-path]='node.path'
               [style.padding-left.rem]='0.5 + node.depth * 1'
               [class.is-directory]='node.isDirectory'
-              [attr.draggable]='!node.isDirectory && inlineRenamePath() !== node.path'
+              [attr.draggable]='inlineRenamePath() !== node.path'
               (click)='onTreeNodeClick(node)'
               (dblclick)='onTreeNodeDoubleClick(node)'
               (contextmenu)='onTreeNodeContextMenu($event, node)'
               (dragstart)='onTreeNodeDragStart($event, node)'
+              (dragend)='onTreeNodeDragEnd()'
+              (dragover)='onTreeNodeDragOver($event, node)'
+              (dragleave)='onTreeNodeDragLeave($event, node)'
+              (drop)='onTreeNodeDrop($event, node)'
             >
               @if (inlineRenamePath() === node.path) {
                 <span class='node-chevron-spacer'></span>
@@ -114,12 +123,6 @@
 
   @if (electron.isElectron && currentWorkspaceId()) {
     <div class='workspace-interpreter-footer'>
-      <div class='workspace-lsp-block'>
-        <app-editor-lsp-status
-          [conversationId]='activeConversationId()'
-          [activeFileRelativePath]='activeFileRelativePath()'
-        />
-      </div>
       @if (pythonInterpreterControlsActive()) {
         <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
         <select

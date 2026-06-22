@@ -12,8 +12,9 @@ app-chat-box {
 app-chat-box .chat-box {
   flex: 1;
   overflow-y: auto;
-  border: 1px solid var(--t-border);
+  border: none;
   background-color: var(--t-bg);
+  padding: 0.35rem 0.45rem;
 }
 
 app-chat-box .chat-virtual-spacer,
@@ -24,7 +25,8 @@ app-chat-box .chat-row-mount {
 app-chat-box .msg-bubble {
   font-size: var(--chat-font-size);
   line-height: 1.5;
-  border: 1px solid var(--t-border-subtle);
+  border: none;
+  border-bottom: 1px solid var(--t-border-subtle);
   width: var(--chat-bubble-width);
   max-width: var(--chat-bubble-width);
   min-width: 0;

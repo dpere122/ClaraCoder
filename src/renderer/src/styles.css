@@ -1306,11 +1306,6 @@ html.theme-win95 .chat-area {
   box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
 }
 
-html.theme-win95 .chat-area {
-  padding-top: 0.75rem !important;
-  padding-bottom: 0.75rem !important;
-}
-
 html.theme-win95 .workspace-resize-handle,
 html.theme-win95 .sidebar-resize-handle {
   width: 6px;
@@ -1480,12 +1475,17 @@ html.theme-win95 .workspace-header {
 }
 
 html.theme-win95 .file-tree,
-html.theme-win95 .conv-list,
-html.theme-win95 .chat-box {
+html.theme-win95 .conv-list {
   background: #ffffff;
   border: 2px solid;
   border-color: var(--t-edge-darkest) var(--t-edge-light) var(--t-edge-light) var(--t-edge-darkest);
   box-shadow: inset 1px 1px 0 var(--t-edge-dark), inset -1px -1px 0 var(--t-edge-mid);
+}
+
+html.theme-win95 app-chat-box .chat-box {
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 html.theme-win95 .tree-node,
@@ -1550,9 +1550,9 @@ html.theme-win95 .output-pre,
 html.theme-win95 .assistant-bubble pre,
 html.theme-win95 .workspace-item,
 html.theme-win95 .settings-section {
-  border: 2px solid;
-  border-color: var(--t-edge-darkest) var(--t-edge-light) var(--t-edge-light) var(--t-edge-darkest);
-  box-shadow: inset 1px 1px 0 var(--t-edge-dark), inset -1px -1px 0 var(--t-edge-mid);
+  border: none;
+  border-bottom: 1px solid var(--t-edge-dark);
+  box-shadow: none;
 }
 
 html.theme-win95 .user-bubble {
@@ -1743,31 +1743,33 @@ html.theme-win95 .workspace-item .active-badge {
 }
 
 html.theme-win95 .chat-main-tab {
-  background: var(--t-bg-deep);
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  box-shadow: none;
   color: var(--t-fg);
   font-family: var(--t-font);
 }
 
 html.theme-win95 .chat-main-tab--active {
-  background: var(--t-bg-surface);
-  border-bottom-color: var(--t-bg-surface);
+  background: transparent;
+  border-bottom-color: var(--t-primary);
   color: var(--t-fg);
 }
 
 html.theme-win95 .chat-main-tab--conversation:not(.chat-main-tab--active) {
-  background: var(--t-bg-deep);
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
   color: var(--t-fg);
 }
 
 html.theme-win95 .chat-main-tab--active.chat-main-tab--conversation {
-  background: var(--t-bg-surface);
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-bg-surface) var(--t-edge-light);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--t-primary);
   color: var(--t-primary);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
+  box-shadow: none;
 }
 
 html.theme-win95 .chat-main-tab-close:hover {

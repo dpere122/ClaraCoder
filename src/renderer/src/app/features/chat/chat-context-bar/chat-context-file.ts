@@ -1,6 +1,9 @@
 /** Custom drag mime used by the file tree to mark drags that carry an absolute file path. */
 export const WORKSPACE_TREE_DRAG_MIME = 'application/x-nemo-workspace-path';
 
+/** Internal workspace tree moves (files and folders). */
+export const WORKSPACE_TREE_INTERNAL_MOVE_MIME = 'application/x-nemo-workspace-internal-move';
+
 /** A file the user attached to the next chat turn (from the file tree). */
 export interface ChatContextFile {
   /** Absolute path on disk. */

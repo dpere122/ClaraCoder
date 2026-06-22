@@ -12,17 +12,11 @@ import {
   resolveSafeWorkspacePath,
 } from '../../utils/workspace-safe-path';
 
-function isSameWorkspaceRootPath(root: string, candidate: string): boolean {
-  const a = path.normalize(root);
-  const b = path.normalize(candidate);
-  if (a === b) {
-    return true;
-  }
-  if (process.platform === 'win32') {
-    return a.toLowerCase() === b.toLowerCase();
-  }
-  return false;
-}
+import {
+  isSameWorkspaceRootPath,
+  resolveWorkspaceTransferPaths,
+  transferWorkspaceEntry,
+} from '../../utils/workspace-entry-transfer';
 
 function emitWorkspaceFilesChanged(
   workspaceRoot: string,
@@ -310,6 +304,104 @@ export function registerWorkspaceWriteIpc(): void {
         await fs.rename(source, dest);
         emitWorkspaceFilesChanged(root, dest, 'renamed');
         return { ok: true as const, path: dest };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { ok: false as const, error: msg };
+      }
+    },
+  );
+
+  /** Move a file or directory into `destParentAbsolutePath` (keeps the entry basename). */
+  ipcMain.handle(
+    'move-workspace-entry',
+    async (event, workspaceRoot: string, sourceAbsolutePath: string, destParentAbsolutePath: string) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Forbidden' };
+      }
+      if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
+        return { ok: false as const, error: 'No workspace root.' };
+      }
+      if (typeof sourceAbsolutePath !== 'string' || !sourceAbsolutePath.trim()) {
+        return { ok: false as const, error: 'No source path.' };
+      }
+      if (typeof destParentAbsolutePath !== 'string' || !destParentAbsolutePath.trim()) {
+        return { ok: false as const, error: 'No destination folder.' };
+      }
+
+      try {
+        const { root, source, destParent } = await resolveWorkspaceTransferPaths(
+          workspaceRoot,
+          sourceAbsolutePath,
+          destParentAbsolutePath,
+        );
+        if (isSameWorkspaceRootPath(root, source)) {
+          return { ok: false as const, error: 'Cannot move the workspace root.' };
+        }
+        const { dest } = await transferWorkspaceEntry(source, destParent, 'move');
+        emitWorkspaceFilesChanged(root, dest, 'renamed');
+        return { ok: true as const, path: dest };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { ok: false as const, error: msg };
+      }
+    },
+  );
+
+  /** Copy external (or workspace) paths into `destParentAbsolutePath`. */
+  ipcMain.handle(
+    'import-paths-into-workspace',
+    async (
+      event,
+      workspaceRoot: string,
+      destParentAbsolutePath: string,
+      sourceAbsolutePaths: string[],
+    ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Forbidden' };
+      }
+      if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
+        return { ok: false as const, error: 'No workspace root.' };
+      }
+      if (typeof destParentAbsolutePath !== 'string' || !destParentAbsolutePath.trim()) {
+        return { ok: false as const, error: 'No destination folder.' };
+      }
+      if (!Array.isArray(sourceAbsolutePaths) || sourceAbsolutePaths.length === 0) {
+        return { ok: false as const, error: 'No paths to import.' };
+      }
+
+      try {
+        const root = await resolveExistingOrResolvedPath(workspaceRoot);
+        const destParent = await resolveExistingOrResolvedPath(destParentAbsolutePath);
+        if (!isAbsolutePathWithinWorkspaceRoot(root, destParent)) {
+          return { ok: false as const, error: 'Destination folder outside workspace.' };
+        }
+
+        const imported: string[] = [];
+        for (const raw of sourceAbsolutePaths) {
+          if (typeof raw !== 'string' || !raw.trim()) {
+            continue;
+          }
+          const sourceResolved = path.resolve(raw.trim());
+          let source = sourceResolved;
+          try {
+            source = await fs.realpath(sourceResolved);
+          } catch {
+            source = sourceResolved;
+          }
+
+          const { dest } = await transferWorkspaceEntry(source, destParent, 'copy');
+          imported.push(dest);
+          emitWorkspaceFilesChanged(root, dest, 'created');
+        }
+
+        if (imported.length === 0) {
+          return { ok: false as const, error: 'No valid paths to import.' };
+        }
+        return { ok: true as const, paths: imported };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return { ok: false as const, error: msg };

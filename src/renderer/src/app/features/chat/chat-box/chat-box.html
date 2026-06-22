@@ -1,4 +1,4 @@
-<div class="chat-box p-3" #chatScroll (scroll)="onChatScroll()" appRunButton>
+<div class="chat-box" #chatScroll (scroll)="onChatScroll()" appRunButton>
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().topSpacer" aria-hidden="true"></div>
   @for (slot of virtualWindow().slots; track slot.index) {
     <div class="chat-row-mount" [attr.data-chat-row]="slot.index">
@@ -7,7 +7,7 @@
       [class.justify-content-end]="slot.row.kind === 'user'"
     >
       <div
-        class="msg-bubble px-3 py-2"
+        class="msg-bubble px-2 py-1"
         [class.user-bubble]="slot.row.kind === 'user'"
         [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
@@ -116,7 +116,7 @@
   @if (liveTurn(); as liveTurn) {
     <div class="d-flex mb-2">
       <div
-        class="msg-bubble px-3 py-2 assistant-bubble assistant-turn-bubble"
+        class="msg-bubble px-2 py-1 assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
         @for (chainGroup of liveChainGroupsForDisplay(); track chainGroup.key) {
@@ -207,7 +207,7 @@
   }
   @if (talkUi.capturing() || talkUi.transcribing()) {
     <div class="d-flex mb-2" role="status" aria-live="polite">
-      <div class="msg-bubble px-3 py-2 assistant-bubble talk-voice-row">
+      <div class="msg-bubble px-2 py-1 assistant-bubble talk-voice-row">
         <div class="talk-voice-ngx-host" aria-hidden="true">
           <ngx-spinner
             name="chat-talk-rec"

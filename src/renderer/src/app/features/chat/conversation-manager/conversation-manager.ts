@@ -1,19 +1,24 @@
-import { Component, input, output, signal, ViewEncapsulation } from '@angular/core';
+import { Component, inject, input, output, signal, ViewEncapsulation } from '@angular/core';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
+import { EditorLspStatusComponent } from '../../shell/editor-lsp-status/editor-lsp-status';
+import { ElectronService } from '../../../core/electron.service';
 
 @Component({
   selector: 'app-conversation-manager',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, EditorLspStatusComponent],
   templateUrl: './conversation-manager.html',
   styleUrl: './conversation-manager.css',
   encapsulation: ViewEncapsulation.None
 })
 export class ConversationManager {
+  protected readonly electron = inject(ElectronService);
+
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeId = input<string | null>(null);
   readonly pendingIds = input<Set<string>>(new Set());
+  readonly activeFileRelativePath = input<string | null>(null);
 
   readonly newConversation = output<void>();
   readonly selectConversation = output<string>();

@@ -180,6 +180,16 @@ declare global {
       absolutePath: string,
       newName: string,
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    moveWorkspaceEntry?: (
+      workspaceRoot: string,
+      sourceAbsolutePath: string,
+      destParentAbsolutePath: string,
+    ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    importPathsIntoWorkspace?: (
+      workspaceRoot: string,
+      destParentAbsolutePath: string,
+      sourceAbsolutePaths: string[],
+    ) => Promise<{ ok: boolean; paths?: string[]; error?: string }>;
     readWorkspaceFile?: (
       workspaceRoot: string,
       relativePath: string,

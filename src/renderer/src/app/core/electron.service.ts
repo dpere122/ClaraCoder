@@ -652,6 +652,28 @@ export class ElectronService {
     );
   }
 
+  moveWorkspaceEntry(
+    workspaceRoot: string,
+    sourceAbsolutePath: string,
+    destParentAbsolutePath: string,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return (
+      this.api?.moveWorkspaceEntry?.(workspaceRoot, sourceAbsolutePath, destParentAbsolutePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  importPathsIntoWorkspace(
+    workspaceRoot: string,
+    destParentAbsolutePath: string,
+    sourceAbsolutePaths: string[],
+  ): Promise<{ ok: boolean; paths?: string[]; error?: string }> {
+    return (
+      this.api?.importPathsIntoWorkspace?.(workspaceRoot, destParentAbsolutePath, sourceAbsolutePaths) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   readWorkspaceFile(
     workspaceRoot: string,
     relativePath: string,

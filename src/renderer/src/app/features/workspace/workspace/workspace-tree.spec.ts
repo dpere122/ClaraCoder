@@ -11,6 +11,7 @@ import {
   PENDING_CREATE_TREE_PATH,
   removeFileNodeAtPath,
   renameFileNodeAtPath,
+  treePathsEqual,
   workspaceFileChangeDescriptorsFromEvent,
   type FileNode,
   type FlatNode,
@@ -86,6 +87,11 @@ describe('workspace-tree disk op paths', () => {
     expect(normalizeTreeAbsolutePath('C:\\project\\src')).toBe('C:/project/src');
   });
 
+  it('compares tree paths case-insensitively', () => {
+    expect(treePathsEqual('C:/Users/project/src', 'c:/users/project/src')).toBe(true);
+    expect(treePathsEqual('C:/Users/project/src', 'C:/Users/project/lib')).toBe(false);
+  });
+
   it('joins parent dir and entry name', () => {
     expect(joinTreeAbsolutePath(`${root}/src`, 'main.ts')).toBe(`${root}/src/main.ts`);
   });
@@ -118,6 +124,21 @@ describe('workspace-tree incremental mutations', () => {
     ];
     expect(renameFileNodeAtPath(tree, `${root}/old.ts`, `${root}/new.ts`, 'new.ts')).toBe(true);
     expect(tree[0]).toMatchObject({ name: 'new.ts', path: `${root}/new.ts` });
+  });
+
+  it('renames a file when paths use mixed slashes', () => {
+    const tree: FileNode[] = [
+      {
+        name: 'old.ts',
+        path: `${root}\\src\\old.ts`,
+        isDirectory: false,
+        expanded: false,
+        children: [],
+        depth: 1,
+      },
+    ];
+    expect(renameFileNodeAtPath(tree, `${root}/src/old.ts`, `${root}/src/new.ts`, 'new.ts')).toBe(true);
+    expect(tree[0]).toMatchObject({ name: 'new.ts', path: `${root}/src/new.ts` });
   });
 
   it('rebases paths for renamed folders', () => {

@@ -1191,6 +1191,7 @@ export class WorkspaceComponent implements OnDestroy {
 
     const root = normalizeTreeAbsolutePath(workspaceRoot);
     let treeChanged = false;
+    let needsExpandedFolderRefresh = false;
 
     for (const change of changes) {
       const absPath =
@@ -1204,14 +1205,25 @@ export class WorkspaceComponent implements OnDestroy {
         : null;
 
       switch (change.kind) {
-        case 'updated':
+        case 'updated': {
+          if (change.relativePath === '.' || change.relativePath === '') {
+            needsExpandedFolderRefresh = true;
+            break;
+          }
+          // Windows often emits a directory "change" when files are added/removed inside it.
+          const node = findFileNodeByNormalizedPath(this.tree, absPath);
+          if (node?.isDirectory) {
+            needsExpandedFolderRefresh = true;
+          }
           break;
+        }
 
         case 'deleted':
           if (removeFileNodeAtPath(this.tree, absPath)) {
             treeChanged = true;
             this.updateTreeSelectionAfterDelete(absPath);
           }
+          needsExpandedFolderRefresh = true;
           break;
 
         case 'renamed': {
@@ -1230,27 +1242,27 @@ export class WorkspaceComponent implements OnDestroy {
             this.updateTreeSelectionAfterRename(previousAbs, absPath);
             break;
           }
+
           if (previousAbs && removeFileNodeAtPath(this.tree, previousAbs)) {
             treeChanged = true;
             this.updateTreeSelectionAfterDelete(previousAbs);
           }
-          if (await this.refreshVisibleTreeFolderListing(root, absPath)) {
-            treeChanged = true;
-          }
-          if (previousAbs && (await this.refreshVisibleTreeFolderListing(root, previousAbs))) {
-            treeChanged = true;
-          }
+          needsExpandedFolderRefresh = true;
           break;
         }
 
         case 'created':
         case 'unknown':
-          if (await this.refreshVisibleTreeFolderListing(root, absPath)) {
-            treeChanged = true;
-          } else {
-            return false;
-          }
+          needsExpandedFolderRefresh = true;
           break;
+      }
+    }
+
+    if (needsExpandedFolderRefresh) {
+      if (await this.refreshAllExpandedFoldersFromDisk(workspaceRoot)) {
+        treeChanged = true;
+      } else if (!treeChanged) {
+        return false;
       }
     }
 
@@ -1260,39 +1272,42 @@ export class WorkspaceComponent implements OnDestroy {
     return true;
   }
 
-  private async refreshVisibleTreeFolderListing(
-    workspaceRoot: string,
-    entryAbsPath: string,
-  ): Promise<boolean> {
-    const root = normalizeTreeAbsolutePath(workspaceRoot);
-    const parentAbs = normalizeTreeAbsolutePath(parentDirectoryPath(entryAbsPath));
-
-    if (parentAbs === root) {
-      try {
-        const entries = await this.electron.readDirectory(workspaceRoot);
-        this.tree = mergeDirectoryListingIntoChildren(this.tree, entries, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    const parentNode = findFileNodeByNormalizedPath(this.tree, parentAbs);
-    if (!parentNode?.isDirectory || !parentNode.expanded || parentNode.children === null) {
-      return false;
-    }
+  /** Re-read every expanded folder (and root) from disk — authoritative listing sync. */
+  private async refreshAllExpandedFoldersFromDisk(workspaceRoot: string): Promise<boolean> {
+    let changed = false;
 
     try {
-      const entries = await this.electron.readDirectory(parentNode.path);
-      parentNode.children = mergeDirectoryListingIntoChildren(
-        parentNode.children,
-        entries,
-        parentNode.depth + 1,
-      );
-      return true;
+      const entries = await this.electron.readDirectory(workspaceRoot);
+      this.tree = mergeDirectoryListingIntoChildren(this.tree, entries, 0);
+      changed = true;
     } catch {
-      return false;
+      // continue with expanded subfolders
     }
+
+    const walk = async (nodes: FileNode[]): Promise<void> => {
+      for (const node of nodes) {
+        if (!node.isDirectory || !node.expanded) {
+          continue;
+        }
+        try {
+          const entries = await this.electron.readDirectory(node.path);
+          node.children = mergeDirectoryListingIntoChildren(
+            node.children,
+            entries,
+            node.depth + 1,
+          );
+          changed = true;
+        } catch {
+          // keep existing children
+        }
+        if (node.children && node.children.length > 0) {
+          await walk(node.children);
+        }
+      }
+    };
+
+    await walk(this.tree);
+    return changed;
   }
 
   private updateTreeSelectionAfterDelete(deletedPath: string): void {
@@ -1462,13 +1477,15 @@ export class WorkspaceComponent implements OnDestroy {
     if (treeNode.expanded) {
       treeNode.expanded = false;
     } else {
-      if (treeNode.children === null) {
-        try {
-          const entries = await this.electron.readDirectory(treeNode.path);
-          treeNode.children = fileNodesFromDirectoryEntries(entries, treeNode.depth + 1);
-        } catch {
-          treeNode.children = [];
-        }
+      try {
+        const entries = await this.electron.readDirectory(treeNode.path);
+        treeNode.children = mergeDirectoryListingIntoChildren(
+          treeNode.children,
+          entries,
+          treeNode.depth + 1,
+        );
+      } catch {
+        treeNode.children = treeNode.children ?? [];
       }
       treeNode.expanded = true;
     }
@@ -1482,18 +1499,20 @@ export class WorkspaceComponent implements OnDestroy {
   private async restoreExpandedPaths(expandedPaths: Set<string>): Promise<void> {
     const sortedPaths = Array.from(expandedPaths).sort((a, b) => a.length - b.length);
     for (const targetPath of sortedPaths) {
-      const node = findFileNode(this.tree, targetPath);
+      const node = findFileNodeByNormalizedPath(this.tree, targetPath);
       if (!node || !node.isDirectory) {
         continue;
       }
 
-      if (node.children === null) {
-        try {
-          const entries = await this.electron.readDirectory(node.path);
-          node.children = fileNodesFromDirectoryEntries(entries, node.depth + 1);
-        } catch {
-          node.children = [];
-        }
+      try {
+        const entries = await this.electron.readDirectory(node.path);
+        node.children = mergeDirectoryListingIntoChildren(
+          node.children,
+          entries,
+          node.depth + 1,
+        );
+      } catch {
+        node.children = node.children ?? [];
       }
 
       node.expanded = true;

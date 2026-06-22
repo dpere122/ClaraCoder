@@ -105,13 +105,14 @@ export function findFileNode(nodes: FileNode[], targetPath: string): FileNode | 
   return null;
 }
 
-export function findFileNodeByNormalizedPath(nodes: FileNode[], normalizedPath: string): FileNode | null {
+export function findFileNodeByNormalizedPath(nodes: FileNode[], targetPath: string): FileNode | null {
+  const norm = normalizeTreeAbsolutePath(targetPath);
   for (const n of nodes) {
-    if (normalizePathSlashes(n.path) === normalizedPath) {
+    if (treePathsEqual(n.path, norm)) {
       return n;
     }
     if (n.children) {
-      const found = findFileNodeByNormalizedPath(n.children, normalizedPath);
+      const found = findFileNodeByNormalizedPath(n.children, norm);
       if (found) {
         return found;
       }
@@ -158,6 +159,16 @@ export function normalizeTreeAbsolutePath(path: string): string {
     return normalized;
   }
   return normalized.replace(/\/$/, '') || normalized;
+}
+
+/** Compare absolute tree paths (slash-normalized; case-insensitive on Windows). */
+export function treePathsEqual(a: string, b: string): boolean {
+  const na = normalizeTreeAbsolutePath(a);
+  const nb = normalizeTreeAbsolutePath(b);
+  if (na === nb) {
+    return true;
+  }
+  return na.toLowerCase() === nb.toLowerCase();
 }
 
 /** Join parent directory and entry name into a normalized absolute path. */
@@ -248,7 +259,7 @@ export function findFileNodeLocation(
   const norm = normalizeTreeAbsolutePath(targetPath);
   const walk = (list: FileNode[]): { list: FileNode[]; index: number } | null => {
     for (let i = 0; i < list.length; i++) {
-      if (normalizeTreeAbsolutePath(list[i].path) === norm) {
+      if (treePathsEqual(list[i].path, norm)) {
         return { list, index: i };
       }
       if (list[i].children) {
@@ -279,7 +290,7 @@ export function renameFileNodeAtPath(
   newPath: string,
   newName: string,
 ): boolean {
-  const node = findFileNode(nodes, oldPath);
+  const node = findFileNodeByNormalizedPath(nodes, oldPath);
   if (!node) {
     return false;
   }

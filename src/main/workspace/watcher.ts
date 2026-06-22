@@ -112,22 +112,43 @@ function queueWorkspaceWatcherSync(watcherState: WorkspaceWatcherState): void {
 
   watcherState.debounceTimer = setTimeout(() => {
     watcherState.debounceTimer = null;
+    const paths = Array.from(watcherState.pendingChanges.keys()).sort();
+    const kinds = paths.map((p) => watcherState.pendingChanges.get(p) ?? 'unknown');
+    watcherState.pendingChanges.clear();
     const changePayload: WorkspaceFilesChangedPayload = {
       workspaceId: watcherState.workspaceId,
       workspacePath: watcherState.workspacePath,
-      paths: Array.from(watcherState.pendingPaths).sort(),
-      kinds: Array.from(watcherState.pendingKinds),
+      paths,
+      kinds,
     };
-    watcherState.pendingPaths.clear();
-    watcherState.pendingKinds.clear();
     void syncWatchedWorkspaceTree(watcherState, changePayload);
   }, WORKSPACE_WATCH_DEBOUNCE_MS);
 }
 
-function getWorkspaceChangeKind(eventType: string): WorkspaceChangeKind {
-  if (eventType === 'rename') return 'renamed';
-  if (eventType === 'change') return 'updated';
-  return 'unknown';
+function resolveWatchChangeKind(
+  eventType: string,
+  watchRootPath: string,
+  relativePath: string,
+): WorkspaceChangeKind {
+  if (eventType === 'change') {
+    return 'updated';
+  }
+  if (eventType !== 'rename') {
+    return 'unknown';
+  }
+
+  const normalizedRelative = relativePath ? normalizeContextPath(relativePath) : '';
+  if (!normalizedRelative || normalizedRelative === '.') {
+    return 'unknown';
+  }
+
+  const fullPath = path.join(normalizeContextPath(watchRootPath), normalizedRelative);
+  try {
+    syncFs.accessSync(fullPath);
+    return 'created';
+  } catch {
+    return 'deleted';
+  }
 }
 
 function createTreeState(
@@ -245,9 +266,8 @@ function createDirectoryWatcher(
         return;
       }
 
-      const changeKind = getWorkspaceChangeKind(eventType);
-      aw.pendingPaths.add(formatWatchedPath(source, relativePath));
-      aw.pendingKinds.add(changeKind);
+      const changeKind = resolveWatchChangeKind(eventType, rootPath, relativePath);
+      aw.pendingChanges.set(formatWatchedPath(source, relativePath), changeKind);
       queueWorkspaceWatcherSync(aw);
     },
   );
@@ -299,8 +319,7 @@ export async function startWorkspaceWatcher(workspace: Workspace): Promise<void>
       exposeAllWorkspaceFiles,
       watchers: [],
       debounceTimer: null,
-      pendingPaths: new Set(),
-      pendingKinds: new Set(),
+      pendingChanges: new Map(),
       syncVersion: 0,
       lastTree: '',
       lastSyncedAt: null,

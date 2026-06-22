@@ -10,31 +10,11 @@ import {
   resolveExistingOrResolvedPath,
   resolveSafeWorkspacePath,
 } from '../../utils/workspace-safe-path';
-import {
-  isSameWorkspaceRootPath,
-} from '../../utils/workspace-entry-transfer';
 import { getEditorDetachedSnapshotsDir } from '../../paths';
 import { mainState } from '../../state';
+import { emitWorkspaceFilesChanged } from '../../workspace/emit-files-changed';
 
 const MAX_READ_BYTES = 5 * 1024 * 1024;
-
-function emitWorkspaceFilesChanged(workspaceRoot: string, absolutePath: string): void {
-  const watcher = mainState.activeWorkspaceWatcher;
-  if (!watcher) {
-    return;
-  }
-  if (!isSameWorkspaceRootPath(workspaceRoot, watcher.workspacePath)) {
-    return;
-  }
-  const rel = path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/');
-  const relPath = rel && rel !== '' ? rel : '.';
-  mainState.mainWindow?.webContents.send('workspace-files-changed', {
-    workspaceId: watcher.workspaceId,
-    workspacePath: watcher.workspacePath,
-    paths: [relPath],
-    kinds: ['updated'],
-  });
-}
 
 function dialogParent() {
   const mw = mainState.mainWindow;
@@ -177,7 +157,7 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
         await writeUtf8File(chosen, content);
         const inside = isAbsolutePathWithinWorkspaceRoot(rootReal, chosen);
         if (inside) {
-          emitWorkspaceFilesChanged(rootReal, chosen);
+          await emitWorkspaceFilesChanged(rootReal, chosen, 'updated');
           const rel = path.relative(rootReal, chosen).replace(/\\/g, '/');
           return {
             ok: true as const,

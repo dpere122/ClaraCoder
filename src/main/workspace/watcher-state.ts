@@ -14,8 +14,8 @@ export interface WorkspaceWatcherState {
   exposeAllWorkspaceFiles: boolean;
   watchers: FSWatcher[];
   debounceTimer: NodeJS.Timeout | null;
-  pendingPaths: Set<string>;
-  pendingKinds: Set<WorkspaceChangeKind>;
+  /** Debounced watch batch; last kind wins per path within a batch. */
+  pendingChanges: Map<string, WorkspaceChangeKind>;
   syncVersion: number;
   lastTree: string;
   lastSyncedAt: string | null;

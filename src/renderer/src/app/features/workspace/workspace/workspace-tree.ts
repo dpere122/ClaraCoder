@@ -214,3 +214,148 @@ export function scrollWorkspaceTreeNodeToSelected(selected: string): void {
     }
   });
 }
+
+/** Parent directory portion of a workspace-relative path (`'.'` for root-level entries). */
+export function parentWorkspaceRelativePath(relativePath: string): string {
+  const norm = normalizePathSlashes(relativePath).replace(/^\.\/+/, '');
+  if (!norm || norm === '.') {
+    return '.';
+  }
+  const slash = norm.lastIndexOf('/');
+  return slash >= 0 ? norm.slice(0, slash) : '.';
+}
+
+export function workspaceRelativePathFromAbsolute(
+  workspaceRootAbs: string,
+  absolutePath: string,
+): string | null {
+  const root = normalizeTreeAbsolutePath(workspaceRootAbs);
+  const abs = normalizeTreeAbsolutePath(absolutePath);
+  if (abs === root) {
+    return '.';
+  }
+  const prefix = `${root}/`;
+  if (!abs.startsWith(prefix)) {
+    return null;
+  }
+  return abs.slice(prefix.length);
+}
+
+export function findFileNodeLocation(
+  nodes: FileNode[],
+  targetPath: string,
+): { list: FileNode[]; index: number } | null {
+  const norm = normalizeTreeAbsolutePath(targetPath);
+  const walk = (list: FileNode[]): { list: FileNode[]; index: number } | null => {
+    for (let i = 0; i < list.length; i++) {
+      if (normalizeTreeAbsolutePath(list[i].path) === norm) {
+        return { list, index: i };
+      }
+      if (list[i].children) {
+        const found = walk(list[i].children!);
+        if (found) {
+          return found;
+        }
+      }
+    }
+    return null;
+  };
+  return walk(nodes);
+}
+
+export function removeFileNodeAtPath(nodes: FileNode[], targetPath: string): boolean {
+  const loc = findFileNodeLocation(nodes, targetPath);
+  if (!loc) {
+    return false;
+  }
+  loc.list.splice(loc.index, 1);
+  return true;
+}
+
+/** Same-folder rename/move: rewrites paths in the affected subtree. */
+export function renameFileNodeAtPath(
+  nodes: FileNode[],
+  oldPath: string,
+  newPath: string,
+  newName: string,
+): boolean {
+  const node = findFileNode(nodes, oldPath);
+  if (!node) {
+    return false;
+  }
+  const oldNorm = normalizeTreeAbsolutePath(oldPath);
+  const newNorm = normalizeTreeAbsolutePath(newPath);
+  const rebase = (item: FileNode): void => {
+    const itemNorm = normalizeTreeAbsolutePath(item.path);
+    if (itemNorm === oldNorm || itemNorm.startsWith(`${oldNorm}/`)) {
+      item.path = `${newNorm}${itemNorm.slice(oldNorm.length)}`;
+    }
+    if (item === node) {
+      item.name = newName;
+    }
+    if (item.children) {
+      for (const child of item.children) {
+        rebase(child);
+      }
+    }
+  };
+  rebase(node);
+  return true;
+}
+
+/** Refresh one folder listing while preserving expansion and loaded child subtrees. */
+export function mergeDirectoryListingIntoChildren(
+  existing: FileNode[] | null,
+  entries: DirectoryEntry[],
+  depth: number,
+): FileNode[] {
+  const fresh = fileNodesFromDirectoryEntries(entries, depth);
+  if (!existing) {
+    return fresh;
+  }
+  const expandedByPath = new Map(
+    existing.map((child) => [normalizeTreeAbsolutePath(child.path), child.expanded]),
+  );
+  const oldByPath = new Map(existing.map((child) => [normalizeTreeAbsolutePath(child.path), child]));
+  for (const child of fresh) {
+    const key = normalizeTreeAbsolutePath(child.path);
+    child.expanded = expandedByPath.get(key) ?? false;
+    const old = oldByPath.get(key);
+    if (old?.isDirectory && old.children !== null && child.isDirectory) {
+      child.children = old.children;
+    }
+  }
+  return fresh;
+}
+
+export interface WorkspaceFileChangeDescriptor {
+  relativePath: string;
+  kind: WorkspaceChangeKind;
+  previousRelativePath?: string;
+}
+
+/** Strip staging paths and normalize workspace-relative change rows from IPC/watcher payloads. */
+export function workspaceFileChangeDescriptorsFromEvent(
+  event: Pick<WorkspaceFilesChangedMessage, 'paths' | 'kinds' | 'previousPaths'>,
+): WorkspaceFileChangeDescriptor[] {
+  const out: WorkspaceFileChangeDescriptor[] = [];
+  for (let i = 0; i < event.paths.length; i++) {
+    const raw = event.paths[i] ?? '';
+    if (raw.startsWith('[staging]')) {
+      continue;
+    }
+    const relativePath = normalizePathSlashes(raw.replace(/^\.\/+/, '')) || '.';
+    out.push({
+      relativePath,
+      kind: event.kinds[i] ?? 'unknown',
+      previousRelativePath: event.previousPaths?.[i]
+        ? normalizePathSlashes(event.previousPaths[i]!.replace(/^\.\/+/, '')) || '.'
+        : undefined,
+    });
+  }
+  return out;
+}
+
+export function isWorkspaceTreeStructureChangeKind(kind: WorkspaceChangeKind): boolean {
+  return kind === 'created' || kind === 'deleted' || kind === 'renamed' || kind === 'unknown';
+}

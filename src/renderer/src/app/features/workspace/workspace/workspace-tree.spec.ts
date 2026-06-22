@@ -5,8 +5,14 @@ import {
   findPendingCreateInsertIndex,
   isPendingCreateTreeNode,
   joinTreeAbsolutePath,
+  mergeDirectoryListingIntoChildren,
   normalizeTreeAbsolutePath,
+  parentWorkspaceRelativePath,
   PENDING_CREATE_TREE_PATH,
+  removeFileNodeAtPath,
+  renameFileNodeAtPath,
+  workspaceFileChangeDescriptorsFromEvent,
+  type FileNode,
   type FlatNode,
 } from './workspace-tree';
 
@@ -91,5 +97,98 @@ describe('workspace-tree disk op paths', () => {
         previousPaths: ['src/old.ts'],
       }),
     ).toEqual([`${root}/src/main.ts`, `${root}/src/old.ts`]);
+  });
+});
+
+describe('workspace-tree incremental mutations', () => {
+  const root = 'C:/project';
+
+  it('removes a file node without touching siblings', () => {
+    const tree: FileNode[] = [
+      { name: 'a.ts', path: `${root}/a.ts`, isDirectory: false, expanded: false, children: [], depth: 0 },
+      { name: 'b.ts', path: `${root}/b.ts`, isDirectory: false, expanded: false, children: [], depth: 0 },
+    ];
+    expect(removeFileNodeAtPath(tree, `${root}/a.ts`)).toBe(true);
+    expect(tree.map((n) => n.name)).toEqual(['b.ts']);
+  });
+
+  it('renames a file in place', () => {
+    const tree: FileNode[] = [
+      { name: 'old.ts', path: `${root}/old.ts`, isDirectory: false, expanded: false, children: [], depth: 0 },
+    ];
+    expect(renameFileNodeAtPath(tree, `${root}/old.ts`, `${root}/new.ts`, 'new.ts')).toBe(true);
+    expect(tree[0]).toMatchObject({ name: 'new.ts', path: `${root}/new.ts` });
+  });
+
+  it('rebases paths for renamed folders', () => {
+    const tree: FileNode[] = [
+      {
+        name: 'src',
+        path: `${root}/src`,
+        isDirectory: true,
+        expanded: true,
+        depth: 0,
+        children: [
+          {
+            name: 'main.ts',
+            path: `${root}/src/main.ts`,
+            isDirectory: false,
+            expanded: false,
+            children: [],
+            depth: 1,
+          },
+        ],
+      },
+    ];
+    expect(renameFileNodeAtPath(tree, `${root}/src`, `${root}/lib`, 'lib')).toBe(true);
+    expect(tree[0]?.path).toBe(`${root}/lib`);
+    expect(tree[0]?.children?.[0]?.path).toBe(`${root}/lib/main.ts`);
+  });
+
+  it('preserves expanded subtrees when merging directory listings', () => {
+    const existing: FileNode[] = [
+      {
+        name: 'src',
+        path: `${root}/src`,
+        isDirectory: true,
+        expanded: true,
+        depth: 0,
+        children: [
+          {
+            name: 'main.ts',
+            path: `${root}/src/main.ts`,
+            isDirectory: false,
+            expanded: false,
+            children: [],
+            depth: 1,
+          },
+        ],
+      },
+    ];
+    const merged = mergeDirectoryListingIntoChildren(
+      existing,
+      [
+        { name: 'src', path: `${root}/src`, isDirectory: true },
+        { name: 'new.ts', path: `${root}/new.ts`, isDirectory: false },
+      ],
+      0,
+    );
+    expect(merged.map((n) => n.name)).toEqual(['src', 'new.ts']);
+    expect(merged[0]?.expanded).toBe(true);
+    expect(merged[0]?.children?.[0]?.path).toBe(`${root}/src/main.ts`);
+  });
+
+  it('ignores staging paths in change descriptors', () => {
+    expect(
+      workspaceFileChangeDescriptorsFromEvent({
+        paths: ['[staging] draft.ts', 'src/a.ts'],
+        kinds: ['created', 'deleted'],
+      }),
+    ).toEqual([{ relativePath: 'src/a.ts', kind: 'deleted', previousRelativePath: undefined }]);
+  });
+
+  it('derives parent relative paths', () => {
+    expect(parentWorkspaceRelativePath('src/main.ts')).toBe('src');
+    expect(parentWorkspaceRelativePath('main.ts')).toBe('.');
   });
 });

@@ -12,7 +12,7 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import type { PythonInterpreterListItem, Workspace } from '@shared/index';
+import type { PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
@@ -29,11 +29,16 @@ import {
   findPendingCreateInsertIndex,
   isPendingCreateTreeNode,
   joinTreeAbsolutePath,
+  mergeDirectoryListingIntoChildren,
   normalizeTreeAbsolutePath,
+  parentWorkspaceRelativePath,
   PENDING_CREATE_TREE_PATH,
   rebuildFlatTree,
+  removeFileNodeAtPath,
+  renameFileNodeAtPath,
   scrollWorkspaceTreeNodeToPath,
   scrollWorkspaceTreeNodeToSelected,
+  workspaceFileChangeDescriptorsFromEvent,
   type FileNode,
   type FlatNode,
 } from './workspace-tree';
@@ -159,9 +164,11 @@ export class WorkspaceComponent implements OnDestroy {
   /** Skip one blur-driven commit while programmatically focusing the rename field. */
   private renameSkipBlurCommit = false;
   private renameBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  private renameFocusTimer: ReturnType<typeof setTimeout> | null = null;
   /** Skip one blur-driven commit while programmatically focusing the create field. */
   private pendingCreateSkipBlurCommit = false;
   private pendingCreateBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCreateFocusTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEffectWorkspaceId: string | null | undefined = undefined;
   /** Track last revealed path to avoid redundant reveals. */
   private lastRevealedAbsolutePath: string | null = null;
@@ -268,7 +275,7 @@ export class WorkspaceComponent implements OnDestroy {
         this.workspaceFileChangeStatus.showFileName(workspaceFileBasename(path));
       }
       const clearedPaths = absolutePathsFromWorkspaceChangeEvent(currentWorkspace.path, event);
-      void this.reloadPreservingExpansion(currentWorkspace.path).finally(() => {
+      void this.applyWorkspaceFileChanges(currentWorkspace.path, event).finally(() => {
         this.clearDiskOpPending(...clearedPaths);
       });
       this.lastInterpreterChromeWorkspaceRoot = '';
@@ -286,8 +293,14 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.renameBlurTimer !== null) {
       clearTimeout(this.renameBlurTimer);
     }
+    if (this.renameFocusTimer !== null) {
+      clearTimeout(this.renameFocusTimer);
+    }
     if (this.pendingCreateBlurTimer !== null) {
       clearTimeout(this.pendingCreateBlurTimer);
+    }
+    if (this.pendingCreateFocusTimer !== null) {
+      clearTimeout(this.pendingCreateFocusTimer);
     }
   }
 
@@ -527,6 +540,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.pendingCreateSkipBlurCommit) {
       return;
     }
+    this.clearPendingCreateFocusTimer();
     if (this.pendingCreateBlurTimer !== null) {
       clearTimeout(this.pendingCreateBlurTimer);
     }
@@ -541,8 +555,10 @@ export class WorkspaceComponent implements OnDestroy {
       clearTimeout(this.pendingCreateBlurTimer);
       this.pendingCreateBlurTimer = null;
     }
+    this.clearPendingCreateFocusTimer();
     this.pendingCreate.set(null);
     this.pendingCreateDraft.set('');
+    this.releaseFileTreeKeyboardFocus();
   }
 
   async commitPendingCreate(): Promise<void> {
@@ -625,8 +641,14 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   private schedulePendingCreateFocus(): void {
+    this.clearPendingCreateFocusTimer();
     this.pendingCreateSkipBlurCommit = true;
-    setTimeout(() => {
+    this.pendingCreateFocusTimer = setTimeout(() => {
+      this.pendingCreateFocusTimer = null;
+      if (!this.pendingCreate()) {
+        this.pendingCreateSkipBlurCommit = false;
+        return;
+      }
       const el = document.querySelector(
         'app-workspace .tree-node.is-pending-create input.tree-node-rename-input',
       );
@@ -931,9 +953,11 @@ export class WorkspaceComponent implements OnDestroy {
       clearTimeout(this.renameBlurTimer);
       this.renameBlurTimer = null;
     }
+    this.clearRenameFocusTimer();
     this.inlineRenamePath.set(null);
     this.inlineRenameOriginalName.set('');
     this.inlineRenameDraft.set('');
+    this.releaseFileTreeKeyboardFocus();
   }
 
   onRenameInputKeydown(event: KeyboardEvent): void {
@@ -953,6 +977,7 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.renameSkipBlurCommit) {
       return;
     }
+    this.clearRenameFocusTimer();
     if (this.renameBlurTimer !== null) {
       clearTimeout(this.renameBlurTimer);
     }
@@ -999,8 +1024,14 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   private scheduleRenameInputFocus(): void {
+    this.clearRenameFocusTimer();
     this.renameSkipBlurCommit = true;
-    setTimeout(() => {
+    this.renameFocusTimer = setTimeout(() => {
+      this.renameFocusTimer = null;
+      if (!this.inlineRenamePath()) {
+        this.renameSkipBlurCommit = false;
+        return;
+      }
       const el = document.querySelector(
         'app-workspace .tree-node.is-renaming input.tree-node-rename-input',
       );
@@ -1015,19 +1046,33 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   private refocusRenameInput(): void {
-    this.renameSkipBlurCommit = true;
-    setTimeout(() => {
-      const el = document.querySelector(
-        'app-workspace .tree-node.is-renaming input.tree-node-rename-input',
-      );
-      if (el instanceof HTMLInputElement) {
-        el.focus();
-        el.select();
+    this.scheduleRenameInputFocus();
+  }
+
+  /** Drop focus from the tree pane so arrow/space keys reach the user's intended target. */
+  private releaseFileTreeKeyboardFocus(): void {
+    const blurTree = (): void => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active.classList.contains('file-tree')) {
+        active.blur();
       }
-      setTimeout(() => {
-        this.renameSkipBlurCommit = false;
-      }, 0);
-    }, 0);
+    };
+    blurTree();
+    setTimeout(blurTree, 0);
+  }
+
+  private clearRenameFocusTimer(): void {
+    if (this.renameFocusTimer !== null) {
+      clearTimeout(this.renameFocusTimer);
+      this.renameFocusTimer = null;
+    }
+  }
+
+  private clearPendingCreateFocusTimer(): void {
+    if (this.pendingCreateFocusTimer !== null) {
+      clearTimeout(this.pendingCreateFocusTimer);
+      this.pendingCreateFocusTimer = null;
+    }
   }
 
   async onContextMenuDelete(): Promise<void> {
@@ -1117,6 +1162,163 @@ export class WorkspaceComponent implements OnDestroy {
     await this.restoreExpandedPaths(expandedPaths);
   }
 
+  private async applyWorkspaceFileChanges(
+    workspaceRoot: string,
+    event: WorkspaceFilesChangedMessage,
+  ): Promise<void> {
+    const applied = await this.applyIncrementalWorkspaceFileChanges(workspaceRoot, event);
+    if (!applied) {
+      await this.reloadPreservingExpansion(workspaceRoot);
+    }
+  }
+
+  private async applyIncrementalWorkspaceFileChanges(
+    workspaceRoot: string,
+    event: WorkspaceFilesChangedMessage,
+  ): Promise<boolean> {
+    if (!this.initialLoadComplete || this.loadError()) {
+      return false;
+    }
+
+    const changes = workspaceFileChangeDescriptorsFromEvent(event);
+    if (changes.length === 0) {
+      return true;
+    }
+
+    if (changes.some((change) => change.relativePath === '.gitignore')) {
+      return false;
+    }
+
+    const root = normalizeTreeAbsolutePath(workspaceRoot);
+    let treeChanged = false;
+
+    for (const change of changes) {
+      const absPath =
+        change.relativePath === '.'
+          ? root
+          : joinTreeAbsolutePath(root, change.relativePath);
+      const previousAbs = change.previousRelativePath
+        ? change.previousRelativePath === '.'
+          ? root
+          : joinTreeAbsolutePath(root, change.previousRelativePath)
+        : null;
+
+      switch (change.kind) {
+        case 'updated':
+          break;
+
+        case 'deleted':
+          if (removeFileNodeAtPath(this.tree, absPath)) {
+            treeChanged = true;
+            this.updateTreeSelectionAfterDelete(absPath);
+          }
+          break;
+
+        case 'renamed': {
+          if (
+            previousAbs &&
+            parentWorkspaceRelativePath(change.previousRelativePath ?? '.') ===
+              parentWorkspaceRelativePath(change.relativePath) &&
+            renameFileNodeAtPath(
+              this.tree,
+              previousAbs,
+              absPath,
+              workspaceFileBasename(change.relativePath),
+            )
+          ) {
+            treeChanged = true;
+            this.updateTreeSelectionAfterRename(previousAbs, absPath);
+            break;
+          }
+          if (previousAbs && removeFileNodeAtPath(this.tree, previousAbs)) {
+            treeChanged = true;
+            this.updateTreeSelectionAfterDelete(previousAbs);
+          }
+          if (await this.refreshVisibleTreeFolderListing(root, absPath)) {
+            treeChanged = true;
+          }
+          if (previousAbs && (await this.refreshVisibleTreeFolderListing(root, previousAbs))) {
+            treeChanged = true;
+          }
+          break;
+        }
+
+        case 'created':
+        case 'unknown':
+          if (await this.refreshVisibleTreeFolderListing(root, absPath)) {
+            treeChanged = true;
+          } else {
+            return false;
+          }
+          break;
+      }
+    }
+
+    if (treeChanged) {
+      this.rebuildFlat();
+    }
+    return true;
+  }
+
+  private async refreshVisibleTreeFolderListing(
+    workspaceRoot: string,
+    entryAbsPath: string,
+  ): Promise<boolean> {
+    const root = normalizeTreeAbsolutePath(workspaceRoot);
+    const parentAbs = normalizeTreeAbsolutePath(parentDirectoryPath(entryAbsPath));
+
+    if (parentAbs === root) {
+      try {
+        const entries = await this.electron.readDirectory(workspaceRoot);
+        this.tree = mergeDirectoryListingIntoChildren(this.tree, entries, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    const parentNode = findFileNodeByNormalizedPath(this.tree, parentAbs);
+    if (!parentNode?.isDirectory || !parentNode.expanded || parentNode.children === null) {
+      return false;
+    }
+
+    try {
+      const entries = await this.electron.readDirectory(parentNode.path);
+      parentNode.children = mergeDirectoryListingIntoChildren(
+        parentNode.children,
+        entries,
+        parentNode.depth + 1,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private updateTreeSelectionAfterDelete(deletedPath: string): void {
+    const deletedNorm = normalizeTreeAbsolutePath(deletedPath);
+    const selected = this.selectedPath();
+    if (selected && normalizeTreeAbsolutePath(selected) === deletedNorm) {
+      this.selectedPath.set(parentDirectoryPath(deletedPath));
+    }
+    const renaming = this.inlineRenamePath();
+    if (renaming && normalizeTreeAbsolutePath(renaming) === deletedNorm) {
+      this.cancelInlineRename();
+    }
+  }
+
+  private updateTreeSelectionAfterRename(oldPath: string, newPath: string): void {
+    const oldNorm = normalizeTreeAbsolutePath(oldPath);
+    const selected = this.selectedPath();
+    if (selected && normalizeTreeAbsolutePath(selected) === oldNorm) {
+      this.selectedPath.set(newPath);
+    }
+    const renaming = this.inlineRenamePath();
+    if (renaming && normalizeTreeAbsolutePath(renaming) === oldNorm) {
+      this.inlineRenamePath.set(newPath);
+    }
+  }
+
   async onTreeNodeClick(node: FlatNode): Promise<void> {
     if (Date.now() < this.treeInteractionSuppressUntil) {
       return;
@@ -1147,6 +1349,10 @@ export class WorkspaceComponent implements OnDestroy {
 
   onTreeKeydown(event: KeyboardEvent): void {
     if (this.pendingCreate() || this.inlineRenamePath()) {
+      return;
+    }
+    const tree = event.currentTarget;
+    if (!(tree instanceof HTMLElement) || document.activeElement !== tree) {
       return;
     }
     const flat = this.flatTree();

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  absolutePathsFromWorkspaceChangeEvent,
   findPendingCreateInsertIndex,
   isPendingCreateTreeNode,
+  joinTreeAbsolutePath,
+  normalizeTreeAbsolutePath,
   PENDING_CREATE_TREE_PATH,
   type FlatNode,
 } from './workspace-tree';
@@ -66,5 +69,27 @@ describe('workspace-tree pending create', () => {
       { name: 'b.ts', path: `${root}/b.ts`, isDirectory: false, expanded: false, depth: 0, hasChildren: false },
     ];
     expect(findPendingCreateInsertIndex(flat, `${root}/src`, root)).toEqual({ index: 2, depth: 1 });
+  });
+});
+
+describe('workspace-tree disk op paths', () => {
+  const root = 'C:/project';
+
+  it('normalizes absolute tree paths', () => {
+    expect(normalizeTreeAbsolutePath('C:/project/src/')).toBe('C:/project/src');
+    expect(normalizeTreeAbsolutePath('C:\\project\\src')).toBe('C:/project/src');
+  });
+
+  it('joins parent dir and entry name', () => {
+    expect(joinTreeAbsolutePath(`${root}/src`, 'main.ts')).toBe(`${root}/src/main.ts`);
+  });
+
+  it('maps workspace change events to absolute paths', () => {
+    expect(
+      absolutePathsFromWorkspaceChangeEvent(root, {
+        paths: ['src/main.ts'],
+        previousPaths: ['src/old.ts'],
+      }),
+    ).toEqual([`${root}/src/main.ts`, `${root}/src/old.ts`]);
   });
 });

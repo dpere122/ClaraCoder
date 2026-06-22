@@ -41,6 +41,7 @@
               class='tree-node'
               [class.is-renaming]='isTreeNodeInlineEditing(node)'
               [class.is-pending-create]='isPendingCreateTreeNode(node)'
+              [class.is-disk-op-pending]='isTreeNodeDiskOpPending(node)'
               [class.is-active]='activeFileAbsolutePath() && normalizePathSlashes(node.path) === activeFileAbsolutePath()'
               [class.is-selected]='selectedPath() === node.path'
               [class.is-drop-target]='isTreeDropTarget(node)'
@@ -104,6 +105,9 @@
                   <lucide-icon name='file-text' class='file-icon' [size]='14' />
                 }
                 <span class='node-name'>{{ node.name }}</span>
+                @if (isTreeNodeDiskOpPending(node)) {
+                  <span class='tree-node-pending-spinner' aria-label='Updating'></span>
+                }
               }
             </div>
           } @empty {

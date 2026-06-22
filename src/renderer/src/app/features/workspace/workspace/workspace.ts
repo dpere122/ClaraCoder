@@ -19,6 +19,7 @@ import { Subscription } from 'rxjs';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
+  absolutePathsFromWorkspaceChangeEvent,
   collectExpandedPaths,
   fileNodesFromDirectoryEntries,
   workspaceFileBasename,
@@ -27,6 +28,8 @@ import {
   findParentPathInFlatTree,
   findPendingCreateInsertIndex,
   isPendingCreateTreeNode,
+  joinTreeAbsolutePath,
+  normalizeTreeAbsolutePath,
   PENDING_CREATE_TREE_PATH,
   rebuildFlatTree,
   scrollWorkspaceTreeNodeToPath,
@@ -169,6 +172,12 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly treeDropTargetDir = signal<string | null>(null);
   protected readonly fileTreeDropActive = signal(false);
 
+  /** Absolute paths with an in-flight disk operation (spinner until the tree reloads). */
+  protected readonly diskOpPendingPaths = signal<ReadonlySet<string>>(new Set());
+
+  private diskOpFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly DISK_OP_FALLBACK_RELOAD_MS = 2_000;
+
   constructor(protected electron: ElectronService) {
     effect(() => {
       const wsId = this.currentWorkspaceId();
@@ -176,6 +185,7 @@ export class WorkspaceComponent implements OnDestroy {
       if (this.lastEffectWorkspaceId !== undefined && this.lastEffectWorkspaceId !== (wsId ?? null)) {
         this.cancelInlineRename();
         this.cancelPendingCreate();
+        this.clearAllDiskOpPending();
         this.lastRevealedAbsolutePath = null;
         this.initialLoadComplete = false;
         this.selectedPath.set(null);
@@ -257,7 +267,10 @@ export class WorkspaceComponent implements OnDestroy {
       if (path) {
         this.workspaceFileChangeStatus.showFileName(workspaceFileBasename(path));
       }
-      void this.reloadPreservingExpansion(currentWorkspace.path);
+      const clearedPaths = absolutePathsFromWorkspaceChangeEvent(currentWorkspace.path, event);
+      void this.reloadPreservingExpansion(currentWorkspace.path).finally(() => {
+        this.clearDiskOpPending(...clearedPaths);
+      });
       this.lastInterpreterChromeWorkspaceRoot = '';
       const sid = this.activeConversationId()?.trim();
       if (this.electron.isElectron && sid) {
@@ -269,6 +282,7 @@ export class WorkspaceComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.workspaceSubscription?.unsubscribe();
     this.workspaceFilesChangedSubscription?.unsubscribe();
+    this.clearAllDiskOpPending();
     if (this.renameBlurTimer !== null) {
       clearTimeout(this.renameBlurTimer);
     }
@@ -556,18 +570,21 @@ export class WorkspaceComponent implements OnDestroy {
       window.alert('Invalid name.');
       return;
     }
+    const newAbsPath = joinTreeAbsolutePath(p.parentDir, draft);
+    this.markDiskOpPending(newAbsPath, p.parentDir);
     try {
       const res =
         p.kind === 'file'
           ? await this.electron.createWorkspaceFile(ws.path, p.parentDir, draft)
           : await this.electron.createWorkspaceFolder(ws.path, p.parentDir, draft);
       if (!res.ok) {
+        this.clearDiskOpPending(newAbsPath, p.parentDir);
         window.alert(res.error ?? 'Failed to create.');
         return;
       }
       this.cancelPendingCreate();
-      await this.reloadPreservingExpansion(ws.path);
     } catch (e) {
+      this.clearDiskOpPending(newAbsPath, p.parentDir);
       window.alert(e instanceof Error ? e.message : String(e));
     }
   }
@@ -632,6 +649,73 @@ export class WorkspaceComponent implements OnDestroy {
 
   protected isTreeNodeInlineEditing(node: FlatNode): boolean {
     return isPendingCreateTreeNode(node) || this.inlineRenamePath() === node.path;
+  }
+
+  protected isTreeNodeDiskOpPending(node: FlatNode): boolean {
+    if (isPendingCreateTreeNode(node)) {
+      return false;
+    }
+    return this.diskOpPendingPaths().has(normalizeTreeAbsolutePath(node.path));
+  }
+
+  private markDiskOpPending(...paths: string[]): void {
+    const normalized = paths.map((p) => normalizeTreeAbsolutePath(p)).filter((p) => p.length > 0);
+    if (normalized.length === 0) {
+      return;
+    }
+    const next = new Set(this.diskOpPendingPaths());
+    for (const p of normalized) {
+      next.add(p);
+      this.scheduleDiskOpFallbackReload(p);
+    }
+    this.diskOpPendingPaths.set(next);
+  }
+
+  private clearDiskOpPending(...paths: string[]): void {
+    const normalized = paths.map((p) => normalizeTreeAbsolutePath(p)).filter((p) => p.length > 0);
+    if (normalized.length === 0) {
+      return;
+    }
+    const next = new Set(this.diskOpPendingPaths());
+    for (const p of normalized) {
+      next.delete(p);
+      this.clearDiskOpFallbackTimer(p);
+    }
+    this.diskOpPendingPaths.set(next);
+  }
+
+  private clearAllDiskOpPending(): void {
+    for (const p of this.diskOpPendingPaths()) {
+      this.clearDiskOpFallbackTimer(p);
+    }
+    this.diskOpPendingPaths.set(new Set());
+  }
+
+  private scheduleDiskOpFallbackReload(pendingPath: string): void {
+    this.clearDiskOpFallbackTimer(pendingPath);
+    const timer = setTimeout(() => {
+      this.diskOpFallbackTimers.delete(pendingPath);
+      if (!this.diskOpPendingPaths().has(pendingPath)) {
+        return;
+      }
+      const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+      if (!ws?.path) {
+        this.clearDiskOpPending(pendingPath);
+        return;
+      }
+      void this.reloadPreservingExpansion(ws.path).finally(() => {
+        this.clearDiskOpPending(pendingPath);
+      });
+    }, WorkspaceComponent.DISK_OP_FALLBACK_RELOAD_MS);
+    this.diskOpFallbackTimers.set(pendingPath, timer);
+  }
+
+  private clearDiskOpFallbackTimer(pendingPath: string): void {
+    const timer = this.diskOpFallbackTimers.get(pendingPath);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.diskOpFallbackTimers.delete(pendingPath);
+    }
   }
 
   onContextMenuAddToChat(): void {
@@ -796,12 +880,13 @@ export class WorkspaceComponent implements OnDestroy {
       if (normalizePathSlashes(parentDirectoryPath(internalSource)) === normalizePathSlashes(destParentDir)) {
         return;
       }
+      this.markDiskOpPending(internalSource, destParentDir);
       const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
       if (!res.ok) {
+        this.clearDiskOpPending(internalSource, destParentDir);
         window.alert(res.error ?? 'Failed to move item.');
         return;
       }
-      await this.reloadPreservingExpansion(workspaceRoot);
       return;
     }
 
@@ -809,12 +894,12 @@ export class WorkspaceComponent implements OnDestroy {
     if (externalSources.length === 0) {
       return;
     }
+    this.markDiskOpPending(destParentDir);
     const res = await this.electron.importPathsIntoWorkspace(workspaceRoot, destParentDir, externalSources);
     if (!res.ok) {
+      this.clearDiskOpPending(destParentDir);
       window.alert(res.error ?? 'Failed to import item(s).');
-      return;
     }
-    await this.reloadPreservingExpansion(workspaceRoot);
   }
 
   onContextMenuRename(): void {
@@ -901,14 +986,16 @@ export class WorkspaceComponent implements OnDestroy {
       return;
     }
 
+    const newAbsPath = joinTreeAbsolutePath(parentDirectoryPath(targetPath), trimmed);
+    this.markDiskOpPending(targetPath, newAbsPath);
     const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
     if (!res.ok) {
+      this.clearDiskOpPending(targetPath, newAbsPath);
       window.alert(res.error ?? 'Failed to rename.');
       this.refocusRenameInput();
       return;
     }
     this.cancelInlineRename();
-    await this.reloadPreservingExpansion(ws.path);
   }
 
   private scheduleRenameInputFocus(): void {
@@ -955,12 +1042,13 @@ export class WorkspaceComponent implements OnDestroy {
     if (!window.confirm(`Delete ${kind} "${node.name}"${extra}? This cannot be undone.`)) {
       return;
     }
+    this.markDiskOpPending(node.path);
     const res = await this.electron.deleteWorkspaceEntry(ws.path, node.path);
     if (!res.ok) {
+      this.clearDiskOpPending(node.path);
       window.alert(res.error ?? 'Failed to delete.');
       return;
     }
-    await this.reloadPreservingExpansion(ws.path);
   }
 
   private openContextMenuAt(

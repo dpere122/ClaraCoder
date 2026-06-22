@@ -1,3 +1,4 @@
+import type { WorkspaceFilesChangedMessage } from '@shared/index';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 
 export type WorkspaceChangeKind = 'created' | 'updated' | 'deleted' | 'renamed' | 'unknown';
@@ -148,6 +149,45 @@ export function findParentPathInFlatTree(flat: FlatNode[], childPath: string): s
     }
   }
   return null;
+}
+
+/** Normalize an absolute tree path for pending-operation lookups. */
+export function normalizeTreeAbsolutePath(path: string): string {
+  const normalized = normalizePathSlashes(path.trim());
+  if (!normalized) {
+    return normalized;
+  }
+  return normalized.replace(/\/$/, '') || normalized;
+}
+
+/** Join parent directory and entry name into a normalized absolute path. */
+export function joinTreeAbsolutePath(parentDirAbs: string, entryName: string): string {
+  const parent = normalizeTreeAbsolutePath(parentDirAbs);
+  const name = entryName.trim();
+  return parent ? `${parent}/${name}` : name;
+}
+
+/** Map workspace-files-changed payload paths to absolute paths on disk. */
+export function absolutePathsFromWorkspaceChangeEvent(
+  workspaceRootAbs: string,
+  event: Pick<WorkspaceFilesChangedMessage, 'paths' | 'previousPaths'>,
+): string[] {
+  const root = normalizeTreeAbsolutePath(workspaceRootAbs);
+  const out = new Set<string>();
+  const addRel = (rel: string | undefined) => {
+    const trimmed = (rel ?? '').trim();
+    if (!trimmed || trimmed === '.') {
+      return;
+    }
+    out.add(joinTreeAbsolutePath(root, normalizePathSlashes(trimmed)));
+  };
+  for (const rel of event.paths) {
+    addRel(rel);
+  }
+  for (const rel of event.previousPaths ?? []) {
+    addRel(rel);
+  }
+  return Array.from(out);
 }
 
 /** Basename for status-bar workspace change toasts. */

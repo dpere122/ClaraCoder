@@ -289,6 +289,30 @@ app-workspace .node-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+app-workspace .tree-node.is-disk-op-pending {
+  opacity: 0.85;
+}
+
+app-workspace .tree-node-pending-spinner {
+  flex-shrink: 0;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-left: auto;
+  border: 2px solid var(--t-border);
+  border-top-color: var(--t-primary);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: workspace-tree-pending-spin 0.7s linear infinite;
+}
+
+@keyframes workspace-tree-pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 app-workspace .empty-hint {

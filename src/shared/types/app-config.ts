@@ -459,6 +459,11 @@ export interface AppConfig {
   modelManager: ModelManagerConfig;
   /** Chat message font size in `rem` (e.g. 0.9). Client-only UI preference. */
   chatFontSizeRem?: number;
+  /**
+   * Chat sidebar width as a fraction of the chat+sidebar layout region (0–1).
+   * Client-only UI preference; default 0.75.
+   */
+  chatSidebarWidthPercent?: number;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
 }

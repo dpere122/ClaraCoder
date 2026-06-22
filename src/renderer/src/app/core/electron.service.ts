@@ -948,6 +948,7 @@ export class ElectronService {
         customModelsDir: '',
         huggingFaceToken: '',
       },
+      chatSidebarWidthPercent: 0.75,
     });
   }
 

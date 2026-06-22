@@ -205,6 +205,7 @@ export function createDefaultConfig(): AppConfig {
     healthMonitor: getDefaultHealthMonitor(),
     modelManager: getDefaultModelManagerConfig(),
     chatFontSizeRem: 0.9,
+    chatSidebarWidthPercent: 0.75,
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
   };
 }

@@ -309,12 +309,15 @@ export class App implements OnInit, OnDestroy {
 
   // Layout
   protected readonly workspaceWidth = signal(220);
-  protected readonly sidebarWidth = signal(220);
+  protected readonly sidebarWidth = signal(0);
 
   private static readonly MIN_WORKSPACE = 140;
   private static readonly MAX_WORKSPACE = 500;
   private static readonly MIN_SIDEBAR = 140;
-  private static readonly MAX_SIDEBAR = 500;
+  private static readonly MAX_SIDEBAR = 800;
+  private static readonly LAYOUT_RESIZE_HANDLES_PX = 8;
+  private static readonly DEFAULT_SIDEBAR_WIDTH_PERCENT = 0.75;
+  private static readonly SIDEBAR_WIDTH_SAVE_DEBOUNCE_MS = 2000;
 
   private activeConversation: Conversation | null = null;
   private backgroundStreamParts = new Map<string, StreamPart[]>();
@@ -323,6 +326,9 @@ export class App implements OnInit, OnDestroy {
   private resizing: 'workspace' | 'sidebar' | null = null;
   private boundOnResizeMove = this.onResizeMove.bind(this);
   private boundOnResizeEnd = this.onResizeEnd.bind(this);
+  private boundOnWindowResize = this.onWindowResize.bind(this);
+  private sidebarWidthSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSidebarWidthPercent: number | null = null;
   private pendingSave = false;
   /** Serializes SQLite writes for the active conversation so overlapping saves cannot apply a stale snapshot after a newer one. */
   private saveCurrentConversationChain: Promise<void> = Promise.resolve();
@@ -424,6 +430,9 @@ export class App implements OnInit, OnDestroy {
       applyAppTheme(resolveAppThemeId(config));
       this.workspaces.set(config.workspaces);
       this.currentWorkspaceId.set(config.currentWorkspaceId);
+      if (this.pendingSidebarWidthPercent == null && this.resizing !== 'sidebar') {
+        this.syncSidebarWidthFromEffectivePercent();
+      }
     });
 
     this.electron.settingsWindowVisibility$.pipe(takeUntilDestroyed()).subscribe((isOpen) => {
@@ -690,13 +699,108 @@ export class App implements OnInit, OnDestroy {
       this.windowMaximized.set(await this.electron.windowIsMaximized());
     }
 
+    this.syncSidebarWidthFromEffectivePercent();
+    window.addEventListener('resize', this.boundOnWindowResize);
+
     // Load conversations for current workspace
     await this.loadConversationsForWorkspace();
   }
 
   ngOnDestroy(): void {
     this.tts.invalidateSpeechPipeline();
+    window.removeEventListener('resize', this.boundOnWindowResize);
+    this.flushSidebarWidthPersist();
     this.onResizeEnd();
+  }
+
+  private normalizeSidebarWidthPercent(value: number | undefined): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return App.DEFAULT_SIDEBAR_WIDTH_PERCENT;
+    }
+    const clamped = Math.min(0.95, Math.max(0.05, value));
+    return Math.round(clamped * 10_000) / 10_000;
+  }
+
+  private effectiveSidebarWidthPercent(): number {
+    return (
+      this.pendingSidebarWidthPercent ??
+      this.appConfig()?.chatSidebarWidthPercent ??
+      App.DEFAULT_SIDEBAR_WIDTH_PERCENT
+    );
+  }
+
+  /** Width of the chat-area + sidebar region (between the two column resize handles). */
+  private chatSidebarLayoutWidth(): number {
+    return Math.max(
+      App.MIN_SIDEBAR,
+      window.innerWidth - this.workspaceWidth() - App.LAYOUT_RESIZE_HANDLES_PX,
+    );
+  }
+
+  private sidebarPixelsForPercent(percent: number): number {
+    const layout = this.chatSidebarLayoutWidth();
+    const px = Math.round(this.normalizeSidebarWidthPercent(percent) * layout);
+    return Math.min(App.MAX_SIDEBAR, Math.max(App.MIN_SIDEBAR, px));
+  }
+
+  private percentFromSidebarPixels(widthPx: number): number {
+    const layout = this.chatSidebarLayoutWidth();
+    if (layout <= 0) {
+      return App.DEFAULT_SIDEBAR_WIDTH_PERCENT;
+    }
+    const clampedPx = Math.min(App.MAX_SIDEBAR, Math.max(App.MIN_SIDEBAR, widthPx));
+    return clampedPx / layout;
+  }
+
+  private syncSidebarWidthFromEffectivePercent(): void {
+    this.sidebarWidth.set(this.sidebarPixelsForPercent(this.effectiveSidebarWidthPercent()));
+  }
+
+  private onWindowResize(): void {
+    this.syncSidebarWidthFromEffectivePercent();
+  }
+
+  private scheduleSidebarWidthPersist(percent: number): void {
+    this.pendingSidebarWidthPercent = this.normalizeSidebarWidthPercent(percent);
+    if (this.sidebarWidthSaveTimer != null) {
+      window.clearTimeout(this.sidebarWidthSaveTimer);
+    }
+    this.sidebarWidthSaveTimer = window.setTimeout(() => {
+      this.sidebarWidthSaveTimer = null;
+      void this.flushSidebarWidthPersist();
+    }, App.SIDEBAR_WIDTH_SAVE_DEBOUNCE_MS);
+  }
+
+  private flushSidebarWidthPersist(): void {
+    if (this.sidebarWidthSaveTimer != null) {
+      window.clearTimeout(this.sidebarWidthSaveTimer);
+      this.sidebarWidthSaveTimer = null;
+    }
+    const pending = this.pendingSidebarWidthPercent;
+    if (pending == null) {
+      return;
+    }
+    this.pendingSidebarWidthPercent = null;
+    void this.persistSidebarWidthPercentNow(pending);
+  }
+
+  private async persistSidebarWidthPercentNow(percent: number): Promise<void> {
+    const config = this.appConfig();
+    if (!config) {
+      return;
+    }
+    const normalized = this.normalizeSidebarWidthPercent(percent);
+    if (config.chatSidebarWidthPercent === normalized) {
+      return;
+    }
+    try {
+      await this.electron.saveConfig({
+        ...config,
+        chatSidebarWidthPercent: normalized,
+      });
+    } catch (err) {
+      console.error('[App] persist chatSidebarWidthPercent failed', err);
+    }
   }
 
   private async loadConversationsForWorkspace(): Promise<void> {
@@ -1128,11 +1232,22 @@ export class App implements OnInit, OnDestroy {
   }
 
   private onResizeEnd(): void {
+    const resizing = this.resizing;
+    const sidebarPx = this.sidebarWidth();
     this.resizing = null;
     document.body.classList.remove('workspace-resizing');
     document.body.classList.remove('sidebar-resizing');
     window.removeEventListener('mousemove', this.boundOnResizeMove);
     window.removeEventListener('mouseup', this.boundOnResizeEnd);
+
+    if (resizing === 'sidebar') {
+      this.scheduleSidebarWidthPersist(this.percentFromSidebarPixels(sidebarPx));
+      return;
+    }
+
+    if (resizing === 'workspace') {
+      this.syncSidebarWidthFromEffectivePercent();
+    }
   }
 
   protected async onActiveLlmModelChange(modelId: string): Promise<void> {

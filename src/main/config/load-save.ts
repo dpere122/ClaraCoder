@@ -784,6 +784,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const csw = (newConfig as AppConfig).chatSidebarWidthPercent;
+  if (typeof csw !== 'number' || Number.isNaN(csw) || csw < 0.05 || csw > 0.95) {
+    (newConfig as AppConfig).chatSidebarWidthPercent = 0.75;
+    migrated = true;
+  }
+
   const monacoPrev = (newConfig as AppConfig).monacoWorkspaceEditor;
   const { settings: monacoNorm, migrated: monacoMigrated } = normalizeMonacoWorkspaceEditorSettings(monacoPrev);
   if (monacoMigrated || monacoPrev === undefined) {

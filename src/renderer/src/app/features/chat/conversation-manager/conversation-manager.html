@@ -9,6 +9,7 @@
         class="conv-item"
         [class.active]="conv.id === activeId()"
         (click)="selectConversation.emit(conv.id)"
+        (contextmenu)="onConvContextMenu($event, conv)"
       >
         @if (editingId() === conv.id) {
           <input
@@ -17,7 +18,7 @@
             (ngModelChange)="editTitle.set($event)"
             (keydown.enter)="confirmRename(conv.id)"
             (keydown.escape)="cancelRename()"
-            (blur)="confirmRename(conv.id)"
+            (blur)="cancelRename()"
             (click)="$event.stopPropagation()"
             autofocus
           />
@@ -34,7 +35,7 @@
               ></ngx-spinner>
             </span>
           }
-          <span class="conv-title" (dblclick)="startRename(conv, $event)">{{ conv.title }}</span>
+          <span class="conv-title">{{ conv.title }}</span>
           <button class="delete-btn" (click)="onDelete(conv.id, $event)" title="Delete conversation">
             <lucide-icon name="trash" [size]="14" />
           </button>
@@ -51,6 +52,32 @@
         [conversationId]="activeId()"
         [activeFileRelativePath]="activeFileRelativePath()"
       />
+    </div>
+  }
+
+  @if (contextMenuVisible()) {
+    <div
+      class="conv-context-menu"
+      role="menu"
+      [style.left.px]="contextMenuX()"
+      [style.top.px]="contextMenuY()"
+    >
+      <button
+        type="button"
+        class="conv-context-menu-item"
+        role="menuitem"
+        (mousedown)="onContextMenuItemMousedown($event); onContextMenuRename()"
+      >
+        Rename…
+      </button>
+      <button
+        type="button"
+        class="conv-context-menu-item danger"
+        role="menuitem"
+        (mousedown)="onContextMenuItemMousedown($event); onContextMenuDelete()"
+      >
+        Delete…
+      </button>
     </div>
   }
 </div>

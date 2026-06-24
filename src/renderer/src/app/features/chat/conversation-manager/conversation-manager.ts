@@ -1,6 +1,7 @@
 import {
   Component,
   effect,
+  HostListener,
   inject,
   Injector,
   input,
@@ -51,6 +52,10 @@ export class ConversationManager implements OnDestroy {
 
   protected editingId = signal<string | null>(null);
   protected editTitle = signal('');
+  protected contextMenuVisible = signal(false);
+  protected contextMenuX = signal(0);
+  protected contextMenuY = signal(0);
+  protected contextMenuConvId = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -64,10 +69,68 @@ export class ConversationManager implements OnDestroy {
     return `conv-pending-${id}`;
   }
 
-  startRename(conv: ConversationMeta, event: Event): void {
-    event.stopPropagation();
+  startRename(conv: ConversationMeta, event?: Event): void {
+    event?.stopPropagation();
+    this.closeContextMenu();
     this.editingId.set(conv.id);
     this.editTitle.set(conv.title);
+  }
+
+  onConvContextMenu(event: MouseEvent, conv: ConversationMeta): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.editingId() === conv.id) {
+      return;
+    }
+    this.contextMenuConvId.set(conv.id);
+    this.contextMenuX.set(event.clientX);
+    this.contextMenuY.set(event.clientY);
+    this.contextMenuVisible.set(true);
+  }
+
+  onContextMenuItemMousedown(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  onContextMenuRename(): void {
+    const id = this.contextMenuConvId();
+    const conv = this.conversations().find((c) => c.id === id);
+    this.closeContextMenu();
+    if (!conv) {
+      return;
+    }
+    this.startRename(conv);
+  }
+
+  onContextMenuDelete(): void {
+    const id = this.contextMenuConvId();
+    this.closeContextMenu();
+    if (!id) {
+      return;
+    }
+    this.deleteConversation.emit(id);
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(ev: MouseEvent): void {
+    if (!this.contextMenuVisible()) {
+      return;
+    }
+    const inside = ev
+      .composedPath()
+      .some((n) => n instanceof HTMLElement && n.classList.contains('conv-context-menu'));
+    if (inside) {
+      return;
+    }
+    this.closeContextMenu();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeCloseContextMenu(): void {
+    if (this.contextMenuVisible()) {
+      this.closeContextMenu();
+    }
   }
 
   confirmRename(id: string): void {
@@ -92,6 +155,11 @@ export class ConversationManager implements OnDestroy {
     for (const conv of this.conversations()) {
       void this.ngxSpinner.hide(this.convPendingSpinnerName(conv.id));
     }
+  }
+
+  private closeContextMenu(): void {
+    this.contextMenuVisible.set(false);
+    this.contextMenuConvId.set(null);
   }
 
   private scheduleConvPendingSpinnerSync(pending: Set<string>, conversations: ConversationMeta[]): void {

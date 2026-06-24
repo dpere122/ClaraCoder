@@ -108,6 +108,43 @@ app-conversation-manager .delete-btn:hover {
   color: #ff4444;
 }
 
+app-conversation-manager .conv-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 9rem;
+  padding: 0.2rem 0;
+  margin: 0;
+  border: 1px solid var(--t-border);
+  border-radius: 4px;
+  background: var(--t-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+app-conversation-manager .conv-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+app-conversation-manager .conv-context-menu-item:hover {
+  background: var(--t-hover-bg);
+}
+
+app-conversation-manager .conv-context-menu-item.danger {
+  color: var(--t-danger, #c44);
+}
+
+app-conversation-manager .conv-context-menu-item.danger:hover {
+  background: color-mix(in srgb, var(--t-danger, #c44) 12%, var(--t-hover-bg));
+}
+
 app-conversation-manager .conv-pending-spinner-host {
   position: relative;
   flex-shrink: 0;

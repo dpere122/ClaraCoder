@@ -85,13 +85,8 @@ def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
     return body if len(body) > 1 else None
 
 
-_FORWARDED_RESULT_TOOL_NAMES = frozenset(
-    {
-        'route_code_review_specialist',
-        'route_write_specialist',
-        'route_delete_specialist',
-    }
-)
+def _loggable_tool_result_text(_name: str, result_text: str) -> str:
+    return result_text
 
 
 def _tool_event_seen(state: GraphStreamState, *, phase: str, name: str, run_id: str) -> bool:
@@ -102,21 +97,6 @@ def _tool_event_seen(state: GraphStreamState, *, phase: str, name: str, run_id: 
         return True
     state.seen_tool_events.add(key)
     return False
-
-
-def _loggable_tool_result_text(name: str, result_text: str) -> str:
-    if name not in _FORWARDED_RESULT_TOOL_NAMES:
-        return result_text
-    stripped = result_text.strip()
-    if not stripped:
-        return '[forwarded nested result omitted to reduce duplicate logs; chars=0]'
-    first_line = stripped.splitlines()[0].strip()
-    if len(first_line) > 160:
-        first_line = first_line[:157] + '...'
-    return (
-        '[forwarded nested result omitted to reduce duplicate logs; '
-        f'chars={len(result_text)} preview={first_line!r}]'
-    )
 
 
 def _tool_output_text(raw: Any) -> tuple[str, bool, str]:

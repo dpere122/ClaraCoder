@@ -1,4 +1,4 @@
-"""Tools for the final project reviewer specialist."""
+"""Workspace verification tools (pytest, smoke tests) for the outer Clara agent."""
 
 from __future__ import annotations
 
@@ -11,32 +11,11 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-from nemo_backend.lsp.tools import (
-    lsp_find_definition,
-    lsp_find_references,
-    lsp_get_diagnostics,
-    lsp_get_document_symbols,
-    lsp_hover,
-)
-from nemo_backend.angular_cli_tool import angular_cli_tool
 from nemo_backend.node_dependency_agent import (
     _build_run_script_args,
     _package_json_script_gate,
     _resolve_project_dir,
     detect_package_manager,
-    install_npm_packages_tool,
-    npm_install_project_tool,
-    remove_npm_packages_tool,
-    run_npm_script_tool,
-)
-from nemo_backend.node_project_discovery import discover_npm_projects_tool
-from nemo_backend.npm_registry_search import search_npm_packages_tool
-from nemo_backend.process_tools import kill_process_tool, search_netstat_ports_tool
-from nemo_backend.python_dependency_agent import (
-    freeze_python_requirements_tool,
-    install_python_packages_tool,
-    install_python_requirements_file_tool,
-    write_frozen_python_requirements_file_tool,
 )
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
 from nemo_backend.subprocess_smoke import (
@@ -52,20 +31,14 @@ from nemo_backend.python_env import (
     with_subprocess_color_env,
 )
 from nemo_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
-from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.stream_tags import (
     TOOL_NODE_SMOKE_STREAM_TAG,
     TOOL_PYTEST_STREAM_TAG,
     TOOL_SMOKE_STREAM_TAG,
 )
-from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
 from nemo_backend.workspace_tools import (
     get_active_workspace_root,
-    list_workspace_directory,
-    read_workspace_file,
-    search_workspace,
-    truncate_text,
     truncate_text_head_tail,
 )
 
@@ -74,8 +47,6 @@ logger = logging.getLogger('nemo.project_review')
 RUN_WORKSPACE_PYTEST_TESTS_NAME = 'run_workspace_pytest_tests'
 RUN_WORKSPACE_PYTHON_SMOKE_TEST_NAME = 'run_workspace_python_smoke_test'
 RUN_WORKSPACE_NODE_SMOKE_TEST_NAME = 'run_workspace_node_smoke_test'
-APPROVE_PROJECT_REVIEW_NAME = 'approve_project_review'
-REJECT_PROJECT_REVIEW_NAME = 'reject_project_review'
 _PYTEST_STREAM_TAG = TOOL_PYTEST_STREAM_TAG
 _PYTEST_STREAM_LABEL = 'Workspace Pytest'
 _SMOKE_STREAM_TAG = TOOL_SMOKE_STREAM_TAG
@@ -92,7 +63,6 @@ _SMOKE_ENTRYPOINT_CANDIDATES = (
 )
 _SUBPROCESS_READ_SIZE = 65536
 _TOOL_EXEC_COMPLETE_REPLAY_CHARS = 12_000
-_SUBPROCESS_STASH_MAX_CHARS = 80_000
 
 
 async def _emit_project_review_chunk(
@@ -157,16 +127,10 @@ def _combined_raw_streams(stdout_chunks: list[str], stderr_chunks: list[str]) ->
     return stdout
 
 
-def _stash_subprocess_output_and_replay_tail(
-    session_id: str,
-    stdout_chunks: list[str],
-    stderr_chunks: list[str],
-) -> str:
+def _subprocess_replay_tail(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
     combined = _combined_raw_streams(stdout_chunks, stderr_chunks).strip()
     if not combined:
         return ''
-    session = get_session(session_id)
-    session.last_project_review_subprocess_report = truncate_text(combined, _SUBPROCESS_STASH_MAX_CHARS)
     if len(combined) <= _TOOL_EXEC_COMPLETE_REPLAY_CHARS:
         return combined
     return combined[-_TOOL_EXEC_COMPLETE_REPLAY_CHARS:]
@@ -480,7 +444,7 @@ async def run_workspace_pytest_tests() -> str:
                 await _terminate_process(proc)
                 await wait_task
                 exit_code = proc.returncode
-                replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+                replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
                 await _emit_project_review_tool_complete(
                     sid,
                     stream_tag=_PYTEST_STREAM_TAG,
@@ -503,7 +467,7 @@ async def run_workspace_pytest_tests() -> str:
             await _emit_project_review_chunk(sid, '\n[workspace pytest aborted by user]\n')
             await _terminate_process(proc)
             await wait_task
-            replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+            replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
             await _emit_project_review_tool_complete(
                 sid,
                 stream_tag=_PYTEST_STREAM_TAG,
@@ -524,7 +488,7 @@ async def run_workspace_pytest_tests() -> str:
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     logger.info('run_workspace_pytest_tests exit_code=%s project_root=%s', exit_code, project_root)
-    replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+    replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_PYTEST_STREAM_TAG,
@@ -671,7 +635,7 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     if smoke_result.stop_reason is SmokeStopReason.ABORTED:
-        replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+        replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
         await _emit_project_review_tool_complete(
             sid,
             stream_tag=_SMOKE_STREAM_TAG,
@@ -682,7 +646,7 @@ async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
         )
         return 'Aborted by user.'
 
-    replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+    replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_SMOKE_STREAM_TAG,
@@ -915,7 +879,7 @@ async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_n
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     if smoke_result.stop_reason is SmokeStopReason.ABORTED:
-        replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+        replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
         await _emit_project_review_tool_complete(
             sid,
             stream_tag=_NODE_SMOKE_STREAM_TAG,
@@ -926,7 +890,7 @@ async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_n
         )
         return 'Aborted by user.'
 
-    replay = _stash_subprocess_output_and_replay_tail(sid, stdout_chunks, stderr_chunks)
+    replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_NODE_SMOKE_STREAM_TAG,
@@ -947,68 +911,3 @@ async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_n
         passed=smoke_result.passed,
         failure_detail=smoke_result.failure_detail,
     )
-
-
-@tool(APPROVE_PROJECT_REVIEW_NAME)
-def approve_project_review(summary: str = '') -> str:
-    """Mark the final project review as passed."""
-
-    sid = current_session_id.get()
-    if sid:
-        get_session(sid).last_project_review_subprocess_report = ''
-    cleaned = (summary or '').strip()
-    if cleaned:
-        return f'Project review approved.\n\nSummary:\n{cleaned}'
-    return 'Project review approved.'
-
-
-@tool(REJECT_PROJECT_REVIEW_NAME)
-def reject_project_review(feedback: str) -> str:
-    """Mark the final project review as failed and return actionable feedback for a retry pass."""
-
-    cleaned = (feedback or '').strip() or '(no details)'
-    body = f'Project review rejected.\n\nReviewer feedback:\n{cleaned}'
-    sid = current_session_id.get()
-    if sid:
-        stash = (get_session(sid).last_project_review_subprocess_report or '').strip()
-        if stash:
-            body += (
-                '\n\nLast workspace test/smoke output:\n'
-                f'{stash}'
-            )
-    return body
-
-
-def project_review_specialist_tools() -> tuple[list[object], dict[str, object]]:
-    tools: list[object] = [
-        list_workspace_directory,
-        retrieve_workspace_semantic,
-        search_workspace,
-        read_workspace_file,
-        lsp_get_diagnostics,
-        lsp_hover,
-        lsp_find_definition,
-        lsp_find_references,
-        lsp_get_document_symbols,
-        ensure_python_workspace_env_tool,
-        install_python_packages_tool,
-        install_python_requirements_file_tool,
-        freeze_python_requirements_tool,
-        write_frozen_python_requirements_file_tool,
-        discover_npm_projects_tool,
-        search_npm_packages_tool,
-        install_npm_packages_tool,
-        remove_npm_packages_tool,
-        npm_install_project_tool,
-        run_npm_script_tool,
-        angular_cli_tool,
-        search_netstat_ports_tool,
-        kill_process_tool,
-        run_workspace_python_smoke_test,
-        run_workspace_node_smoke_test,
-        run_workspace_pytest_tests,
-        approve_project_review,
-        reject_project_review,
-    ]
-    tool_map = {tool_obj.name: tool_obj for tool_obj in tools}
-    return tools, tool_map

@@ -178,20 +178,11 @@ async def _run_pm(
     workspace_label: str,
     project_label: str,
     pm: str,
-    nested_review_stash_session_id: str | None = None,
     subprocess_timeout_sec: float | None = None,
 ) -> str:
     command_text = ' '.join(args)
     code, output = await _run_subprocess_with_output(args, cwd=cwd, timeout_sec=subprocess_timeout_sec)
     detail = output.strip() or f'(exit code {code})'
-    if nested_review_stash_session_id:
-        from nemo_backend.project_review_capture import append_nested_review_command_output
-
-        append_nested_review_command_output(
-            nested_review_stash_session_id,
-            title,
-            f'{command_text}\n\n{detail}',
-        )
     ok = code == 0
     summary = _format_summary(
         title=title,
@@ -565,9 +556,6 @@ async def run_npm_script_tool(script_name: str, relative_project_dir: str = '') 
     args = _build_run_script_args(pm, exe, sn)
     command_text = ' '.join(args)
 
-    from nemo_backend.project_review_capture import nested_project_review_output_capture
-
-    stash_sid = _sid if nested_project_review_output_capture.get() else None
     if session.auto_apply_mode:
         return await _run_pm(
             args=args,
@@ -576,7 +564,6 @@ async def run_npm_script_tool(script_name: str, relative_project_dir: str = '') 
             workspace_label=ws_label,
             project_label=proj_label,
             pm=pm,
-            nested_review_stash_session_id=stash_sid,
             subprocess_timeout_sec=_npm_run_script_timeout_sec(),
         )
     return _pending_node_command(

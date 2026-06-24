@@ -136,11 +136,6 @@ class SessionState:
     lsp_staging_overlay_parent: str = ''
     # Cached normalized diagnostics keyed by workspace-relative path.
     lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
-    # Latest pytest/smoke captured output during project review (attached to ``reject_project_review`` when used).
-    last_project_review_subprocess_report: str = ''
-    # Set by ``report_insufficient_workspace_recon`` during the file-write author phase; read and cleared by
-    # ``run_write_recon_then_author_stream`` to optionally run one supplemental recon pass (author stays workspace-blind).
-    write_recon_supplement_request: str = ''
     # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`nemo_backend.agent`).
     last_stream_apply_mode: bool | None = None
     last_stream_auto_apply_mode: bool | None = None

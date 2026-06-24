@@ -6,11 +6,10 @@
 Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``),
 TypeScript/JavaScript LSP staging mutators (``lsp_create_typescript_file``, etc.), and GDScript LSP staging mutators
 (``lsp_create_gdscript_file``, etc.);
-plus the same staging review/transfer tools as nested graphs. When Editor is on, the outer tool list also
-includes the same **Python dependency** and **code-review specialist** tool surfaces as the nested graphs (merge by
-name with the existing ``python_dependency_tools`` / LSP read tools), ``discover_npm_projects`` / ``search_npm_packages`` for Node discovery and registry lookup, plus **local Angular CLI** (``angular_cli_tool``)
-and **workspace pytest/smoke** tools shared with
-final project review (without ``approve_project_review`` / ``reject_project_review`` on the standard outer graph).
+plus staging review/transfer tools. When Editor is on, the outer tool list also
+includes Python and Node dependency tool surfaces (merged by name with the existing
+``python_dependency_tools`` / LSP read tools), ``discover_npm_projects`` / ``search_npm_packages`` for Node discovery and registry lookup, plus **local Angular CLI** (``angular_cli_tool``)
+and **workspace pytest/smoke** verification tools.
 
 When Editor and Auto-apply are both on, staging tools are replaced by direct workspace mutators
 (``apply_workspace_full_file``, ``replace_workspace_line_range``, optional ``replace_workspace_snippet``).
@@ -241,7 +240,7 @@ def worker_tools_and_map(
             run_workspace_python_smoke_test,
             run_workspace_pytest_tests,
         )
-        from nemo_backend.agents.specialists.review_tools import code_review_specialist_tools
+        from nemo_backend.agents.specialists.review_tools import staging_review_tools
         from nemo_backend.agents.specialists.tools import dependency_specialist_tools, node_dependency_specialist_tools
 
         tools, mapping = merge_tools_replace_by_name(
@@ -250,7 +249,7 @@ def worker_tools_and_map(
             [
                 ('dependency_specialist', dependency_specialist_tools()[0]),
                 ('node_dependency_specialist', node_dependency_specialist_tools()[0]),
-                ('code_review_specialist', code_review_specialist_tools(direct=direct)[0]),
+                ('staging_review', staging_review_tools(direct=direct)[0]),
                 (
                     'outer_workspace_verification',
                     [

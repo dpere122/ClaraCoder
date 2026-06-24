@@ -2,14 +2,7 @@
 
 import pytest
 
-from nemo_backend.agents.specialists.project_review_tools import project_review_specialist_tools
-from nemo_backend.agents.specialists.review_tools import code_review_specialist_tools
-from nemo_backend.agents.specialists.tools import (
-    create_specialist_tools,
-    report_insufficient_workspace_recon,
-    update_specialist_tools,
-    write_specialist_tools,
-)
+from nemo_backend.agents.specialists.review_tools import staging_review_tools
 from nemo_backend.edit_tool import (
     apply_workspace_full_file,
     edit_tools_for_strict,
@@ -30,6 +23,7 @@ from nemo_backend.tool_registry import (
     staging_workspace_write_tools,
     worker_tools_and_map,
 )
+from nemo_backend.workspace_tools import TOOLS
 
 _LSP_CREATE_UPDATE_NAMES = {
     'lsp_create_python_file',
@@ -130,12 +124,7 @@ def test_outer_agent_tools_staging_mode() -> None:
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
     session = get_session('outer-staging')
     session.auto_apply_mode = False
-    read_names = {
-        'list_workspace_directory',
-        'read_workspace_file',
-        'read_workspace_image',
-        'search_workspace',
-        'retrieve_workspace_semantic',
+    read_names = {t.name for t in TOOLS} | {
         'search_netstat_ports',
         'lsp_get_diagnostics',
         'lsp_hover',
@@ -148,7 +137,7 @@ def test_outer_agent_tools_staging_mode() -> None:
     dep_names = {t.name for t in python_dependency_tools()[0]}
     node_dep_names = {t.name for t in node_dependency_tools()[0]}
     env_names = {ensure_python_workspace_env_tool.name}
-    review_names = {t.name for t in code_review_specialist_tools(direct=False)[0]}
+    review_names = {t.name for t in staging_review_tools(direct=False)[0]}
 
     outer_verify_names = {
         'run_workspace_pytest_tests',
@@ -182,7 +171,7 @@ def test_outer_agent_tools_direct_mode() -> None:
     session = get_session('outer-direct')
     session.auto_apply_mode = True
     edit_names = {t.name for t in edit_tools_for_strict(False)}
-    review_names = {t.name for t in code_review_specialist_tools(direct=True)[0]}
+    review_names = {t.name for t in staging_review_tools(direct=True)[0]}
     tools_on, _map_on = worker_tools_and_map(True, session=session)
     tool_names = {t.name for t in tools_on}
     assert edit_names <= tool_names
@@ -254,10 +243,10 @@ def test_apply_workspace_full_file_writes_python_in_direct_mode(tmp_path) -> Non
         current_session_id.reset(token)
 
 
-def test_code_review_specialist_tools_staging_mode() -> None:
+def test_staging_review_tools_staging_mode() -> None:
     session = get_session('review-tools-staging')
     session.worker_apply_mode = True
-    tools, tool_map = code_review_specialist_tools(direct=False)
+    tools, tool_map = staging_review_tools(direct=False)
     names = {t.name for t in tools}
     assert names == {
         'list_staged_edits',
@@ -275,8 +264,8 @@ def test_code_review_specialist_tools_staging_mode() -> None:
     assert names.isdisjoint({'list_workspace_directory', 'read_workspace_file', 'search_workspace'})
 
 
-def test_code_review_specialist_tools_direct_mode() -> None:
-    tools, tool_map = code_review_specialist_tools(direct=True)
+def test_staging_review_tools_direct_mode() -> None:
+    tools, tool_map = staging_review_tools(direct=True)
     names = {t.name for t in tools}
     assert names == {
         'lsp_get_diagnostics',
@@ -286,139 +275,3 @@ def test_code_review_specialist_tools_direct_mode() -> None:
     }
     assert tool_map.keys() == names
     assert 'transfer_staged_file_to_workspace' not in names
-
-
-def test_project_review_specialist_tools_include_workspace_tests() -> None:
-    tools, tool_map = project_review_specialist_tools()
-    names = {t.name for t in tools}
-    assert names == {
-        'list_workspace_directory',
-        'read_workspace_file',
-        'search_workspace',
-        'retrieve_workspace_semantic',
-        'lsp_get_diagnostics',
-        'lsp_hover',
-        'lsp_find_definition',
-        'lsp_find_references',
-        'lsp_get_document_symbols',
-        'ensure_python_workspace_env',
-        'install_python_packages',
-        'install_python_requirements_file',
-        'freeze_python_requirements',
-        'write_frozen_python_requirements_file',
-        'discover_npm_projects',
-        'search_npm_packages',
-        'install_npm_packages',
-        'npm_install_project',
-        'remove_npm_packages',
-        'run_npm_script',
-        'angular_cli_tool',
-        'run_workspace_python_smoke_test',
-        'run_workspace_node_smoke_test',
-        'search_netstat_ports',
-        'kill_process',
-        'run_workspace_pytest_tests',
-        'approve_project_review',
-        'reject_project_review',
-    }
-    assert tool_map.keys() == names
-
-
-def test_update_specialist_uses_full_file_overwrite_only() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
-    tools, tool_map = update_specialist_tools(False)
-    names = [t.name for t in tools]
-    assert names == [
-        'read_staged_edit',
-        'read_workspace_file',
-        'read_workspace_image',
-        'lsp_update_python_file',
-        'lsp_update_typescript_file',
-        'lsp_update_gdscript_file',
-        'stage_workspace_file_overwrite',
-    ]
-    assert tool_map.keys() == {
-        'read_staged_edit',
-        'read_workspace_file',
-        'read_workspace_image',
-        'lsp_update_python_file',
-        'lsp_update_typescript_file',
-        'lsp_update_gdscript_file',
-        'stage_workspace_file_overwrite',
-    }
-
-
-def test_create_specialist_includes_read_and_discovery_tools() -> None:
-    tools, tool_map = create_specialist_tools()
-    names = [t.name for t in tools]
-    assert names == [
-        'read_staged_edit',
-        'list_workspace_directory',
-        'retrieve_workspace_semantic',
-        'search_workspace',
-        'read_workspace_file',
-        'read_workspace_image',
-        'lsp_create_python_file',
-        'lsp_create_typescript_file',
-        'lsp_create_gdscript_file',
-        'stage_create_file',
-    ]
-    assert tool_map.keys() == set(names)
-
-
-def test_write_specialist_tools_unions_create_and_update_surfaces() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
-    from nemo_backend.agents.specialists.tools import staging_author_tools, workspace_recon_tools
-
-    recon, _ = workspace_recon_tools()
-    author, _ = staging_author_tools(False)
-    recon_names = [t.name for t in recon]
-    author_names = [t.name for t in author]
-    assert recon_names == [
-        'list_workspace_directory',
-        'retrieve_workspace_checkpoint_semantic',
-        'search_workspace',
-        'read_workspace_file',
-        'read_workspace_image',
-        'lsp_get_diagnostics',
-        'lsp_hover',
-        'lsp_find_definition',
-        'lsp_find_references',
-        'lsp_get_document_symbols',
-    ]
-    assert author_names == [
-        'read_staged_edit',
-        'report_insufficient_workspace_recon',
-        'lsp_create_python_file',
-        'lsp_create_typescript_file',
-        'lsp_create_gdscript_file',
-        'lsp_update_python_file',
-        'lsp_update_typescript_file',
-        'lsp_update_gdscript_file',
-        'stage_create_file',
-        'stage_workspace_file_overwrite',
-        'stage_line_range_edit',
-        'stage_snippet_edit',
-        'format_staging_file_black',
-        'format_staging_file_prettier',
-        'lsp_get_diagnostics',
-    ]
-    tools, tool_map = write_specialist_tools(False)
-    assert [t.name for t in tools] == recon_names + author_names
-    assert tool_map.keys() == set(recon_names + author_names)
-
-
-def test_report_insufficient_workspace_recon_sets_session_field() -> None:
-    sid = 'test-sid-recon-supplement-tool'
-    sessions.pop(sid, None)
-    get_session(sid)
-    token = current_session_id.set(sid)
-    try:
-        out = report_insufficient_workspace_recon.invoke({'what_is_missing': 'callers of foo in `b.py`'})
-        assert 'Recorded' in str(out)
-        assert get_session(sid).write_recon_supplement_request == 'callers of foo in `b.py`'
-        err = report_insufficient_workspace_recon.invoke({'what_is_missing': '  \n  '})
-        assert 'Tool error' in str(err)
-    finally:
-        current_session_id.reset(token)
-        sessions.pop(sid, None)

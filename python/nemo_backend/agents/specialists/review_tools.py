@@ -1,4 +1,4 @@
-"""Tools for the nested code-review specialist (staging read/format/transfer/reject)."""
+"""Staging review tools merged into the outer Clara agent (read/format/transfer/reject)."""
 
 from __future__ import annotations
 
@@ -442,8 +442,7 @@ def _re_review_message(rel_key: str, user_note: str) -> str:
     return (
         f'**Staged transfer returned for re-review (user did not approve landing this draft in the workspace '
         f'yet).** Path: `{rel_key}`.\n\n'
-        'Route back to the **code review** specialist (or file-write specialist as appropriate). Use '
-        '`diff_staged_edit_against_baseline` / `read_staged_edit`, revise the staged draft, then call '
+        'Revise the staged draft (`diff_staged_edit_against_baseline` / `read_staged_edit`), then call '
         '`transfer_staged_file_to_workspace` again when ready.\n\n'
         f'User / reviewer feedback:\n{fb}'
     )
@@ -468,7 +467,7 @@ def _build_batch_complete_message(
     if lsp_section:
         body = f'{body}{lsp_section}'
     if approved or re_review:
-        body = f'{body}\n\nContinue the nested review / router turn from here.'
+        body = f'{body}\n\nContinue the outer agent turn from here.'
     return body
 
 
@@ -1340,13 +1339,13 @@ def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
     fb = (feedback or '').strip() or '(no details)'
     logger.info('reject_staged_workspace_edit path=%s', rel_key)
     return (
-        f'Rejected staged edit for `{rel_key}`. Return this to the router so it can hand off to the create/update '
-        f'specialist again. Keep revising the existing staged draft; it will be cleaned up automatically when the '
-        f'nested workspace chain finishes. Stop this review turn after calling this tool.\n\nReviewer feedback:\n{fb}'
+        f'Rejected staged edit for `{rel_key}`. Revise the existing staged draft in a follow-up turn '
+        f'(same path). Orphaned staging is cleaned up when the outer agent turn finishes.\n\n'
+        f'Reviewer feedback:\n{fb}'
     )
 
 
-def code_review_specialist_tools(*, direct: bool = False) -> tuple[list[object], dict[str, object]]:
+def staging_review_tools(*, direct: bool = False) -> tuple[list[object], dict[str, object]]:
     if direct:
         tools: list[object] = [
             lsp_get_diagnostics,

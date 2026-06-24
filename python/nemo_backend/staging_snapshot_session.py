@@ -21,7 +21,6 @@ def prepare_new_staging_snapshot_session(session: SessionState, session_id: str)
     session.pending_delete_request = None
     session.pending_copy_request = None
     session.pending_accept_command_request = None
-    session.last_project_review_subprocess_report = ''
     session.lsp_diagnostics.clear()
     session.lsp_workspace_root = ''
     session.typescript_lsp_resolved_root = ''

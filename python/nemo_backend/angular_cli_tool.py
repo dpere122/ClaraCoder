@@ -160,20 +160,11 @@ async def _run_angular(
     title: str,
     workspace_label: str,
     project_label: str,
-    nested_review_stash_session_id: str | None = None,
     subprocess_timeout_sec: float | None = None,
 ) -> str:
     command_text = ' '.join(args)
     code, output = await _run_subprocess_with_output(args, cwd=cwd, timeout_sec=subprocess_timeout_sec)
     detail = output.strip() or f'(exit code {code})'
-    if nested_review_stash_session_id:
-        from nemo_backend.project_review_capture import append_nested_review_command_output
-
-        append_nested_review_command_output(
-            nested_review_stash_session_id,
-            title,
-            f'{command_text}\n\n{detail}',
-        )
     ok = code == 0
     summary = _format_angular_summary(
         title=title,
@@ -244,17 +235,12 @@ async def execute_pending_angular_cli_request(session: SessionState, pending: di
         return verr
     assert ng_args is not None
     args = [str(ng_exe), *ng_args]
-    from nemo_backend.project_review_capture import nested_project_review_output_capture
-
-    sid = (current_session_id.get() or '').strip()
-    stash_sid = sid if nested_project_review_output_capture.get() else None
     return await _run_angular(
         args=args,
         cwd=project_dir,
         title='Angular CLI summary',
         workspace_label=ws_label,
         project_label=proj_label,
-        nested_review_stash_session_id=stash_sid,
         subprocess_timeout_sec=_npm_script_timeout_sec(),
     )
 
@@ -296,9 +282,6 @@ async def angular_cli_tool(ng_args: list[str], relative_project_dir: str = '') -
 
     args = [str(ng_exe), *ng_args_clean]
     command_text = ' '.join(args)
-    from nemo_backend.project_review_capture import nested_project_review_output_capture
-
-    stash_sid = _sid if nested_project_review_output_capture.get() else None
     if session.auto_apply_mode:
         return await _run_angular(
             args=args,
@@ -306,7 +289,6 @@ async def angular_cli_tool(ng_args: list[str], relative_project_dir: str = '') -
             title='Angular CLI summary',
             workspace_label=ws_label,
             project_label=proj_label,
-            nested_review_stash_session_id=stash_sid,
             subprocess_timeout_sec=_npm_script_timeout_sec(),
         )
     return _pending_angular_command(

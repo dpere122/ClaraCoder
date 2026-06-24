@@ -48,9 +48,9 @@ def test_duplicate_tool_end_is_logged_once(caplog: pytest.LogCaptureFixture) -> 
         caplog.set_level(logging.INFO, logger='nemo.tools.invoke')
         state = GraphStreamState()
         ev = _tool_end_event(
-            name='route_code_review_specialist',
+            name='run_workspace_pytest_tests',
             run_id='run-123',
-            output='Approved nested result\nSECOND LINE SHOULD NOT APPEAR IN TOOL LOG',
+            output='Pytest finished\nSECOND LINE IN OUTPUT',
         )
 
         first = sse_lines_for_graph_event(
@@ -74,8 +74,8 @@ def test_duplicate_tool_end_is_logged_once(caplog: pytest.LogCaptureFixture) -> 
         assert second == []
         tool_logs = [record.message for record in caplog.records if 'LLM tool out' in record.message]
         assert len(tool_logs) == 1
-        assert 'forwarded nested result omitted to reduce duplicate logs' in tool_logs[0]
-        assert 'SECOND LINE SHOULD NOT APPEAR IN TOOL LOG' not in tool_logs[0]
+        assert 'Pytest finished' in tool_logs[0]
+        assert 'SECOND LINE IN OUTPUT' in tool_logs[0]
     finally:
         nemo.propagate = prev
 

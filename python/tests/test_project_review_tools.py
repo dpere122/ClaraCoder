@@ -7,7 +7,6 @@ import pytest
 
 from nemo_backend.agents.specialists.project_review_tools import (
     maybe_bootstrap_python_workspace_env_for_project_review,
-    reject_project_review,
     run_workspace_python_smoke_test,
     run_workspace_pytest_tests,
 )
@@ -53,6 +52,7 @@ def python_workspace(tmp_path: Path):
     session = get_session(session_id)
     session.workspace_path = str(tmp_path.resolve())
     session.worker_apply_mode = True
+    session.auto_apply_mode = True
     session.abort_event.clear()
     session.planning_nested_events_q = asyncio.Queue()
 
@@ -72,6 +72,7 @@ def python_workspace_without_tests(tmp_path: Path):
     session = get_session(session_id)
     session.workspace_path = str(tmp_path.resolve())
     session.worker_apply_mode = True
+    session.auto_apply_mode = True
     session.abort_event.clear()
     session.planning_nested_events_q = asyncio.Queue()
 
@@ -299,6 +300,7 @@ async def test_project_review_bootstrap_skips_non_python_workspace(tmp_path: Pat
     session = get_session(session_id)
     session.workspace_path = str(tmp_path.resolve())
     session.worker_apply_mode = True
+    session.auto_apply_mode = True
     session.abort_event.clear()
     session.planning_nested_events_q = asyncio.Queue()
 
@@ -519,18 +521,3 @@ async def test_run_workspace_python_smoke_test_uses_workspace_entrypoint_and_rep
     assert 'Workspace Python smoke-test summary' in result
     assert 'startup reached steady state' in result
     assert fake_proc.terminated is True
-
-
-def test_reject_project_review_attaches_stashed_subprocess_output() -> None:
-    sid = 'reject-stash-unit'
-    token = current_session_id.set(sid)
-    try:
-        session = get_session(sid)
-        session.last_project_review_subprocess_report = 'pytest: 1 failed in test_x.py'
-        out = reject_project_review.invoke({'feedback': 'Fix the regression.'})
-        assert 'Fix the regression.' in out
-        assert 'test_x.py' in out
-        assert 'attached automatically' in out.lower()
-    finally:
-        current_session_id.reset(token)
-        sessions.pop(sid, None)

@@ -65,9 +65,8 @@ def _stream_watchdog_timeout_sec() -> float:
 def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamState) -> bool:
     """True only when the stream is idle for a reason that should never persist.
 
-    A tool currently running (``pending_tool_runs``) covers long-running tools (npm/pytest), nested
-    specialists (the outer routing tool is still pending), and active HITL pauses (the tool node has
-    not emitted ``on_tool_end`` yet). A HITL pause that is awaiting confirmation also keeps
+    A tool currently running (``pending_tool_runs``) covers long-running tools (npm/pytest) and active HITL pauses
+    (the tool node has not emitted ``on_tool_end`` yet). A HITL pause that is awaiting confirmation also keeps
     ``agent_pause_event`` set or a ``pending_*_request`` populated. In all those cases the idle wait is
     legitimate and the watchdog must not fire.
     """
@@ -128,10 +127,10 @@ def _default_outer_graph_builder(
 
 
 def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
-    """Discard any leftover nested staging only after the outer agent turn has finished."""
+    """Discard leftover staging after the outer agent turn finishes."""
     if session.pending_edit_stagings:
         logger.warning(
-            'Orphaned nested edit stagings after outer agent completion (discarding): %s',
+            'Orphaned edit stagings after outer agent completion (discarding): %s',
             list(session.pending_edit_stagings.keys()),
         )
     cleanup_staging_snapshot_session(session, session_id)

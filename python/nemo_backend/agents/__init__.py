@@ -1,1 +1,1 @@
-"""Planning handoff, CRUD specialists, and nested router execution."""
+"""Tool surfaces for the single outer Clara agent (staging review, dependencies, verification)."""

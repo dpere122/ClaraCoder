@@ -123,11 +123,10 @@ Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run
 | `nemo_backend/workspace_text_io.py`                    | Encoding/newline normalization and disk I/O for tools.                      |
 | `nemo_backend/workspace_ignore.py`                     | `.gitignore` + built-in ignores for search/list.                            |
 | `nemo_backend/tool_registry.py`                        | Central tool registry and HITL policy.                                      |
-| **Specialists (outer agent tools)**                    |                                                                             |
-| `nemo_backend/agents/specialists/tools.py`             | Dependency and staging-author tool lists (legacy nested-router helpers).    |
-| `nemo_backend/agents/specialists/review_tools.py`      | Staging read/approve/reject/format/overlay command tools.                     |
-| `nemo_backend/agents/specialists/project_review_tools.py` | Workspace pytest/smoke + approve/reject project review tools.            |
-| `nemo_backend/agents/orchestration/router_probe_tools.py` | `workspace_path_status` probe for path existence.                        |
+| **Outer agent tool modules**                         |                                                                             |
+| `nemo_backend/agents/specialists/tools.py`             | Python/Node dependency tool lists merged into the outer agent.              |
+| `nemo_backend/agents/specialists/review_tools.py`      | Staging read/format/transfer/reject tools for the outer agent.              |
+| `nemo_backend/agents/specialists/project_review_tools.py` | Workspace pytest/smoke verification tools for the outer agent.           |
 | **Middleware**                                         |                                                                             |
 | `nemo_backend/diff_review_middleware.py`               | Pause after diff-emitting tools until user continues.                       |
 | `nemo_backend/delete_review_middleware.py`             | Pause after delete HITL.                                                    |

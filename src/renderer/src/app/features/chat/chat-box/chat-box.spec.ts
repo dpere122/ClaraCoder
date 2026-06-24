@@ -10,6 +10,7 @@ import {
   liveTurnPresentationSettled,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
+  latestPrimaryStreamSegmentText,
   turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
   type ChatMessage,
@@ -386,13 +387,39 @@ describe('liveTurnPresentationSettled', () => {
 });
 
 describe('resolvePrimaryStreamLiveText', () => {
-  it('returns empty when no final text is available', () => {
-    expect(resolvePrimaryStreamLiveText(undefined)).toBe('');
-    expect(resolvePrimaryStreamLiveText('   ')).toBe('');
+  it('returns empty when no final text or primary stream is available', () => {
+    expect(resolvePrimaryStreamLiveText(undefined, [], false)).toBe('');
+    expect(resolvePrimaryStreamLiveText('   ', [], false)).toBe('');
   });
 
-  it('returns trimmed final text only', () => {
-    expect(resolvePrimaryStreamLiveText('  Hello world  ')).toBe('Hello world');
+  it('prefers trimmed final text over streamed segments', () => {
+    const parts = [{ streamTag: 'agent', label: '', text: 'Streaming…' }];
+    expect(resolvePrimaryStreamLiveText('  Hello world  ', parts, false)).toBe('Hello world');
+  });
+
+  it('streams the latest primary agent segment while loading', () => {
+    const parts = [
+      { streamTag: 'agent', label: '', text: 'Brief status\n' },
+      { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'Reading…' },
+      { streamTag: 'agent', label: '', text: 'Here is the answer.' },
+    ];
+    expect(resolvePrimaryStreamLiveText(undefined, parts, false)).toBe('Here is the answer.');
+  });
+
+  it('hides pre-tool primary prose while tools are active', () => {
+    const parts = [{ streamTag: 'agent', label: '', text: 'Checking files…' }];
+    expect(resolvePrimaryStreamLiveText(undefined, parts, true)).toBe('');
+  });
+});
+
+describe('latestPrimaryStreamSegmentText', () => {
+  it('returns the last agent segment after multiplex rows', () => {
+    const parts = [
+      { streamTag: 'agent', label: '', text: 'First' },
+      { streamTag: 'reasoning', label: '', text: 'Thinking' },
+      { streamTag: 'agent', label: '', text: 'Second' },
+    ];
+    expect(latestPrimaryStreamSegmentText(parts)).toBe('Second');
   });
 });
 

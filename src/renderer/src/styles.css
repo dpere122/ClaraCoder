@@ -1552,10 +1552,10 @@ html.theme-win95 .tree-node:hover .folder-icon,
 html.theme-win95 .tree-node:hover .file-icon,
 html.theme-win95 .conv-item:hover .conv-title,
 html.theme-win95 .conv-item:hover .delete-btn,
-html.theme-win95 .conv-item:hover .conv-pending-spinner,
+html.theme-win95 .conv-item:hover .conv-pending-spinner-host,
 html.theme-win95 .conv-item.active .conv-title,
 html.theme-win95 .conv-item.active .delete-btn,
-html.theme-win95 .conv-item.active .conv-pending-spinner {
+html.theme-win95 .conv-item.active .conv-pending-spinner-host {
   color: #ffffff;
 }
 
@@ -1719,16 +1719,14 @@ html.theme-win95 app-chat-box .talk-voice-ngx-host .ngx-spinner-overlay {
 }
 
 html.theme-win95 app-chat-box .processing-ngx-host .la-ball-atom > div,
-html.theme-win95 app-chat-box .processing-ngx-host .la-ball-triangle-path > div,
 html.theme-win95 app-chat-box .tts-ngx-host .la-line-scale > div,
 html.theme-win95 app-chat-box .talk-voice-ngx-host .la-ball-clip-rotate-pulse > div,
 html.theme-win95 app-chat-box .talk-voice-ngx-host .la-ball-pulse-sync > div {
   animation: none !important;
 }
 
-html.theme-win95 app-conversation-manager .conv-pending-spinner {
+html.theme-win95 app-conversation-manager .conv-pending-spinner-host .la-ball-atom > div {
   animation: none !important;
-  border-top-color: currentColor;
 }
 
 html.theme-win95 app-chat-box .streaming-cursor {

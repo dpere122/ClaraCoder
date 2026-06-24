@@ -8,7 +8,7 @@
  * - Persisted rows render from `persistedRows`; the in-flight turn renders separately via `liveTurn` while `loading`.
  *
  * **Presentation split**
- * - Primary reply prose: backend `final_text` only (interim agent briefs feed the auxiliary panel title).
+ * - Primary reply prose: streams from the latest `agent` segment; backend `final_text` wins at end.
  * - Tool / reasoning / planner multiplex: auxiliary stream panel.
  * - HITL artifacts (diff, delete, plan confirm, …): bubble up through `*Finished` outputs after user action.
  *
@@ -67,6 +67,7 @@ import {
   planPanelContext,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
+  latestPrimaryStreamSegmentText,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
@@ -106,7 +107,6 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
 const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
 
 /** ngx-spinner names scoped to this component (hidden in `ngOnDestroy`). */
-const SPINNER_CHAT_TOOL = 'chat-tool';
 const SPINNER_CHAT_THINK = 'chat-think';
 const SPINNER_CHAT_TTS = 'chat-tts';
 
@@ -351,27 +351,24 @@ export class ChatBox implements OnDestroy {
   readonly liveTurnPresentationSettled = computed(() =>
     computeLiveTurnPresentationSettled(
       !!this.livePlanPanel(),
-      this.rawPrimaryStreamText(),
+      joinPrimaryAssistantStreamText(this.streamingParts()),
       this.primaryStreamLiveText(),
     ),
   );
 
   /**
-   * Raw primary stream text - used for extracting the brief to show as panel title.
-   * During streaming, briefs update the panel title; the main response area stays empty.
-   * Only the final response (from backend's last_final_text) appears after completion.
+   * Live primary stream text — latest `agent` segment while the model is writing; backend
+   * `final_text` replaces it once the clean reply is available.
    */
-  private readonly rawPrimaryStreamText = computed(() =>
-    joinPrimaryAssistantStreamText(this.streamingParts()),
+  readonly primaryStreamLiveText = computed(() =>
+    resolvePrimaryStreamLiveText(
+      this.streamingFinalText(),
+      this.streamingParts(),
+      this.processingToolsActive(),
+    ),
   );
 
-  /**
-   * Live primary stream text for display — only the backend's clean `final_text`, not interim
-   * agent briefs. Interim prose updates the auxiliary panel title instead.
-   */
-  readonly primaryStreamLiveText = computed(() => resolvePrimaryStreamLiveText(this.streamingFinalText()));
-
-  /** Blinking cursor after `final_text` starts arriving during an active stream. */
+  /** Blinking cursor while the main reply zone is actively receiving text. */
   readonly showStreamingPrimaryCursor = computed(
     () => this.loading() && this.primaryStreamLiveText().length > 0,
   );
@@ -419,23 +416,24 @@ export class ChatBox implements OnDestroy {
   });
 
   /**
-   * Update label: one-line brief from the primary stream or Clara brief status rows.
+   * Auxiliary panel title: Clara chain briefs, or a status line while tools run with no main reply yet.
    */
   readonly liveAuxiliaryPanelTitle = computed(() => {
-    const brief = extractLatestBriefLine(this.rawPrimaryStreamText());
-    if (brief) {
-      return brief;
-    }
     const fromChainGroups = auxiliaryPanelTitleFromChainGroups(this.liveVisibleChainGroups());
     if (fromChainGroups !== DEFAULT_AUXILIARY_STREAM_PANEL_TITLE) {
       return fromChainGroups;
     }
+    if (this.primaryStreamLiveText().trim().length > 0) {
+      return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
+    }
+    const brief = extractLatestBriefLine(latestPrimaryStreamSegmentText(this.streamingParts()));
+    if (brief) {
+      return brief;
+    }
     return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
   });
 
-  /**
-   * Show the auxiliary panel during streaming when there is auxiliary content or a brief title.
-   */
+  /** Show the auxiliary panel when there is tool/reasoning content or a brief-only status line. */
   readonly showLiveAuxiliaryPanel = computed(() => {
     if (this.liveAuxiliaryTimeline().length > 0) {
       return true;
@@ -443,7 +441,10 @@ export class ChatBox implements OnDestroy {
     if (this.livePlanPanel()) {
       return false;
     }
-    return this.rawPrimaryStreamText().trim().length > 0;
+    if (this.primaryStreamLiveText().trim().length > 0) {
+      return false;
+    }
+    return latestPrimaryStreamSegmentText(this.streamingParts()).trim().length > 0;
   });
 
   /** Short status word beside the think/tool spinner in the live processing row. */
@@ -660,20 +661,12 @@ export class ChatBox implements OnDestroy {
           return;
         }
         const loading = this.loading();
-        const tools = this.processingToolsActive();
         const awaitingHitl = this.liveAwaitingHitlReview();
         if (!loading || awaitingHitl) {
-          void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
           void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
           return;
         }
-        if (tools) {
-          void this.ngxSpinner.show(SPINNER_CHAT_TOOL, { ...INLINE_SPINNER, type: 'ball-triangle-path' });
-          void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
-        } else {
-          void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
-          void this.ngxSpinner.show(SPINNER_CHAT_THINK, { ...INLINE_SPINNER, type: 'ball-atom' });
-        }
+        void this.ngxSpinner.show(SPINNER_CHAT_THINK, { ...INLINE_SPINNER, type: 'ball-atom' });
       },
       { injector: this.inj },
     );
@@ -709,7 +702,6 @@ export class ChatBox implements OnDestroy {
       clearTimeout(this.scrollSmoothDebounceTimer);
       this.scrollSmoothDebounceTimer = null;
     }
-    void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
     void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
     void this.ngxSpinner.hide(SPINNER_CHAT_TTS);
   }

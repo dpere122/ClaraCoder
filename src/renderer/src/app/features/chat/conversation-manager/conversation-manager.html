@@ -23,7 +23,16 @@
           />
         } @else {
           @if (pendingIds().has(conv.id)) {
-            <span class="conv-pending-spinner" aria-hidden="true"></span>
+            <span class="conv-pending-spinner-host" aria-hidden="true">
+              <ngx-spinner
+                [name]="convPendingSpinnerName(conv.id)"
+                type="ball-atom"
+                [fullScreen]="false"
+                bdColor="rgba(0,0,0,0)"
+                size="small"
+                color="var(--bs-secondary-color)"
+              ></ngx-spinner>
+            </span>
           }
           <span class="conv-title" (dblclick)="startRename(conv, $event)">{{ conv.title }}</span>
           <button class="delete-btn" (click)="onDelete(conv.id, $event)" title="Delete conversation">

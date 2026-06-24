@@ -1,5 +1,11 @@
-import type { ConversationMessage, DiffReviewStatus, PlanConfirmPayload, PlannerProgress } from '@shared/index';
-import { isClaraOuterBriefStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
+import type {
+  ConversationMessage,
+  DiffReviewStatus,
+  PlanConfirmPayload,
+  PlannerProgress,
+  StreamPart,
+} from '@shared/index';
+import { isClaraOuterBriefStreamTag, isPrimaryAssistantStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
 import { DEFAULT_AUXILIARY_STREAM_PANEL_TITLE } from './auxiliary-stream-panel/auxiliary-stream-panel';
 
 /** Shown in the live processing row while tools are active; index chosen when tool phase starts. */
@@ -233,9 +239,20 @@ function oneLineTitle(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+/** Primary (`agent`) prose from the latest model step — after tool multiplex rows split segments. */
+export function latestPrimaryStreamSegmentText(parts: readonly StreamPart[]): string {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    if (isPrimaryAssistantStreamTag(part.streamTag)) {
+      return part.text;
+    }
+  }
+  return '';
+}
+
 /**
  * Extract the latest non-empty line from streaming text for the panel title.
- * During streaming, briefs update the panel title instead of appearing in the main response.
+ * Used for Clara status lines while tools run and the main reply zone is empty.
  */
 export function extractLatestBriefLine(text: string): string {
   const lines = text.split('\n');
@@ -249,10 +266,23 @@ export function extractLatestBriefLine(text: string): string {
   return '';
 }
 
-/** Live markdown zone: only backend `final_text`, never interim agent stream chunks. */
-export function resolvePrimaryStreamLiveText(streamingFinalText: string | undefined): string {
+/**
+ * Live markdown zone: prefer backend `final_text`, else stream the latest primary agent segment.
+ * Suppresses pre-tool brief prose in the main zone while tools are actively running.
+ */
+export function resolvePrimaryStreamLiveText(
+  streamingFinalText: string | undefined,
+  streamingParts: readonly StreamPart[],
+  processingToolsActive: boolean,
+): string {
   const final = streamingFinalText?.trim();
-  return final ?? '';
+  if (final) {
+    return final;
+  }
+  if (processingToolsActive) {
+    return '';
+  }
+  return latestPrimaryStreamSegmentText(streamingParts).trim();
 }
 
 export function auxiliaryPanelTitleFromChainGroups(groups: readonly ToolChainGroup[]): string {

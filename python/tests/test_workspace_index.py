@@ -127,9 +127,8 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
     assert 'notes.md' in out
     assert 'frobnitz' in out.lower() or 'handler' in out.lower()
     assert 'no indexable workspace content' not in out
-    assert 'read_staged_edit' in out
-    assert 'diff_staged_edit_against_baseline' in out
-    assert 'origin=workspace' in out
+    assert 'on-disk workspace index only' in out
+    assert 'read_workspace_file' in out
 
 
 def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,11 +136,6 @@ def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monke
 
     monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
     (tmp_path / 'notes.md').write_text('# Project\nUse the frobnitz handler for IO.\n', encoding='utf-8')
-
-    def _staging_must_not_load(*_a: object, **_kw: object) -> None:
-        raise AssertionError('checkpoint semantic must not load staging index')
-
-    monkeypatch.setattr(st, 'load_or_rebuild_staging_index', _staging_must_not_load)
 
     def _fake_build(_connection: object) -> tuple[_FakeEmb, str]:
         return _FakeEmb(), ''
@@ -163,7 +157,7 @@ def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monke
         st_state.sessions.pop(sid, None)
 
     assert 'notes.md' in out
-    assert 'on-disk workspace / checkpoint index only' in out
+    assert 'on-disk workspace index only' in out
     assert 'read_workspace_file' in out
 
 
@@ -191,10 +185,8 @@ def test_incremental_workspace_patch(tmp_path: Path, monkeypatch: pytest.MonkeyP
 @pytest.fixture
 def _clear_fingerprint_cache():
     lc._fingerprint_cache.clear()
-    lc._staging_fingerprint_cache.clear()
     yield
     lc._fingerprint_cache.clear()
-    lc._staging_fingerprint_cache.clear()
 
 
 def test_flush_invalidates_workspace_fingerprint_cache(
@@ -259,22 +251,6 @@ def test_flush_requeues_pending_on_workspace_load_failure(tmp_path: Path, monkey
     with pytest.raises(OSError, match='simulated'):
         flush_semantic_index_patches('sess-1', sess, root, 'wid', embed)
     assert sess.semantic_index_pending == [('a.py', 'updated')]
-
-
-def test_merge_workspace_staging_prefers_workspace_on_score_tie() -> None:
-    from nemo_backend.workspace_index.semantic_tool import _merge_workspace_staging_hits
-
-    class _N:
-        def __init__(self, score: float, tag: str) -> None:
-            self.score = score
-            self.tag = tag
-
-    w = [_N(0.5, 'w')]
-    s = [_N(0.5, 's')]
-    merged = _merge_workspace_staging_hits(w, s, k=2)
-    assert len(merged) == 2
-    assert merged[0].tag == 'w'
-    assert merged[1].tag == 's'
 
 
 def test_schedule_semantic_index_background_coalesces_ensure_corpus(monkeypatch: pytest.MonkeyPatch) -> None:

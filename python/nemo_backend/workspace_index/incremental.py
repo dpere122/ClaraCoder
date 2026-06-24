@@ -12,34 +12,23 @@ from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
 from nemo_backend.domain import SessionState
 from nemo_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from nemo_backend.workspace_index.index_build import (
-    DOC_REF_STAGING,
     DOC_REF_WORKSPACE,
     manifest_embedding_model_id,
-    load_or_rebuild_staging_index,
     load_or_rebuild_workspace_index,
-    nodes_from_file_for_staging,
     nodes_from_file_for_workspace,
-    write_staging_manifest,
     write_workspace_manifest,
 )
-from nemo_backend.workspace_index.lifecycle import (
-    invalidate_fingerprint_cache_for_root,
-    invalidate_fingerprint_cache_for_staging,
-)
-from nemo_backend.workspace_index.paths import staging_index_persist_dir, workspace_index_persist_dir
-from nemo_backend.workspace_index.staging_fingerprint import staging_content_fingerprint
-from nemo_backend.workspace_index.staging_walk import staging_session_roots
+from nemo_backend.workspace_index.lifecycle import invalidate_fingerprint_cache_for_root
+from nemo_backend.workspace_index.paths import workspace_index_persist_dir
 from nemo_backend.workspace_index.walk import is_indexable_workspace_relative_path
 
 logger = logging.getLogger('nemo.workspace_index.incremental')
 
-_STAGING_PREFIX = '[staging] '
 # Coalesce rapid workspace-context sync batches before hitting the embeddings server.
 _BACKGROUND_INDEX_DEBOUNCE_SEC = 2.0
 
 _registry_lock = threading.Lock()
 _workspace_locks: dict[str, threading.Lock] = {}
-_staging_locks: dict[str, threading.Lock] = {}
 _background_index_lock = threading.Lock()
 _background_index_jobs: dict[str, dict[str, bool]] = {}
 _background_index_timers: dict[str, threading.Timer] = {}
@@ -54,10 +43,6 @@ def _lock_for(store: dict[str, threading.Lock], key: str) -> threading.Lock:
 
 def _workspace_lock_key(workspace_id: str, root: Path) -> str:
     return f'w:{workspace_index_persist_dir(workspace_id, root)}'
-
-
-def _staging_lock_key(session_id: str) -> str:
-    return f's:{staging_index_persist_dir(session_id)}'
 
 
 def schedule_semantic_index_background(session_id: str, *, ensure_corpus: bool = False) -> None:
@@ -137,27 +122,6 @@ def enqueue_semantic_index_changes(sess: SessionState, paths: list[str], kinds: 
     sess.semantic_index_pending = pending[-3000:]
 
 
-def _staging_abs_allowed(session_id: str, graph_id: str, abs_path: Path) -> bool:
-    from nemo_backend.edit_staging import get_staging_root
-
-    abs_path = abs_path.resolve()
-    staging_root = get_staging_root().resolve()
-    try:
-        abs_path.relative_to(staging_root)
-    except ValueError:
-        return False
-    for base in staging_session_roots(session_id, graph_id):
-        b = base.resolve()
-        if not b.is_dir():
-            continue
-        try:
-            abs_path.relative_to(b)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
 def _parse_workspace_relative(raw: str, workspace_root: Path) -> str | None:
     rel = raw.strip().replace('\\', '/').lstrip('/')
     if rel.lower().startswith('[staging]'):
@@ -169,20 +133,6 @@ def _parse_workspace_relative(raw: str, workspace_root: Path) -> str | None:
     except ValueError:
         return None
     return candidate.relative_to(root).as_posix()
-
-
-def _parse_staging_relative(raw: str) -> str | None:
-    s = raw.strip()
-    low = s.lower()
-    if low.startswith('[staging]'):
-        s = s.split(']', 1)[-1].strip().replace('\\', '/').lstrip('/')
-    elif s.startswith(_STAGING_PREFIX):
-        s = s[len(_STAGING_PREFIX) :].strip().replace('\\', '/').lstrip('/')
-    else:
-        return None
-    if not s or s.startswith('../'):
-        return None
-    return s
 
 
 def _replace_ref_nodes(index: Any, doc_id: str, nodes: list[Any]) -> None:
@@ -203,7 +153,7 @@ def flush_semantic_index_patches(
     *,
     embedding_model_id: str | None = None,
 ) -> None:
-    """Apply queued watcher updates to persisted workspace + staging indexes."""
+    """Apply queued watcher updates to the persisted workspace index."""
     batch = list(sess.semantic_index_pending)
     if not batch:
         return
@@ -233,22 +183,12 @@ def _flush_semantic_index_patches_impl(
     manifest_embedding_model: str,
     batch: list[tuple[str, str]],
 ) -> None:
-    from nemo_backend.edit_staging import get_staging_root
-
-    sid = (session_id or '').strip()
-    graph_id = (sess.active_staging_snapshot_id or '').strip()
     root = workspace_root.resolve()
-    staging_root = get_staging_root().resolve()
 
     w_lock = _lock_for(_workspace_locks, _workspace_lock_key(workspace_id, root))
-    s_lock = _lock_for(_staging_locks, _staging_lock_key(sid)) if sid else None
 
     workspace_by_rel: dict[str, str] = {}
-    staging_hits: list[tuple[str, str]] = []
     for raw, kind in batch:
-        if _parse_staging_relative(raw) is not None:
-            staging_hits.append((raw, kind))
-            continue
         wr = _parse_workspace_relative(raw, root)
         if wr is not None:
             workspace_by_rel[wr] = kind
@@ -291,40 +231,3 @@ def _flush_semantic_index_patches_impl(
                     embedding_model=manifest_embedding_model,
                 )
                 invalidate_fingerprint_cache_for_root(root)
-    if staging_hits and sid and s_lock:
-        with s_lock:
-            s_index, s_err = load_or_rebuild_staging_index(
-                sid, graph_id, embed_model, embedding_model_id=manifest_embedding_model
-            )
-            if s_err:
-                logger.debug('skip staging incremental: %s', s_err)
-            elif s_index is None:
-                logger.debug('skip staging incremental: no persisted staging index yet')
-            else:
-                for raw, kind in staging_hits:
-                    sr = _parse_staging_relative(raw)
-                    if sr is None:
-                        continue
-                    abs_path = (staging_root / sr).resolve()
-                    doc_id = f'{DOC_REF_STAGING}{sr}'
-                    if kind == 'deleted' or not abs_path.is_file():
-                        _replace_ref_nodes(s_index, doc_id, [])
-                        continue
-                    if not _staging_abs_allowed(sid, graph_id, abs_path):
-                        continue
-                    nodes = nodes_from_file_for_staging(abs_path, staging_root)
-                    _replace_ref_nodes(s_index, doc_id, nodes)
-                pdir = staging_index_persist_dir(sid)
-                try:
-                    s_index.storage_context.persist(persist_dir=str(pdir))
-                except Exception as exc:
-                    logger.warning('persist staging index failed: %s', exc)
-                sfp = staging_content_fingerprint(sid, graph_id, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
-                write_staging_manifest(
-                    pdir,
-                    session_id=sid,
-                    graph_id=graph_id,
-                    staging_fingerprint=sfp,
-                    embedding_model=manifest_embedding_model,
-                )
-                invalidate_fingerprint_cache_for_staging(sid, graph_id)

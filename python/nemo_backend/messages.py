@@ -408,20 +408,15 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         '- Read-only inspection: start with the workspace tree in your system instructions above for structure and likely file paths. '
         'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree.\n'
         '- Discovery / reads (follow each bound tool’s description for details):\n'
-        '  1. Unknown targets → `retrieve_workspace_semantic`, then verify each hit’s `origin`.\n'
-        '  2. origin=workspace → `read_workspace_file` / LSP / `search_workspace` (disk).\n'
+        '  1. Unknown targets → `retrieve_workspace_semantic`, then verify with `read_workspace_file` / LSP / `search_workspace`.\n'
+        '  2. Pending drafts → `search_staged_edits` or `read_staged_edit` (semantic index is workspace-only).\n'
         + (
-            '  3. Semantic hits are workspace-only in direct-write mode—use `read_workspace_file` / LSP on disk.\n'
+            '  3. Exact grep: use `search_workspace` on disk.\n'
             if direct
-            else '  3. origin=staging → `read_staged_edit` or `diff_staged_edit_against_baseline` (not disk `read_workspace_file` until the draft lands).\n'
+            else '  3. Exact grep: disk → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
         )
-        + (
-            '  4. Exact grep: use `search_workspace` on disk.\n'
-            if direct
-            else '  4. Exact grep: disk → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
-        )
-        + '  5. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
-        + '  6. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
+        + '  4. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
+        + '  5. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
         + '  7. `.wsdl` (SOAP contracts): prefer `wsdl_overview` → `search_wsdl` → `read_wsdl_section`; avoid reading whole WSDL/XSD with `read_workspace_file` unless debugging raw XML.\n'
         + '  8. `.xml`/`.xsd`/`.xsl`/etc.: prefer `xml_overview` → `search_xml` → `read_xml_section`; avoid whole-file reads unless debugging raw markup.\n'
         + '  9. `.json`/`.jsonc`: prefer `json_overview` → `search_json` → `read_json_section`; avoid whole-file reads for large configs.\n'

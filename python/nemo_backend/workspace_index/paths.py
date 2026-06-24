@@ -33,7 +33,7 @@ def workspace_index_persist_dir(workspace_id: str, workspace_root: Path) -> Path
 
 
 def staging_index_persist_dir(session_id: str) -> Path:
-    """Session-scoped persist dir for staging corpus (nested-edit drafts under ``NEMO_STAGING_DIR``)."""
+    """Legacy session-scoped persist dir; kept only for cleanup of old staging indexes."""
     sid = (session_id or '').strip()
     safe = ''.join(c if c.isalnum() or c in '._-' else '_' for c in sid)[:200] or 'session'
     return semantic_index_base_dir() / 'sessions' / safe / 'staging'

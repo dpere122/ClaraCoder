@@ -1251,15 +1251,6 @@ app-shell > router-outlet + * {
   cursor: wait;
 }
 
-body.col-resizing {
-  cursor: col-resize !important;
-  user-select: none;
-}
-
-body.col-resizing * {
-  cursor: col-resize !important;
-}
-
 html.theme-win95 {
   font-size: 14px;
 }
@@ -1424,8 +1415,6 @@ html.theme-win95 .input-group .btn-voice,
 html.theme-win95 .input-group .btn,
 html.theme-win95 .new-conv-btn,
 html.theme-win95 .workspace-icon-btn,
-html.theme-win95 .add-workspace-btn,
-html.theme-win95 .workspace-input button,
 html.theme-win95 .code-block-run-btn,
 html.theme-win95 .send-output-btn,
 html.theme-win95 .read-more-btn,
@@ -1444,8 +1433,6 @@ html.theme-win95 .input-group .btn-voice:hover,
 html.theme-win95 .input-group .btn:hover,
 html.theme-win95 .new-conv-btn:hover,
 html.theme-win95 .workspace-icon-btn:hover,
-html.theme-win95 .add-workspace-btn:hover,
-html.theme-win95 .workspace-input button:hover,
 html.theme-win95 .code-block-run-btn:hover,
 html.theme-win95 .send-output-btn:hover,
 html.theme-win95 .read-more-btn:hover,
@@ -1467,8 +1454,6 @@ html.theme-win95 .workspace-icon-btn:active {
 
 html.theme-win95 app-theme-selector .theme-dropdown,
 html.theme-win95 .workspace-select,
-html.theme-win95 .setting-item select,
-html.theme-win95 .workspace-input input,
 html.theme-win95 .rename-input,
 html.theme-win95 .input-group .form-control,
 html.theme-win95 app-speech-module .voice-select,
@@ -1530,13 +1515,13 @@ html.theme-win95 app-chat-box .chat-box {
 html.theme-win95 .tree-node,
 html.theme-win95 .conv-title,
 html.theme-win95 .assistant-bubble,
+html.theme-win95 .tree-node,
+html.theme-win95 .conv-title,
+html.theme-win95 .assistant-bubble,
 html.theme-win95 .msg-bubble,
 html.theme-win95 .talk-status-text,
 html.theme-win95 .transcript-text,
-html.theme-win95 h2,
-html.theme-win95 .settings-section h3,
-html.theme-win95 .setting-item label,
-html.theme-win95 .workspace-item .workspace-name {
+html.theme-win95 h2 {
   color: var(--t-fg);
 }
 
@@ -1574,7 +1559,6 @@ html.theme-win95 .node-chevron {
 }
 
 html.theme-win95 .empty-hint,
-html.theme-win95 .workspace-item .workspace-path,
 html.theme-win95 .hint,
 html.theme-win95 .delete-btn,
 html.theme-win95 app-chat-box .empty-state {
@@ -1586,9 +1570,7 @@ html.theme-win95 .assistant-bubble,
 html.theme-win95 .talk-status,
 html.theme-win95 .code-block-output,
 html.theme-win95 .output-pre,
-html.theme-win95 .assistant-bubble pre,
-html.theme-win95 .workspace-item,
-html.theme-win95 .settings-section {
+html.theme-win95 .assistant-bubble pre {
   border: none;
   border-bottom: 1px solid var(--t-edge-dark);
   box-shadow: none;
@@ -1705,23 +1687,20 @@ html.theme-win95 .assistant-bubble th {
   color: var(--t-fg);
 }
 
-html.theme-win95 app-chat-box .processing-text,
-html.theme-win95 app-chat-box .streaming-pre {
+html.theme-win95 app-chat-box .processing-text {
   color: var(--t-fg);
   text-shadow: none;
   animation: none;
 }
 
 html.theme-win95 app-chat-box .processing-ngx-host .ngx-spinner-overlay,
-html.theme-win95 app-chat-box .tts-ngx-host .ngx-spinner-overlay,
-html.theme-win95 app-chat-box .talk-voice-ngx-host .ngx-spinner-overlay {
+html.theme-win95 app-chat-box .tts-ngx-host .ngx-spinner-overlay {
   animation: none !important;
 }
 
 html.theme-win95 app-chat-box .processing-ngx-host .la-ball-atom > div,
 html.theme-win95 app-chat-box .tts-ngx-host .la-line-scale > div,
-html.theme-win95 app-chat-box .talk-voice-ngx-host .la-ball-clip-rotate-pulse > div,
-html.theme-win95 app-chat-box .talk-voice-ngx-host .la-ball-pulse-sync > div {
+html.theme-win95 app-conversation-manager .conv-pending-spinner-host .la-ball-atom > div {
   animation: none !important;
 }
 
@@ -1756,29 +1735,6 @@ html.theme-win95 .talk-status-dot {
 html.theme-win95 .transcript-text,
 html.theme-win95 .talk-status-text {
   font-style: normal;
-}
-
-html.theme-win95 .settings-container {
-  background-color: var(--t-bg);
-  color: var(--t-fg);
-}
-
-html.theme-win95 .settings-section {
-  padding: 0.75rem;
-  background: var(--t-bg-surface);
-}
-
-html.theme-win95 .workspace-item {
-  background: #ffffff;
-}
-
-html.theme-win95 .workspace-item.active {
-  background: #e6f0ff;
-}
-
-html.theme-win95 .workspace-item .active-badge {
-  background: var(--t-titlebar-start);
-  color: #ffffff;
 }
 
 html.theme-win95 .chat-main-tab {
@@ -1843,794 +1799,86 @@ html .terminal-shell .output-pre.terminal-output {
   box-shadow: none;
 }
 
-/* ── Woodland: flat divider layout ───────────────────────────────────── */
+/* ── Flat divider layout (woodland, ion, ps2, halo3, phantom-hourglass) ─ */
 
 html.theme-woodland .settings-nav,
-html.theme-woodland .connection-card,
-html.theme-woodland .workspace-card {
-  border: none;
-  box-shadow: none;
-}
-
-html.theme-woodland .settings-nav {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-woodland .connection-card,
-html.theme-woodland .workspace-card__body,
-html.theme-woodland .workspace-card--none {
-  border: none;
-  box-shadow: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .connection-card:last-child,
-html.theme-woodland .workspace-card:last-child .workspace-card__body {
-  border-bottom: none;
-}
-
-html.theme-woodland .tab-button {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .tab-button:hover,
-html.theme-woodland .tab-button.is-active {
-  border: none;
-  border-bottom: 1px solid var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
-  transform: none;
-}
-
-html.theme-woodland .settings-overview {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-woodland .settings-footer {
-  border-top: 1px solid var(--t-border);
-}
-
-html.theme-woodland .form-section + .settings-divider {
-  border-color: var(--t-border-subtle);
-}
-
-html.theme-woodland .chat-box {
-  border: none;
-}
-
-html.theme-woodland .msg-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .user-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .assistant-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .assistant-bubble h1,
-html.theme-woodland .assistant-bubble h2,
-html.theme-woodland .assistant-bubble h3,
-html.theme-woodland .assistant-bubble h4,
-html.theme-woodland .assistant-bubble h5,
-html.theme-woodland .assistant-bubble h6 {
-  text-shadow: none;
-}
-
-html.theme-woodland .assistant-bubble code {
-  border: none;
-}
-
-html.theme-woodland .assistant-bubble pre {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .assistant-bubble a:hover {
-  text-shadow: none;
-}
-
-html.theme-woodland .assistant-bubble blockquote {
-  border-left: 3px solid var(--t-assistant-border);
-  background: transparent;
-}
-
-html.theme-woodland .streaming-role-pill,
-html.theme-woodland .chain-pill {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-woodland .terminal-shell-badge {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-woodland .tool-read-stream-details {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .tool-read-stream-pre,
-html.theme-woodland .tool-read-stream-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-woodland .streaming-delegated-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-woodland .pending-write-preview {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .pending-patch-hunk-pane {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .pending-patch-hunk-pane-label {
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .pending-patch-hunk-gutter {
-  border-right: 1px solid var(--t-border-subtle);
-}
-
-html.theme-woodland .section-count {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-woodland .processing-text {
-  text-shadow: none;
-}
-
-html.theme-woodland .streaming-cursor {
-  box-shadow: none;
-}
-
-html.theme-woodland .code-block-run-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-woodland .code-block-run-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-html.theme-woodland .interactive-submit-btn,
-html.theme-woodland .read-more-btn,
-html.theme-woodland .send-output-btn,
-html.theme-woodland .end-script-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-woodland .interactive-submit-btn:hover,
-html.theme-woodland .read-more-btn:hover,
-html.theme-woodland .send-output-btn:hover,
-html.theme-woodland .end-script-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-@media (max-width: 1100px) {
-  html.theme-woodland .settings-nav {
-    border-bottom: 1px solid var(--t-border);
-    border-right: none;
-  }
-}
-
-/* ── Ion: flat divider layout (same structure as Woodland) ───────────── */
-
 html.theme-ion .settings-nav,
-html.theme-ion .connection-card,
-html.theme-ion .workspace-card {
-  border: none;
-  box-shadow: none;
-}
-
-html.theme-ion .settings-nav {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-ion .connection-card,
-html.theme-ion .workspace-card__body,
-html.theme-ion .workspace-card--none {
-  border: none;
-  box-shadow: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .connection-card:last-child,
-html.theme-ion .workspace-card:last-child .workspace-card__body {
-  border-bottom: none;
-}
-
-html.theme-ion .tab-button {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .tab-button:hover,
-html.theme-ion .tab-button.is-active {
-  border: none;
-  border-bottom: 1px solid var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
-  transform: none;
-}
-
-html.theme-ion .settings-overview {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-ion .settings-footer {
-  border-top: 1px solid var(--t-border);
-}
-
-html.theme-ion .form-section + .settings-divider {
-  border-color: var(--t-border-subtle);
-}
-
-html.theme-ion .chat-box {
-  border: none;
-}
-
-html.theme-ion .msg-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .user-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .assistant-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .assistant-bubble h1,
-html.theme-ion .assistant-bubble h2,
-html.theme-ion .assistant-bubble h3,
-html.theme-ion .assistant-bubble h4,
-html.theme-ion .assistant-bubble h5,
-html.theme-ion .assistant-bubble h6 {
-  text-shadow: none;
-}
-
-html.theme-ion .assistant-bubble code {
-  border: none;
-}
-
-html.theme-ion .assistant-bubble pre {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .assistant-bubble a:hover {
-  text-shadow: none;
-}
-
-html.theme-ion .assistant-bubble blockquote {
-  border-left: 3px solid var(--t-assistant-border);
-  background: transparent;
-}
-
-html.theme-ion .streaming-role-pill,
-html.theme-ion .chain-pill {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ion .terminal-shell-badge {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ion .tool-read-stream-details {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .tool-read-stream-pre,
-html.theme-ion .tool-read-stream-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-ion .streaming-delegated-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-ion .pending-write-preview {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .pending-patch-hunk-pane {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .pending-patch-hunk-pane-label {
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .pending-patch-hunk-gutter {
-  border-right: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ion .section-count {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ion .processing-text {
-  text-shadow: none;
-}
-
-html.theme-ion .streaming-cursor {
-  box-shadow: none;
-}
-
-html.theme-ion .code-block-run-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ion .code-block-run-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-html.theme-ion .interactive-submit-btn,
-html.theme-ion .read-more-btn,
-html.theme-ion .send-output-btn,
-html.theme-ion .end-script-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ion .interactive-submit-btn:hover,
-html.theme-ion .read-more-btn:hover,
-html.theme-ion .send-output-btn:hover,
-html.theme-ion .end-script-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-@media (max-width: 1100px) {
-  html.theme-ion .settings-nav {
-    border-bottom: 1px solid var(--t-border);
-    border-right: none;
-  }
-}
-
-/* ── PS2: same flat divider layout as Ion ───────────────────────────── */
-
 html.theme-ps2 .settings-nav,
-html.theme-ps2 .connection-card,
-html.theme-ps2 .workspace-card {
-  border: none;
-  box-shadow: none;
-}
-
-html.theme-ps2 .settings-nav {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-ps2 .connection-card,
-html.theme-ps2 .workspace-card__body,
-html.theme-ps2 .workspace-card--none {
-  border: none;
-  box-shadow: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .connection-card:last-child,
-html.theme-ps2 .workspace-card:last-child .workspace-card__body {
-  border-bottom: none;
-}
-
-html.theme-ps2 .tab-button {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .tab-button:hover,
-html.theme-ps2 .tab-button.is-active {
-  border: none;
-  border-bottom: 1px solid var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
-  transform: none;
-}
-
-html.theme-ps2 .settings-overview {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-ps2 .settings-footer {
-  border-top: 1px solid var(--t-border);
-}
-
-html.theme-ps2 .form-section + .settings-divider {
-  border-color: var(--t-border-subtle);
-}
-
-html.theme-ps2 .chat-box {
-  border: none;
-}
-
-html.theme-ps2 .msg-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .user-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .assistant-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .assistant-bubble h1,
-html.theme-ps2 .assistant-bubble h2,
-html.theme-ps2 .assistant-bubble h3,
-html.theme-ps2 .assistant-bubble h4,
-html.theme-ps2 .assistant-bubble h5,
-html.theme-ps2 .assistant-bubble h6 {
-  text-shadow: none;
-}
-
-html.theme-ps2 .assistant-bubble code {
-  border: none;
-}
-
-html.theme-ps2 .assistant-bubble pre {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .assistant-bubble a:hover {
-  text-shadow: none;
-}
-
-html.theme-ps2 .assistant-bubble blockquote {
-  border-left: 3px solid var(--t-assistant-border);
-  background: transparent;
-}
-
-html.theme-ps2 .streaming-role-pill,
-html.theme-ps2 .chain-pill {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ps2 .terminal-shell-badge {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ps2 .tool-read-stream-details {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .tool-read-stream-pre,
-html.theme-ps2 .tool-read-stream-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-ps2 .streaming-delegated-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-ps2 .pending-write-preview {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .pending-patch-hunk-pane {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .pending-patch-hunk-pane-label {
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .pending-patch-hunk-gutter {
-  border-right: 1px solid var(--t-border-subtle);
-}
-
-html.theme-ps2 .section-count {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ps2 .processing-text {
-  text-shadow: none;
-}
-
-html.theme-ps2 .streaming-cursor {
-  box-shadow: none;
-}
-
-html.theme-ps2 .code-block-run-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ps2 .code-block-run-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-html.theme-ps2 .interactive-submit-btn,
-html.theme-ps2 .read-more-btn,
-html.theme-ps2 .send-output-btn,
-html.theme-ps2 .end-script-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-ps2 .interactive-submit-btn:hover,
-html.theme-ps2 .read-more-btn:hover,
-html.theme-ps2 .send-output-btn:hover,
-html.theme-ps2 .end-script-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-@media (max-width: 1100px) {
-  html.theme-ps2 .settings-nav {
-    border-bottom: 1px solid var(--t-border);
-    border-right: none;
-  }
-}
-
-/* ── Halo 3: same flat divider layout as Ion / PS2 ──────────────────── */
-
 html.theme-halo3 .settings-nav,
-html.theme-halo3 .connection-card,
-html.theme-halo3 .workspace-card {
-  border: none;
-  box-shadow: none;
-}
-
-html.theme-halo3 .settings-nav {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-halo3 .connection-card,
-html.theme-halo3 .workspace-card__body,
-html.theme-halo3 .workspace-card--none {
-  border: none;
-  box-shadow: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .connection-card:last-child,
-html.theme-halo3 .workspace-card:last-child .workspace-card__body {
-  border-bottom: none;
-}
-
-html.theme-halo3 .tab-button {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .tab-button:hover,
-html.theme-halo3 .tab-button.is-active {
-  border: none;
-  border-bottom: 1px solid var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
-  transform: none;
-}
-
-html.theme-halo3 .settings-overview {
-  border-bottom: 1px solid var(--t-border);
-}
-
-html.theme-halo3 .settings-footer {
-  border-top: 1px solid var(--t-border);
-}
-
-html.theme-halo3 .form-section + .settings-divider {
-  border-color: var(--t-border-subtle);
-}
-
-html.theme-halo3 .chat-box {
-  border: none;
-}
-
-html.theme-halo3 .msg-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .user-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .assistant-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .assistant-bubble h1,
-html.theme-halo3 .assistant-bubble h2,
-html.theme-halo3 .assistant-bubble h3,
-html.theme-halo3 .assistant-bubble h4,
-html.theme-halo3 .assistant-bubble h5,
-html.theme-halo3 .assistant-bubble h6 {
-  text-shadow: none;
-}
-
-html.theme-halo3 .assistant-bubble code {
-  border: none;
-}
-
-html.theme-halo3 .assistant-bubble pre {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .assistant-bubble a:hover {
-  text-shadow: none;
-}
-
-html.theme-halo3 .assistant-bubble blockquote {
-  border-left: 3px solid var(--t-assistant-border);
-  background: transparent;
-}
-
-html.theme-halo3 .streaming-role-pill,
-html.theme-halo3 .chain-pill {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-halo3 .terminal-shell-badge {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-halo3 .tool-read-stream-details {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .tool-read-stream-pre,
-html.theme-halo3 .tool-read-stream-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-halo3 .streaming-delegated-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-halo3 .pending-write-preview {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .pending-patch-hunk-pane {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .pending-patch-hunk-pane-label {
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .pending-patch-hunk-gutter {
-  border-right: 1px solid var(--t-border-subtle);
-}
-
-html.theme-halo3 .section-count {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-halo3 .processing-text {
-  text-shadow: none;
-}
-
-html.theme-halo3 .streaming-cursor {
-  box-shadow: none;
-}
-
-html.theme-halo3 .code-block-run-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-halo3 .code-block-run-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-html.theme-halo3 .interactive-submit-btn,
-html.theme-halo3 .read-more-btn,
-html.theme-halo3 .send-output-btn,
-html.theme-halo3 .end-script-btn {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
-html.theme-halo3 .interactive-submit-btn:hover,
-html.theme-halo3 .read-more-btn:hover,
-html.theme-halo3 .send-output-btn:hover,
-html.theme-halo3 .end-script-btn:hover {
-  border: none;
-  background: var(--t-active-bg);
-}
-
-@media (max-width: 1100px) {
-  html.theme-halo3 .settings-nav {
-    border-bottom: 1px solid var(--t-border);
-    border-right: none;
-  }
-}
-
-/* ── Phantom Hourglass: same flat divider layout as Ion / PS2 ───────── */
-
 html.theme-phantom-hourglass .settings-nav,
+html.theme-woodland .connection-card,
+html.theme-ion .connection-card,
+html.theme-ps2 .connection-card,
+html.theme-halo3 .connection-card,
 html.theme-phantom-hourglass .connection-card,
+html.theme-woodland .workspace-card,
+html.theme-ion .workspace-card,
+html.theme-ps2 .workspace-card,
+html.theme-halo3 .workspace-card,
 html.theme-phantom-hourglass .workspace-card {
   border: none;
   box-shadow: none;
 }
 
+html.theme-woodland .settings-nav,
+html.theme-ion .settings-nav,
+html.theme-ps2 .settings-nav,
+html.theme-halo3 .settings-nav,
 html.theme-phantom-hourglass .settings-nav {
   border-bottom: 1px solid var(--t-border);
 }
 
+html.theme-woodland .connection-card,
+html.theme-ion .connection-card,
+html.theme-ps2 .connection-card,
+html.theme-halo3 .connection-card,
 html.theme-phantom-hourglass .connection-card,
+html.theme-woodland .workspace-card__body,
+html.theme-ion .workspace-card__body,
+html.theme-ps2 .workspace-card__body,
+html.theme-halo3 .workspace-card__body,
 html.theme-phantom-hourglass .workspace-card__body,
+html.theme-woodland .workspace-card--none,
+html.theme-ion .workspace-card--none,
+html.theme-ps2 .workspace-card--none,
+html.theme-halo3 .workspace-card--none,
 html.theme-phantom-hourglass .workspace-card--none {
   border: none;
   box-shadow: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+html.theme-woodland .connection-card:last-child,
+html.theme-ion .connection-card:last-child,
+html.theme-ps2 .connection-card:last-child,
+html.theme-halo3 .connection-card:last-child,
 html.theme-phantom-hourglass .connection-card:last-child,
+html.theme-woodland .workspace-card:last-child .workspace-card__body,
+html.theme-ion .workspace-card:last-child .workspace-card__body,
+html.theme-ps2 .workspace-card:last-child .workspace-card__body,
+html.theme-halo3 .workspace-card:last-child .workspace-card__body,
 html.theme-phantom-hourglass .workspace-card:last-child .workspace-card__body {
   border-bottom: none;
 }
 
+html.theme-woodland .tab-button,
+html.theme-ion .tab-button,
+html.theme-ps2 .tab-button,
+html.theme-halo3 .tab-button,
 html.theme-phantom-hourglass .tab-button {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+html.theme-woodland .tab-button:hover,
+html.theme-ion .tab-button:hover,
+html.theme-ps2 .tab-button:hover,
+html.theme-halo3 .tab-button:hover,
 html.theme-phantom-hourglass .tab-button:hover,
+html.theme-woodland .tab-button.is-active,
+html.theme-ion .tab-button.is-active,
+html.theme-ps2 .tab-button.is-active,
+html.theme-halo3 .tab-button.is-active,
 html.theme-phantom-hourglass .tab-button.is-active {
   border: none;
   border-bottom: 1px solid var(--t-primary);
@@ -2638,150 +1886,238 @@ html.theme-phantom-hourglass .tab-button.is-active {
   transform: none;
 }
 
+html.theme-woodland .settings-overview,
+html.theme-ion .settings-overview,
+html.theme-ps2 .settings-overview,
+html.theme-halo3 .settings-overview,
 html.theme-phantom-hourglass .settings-overview {
   border-bottom: 1px solid var(--t-border);
 }
 
+html.theme-woodland .settings-footer,
+html.theme-ion .settings-footer,
+html.theme-ps2 .settings-footer,
+html.theme-halo3 .settings-footer,
 html.theme-phantom-hourglass .settings-footer {
   border-top: 1px solid var(--t-border);
 }
 
+html.theme-woodland .form-section + .settings-divider,
+html.theme-ion .form-section + .settings-divider,
+html.theme-ps2 .form-section + .settings-divider,
+html.theme-halo3 .form-section + .settings-divider,
 html.theme-phantom-hourglass .form-section + .settings-divider {
   border-color: var(--t-border-subtle);
 }
 
+html.theme-woodland .chat-box,
+html.theme-ion .chat-box,
+html.theme-ps2 .chat-box,
+html.theme-halo3 .chat-box,
 html.theme-phantom-hourglass .chat-box {
   border: none;
 }
 
+html.theme-woodland .msg-bubble,
+html.theme-ion .msg-bubble,
+html.theme-ps2 .msg-bubble,
+html.theme-halo3 .msg-bubble,
 html.theme-phantom-hourglass .msg-bubble {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+html.theme-woodland .user-bubble,
+html.theme-ion .user-bubble,
+html.theme-ps2 .user-bubble,
+html.theme-halo3 .user-bubble,
 html.theme-phantom-hourglass .user-bubble {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+html.theme-woodland .assistant-bubble,
+html.theme-ion .assistant-bubble,
+html.theme-ps2 .assistant-bubble,
+html.theme-halo3 .assistant-bubble,
 html.theme-phantom-hourglass .assistant-bubble {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+html.theme-woodland .assistant-bubble h1,
+html.theme-ion .assistant-bubble h1,
+html.theme-ps2 .assistant-bubble h1,
+html.theme-halo3 .assistant-bubble h1,
 html.theme-phantom-hourglass .assistant-bubble h1,
+html.theme-woodland .assistant-bubble h2,
+html.theme-ion .assistant-bubble h2,
+html.theme-ps2 .assistant-bubble h2,
+html.theme-halo3 .assistant-bubble h2,
 html.theme-phantom-hourglass .assistant-bubble h2,
+html.theme-woodland .assistant-bubble h3,
+html.theme-ion .assistant-bubble h3,
+html.theme-ps2 .assistant-bubble h3,
+html.theme-halo3 .assistant-bubble h3,
 html.theme-phantom-hourglass .assistant-bubble h3,
+html.theme-woodland .assistant-bubble h4,
+html.theme-ion .assistant-bubble h4,
+html.theme-ps2 .assistant-bubble h4,
+html.theme-halo3 .assistant-bubble h4,
 html.theme-phantom-hourglass .assistant-bubble h4,
+html.theme-woodland .assistant-bubble h5,
+html.theme-ion .assistant-bubble h5,
+html.theme-ps2 .assistant-bubble h5,
+html.theme-halo3 .assistant-bubble h5,
 html.theme-phantom-hourglass .assistant-bubble h5,
+html.theme-woodland .assistant-bubble h6,
+html.theme-ion .assistant-bubble h6,
+html.theme-ps2 .assistant-bubble h6,
+html.theme-halo3 .assistant-bubble h6,
 html.theme-phantom-hourglass .assistant-bubble h6 {
   text-shadow: none;
 }
 
+html.theme-woodland .assistant-bubble code,
+html.theme-ion .assistant-bubble code,
+html.theme-ps2 .assistant-bubble code,
+html.theme-halo3 .assistant-bubble code,
 html.theme-phantom-hourglass .assistant-bubble code {
   border: none;
 }
 
+html.theme-woodland .assistant-bubble pre,
+html.theme-ion .assistant-bubble pre,
+html.theme-ps2 .assistant-bubble pre,
+html.theme-halo3 .assistant-bubble pre,
 html.theme-phantom-hourglass .assistant-bubble pre {
   border: none;
   border-top: 1px solid var(--t-border-subtle);
   border-bottom: 1px solid var(--t-border-subtle);
 }
 
+html.theme-woodland .assistant-bubble a:hover,
+html.theme-ion .assistant-bubble a:hover,
+html.theme-ps2 .assistant-bubble a:hover,
+html.theme-halo3 .assistant-bubble a:hover,
 html.theme-phantom-hourglass .assistant-bubble a:hover {
   text-shadow: none;
 }
 
+html.theme-woodland .assistant-bubble blockquote,
+html.theme-ion .assistant-bubble blockquote,
+html.theme-ps2 .assistant-bubble blockquote,
+html.theme-halo3 .assistant-bubble blockquote,
 html.theme-phantom-hourglass .assistant-bubble blockquote {
   border-left: 3px solid var(--t-assistant-border);
   background: transparent;
 }
 
-html.theme-phantom-hourglass .streaming-role-pill,
-html.theme-phantom-hourglass .chain-pill {
-  border: none;
-  background: var(--t-hover-bg);
-}
-
+html.theme-woodland .terminal-shell-badge,
+html.theme-ion .terminal-shell-badge,
+html.theme-ps2 .terminal-shell-badge,
+html.theme-halo3 .terminal-shell-badge,
 html.theme-phantom-hourglass .terminal-shell-badge {
   border: none;
   background: var(--t-hover-bg);
 }
 
-html.theme-phantom-hourglass .tool-read-stream-details {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-phantom-hourglass .tool-read-stream-pre,
-html.theme-phantom-hourglass .tool-read-stream-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-phantom-hourglass .streaming-delegated-plain {
-  border: none;
-  background: var(--t-code-inline-bg);
-}
-
-html.theme-phantom-hourglass .pending-write-preview {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-phantom-hourglass .pending-patch-hunk-pane {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-}
-
-html.theme-phantom-hourglass .pending-patch-hunk-pane-label {
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-html.theme-phantom-hourglass .pending-patch-hunk-gutter {
-  border-right: 1px solid var(--t-border-subtle);
-}
-
+html.theme-woodland .section-count,
+html.theme-ion .section-count,
+html.theme-ps2 .section-count,
+html.theme-halo3 .section-count,
 html.theme-phantom-hourglass .section-count {
   border: none;
   background: var(--t-hover-bg);
 }
 
+html.theme-woodland .processing-text,
+html.theme-ion .processing-text,
+html.theme-ps2 .processing-text,
+html.theme-halo3 .processing-text,
 html.theme-phantom-hourglass .processing-text {
   text-shadow: none;
 }
 
+html.theme-woodland .streaming-cursor,
+html.theme-ion .streaming-cursor,
+html.theme-ps2 .streaming-cursor,
+html.theme-halo3 .streaming-cursor,
 html.theme-phantom-hourglass .streaming-cursor {
   box-shadow: none;
 }
 
+html.theme-woodland .code-block-run-btn,
+html.theme-ion .code-block-run-btn,
+html.theme-ps2 .code-block-run-btn,
+html.theme-halo3 .code-block-run-btn,
 html.theme-phantom-hourglass .code-block-run-btn {
   border: none;
   background: var(--t-hover-bg);
 }
 
+html.theme-woodland .code-block-run-btn:hover,
+html.theme-ion .code-block-run-btn:hover,
+html.theme-ps2 .code-block-run-btn:hover,
+html.theme-halo3 .code-block-run-btn:hover,
 html.theme-phantom-hourglass .code-block-run-btn:hover {
   border: none;
   background: var(--t-active-bg);
 }
 
+html.theme-woodland .interactive-submit-btn,
+html.theme-ion .interactive-submit-btn,
+html.theme-ps2 .interactive-submit-btn,
+html.theme-halo3 .interactive-submit-btn,
 html.theme-phantom-hourglass .interactive-submit-btn,
+html.theme-woodland .read-more-btn,
+html.theme-ion .read-more-btn,
+html.theme-ps2 .read-more-btn,
+html.theme-halo3 .read-more-btn,
 html.theme-phantom-hourglass .read-more-btn,
+html.theme-woodland .send-output-btn,
+html.theme-ion .send-output-btn,
+html.theme-ps2 .send-output-btn,
+html.theme-halo3 .send-output-btn,
 html.theme-phantom-hourglass .send-output-btn,
+html.theme-woodland .end-script-btn,
+html.theme-ion .end-script-btn,
+html.theme-ps2 .end-script-btn,
+html.theme-halo3 .end-script-btn,
 html.theme-phantom-hourglass .end-script-btn {
   border: none;
   background: var(--t-hover-bg);
 }
 
+html.theme-woodland .interactive-submit-btn:hover,
+html.theme-ion .interactive-submit-btn:hover,
+html.theme-ps2 .interactive-submit-btn:hover,
+html.theme-halo3 .interactive-submit-btn:hover,
 html.theme-phantom-hourglass .interactive-submit-btn:hover,
+html.theme-woodland .read-more-btn:hover,
+html.theme-ion .read-more-btn:hover,
+html.theme-ps2 .read-more-btn:hover,
+html.theme-halo3 .read-more-btn:hover,
 html.theme-phantom-hourglass .read-more-btn:hover,
+html.theme-woodland .send-output-btn:hover,
+html.theme-ion .send-output-btn:hover,
+html.theme-ps2 .send-output-btn:hover,
+html.theme-halo3 .send-output-btn:hover,
 html.theme-phantom-hourglass .send-output-btn:hover,
+html.theme-woodland .end-script-btn:hover,
+html.theme-ion .end-script-btn:hover,
+html.theme-ps2 .end-script-btn:hover,
+html.theme-halo3 .end-script-btn:hover,
 html.theme-phantom-hourglass .end-script-btn:hover {
   border: none;
   background: var(--t-active-bg);
 }
 
 @media (max-width: 1100px) {
+  html.theme-woodland .settings-nav,
+  html.theme-ion .settings-nav,
+  html.theme-ps2 .settings-nav,
+  html.theme-halo3 .settings-nav,
   html.theme-phantom-hourglass .settings-nav {
     border-bottom: 1px solid var(--t-border);
     border-right: none;

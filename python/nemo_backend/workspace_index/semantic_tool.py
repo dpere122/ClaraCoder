@@ -1,19 +1,18 @@
-"""LangChain tools: semantic retrieval over the indexed workspace (optional nested staging merge)."""
+"""LangChain tools: semantic retrieval over the indexed workspace."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Literal
 
 from langchain_core.tools import tool
 
 from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
-from nemo_backend.state import current_session_id, direct_workspace_edits_active, get_active_connection, get_session
+from nemo_backend.state import current_session_id, get_active_connection, get_session
 from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from nemo_backend.workspace_index.incremental import flush_semantic_index_patches
-from nemo_backend.workspace_index.index_build import load_or_rebuild_staging_index, load_or_rebuild_workspace_index
-from nemo_backend.workspace_index.lifecycle import cached_staging_fingerprint, cached_workspace_fingerprint
+from nemo_backend.workspace_index.index_build import load_or_rebuild_workspace_index
+from nemo_backend.workspace_index.lifecycle import cached_workspace_fingerprint
 
 logger = logging.getLogger('nemo.workspace_index.semantic')
 
@@ -23,38 +22,16 @@ RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME = 'retrieve_workspace_checkpoint_sem
 _MAX_TOOL_CHARS = 24_000
 
 
-def _merge_workspace_staging_hits(w_hits: list, s_hits: list, k: int) -> list:
-    """Merge per-index top-k hits; scores are not comparable across indexes — rank within batch, tie-break workspace."""
-    tagged: list[tuple[str, object]] = [('w', h) for h in w_hits] + [('s', h) for h in s_hits]
-    tagged.sort(key=lambda it: (-_hit_score(it[1]), 1 if it[0] == 's' else 0))
-    return [h for _, h in tagged[:k]]
-
-
-def _hit_score(nws: object) -> float:
-    s = getattr(nws, 'score', None)
-    try:
-        return float(s) if s is not None else 0.0
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _header_for_scope(scope: Literal['full', 'checkpoint']) -> list[str]:
-    if scope == 'checkpoint':
-        return [
-            'Chunks: on-disk workspace / checkpoint index only (no staging).',
-            '1. Treat as hints; verify with `read_workspace_file`, LSP, or `search_workspace`.',
-            '',
-        ]
+def _header_lines() -> list[str]:
     return [
-        'Chunks: workspace checkpoint + optional staging index.',
-        '1. Treat as hints; check each hit `origin`.',
-        '2. origin=workspace → verify with `read_workspace_file`, LSP, or `search_workspace` (disk).',
-        '3. origin=staging → verify with `read_staged_edit` or `diff_staged_edit_against_baseline` (disk `read_workspace_file` is checkpoint until `transfer_staged_file_to_workspace`).',
+        'Chunks: on-disk workspace index only.',
+        '1. Treat as hints; verify with `read_workspace_file`, LSP, or `search_workspace`.',
+        '2. Staged drafts are not indexed—use `search_staged_edits` or `read_staged_edit` for pending edits.',
         '',
     ]
 
 
-def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: bool) -> str:
+def _retrieve_semantic_impl(query: str, top_k: int) -> str:
     sid = (current_session_id.get() or '').strip()
     if not sid:
         return 'Tool error: no active session.'
@@ -68,7 +45,6 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
         return 'Semantic index: empty query.'
 
     k = max(1, min(int(top_k), 25))
-    scope: Literal['full', 'checkpoint'] = 'full' if include_nested_staging else 'checkpoint'
 
     try:
         conn = get_active_connection()
@@ -97,21 +73,7 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
                 'Settings → Tools → Expose all workspace files.'
             )
 
-        s_index = None
-        if include_nested_staging and sid:
-            graph_id = (session.active_staging_snapshot_id or '').strip()
-            sfp = cached_staging_fingerprint(sid, graph_id, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
-            s_index, _s_err = load_or_rebuild_staging_index(
-                sid, graph_id, embed_model, fingerprint_override=sfp or None, embedding_model_id=mid
-            )
-
-        w_hits: list = []
-        s_hits: list = []
-        if w_index is not None:
-            w_hits = w_index.as_retriever(similarity_top_k=k).retrieve(q)
-        if s_index is not None:
-            s_hits = s_index.as_retriever(similarity_top_k=k).retrieve(q)
-        hits = _merge_workspace_staging_hits(w_hits, s_hits, k)
+        hits = w_index.as_retriever(similarity_top_k=k).retrieve(q)
     except Exception as exc:
         logger.warning('semantic retrieve failed: %s', exc, exc_info=True)
         return f'Semantic index error ({type(exc).__name__}: {exc}).'
@@ -121,13 +83,12 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
 
     from nemo_backend.workspace_tools import truncate_text
 
-    lines: list[str] = _header_for_scope(scope)
+    lines: list[str] = _header_lines()
     for i, nws in enumerate(hits, start=1):
         node = nws.node
         score = getattr(nws, 'score', None)
         meta = getattr(node, 'metadata', None) or {}
         path = meta.get('file_path', meta.get('file_name', '(unknown path)'))
-        origin = meta.get('origin', 'workspace')
         text = (getattr(node, 'text', None) or '').strip()
         excerpt = truncate_text(text, 1800)
         if isinstance(score, float):
@@ -136,7 +97,7 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
             score_s = 'n/a'
         else:
             score_s = str(score)
-        lines.append(f'--- {i}. origin={origin} file={path} score={score_s} ---')
+        lines.append(f'--- {i}. file={path} score={score_s} ---')
         lines.append(excerpt if excerpt else '[empty chunk]')
         lines.append('')
 
@@ -148,25 +109,19 @@ def _retrieve_semantic_impl(query: str, top_k: int, *, include_nested_staging: b
 
 @tool(RETRIEVE_WORKSPACE_SEMANTIC_NAME)
 def retrieve_workspace_semantic(query: str, top_k: int = 8) -> str:
-    """Topical semantic retrieval over indexed workspace + nested staging (chunks, not full files).
+    """Topical semantic retrieval over the indexed on-disk workspace (chunks, not full files).
 
     When: unknown targets or repo-wide “where is X?”; broad discovery before precise reads.
-    Not: exact string search (use `search_workspace` disk or `search_staged_edits` drafts); literal file text (use `read_workspace_file` / `read_staged_edit` after picking a path).
-    Shape: natural-language `query`; `top_k` capped (default 8). Verify every hit by `origin` (see output header). LSP-backed paths (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): prefer LSP on that path before trusting chunks alone. Index lives outside workspace; refreshes from watcher/embeddings when available—otherwise returns guidance if embeddings missing."""
-    sid = (current_session_id.get() or '').strip()
-    include_staging = True
-    if sid:
-        sess = get_session(sid)
-        if sess.worker_apply_mode and direct_workspace_edits_active(sess, apply_mode=True):
-            include_staging = False
-    return _retrieve_semantic_impl(query, top_k, include_nested_staging=include_staging)
+    Not: exact string search (use `search_workspace` on disk or `search_staged_edits` for drafts); literal file text (use `read_workspace_file` / `read_staged_edit` after picking a path).
+    Shape: natural-language `query`; `top_k` capped (default 8). Verify hits with `read_workspace_file`, LSP, or `search_workspace` (see output header). Staged drafts are not indexed."""
+    return _retrieve_semantic_impl(query, top_k)
 
 
 @tool(RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME)
 def retrieve_workspace_checkpoint_semantic(query: str, top_k: int = 8) -> str:
-    """Semantic retrieval over **on-disk workspace index only** (staging drafts excluded).
+    """Semantic retrieval over the on-disk workspace index (same corpus as `retrieve_workspace_semantic`).
 
     When: nested recon / checkpoint-authoritative phase; same discovery as full semantic but disk plane only.
-    Not: staging recall (use `retrieve_workspace_semantic` or `read_staged_edit`); exact grep (use `search_workspace`).
+    Not: staging recall (use `search_staged_edits` or `read_staged_edit`); exact grep (use `search_workspace`).
     Shape: same as `retrieve_workspace_semantic`; verify hits with `read_workspace_file`, LSP, or `search_workspace` (see output header)."""
-    return _retrieve_semantic_impl(query, top_k, include_nested_staging=False)
+    return _retrieve_semantic_impl(query, top_k)

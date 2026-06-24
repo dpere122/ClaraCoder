@@ -1,6 +1,6 @@
 """Central registry for LangChain tools and human-in-the-loop (HITL) policy.
 
-**Outer agent** — workspace reads/search (including ``retrieve_workspace_semantic`` for checkpoint + staging recall; nested write recon uses ``retrieve_workspace_checkpoint_semantic``); ``copy_workspace_files``; ``delete_workspace_entry`` and
+**Outer agent** — workspace reads/search (including ``retrieve_workspace_semantic`` and ``retrieve_workspace_checkpoint_semantic`` for on-disk semantic recall); ``copy_workspace_files``; ``delete_workspace_entry`` and
 ``batch_delete_workspace_entries`` (any path, with HITL when auto-apply is off); staged create/update tools
 (``stage_create_file``, ``stage_workspace_file_overwrite``, ``stage_line_range_edit``, optional ``stage_snippet_edit``);
 Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``),

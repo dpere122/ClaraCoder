@@ -17,7 +17,6 @@ logger = logging.getLogger('nemo.workspace_index.lifecycle')
 
 # ``root_str -> (monotonic_time, fingerprint)`` to avoid re-walking huge trees on every tool call.
 _fingerprint_cache: dict[str, tuple[float, str]] = {}
-_staging_fingerprint_cache: dict[str, tuple[float, str]] = {}
 _FINGERPRINT_TTL_SEC = 45.0
 _FINGERPRINT_CACHE_MAX_ENTRIES = 512
 
@@ -25,10 +24,9 @@ _FINGERPRINT_CACHE_MAX_ENTRIES = 512
 def _prune_expired_fingerprint_entries(now: float) -> None:
     """Drop TTL-expired entries so fingerprint dicts do not grow without bound."""
     ttl = _FINGERPRINT_TTL_SEC
-    for cache in (_fingerprint_cache, _staging_fingerprint_cache):
-        stale = [k for k, (ts, _fp) in cache.items() if (now - ts) >= ttl]
-        for k in stale:
-            cache.pop(k, None)
+    stale = [k for k, (ts, _fp) in _fingerprint_cache.items() if (now - ts) >= ttl]
+    for k in stale:
+        _fingerprint_cache.pop(k, None)
 
 
 def _evict_oldest_fingerprint_entries(cache: dict[str, tuple[float, str]], max_entries: int) -> None:
@@ -45,16 +43,6 @@ def invalidate_fingerprint_cache_for_root(workspace_root: Path) -> None:
             _fingerprint_cache.pop(k, None)
 
 
-def invalidate_fingerprint_cache_for_staging(session_id: str, _graph_id: str = '') -> None:
-    sid = (session_id or '').strip()
-    if not sid:
-        return
-    prefix = f'{sid}\0'
-    for k in list(_staging_fingerprint_cache):
-        if k.startswith(prefix):
-            _staging_fingerprint_cache.pop(k, None)
-
-
 def cached_workspace_fingerprint(workspace_root: Path, *, max_files: int) -> str:
     """Return a content fingerprint, recomputing at most once per TTL per workspace root."""
     root = workspace_root.resolve()
@@ -69,25 +57,6 @@ def cached_workspace_fingerprint(workspace_root: Path, *, max_files: int) -> str
     fp = workspace_content_fingerprint(root, max_files=max_files)
     _fingerprint_cache[key] = (now, fp)
     _evict_oldest_fingerprint_entries(_fingerprint_cache, _FINGERPRINT_CACHE_MAX_ENTRIES)
-    return fp
-
-
-def cached_staging_fingerprint(session_id: str, graph_id: str, *, max_files: int) -> str:
-    """Fingerprint for staging slice with TTL cache."""
-    sid = (session_id or '').strip()
-    if not sid:
-        return ''
-    key = f'{sid}\0{(graph_id or "").strip()}\0{max_files}'
-    now = time.monotonic()
-    _prune_expired_fingerprint_entries(now)
-    hit = _staging_fingerprint_cache.get(key)
-    if hit is not None and (now - hit[0]) < _FINGERPRINT_TTL_SEC:
-        return hit[1]
-    from nemo_backend.workspace_index.staging_fingerprint import staging_content_fingerprint
-
-    fp = staging_content_fingerprint(sid, graph_id, max_files=max_files)
-    _staging_fingerprint_cache[key] = (now, fp)
-    _evict_oldest_fingerprint_entries(_staging_fingerprint_cache, _FINGERPRINT_CACHE_MAX_ENTRIES)
     return fp
 
 
@@ -116,12 +85,11 @@ def invalidate_workspace_index_disk(
 
 
 def invalidate_staging_index_disk(session_id: str) -> None:
-    """Remove persisted staging index for a chat session."""
+    """Remove legacy persisted staging index for a chat session (staging is no longer indexed)."""
     sid = (session_id or '').strip()
     if not sid:
         return
     pdir = staging_index_persist_dir(sid)
     if pdir.is_dir():
         shutil.rmtree(pdir, ignore_errors=True)
-        logger.info('Removed staging semantic index directory %s', pdir)
-    invalidate_fingerprint_cache_for_staging(sid)
+        logger.info('Removed legacy staging semantic index directory %s', pdir)

@@ -17,10 +17,8 @@ def _fp_key(root: Path, max_files: int) -> str:
 @pytest.fixture(autouse=True)
 def _clear_fp_caches():
     lc._fingerprint_cache.clear()
-    lc._staging_fingerprint_cache.clear()
     yield
     lc._fingerprint_cache.clear()
-    lc._staging_fingerprint_cache.clear()
 
 
 def test_cached_workspace_fingerprint_prunes_ttl_expired_entries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,18 +62,3 @@ def test_cached_workspace_fingerprint_evicts_when_over_max_entries(tmp_path: Pat
     assert len(lc._fingerprint_cache) == 2
     assert _fp_key(r3, 10) in lc._fingerprint_cache
     assert _fp_key(r1, 10) not in lc._fingerprint_cache
-
-
-def test_cached_staging_fingerprint_prunes_ttl_expired_entries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        'nemo_backend.workspace_index.staging_fingerprint.staging_content_fingerprint',
-        lambda sid, gid, max_files: f'stage-{sid}',
-    )
-
-    stale_key = 'sid-old\0g1\0' + '10'
-    lc._staging_fingerprint_cache[stale_key] = (time.monotonic() - 200.0, 'old')
-
-    out = lc.cached_staging_fingerprint('sid-new', 'g1', max_files=10)
-
-    assert out == 'stage-sid-new'
-    assert stale_key not in lc._staging_fingerprint_cache

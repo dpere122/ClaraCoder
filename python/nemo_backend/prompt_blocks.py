@@ -57,7 +57,7 @@ def python_workspace_playbook() -> str:
           are created by the tools—do not manually mkdir unless the user asked for empty directories.
         - Match the repo’s package layout: add `__init__.py` only when this project already uses explicit packages that way.
         - Before adding parallel helpers (JSON I/O, logging, HTTP, etc.), use `search_workspace` to see whether the repo already exposes a preferred pattern and align with it.
-        - `retrieve_workspace_semantic` may return **staging** hits when staging is active; with Editor + Auto-apply (direct writes) hits are workspace-only—verify with `read_workspace_file` / LSP on disk.
+        - `retrieve_workspace_semantic` searches the on-disk workspace index only—verify hits with `read_workspace_file` / LSP on disk; use `search_staged_edits` for pending drafts.
         """
     ).strip()
 

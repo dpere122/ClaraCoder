@@ -628,6 +628,8 @@ export class ChatBox implements OnDestroy {
       const loading = this.loading();
       const tools = this.processingToolsActive();
       const awaitingHitl = this.liveAwaitingHitlReview();
+      // Re-run when the live-turn host (ngx-spinner targets) mounts — e.g. sidebar → expanded swap mid-stream.
+      this.liveTurn();
       untracked(() => {
         if (loading && tools && !this.wasProcessingToolsActive) {
           const chainN = this.messages().filter((m) => m.role === 'chain').length;
@@ -635,6 +637,31 @@ export class ChatBox implements OnDestroy {
           this.toolPhaseSynonymIndex.set(hashChatToolPhaseKey(key) % TOOL_BUILDING_SYNONYMS.length);
         }
         this.wasProcessingToolsActive = tools;
+        this.scheduleProcessingSpinnerSync();
+      });
+    });
+
+    // TTS loading spinner beside playback controls.
+    effect(() => {
+      this.ttsLoading();
+      untracked(() => this.scheduleTtsSpinnerSync());
+    });
+
+  }
+
+  /**
+   * ngx-spinner registers named hosts on child init. Defer show/hide until after render so a
+   * freshly mounted chat box (sidebar ↔ expanded) still picks up an in-flight `loading` turn.
+   */
+  private scheduleProcessingSpinnerSync(): void {
+    afterNextRender(
+      () => {
+        if (this.chatDestroyed) {
+          return;
+        }
+        const loading = this.loading();
+        const tools = this.processingToolsActive();
+        const awaitingHitl = this.liveAwaitingHitlReview();
         if (!loading || awaitingHitl) {
           void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
           void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
@@ -647,21 +674,25 @@ export class ChatBox implements OnDestroy {
           void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
           void this.ngxSpinner.show(SPINNER_CHAT_THINK, { ...INLINE_SPINNER, type: 'ball-atom' });
         }
-      });
-    });
+      },
+      { injector: this.inj },
+    );
+  }
 
-    // TTS loading spinner beside playback controls.
-    effect(() => {
-      const tts = this.ttsLoading();
-      untracked(() => {
-        if (tts) {
+  private scheduleTtsSpinnerSync(): void {
+    afterNextRender(
+      () => {
+        if (this.chatDestroyed) {
+          return;
+        }
+        if (this.ttsLoading()) {
           void this.ngxSpinner.show(SPINNER_CHAT_TTS, { ...INLINE_SPINNER, type: 'line-scale' });
         } else {
           void this.ngxSpinner.hide(SPINNER_CHAT_TTS);
         }
-      });
-    });
-
+      },
+      { injector: this.inj },
+    );
   }
 
   /** Tear down observers, timers, DOM listeners, and ngx-spinner instances. */

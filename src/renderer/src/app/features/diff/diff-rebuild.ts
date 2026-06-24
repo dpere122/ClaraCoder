@@ -43,6 +43,59 @@ export function mergedContentForDiffPreview(
   return rebuildFileWithAcceptedHunks(payload.rows, accepted);
 }
 
+/** Rebuild original file text from diff rows (left side; skip pure inserts). */
+export function rebuildOriginalFromRows(rows: DiffRow[]): string {
+  const lines: string[] = [];
+  for (const row of rows) {
+    switch (row.kind) {
+      case 'equal':
+      case 'remove':
+      case 'replace':
+        lines.push(row.leftText);
+        break;
+      case 'add':
+        break;
+      default:
+        break;
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Baseline text for the original side of a full-file diff preview. */
+export function originalContentForDiffPreview(payload: FileDiffPayload): string {
+  if (typeof payload.fullOriginalContent === 'string') {
+    return payload.fullOriginalContent;
+  }
+  return rebuildOriginalFromRows(payload.rows);
+}
+
+/**
+ * First 1-based line number in a hunk for Monaco `revealLineInCenter`.
+ * Prefers the first non-equal row on the requested side.
+ */
+export function firstChangedLineInHunk(
+  payload: FileDiffPayload,
+  hunkIndex: number,
+  side: 'original' | 'modified',
+): number {
+  const pick = (row: DiffRow): number | null => {
+    const line = side === 'original' ? row.leftLine : row.rightLine;
+    return line != null && line > 0 ? line : null;
+  };
+  for (const row of payload.rows) {
+    if (row.hunkIndex !== hunkIndex || row.kind === 'equal') continue;
+    const line = pick(row);
+    if (line != null) return line;
+  }
+  for (const row of payload.rows) {
+    if (row.hunkIndex !== hunkIndex) continue;
+    const line = pick(row);
+    if (line != null) return line;
+  }
+  return 1;
+}
+
 /** Hunk indices that contain at least one non-equal row, in first-seen order. */
 export function changeHunkOrderFromRows(rows: DiffRow[]): number[] {
   const order: number[] = [];

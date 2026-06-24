@@ -113,7 +113,7 @@ def test_combined_suffix_generic_mentions_staging_transfer() -> None:
     c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
     s = combined_model_prompt_suffix(c)
     assert 'transfer_staged_file_to_workspace' in s
-    assert 'Nested delegation' in s or 'nested delegation' in s.lower()
+    assert 'land_in_workspace=true' in s
 
 
 def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_model() -> None:

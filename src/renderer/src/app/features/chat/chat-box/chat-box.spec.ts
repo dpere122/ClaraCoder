@@ -10,7 +10,6 @@ import {
   liveTurnPresentationSettled,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
-  shouldStripToolChainRowsForAuxPanel,
   turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
   type ChatMessage,
@@ -375,18 +374,6 @@ describe('filterLiveToolChainGroups', () => {
   it('drops empty tool chain groups', () => {
     const emptyGroup: ToolChainGroup = { key: 'empty', toolCallCount: 0, rows: [] };
     expect(filterLiveToolChainGroups([groups[0], emptyGroup])).toEqual([groups[0]]);
-  });
-});
-
-describe('shouldStripToolChainRowsForAuxPanel', () => {
-  it('strips when plan panel is visible even without embedded tool status', () => {
-    expect(shouldStripToolChainRowsForAuxPanel([], true)).toBe(true);
-    expect(shouldStripToolChainRowsForAuxPanel([], false)).toBe(false);
-  });
-
-  it('strips when auxiliary timeline embeds tool status', () => {
-    const timeline = [{ streamTag: 'tool-trail:read_workspace_file', label: 'read', text: '' }];
-    expect(shouldStripToolChainRowsForAuxPanel(timeline, false)).toBe(true);
   });
 });
 

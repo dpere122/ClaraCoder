@@ -38,7 +38,6 @@ from nemo_backend.agents.specialists.review_tools import (
     FORMAT_STAGING_FILE_PRETTIER_NAME,
     FORMAT_WORKSPACE_FILE_BLACK_NAME,
     FORMAT_WORKSPACE_FILE_PRETTIER_NAME,
-    REJECT_STAGED_WORKSPACE_EDIT_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
 )
 from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
@@ -53,6 +52,7 @@ from nemo_backend.python_dependency_agent import (
     INSTALL_PYTHON_PACKAGES_NAME,
     INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
     REMOVE_PYTHON_PACKAGES_NAME,
+    WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
     python_dependency_tools,
 )
 from nemo_backend.lsp.tools import (
@@ -144,7 +144,6 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
         return frozenset(names)
     names = {t.name for t in staging_workspace_write_tools(edit_strict)}
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
-    names.add(REJECT_STAGED_WORKSPACE_EDIT_NAME)
     names.add(FORMAT_STAGING_FILE_BLACK_NAME)
     names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
     names |= _LSP_CREATE_UPDATE_NAMES
@@ -168,6 +167,7 @@ def hitl_accept_command_pause_tools() -> frozenset[str]:
             INSTALL_PYTHON_PACKAGES_NAME,
             REMOVE_PYTHON_PACKAGES_NAME,
             INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
+            WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
             INSTALL_NPM_PACKAGES_NAME,
             REMOVE_NPM_PACKAGES_NAME,
             NPM_INSTALL_PROJECT_NAME,

@@ -64,7 +64,7 @@ def test_standard_includes_staging_write_tools() -> None:
     ]
     lsp_mut = _LSP_CREATE_UPDATE_NAMES
     transfer_names = {'transfer_staged_file_to_workspace'}
-    staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black', 'format_staging_file_prettier'}
+    staging_review_names = {'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert hitl_delete_pause_tools() == frozenset(
         {'batch_delete_workspace_entries', 'delete_workspace_entry'}
@@ -79,7 +79,7 @@ def test_strict_omits_snippet_tool() -> None:
     assert names == ['stage_create_file', 'stage_workspace_file_overwrite', 'stage_line_range_edit']
     lsp_mut = _LSP_CREATE_UPDATE_NAMES
     transfer_names = {'transfer_staged_file_to_workspace'}
-    staging_review_names = {'reject_staged_workspace_edit', 'format_staging_file_black', 'format_staging_file_prettier'}
+    staging_review_names = {'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert 'stage_snippet_edit' not in hitl_diff_pause_tools()
     assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})

@@ -24,6 +24,7 @@ import hljs from 'highlight.js';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { LucideAngularModule } from 'lucide-angular';
+import { DiffMonacoPreviewComponent } from '../diff-monaco-preview/diff-monaco-preview';
 import { PendingDiffReviewService } from '../pending-diff-review.service';
 
 type DiffListItem = { t: 'h'; hunkIndex: number } | { t: 'r'; row: DiffRow };
@@ -31,7 +32,7 @@ type DiffListItem = { t: 'h'; hunkIndex: number } | { t: 'r'; row: DiffRow };
 @Component({
   selector: 'app-diff-apply',
   standalone: true,
-  imports: [CommonModule, FormsModule, ScrollingModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, ScrollingModule, LucideAngularModule, DiffMonacoPreviewComponent],
   templateUrl: './diff-apply.html',
   styleUrl: './diff-apply.css',
   host: {
@@ -183,7 +184,10 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     });
 
     effect(() => {
-      if (!this.embeddedInBatchExpand() && !this.embeddedInHitlExpand()) {
+      if (this.embeddedInHitlExpand()) {
+        return;
+      }
+      if (!this.embeddedInBatchExpand()) {
         return;
       }
       const gen = ++this.scrollGeneration;
@@ -209,6 +213,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     });
 
     effect(() => {
+      if (this.embeddedInHitlExpand()) {
+        return;
+      }
       const p = this.payload();
       const sig = `${p.relativePath}|${p.baseSha256 ?? ''}|${p.rows.length}|${p.fullNewContent.length}`;
       this.currentFocusHunk();
@@ -225,6 +232,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
     });
 
     effect(() => {
+      if (this.embeddedInHitlExpand()) {
+        return;
+      }
       if (this.reviewStatus() !== 'pending') {
         return;
       }
@@ -249,6 +259,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
+    if (this.embeddedInHitlExpand()) {
+      return;
+    }
     const retry = (n: number) => {
       this.tryWireScrollSync();
       this.ensureViewportResizeObserver();
@@ -360,7 +373,9 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   toggleDiffExpanded(): void {
     const next = !this.diffExpanded();
     this.diffExpanded.set(next);
-    if (!next) return;
+    if (!next || this.embeddedInHitlExpand()) {
+      return;
+    }
     const gen = ++this.scrollGeneration;
     requestAnimationFrame(() => {
       if (gen !== this.scrollGeneration) return;

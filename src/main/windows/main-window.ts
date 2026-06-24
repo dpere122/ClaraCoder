@@ -44,6 +44,9 @@ export function createMainWindow(): void {
   win.once('ready-to-show', () => {
     win.show();
     win.focus();
+    if (DEV_SERVER_URL) {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
   });
 
   win.webContents.on('preload-error', (_event, failedPreload, error) => {

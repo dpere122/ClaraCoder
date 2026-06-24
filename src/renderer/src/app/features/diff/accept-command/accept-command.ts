@@ -49,7 +49,7 @@ export class AcceptCommandComponent {
       this.continueSent = false;
       this.acceptCommandFinished.emit({
         requestId: req,
-        status: 'complete',
+        status: 'cancelled',
         summary: res.error ?? 'Request failed',
       });
       return;

@@ -60,19 +60,6 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
       h += 52;
     }
   }
-  h += row.chainGroups.length * 24;
-  for (const g of row.chainGroups) {
-    for (const r of g.rows) {
-      const rec = r as { streamTag?: string; text?: string };
-      const tag = (rec.streamTag ?? '').trim();
-      if (tag === 'clara') {
-        const lines = Math.max(2, Math.ceil((rec.text?.length ?? 0) / 52));
-        h += Math.min(420, 40 + lines * 16);
-      } else {
-        h += 24;
-      }
-    }
-  }
   const timeline = row.assistant?.auxiliaryStreamTimeline?.length ?? 0;
   if (timeline > 0) {
     // Persisted auxiliary panel defaults to collapsed (header only).

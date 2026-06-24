@@ -48,26 +48,28 @@
           <span class="small text-secondary diff-status" role="status">{{ applyMessage() }}</span>
         }
         <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-secondary"
-            [class.active]="filterOpen()"
-            (click)="toggleFilter()"
-            [attr.aria-expanded]="filterOpen()"
-            title="Filter diff lines"
-          >
-            <lucide-icon name="search" [size]="14" />
-          </button>
-          @if (filterOpen()) {
-            <input
-              type="search"
-              class="form-control form-control-sm diff-search"
-              style="width: 180px"
-              [attr.aria-label]="'Filter diff for ' + payload().relativePath"
-              placeholder="Filter…"
-              [ngModel]="searchQuery()"
-              (ngModelChange)="searchQuery.set($event)"
-            />
+          @if (!embeddedInHitlExpand()) {
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary"
+              [class.active]="filterOpen()"
+              (click)="toggleFilter()"
+              [attr.aria-expanded]="filterOpen()"
+              title="Filter diff lines"
+            >
+              <lucide-icon name="search" [size]="14" />
+            </button>
+            @if (filterOpen()) {
+              <input
+                type="search"
+                class="form-control form-control-sm diff-search"
+                style="width: 180px"
+                [attr.aria-label]="'Filter diff for ' + payload().relativePath"
+                placeholder="Filter…"
+                [ngModel]="searchQuery()"
+                (ngModelChange)="searchQuery.set($event)"
+              />
+            }
           }
           @if (isStagedTransferHitl()) {
             <button
@@ -175,6 +177,15 @@
       }
     </div>
 
+    @if (embeddedInHitlExpand()) {
+      <app-diff-monaco-preview
+        [payload]="payload()"
+        [acceptedHunks]="acceptedHunks()"
+        [skippedHunks]="skippedHunks()"
+        [focusHunk]="currentFocusHunk()"
+        [stacked]="stacked()"
+      />
+    } @else {
     <div class="diff-panes" [class.diff-panes--stacked]="stacked()">
       <div class="diff-pane">
         <div class="diff-pane-label">Before</div>
@@ -278,6 +289,7 @@
         </cdk-virtual-scroll-viewport>
       </div>
     </div>
+    }
     </div>
   </div>
 }

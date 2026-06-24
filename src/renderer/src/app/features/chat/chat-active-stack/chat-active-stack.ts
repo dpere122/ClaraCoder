@@ -48,6 +48,10 @@ export class ChatActiveStackComponent {
     summary?: string;
     fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }>();
+  readonly stagedTransferBatchFileResolved = output<{
+    requestId: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }>();
   readonly acceptCommandFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';

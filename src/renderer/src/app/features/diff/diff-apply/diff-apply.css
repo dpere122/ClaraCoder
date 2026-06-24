@@ -69,9 +69,60 @@
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+:host(.diff-apply-host--batch-expand.diff-apply-host--hitl-expand) .diff-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:host(.diff-apply-host--batch-expand.diff-apply-host--hitl-expand) app-diff-monaco-preview {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+}
+
+:host(.diff-apply-host--hitl-expand) {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-toolbar {
+  flex-shrink: 0;
+}
+
 :host(.diff-apply-host--hitl-expand) .diff-panes {
   max-height: min(78vh, calc(100dvh - 11rem));
   min-height: 320px;
+}
+
+:host(.diff-apply-host--hitl-expand) app-diff-monaco-preview {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: 320px;
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-card--in-expand app-diff-monaco-preview {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+}
+
+:host(.diff-apply-host--hitl-expand) .diff-card:not(.diff-card--in-expand) app-diff-monaco-preview {
+  height: var(--hitl-monaco-height, min(78vh, calc(100dvh - 11rem)));
+  max-height: var(--hitl-monaco-height, min(78vh, calc(100dvh - 11rem)));
 }
 
 :host(.diff-apply-host--hitl-expand) .diff-viewport {

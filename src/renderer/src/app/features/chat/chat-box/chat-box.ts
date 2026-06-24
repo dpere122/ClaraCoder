@@ -1,6 +1,6 @@
 /**
  * Scrollable chat transcript: persisted turns, live streaming bubble, virtualized long history,
- * auto-scroll policy, and inline spinners (thinking / tools / TTS / talk).
+ * auto-scroll policy, and inline spinners (thinking / tools / TTS).
  *
  * **Data flow**
  * - Parent passes raw {@link ChatMessage}[] plus live SSE fields (`streamingParts`, `streamingFinalText`, …).
@@ -9,7 +9,7 @@
  *
  * **Presentation split**
  * - Primary reply prose: backend `final_text` only (interim agent briefs feed the auxiliary panel title).
- * - Tool / reasoning / planner multiplex: auxiliary stream panel + optional tool-chain pills (deduped in display helpers).
+ * - Tool / reasoning / planner multiplex: auxiliary stream panel.
  * - HITL artifacts (diff, delete, plan confirm, …): bubble up through `*Finished` outputs after user action.
  *
  * Display helpers and types are re-exported below for parent components and tests.
@@ -33,7 +33,6 @@ import {
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { StreamPart, PlannerProgress } from '@shared/index';
 import {
-  isClaraOuterBriefStreamTag,
   joinPrimaryAssistantStreamText,
   multiplexAuxiliaryStreamTimeline,
   persistedAuxiliaryStreamTimeline,
@@ -47,9 +46,7 @@ import {
 } from './auxiliary-stream-panel/auxiliary-stream-panel';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { HitlTrailPanelComponent } from './hitl-trail-panel/hitl-trail-panel';
-import { ToolChainPillComponent } from './tool-chain-pill/tool-chain-pill';
 import { RunButtonDirective } from './run-button.directive';
-import { TalkUiState } from '../../../core/talk-ui-state';
 import {
   CHAT_MIN_FALLBACK_ROW,
   CHAT_VIRTUAL_PIXEL_BUFFER,
@@ -70,13 +67,7 @@ import {
   planPanelContext,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
-  stripClaraChainRowsFromChainGroups,
-  stripPlannerChainRowsFromChainGroups,
-  stripToolChainRowsFromChainGroups,
-  shouldStripToolChainRowsForAuxPanel,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
-  turnHasPlanPanel,
-  toolChainSummary,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
   userMessageAttachedFiles,
@@ -84,7 +75,6 @@ import {
   type ArtifactMessage,
   type ChatDisplayRow,
   type ChatMessage,
-  type ToolChainGroup,
 } from './chat-box-display';
 
 export {
@@ -98,8 +88,6 @@ export {
   isScrollWorthyAppendMessage,
   planPanelContext,
   resolvePrimaryStreamLiveText,
-  stripPlannerChainRowsFromChainGroups,
-  shouldStripToolChainRowsForAuxPanel,
   liveTurnPresentationSettled,
   turnHasPlanPanel,
   TOOL_BUILDING_SYNONYMS,
@@ -121,8 +109,6 @@ const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
 const SPINNER_CHAT_TOOL = 'chat-tool';
 const SPINNER_CHAT_THINK = 'chat-think';
 const SPINNER_CHAT_TTS = 'chat-tts';
-const SPINNER_TALK_REC = 'chat-talk-rec';
-const SPINNER_TALK_TX = 'chat-talk-tx';
 
 const INLINE_SPINNER = {
   fullScreen: false as const,
@@ -130,9 +116,6 @@ const INLINE_SPINNER = {
   size: 'small' as const,
   color: 'var(--bs-secondary-color)',
 };
-
-/** Tool/status row in the transcript (`role: 'chain'`). */
-type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
 
 @Component({
   selector: 'app-chat-box',
@@ -143,7 +126,6 @@ type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
     AuxiliaryStreamPanelComponent,
     HitlTrailPanelComponent,
     PlannerChecklistComponent,
-    ToolChainPillComponent,
   ],
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
@@ -161,14 +143,9 @@ type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
 export class ChatBox implements OnDestroy {
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
-  /** Voice capture / transcription UI state (drives talk spinners in the live row). */
-  readonly talkUi = inject(TalkUiState);
 
   /** Template: ordered persisted reasoning + delegated streams. */
   readonly persistedAuxiliaryStreamTimeline = persistedAuxiliaryStreamTimeline;
-
-  /** Template helper: nested workspace handoff rows for outer Clara (stream tag `clara`). */
-  readonly isClaraOuterBriefTrail = (trail: ChainMessage) => isClaraOuterBriefStreamTag(trail.streamTag);
 
   /** Template helpers: attachments rendered above a user bubble's text. */
   readonly userImageUrls = userMessageImageUrls;
@@ -280,6 +257,11 @@ export class ChatBox implements OnDestroy {
     summary?: string;
     fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }>();
+  /** Mid-batch file resolution persisted before batch completes. */
+  readonly stagedTransferBatchFileResolved = output<{
+    requestId: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }>();
 
   // --- Transcript projection ---
 
@@ -374,9 +356,6 @@ export class ChatBox implements OnDestroy {
     ),
   );
 
-  /** Tool-chain pills in the live strip use “live” styling while the turn is still in flux. */
-  readonly liveChainToolLive = computed(() => this.loading() && !this.liveTurnPresentationSettled());
-
   /**
    * Raw primary stream text - used for extracting the brief to show as panel title.
    * During streaming, briefs update the panel title; the main response area stays empty.
@@ -432,24 +411,11 @@ export class ChatBox implements OnDestroy {
     return turn != null && turnHasPendingHitlArtifacts(turn.artifacts);
   });
 
-  /** Tool chain groups eligible for the live strip (filters empty / internal rows). */
+  /** Tool chain groups in the open turn (Clara brief rows feed the auxiliary panel title). */
   readonly liveVisibleChainGroups = computed(() => {
     const liveTurn = this.liveTurn();
     if (!liveTurn) return [];
     return filterLiveToolChainGroups(liveTurn.chainGroups);
-  });
-
-  /** Hides duplicate tool-only rows from the live strip when they stream inside the reasoning panel. */
-  readonly liveChainGroupsForDisplay = computed(() => {
-    let base = this.liveVisibleChainGroups();
-    base = stripClaraChainRowsFromChainGroups(base);
-    if (this.livePlanPanel()) {
-      base = stripPlannerChainRowsFromChainGroups(base);
-    }
-    if (shouldStripToolChainRowsForAuxPanel(this.liveAuxiliaryTimeline(), !!this.livePlanPanel())) {
-      base = stripToolChainRowsFromChainGroups(base);
-    }
-    return base;
   });
 
   /**
@@ -696,23 +662,6 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    // Talk mode: recording vs transcribing spinners.
-    effect(() => {
-      const cap = this.talkUi.capturing();
-      const tx = this.talkUi.transcribing();
-      untracked(() => {
-        if (cap) {
-          void this.ngxSpinner.show(SPINNER_TALK_REC, { ...INLINE_SPINNER, type: 'ball-clip-rotate-pulse' });
-          void this.ngxSpinner.hide(SPINNER_TALK_TX);
-        } else if (tx) {
-          void this.ngxSpinner.hide(SPINNER_TALK_REC);
-          void this.ngxSpinner.show(SPINNER_TALK_TX, { ...INLINE_SPINNER, type: 'ball-pulse-sync' });
-        } else {
-          void this.ngxSpinner.hide(SPINNER_TALK_REC);
-          void this.ngxSpinner.hide(SPINNER_TALK_TX);
-        }
-      });
-    });
   }
 
   /** Tear down observers, timers, DOM listeners, and ngx-spinner instances. */
@@ -732,8 +681,6 @@ export class ChatBox implements OnDestroy {
     void this.ngxSpinner.hide(SPINNER_CHAT_TOOL);
     void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
     void this.ngxSpinner.hide(SPINNER_CHAT_TTS);
-    void this.ngxSpinner.hide(SPINNER_TALK_REC);
-    void this.ngxSpinner.hide(SPINNER_TALK_TX);
   }
 
   /** Template `(scroll)` handler: coalesced updates to virtual window + pin state. */
@@ -834,27 +781,6 @@ export class ChatBox implements OnDestroy {
     });
   }
 
-  /**
-   * When this turn’s auxiliary timeline includes embedded tool-status segments, omit duplicate
-   * `source: tool` rows from the collapsible strip above it.
-   */
-  chainGroupsForPersistedTurn(row: ChatDisplayRow): ToolChainGroup[] {
-    if (row.kind !== 'assistant-turn') {
-      return [];
-    }
-    let groups = row.chainGroups;
-    const timeline = persistedAuxiliaryStreamTimeline(row.assistant ?? undefined);
-    const hasPlan = turnHasPlanPanel(row.assistant?.planner, row.artifacts);
-    if (shouldStripToolChainRowsForAuxPanel(timeline, hasPlan)) {
-      groups = stripToolChainRowsFromChainGroups(groups);
-    }
-    groups = stripClaraChainRowsFromChainGroups(groups);
-    if (hasPlan) {
-      groups = stripPlannerChainRowsFromChainGroups(groups);
-    }
-    return groups;
-  }
-
   /** Persisted-turn planner panel context (mirrors `livePlanPanel` for saved turns). */
   planPanelForTurn(row: ChatDisplayRow): ReturnType<typeof planPanelContext> {
     if (row.kind !== 'assistant-turn') return null;
@@ -871,7 +797,4 @@ export class ChatBox implements OnDestroy {
   auxiliaryPanelTitleForTurn(_row: ChatDisplayRow): string {
     return PERSISTED_AUXILIARY_STREAM_PANEL_TITLE;
   }
-
-  /** Template helper: one-line summary under a tool-chain pill group. */
-  readonly toolChainSummary = toolChainSummary;
 }

@@ -93,6 +93,7 @@
               [fileResolutions]="artifact.fileResolutions ?? {}"
               [preferFullscreen]="isExpanded()"
               (batchReviewFinished)="stagedTransferBatchFinished.emit($event)"
+              (batchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
             />
           </div>
         }

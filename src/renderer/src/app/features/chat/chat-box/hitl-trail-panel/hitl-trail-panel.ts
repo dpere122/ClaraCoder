@@ -47,6 +47,7 @@ export class HitlTrailPanelComponent {
 
   readonly artifacts = input.required<HitlTrailArtifact[]>();
   readonly live = input(false);
+  readonly chatLayout = input<'sidebar' | 'expanded'>('expanded');
   readonly conversationId = input<string | null>(null);
 
   readonly diffReviewFinished = output<{
@@ -75,11 +76,17 @@ export class HitlTrailPanelComponent {
     summary?: string;
     fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }>();
+  readonly stagedTransferBatchFileResolved = output<{
+    requestId: string;
+    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
+  }>();
 
   readonly mode = signal<AuxiliaryPanelMode>(initialAuxiliaryPanelMode(false));
+  private readonly hostEl = inject(ElementRef<HTMLElement>);
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
   private prevLive: boolean | undefined;
   private prevPendingCount = 0;
+  private prevMode: AuxiliaryPanelMode | undefined;
 
   readonly trailItems = computed(() => hitlTrailItemsFromArtifacts(this.artifacts()));
   readonly pendingArtifacts = computed(() =>
@@ -157,6 +164,24 @@ export class HitlTrailPanelComponent {
             const el = this.viewport()?.nativeElement;
             if (!el) return;
             el.scrollTop = el.scrollHeight;
+          },
+          { injector: this.inj },
+        );
+      });
+    });
+
+    effect(() => {
+      const mode = this.mode();
+      const layout = this.chatLayout();
+      const prevMode = this.prevMode;
+      this.prevMode = mode;
+      if (mode !== 'expanded' || prevMode === 'expanded' || layout !== 'sidebar') {
+        return;
+      }
+      untracked(() => {
+        afterNextRender(
+          () => {
+            this.hostEl.nativeElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
           },
           { injector: this.inj },
         );

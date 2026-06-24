@@ -32,27 +32,8 @@
           }
         } @else {
           @let row = slot.row;
-          @for (chainGroup of chainGroupsForPersistedTurn(row); track chainGroup.key) {
-            <div class="tool-trail-pills">
-              @for (trail of chainGroup.rows; track trail.statusId) {
-                @if (isClaraOuterBriefTrail(trail)) {
-                  <div class="clara-outer-brief" role="status" [attr.aria-label]="trail.label">
-                    <div class="clara-outer-brief-header">
-                      <span class="clara-outer-brief-brand">Clara</span>
-                      <span class="clara-outer-brief-chip">{{ trail.label }}</span>
-                    </div>
-                    @if (trail.text) {
-                      <pre class="clara-outer-brief-body">{{ trail.text }}</pre>
-                    }
-                  </div>
-                } @else {
-                  <app-tool-chain-pill [trail]="trail" [live]="false" />
-                }
-              }
-            </div>
-          }
 
-          @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant) ?? [];
+          @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
           @if (auxPersisted.length > 0) {
             <div aria-live="polite">
               <app-auxiliary-stream-panel
@@ -68,12 +49,14 @@
             <app-hitl-trail-panel
               [artifacts]="hitlArtifactsForTurn(row)"
               [live]="false"
+              [chatLayout]="layout()"
               [conversationId]="conversationId()"
               (diffReviewFinished)="diffReviewFinished.emit($event)"
               (deleteReviewFinished)="deleteReviewFinished.emit($event)"
               (acceptCommandFinished)="acceptCommandFinished.emit($event)"
               (copyReviewFinished)="copyReviewFinished.emit($event)"
               (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+              (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
             />
           }
 
@@ -121,25 +104,6 @@
         class="msg-bubble px-2 py-1 assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
-        @for (chainGroup of liveChainGroupsForDisplay(); track chainGroup.key) {
-          <div class="tool-trail-pills tool-trail-pills--live">
-            @for (trail of chainGroup.rows; track trail.statusId) {
-              @if (isClaraOuterBriefTrail(trail)) {
-                <div class="clara-outer-brief clara-outer-brief--live" role="status" [attr.aria-label]="trail.label">
-                  <div class="clara-outer-brief-header">
-                    <span class="clara-outer-brief-brand">Clara</span>
-                    <span class="clara-outer-brief-chip">{{ trail.label }}</span>
-                  </div>
-                  @if (trail.text) {
-                    <pre class="clara-outer-brief-body">{{ trail.text }}</pre>
-                  }
-                </div>
-              } @else {
-                <app-tool-chain-pill [trail]="trail" [live]="liveChainToolLive()" />
-              }
-            }
-          </div>
-        }
         @if (showLiveAuxiliaryPanel()) {
           <div aria-live="polite">
             <app-auxiliary-stream-panel
@@ -154,12 +118,14 @@
           <app-hitl-trail-panel
             [artifacts]="liveHitlArtifacts()"
             [live]="true"
+            [chatLayout]="layout()"
             [conversationId]="conversationId()"
             (diffReviewFinished)="diffReviewFinished.emit($event)"
             (deleteReviewFinished)="deleteReviewFinished.emit($event)"
             (acceptCommandFinished)="acceptCommandFinished.emit($event)"
             (copyReviewFinished)="copyReviewFinished.emit($event)"
             (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+            (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
           />
         }
         @if (livePlanPanel(); as planCtx) {
@@ -204,35 +170,6 @@
             <span class="processing-text">{{ processingBubbleLabel() }}</span>
           </div>
         }
-      </div>
-    </div>
-  }
-  @if (talkUi.capturing() || talkUi.transcribing()) {
-    <div
-      class="chat-row chat-row--assistant d-flex mb-2"
-      role="status"
-      aria-live="polite"
-    >
-      <div class="msg-bubble px-2 py-1 assistant-bubble talk-voice-row">
-        <div class="talk-voice-ngx-host" aria-hidden="true">
-          <ngx-spinner
-            name="chat-talk-rec"
-            type="ball-clip-rotate-pulse"
-            [fullScreen]="false"
-            bdColor="rgba(0,0,0,0)"
-            size="small"
-            color="var(--bs-secondary-color)"
-          ></ngx-spinner>
-          <ngx-spinner
-            name="chat-talk-tx"
-            type="ball-pulse-sync"
-            [fullScreen]="false"
-            bdColor="rgba(0,0,0,0)"
-            size="small"
-            color="var(--bs-secondary-color)"
-          ></ngx-spinner>
-        </div>
-        <span class="talk-voice-label">{{ talkUi.capturing() ? 'Recording…' : 'Transcribing…' }}</span>
       </div>
     </div>
   }

@@ -1,5 +1,9 @@
 @import './stream-trail-panel-shared.css';
 
+app-chat-box.chat-layout-sidebar {
+  --hitl-monaco-height: 280px;
+}
+
 app-chat-box {
   display: flex;
   flex-direction: column;
@@ -456,137 +460,7 @@ app-chat-box .streaming-cursor {
   50% { opacity: 0; }
 }
 
-/* --- Tool trail pills (live + persisted) --- */
-
-app-chat-box .tool-trail-pills {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.1rem 0.05rem;
-  margin-bottom: 0.35rem;
-  padding-bottom: 0.3rem;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-
-app-chat-box .tool-trail-pills--live {
-  margin-bottom: 0.4rem;
-}
-
-app-chat-box .tool-trail-pills:last-child {
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-/* --- Clara outer briefs (planner / review handoffs from nested runs) --- */
-
-app-chat-box .clara-outer-brief {
-  margin: 0.35rem 0 0.5rem;
-  padding: 0.45rem 0.55rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid var(--t-border-subtle);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--t-assistant-bg) 88%, var(--t-primary) 12%) 0%,
-    var(--t-assistant-bg) 100%
-  );
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 35%, transparent);
-}
-
-app-chat-box .clara-outer-brief--live {
-  margin-top: 0.15rem;
-  margin-bottom: 0.45rem;
-}
-
-app-chat-box .clara-outer-brief-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.5rem;
-  margin-bottom: 0.3rem;
-}
-
-app-chat-box .clara-outer-brief-brand {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--t-primary);
-  text-shadow: 0 0 6px var(--t-glow-soft);
-}
-
-app-chat-box .clara-outer-brief-chip {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--t-secondary);
-  padding: 0.1em 0.45em;
-  border-radius: 4px;
-  background-color: color-mix(in srgb, var(--t-code-inline-bg) 85%, transparent);
-  border: 1px solid var(--t-border-subtle);
-}
-
-app-chat-box .clara-outer-brief-body {
-  margin: 0;
-  padding: 0.35rem 0.15rem 0.1rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  font-size: 0.74rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--t-secondary);
-  max-height: min(40vh, 22rem);
-  overflow-y: auto;
-}
-
-/* --- Collapsible persisted tool trail --- */
-
-app-chat-box .tool-trail-collapse {
-  margin-bottom: 0.45rem;
-  border-bottom: 1px solid var(--t-border-subtle);
-  padding-bottom: 0.35rem;
-}
-
-app-chat-box .tool-trail-summary {
-  cursor: pointer;
-  font-size: 0.73rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  color: var(--t-text-muted);
-  user-select: none;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 0.35em;
-}
-
-app-chat-box .tool-trail-summary::-webkit-details-marker {
-  display: none;
-}
-
-app-chat-box .tool-trail-summary::before {
-  content: '▸';
-  display: inline-block;
-  transition: transform 0.15s ease;
-  font-size: 0.7em;
-}
-
-app-chat-box details.tool-trail-collapse[open] > .tool-trail-summary::before {
-  transform: rotate(90deg);
-}
-
-app-chat-box .tool-trail-summary:hover {
-  color: var(--t-secondary);
-}
-
-app-chat-box .tool-trail-count {
-  opacity: 0.85;
-}
-
-app-chat-box .tool-trail-persisted {
-  padding-top: 0.2rem;
-  padding-left: 0.15rem;
-}
-
-/* --- Planner row --- */
+/* --- Processing row --- */
 
 app-chat-box .planner-row-card {
   width: 100%;
@@ -604,14 +478,13 @@ app-chat-box .processing-bubble {
   margin-top: 0.15rem;
 }
 
-app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel)):not(:has(.tool-trail-pills)) .processing-bubble {
+app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel)) .processing-bubble {
   border-top: none;
   margin-top: 0;
   padding-top: 0;
 }
 
-app-chat-box .processing-ngx-host,
-app-chat-box .talk-voice-ngx-host {
+app-chat-box .processing-ngx-host {
   position: relative;
   flex-shrink: 0;
   width: 2.35rem;
@@ -626,8 +499,7 @@ app-chat-box .tts-ngx-host {
 }
 
 app-chat-box .processing-ngx-host ngx-spinner,
-app-chat-box .tts-ngx-host ngx-spinner,
-app-chat-box .talk-voice-ngx-host ngx-spinner {
+app-chat-box .tts-ngx-host ngx-spinner {
   display: block;
   position: absolute;
   inset: 0;
@@ -637,22 +509,10 @@ app-chat-box .talk-voice-ngx-host ngx-spinner {
 }
 
 app-chat-box .processing-ngx-host .ngx-spinner-overlay,
-app-chat-box .tts-ngx-host .ngx-spinner-overlay,
-app-chat-box .talk-voice-ngx-host .ngx-spinner-overlay {
+app-chat-box .tts-ngx-host .ngx-spinner-overlay {
   pointer-events: none;
   /* ngx-spinner defaults z-index to 99999; keep inline spinners below expanded diff (1055). */
   z-index: 1 !important;
-}
-
-app-chat-box .talk-voice-row {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-app-chat-box .talk-voice-label {
-  font-size: 0.82em;
-  color: var(--t-secondary);
 }
 
 app-chat-box .processing-text {

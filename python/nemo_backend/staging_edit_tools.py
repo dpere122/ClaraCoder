@@ -225,7 +225,8 @@ def _staging_after_merge(
         f'`transfer_staged_file_to_workspace` succeeds. Inspect the draft with `diff_staged_edit_against_baseline` '
         f'and/or `read_staged_edit` (not `read_workspace_file` for new staged content). **Next:** review then call '
         f'`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit` yourself; '
-        f'Use code-review specialist tools (`code_review_specialist_*`) when you need a formal review pass before transfer.'
+        f'Use staging review tools (`list_staged_edits`, `diff_staged_edit_against_baseline`, `read_staged_edit`, '
+        f'`search_staged_edits`) when you need a formal review pass before transfer.'
         f'{diagnostics_note}'
     )
 

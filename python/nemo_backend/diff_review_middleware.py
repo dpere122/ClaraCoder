@@ -10,7 +10,6 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from nemo_backend.agent_pause import await_diff_review_note
-from nemo_backend.agents.specialists.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
 from nemo_backend.messages import stringify_content
 from nemo_backend.state import current_session_id, direct_workspace_edits_active, get_session
 from nemo_backend.tool_registry import hitl_diff_pause_tools
@@ -34,21 +33,21 @@ class DiffReviewAfterToolMiddleware(AgentMiddleware):
         direct = direct_workspace_edits_active(sess, apply_mode=sess.worker_apply_mode)
         payload = sess.pending_diff_payload
         pause_tools = hitl_diff_pause_tools(direct=direct)
-        staged_transfer = (
-            name == TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME and sess.pending_staged_transfer_hitl is not None
-        )
         batch_payload = sess.pending_staged_transfer_batch_payload
+        staged_transfer_pending = (
+            sess.pending_staged_transfer_hitl is not None and batch_payload is not None
+        )
         # Require an active SSE pump (``hitl_sse_queue``), not ``worker_apply_mode``: nested
         # specialist tools can run during streamed agent work while refcount edge cases exist.
         if (
             sess.hitl_sse_queue is None
-            or (name not in pause_tools and not staged_transfer)
+            or (name not in pause_tools and not staged_transfer_pending)
             or (not payload and not batch_payload)
             or sess.auto_apply_mode
         ):
             return result
 
-        if staged_transfer and batch_payload:
+        if staged_transfer_pending:
             await sess.hitl_sse_queue.put(('staged_transfer_batch', batch_payload))
         elif payload:
             await sess.hitl_sse_queue.put(('diff', payload))

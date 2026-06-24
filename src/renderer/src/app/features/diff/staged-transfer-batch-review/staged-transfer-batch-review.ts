@@ -23,6 +23,7 @@ import { DiffApplyComponent } from '../diff-apply/diff-apply';
 import {
   PendingDiffReviewService,
   type BatchFinishFn,
+  type BatchPartialFn,
   type FlashFn,
 } from '../pending-diff-review.service';
 
@@ -51,6 +52,10 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+    fileResolutions: Record<string, StagedTransferFileResolution>;
+  }>();
+  readonly batchFileResolved = output<{
+    requestId: string;
     fileResolutions: Record<string, StagedTransferFileResolution>;
   }>();
 
@@ -229,7 +234,8 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
       '',
       this.conversationId(),
       this.flash.bind(this) as FlashFn,
-      this.onBatchFinished.bind(this) as BatchFinishFn,
+      this.onBatchFinished,
+      this.onPartialResolved,
     );
   }
 
@@ -245,19 +251,19 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
       this.reReviewFeedback(),
       this.conversationId(),
       this.flash.bind(this) as FlashFn,
-      this.onBatchFinished.bind(this) as BatchFinishFn,
+      this.onBatchFinished,
+      this.onPartialResolved,
     );
     this.reReviewFeedback.set('');
   }
 
-  private onBatchFinished(event: {
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    fileResolutions: Record<string, StagedTransferFileResolution>;
-  }): void {
+  private readonly onBatchFinished: BatchFinishFn = (event) => {
     this.batchReviewFinished.emit(event);
-  }
+  };
+
+  private readonly onPartialResolved: BatchPartialFn = (event) => {
+    this.batchFileResolved.emit(event);
+  };
 
   resolutionBadge(res: StagedTransferFileResolution): string {
     switch (res) {

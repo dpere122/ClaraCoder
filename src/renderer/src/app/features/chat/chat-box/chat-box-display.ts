@@ -1,5 +1,5 @@
-import type { ConversationMessage, DiffReviewStatus, PlanConfirmPayload, PlannerProgress, StreamPart } from '@shared/index';
-import { auxiliaryTimelineEmbedsToolStatus, isClaraOuterBriefStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
+import type { ConversationMessage, DiffReviewStatus, PlanConfirmPayload, PlannerProgress } from '@shared/index';
+import { isClaraOuterBriefStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
 import { DEFAULT_AUXILIARY_STREAM_PANEL_TITLE } from './auxiliary-stream-panel/auxiliary-stream-panel';
 
 /** Shown in the live processing row while tools are active; index chosen when tool phase starts. */
@@ -26,8 +26,6 @@ export type ArtifactMessage = Extract<
   ChatMessage,
   { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' | 'plan_confirm' | 'staged_transfer_batch' }
 >;
-
-const PLANNER_CHAIN_LABELS = new Set(['record_plan', 'execute_plan_step']);
 
 export interface PlanPanelContext {
   planner: PlannerProgress;
@@ -94,33 +92,9 @@ export function liveTurnPresentationSettled(
   return rawPrimaryText.trim().length === 0 && livePrimaryText.trim().length === 0;
 }
 
-/** Tool multiplex belongs in the auxiliary panel — omit duplicate chain pills above it. */
-export function shouldStripToolChainRowsForAuxPanel(
-  auxiliaryTimeline: readonly StreamPart[] | undefined,
-  planVisible: boolean,
-): boolean {
-  return planVisible || auxiliaryTimelineEmbedsToolStatus(auxiliaryTimeline ?? []);
-}
-
 /** Plan approval is rendered inside the unified plan panel — omit from the HITL detail stack. */
 export function hitlArtifactsExcludingPlanConfirm(artifacts: readonly ArtifactMessage[]): ArtifactMessage[] {
   return artifacts.filter((a) => a.role !== 'plan_confirm');
-}
-
-/** Hide planner lane tool pills when the unified plan panel already shows step progress. */
-export function stripPlannerChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
-  return groups
-    .map((g) => {
-      const rows = g.rows.filter(
-        (row) => row.streamTag !== PLANNER_STREAM_TAG && !PLANNER_CHAIN_LABELS.has(row.label),
-      );
-      return {
-        ...g,
-        rows,
-        toolCallCount: rows.filter((row) => row.source === 'tool').length,
-      };
-    })
-    .filter((g) => g.rows.length > 0);
 }
 
 export function planPanelCompleteCount(planner: PlannerProgress): number {
@@ -255,37 +229,6 @@ export function filterLiveToolChainGroups(groups: ToolChainGroup[]): ToolChainGr
   return groups.filter((group) => group.rows.length > 0);
 }
 
-/** Drop `source: tool` chain rows when those tools are already shown inside the auxiliary timeline. */
-export function stripToolChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
-  return groups
-    .map((g) => {
-      const kept = g.rows.filter((r) => r.source !== 'tool');
-      const visibleRows = kept.filter(
-        (row) => row.source === 'tool' || isClaraOuterBriefStreamTag(row.streamTag),
-      );
-      return {
-        ...g,
-        rows: visibleRows,
-        toolCallCount: visibleRows.filter((row) => row.source === 'tool').length,
-      };
-    })
-    .filter((g) => g.rows.length > 0);
-}
-
-/** When Clara updates are promoted into the reasoning panel title, avoid showing the same card twice. */
-export function stripClaraChainRowsFromChainGroups(groups: ToolChainGroup[]): ToolChainGroup[] {
-  return groups
-    .map((g) => {
-      const rows = g.rows.filter((row) => !isClaraOuterBriefStreamTag(row.streamTag));
-      return {
-        ...g,
-        rows,
-        toolCallCount: rows.filter((row) => row.source === 'tool').length,
-      };
-    })
-    .filter((g) => g.rows.length > 0);
-}
-
 function oneLineTitle(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -397,19 +340,4 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
 
   flushPendingAssistantTurn();
   return rows;
-}
-
-export function toolChainSummary(group: ToolChainGroup): string {
-  const claraN = group.rows.filter((r) => isClaraOuterBriefStreamTag(r.streamTag)).length;
-  const toolN = group.toolCallCount;
-  if (claraN > 0 && toolN > 0) {
-    return `${toolN} tool call${toolN === 1 ? '' : 's'} · ${claraN} Clara update${claraN === 1 ? '' : 's'}`;
-  }
-  if (claraN > 0) {
-    return `${claraN} Clara update${claraN === 1 ? '' : 's'}`;
-  }
-  if (toolN > 0) {
-    return `${toolN} tool call${toolN === 1 ? '' : 's'}`;
-  }
-  return `${group.rows.length} update${group.rows.length === 1 ? '' : 's'}`;
 }

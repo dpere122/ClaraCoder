@@ -8,6 +8,19 @@
   background: var(--bs-body-bg);
 }
 
+.staged-batch-card:not(.staged-batch-card--in-expand) {
+  display: flex;
+  flex-direction: column;
+}
+
+.staged-batch-card:not(.staged-batch-card--in-expand) app-diff-apply {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
 .staged-batch-toolbar {
   background: var(--bs-body-bg);
   flex-shrink: 0;

@@ -218,9 +218,12 @@ def tool_calling_and_edit_semantics_suffix(
         'only use the API tool channel.\n'
         '**Workspace edits:** Treat the on-disk workspace as the checkpoint. For **every** text path, create or revise '
         'content with `stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, or `stage_snippet_edit` '
-        '(when bound), inspect drafts with `list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit`, '
-        'then call `transfer_staged_file_to_workspace` with `relative_paths` listing every ready draft (one batch when multiple files are ready). Never ask the user to apply or approve that '
-        'transfer for you—only the tool call counts. Do not use legacy direct-to-disk workspace mutators '
+        '(when bound), inspect drafts with `list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit`. '
+        'When drafts are approved, pass **`land_in_workspace=true`** on your final `stage_*` or LSP create/update call '
+        'to land in one step (HITL diff when auto-apply is off); keep **`land_in_workspace=false`** while iterating. '
+        'For drafts already staged, call `transfer_staged_file_to_workspace` with `relative_paths` (batch when multiple '
+        'files are ready). Never ask the user to apply or approve landing for you—only the tool call counts. '
+        'Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
         + nested_note
         + '**LSP file mutations vs staging:** Prefer language-matched LSP mutators when they appear in **your** bound tool list (outer Clara with Editor on): '
@@ -245,8 +248,9 @@ def qwen_specific_prompt_suffix() -> str:
     """Qwen-family stability hint (single tool per turn); use with :func:`tool_calling_and_edit_semantics_suffix`."""
     return (
         '\nModel note (Qwen): Prefer one tool call per assistant turn when you can; wait for the tool result '
-        'before issuing the next call. When staging review applies, call `transfer_staged_file_to_workspace` '
-        'yourself—do not ask the user to approve or apply the diff in the UI instead of using the tool.\n'
+        'before issuing the next call. When staging review applies, land approved drafts with '
+        '**`land_in_workspace=true`** on your final stage/LSP call, or `transfer_staged_file_to_workspace` for '
+        'already-staged paths—do not ask the user to approve or apply the diff in the UI instead of using the tool.\n'
     )
 
 
@@ -254,9 +258,10 @@ def gemma_specific_prompt_suffix() -> str:
     """Gemma-family staging/transfer discipline; use with :func:`tool_calling_and_edit_semantics_suffix`."""
     return (
         '\nModel note (Gemma): Prefer one tool call per assistant turn when you can; wait for the tool result '
-        'before issuing the next call. After any successful `stage_*` or LSP staging mutation, continue the same '
-        'turn chain with `transfer_staged_file_to_workspace` (use `relative_paths` for multiple files in one call)—staging alone is not finished work. When Auto-apply is '
-        'off, only that transfer tool triggers the diff card; do not ask the user to approve in chat instead.\n'
+        'before issuing the next call. After review, land approved work with **`land_in_workspace=true`** on your '
+        'final `stage_*` or LSP staging mutation, or call `transfer_staged_file_to_workspace` (`relative_paths` for '
+        'multiple already-staged files)—staging alone is not finished work. When Auto-apply is off, either path '
+        'queues the diff card; do not ask the user to approve in chat instead.\n'
     )
 
 
@@ -310,8 +315,9 @@ def gemma_sparse_expert_workspace_suffix(connection: RuntimeConnection) -> str:
         'writes to the same path are safe.\n'
         '- **Checkpoint between edits:** After **staging** code, the draft is not on disk yet—refresh anchors from '
         '`read_staged_edit` or `diff_staged_edit_against_baseline`, not `read_workspace_file` (that still shows the '
-        'pre-transfer baseline). After **`transfer_staged_file_to_workspace`**, treat the workspace file as source of '
-        'truth and use `read_workspace_file` or LSP with `refresh_active_document=true` before the next mutation.\n'
+        'pre-transfer baseline). To land after review, pass **`land_in_workspace=true`** on the final stage/LSP call '
+        'or use `transfer_staged_file_to_workspace` for already-staged paths. After landing, treat the workspace file '
+        'as source of truth and use `read_workspace_file` or LSP with `refresh_active_document=true` before the next mutation.\n'
         '- **Atomic patches, stable anchors:** Prefer `stage_snippet_edit` with **unique surrounding context** over '
         'stacking dependent line-range replacements without re-reading staged or workspace text.\n'
         '- **Review synthesis:** When code review rejects staged work, deconstruct each issue, locate the exact '

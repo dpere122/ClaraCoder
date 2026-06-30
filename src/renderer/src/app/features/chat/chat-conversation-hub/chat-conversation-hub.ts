@@ -6,6 +6,7 @@ import { ConversationManager } from '../conversation-manager/conversation-manage
 import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack';
 import type { ChatMessage } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
+import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 
 export type ChatHubView = 'conversations' | 'activeChat';
 
@@ -78,7 +79,9 @@ export class ChatConversationHubComponent {
   readonly chatContextFiles = input<readonly ChatContextFile[]>([]);
   readonly workspaceRoot = input('');
   readonly removeChatContextFile = output<ChatContextFile>();
-  readonly chatContextPathsDropped = output<string[]>();
+  readonly togglePinChatContextFile = output<ChatContextFile>();
+  readonly chatContextPathsDropped = output<ChatContextDroppedPath[]>();
+  readonly attachmentCount = input(0);
 
   readonly appConfig = input<AppConfig | null>(null);
   readonly talkInputDeviceId = input('default');

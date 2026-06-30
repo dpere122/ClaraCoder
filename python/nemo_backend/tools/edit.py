@@ -36,7 +36,7 @@ from nemo_backend.workspace_text_io import (
     validate_workspace_encoding,
     write_file_resolved,
 )
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
+from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.tools.edit')
 

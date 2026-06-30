@@ -81,7 +81,7 @@ def _retrieve_semantic_impl(query: str, top_k: int) -> str:
     if not hits:
         return 'Semantic index: no relevant chunks found.'
 
-    from nemo_backend.workspace_tools import truncate_text
+    from nemo_backend.tools.workspace import truncate_text
 
     lines: list[str] = _header_lines()
     for i, nws in enumerate(hits, start=1):

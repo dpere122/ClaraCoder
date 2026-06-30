@@ -1471,6 +1471,10 @@ html.theme-win95 app-theme-selector .theme-dropdown {
   padding: 0.22rem 1.8rem 0.22rem 0.45rem;
 }
 
+html.theme-win95 .workspace-select {
+  padding: 0.4rem 1.8rem 0.4rem 0.6rem;
+}
+
 html.theme-win95 app-theme-selector .theme-dropdown,
 html.theme-win95 app-speech-module .voice-select,
 html.theme-win95 app-settings .settings-voice-device-select,

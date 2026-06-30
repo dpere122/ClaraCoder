@@ -15,7 +15,7 @@ from typing import Awaitable, Callable
 
 from nemo_backend.config import NEMO_SUBPROCESS_TIMEOUT_SEC
 from nemo_backend.domain import SessionState
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.tools.workspace import truncate_text
 
 _MAX_BOOTSTRAP_OUTPUT_CHARS = 80_000
 _PROCESS_PATH_LOCK = threading.RLock()
@@ -505,7 +505,7 @@ async def ensure_session_python_workspace_env(
     if result.ok:
         apply_session_python_workspace_env(session, result)
         if bootstrap_dependencies:
-            from nemo_backend.python_dependency_agent import bootstrap_session_python_dependencies
+            from nemo_backend.tools.python_deps import bootstrap_session_python_dependencies
 
             dep_result = await bootstrap_session_python_dependencies(session, emit_chunk=emit_chunk)
             if dep_result is not None:

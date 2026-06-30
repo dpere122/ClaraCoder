@@ -111,22 +111,26 @@ Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run
 | `nemo_backend/model_tuning.py`                         | Qwen-style presets, max tokens, parallel tool heuristics.                   |
 | `nemo_backend/messages.py`                             | History → LangChain messages, system prompt, text helpers.                  |
 | `nemo_backend/langchain_compat.py`                     | Patches for `reasoning_content` on some gateways.                           |
-| **Workspace Tools**                                    |                                                                             |
-| `nemo_backend/workspace_tools.py`                      | LangChain `@tool` read/search/list implementations.                         |
-| `nemo_backend/edit_tool.py`                            | Full-file, line-range, snippet edit tools with diff payloads.               |
-| `nemo_backend/delete_tool.py`                          | `delete_workspace_entry` + pending delete / confirm flow.                   |
+| **Agent tools**                                        |                                                                             |
+| `nemo_backend/tool_registry.py`                        | Central tool registry and HITL policy.                                      |
+| `nemo_backend/tools/`                                  | All LangChain `@tool` implementations (see package docstring).              |
+| `nemo_backend/tools/workspace.py`                      | Read/search/list workspace files; assembles `TOOLS` / `TOOL_MAP`.           |
+| `nemo_backend/tools/edit.py`                           | Full-file, line-range, snippet edit tools with diff payloads.               |
+| `nemo_backend/tools/staging_edit.py`                   | Staged create/update tools for Editor mode.                                 |
+| `nemo_backend/tools/delete.py`                         | `delete_workspace_entry` + pending delete / confirm flow.                   |
+| `nemo_backend/tools/copy.py`                           | `copy_workspace_files` with HITL when auto-apply is off.                    |
+| `nemo_backend/tools/lsp_tools.py`                      | LSP reads, diagnostics, and language-specific CRUD tools.                   |
+| `nemo_backend/tools/review_tools.py`                   | Staging read/format/transfer/reject/overlay tools.                           |
+| `nemo_backend/tools/project_review_tools.py`           | Workspace pytest/smoke verification tools.                                  |
+| `nemo_backend/tools/python_deps.py`                    | Python pip/requirements install tools.                                      |
+| `nemo_backend/tools/node_deps.py`                      | npm/pnpm/Yarn install and script tools.                                     |
 | `nemo_backend/partial_workspace_edit.py`               | Merge strategies (line range, snippet, fuzzy match).                        |
 | `nemo_backend/diff_payload.py`                         | Side-by-side diff rows via diff-match-patch.                                |
 | `nemo_backend/edit_staging.py`                         | Temp staging dir, workspace mirror, code-review extensions.                 |
-| `nemo_backend/staging_snapshot_session.py`               | Seed/cleanup workspace mirror + staging namespace per session.                |
-| `nemo_backend/lsp/`                                    | Python LSP client, manager, diagnostics, and tool surface.                  |
+| `nemo_backend/staging_snapshot_session.py`             | Seed/cleanup workspace mirror + staging namespace per session.              |
+| `nemo_backend/lsp/`                                    | LSP client, manager, diagnostics (runtime; tools in `tools/lsp_tools.py`).  |
 | `nemo_backend/workspace_text_io.py`                    | Encoding/newline normalization and disk I/O for tools.                      |
 | `nemo_backend/workspace_ignore.py`                     | `.gitignore` + built-in ignores for search/list.                            |
-| `nemo_backend/tool_registry.py`                        | Central tool registry and HITL policy.                                      |
-| **Outer agent tool modules**                         |                                                                             |
-| `nemo_backend/agents/specialists/tools.py`             | Python/Node dependency tool lists merged into the outer agent.              |
-| `nemo_backend/agents/specialists/review_tools.py`      | Staging read/format/transfer/reject tools for the outer agent.              |
-| `nemo_backend/agents/specialists/project_review_tools.py` | Workspace pytest/smoke verification tools for the outer agent.           |
 | **Middleware**                                         |                                                                             |
 | `nemo_backend/diff_review_middleware.py`               | Pause after diff-emitting tools until user continues.                       |
 | `nemo_backend/delete_review_middleware.py`             | Pause after delete HITL.                                                    |

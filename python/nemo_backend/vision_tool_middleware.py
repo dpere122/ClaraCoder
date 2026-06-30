@@ -10,7 +10,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from nemo_backend.messages import stringify_content
-from nemo_backend.workspace_image_tools import (
+from nemo_backend.tools.workspace_image import (
     READ_WORKSPACE_IMAGE_NAME,
     VisionImagePayload,
     pending_vision_image_payload,

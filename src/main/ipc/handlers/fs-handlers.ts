@@ -74,4 +74,14 @@ export function registerFsIpc(): void {
       return '';
     }
   });
+
+  ipcMain.handle('workspace-path-is-directory', async (event, absolutePath: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+      await assertRegisteredWorkspaceDirectory(absolutePath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }

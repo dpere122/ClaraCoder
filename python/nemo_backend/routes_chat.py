@@ -45,12 +45,12 @@ async def chat_abort(request: AbortRequest) -> dict[str, bool]:
 async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]:
     """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
     from nemo_backend.accept_command import execute_pending_accept_command_decision
-    from nemo_backend.agents.specialists.review_tools import (
+    from nemo_backend.tools.review_tools import (
         finalize_staged_transfer_after_hitl,
         resolve_staged_transfer_batch_file,
     )
-    from nemo_backend.copy_tool import execute_pending_copy_decision
-    from nemo_backend.delete_tool import execute_pending_delete_decision
+    from nemo_backend.tools.copy import execute_pending_copy_decision
+    from nemo_backend.tools.delete import execute_pending_delete_decision
 
     sess = state.get_session(request.session_id)
     note = (request.note or '').strip()

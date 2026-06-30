@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.node_project_discovery import (
+from nemo_backend.tools.node_discovery import (
     discover_workspace_npm_projects,
     format_npm_discovery_report,
 )
@@ -77,7 +77,7 @@ def test_format_report_lists_relative_project_dir_hint(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_discover_tool_requires_session() -> None:
-    from nemo_backend.node_project_discovery import discover_npm_projects_tool
+    from nemo_backend.tools.node_discovery import discover_npm_projects_tool
 
     out = await discover_npm_projects_tool.ainvoke({})
     assert 'no active session' in out

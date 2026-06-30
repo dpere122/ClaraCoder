@@ -1,13 +1,16 @@
 import { CommonModule } from '@angular/common';
 import {
+  afterNextRender,
   Component,
   computed,
   effect,
   inject,
+  Injector,
   input,
   OnDestroy,
   output,
   signal,
+  untracked,
   ViewEncapsulation,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
@@ -15,11 +18,14 @@ import type { DiffReviewStatus, PlanConfirmPayload, PlannerProgress, PlannerStep
 import { planPanelCompleteCount } from '../chat-box-display';
 import { ElectronService } from '../../../../core/electron.service';
 
+const PLAN_PROGRESS_SPINNER_TYPE = 'line-spin-fade' as const;
+
 const INLINE_SPINNER = {
   fullScreen: false as const,
   bdColor: 'rgba(0,0,0,0)',
   size: 'small' as const,
   color: 'var(--t-secondary)',
+  type: PLAN_PROGRESS_SPINNER_TYPE,
 };
 
 @Component({
@@ -33,8 +39,11 @@ const INLINE_SPINNER = {
 export class PlannerChecklistComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
   private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
   private readonly instanceId = `plan-${Math.random().toString(36).slice(2, 10)}`;
+  private destroyed = false;
 
+  readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
   readonly headerSpinnerName = `${this.instanceId}-header`;
   readonly stepSpinnerName = `${this.instanceId}-step`;
   readonly approveSpinnerName = `${this.instanceId}-approve`;
@@ -107,20 +116,12 @@ export class PlannerChecklistComponent implements OnDestroy {
   constructor() {
     effect(() => {
       const showHeader = this.showHeaderSpinner();
-      if (showHeader) {
-        void this.ngxSpinner.show(this.headerSpinnerName, { ...INLINE_SPINNER, type: 'line-spin-fade' });
-      } else {
-        void this.ngxSpinner.hide(this.headerSpinnerName);
-      }
+      untracked(() => this.scheduleHeaderSpinnerSync(showHeader));
     });
 
     effect(() => {
       const runningId = this.runningStepId();
-      if (runningId) {
-        void this.ngxSpinner.show(this.stepSpinnerName, { ...INLINE_SPINNER, type: 'ball-clip-rotate' });
-      } else {
-        void this.ngxSpinner.hide(this.stepSpinnerName);
-      }
+      untracked(() => this.scheduleStepSpinnerSync(runningId != null));
     });
 
     effect(() => {
@@ -133,9 +134,39 @@ export class PlannerChecklistComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     void this.ngxSpinner.hide(this.headerSpinnerName);
     void this.ngxSpinner.hide(this.stepSpinnerName);
     void this.ngxSpinner.hide(this.approveSpinnerName);
+  }
+
+  /** Defer until ngx-spinner hosts mount (step marker is created inside @for). */
+  private scheduleStepSpinnerSync(show: boolean): void {
+    afterNextRender(
+      () => {
+        if (this.destroyed) return;
+        if (show) {
+          void this.ngxSpinner.show(this.stepSpinnerName, INLINE_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(this.stepSpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
+  }
+
+  private scheduleHeaderSpinnerSync(show: boolean): void {
+    afterNextRender(
+      () => {
+        if (this.destroyed) return;
+        if (show) {
+          void this.ngxSpinner.show(this.headerSpinnerName, INLINE_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(this.headerSpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
   }
 
   async onConfirm(): Promise<void> {
@@ -149,6 +180,8 @@ export class PlannerChecklistComponent implements OnDestroy {
     const res = await this.electron.notifyAgentContinue(
       id,
       '',
+      undefined,
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -187,6 +220,8 @@ export class PlannerChecklistComponent implements OnDestroy {
     await this.electron.notifyAgentContinue(
       id,
       '',
+      undefined,
+      undefined,
       undefined,
       undefined,
       undefined,

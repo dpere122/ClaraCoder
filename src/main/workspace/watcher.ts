@@ -22,7 +22,7 @@ import { pushWorkspaceFilesChangedToRenderer } from './emit-files-changed';
 import { buildWorkspaceTree } from './context-tree';
 import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
 import type { WorkspaceWatcherState } from './watcher-state';
-import type { WorkspaceChangeKind } from '../../shared';
+import type { WorkspaceChangeKind, WorkspaceContextSyncExtras } from '../../shared';
 
 export type { WorkspaceWatcherState };
 
@@ -95,13 +95,22 @@ async function syncWatchedWorkspaceTree(
                 watcherState.exposeAllWorkspaceFiles,
               )
             : { paths: [] as string[], kinds: [] as WorkspaceChangeKind[] };
-        await syncWorkspaceContextToPython(mainState.activeConversationId, watcherState.workspacePath, tree, {
-          workspaceId: watcherState.workspaceId,
-          workspaceFileChanges:
-            contextChanges.paths.length > 0 || contextChanges.kinds.length > 0
-              ? { paths: contextChanges.paths, kinds: contextChanges.kinds }
-              : undefined,
-        });
+        await syncWorkspaceContextToPython(
+          mainState.activeConversationId,
+          watcherState.workspacePath,
+          tree,
+          workspaceContextSyncExtras(
+            mainState.activeConversationId,
+            watcherState.workspaceId,
+            watcherState.workspacePath,
+            {
+              workspaceFileChanges:
+                contextChanges.paths.length > 0 || contextChanges.kinds.length > 0
+                  ? { paths: contextChanges.paths, kinds: contextChanges.kinds }
+                  : undefined,
+            },
+          ),
+        );
       } catch (err) {
         console.error('Failed to sync watched workspace context:', err);
       }
@@ -387,6 +396,25 @@ export async function refreshWorkspaceWatcherForCurrentConfig(config?: import('.
 }
 
 /** After load/new conversation, push tree + state summary to Python for the active session. */
+function workspaceContextSyncExtras(
+  sessionId: string,
+  workspaceId: string,
+  workspacePath: string,
+  partial?: Omit<WorkspaceContextSyncExtras, 'skipEnvBootstrap'>,
+): WorkspaceContextSyncExtras {
+  const prev = mainState.sessionWorkspaceContextSync.get(sessionId);
+  const sameWorkspace =
+    prev !== undefined &&
+    prev.workspaceId === workspaceId &&
+    prev.workspacePath === workspacePath;
+  mainState.sessionWorkspaceContextSync.set(sessionId, { workspaceId, workspacePath });
+  return {
+    ...partial,
+    workspaceId,
+    ...(sameWorkspace ? { skipEnvBootstrap: true } : {}),
+  };
+}
+
 export async function syncConversationWorkspaceContext(conv: ConversationFile): Promise<void> {
   mainState.activeConversationWorkspaceId = conv.workspaceId;
 
@@ -403,10 +431,16 @@ export async function syncConversationWorkspaceContext(conv: ConversationFile): 
           ? aw.lastTree ||
             (await buildWatchedContextSnapshot(workspace.path, stagingPath, aw.exposeAllWorkspaceFiles))
           : await buildWatchedContextSnapshot(workspace.path, stagingPath, exposeAll);
-      await syncWorkspaceContextToPython(conv.id, workspace.path, tree, { workspaceId: workspace.id });
+      await syncWorkspaceContextToPython(
+        conv.id,
+        workspace.path,
+        tree,
+        workspaceContextSyncExtras(conv.id, workspace.id, workspace.path),
+      );
       return;
     }
   }
 
+  mainState.sessionWorkspaceContextSync.delete(conv.id);
   await syncWorkspaceContextToPython(conv.id, '', '');
 }

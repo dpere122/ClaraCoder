@@ -278,10 +278,34 @@ def test_lsp_semantic_tokens_legend_python_after_disk_sync_uses_injected_client(
     assert 'keyword' in data.get('tokenTypes', [])
 
 
-def test_lsp_semantic_tokens_legend_typescript_prefetch_starts_injected_client(lsp_http_env) -> None:
-    """TypeScript legend is safe to prefetch before a file seed, so Monaco receives a non-empty legend."""
+def test_lsp_semantic_tokens_legend_typescript_deferred_without_seed(lsp_http_env) -> None:
+    """TypeScript legend prefetch is deferred until a TS/JS file has been synced (seed)."""
 
     with TestClient(lsp_http_env.app) as client:
+        r = client.get(
+            f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=typescript',
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get('supported') is False
+    assert data.get('tokenTypes') == []
+    assert not lsp_http_env.fake_clients
+
+
+def test_lsp_semantic_tokens_legend_typescript_after_disk_sync_uses_injected_client(lsp_http_env) -> None:
+    """After syncing a TS/JS path, legend prefetch may start the injected TypeScript client."""
+
+    session = get_session(lsp_http_env.session_id)
+    root = Path(session.workspace_path)
+    ts = root / 'src' / 'app.ts'
+    ts.parent.mkdir(parents=True, exist_ok=True)
+    ts.write_text('export const x = 1\n', encoding='utf-8')
+    with TestClient(lsp_http_env.app) as client:
+        r0 = client.get(
+            f'/lsp/diagnostics?session_id={lsp_http_env.session_id}'
+            f'&relative_path=src/app.ts&refresh_active_document=true',
+        )
+        assert r0.status_code == 200
         r = client.get(
             f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=typescript',
         )
@@ -360,6 +384,28 @@ def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None
     assert servers.get('python', {}).get('initialized') is False
     assert servers.get('typescript', {}).get('initialized') is False
     assert servers.get('gdscript', {}).get('initialized') is False
+
+
+def test_get_lsp_dashboard_status_uses_cached_ts_root_only(lsp_http_env, tmp_path) -> None:
+    from nemo_backend.lsp.manager import get_lsp_dashboard_status
+    from nemo_backend.state import get_session
+
+    session = get_session(lsp_http_env.session_id)
+    session.typescript_lsp_resolved_root = ''
+
+    st = get_lsp_dashboard_status(lsp_http_env.session_id)
+    assert st.get('typescriptProjectRoot') is None
+    assert st.get('nodeModulesPresent') is False
+
+    workspace = tmp_path / 'ws2'
+    pkg = workspace / 'pkg'
+    pkg.mkdir(parents=True)
+    (pkg / 'node_modules').mkdir()
+    session.typescript_lsp_resolved_root = str(pkg.resolve())
+
+    st2 = get_lsp_dashboard_status(lsp_http_env.session_id)
+    assert st2.get('typescriptProjectRoot') == str(pkg.resolve())
+    assert st2.get('nodeModulesPresent') is True
 
 
 def test_lsp_warm_server_http_route(lsp_http_env) -> None:

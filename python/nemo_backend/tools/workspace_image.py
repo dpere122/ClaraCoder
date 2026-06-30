@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from PIL import Image, UnidentifiedImageError
 
 from nemo_backend.state import current_session_id, get_session
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.tools.workspace_image')
 

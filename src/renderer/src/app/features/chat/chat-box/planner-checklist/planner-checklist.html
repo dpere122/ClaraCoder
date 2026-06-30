@@ -25,7 +25,7 @@
               <span class="plan-panel__header-spinner-host" aria-hidden="true">
                 <ngx-spinner
                   [name]="headerSpinnerName"
-                  type="line-spin-fade"
+                  [type]="planProgressSpinnerType"
                   [fullScreen]="false"
                   bdColor="rgba(0,0,0,0)"
                   size="small"
@@ -81,7 +81,7 @@
               <span class="plan-panel__step-spinner-host" aria-label="Running">
                 <ngx-spinner
                   [name]="stepSpinnerName"
-                  type="ball-clip-rotate"
+                  [type]="planProgressSpinnerType"
                   [fullScreen]="false"
                   bdColor="rgba(0,0,0,0)"
                   size="small"

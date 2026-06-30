@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from nemo_backend.checkpointing import delete_outer_threads_for_session
 from nemo_backend.domain import SessionState
 from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from nemo_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
+from nemo_backend.workspace_index.embeddings_factory import embeddings_available
 from nemo_backend.workspace_index.lifecycle import (
     invalidate_staging_index_disk,
     invalidate_workspace_index_disk,
@@ -30,10 +32,34 @@ from nemo_backend.schemas import (
     SessionAutoApplyRequest,
     WorkspaceContextRequest,
 )
+from nemo_backend.tools.node_discovery import discover_workspace_npm_projects
 from nemo_backend import state
 
 router = APIRouter()
 logger = logging.getLogger('nemo.http.routes')
+
+_NPM_HINT_MAX_DEPTH = 4
+
+
+def _apply_npm_project_hints(sess: SessionState, workspace_root: Path) -> None:
+    """One bounded npm scan on workspace attach; may pre-fill TS LSP root when unambiguous."""
+
+    hints = discover_workspace_npm_projects(workspace_root, max_depth=_NPM_HINT_MAX_DEPTH)
+    sess.npm_project_hints = hints
+    sess.npm_discovery_at = time.time()
+    if len(hints) != 1 or (sess.typescript_lsp_resolved_root or '').strip():
+        return
+    rel = str(hints[0].get('relativeDir') or '.').strip().replace('\\', '/')
+    if rel in ('', '.'):
+        ts_root = workspace_root.resolve()
+    else:
+        ts_root = (workspace_root / rel).resolve()
+    sess.typescript_lsp_resolved_root = str(ts_root)
+    logger.info(
+        'typescript project root pre-filled from single npm hint session workspace=%s root=%s',
+        workspace_root,
+        ts_root,
+    )
 
 
 @router.post('/clear')
@@ -90,6 +116,9 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
             except Exception:
                 logger.debug('invalidate semantic index after workspace change failed', exc_info=True)
         sess.semantic_index_pending.clear()
+        sess.npm_project_hints = None
+        sess.npm_discovery_at = None
+        sess.typescript_lsp_resolved_root = ''
 
     sess.workspace_path = request.workspace_path
     sess.workspace_context = request.workspace_context
@@ -101,7 +130,9 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
 
     if new_path:
         ensure_corpus = workspace_first_attach or workspace_path_changed
-        if ensure_corpus or sess.semantic_index_pending:
+        conn = state.get_active_connection()
+        embeddings_ok, _ = embeddings_available(conn)
+        if embeddings_ok and (ensure_corpus or sess.semantic_index_pending):
             schedule_semantic_index_background(
                 request.session_id,
                 ensure_corpus=ensure_corpus,
@@ -110,8 +141,14 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     if not new_path:
         sess.semantic_index_pending.clear()
         clear_session_python_workspace_env(sess)
+        sess.npm_project_hints = None
+        sess.npm_discovery_at = None
         return {'ok': True}
 
+    if workspace_path_changed or workspace_first_attach:
+        _apply_npm_project_hints(sess, Path(new_path))
+
+    skip_env = bool(request.skip_env_bootstrap)
     interp = (request.python_interpreter_id or '').strip()
     if interp:
         entry = find_interpreter_entry_by_id(Path(new_path), interp)
@@ -124,7 +161,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
                 interp,
                 request.session_id,
             )
-    elif workspace_path_changed or not sess.python_workspace_python_executable:
+    elif not skip_env and request.bootstrap_python_env:
         result = await ensure_session_python_workspace_env(
             sess,
             allow_workspace_root_fallback=False,

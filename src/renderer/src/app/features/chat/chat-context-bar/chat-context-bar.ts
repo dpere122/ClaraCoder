@@ -1,9 +1,12 @@
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { ElectronService } from '../../../core/electron.service';
+import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from './chat-context-drop';
 import {
+  chatContextFileKey,
+  formatChatContextChipLabel,
+  formatChatContextChipTitle,
   type ChatContextFile,
-  WORKSPACE_TREE_DRAG_MIME,
 } from './chat-context-file';
 
 /** Bar above the composer holding files attached to the next turn (images preview inline). */
@@ -20,7 +23,8 @@ export class ChatContextBar {
   readonly workspaceRoot = input('');
 
   readonly removeFile = output<ChatContextFile>();
-  readonly pathsDropped = output<string[]>();
+  readonly togglePinFile = output<ChatContextFile>();
+  readonly pathsDropped = output<ChatContextDroppedPath[]>();
 
   protected readonly dragActive = signal(false);
   /** Thumbnail data URLs keyed by relative path (lazy-loaded for image attachments). */
@@ -45,6 +49,26 @@ export class ChatContextBar {
     });
   }
 
+  protected contextKey(file: ChatContextFile): string {
+    return chatContextFileKey(file);
+  }
+
+  protected hasLineRange(file: ChatContextFile): boolean {
+    return file.source === 'editor' && !!file.lineRange;
+  }
+
+  protected isPinned(file: ChatContextFile): boolean {
+    return !!file.pinned;
+  }
+
+  protected chipLabel(file: ChatContextFile): string {
+    return formatChatContextChipLabel(file);
+  }
+
+  protected chipTitle(file: ChatContextFile): string {
+    return formatChatContextChipTitle(file);
+  }
+
   protected thumbnailFor(file: ChatContextFile): string | null {
     return this.thumbnails()[file.relativePath] ?? null;
   }
@@ -53,51 +77,38 @@ export class ChatContextBar {
     this.removeFile.emit(file);
   }
 
-  protected onDragOver(event: DragEvent): void {
-    if (!event.dataTransfer) {
-      return;
-    }
-    const types = Array.from(event.dataTransfer.types ?? []);
-    if (!types.includes(WORKSPACE_TREE_DRAG_MIME) && !types.includes('text/plain')) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    this.dragActive.set(true);
+  protected onTogglePin(file: ChatContextFile): void {
+    this.togglePinFile.emit(file);
   }
 
-  protected onDragLeave(): void {
+  protected onDragOver(event: DragEvent): void {
+    if (handleChatContextDragOver(event)) {
+      this.dragActive.set(true);
+    }
+  }
+
+  protected onDragLeave(event: DragEvent): void {
+    const related = event.relatedTarget;
+    const host = event.currentTarget;
+    if (related instanceof Node && host instanceof Node && host.contains(related)) {
+      return;
+    }
     this.dragActive.set(false);
   }
 
   protected onDrop(event: DragEvent): void {
     this.dragActive.set(false);
-    const dt = event.dataTransfer;
-    if (!dt) {
-      return;
-    }
-    const raw = dt.getData(WORKSPACE_TREE_DRAG_MIME) || dt.getData('text/plain');
-    if (!raw) {
-      return;
-    }
-    event.preventDefault();
-    const paths = raw
-      .split('\n')
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+    const paths = handleChatContextDrop(event);
     if (paths.length > 0) {
       this.pathsDropped.emit(paths);
     }
   }
 
   private async loadThumbnail(root: string, relativePath: string): Promise<void> {
-    try {
-      const res = await this.electron.readWorkspaceImageBase64(root, relativePath);
-      if (res.ok && res.dataUrl) {
-        this.thumbnails.update((prev) => ({ ...prev, [relativePath]: res.dataUrl as string }));
-      }
-    } catch {
-      // Ignore: chip falls back to the generic image icon.
+    const res = await this.electron.readWorkspaceImageBase64(root, relativePath);
+    if (!res.ok || !res.dataUrl) {
+      return;
     }
+    this.thumbnails.update((m) => ({ ...m, [relativePath]: res.dataUrl! }));
   }
 }

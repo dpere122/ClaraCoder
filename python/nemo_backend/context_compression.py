@@ -27,7 +27,7 @@ from nemo_backend.llm import build_llm
 from nemo_backend.messages import stringify_content
 from nemo_backend.state import get_active_connection, runtime_config
 from nemo_backend.tool_registry import WORKSPACE_READ_TOOL_NAMES
-from nemo_backend.workspace_tools import truncate_text, truncate_text_head_tail
+from nemo_backend.tools.workspace import truncate_text, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.context_compression')
 

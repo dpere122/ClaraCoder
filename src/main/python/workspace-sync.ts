@@ -75,25 +75,50 @@ export function alignLlamaEmbeddingsBaseUrlWithChatHost(chatBaseUrl: string, emb
   }
 }
 
+/** Compare OpenAI-compatible ``…/v1`` bases for equality (trailing slashes optional). */
+export function openAiV1BasesEquivalent(a: string, b: string): boolean {
+  const norm = (raw: string) => {
+    let s = (raw || '').trim().replace(/\/+$/, '');
+    if (!s.toLowerCase().endsWith('/v1')) {
+      s = `${s}/v1`;
+    }
+    return s.toLowerCase();
+  };
+  return norm(a) === norm(b);
+}
+
 /**
  * When false, Python skips workspace embeddings / semantic index for this connection.
- * llama.cpp: true only when the preset has a non-empty ``embeddingRunCommand`` and a reachable embeddings base URL is known
- * (managed embedding server running, or a static per-preset ``embeddingsBaseUrl``). OpenAI/LM Studio: always true.
+ * OpenAI: always true. LM Studio: requires ``embeddingsModel``. llama.cpp managed: requires a running
+ * managed embed URL. llama.cpp URL-only: requires ``embeddingsModel`` or a dedicated ``embeddingsBaseUrl``.
  */
-function embeddingsEnabledForWire(
+export function embeddingsEnabledForWire(
   c: LlmConnectionConfig,
   llamaOverride: LlamaManagedRuntimeEndpoints | undefined,
 ): boolean {
-  if (c.provider !== 'llamacpp') {
+  if (c.provider === 'openai') {
     return true;
+  }
+  if (c.provider === 'lmstudio') {
+    return !!(c.embeddingsModel ?? '').trim();
+  }
+  if (c.provider !== 'llamacpp') {
+    return false;
   }
   const managedEmb = (llamaOverride?.embeddingsBaseUrl ?? '').trim();
   const staticEmb = (c.embeddingsBaseUrl ?? '').trim();
+  const chatBase = (c.baseUrl ?? '').trim();
+  const embModel = (c.embeddingsModel ?? '').trim();
   if ((c.llamaCppManaged?.embeddingRunCommand ?? '').trim()) {
-    return !!(managedEmb || staticEmb);
+    return !!managedEmb;
   }
-  // URL-only / static llama-server: no managed embedding process; enable when a chat or embeddings base URL is set.
-  return !!(c.baseUrl ?? '').trim() || !!staticEmb;
+  if (embModel) {
+    return !!(chatBase || staticEmb);
+  }
+  if (staticEmb && chatBase && !openAiV1BasesEquivalent(chatBase, staticEmb)) {
+    return true;
+  }
+  return false;
 }
 
 /** One row for ``POST /runtime-config`` (camelCase keys match Pydantic). */
@@ -217,6 +242,12 @@ export async function syncWorkspaceContextToPython(
   const pyInterp = (extras?.pythonInterpreterId ?? '').trim();
   if (pyInterp) {
     body.python_interpreter_id = pyInterp;
+  }
+  if (extras?.bootstrapPythonEnv) {
+    body.bootstrap_python_env = true;
+  }
+  if (extras?.skipEnvBootstrap) {
+    body.skip_env_bootstrap = true;
   }
   await fetch(`${PYTHON_URL}/workspace-context`, {
     method: 'POST',

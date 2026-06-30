@@ -1,4 +1,4 @@
-"""Staging review tools merged into the outer Clara agent (read/format/transfer/reject)."""
+"""Staging review tools for the outer Clara agent (read/format/transfer/reject)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Literal
 from langchain_core.tools import tool
 
 from nemo_backend import edit_staging
-from nemo_backend.agents.specialists.project_review_tools import (
+from nemo_backend.tools.project_review_tools import (
     _emit_project_review_chunk,
     _emit_project_review_tool_complete,
     _pump_subprocess_stream,
@@ -32,7 +32,7 @@ from nemo_backend.domain import PendingStagedTransferHitl, SessionState, Workspa
 from nemo_backend.lsp.diagnostics import format_diagnostics_summary, indentation_followup_guidance
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
-from nemo_backend.lsp.tools import lsp_get_diagnostics
+from nemo_backend.tools.lsp_tools import lsp_get_diagnostics
 from nemo_backend.python_env import (
     ensure_session_python_workspace_env,
     session_workspace_subprocess_env,
@@ -56,7 +56,7 @@ from nemo_backend.state import (
     runtime_config,
 )
 from nemo_backend.workspace_text_io import DiskNewline, decode_for_tools, write_file_resolved
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text, truncate_text_head_tail
+from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path, truncate_text, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.staging')
 

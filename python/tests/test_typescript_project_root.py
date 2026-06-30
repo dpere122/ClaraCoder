@@ -72,6 +72,18 @@ def test_resolve_env_relative_to_workspace(tmp_path: Path, monkeypatch: pytest.M
     assert got.resolve() == app.resolve()
 
 
+def test_resolve_skips_workspace_walk_when_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    ws = tmp_path / 'monorepo'
+    ws.mkdir()
+    deep = ws / 'packages' / 'web' / 'app'
+    deep.mkdir(parents=True)
+    _touch_ts_package(deep)
+
+    got = resolve_typescript_project_root(ws, seed_relative_path=None, allow_workspace_walk=False)
+    assert got.resolve() == ws.resolve()
+
+
 def test_resolve_falls_back_to_workspace_when_no_packages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'empty'

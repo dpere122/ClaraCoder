@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from nemo_backend.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
-from nemo_backend.python_dependency_agent import (
+from nemo_backend.tools.python_deps import (
     bootstrap_session_python_dependencies,
     freeze_python_requirements_tool,
     install_python_packages_tool,

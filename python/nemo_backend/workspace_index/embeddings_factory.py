@@ -185,17 +185,50 @@ def normalize_openai_api_base(raw: str) -> str | None:
     return f'{s}/v1'
 
 
-def _llamacpp_embeddings_disabled(connection: RuntimeConnection) -> bool:
-    """True when this llama.cpp model preset has no embedding server and no dedicated embeddings endpoint."""
-    if connection.provider != 'llamacpp':
-        return False
-    if getattr(connection, 'embeddings_enabled', True):
-        return False
+def embeddings_available(connection: RuntimeConnection) -> tuple[bool, str]:
+    """Return whether semantic index / embedding HTTP calls should run for *connection*."""
+    enabled = getattr(connection, 'embeddings_enabled', True)
+    conn_emb = (getattr(connection, 'embeddings_base_url', None) or '').strip()
+    emb_model = (getattr(connection, 'embeddings_model', None) or '').strip()
+
+    if not enabled:
+        if NEMO_EMBEDDINGS_BASE_URL or conn_emb:
+            pass
+        elif connection.provider == 'llamacpp':
+            return (
+                False,
+                'Semantic index / embeddings are disabled for this llama.cpp model preset. '
+                'Enable the embedding server in Settings (Models → Embedding), or set NEMO_EMBEDDINGS_BASE_URL '
+                'to a dedicated OpenAI-compatible embeddings API.',
+            )
+        else:
+            return False, 'Semantic index / embeddings are disabled for this connection.'
+
     if NEMO_EMBEDDINGS_BASE_URL:
-        return False
-    if (getattr(connection, 'embeddings_base_url', None) or '').strip():
-        return False
-    return True
+        return True, ''
+
+    if connection.provider == 'openai':
+        return True, ''
+
+    if connection.provider == 'lmstudio':
+        if not emb_model:
+            return (
+                False,
+                'Semantic index unavailable: no embeddings model configured in Settings (Models → Embedding).',
+            )
+        return True, ''
+
+    if connection.provider == 'llamacpp':
+        if conn_emb or emb_model:
+            return True, ''
+        return (
+            False,
+            'Semantic index / embeddings are disabled for this llama.cpp preset (chat-only). '
+            'Configure an embeddings model or a dedicated embeddings base URL in Settings, '
+            'or set NEMO_EMBEDDINGS_BASE_URL.',
+        )
+
+    return False, f'Embeddings unavailable: unsupported provider {connection.provider!r}.'
 
 
 def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding | None, str]:
@@ -209,13 +242,9 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
     (``embeddings_enabled`` is false), unless ``NEMO_EMBEDDINGS_BASE_URL`` or per-connection ``embeddings_base_url``
     supplies a dedicated endpoint.
     """
-    if _llamacpp_embeddings_disabled(connection):
-        return (
-            None,
-            'Semantic index / embeddings are disabled for this llama.cpp model preset. '
-            'Enable the embedding server in Settings (Models → Embedding), or set NEMO_EMBEDDINGS_BASE_URL '
-            'to a dedicated OpenAI-compatible embeddings API.',
-        )
+    ok, reason = embeddings_available(connection)
+    if not ok:
+        return None, reason
 
     model = resolve_embedding_model_id(connection)
     base_url = (connection.base_url or '').strip()

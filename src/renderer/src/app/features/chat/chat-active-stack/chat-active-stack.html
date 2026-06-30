@@ -1,4 +1,16 @@
-<div class="chat-active-stack">
+<div
+  class="chat-active-stack"
+  [class.chat-active-stack--drag]="dragActive()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  @if (dragActive()) {
+    <div class="chat-active-stack__drop-overlay" aria-hidden="true">
+      <span class="chat-active-stack__drop-label">Drop files or folders to attach to chat</span>
+    </div>
+  }
+
   <app-chat-box
     class="chat-active-stack__transcript"
     [layout]="layout()"
@@ -26,6 +38,7 @@
       [files]="chatContextFiles()"
       [workspaceRoot]="workspaceRoot()"
       (removeFile)="removeChatContextFile.emit($event)"
+      (togglePinFile)="togglePinChatContextFile.emit($event)"
       (pathsDropped)="chatContextPathsDropped.emit($event)"
     />
     <div class="chat-active-stack__composer-input">
@@ -48,7 +61,7 @@
         [talkDetail]="talkModeDetailStatus()"
         [loading]="loading()"
         [contextBlocked]="contextBlocked()"
-        [attachmentCount]="chatContextFiles().length"
+        [attachmentCount]="attachmentCount() || chatContextFiles().length"
         (messageSent)="messageSent.emit($event)"
         (abortRequested)="abortRequested.emit()"
       />

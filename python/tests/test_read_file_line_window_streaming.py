@@ -9,7 +9,7 @@ import pytest
 from nemo_backend.domain import RuntimeToolsConfig
 from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import read_file_for_tools, read_file_line_window_for_tools
-from nemo_backend.workspace_tools import read_workspace_file
+from nemo_backend.tools.workspace import read_workspace_file
 
 
 @pytest.fixture(autouse=True)

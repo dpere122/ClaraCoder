@@ -18,10 +18,34 @@ from nemo_backend.lsp.editor_monaco import (
 from nemo_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from nemo_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, list_session_diagnostics
 from nemo_backend.lsp.registry import lsp_server_id_is_registered
-from nemo_backend.lsp.tools import _format_hover_contents
+from nemo_backend.python_env import ensure_session_python_workspace_env
+from nemo_backend.state import get_session
+from nemo_backend.tools.lsp_tools import _format_hover_contents
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 
 router = APIRouter()
+
+
+async def _bootstrap_python_env_if_needed(session_id: str, *, server: str | None = None) -> None:
+    """Ensure workspace Python env is resolved before starting Jedi (deferred from workspace attach)."""
+
+    if server is not None and server != 'python':
+        return
+    sess = get_session(session_id)
+    if (sess.python_workspace_python_executable or '').strip():
+        return
+    if not (sess.workspace_path or '').strip():
+        return
+    await ensure_session_python_workspace_env(
+        sess,
+        allow_workspace_root_fallback=False,
+        bootstrap_dependencies=True,
+    )
+
+
+async def _bootstrap_python_env_for_relative_path(session_id: str, relative_path: str) -> None:
+    server = lsp_server_for_path(relative_path)
+    await _bootstrap_python_env_if_needed(session_id, server=server)
 
 
 def _lsp_diagnostics_sync(
@@ -281,6 +305,10 @@ async def lsp_diagnostics(
         enc = validate_workspace_encoding(encoding)
         rel = (relative_path or '').strip().replace('\\', '/')
         refresh_disk = refresh_active_document or refresh_from_workspace
+        if rel:
+            server = lsp_server_for_path(rel)
+            if server:
+                await _bootstrap_python_env_if_needed(session_id, server=server)
         return await asyncio.to_thread(_lsp_diagnostics_sync, session_id, enc, rel, refresh_disk)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -294,6 +322,7 @@ async def lsp_semantic_tokens_legend(session_id: str, server: str) -> dict[str, 
         srv = (server or '').strip().lower()
         if not lsp_server_id_is_registered(srv):
             raise ValueError(f'Unknown LSP server id: {srv!r}.')
+        await _bootstrap_python_env_if_needed(session_id, server=srv)
         return await asyncio.to_thread(_lsp_semantic_tokens_legend_sync, session_id, srv)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -323,6 +352,7 @@ async def lsp_warm_server(session_id: str, server: str) -> dict[str, str]:
     """Start the given language-server subprocess if needed (no document sync)."""
 
     try:
+        await _bootstrap_python_env_if_needed(session_id, server=server)
         return await asyncio.to_thread(_lsp_warm_server_sync, session_id, server)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -342,6 +372,7 @@ async def lsp_editor_hover(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_editor_hover_sync,
             session_id,
@@ -365,6 +396,7 @@ async def lsp_editor_definition(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_editor_definition_sync,
             session_id,
@@ -388,6 +420,7 @@ async def lsp_editor_references(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_editor_references_sync,
             session_id,
@@ -412,6 +445,7 @@ async def lsp_editor_document_symbols(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_editor_document_symbols_sync,
             session_id,
@@ -433,6 +467,7 @@ async def lsp_editor_completion(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_editor_completion_sync,
             session_id,
@@ -458,6 +493,7 @@ async def lsp_editor_rename(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_editor_rename_sync,
             session_id,
@@ -482,6 +518,7 @@ async def lsp_semantic_tokens_full(
 
     try:
         validate_workspace_encoding(encoding)
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
         return await asyncio.to_thread(
             _lsp_semantic_tokens_full_sync,
             session_id,

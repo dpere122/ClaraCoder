@@ -22,10 +22,9 @@ from nemo_backend.lsp.registry import (
     iter_registered_lsp_server_ids,
 )
 from nemo_backend.lsp.server_plugin import LspServerPlugin
-from nemo_backend.lsp.typescript_project_root import resolve_typescript_project_root
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.workspace_text_io import read_file_for_tools, validate_workspace_encoding
-from nemo_backend.workspace_tools import normalize_relative_path
+from nemo_backend.tools.workspace import normalize_relative_path
 
 logger = logging.getLogger('nemo.lsp.manager')
 
@@ -659,11 +658,9 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
     overlay_raw = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
     reported_root = overlay_raw if active_scope == 'staging' and overlay_raw else real_ws
     ts_root_str = (session.typescript_lsp_resolved_root or '').strip()
+    node_modules_present = False
     if ts_root_str:
-        ts_base = Path(ts_root_str).resolve()
-    else:
-        ts_base = resolve_typescript_project_root(workspace_root, seed_relative_path=None)
-    node_modules_present = (ts_base / 'node_modules').is_dir()
+        node_modules_present = (Path(ts_root_str).resolve() / 'node_modules').is_dir()
     py_env_path = jedi_environment_path_for_workspace(session, workspace_root)
     py_interp = (session.python_workspace_python_executable or '').strip() or None
 

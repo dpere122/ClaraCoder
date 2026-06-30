@@ -37,10 +37,20 @@ class TypescriptLspPlugin(LspServerPlugin):
         state: Any,
     ) -> LspStartParams:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
-        root = resolve_typescript_project_root(
-            workspace_root,
-            seed_relative_path=st.last_seed or None,
-        )
+        cached = (session.typescript_lsp_resolved_root or '').strip()
+        if cached:
+            root = Path(cached).resolve()
+        elif st.last_seed:
+            root = resolve_typescript_project_root(
+                workspace_root,
+                seed_relative_path=st.last_seed,
+            )
+        else:
+            root = resolve_typescript_project_root(
+                workspace_root,
+                seed_relative_path=None,
+                allow_workspace_walk=False,
+            )
         st.project_root = root
         return LspStartParams(
             lsp_cwd=root,
@@ -49,9 +59,8 @@ class TypescriptLspPlugin(LspServerPlugin):
         )
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
-        # TypeScript can discover a project root without a seed path, and Monaco needs
-        # this legend before the first semantic-token response can be interpreted.
-        return False
+        st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
+        return not bool((st.last_seed or '').strip())
 
     def on_before_sync_document(
         self,

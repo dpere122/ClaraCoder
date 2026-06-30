@@ -196,6 +196,7 @@ def resolve_typescript_project_root(
     session_workspace_root: Path,
     *,
     seed_relative_path: str | None,
+    allow_workspace_walk: bool = True,
 ) -> Path:
     """Return the directory to use as LSP cwd and ``rootUri`` for typescript-language-server.
 
@@ -223,10 +224,11 @@ def resolve_typescript_project_root(
             )
             return up
 
-    discovered = _discover_deepest_project(session_workspace_root)
-    if discovered is not None:
-        logger.info('typescript project root from discovery=%s', discovered)
-        return discovered
+    if allow_workspace_walk:
+        discovered = _discover_deepest_project(session_workspace_root)
+        if discovered is not None:
+            logger.info('typescript project root from discovery=%s', discovered)
+            return discovered
 
     if _is_node_project_root(session_workspace_root):
         logger.info('typescript project root is session workspace=%s', session_workspace_root)

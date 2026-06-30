@@ -854,6 +854,10 @@ export class ElectronService {
     return this.api?.readDirectoryRecursive(dirPath) ?? Promise.resolve('');
   }
 
+  workspacePathIsDirectory(absolutePath: string): Promise<boolean> {
+    return this.api?.workspacePathIsDirectory(absolutePath) ?? Promise.resolve(false);
+  }
+
   modelManagerPickCustomDir(): Promise<string | null> {
     return this.api?.modelManagerPickCustomDir() ?? Promise.resolve(null);
   }

@@ -40,7 +40,7 @@
         (workspaceChanged)='onWorkspaceChanged($event)'
         (addWorkspace)='onAddWorkspace()'
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'
-        (addToChatContext)='addChatContextFile($event.absolutePath)'
+        (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
       />
     </div>
 
@@ -118,6 +118,7 @@
               (stagedTransferBatchFileResolved)='onStagedTransferBatchFileResolved($event)'
               (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
               (pendingEditorRevealHandled)='onMonacoRevealHandled()'
+              (editorSelectionChange)='onEditorSelectionChange($event)'
             />
           </div>
           <div
@@ -153,10 +154,12 @@
                 (copyReviewFinished)='onCopyReviewFinished($event)'
                 (deleteReviewFinished)='onDeleteReviewFinished($event)'
                 (planConfirmFinished)='onPlanConfirmFinished($event)'
-                [chatContextFiles]='chatContextFiles()'
+                [chatContextFiles]='composerContextFiles()'
                 [workspaceRoot]='currentWorkspacePath()'
                 (removeChatContextFile)='removeChatContextFile($event)'
+                (togglePinChatContextFile)='onTogglePinChatContextFile($event)'
                 (chatContextPathsDropped)='onChatContextPathsDropped($event)'
+                [attachmentCount]='composerAttachmentCount()'
                 [appConfig]='appConfig()'
                 [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
                 [talkSilenceThresholdSec]='appConfig()?.audioTranscription?.talkSilenceThresholdSeconds ?? 2'
@@ -224,10 +227,12 @@
         (copyReviewFinished)='onCopyReviewFinished($event)'
         (deleteReviewFinished)='onDeleteReviewFinished($event)'
         (planConfirmFinished)='onPlanConfirmFinished($event)'
-        [chatContextFiles]='chatContextFiles()'
+        [chatContextFiles]='composerContextFiles()'
         [workspaceRoot]='currentWorkspacePath()'
         (removeChatContextFile)='removeChatContextFile($event)'
+        (togglePinChatContextFile)='onTogglePinChatContextFile($event)'
         (chatContextPathsDropped)='onChatContextPathsDropped($event)'
+        [attachmentCount]='composerAttachmentCount()'
         [appConfig]='appConfig()'
         [talkInputDeviceId]='appConfig()?.audioTranscription?.talkInputDeviceId ?? "default"'
         [talkSilenceThresholdSec]='appConfig()?.audioTranscription?.talkSilenceThresholdSeconds ?? 2'

@@ -244,6 +244,7 @@ declare global {
     openDirectoryDialog: () => Promise<string | null>;
     readDirectory: (dirPath: string) => Promise<FileEntry[]>;
     readDirectoryRecursive: (dirPath: string) => Promise<string>;
+    workspacePathIsDirectory: (absolutePath: string) => Promise<boolean>;
     modelManagerPickCustomDir: () => Promise<string | null>;
     modelManagerListCustomModels: (payload: { customDir: string }) => Promise<ModelManagerListModelsResult>;
     modelManagerDetectCaches: () => Promise<ModelManagerDetectCachesResult>;

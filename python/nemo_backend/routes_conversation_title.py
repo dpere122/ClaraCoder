@@ -14,7 +14,7 @@ from nemo_backend.llm import build_llm
 from nemo_backend.messages import stringify_content
 from nemo_backend.schemas import SuggestConversationTitleRequest
 from nemo_backend.state import get_session
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('nemo.title')
 

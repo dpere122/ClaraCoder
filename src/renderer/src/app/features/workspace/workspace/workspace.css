@@ -33,7 +33,7 @@ app-workspace .workspace-body {
 app-workspace .workspace-select {
   flex: 1;
   min-width: 0;
-  padding: 0.4rem 0.6rem;
+  padding: 0.4rem 1.5rem 0.4rem 0.6rem;
   background: var(--t-bg);
   border: 1px solid var(--t-border);
   color: var(--t-primary);

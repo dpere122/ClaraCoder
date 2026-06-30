@@ -29,6 +29,26 @@ def _llamacpp_conn(**kwargs: object) -> RuntimeConnection:
     return RuntimeConnection(**base)  # type: ignore[arg-type]
 
 
+def _lmstudio_conn(**kwargs: object) -> RuntimeConnection:
+    base: dict[str, object] = {
+        'id': 'c',
+        'name': 'c',
+        'provider': 'lmstudio',
+        'base_url': 'http://127.0.0.1:1234/v1',
+        'model': 'chat-model',
+        'api_key': '',
+        'reasoning_effort': '',
+        'temperature': 0.0,
+        'parallel_tool_calls': False,
+        'optimization_preset': 'generic',
+        'max_output_tokens': 0,
+        'plan_retry_attempts_count': 2,
+        'embeddings_enabled': True,
+    }
+    base.update(kwargs)
+    return RuntimeConnection(**base)  # type: ignore[arg-type]
+
+
 def test_build_embedding_model_skips_llamacpp_when_chat_base_uses_port_zero(monkeypatch) -> None:
     from nemo_backend.workspace_index import embeddings_factory as ef
 
@@ -40,7 +60,9 @@ def test_build_embedding_model_skips_llamacpp_when_chat_base_uses_port_zero(monk
 
     monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
 
-    emb, err = ef.build_embedding_model(_llamacpp_conn(base_url='http://127.0.0.1:0/v1'))
+    emb, err = ef.build_embedding_model(
+        _llamacpp_conn(base_url='http://127.0.0.1:0/v1', embeddings_model='emb-model'),
+    )
     assert emb is None
     assert 'unavailable' in err.lower()
     assert not called
@@ -86,7 +108,7 @@ def test_build_embedding_model_respects_nemo_embeddings_base_url(mock_ctor: Magi
     monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
     monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
 
-    emb, err = ef.build_embedding_model(_llamacpp_conn())
+    emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_model='emb-model'))
     assert err == ''
     assert emb is mock_inst
     kwargs = mock_ctor.call_args.kwargs
@@ -119,7 +141,7 @@ def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: Magic
     monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
     monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', 'secret-emb')
 
-    emb, err = ef.build_embedding_model(_llamacpp_conn())
+    emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_model='emb-model'))
     assert err == ''
     assert emb is mock_inst
     kwargs = mock_ctor.call_args.kwargs
@@ -193,7 +215,7 @@ def test_build_embedding_model_skips_probe_within_ttl(mock_ctor: MagicMock, monk
     monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
     monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
 
-    conn = _llamacpp_conn()
+    conn = _llamacpp_conn(embeddings_model='emb-model')
     emb1, err1 = ef.build_embedding_model(conn)
     assert err1 == '' and emb1 is mock_inst
     emb2, err2 = ef.build_embedding_model(conn)
@@ -208,3 +230,37 @@ def test_chunk_text_for_embedding_splits_long_text() -> None:
     parts = _chunk_text_for_embedding(long, 64)
     assert len(parts) > 1
     assert all(p.strip() for p in parts)
+
+
+def test_build_embedding_model_skips_llamacpp_chat_only_without_probe(monkeypatch) -> None:
+    from nemo_backend.workspace_index import embeddings_factory as ef
+
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    called: list[object] = []
+
+    def _no(*_a: object, **_k: object) -> None:
+        called.append(True)
+
+    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
+
+    emb, err = ef.build_embedding_model(_llamacpp_conn())
+    assert emb is None
+    assert 'chat-only' in err.lower()
+    assert not called
+
+
+def test_build_embedding_model_skips_lmstudio_without_embeddings_model(monkeypatch) -> None:
+    from nemo_backend.workspace_index import embeddings_factory as ef
+
+    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    called: list[object] = []
+
+    def _no(*_a: object, **_k: object) -> None:
+        called.append(True)
+
+    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
+
+    emb, err = ef.build_embedding_model(_lmstudio_conn())
+    assert emb is None
+    assert 'embeddings model' in err.lower()
+    assert not called

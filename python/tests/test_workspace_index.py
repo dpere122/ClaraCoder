@@ -23,7 +23,7 @@ from nemo_backend.workspace_index.incremental import (
     flush_semantic_index_patches,
     schedule_semantic_index_background,
 )
-from nemo_backend.workspace_index.semantic_tool import (
+from nemo_backend.tools.semantic import (
     retrieve_workspace_checkpoint_semantic,
     retrieve_workspace_semantic,
 )
@@ -100,7 +100,7 @@ def test_internal_persist_dir_not_under_workspace(tmp_path: Path, monkeypatch: p
 
 
 def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.workspace_index import semantic_tool as st
+    from nemo_backend.tools import semantic as st
 
     monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
     (tmp_path / 'notes.md').write_text('# Project\nUse the frobnitz handler for IO.\n', encoding='utf-8')
@@ -132,7 +132,7 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
 
 
 def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.workspace_index import semantic_tool as st
+    from nemo_backend.tools import semantic as st
 
     monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
     (tmp_path / 'notes.md').write_text('# Project\nUse the frobnitz handler for IO.\n', encoding='utf-8')

@@ -45,7 +45,7 @@ from nemo_backend.plan_step_verify import (
 )
 from nemo_backend.stream_tags import PLANNER_STREAM_TAG
 from nemo_backend.tool_registry import format_tools_catalog, worker_tools_and_map
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('nemo.plan_execute')
 

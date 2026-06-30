@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from nemo_backend.llm import build_llm
 from nemo_backend.messages import stringify_content
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.tools.workspace import truncate_text
 
 VERIFY_PLAN_STEP_LABEL = 'verify_plan_step'
 

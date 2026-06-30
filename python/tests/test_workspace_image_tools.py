@@ -12,7 +12,7 @@ from PIL import Image
 from nemo_backend.model_tuning import combined_model_prompt_suffix, is_qwen35_vision_model
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.vision_tool_middleware import VisionImageInjectionMiddleware
-from nemo_backend.workspace_image_tools import (
+from nemo_backend.tools.workspace_image import (
     READ_WORKSPACE_IMAGE_NAME,
     load_workspace_image,
     pending_vision_image_payload,

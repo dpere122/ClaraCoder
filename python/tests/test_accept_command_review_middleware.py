@@ -10,7 +10,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 
 from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
-from nemo_backend.python_dependency_agent import (
+from nemo_backend.tools.python_deps import (
     INSTALL_PYTHON_PACKAGES_NAME,
     WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
 )

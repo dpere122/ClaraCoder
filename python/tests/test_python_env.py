@@ -220,7 +220,7 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
 
     monkeypatch.setattr('nemo_backend.python_env.ensure_python_workspace_env', _fake_ensure)
     monkeypatch.setattr('nemo_backend.python_env.activate_process_workspace_python_env', lambda _venv_path: None)
-    monkeypatch.setattr('nemo_backend.python_dependency_agent.bootstrap_session_python_dependencies', _fake_bootstrap)
+    monkeypatch.setattr('nemo_backend.tools.python_deps.bootstrap_session_python_dependencies', _fake_bootstrap)
 
     result = asyncio.run(
         ensure_session_python_workspace_env(
@@ -238,7 +238,7 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
     assert 'deps-ready' in result.summary
 
 
-def test_set_workspace_context_bootstraps_python_env_once_per_workspace(monkeypatch, tmp_path: Path) -> None:
+def test_set_workspace_context_defers_python_env_until_bootstrap_flag(monkeypatch, tmp_path: Path) -> None:
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
     session_id = 'python-env-route'
@@ -281,10 +281,23 @@ def test_set_workspace_context_bootstraps_python_env_once_per_workspace(monkeypa
                 session_id=session_id,
                 workspace_path=str(workspace_root.resolve()),
                 workspace_context='updated',
+                skip_env_bootstrap=True,
             )
         )
     )
 
     session = get_session(session_id)
     assert session.workspace_path == str(workspace_root.resolve())
+    assert calls == []
+
+    asyncio.run(
+        set_workspace_context(
+            WorkspaceContextRequest(
+                session_id=session_id,
+                workspace_path=str(workspace_root.resolve()),
+                workspace_context='bootstrap',
+                bootstrap_python_env=True,
+            )
+        )
+    )
     assert calls == [str(workspace_root.resolve())]

@@ -44,6 +44,8 @@ export class PlanConfirmComponent {
       undefined,
       undefined,
       undefined,
+      undefined,
+      undefined,
       'confirm',
       req,
     );
@@ -74,6 +76,8 @@ export class PlanConfirmComponent {
     await this.electron.notifyAgentContinue(
       id,
       '',
+      undefined,
+      undefined,
       undefined,
       undefined,
       undefined,

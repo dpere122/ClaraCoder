@@ -1,7 +1,13 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import type { LspDashboardStatus } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
+import { Subscription } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
+import {
+  envRelevantWorkspaceChange,
+  LSP_ENV_SLOW_POLL_MS,
+  needsEnvPoll,
+} from './lsp-env-poll-policy';
 
 @Component({
   selector: 'app-editor-lsp-status',
@@ -31,6 +37,8 @@ export class EditorLspStatusComponent {
   /** Dedupe ``warmLspForActiveFile`` when the same conversation + path effect re-runs. */
   private lastWarmConversationPath = '';
 
+  private workspaceFilesChangedSubscription: Subscription | null = null;
+
   /** LSP server implied by the active editor tab's path, when any. */
   protected readonly fileInferredServerId = computed(() => {
     const path = this.activeFileRelativePath()?.trim();
@@ -46,11 +54,37 @@ export class EditorLspStatusComponent {
       if (!this.electron.isElectron || !conv?.trim()) {
         this.dashboard.set(null);
         this.fetchError.set('');
+        this.lastWarmConversationPath = '';
         return;
       }
       void this.refreshDashboard();
-      const timer = window.setInterval(() => void this.refreshDashboard(), 5000);
-      onCleanup(() => clearInterval(timer));
+    });
+
+    effect((onCleanup) => {
+      const conv = this.conversationId()?.trim();
+      const path = this.activeFileRelativePath()?.trim().replace(/\\/g, '/') ?? null;
+      const dash = this.dashboard();
+      if (!this.electron.isElectron || !conv) {
+        return;
+      }
+      if (!needsEnvPoll(dash, path)) {
+        return;
+      }
+      const pollTimer = window.setInterval(() => {
+        const activePath = this.activeFileRelativePath()?.trim().replace(/\\/g, '/') ?? null;
+        if (!needsEnvPoll(this.dashboard(), activePath)) {
+          return;
+        }
+        void this.refreshDashboard();
+      }, LSP_ENV_SLOW_POLL_MS);
+      onCleanup(() => clearInterval(pollTimer));
+    });
+
+    this.workspaceFilesChangedSubscription = this.electron.workspaceFilesChanged$.subscribe((event) => {
+      if (!envRelevantWorkspaceChange(event.paths)) {
+        return;
+      }
+      void this.refreshDashboard();
     });
 
     /** Start LSP / didOpen current file from disk so dashboard shows ``running`` (otherwise servers stay cold). */

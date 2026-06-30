@@ -9,7 +9,7 @@ import pytest
 
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.wsdl.parser import clear_wsdl_cache_for_tests
-from nemo_backend.wsdl.tools import read_wsdl_section, search_wsdl, wsdl_overview
+from nemo_backend.tools.wsdl_tools import read_wsdl_section, search_wsdl, wsdl_overview
 MINIMAL_WSDL = """<?xml version="1.0"?>
 <definitions xmlns="http://schemas.xmlsoap.org/wsdl/"
              xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"

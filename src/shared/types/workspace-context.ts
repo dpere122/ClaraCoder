@@ -41,6 +41,10 @@ export interface WorkspaceContextSyncExtras {
   workspaceFileChanges?: WorkspaceFileChangesForSync;
   /** When set, applies this interpreter to the session (LSP env); persisted per workspace in config. */
   pythonInterpreterId?: string;
+  /** When true, run Python env bootstrap on attach (LSP warm path). */
+  bootstrapPythonEnv?: boolean;
+  /** When true, skip env bootstrap even if ``bootstrapPythonEnv`` would otherwise apply. */
+  skipEnvBootstrap?: boolean;
 }
 
 /** One row from `GET /session/python-interpreters`. */

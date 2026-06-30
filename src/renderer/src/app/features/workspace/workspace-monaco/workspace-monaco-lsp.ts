@@ -23,7 +23,7 @@ export interface RegisterWorkspaceMonacoLspOptions {
   /** Cross-file go-to-definition / reveal cursor after tab switch. */
   readonly onNavigateToWorkspaceFile: (payload: WorkspaceMonacoLspNavigatePayload) => void;
   /** Prefetched from ``GET /lsp/semantic-tokens-legend`` so ``getLegend()`` is valid on first paint. */
-  readonly initialSemanticLegends?: Readonly<Record<string, Monaco.languages.SemanticTokensLegend>>;
+  readonly semanticLegendsByServer?: Record<string, Monaco.languages.SemanticTokensLegend>;
 }
 
 function wireRange(api: typeof Monaco, r: Monaco.IRange): Monaco.Range {
@@ -75,7 +75,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     getConversationId,
     getWorkspaceRelativePathForModel,
     onNavigateToWorkspaceFile,
-    initialSemanticLegends,
+    semanticLegendsByServer,
   } = opts;
   const disposables: Monaco.IDisposable[] = [];
 
@@ -106,14 +106,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     }),
   );
 
-  const legends: Record<string, Monaco.languages.SemanticTokensLegend> = {};
-  const init = initialSemanticLegends ?? {};
-  for (const key of Object.keys(init)) {
-    legends[key] = {
-      tokenTypes: [...(init[key]?.tokenTypes ?? [])],
-      tokenModifiers: [...(init[key]?.tokenModifiers ?? [])],
-    };
-  }
+  const legends: Record<string, Monaco.languages.SemanticTokensLegend> = semanticLegendsByServer ?? {};
 
   const legendForMonacoLang = (monacoLang: string): Monaco.languages.SemanticTokensLegend => {
     const sid = lspServerIdForMonacoLanguageId(monacoLang);

@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from nemo_backend.angular_cli_tool import angular_cli_tool
-from nemo_backend.node_dependency_agent import (
+from nemo_backend.tools.angular_cli import angular_cli_tool
+from nemo_backend.tools.node_deps import (
     install_npm_packages_tool,
     npm_install_project_tool,
     remove_npm_packages_tool,
     run_npm_script_tool,
 )
-from nemo_backend.node_project_discovery import discover_npm_projects_tool
-from nemo_backend.npm_registry_search import search_npm_packages_tool
-from nemo_backend.python_dependency_agent import (
+from nemo_backend.tools.node_discovery import discover_npm_projects_tool
+from nemo_backend.tools.npm_search import search_npm_packages_tool
+from nemo_backend.tools.python_deps import (
     freeze_python_requirements_tool,
     install_python_packages_tool,
     install_python_requirements_file_tool,

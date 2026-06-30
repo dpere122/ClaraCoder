@@ -13,14 +13,14 @@ from langchain_core.tools import tool
 from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_ANGULAR_CLI
 from nemo_backend.domain import SessionState
 from nemo_backend.config import NEMO_NPM_SCRIPT_TIMEOUT_SEC
-from nemo_backend.node_dependency_agent import (
+from nemo_backend.tools.node_deps import (
     _active_session_or_error,
     _require_package_json,
     _resolve_project_dir,
     _workspace_root,
 )
 from nemo_backend.python_env import _run_subprocess_with_output
-from nemo_backend.workspace_tools import truncate_text_head_tail
+from nemo_backend.tools.workspace import truncate_text_head_tail
 from nemo_backend.state import current_session_id
 
 ANGULAR_CLI_TOOL_NAME = 'angular_cli_tool'

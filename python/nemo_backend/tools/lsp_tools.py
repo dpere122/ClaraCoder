@@ -9,7 +9,7 @@ from langchain_core.tools import tool
 
 from pathlib import Path
 
-from nemo_backend.delete_tool import delete_workspace_entry
+from nemo_backend.tools.delete import delete_workspace_entry
 from nemo_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
 from nemo_backend.lsp.file_policy import (
     get_gdscript_lsp_policy,
@@ -25,8 +25,8 @@ from nemo_backend.lsp.manager import (
     get_session_lsp_manager,
 )
 from nemo_backend.lsp.registry import display_label_for_server
-from nemo_backend.edit_tool import apply_workspace_full_file
-from nemo_backend.staging_edit_tools import stage_create_file, stage_workspace_file_overwrite
+from nemo_backend.tools.edit import apply_workspace_full_file
+from nemo_backend.tools.staging_edit import stage_create_file, stage_workspace_file_overwrite
 from nemo_backend.state import current_session_id, direct_workspace_edits_active, get_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 

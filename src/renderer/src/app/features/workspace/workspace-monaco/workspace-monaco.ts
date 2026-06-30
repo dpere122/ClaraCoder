@@ -22,7 +22,7 @@ import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import type * as Monaco from 'monaco-editor';
 import {
   LSP_MONACO_LANGUAGE_IDS,
-  LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS,
+  lspServerIdForMonacoLanguageId,
   lspServerKindForWorkspaceRelativePath,
   type FileDiffPayload,
   type MonacoWorkspaceEditorSettings,
@@ -45,8 +45,11 @@ import { PendingDiffReviewService, type BatchFinishFn, type BatchPartialFn } fro
 import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
 import { renderMarkdownDoc } from './markdown-doc-renderer';
+import type { EditorSelectionPayload } from '../../chat/chat-context-bar/chat-context-file';
 import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
 import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
+
+const EDITOR_SELECTION_DEBOUNCE_MS = 50;
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript',
@@ -159,6 +162,8 @@ export class WorkspaceMonacoComponent {
   /** Cross-file definition navigation (shell opens/focuses tab; optional reveal via {@link pendingEditorReveal}). */
   readonly navigateWorkspaceFile = output<{ relativePath: string; line: number; column: number }>();
   readonly pendingEditorRevealHandled = output<void>();
+  /** Non-empty editor text selection in a workspace file (null when cleared or unavailable). */
+  readonly editorSelectionChange = output<EditorSelectionPayload | null>();
 
   protected readonly loadError = signal('');
   protected readonly detachedBanner = signal('');
@@ -216,6 +221,8 @@ export class WorkspaceMonacoComponent {
 
   private monaco: typeof Monaco | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+  private editorSelectionDisposable: Monaco.IDisposable | null = null;
+  private editorSelectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
   private diffOriginalModel: Monaco.editor.ITextModel | null = null;
   private diffModifiedModel: Monaco.editor.ITextModel | null = null;
@@ -226,6 +233,9 @@ export class WorkspaceMonacoComponent {
   private uiThemeObserver: MutationObserver | null = null;
   private themeRefreshRaf: number | null = null;
   private readonly modelByPath = new Map<string, Monaco.editor.ITextModel>();
+  /** Shared with ``registerWorkspaceMonacoLsp`` — updated when TS/JS semantic legend is prefetched. */
+  private readonly semanticLegendsByServer: Record<string, Monaco.languages.SemanticTokensLegend> = {};
+  private readonly tsSemanticLegendPrefetchedKeys = new Set<string>();
   private readonly diskSyncedAltVersionByPath = new Map<string, number>();
   private readonly modelDirtyDisposables = new Map<string, Monaco.IDisposable>();
   private readonly fileRefByKey = new Map<string, OpenEditorFileRef>();
@@ -401,6 +411,7 @@ export class WorkspaceMonacoComponent {
       this.diskSyncedAltVersionByPath.clear();
       this.detachedByKey.clear();
       this.fileRefByKey.clear();
+      this.disposeEditorSelectionListener();
       this.editor?.dispose();
       this.editor = null;
       this.monaco = null;
@@ -1117,21 +1128,9 @@ export class WorkspaceMonacoComponent {
     this.editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
       void this.saveCurrent();
     });
+    this.wireEditorSelectionListener();
     this.registerWorkspaceLspHoverProviders(monacoApi);
     this.lspLanguageDisposable?.dispose();
-
-    let initialSemanticLegends: Record<string, Monaco.languages.SemanticTokensLegend> | undefined;
-    const convId = this.conversationId()?.trim();
-    if (this.electron.isElectron && convId) {
-      initialSemanticLegends = {};
-      for (const sid of LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS) {
-        const res = await this.electron.lspEditorSemanticTokensLegend(convId, sid);
-        initialSemanticLegends[sid] = {
-          tokenTypes: res.ok ? res.legend.tokenTypes : [],
-          tokenModifiers: res.ok ? res.legend.tokenModifiers : [],
-        };
-      }
-    }
 
     this.lspLanguageDisposable = registerWorkspaceMonacoLsp({
       monacoApi,
@@ -1139,7 +1138,7 @@ export class WorkspaceMonacoComponent {
       getConversationId: () => this.conversationId()?.trim() ?? null,
       getWorkspaceRelativePathForModel: (m) => this.workspaceRelativePathForModel(m),
       onNavigateToWorkspaceFile: (p) => this.navigateWorkspaceFile.emit(p),
-      initialSemanticLegends,
+      semanticLegendsByServer: this.semanticLegendsByServer,
     });
     this.editorReady.set(true);
     this.emitDirtyPaths();
@@ -1152,6 +1151,112 @@ export class WorkspaceMonacoComponent {
       }
     }
     return undefined;
+  }
+
+  private disposeEditorSelectionListener(): void {
+    if (this.editorSelectionDebounceTimer != null) {
+      clearTimeout(this.editorSelectionDebounceTimer);
+      this.editorSelectionDebounceTimer = null;
+    }
+    this.editorSelectionDisposable?.dispose();
+    this.editorSelectionDisposable = null;
+  }
+
+  private wireEditorSelectionListener(): void {
+    this.disposeEditorSelectionListener();
+    const ed = this.editor;
+    if (!ed) {
+      return;
+    }
+    this.editorSelectionDisposable = ed.onDidChangeCursorSelection(() => {
+      if (this.editorSelectionDebounceTimer != null) {
+        clearTimeout(this.editorSelectionDebounceTimer);
+      }
+      this.editorSelectionDebounceTimer = setTimeout(() => {
+        this.editorSelectionDebounceTimer = null;
+        this.emitEditorSelectionFromActiveEditor();
+      }, EDITOR_SELECTION_DEBOUNCE_MS);
+    });
+  }
+
+  private emitEditorSelectionFromActiveEditor(): void {
+    const ed = this.editor;
+    if (!ed || this.monacoDiffActive()) {
+      this.zone.run(() => this.editorSelectionChange.emit(null));
+      return;
+    }
+    const model = ed.getModel();
+    if (!model) {
+      this.zone.run(() => this.editorSelectionChange.emit(null));
+      return;
+    }
+    const rel = this.workspaceRelativePathForModel(model);
+    if (!rel?.trim()) {
+      this.zone.run(() => this.editorSelectionChange.emit(null));
+      return;
+    }
+    const selection = ed.getSelection();
+    if (!selection || selection.isEmpty()) {
+      this.zone.run(() => this.editorSelectionChange.emit(null));
+      return;
+    }
+    let modelKey: string | undefined;
+    for (const [k, m] of this.modelByPath) {
+      if (m === model) {
+        modelKey = k;
+        break;
+      }
+    }
+    if (!modelKey || isExternalModelKey(modelKey)) {
+      this.zone.run(() => this.editorSelectionChange.emit(null));
+      return;
+    }
+    const relNorm = normalizePathSlashes(rel.trim());
+    const absFromRef = this.fileRefByKey.get(modelKey)?.absolutePath?.trim();
+    const root = this.workspacePath().trim();
+    const abs =
+      absFromRef ||
+      (root ? `${normalizePathSlashes(root).replace(/\/+$/, '')}/${relNorm}` : '');
+    if (!abs) {
+      this.zone.run(() => this.editorSelectionChange.emit(null));
+      return;
+    }
+    const name = relNorm.split('/').filter(Boolean).pop() ?? relNorm;
+    const lineRange = {
+      startLine: selection.startLineNumber,
+      startColumn: selection.startColumn,
+      endLine: selection.endLineNumber,
+      endColumn: selection.endColumn,
+    };
+    const payload: EditorSelectionPayload = {
+      absolutePath: abs,
+      relativePath: relNorm,
+      name,
+      lineRange,
+      selectedText: model.getValueInRange(selection),
+    };
+    this.zone.run(() => this.editorSelectionChange.emit(payload));
+  }
+
+  private async prefetchSemanticLegendForModel(model: Monaco.editor.ITextModel): Promise<void> {
+    const lang = model.getLanguageId();
+    if (lang !== 'typescript' && lang !== 'javascript') {
+      return;
+    }
+    const convId = this.conversationId()?.trim();
+    if (!this.electron.isElectron || !convId) {
+      return;
+    }
+    const prefetchKey = `${convId}|typescript`;
+    if (this.tsSemanticLegendPrefetchedKeys.has(prefetchKey)) {
+      return;
+    }
+    this.tsSemanticLegendPrefetchedKeys.add(prefetchKey);
+    const res = await this.electron.lspEditorSemanticTokensLegend(convId, 'typescript');
+    this.semanticLegendsByServer['typescript'] = {
+      tokenTypes: res.ok ? res.legend.tokenTypes : [],
+      tokenModifiers: res.ok ? res.legend.tokenModifiers : [],
+    };
   }
 
   /** Bridges Monaco hover to the session LSP; models use ``clara-workspace`` URIs only. */
@@ -1403,6 +1508,7 @@ export class WorkspaceMonacoComponent {
     ed.updateOptions({
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
+    void this.prefetchSemanticLegendForModel(model);
     const mdMode = this.mdViewModeByPath.get(modelKey) ?? 'edit';
     const displayPath = displayPathForModelKey(modelKey);
     if (displayPath.toLowerCase().endsWith('.md') && mdMode === 'preview') {

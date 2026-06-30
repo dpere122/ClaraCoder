@@ -11,7 +11,7 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-from nemo_backend.node_dependency_agent import (
+from nemo_backend.tools.node_deps import (
     _build_run_script_args,
     _package_json_script_gate,
     _resolve_project_dir,
@@ -37,7 +37,7 @@ from nemo_backend.stream_tags import (
     TOOL_PYTEST_STREAM_TAG,
     TOOL_SMOKE_STREAM_TAG,
 )
-from nemo_backend.workspace_tools import (
+from nemo_backend.tools.workspace import (
     get_active_workspace_root,
     truncate_text_head_tail,
 )

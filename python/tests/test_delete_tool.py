@@ -1,6 +1,6 @@
 """Safe delete tool helpers."""
 
-from nemo_backend.delete_tool import (
+from nemo_backend.tools.delete import (
     _reject_reason,
     batch_delete_workspace_entries,
     delete_confirm_sse_payload,

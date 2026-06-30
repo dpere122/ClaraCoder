@@ -29,7 +29,7 @@ from nemo_backend.llm import build_llm
 from nemo_backend.llm_interaction_logging import log_llm_user_request
 from nemo_backend.messages import stringify_content
 from nemo_backend.state import current_session_id, get_session
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('nemo.agent')
 

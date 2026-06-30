@@ -12,7 +12,7 @@ from nemo_backend.deferred_tool_hitl import (
     deferred_tool_hitl_bypass,
     maybe_await_hitl_for_deferred_tool,
 )
-from nemo_backend.python_env_tools import ENSURE_PYTHON_WORKSPACE_ENV_NAME
+from nemo_backend.tools.python_env import ENSURE_PYTHON_WORKSPACE_ENV_NAME
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.tool_registry import hitl_accept_command_pause_tools
 
@@ -89,7 +89,7 @@ async def test_execute_pending_deferred_tool_sets_session_context_for_hitl_confi
         return type('R', (), {'summary': 'venv ready'})()
 
     monkeypatch.setattr(
-        'nemo_backend.python_env_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.python_env.ensure_session_python_workspace_env',
         _fake_ensure,
     )
 

@@ -194,18 +194,16 @@
       >
         New folder…
       </button>
-      @if (contextMenuNode()) {
+        @if (contextMenuNode()) {
         <div class='workspace-context-menu-sep' role='separator'></div>
-        @if (!contextMenuNode()?.isDirectory) {
-          <button
-            type='button'
-            class='workspace-context-menu-item'
-            role='menuitem'
-            (mousedown)='onContextMenuItemMousedown($event); onContextMenuAddToChat()'
-          >
-            Add to chat
-          </button>
-        }
+        <button
+          type='button'
+          class='workspace-context-menu-item'
+          role='menuitem'
+          (mousedown)='onContextMenuItemMousedown($event); onContextMenuAddToChat()'
+        >
+          Add to chat
+        </button>
         <button
           type='button'
           class='workspace-context-menu-item'

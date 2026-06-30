@@ -15,7 +15,7 @@ from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_NODE_DEPENDENCY
 from nemo_backend.domain import SessionState
 from nemo_backend.config import NEMO_NPM_SCRIPT_TIMEOUT_SEC
 from nemo_backend.python_env import _run_subprocess_with_output
-from nemo_backend.workspace_tools import truncate_text, truncate_text_head_tail
+from nemo_backend.tools.workspace import truncate_text, truncate_text_head_tail
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
 
 INSTALL_NPM_PACKAGES_NAME = 'install_npm_packages'
@@ -587,8 +587,8 @@ async def run_npm_script_tool(script_name: str, relative_project_dir: str = '') 
 
 
 def node_dependency_tools() -> tuple[list[object], dict[str, object]]:
-    from nemo_backend.node_project_discovery import discover_npm_projects_tool
-    from nemo_backend.npm_registry_search import search_npm_packages_tool
+    from nemo_backend.tools.node_discovery import discover_npm_projects_tool
+    from nemo_backend.tools.npm_search import search_npm_packages_tool
 
     tools: list[object] = [
         discover_npm_projects_tool,

@@ -169,27 +169,27 @@ async def execute_pending_deferred_tool(session: SessionState, pending: dict[str
 
 def _resolve_deferred_tool(tool_name: str) -> Any | None:
     if tool_name == 'ensure_python_workspace_env':
-        from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
+        from nemo_backend.tools.python_env import ensure_python_workspace_env_tool
 
         return ensure_python_workspace_env_tool
     if tool_name == 'bootstrap_python_testing_dependencies':
-        from nemo_backend.python_dependency_agent import bootstrap_python_testing_dependencies_tool
+        from nemo_backend.tools.python_deps import bootstrap_python_testing_dependencies_tool
 
         return bootstrap_python_testing_dependencies_tool
     if tool_name == 'run_staging_overlay_command':
-        from nemo_backend.agents.specialists.review_tools import run_staging_overlay_command
+        from nemo_backend.tools.review_tools import run_staging_overlay_command
 
         return run_staging_overlay_command
     if tool_name == 'run_workspace_pytest_tests':
-        from nemo_backend.agents.specialists.project_review_tools import run_workspace_pytest_tests
+        from nemo_backend.tools.project_review_tools import run_workspace_pytest_tests
 
         return run_workspace_pytest_tests
     if tool_name == 'run_workspace_python_smoke_test':
-        from nemo_backend.agents.specialists.project_review_tools import run_workspace_python_smoke_test
+        from nemo_backend.tools.project_review_tools import run_workspace_python_smoke_test
 
         return run_workspace_python_smoke_test
     if tool_name == 'run_workspace_node_smoke_test':
-        from nemo_backend.agents.specialists.project_review_tools import run_workspace_node_smoke_test
+        from nemo_backend.tools.project_review_tools import run_workspace_node_smoke_test
 
         return run_workspace_node_smoke_test
     return None

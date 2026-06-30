@@ -1,4 +1,4 @@
-import { Component, input, model, output } from '@angular/core';
+import { Component, input, model, output, signal } from '@angular/core';
 import type {
   AppConfig,
   ComposerRunMode,
@@ -8,6 +8,7 @@ import type {
 import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
 import { ChatBox, type ChatMessage } from '../chat-box/chat-box';
 import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
+import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { MessageBox } from '../message-box/message-box';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
@@ -76,7 +77,9 @@ export class ChatActiveStackComponent {
   readonly chatContextFiles = input<readonly ChatContextFile[]>([]);
   readonly workspaceRoot = input('');
   readonly removeChatContextFile = output<ChatContextFile>();
-  readonly chatContextPathsDropped = output<string[]>();
+  readonly togglePinChatContextFile = output<ChatContextFile>();
+  readonly chatContextPathsDropped = output<ChatContextDroppedPath[]>();
+  readonly attachmentCount = input(0);
 
   readonly appConfig = input<AppConfig | null>(null);
   readonly talkInputDeviceId = input('default');
@@ -102,4 +105,29 @@ export class ChatActiveStackComponent {
   readonly compressionNotice = input('');
   readonly editorMode = model(true);
   readonly autoApplyMode = model(false);
+
+  protected readonly dragActive = signal(false);
+
+  protected onDragOver(event: DragEvent): void {
+    if (handleChatContextDragOver(event)) {
+      this.dragActive.set(true);
+    }
+  }
+
+  protected onDragLeave(event: DragEvent): void {
+    const related = event.relatedTarget;
+    const host = event.currentTarget;
+    if (related instanceof Node && host instanceof Node && host.contains(related)) {
+      return;
+    }
+    this.dragActive.set(false);
+  }
+
+  protected onDrop(event: DragEvent): void {
+    this.dragActive.set(false);
+    const paths = handleChatContextDrop(event);
+    if (paths.length > 0) {
+      this.chatContextPathsDropped.emit(paths);
+    }
+  }
 }

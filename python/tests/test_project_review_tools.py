@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.agents.specialists.project_review_tools import (
+from nemo_backend.tools.project_review_tools import (
     maybe_bootstrap_python_workspace_env_for_project_review,
     run_workspace_python_smoke_test,
     run_workspace_pytest_tests,
@@ -14,7 +14,7 @@ from nemo_backend.python_env import (
     PythonWorkspaceEnvResult,
     workspace_python_executable,
 )
-from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
+from nemo_backend.tools.python_env import ensure_python_workspace_env_tool
 from nemo_backend.state import current_session_id, get_session, sessions
 
 
@@ -108,7 +108,7 @@ async def test_project_review_bootstrap_path_installs_requirements_and_helpers(
         )
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
 
@@ -168,7 +168,7 @@ async def test_run_workspace_pytest_tests_bootstraps_session_dependencies_first(
         return _PytestProc()
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
@@ -207,7 +207,7 @@ async def test_run_workspace_pytest_tests_skips_when_workspace_has_no_pytest_sig
         )
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
 
@@ -246,7 +246,7 @@ async def test_ensure_python_workspace_env_tool_uses_workspace_root(
         )
 
     monkeypatch.setattr(
-        'nemo_backend.python_env_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.python_env.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
 
@@ -284,7 +284,7 @@ async def test_project_review_bootstrap_creates_workspace_env_when_python_worksp
         )
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
 
@@ -363,7 +363,7 @@ async def test_run_workspace_pytest_tests_uses_workspace_python_and_streams_outp
         return _PytestProc()
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
@@ -438,7 +438,7 @@ async def test_run_workspace_pytest_tests_aborts_process_when_session_cancelled(
         return fake_proc
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
@@ -511,7 +511,7 @@ async def test_run_workspace_python_smoke_test_uses_workspace_entrypoint_and_rep
         return fake_proc
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.project_review_tools.ensure_session_python_workspace_env',
+        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
         _fake_ensure_session,
     )
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)

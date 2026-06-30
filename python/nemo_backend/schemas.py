@@ -157,6 +157,14 @@ class WorkspaceContextRequest(BaseModel):
         default='',
         validation_alias=AliasChoices('python_interpreter_id', 'pythonInterpreterId'),
     )
+    bootstrap_python_env: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('bootstrap_python_env', 'bootstrapPythonEnv'),
+    )
+    skip_env_bootstrap: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('skip_env_bootstrap', 'skipEnvBootstrap'),
+    )
 
 
 class PythonInterpreterSelectRequest(BaseModel):

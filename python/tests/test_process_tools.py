@@ -10,7 +10,7 @@ from nemo_backend.accept_command import (
     ACCEPT_COMMAND_KIND_PROCESS_KILL,
     execute_pending_accept_command_decision,
 )
-from nemo_backend.process_tools import (
+from nemo_backend.tools.process import (
     kill_process_tool,
     parse_netstat_output,
     search_listening_ports,
@@ -41,7 +41,7 @@ def test_parse_ss_output() -> None:
 async def test_search_netstat_ports_filters() -> None:
     fake_out = '  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       99\n'
     with patch(
-        'nemo_backend.process_tools._run_netstat',
+        'nemo_backend.tools.process._run_netstat',
         new=AsyncMock(return_value=(0, fake_out)),
     ):
         result = await search_netstat_ports_tool.ainvoke({'port': 8080})
@@ -93,7 +93,7 @@ async def test_execute_pending_kill(monkeypatch: pytest.MonkeyPatch) -> None:
             'action': {'kind': 'kill_process', 'pid': 9999, 'force': True, 'kill_tree': True},
         }
         mock_kill = AsyncMock(return_value='killed')
-        monkeypatch.setattr('nemo_backend.process_tools._execute_kill', mock_kill)
+        monkeypatch.setattr('nemo_backend.tools.process._execute_kill', mock_kill)
         result = await execute_pending_accept_command_decision(session, confirm=True, request_id='abc')
         assert result == 'killed'
         mock_kill.assert_awaited_once()

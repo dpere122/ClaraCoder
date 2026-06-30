@@ -17,7 +17,7 @@ logger = logging.getLogger('nemo.tools.workspace')
 from langchain_core.tools import tool
 
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
-from nemo_backend.workspace_index.semantic_tool import retrieve_workspace_semantic
+from nemo_backend.tools.semantic import retrieve_workspace_semantic
 from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
     parse_newline_mode,
@@ -510,10 +510,10 @@ def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> s
     return summary
 
 
-from nemo_backend.workspace_image_tools import read_workspace_image
-from nemo_backend.wsdl.tools import WSDL_TOOLS
-from nemo_backend.xml.tools import XML_TOOLS
-from nemo_backend.json.tools import JSON_TOOLS
+from nemo_backend.tools.workspace_image import read_workspace_image
+from nemo_backend.tools.wsdl_tools import WSDL_TOOLS
+from nemo_backend.tools.xml_tools import XML_TOOLS
+from nemo_backend.tools.json_tools import JSON_TOOLS
 
 TOOLS = [
     list_workspace_directory,

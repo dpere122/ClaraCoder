@@ -3,34 +3,47 @@
   [class.chat-context-bar--drag]="dragActive()"
   [class.chat-context-bar--empty]="!hasFiles()"
   (dragover)="onDragOver($event)"
-  (dragleave)="onDragLeave()"
+  (dragleave)="onDragLeave($event)"
   (drop)="onDrop($event)"
 >
   @if (hasFiles()) {
-    @for (file of files(); track file.relativePath) {
-      <div class="chat-context-chip" [title]="file.relativePath">
-        @if (file.kind === 'image' && thumbnailFor(file)) {
+    @for (file of files(); track contextKey(file)) {
+      <div class="chat-context-chip" [class.chat-context-chip--range]="hasLineRange(file)" [title]="chipTitle(file)">
+        @if (hasLineRange(file)) {
+          <button
+            type="button"
+            class="chat-context-chip-pin"
+            [class.chat-context-chip-pin--active]="isPinned(file)"
+            (click)="onTogglePin(file)"
+            [attr.aria-label]="isPinned(file) ? 'Unpin ' + chipLabel(file) : 'Pin ' + chipLabel(file)"
+            [title]="isPinned(file) ? 'Unpin selection' : 'Pin selection'"
+          >
+            <lucide-icon [name]="isPinned(file) ? 'pin' : 'pin-off'" [size]="12"></lucide-icon>
+          </button>
+        } @else if (file.kind === 'image' && thumbnailFor(file)) {
           <img class="chat-context-chip-thumb" [src]="thumbnailFor(file)" [alt]="file.name" />
         } @else {
           <lucide-icon
-            [name]="file.kind === 'image' ? 'image' : 'file-text'"
+            [name]="file.kind === 'folder' ? 'folder' : file.kind === 'image' ? 'image' : 'file-text'"
             [size]="14"
             class="chat-context-chip-icon"
           ></lucide-icon>
         }
-        <span class="chat-context-chip-name">{{ file.name }}</span>
-        <button
-          type="button"
-          class="chat-context-chip-remove"
-          (click)="onRemove(file)"
-          [attr.aria-label]="'Remove ' + file.name"
-          title="Remove"
-        >
-          <lucide-icon name="x" [size]="12"></lucide-icon>
-        </button>
+        <span class="chat-context-chip-name">{{ chipLabel(file) }}</span>
+        @if (!hasLineRange(file)) {
+          <button
+            type="button"
+            class="chat-context-chip-remove"
+            (click)="onRemove(file)"
+            [attr.aria-label]="'Remove ' + chipLabel(file)"
+            title="Remove"
+          >
+            <lucide-icon name="x" [size]="12"></lucide-icon>
+          </button>
+        }
       </div>
     }
   } @else {
-    <span class="chat-context-bar-hint">Drop files here, or right-click a file in the tree to add</span>
+    <span class="chat-context-bar-hint">Drop files or folders here, right-click in the tree, or select code in the editor</span>
   }
 </div>

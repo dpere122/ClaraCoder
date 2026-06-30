@@ -34,6 +34,8 @@ export const mainState = {
    * Multiple IPC streams may run concurrently so the next chunk can prefetch while the current plays.
    */
   ttsStreamControllers: new Map<string, AbortController>(),
+  /** Per session: last workspace path/id synced to Python (conversation resync within same workspace). */
+  sessionWorkspaceContextSync: new Map<string, { workspaceId: string; workspacePath: string }>(),
 };
 
 /** Abort every in-flight TTS HTTP fetch (IPC streams and `nemo-tts://` protocol). */

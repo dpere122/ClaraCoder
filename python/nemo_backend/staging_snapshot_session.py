@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from nemo_backend import edit_staging
-from nemo_backend.agents.specialists.review_tools import rollback_test_run_materializations
+from nemo_backend.tools.review_tools import rollback_test_run_materializations
 from nemo_backend.domain import SessionState
 from nemo_backend.lsp.manager import shutdown_session_lsp
 

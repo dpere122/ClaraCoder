@@ -16,7 +16,7 @@ from nemo_backend.domain import SessionState
 from nemo_backend.lsp.file_policy import is_lsp_managed_path
 from nemo_backend.lsp.manager import close_session_document
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
 DELETE_WORKSPACE_ENTRY_NAME = 'delete_workspace_entry'
 BATCH_DELETE_WORKSPACE_ENTRIES_NAME = 'batch_delete_workspace_entries'

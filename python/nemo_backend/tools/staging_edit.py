@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 
 from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
-from nemo_backend.edit_tool import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
+from nemo_backend.tools.edit import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
 from nemo_backend.lsp.diagnostics import post_edit_checks_footer
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import get_session_lsp_manager
@@ -27,7 +27,7 @@ from nemo_backend.workspace_text_io import (
     resolve_newline_for_write,
     validate_workspace_encoding,
 )
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
+from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
 
 logger = logging.getLogger('nemo.staging')
 
@@ -214,7 +214,7 @@ def _staging_after_merge(
     logger.info('staged for review path=%s', rel_display)
     action = 'Updated staged draft' if had_prior_staging else 'Staged'
     if land_in_workspace:
-        from nemo_backend.agents.specialists import review_tools as _review_tools
+        from nemo_backend.tools import review_tools as _review_tools
 
         return (
             f'{action} `{rel_display}` for review.{diagnostics_note}\n\n'

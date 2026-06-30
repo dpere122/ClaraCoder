@@ -9,7 +9,7 @@ import pytest
 
 from nemo_backend.state import current_session_id, get_session
 from nemo_backend.xml.parser import clear_xml_cache_for_tests
-from nemo_backend.xml.tools import read_xml_section, search_xml, xml_overview
+from nemo_backend.tools.xml_tools import read_xml_section, search_xml, xml_overview
 
 SAMPLE_XML = """<?xml version="1.0"?>
 <Envelope xmlns="http://example.com/env">

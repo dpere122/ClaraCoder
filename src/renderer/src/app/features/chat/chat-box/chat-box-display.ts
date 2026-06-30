@@ -7,6 +7,11 @@ import type {
 } from '@shared/index';
 import { isClaraOuterBriefStreamTag, isPrimaryAssistantStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
 import { DEFAULT_AUXILIARY_STREAM_PANEL_TITLE } from './auxiliary-stream-panel/auxiliary-stream-panel';
+import {
+  attachedFileDisplayLabel,
+  attachedFileRefFromText,
+  isAttachedFileText,
+} from '../chat-context-bar/chat-attached-file-display';
 
 /** Shown in the live processing row while tools are active; index chosen when tool phase starts. */
 export const TOOL_BUILDING_SYNONYMS = [
@@ -141,9 +146,7 @@ export function userMessageImageUrls(msg: UserMessage): string[] {
   return urls;
 }
 
-const ATTACHED_FILE_PREFIX = 'Attached file: ';
-
-/** Workspace-relative paths of non-image files referenced in a user turn. */
+/** Display labels for non-image file attachments in a user turn. */
 export function userMessageAttachedFiles(msg: UserMessage): string[] {
   const parts = msg.structuredContent;
   if (!parts?.length) {
@@ -152,8 +155,30 @@ export function userMessageAttachedFiles(msg: UserMessage): string[] {
   const files: string[] = [];
   for (const part of parts) {
     const rec = part as { type?: unknown; text?: unknown };
-    if (String(rec.type ?? '') === 'text' && typeof rec.text === 'string' && rec.text.startsWith(ATTACHED_FILE_PREFIX)) {
-      files.push(rec.text.slice(ATTACHED_FILE_PREFIX.length));
+    if (String(rec.type ?? '') === 'text' && typeof rec.text === 'string' && isAttachedFileText(rec.text)) {
+      const ref = attachedFileRefFromText(rec.text);
+      if (ref) {
+        files.push(attachedFileDisplayLabel(ref));
+      }
+    }
+  }
+  return files;
+}
+
+/** Raw attachment text after the prefix (path or path + line-range hint). */
+export function userMessageAttachedFileRefs(msg: UserMessage): string[] {
+  const parts = msg.structuredContent;
+  if (!parts?.length) {
+    return [];
+  }
+  const files: string[] = [];
+  for (const part of parts) {
+    const rec = part as { type?: unknown; text?: unknown };
+    if (String(rec.type ?? '') === 'text' && typeof rec.text === 'string' && isAttachedFileText(rec.text)) {
+      const ref = attachedFileRefFromText(rec.text);
+      if (ref) {
+        files.push(ref);
+      }
     }
   }
   return files;

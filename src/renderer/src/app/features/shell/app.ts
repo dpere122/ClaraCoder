@@ -35,7 +35,16 @@ import {
 import { ChatActiveStackComponent } from '../chat/chat-active-stack/chat-active-stack';
 import { ChatConversationHubComponent, type ChatHubView } from '../chat/chat-conversation-hub/chat-conversation-hub';
 import { type ChatMessage } from '../chat/chat-box/chat-box';
-import { type ChatContextFile, isImagePath } from '../chat/chat-context-bar/chat-context-file';
+import {
+  type ChatContextFile,
+  chatContextFileFromEditorSelection,
+  chatContextFileKey,
+  chatContextFilesEqual,
+  formatAttachedFileText,
+  isImagePath,
+  type EditorSelectionPayload,
+} from '../chat/chat-context-bar/chat-context-file';
+import type { ChatContextDroppedPath } from '../chat/chat-context-bar/chat-context-drop';
 import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
   chatFileTabBasename,
@@ -172,6 +181,21 @@ export class App implements OnInit, OnDestroy {
   protected readonly fileTabs = signal<ChatFileTab[]>([]);
   /** Files attached to the next chat turn (images sent inline; others referenced by path). */
   protected readonly chatContextFiles = signal<ChatContextFile[]>([]);
+  /** Unpinned editor line-range chip (cleared on file switch). */
+  protected readonly editorSelectionChip = signal<ChatContextFile | null>(null);
+  /** Staged attachments shown in the composer (pinned + ephemeral selection). */
+  protected readonly composerContextFiles = computed(() => {
+    const pinned = this.chatContextFiles();
+    const ephemeral = this.editorSelectionChip();
+    if (!ephemeral) {
+      return pinned;
+    }
+    if (pinned.some((f) => chatContextFileKey(f) === chatContextFileKey(ephemeral))) {
+      return pinned;
+    }
+    return [...pinned, ephemeral];
+  });
+  protected readonly composerAttachmentCount = computed(() => this.composerContextFiles().length);
   /** Model keys with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
   protected readonly monacoUnsavedPaths = signal<ReadonlySet<string>>(new Set());
   protected readonly monacoDetachedPaths = signal<ReadonlySet<string>>(new Set());
@@ -391,10 +415,18 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
+      this.activeModelKey();
+      untracked(() => {
+        this.editorSelectionChip.set(null);
+      });
+    });
+
+    effect(() => {
       this.currentWorkspaceId();
       untracked(() => {
         this.fileTabs.set([]);
         this.activeMainTabId.set(null);
+        this.clearChatContextFiles();
       });
     });
 
@@ -851,7 +883,7 @@ export class App implements OnInit, OnDestroy {
     const convId = this.activeConversationId();
     if (!convId) return;
     const normalized = text.trim();
-    const attachments = this.chatContextFiles();
+    const attachments = this.composerContextFiles();
     if ((!normalized && attachments.length === 0) || this.pendingIds().has(convId)) return;
     if (this.contextChatBlocked()) {
       return;
@@ -905,7 +937,7 @@ export class App implements OnInit, OnDestroy {
           continue;
         }
       }
-      blocks.push({ type: 'text', text: `Attached file: ${file.relativePath}` });
+      blocks.push({ type: 'text', text: formatAttachedFileText(file) });
     }
     return blocks.length > 0 ? blocks : undefined;
   }
@@ -1498,43 +1530,113 @@ export class App implements OnInit, OnDestroy {
     this.openOrFocusFileTab(rel);
   }
 
-  /** Add a file (from the tree context menu or a drop) to the chat reference bar. */
-  protected addChatContextFile(absolutePath: string): void {
+  /** Add a file or folder (from the tree context menu or a drop) to the chat reference bar. */
+  protected async addChatContextPath(absolutePath: string, isDirectory?: boolean): Promise<void> {
     const root = this.currentWorkspacePath().trim();
     if (!root) {
       return;
     }
-    const rel = workspaceRelativePathIfUnderRoot(root, absolutePath);
-    if (rel === null || rel === '') {
+    const relRaw = workspaceRelativePathIfUnderRoot(root, absolutePath);
+    if (relRaw === null) {
       return;
     }
-    const name = rel.split('/').filter(Boolean).pop() ?? rel;
-    const file: ChatContextFile = {
+    let isDir = isDirectory;
+    if (isDir === undefined) {
+      isDir = await this.electron.workspacePathIsDirectory(absolutePath);
+    }
+    const relativePath = relRaw === '' ? '.' : relRaw;
+    const name =
+      relativePath === '.'
+        ? (normalizePathSlashes(root).split('/').filter(Boolean).pop() ?? 'workspace')
+        : (relativePath.split('/').filter(Boolean).pop() ?? relativePath);
+    let kind: ChatContextFile['kind'];
+    if (isDir) {
+      kind = 'folder';
+    } else if (isImagePath(relativePath)) {
+      kind = 'image';
+    } else {
+      kind = 'file';
+    }
+    const entry: ChatContextFile = {
       absolutePath,
-      relativePath: rel,
+      relativePath,
       name,
-      kind: isImagePath(rel) ? 'image' : 'file',
+      kind,
+      source: 'tree',
     };
     this.chatContextFiles.update((files) => {
-      if (files.some((f) => f.relativePath === file.relativePath)) {
+      if (files.some((f) => chatContextFileKey(f) === chatContextFileKey(entry))) {
         return files;
       }
-      return [...files, file];
+      return [...files, entry];
     });
   }
 
-  protected onChatContextPathsDropped(absolutePaths: readonly string[]): void {
-    for (const p of absolutePaths) {
-      this.addChatContextFile(p);
+  /** @deprecated Use {@link addChatContextPath}. */
+  protected addChatContextFile(absolutePath: string): void {
+    void this.addChatContextPath(absolutePath);
+  }
+
+  protected onEditorSelectionChange(payload: EditorSelectionPayload | null): void {
+    if (!payload) {
+      this.editorSelectionChip.set(null);
+      return;
+    }
+    const chip = chatContextFileFromEditorSelection(payload, false);
+    const pinned = this.chatContextFiles();
+    if (pinned.some((f) => chatContextFilesEqual(f, chip))) {
+      this.editorSelectionChip.set(null);
+      return;
+    }
+    this.editorSelectionChip.set(chip);
+  }
+
+  protected onTogglePinChatContextFile(file: ChatContextFile): void {
+    if (file.source !== 'editor' || !file.lineRange) {
+      return;
+    }
+    const key = chatContextFileKey(file);
+    const ephemeral = this.editorSelectionChip();
+    if (ephemeral && chatContextFileKey(ephemeral) === key && !file.pinned) {
+      this.chatContextFiles.update((files) => {
+        if (files.some((f) => chatContextFileKey(f) === key)) {
+          return files;
+        }
+        return [...files, { ...ephemeral, pinned: true }];
+      });
+      this.editorSelectionChip.set(null);
+      return;
+    }
+    if (file.pinned) {
+      this.chatContextFiles.update((files) =>
+        files.filter((f) => chatContextFileKey(f) !== key),
+      );
+      return;
+    }
+    this.chatContextFiles.update((files) =>
+      files.map((f) => (chatContextFileKey(f) === key ? { ...f, pinned: true } : f)),
+    );
+  }
+
+  protected onChatContextPathsDropped(dropped: readonly ChatContextDroppedPath[]): void {
+    for (const { absolutePath, isDirectory } of dropped) {
+      void this.addChatContextPath(absolutePath, isDirectory);
     }
   }
 
   protected removeChatContextFile(file: ChatContextFile): void {
-    this.chatContextFiles.update((files) => files.filter((f) => f.relativePath !== file.relativePath));
+    const key = chatContextFileKey(file);
+    const ephemeral = this.editorSelectionChip();
+    if (ephemeral && chatContextFileKey(ephemeral) === key) {
+      this.editorSelectionChip.set(null);
+      return;
+    }
+    this.chatContextFiles.update((files) => files.filter((f) => chatContextFileKey(f) !== key));
   }
 
   protected clearChatContextFiles(): void {
     this.chatContextFiles.set([]);
+    this.editorSelectionChip.set(null);
   }
 
   protected fileTabIdForTab(tab: ChatFileTab): string {

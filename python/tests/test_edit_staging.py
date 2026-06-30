@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.agents.specialists.review_tools import (
+from nemo_backend.tools.review_tools import (
     _materialize_staged_python_files,
     diff_staged_edit_against_baseline,
     finalize_staged_transfer_after_hitl,
@@ -30,8 +30,8 @@ from nemo_backend.edit_staging import (
     is_code_review_extension,
     resolve_prettier_cli,
 )
-from nemo_backend.edit_tool import apply_workspace_full_file
-from nemo_backend.staging_edit_tools import (
+from nemo_backend.tools.edit import apply_workspace_full_file
+from nemo_backend.tools.staging_edit import (
     stage_create_file,
     stage_line_range_edit,
     stage_snippet_edit,
@@ -413,7 +413,7 @@ def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) ->
             return []
 
     monkeypatch.setattr(
-        'nemo_backend.staging_edit_tools.get_session_lsp_manager',
+        'nemo_backend.tools.staging_edit.get_session_lsp_manager',
         lambda *args, **kwargs: _FakeLspMgr(),
     )
 
@@ -547,7 +547,7 @@ def test_search_staged_edits_uses_grep_when_available(staging_env, monkeypatch: 
         return [SearchLineMatch(display_path='multi.py', line_number=2)]
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.review_tools.run_grep_line_search',
+        'nemo_backend.tools.review_tools.run_grep_line_search',
         _fake_run_grep_line_search,
     )
 
@@ -692,7 +692,7 @@ def test_transfer_defers_workspace_lsp_until_all_paths_transferred(staging_env, 
         return []
 
     monkeypatch.setattr(
-        'nemo_backend.agents.specialists.review_tools.sync_session_document',
+        'nemo_backend.tools.review_tools.sync_session_document',
         _fake_sync,
     )
 

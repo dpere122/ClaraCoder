@@ -9,19 +9,19 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from nemo_backend.angular_cli_tool import resolve_local_ng_executable
+from nemo_backend.tools.angular_cli import resolve_local_ng_executable
 from nemo_backend.lsp.typescript_project_root import (
     _has_nonempty_node_modules,
     _has_typescript_tooling,
     _package_json_declares_typescript,
 )
-from nemo_backend.node_dependency_agent import (
+from nemo_backend.tools.node_deps import (
     _resolve_project_dir,
     _workspace_root,
     detect_package_manager,
 )
 from nemo_backend.state import current_session_id, get_session
-from nemo_backend.workspace_tools import truncate_text_head_tail
+from nemo_backend.tools.workspace import truncate_text_head_tail
 
 DISCOVER_NPM_PROJECTS_NAME = 'discover_npm_projects'
 

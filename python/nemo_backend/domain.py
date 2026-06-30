@@ -130,6 +130,10 @@ class SessionState:
     lsp_workspace_root: str = ''
     # Auto-detected TypeScript/Node project root used for typescript-language-server cwd (nested ``package.json``).
     typescript_lsp_resolved_root: str = ''
+    # One-shot npm project rows from workspace attach (``discover_workspace_npm_projects``); not refreshed on status polls.
+    npm_project_hints: list[dict[str, Any]] | None = None
+    # Monotonic timestamp (``time.time()``) when ``npm_project_hints`` was last populated.
+    npm_discovery_at: float | None = None
     # Ephemeral LSP workspace mirror for staging scope (``.../uuid/workspace``); empty when none.
     lsp_staging_overlay_root: str = ''
     # Parent of the overlay workspace folder for ``shutil.rmtree`` teardown.

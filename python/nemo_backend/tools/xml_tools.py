@@ -30,13 +30,13 @@ def _effective_max_search_matches(max_matches: int) -> int:
 
 
 def _truncate_output(text: str) -> str:
-    from nemo_backend.workspace_tools import truncate_text_head_tail
+    from nemo_backend.tools.workspace import truncate_text_head_tail
 
     return truncate_text_head_tail(text, _MAX_OUTPUT_CHARS)
 
 
 def _workspace_root():
-    from nemo_backend.workspace_tools import get_active_workspace_root
+    from nemo_backend.tools.workspace import get_active_workspace_root
 
     return get_active_workspace_root()
 

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from nemo_backend.domain import SessionState
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
-from nemo_backend.workspace_tools import get_active_workspace_root, normalize_relative_path
+from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.tools.copy')
 

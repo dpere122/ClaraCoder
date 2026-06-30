@@ -59,19 +59,19 @@ async def execute_pending_accept_command_decision(
 
     kind = str(pending.get('kind') or '')
     if kind == ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY:
-        from nemo_backend.python_dependency_agent import execute_pending_python_dependency_request
+        from nemo_backend.tools.python_deps import execute_pending_python_dependency_request
 
         return await execute_pending_python_dependency_request(session, pending)
     if kind == ACCEPT_COMMAND_KIND_NODE_DEPENDENCY:
-        from nemo_backend.node_dependency_agent import execute_pending_node_dependency_request
+        from nemo_backend.tools.node_deps import execute_pending_node_dependency_request
 
         return await execute_pending_node_dependency_request(session, pending)
     if kind == ACCEPT_COMMAND_KIND_ANGULAR_CLI:
-        from nemo_backend.angular_cli_tool import execute_pending_angular_cli_request
+        from nemo_backend.tools.angular_cli import execute_pending_angular_cli_request
 
         return await execute_pending_angular_cli_request(session, pending)
     if kind == ACCEPT_COMMAND_KIND_PROCESS_KILL:
-        from nemo_backend.process_tools import execute_pending_process_kill_request
+        from nemo_backend.tools.process import execute_pending_process_kill_request
 
         return await execute_pending_process_kill_request(session, pending)
     if kind == ACCEPT_COMMAND_KIND_DEFERRED_TOOL:

@@ -12,8 +12,8 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from nemo_backend.node_dependency_agent import _validate_pkg_token
-from nemo_backend.workspace_tools import truncate_text_head_tail
+from nemo_backend.tools.node_deps import _validate_pkg_token
+from nemo_backend.tools.workspace import truncate_text_head_tail
 
 SEARCH_NPM_PACKAGES_NAME = 'search_npm_packages'
 

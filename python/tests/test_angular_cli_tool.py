@@ -1,4 +1,4 @@
-"""Tests for :mod:`nemo_backend.angular_cli_tool`."""
+"""Tests for :mod:`nemo_backend.tools.angular_cli`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from nemo_backend.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
-from nemo_backend.angular_cli_tool import (
+from nemo_backend.tools.angular_cli import (
     angular_cli_tool,
     resolve_local_ng_executable,
     validate_ng_args,

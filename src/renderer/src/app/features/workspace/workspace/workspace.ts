@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
+import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
@@ -48,7 +49,11 @@ import {
   parentDirectoryPath,
 } from './workspace-path-utils';
 import { workspaceTreeTextHintsPython } from './workspace-python-hints';
-import { WORKSPACE_TREE_DRAG_MIME, WORKSPACE_TREE_INTERNAL_MOVE_MIME } from '../../chat/chat-context-bar/chat-context-file';
+import {
+  WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
+  WORKSPACE_TREE_DRAG_MIME,
+  WORKSPACE_TREE_INTERNAL_MOVE_MIME,
+} from '../../chat/chat-context-bar/chat-context-file';
 
 @Component({
   selector: 'app-workspace',
@@ -71,8 +76,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly addWorkspace = output<void>();
   /** User double-clicked a file in the tree (absolute path on disk). */
   readonly workspaceFileOpen = output<{ absolutePath: string }>();
-  /** User chose "Add to chat" or dragged a file out of the tree (absolute path on disk). */
-  readonly addToChatContext = output<{ absolutePath: string }>();
+  /** User chose "Add to chat" or dragged a file/folder out of the tree (absolute path on disk). */
+  readonly addToChatContext = output<{ absolutePath: string; isDirectory: boolean }>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   /** Flat tree with an inline pending-create row when the user is naming a new file/folder. */
@@ -154,6 +159,13 @@ export class WorkspaceComponent implements OnDestroy {
     return this.lspPythonServerRunning() || this.pythonWorkspaceTreeHints();
   });
 
+  /** Load interpreter list only when the workspace hints Python or a ``.py`` tab is active. */
+  protected readonly shouldLoadPythonInterpreters = computed(() => {
+    const path = this.activeFileRelativePath()?.trim().replace(/\\/g, '/');
+    const activePy = path ? lspServerKindForWorkspaceRelativePath(path) === 'python' : false;
+    return this.pythonWorkspaceTreeHints() || activePy;
+  });
+
   private tree: FileNode[] = [];
   private workspaceSubscription: Subscription | null = null;
   private workspaceFilesChangedSubscription: Subscription | null = null;
@@ -224,7 +236,7 @@ export class WorkspaceComponent implements OnDestroy {
         this.pythonInterpreterError.set('');
         return;
       }
-      if (!this.pythonInterpreterControlsActive()) {
+      if (!this.shouldLoadPythonInterpreters()) {
         this.pythonInterpreterRows.set([]);
         this.pythonInterpreterSelectedId.set('');
         this.pythonInterpreterError.set('');
@@ -237,7 +249,6 @@ export class WorkspaceComponent implements OnDestroy {
       const sid = this.activeConversationId()?.trim();
       const wid = this.currentWorkspaceId();
       const wss = this.workspaces();
-      void this.activeFileRelativePath();
       if (!this.electron.isElectron || !sid || !wid) {
         untracked(() => {
           this.lspPythonServerRunning.set(false);
@@ -743,10 +754,10 @@ export class WorkspaceComponent implements OnDestroy {
   onContextMenuAddToChat(): void {
     const node = this.contextMenuNode();
     this.closeContextMenu();
-    if (!node || node.isDirectory) {
+    if (!node) {
       return;
     }
-    this.addToChatContext.emit({ absolutePath: node.path });
+    this.addToChatContext.emit({ absolutePath: node.path, isDirectory: node.isDirectory });
   }
 
   onTreeNodeDragStart(event: DragEvent, node: FlatNode): void {
@@ -756,10 +767,9 @@ export class WorkspaceComponent implements OnDestroy {
     }
     event.dataTransfer.effectAllowed = node.isDirectory ? 'move' : 'copyMove';
     event.dataTransfer.setData(WORKSPACE_TREE_INTERNAL_MOVE_MIME, node.path);
-    if (!node.isDirectory) {
-      event.dataTransfer.setData(WORKSPACE_TREE_DRAG_MIME, node.path);
-      event.dataTransfer.setData('text/plain', node.path);
-    }
+    event.dataTransfer.setData(WORKSPACE_TREE_DRAG_MIME, node.path);
+    event.dataTransfer.setData(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME, node.isDirectory ? '1' : '0');
+    event.dataTransfer.setData('text/plain', node.path);
   }
 
   onTreeNodeDragEnd(): void {

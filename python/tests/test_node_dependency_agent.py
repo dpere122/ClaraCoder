@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.node_dependency_agent import (
+from nemo_backend.tools.node_deps import (
     _package_json_script_gate,
     detect_package_manager,
     _resolve_project_dir,

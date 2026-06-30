@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from nemo_backend.agents.specialists.project_review_tools import (
+from nemo_backend.tools.project_review_tools import (
     _discover_node_smoke_script,
     _package_json_scripts,
 )

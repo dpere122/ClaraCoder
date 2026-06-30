@@ -14,7 +14,7 @@ from nemo_backend.tool_registry import WORKSPACE_READ_TOOL_NAMES
 
 # Staged reads use the same multiplex preview lane as workspace reads in the UI.
 _READ_TOOL_STREAM_PREVIEW_NAMES = WORKSPACE_READ_TOOL_NAMES | frozenset({'read_staged_edit'})
-from nemo_backend.workspace_tools import truncate_text
+from nemo_backend.tools.workspace import truncate_text
 
 
 def status_detail_one_line(detail: str, *, max_len: int = MAX_TOOL_STATUS_LINE) -> str:

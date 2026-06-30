@@ -16,7 +16,7 @@ from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_PROCESS_KILL
 from nemo_backend.domain import SessionState
 from nemo_backend.python_env import _run_subprocess_with_output
 from nemo_backend.state import current_session_id, get_session
-from nemo_backend.workspace_tools import truncate_text_head_tail
+from nemo_backend.tools.workspace import truncate_text_head_tail
 
 SEARCH_NETSTAT_PORTS_NAME = 'search_netstat_ports'
 KILL_PROCESS_NAME = 'kill_process'

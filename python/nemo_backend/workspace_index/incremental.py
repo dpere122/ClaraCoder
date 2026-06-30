@@ -74,7 +74,11 @@ def schedule_semantic_index_background(session_id: str, *, ensure_corpus: bool =
 
 def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> None:
     from nemo_backend.state import get_active_connection, get_session
-    from nemo_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
+    from nemo_backend.workspace_index.embeddings_factory import (
+        build_embedding_model,
+        embeddings_available,
+        resolve_embedding_model_id,
+    )
 
     sess = get_session(session_id)
     root_s = (sess.workspace_path or '').strip()
@@ -82,6 +86,11 @@ def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> N
         return
 
     conn = get_active_connection()
+    ok, reason = embeddings_available(conn)
+    if not ok:
+        logger.debug('background semantic index skipped session=%s: %s', session_id, reason)
+        return
+
     mid = resolve_embedding_model_id(conn)
     embed_model, err = build_embedding_model(conn)
     if embed_model is None:

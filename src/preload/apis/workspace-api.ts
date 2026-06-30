@@ -42,6 +42,8 @@ export const workspaceApi = {
   openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
   readDirectory: (dirPath: string) => ipcRenderer.invoke('read-directory', dirPath),
   readDirectoryRecursive: (dirPath: string) => ipcRenderer.invoke('read-directory-recursive', dirPath),
+  workspacePathIsDirectory: (absolutePath: string) =>
+    ipcRenderer.invoke('workspace-path-is-directory', absolutePath) as Promise<boolean>,
   setWorkspaceContext: (
     sessionId: string,
     workspacePath: string,

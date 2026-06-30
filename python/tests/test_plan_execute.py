@@ -26,7 +26,7 @@ from nemo_backend.plan_execute import (
 )
 from nemo_backend.plan_step_verify import StepVerifyResult
 from nemo_backend.tool_registry import format_tools_catalog, worker_tools_and_map
-from nemo_backend.workspace_tools import read_workspace_file
+from nemo_backend.tools.workspace import read_workspace_file
 from nemo_backend.state import get_session
 
 

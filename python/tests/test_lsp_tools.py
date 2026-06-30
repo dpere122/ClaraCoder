@@ -18,7 +18,7 @@ from nemo_backend.lsp.manager import (
 )
 from nemo_backend.staging_snapshot_session import prepare_new_staging_snapshot_session
 from nemo_backend.lsp.file_policy import suggest_edit_tool_for_path
-from nemo_backend.lsp.tools import (
+from nemo_backend.tools.lsp_tools import (
     lsp_find_definition,
     lsp_find_references,
     lsp_create_gdscript_file,
@@ -217,7 +217,7 @@ def test_typescript_lsp_read_tools(monkeypatch, lsp_env) -> None:
         kwargs.setdefault('client_factory', lsp_env.factory)
         return get_session_lsp_manager(*a, **kwargs)
 
-    monkeypatch.setattr('nemo_backend.lsp.tools.get_session_lsp_manager', _inject)
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
 
     diag_text = lsp_get_diagnostics.invoke({'relative_path': 'app.ts', 'refresh_active_document': True})
     assert 'LSP context:' in diag_text
@@ -257,7 +257,7 @@ def test_lsp_get_diagnostics_returns_tool_error_when_lsp_bootstrap_fails(monkeyp
             del relative_path, encoding
             raise RuntimeError("LSP request failed for 'initialize': LSP client closed")
 
-    monkeypatch.setattr('nemo_backend.lsp.tools.get_session_lsp_manager', lambda *a, **k: _BrokenManager())
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.get_session_lsp_manager', lambda *a, **k: _BrokenManager())
 
     result = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
 
@@ -331,7 +331,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
             '`transfer_staged_file_to_workspace` succeeds. Python LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.lsp.tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_python_file.invoke({'relative_path': 'pkg/new_mod.py', 'new_content': 'value = 1\n'})
 
@@ -350,7 +350,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
 def test_lsp_update_python_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.lsp.tools.stage_workspace_file_overwrite',
+        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 
@@ -370,7 +370,7 @@ def test_lsp_create_typescript_file_selects_staging_scope_and_labels_response(mo
             '`transfer_staged_file_to_workspace` succeeds. TypeScript LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.lsp.tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_typescript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
 
@@ -389,7 +389,7 @@ def test_lsp_create_typescript_file_selects_staging_scope_and_labels_response(mo
 def test_lsp_update_typescript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.lsp.tools.stage_workspace_file_overwrite',
+        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 
@@ -464,7 +464,7 @@ def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monk
             '`transfer_staged_file_to_workspace` succeeds. GDScript LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.lsp.tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_gdscript_file.invoke({'relative_path': 'game/Main.gd', 'new_content': 'extends Node\n'})
 
@@ -483,7 +483,7 @@ def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monk
 def test_lsp_update_gdscript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.lsp.tools.stage_workspace_file_overwrite',
+        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 

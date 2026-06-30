@@ -25,36 +25,36 @@ from __future__ import annotations
 
 from typing import Any
 
-from nemo_backend.copy_tool import COPY_WORKSPACE_FILES_NAME, copy_workspace_files
-from nemo_backend.delete_tool import (
+from nemo_backend.tools.copy import COPY_WORKSPACE_FILES_NAME, copy_workspace_files
+from nemo_backend.tools.delete import (
     BATCH_DELETE_WORKSPACE_ENTRIES_NAME,
     DELETE_WORKSPACE_ENTRY_NAME,
     batch_delete_workspace_entries,
     delete_workspace_entry,
 )
-from nemo_backend.agents.specialists.review_tools import (
+from nemo_backend.tools.review_tools import (
     FORMAT_STAGING_FILE_BLACK_NAME,
     FORMAT_STAGING_FILE_PRETTIER_NAME,
     FORMAT_WORKSPACE_FILE_BLACK_NAME,
     FORMAT_WORKSPACE_FILE_PRETTIER_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
 )
-from nemo_backend.python_env_tools import ensure_python_workspace_env_tool
-from nemo_backend.angular_cli_tool import ANGULAR_CLI_TOOL_NAME, angular_cli_tool
-from nemo_backend.node_dependency_agent import (
+from nemo_backend.tools.python_env import ensure_python_workspace_env_tool
+from nemo_backend.tools.angular_cli import ANGULAR_CLI_TOOL_NAME, angular_cli_tool
+from nemo_backend.tools.node_deps import (
     INSTALL_NPM_PACKAGES_NAME,
     NPM_INSTALL_PROJECT_NAME,
     REMOVE_NPM_PACKAGES_NAME,
     RUN_NPM_SCRIPT_NAME,
 )
-from nemo_backend.python_dependency_agent import (
+from nemo_backend.tools.python_deps import (
     INSTALL_PYTHON_PACKAGES_NAME,
     INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
     REMOVE_PYTHON_PACKAGES_NAME,
     WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
     python_dependency_tools,
 )
-from nemo_backend.lsp.tools import (
+from nemo_backend.tools.lsp_tools import (
     LSP_CREATE_GDSCRIPT_FILE_NAME,
     LSP_CREATE_PYTHON_FILE_NAME,
     LSP_CREATE_TYPESCRIPT_FILE_NAME,
@@ -67,10 +67,10 @@ from nemo_backend.lsp.tools import (
     LSP_UPDATE_PYTHON_FILE_NAME,
     LSP_UPDATE_TYPESCRIPT_FILE_NAME,
 )
-from nemo_backend.staging_edit_tools import STAGING_TOOLS
+from nemo_backend.tools.staging_edit import STAGING_TOOLS
 from nemo_backend.domain import SessionState
 from nemo_backend.state import direct_workspace_edits_active, runtime_config
-from nemo_backend.workspace_tools import TOOLS, TOOL_MAP
+from nemo_backend.tools.workspace import TOOLS, TOOL_MAP
 
 WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)
 
@@ -132,7 +132,7 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
     """Tool names that may emit a diff and require human review before the agent continues."""
     edit_strict = runtime_config.tools.edit_tools_strict
     if direct:
-        from nemo_backend.edit_tool import edit_tools_for_strict
+        from nemo_backend.tools.edit import edit_tools_for_strict
 
         names = {t.name for t in edit_tools_for_strict(edit_strict)}
         names |= _LSP_CREATE_UPDATE_NAMES
@@ -159,7 +159,7 @@ def hitl_copy_pause_tools() -> frozenset[str]:
 
 def hitl_accept_command_pause_tools() -> frozenset[str]:
     from nemo_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
-    from nemo_backend.process_tools import KILL_PROCESS_NAME
+    from nemo_backend.tools.process import KILL_PROCESS_NAME
 
     return frozenset(
         {
@@ -188,7 +188,7 @@ def worker_tools_and_map(
     ``edit_tools_strict_override`` — when set, drives staged/direct write tools instead of runtime Settings.
   When ``session`` is provided and Editor + Auto-apply are on, binds direct workspace mutators instead of staging.
     """
-    from nemo_backend.process_tools import kill_process_tool, search_netstat_ports_tool
+    from nemo_backend.tools.process import kill_process_tool, search_netstat_ports_tool
 
     tools: list[Any] = [*TOOLS, *LSP_READ_TOOLS, search_netstat_ports_tool]
     mapping: dict[str, Any] = dict(TOOL_MAP)
@@ -205,7 +205,7 @@ def worker_tools_and_map(
         dependency_tools, dependency_map = python_dependency_tools()
         tools.extend(dependency_tools)
         mapping.update(dependency_map)
-        from nemo_backend.node_dependency_agent import node_dependency_tools
+        from nemo_backend.tools.node_deps import node_dependency_tools
 
         node_dep_tools, node_dep_map = node_dependency_tools()
         tools.extend(node_dep_tools)
@@ -218,7 +218,7 @@ def worker_tools_and_map(
             else runtime_config.tools.edit_tools_strict
         )
         if direct:
-            from nemo_backend.edit_tool import edit_tools_for_strict
+            from nemo_backend.tools.edit import edit_tools_for_strict
 
             edit_tools = edit_tools_for_strict(edit_strict)
         else:
@@ -235,13 +235,13 @@ def worker_tools_and_map(
         mapping[BATCH_DELETE_WORKSPACE_ENTRIES_NAME] = batch_delete_workspace_entries
         tools.append(kill_process_tool)
         mapping[kill_process_tool.name] = kill_process_tool
-        from nemo_backend.agents.specialists.project_review_tools import (
+        from nemo_backend.tools.dependency_tools import dependency_specialist_tools, node_dependency_specialist_tools
+        from nemo_backend.tools.project_review_tools import (
             run_workspace_node_smoke_test,
             run_workspace_python_smoke_test,
             run_workspace_pytest_tests,
         )
-        from nemo_backend.agents.specialists.review_tools import staging_review_tools
-        from nemo_backend.agents.specialists.tools import dependency_specialist_tools, node_dependency_specialist_tools
+        from nemo_backend.tools.review_tools import staging_review_tools
 
         tools, mapping = merge_tools_replace_by_name(
             tools,

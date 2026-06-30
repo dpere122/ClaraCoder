@@ -20,7 +20,7 @@ from nemo_backend.workspace_ignore import (
     matches_ignore_rule,
     should_ignore_workspace_entry,
 )
-from nemo_backend.workspace_tools import list_workspace_directory, search_workspace
+from nemo_backend.tools.workspace import list_workspace_directory, search_workspace
 
 
 # --- TestMatchesIgnoreRule ---
@@ -132,7 +132,7 @@ def test_search_workspace_uses_grep_when_available(workspace_session: Path, monk
         assert query == 'needle'
         return [SearchLineMatch(display_path='keep.py', line_number=1)]
 
-    monkeypatch.setattr('nemo_backend.workspace_tools.run_grep_line_search', _fake_run_grep_line_search)
+    monkeypatch.setattr('nemo_backend.tools.workspace.run_grep_line_search', _fake_run_grep_line_search)
 
     out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})
 
@@ -202,7 +202,7 @@ def test_search_workspace_falls_back_when_grep_returns_none(workspace_session: P
     root = workspace_session
     (root / 'keep.py').write_text('needle here\n', encoding='utf-8')
 
-    monkeypatch.setattr('nemo_backend.workspace_tools.run_grep_line_search', lambda *a, **k: None)
+    monkeypatch.setattr('nemo_backend.tools.workspace.run_grep_line_search', lambda *a, **k: None)
 
     out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})
     assert 'keep.py' in out

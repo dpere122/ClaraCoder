@@ -27,7 +27,7 @@ from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from typing_extensions import NotRequired, override
 
-from nemo_backend.agents.specialists.review_tools import pending_untransferred_staging_paths
+from nemo_backend.tools.review_tools import pending_untransferred_staging_paths
 from nemo_backend.config import (
     MAX_AGENT_EMPTY_NUDGES,
     MAX_AGENT_PSEUDO_TOOL_NUDGES,

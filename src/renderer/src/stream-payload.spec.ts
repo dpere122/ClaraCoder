@@ -266,4 +266,28 @@ describe('parseAgentStreamPayload', () => {
       },
     });
   });
+
+  it('parses build_plan_open payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'build_plan_open',
+          buildPlanOpen: {
+            planId: 'plan-1',
+            relativePath: '.nemo/build-plans/plan-1.md',
+            title: 'Refactor auth',
+            previewMode: true,
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'build_plan_open',
+      buildPlanOpen: {
+        planId: 'plan-1',
+        relativePath: '.nemo/build-plans/plan-1.md',
+        title: 'Refactor auth',
+        previewMode: true,
+      },
+    });
+  });
 });

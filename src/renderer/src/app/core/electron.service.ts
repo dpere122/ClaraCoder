@@ -36,6 +36,7 @@ import type {
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   PlannerProgress,
+  BuildPlanOpenPayload,
   StagedTransferBatchPayload,
   PythonInterpreterListItem,
   TtsStreamPacket,
@@ -137,6 +138,11 @@ export interface PlanConfirmMessage {
 export interface PlannerProgressMessage {
   conversationId: string;
   planner: PlannerProgress;
+}
+
+export interface BuildPlanOpenMessage {
+  conversationId: string;
+  payload: BuildPlanOpenPayload;
 }
 
 export interface ScriptOutputMessage {
@@ -249,6 +255,7 @@ export class ElectronService {
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly plannerProgressSubject = new Subject<PlannerProgressMessage>();
+  private readonly buildPlanOpenSubject = new Subject<BuildPlanOpenMessage>();
   private readonly planConfirmSubject = new Subject<PlanConfirmMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
@@ -288,6 +295,7 @@ export class ElectronService {
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly plannerProgress$ = this.plannerProgressSubject.asObservable();
+  readonly buildPlanOpen$ = this.buildPlanOpenSubject.asObservable();
   readonly planConfirm$ = this.planConfirmSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
@@ -450,6 +458,14 @@ export class ElectronService {
         this.plannerProgressSubject.next({ conversationId, planner: planner as PlannerProgress }),
       );
     });
+    this.api?.onMessageBuildPlanOpen?.((_event, conversationId, payload) => {
+      this.zone.run(() =>
+        this.buildPlanOpenSubject.next({
+          conversationId,
+          payload: payload as BuildPlanOpenPayload,
+        }),
+      );
+    });
     this.api?.onMessagePlanConfirm?.((_event, conversationId, payload) => {
       this.zone.run(() =>
         this.planConfirmSubject.next({ conversationId, payload: payload as PlanConfirmPayload }),
@@ -538,6 +554,13 @@ export class ElectronService {
   abortMessage(conversationId: string): Promise<{ ok: boolean; error?: string }> {
     return (
       this.api?.abortMessage(conversationId) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  cancelBuildPlan(conversationId: string, planId: string): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.cancelBuildPlan(conversationId, planId) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

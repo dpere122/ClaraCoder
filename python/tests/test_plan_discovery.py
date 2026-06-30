@@ -6,25 +6,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from nemo_backend.build_plan_store import BuildPlanModel
 from nemo_backend.domain import SessionState
 from nemo_backend.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_freeform_discovery_prompt,
 )
 from nemo_backend.plan_execute import (
-    PlanModel,
-    ReplanAct,
     _invoke_planner,
     stream_plan_execute_langgraph,
 )
-from nemo_backend.plan_step_verify import StepVerifyResult
 
 
 def test_build_freeform_discovery_prompt_is_read_only_and_unplanned() -> None:
     prompt = build_freeform_discovery_prompt('Add an auth middleware')
     assert 'Add an auth middleware' in prompt
     assert 'read-only' in prompt.lower()
-    # The model must NOT draft an up-front checklist of discovery actions.
     assert 'do not' in prompt.lower()
     assert 'checklist' in prompt.lower()
 
@@ -33,27 +30,28 @@ async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
 
 
-def _approved_verifier() -> StepVerifyResult:
-    return StepVerifyResult(approved=True, evidence='Step satisfied.')
+def _sample_plan() -> BuildPlanModel:
+    return BuildPlanModel(
+        title='Plan',
+        task='Build feature',
+        current_implementation='None',
+        files_to_change=['src/a.ts — edit'],
+        action_steps=['Do work'],
+    )
 
 
-@patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._invoke_replanner')
 @patch('nemo_backend.plan_execute._invoke_planner')
 @patch('nemo_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_freeform_discovery_runs_before_planner(
     mock_pause: AsyncMock,
     mock_planner: AsyncMock,
-    mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
-    mock_verify: AsyncMock,
+    tmp_path,
 ) -> None:
-    mock_planner.return_value = PlanModel(steps=['Do work'])
-    mock_replanner.return_value = ReplanAct(response='All done.', steps=[])
+    mock_planner.return_value = _sample_plan()
     mock_pause.return_value = None
-    mock_verify.return_value = _approved_verifier()
 
     exec_apply_modes: list[bool] = []
 
@@ -66,7 +64,7 @@ async def test_freeform_discovery_runs_before_planner(
 
     mock_exec.side_effect = _fake_exec
 
-    session = SessionState()
+    session = SessionState(workspace_path=str(tmp_path))
     outcome = LangGraphWorkerOutcome()
 
     lines = await _collect_lines(
@@ -82,29 +80,23 @@ async def test_freeform_discovery_runs_before_planner(
     assert mock_planner.called
     assert any('"phase": "discovery"' in line for line in lines)
     assert any('"phase": "planning"' in line for line in lines)
-    # Discovery is a single read-only pass (apply_mode False); steps run with full tools.
     assert exec_apply_modes[0] is False
     assert exec_apply_modes[-1] is True
     assert outcome.state == AgentLoopOutcome.COMPLETED
 
 
-@patch('nemo_backend.plan_execute.invoke_step_verifier')
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._invoke_replanner')
 @patch('nemo_backend.plan_execute._invoke_planner')
 @patch('nemo_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_freeform_discovery_emits_no_step_checklist(
     mock_pause: AsyncMock,
     mock_planner: AsyncMock,
-    mock_replanner: AsyncMock,
     mock_exec: AsyncMock,
-    mock_verify: AsyncMock,
+    tmp_path,
 ) -> None:
-    mock_planner.return_value = PlanModel(steps=['Do work'])
-    mock_replanner.return_value = ReplanAct(response='Done.', steps=[])
+    mock_planner.return_value = _sample_plan()
     mock_pause.return_value = None
-    mock_verify.return_value = _approved_verifier()
 
     async def _fake_exec(*_args: Any, **_kwargs: Any):
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
@@ -113,7 +105,7 @@ async def test_freeform_discovery_emits_no_step_checklist(
 
     mock_exec.side_effect = _fake_exec
 
-    session = SessionState()
+    session = SessionState(workspace_path=str(tmp_path))
     outcome = LangGraphWorkerOutcome()
 
     lines = await _collect_lines(
@@ -126,7 +118,6 @@ async def test_freeform_discovery_emits_no_step_checklist(
         )
     )
 
-    # The discovery phase progress event carries an empty step list (no a-priori plan).
     discovery_lines = [line for line in lines if '"phase": "discovery"' in line]
     assert discovery_lines
     assert all('"steps": []' in line for line in discovery_lines)
@@ -136,7 +127,7 @@ async def test_freeform_discovery_emits_no_step_checklist(
 @pytest.mark.asyncio(loop_scope='function')
 async def test_discovery_summary_passed_to_planner(mock_planner_chain: MagicMock) -> None:
     mock_chain = MagicMock()
-    mock_chain.ainvoke = AsyncMock(return_value=PlanModel(steps=['Step 1']))
+    mock_chain.ainvoke = AsyncMock(return_value=_sample_plan())
     mock_planner_chain.return_value = mock_chain
 
     session = SessionState()

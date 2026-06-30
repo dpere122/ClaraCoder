@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildPlanChatFileTab,
   chatFileTabBasename,
   chatFileTabId,
   chatFileTabModelKey,
+  deactivateBuildPlanTab,
+  findBuildPlanTab,
   openTabForRenamedFile,
+  removeBuildPlanTab,
   replaceFileTabAfterSaveAs,
   retargetFileTabPath,
   workspaceChatFileTab,
@@ -66,5 +70,26 @@ describe('app-chat-file-tabs', () => {
     });
     expect(next[0]?.relativePath).toBe('renamed.ts');
     expect(next[0]?.outsideWorkspace).toBeFalsy();
+  });
+
+  it('builds build-plan tabs with preview-only metadata', () => {
+    const tab = buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true);
+    expect(tab.previewOnly).toBe(true);
+    expect(tab.buildPlanId).toBe('p1');
+    expect(tab.buildPlanActive).toBe(true);
+    expect(chatFileTabId(tab)).toBe('file:rel:.nemo/build-plans/p1.md');
+  });
+
+  it('deactivates and removes build-plan tabs by plan id', () => {
+    const tabs = [
+      buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true),
+      workspaceChatFileTab('src/foo.ts'),
+    ];
+    expect(findBuildPlanTab(tabs, 'p1')?.buildPlanActive).toBe(true);
+    const inactive = deactivateBuildPlanTab(tabs, 'p1');
+    expect(findBuildPlanTab(inactive, 'p1')?.buildPlanActive).toBe(false);
+    const remaining = removeBuildPlanTab(inactive, 'p1');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.relativePath).toBe('src/foo.ts');
   });
 });

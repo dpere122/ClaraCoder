@@ -115,6 +115,13 @@ class AbortRequest(BaseModel):
     session_id: str
 
 
+class BuildPlanCancelRequest(BaseModel):
+    """Body for POST /build-plan/cancel: delete plan file and abort in-flight stream."""
+
+    session_id: str
+    plan_id: str = Field(default='', validation_alias=AliasChoices('plan_id', 'planId'))
+
+
 class LoadRequest(BaseModel):
     """Replace a session's history with the given messages (e.g. after reload)."""
 

@@ -77,6 +77,9 @@ export const chatApi = {
   onMessagePlannerProgress: (
     callback: (event: unknown, conversationId: string, planner: unknown) => void,
   ) => ipcRenderer.on('message-planner-progress', callback),
+  onMessageBuildPlanOpen: (
+    callback: (event: unknown, conversationId: string, payload: unknown) => void,
+  ) => ipcRenderer.on('message-build-plan-open', callback),
   onMessagePlanConfirm: (
     callback: (event: unknown, conversationId: string, payload: unknown) => void,
   ) => ipcRenderer.on('message-plan-confirm', callback),
@@ -103,6 +106,8 @@ export const chatApi = {
       composerMode ?? 'agent',
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
+  cancelBuildPlan: (conversationId: string, planId: string) =>
+    ipcRenderer.invoke('build-plan-cancel', conversationId, planId),
   getPendingStreamIdsForWorkspace: (workspaceId: string | null) =>
     ipcRenderer.invoke('get-pending-stream-ids-for-workspace', workspaceId),
   abortPendingStreamsForWorkspace: (workspaceId: string | null) =>

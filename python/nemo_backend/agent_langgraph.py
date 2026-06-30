@@ -90,9 +90,13 @@ def build_nemo_single_outer_graph(
     apply_mode: bool,
     *,
     extra_middleware: list[Any] | None = None,
+    tools_provider: Callable[..., tuple[list[Any], dict[str, Any]]] | None = None,
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible)."""
-    tools, _ = worker_tools_and_map(apply_mode, session=session)
+    if tools_provider is not None:
+        tools, _ = tools_provider(apply_mode, session=session)
+    else:
+        tools, _ = worker_tools_and_map(apply_mode, session=session)
     system_prompt = build_system_prompt(session, apply_mode)
     core_middleware: list[Any] = [
         ConnectionParallelToolCallsMiddleware(),
@@ -257,6 +261,14 @@ def _nested_sse_lines(
     if unpacked is None:
         return []
     tag, ev = unpacked
+    if ev.get('event') == 'planner_progress':
+        data = ev.get('data')
+        if isinstance(data, dict):
+            from nemo_backend.agent_streaming import planner_progress_event, sse_line
+
+            planner = data.get('planner') if isinstance(data.get('planner'), dict) else data
+            return [sse_line(planner_progress_event(planner))]
+        return []
     nested_state = nested_states.setdefault(tag, GraphStreamState())
     return list(
         sse_lines_for_graph_event(

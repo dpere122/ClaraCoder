@@ -102,6 +102,10 @@ class SessionState:
     pending_plan_confirm_request: dict | None = None
     #: Set by plan-confirm HITL when the user cancels; read by the plan orchestrator after pause.
     plan_execute_aborted: bool = False
+    #: Active build plan registry id (``.nemo/build-plans``) while planning or executing.
+    active_build_plan_id: str = ''
+    #: Workspace-relative path to the active build plan Markdown file.
+    active_build_plan_path: str = ''
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).

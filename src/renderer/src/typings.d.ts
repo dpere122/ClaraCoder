@@ -117,6 +117,13 @@ declare global {
     onMessagePlannerProgress?: (
       callback: (event: unknown, conversationId: string, planner: import('@shared/index').PlannerProgress) => void,
     ) => void;
+    onMessageBuildPlanOpen?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: import('@shared/index').BuildPlanOpenPayload,
+      ) => void,
+    ) => void;
     onMessagePlanConfirm?: (
       callback: (event: unknown, conversationId: string, payload: import('@shared/index').PlanConfirmPayload) => void,
     ) => void;
@@ -137,6 +144,7 @@ declare global {
       composerMode?: 'agent' | 'plan',
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
+    cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
     getPendingStreamIdsForWorkspace: (workspaceId: string | null) => Promise<string[]>;
     abortPendingStreamsForWorkspace: (workspaceId: string | null) => Promise<{ aborted: string[] }>;
     agentContinue: (

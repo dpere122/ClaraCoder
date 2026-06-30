@@ -58,6 +58,11 @@ def plan_confirm_event(payload: dict[str, Any]) -> dict[str, Any]:
     return {'type': 'plan_confirm', 'planConfirm': payload}
 
 
+def build_plan_open_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """Open the build-plan Markdown preview tab in the workspace UI."""
+    return {'type': 'build_plan_open', 'buildPlanOpen': payload}
+
+
 def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: str = '') -> dict[str, Any]:
     """Build one structured live tool execution output payload for the UI."""
     row: dict[str, Any] = {'type': 'tool_exec_chunk', 'delta': delta}

@@ -18,6 +18,7 @@ from nemo_backend.agent_streaming import (
     is_meaningful_stream_delta,
     iter_read_tool_stream_sse,
     model_chunk_sse_line,
+    planner_progress_event,
     sse_line,
     sse_tool_finished,
     status_event,
@@ -451,6 +452,13 @@ def sse_lines_for_graph_event(
                 ),
             ),
         ]
+    if et == 'planner_progress':
+        from nemo_backend.agent_streaming import planner_progress_event
+
+        planner_data = data.get('planner')
+        if isinstance(planner_data, dict):
+            return [sse_line(planner_progress_event(planner_data))]
+        return []
     return []
 
 

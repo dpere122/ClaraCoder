@@ -179,6 +179,25 @@ export function registerChatIpc(): void {
 
   ipcMain.handle('abort-message', async (_event, conversationId: string) => abortChatStream(conversationId));
 
+  ipcMain.handle('build-plan-cancel', async (_event, conversationId: string, planId: string) => {
+    try {
+      const res = await pythonControlFetch('/build-plan/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: conversationId, plan_id: planId ?? '' }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return { ok: false, error: text || `HTTP ${res.status}` };
+      }
+      const data = (await res.json()) as { ok?: boolean };
+      return { ok: data.ok !== false };
+    } catch (err) {
+      console.error('build-plan-cancel failed:', err);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('get-pending-stream-ids-for-workspace', (_event, workspaceId: string | null) =>
     getPendingStreamIdsForWorkspace(workspaceId),
   );

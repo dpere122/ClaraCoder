@@ -13,6 +13,12 @@ export interface ChatFileTab {
   absolutePath?: string;
   /** True when editing a file outside the workspace root. */
   outsideWorkspace?: boolean;
+  /** Build plan id when this tab shows a `.nemo/build-plans/` markdown file. */
+  buildPlanId?: string;
+  /** True while the plan awaits confirm or is executing; closing tab cancels the plan. */
+  buildPlanActive?: boolean;
+  /** Preview-only markdown tab (no edit/preview toggle). */
+  previewOnly?: boolean;
 }
 
 export function chatFileTabModelKey(tab: ChatFileTab): string {
@@ -147,6 +153,32 @@ export function chatFileTabFromModelKey(modelKey: string): ChatFileTab | null {
 /** Legacy helper: open tab by workspace-relative path only. */
 export function workspaceChatFileTab(relativePath: string): ChatFileTab {
   return { relativePath: normalizePathSlashes(relativePath), outsideWorkspace: false };
+}
+
+export function buildPlanChatFileTab(
+  relativePath: string,
+  planId: string,
+  active = true,
+): ChatFileTab {
+  return {
+    relativePath: normalizePathSlashes(relativePath),
+    outsideWorkspace: false,
+    buildPlanId: planId,
+    buildPlanActive: active,
+    previewOnly: true,
+  };
+}
+
+export function findBuildPlanTab(tabs: readonly ChatFileTab[], planId: string): ChatFileTab | undefined {
+  return tabs.find((t) => t.buildPlanId === planId);
+}
+
+export function deactivateBuildPlanTab(tabs: readonly ChatFileTab[], planId: string): ChatFileTab[] {
+  return tabs.map((t) => (t.buildPlanId === planId ? { ...t, buildPlanActive: false } : t));
+}
+
+export function removeBuildPlanTab(tabs: readonly ChatFileTab[], planId: string): ChatFileTab[] {
+  return tabs.filter((t) => t.buildPlanId !== planId);
 }
 
 export { openEditorFileRefFromRelativePath };

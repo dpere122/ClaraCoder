@@ -207,6 +207,7 @@ export {
 } from './lsp-file-policy';
 export type { AcceptCommandPayload } from './types/accept-command';
 export type { PlanConfirmPayload } from './types/plan-confirm';
+export type { BuildPlanOpenPayload } from './types/build-plan';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';
 export type {

@@ -50,12 +50,15 @@ import {
   chatFileTabBasename,
   chatFileTabId,
   chatFileTabModelKey,
+  deactivateBuildPlanTab,
   findTabByModelKey,
   openEditorFileRefFromTab,
   openTabForRenamedFile,
+  removeBuildPlanTab,
   replaceFileTabAfterSaveAs,
   type ChatFileTab,
   workspaceChatFileTab,
+  buildPlanChatFileTab,
 } from './app-chat-file-tabs';
 import { relativePathFromModelKey } from '../workspace/open-editor-file-ref';
 import {
@@ -81,6 +84,7 @@ import {
   unsavedCloseFileTabPrompt,
   unsavedWorkspaceSwitchPrompt,
   detachedFileClosePrompt,
+  activeBuildPlanClosePrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
@@ -141,6 +145,11 @@ export class App implements OnInit, OnDestroy {
   /** Clean final reply for the active conversation (`final_text` SSE), before `[DONE]`. */
   protected readonly streamingFinalText = signal<string | undefined>(undefined);
   private readonly backgroundStreamPlanner = new Map<string, PlannerProgress>();
+  /** Active build plan per conversation (preview tab + cancel lifecycle). */
+  private readonly activeBuildPlanByConversation = new Map<
+    string,
+    { planId: string; relativePath: string; active: boolean }
+  >();
   /**
    * Last measured prompt token count per conversation (from API usage metadata).
    * Persists across conversation switches until a newer measurement replaces it.
@@ -262,6 +271,20 @@ export class App implements OnInit, OnDestroy {
   protected readonly monacoActiveModelKey = computed(() =>
     this.activeFileIsImage() ? null : this.activeModelKey(),
   );
+
+  /** Model keys for build-plan tabs that should open in preview-only mode. */
+  protected readonly monacoForcePreviewKeys = computed(() => {
+    const keys = new Set<string>();
+    for (const tab of this.fileTabs()) {
+      if (tab.previewOnly) {
+        const key = chatFileTabModelKey(tab);
+        if (key) {
+          keys.add(key);
+        }
+      }
+    }
+    return keys;
+  });
 
   /** Latest pending file diff for the currently focused editor tab (Monaco inline review). */
   protected readonly pendingDiffForActiveEditor = computed((): FileDiffPayload | null => {
@@ -630,6 +653,19 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.buildPlanOpen$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
+      const planId = payload.planId?.trim();
+      const relativePath = payload.relativePath?.trim();
+      if (!planId || !relativePath) {
+        return;
+      }
+      const norm = normalizePathSlashes(relativePath);
+      this.activeBuildPlanByConversation.set(conversationId, { planId, relativePath: norm, active: true });
+      if (conversationId === this.activeConversationId()) {
+        this.openOrFocusBuildPlanTab(norm, planId, true);
+      }
+    });
+
     this.electron.planConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       const artifact = { role: 'plan_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
@@ -679,6 +715,10 @@ export class App implements OnInit, OnDestroy {
           : (this.backgroundStreamPlanner.get(conversationId) ?? null);
       this.pendingFinalText.delete(conversationId);
       this.backgroundStreamPlanner.delete(conversationId);
+
+      if (planner?.phase === 'complete') {
+        this.setBuildPlanTabInactive(conversationId);
+      }
 
       if (conversationId === this.activeConversationId()) {
         this.toolRunIds.set(new Set());
@@ -1093,6 +1133,9 @@ export class App implements OnInit, OnDestroy {
       this.pendingSave = true;
       this.autoSave();
     }
+    if (event.status === 'cancelled') {
+      this.closeBuildPlanTab(this.activeConversationId());
+    }
   }
 
   onDiffReviewFinished(event: { relativePath: string; status: 'complete' | 'cancelled'; summary?: string }): void {
@@ -1356,6 +1399,98 @@ export class App implements OnInit, OnDestroy {
     this.activeMainTabId.set(id);
   }
 
+  protected openOrFocusBuildPlanTab(relativePath: string, planId: string, active: boolean): void {
+    const root = this.currentWorkspacePath().trim();
+    if (!root) {
+      return;
+    }
+    const norm = normalizePathSlashes(relativePath);
+    if (!norm || !planId.trim()) {
+      return;
+    }
+    const tabs = this.fileTabs();
+    const byPlanIdx = tabs.findIndex((t) => t.buildPlanId === planId);
+    if (byPlanIdx >= 0) {
+      const updated = [...tabs];
+      updated[byPlanIdx] = {
+        ...updated[byPlanIdx]!,
+        relativePath: norm,
+        buildPlanActive: active,
+        previewOnly: true,
+      };
+      this.fileTabs.set(updated);
+      this.activeMainTabId.set(chatFileTabId(updated[byPlanIdx]!));
+      return;
+    }
+    const byPathIdx = tabs.findIndex(
+      (t) => !t.outsideWorkspace && normalizePathSlashes(t.relativePath ?? '') === norm,
+    );
+    if (byPathIdx >= 0) {
+      const updated = [...tabs];
+      updated[byPathIdx] = {
+        ...updated[byPathIdx]!,
+        buildPlanId: planId,
+        buildPlanActive: active,
+        previewOnly: true,
+      };
+      this.fileTabs.set(updated);
+      this.activeMainTabId.set(chatFileTabId(updated[byPathIdx]!));
+      return;
+    }
+    const tab = buildPlanChatFileTab(norm, planId, active);
+    this.fileTabs.update((ts) => [...ts, tab]);
+    this.activeMainTabId.set(chatFileTabId(tab));
+  }
+
+  private setBuildPlanTabInactive(conversationId: string, planId?: string): void {
+    const tracked = this.activeBuildPlanByConversation.get(conversationId);
+    const id = planId ?? tracked?.planId;
+    if (!id) {
+      return;
+    }
+    if (tracked) {
+      this.activeBuildPlanByConversation.set(conversationId, { ...tracked, active: false });
+    }
+    this.fileTabs.update((tabs) => deactivateBuildPlanTab(tabs, id));
+  }
+
+  private closeBuildPlanTab(conversationId: string | null, planId?: string): void {
+    if (!conversationId) {
+      return;
+    }
+    const tracked = this.activeBuildPlanByConversation.get(conversationId);
+    const id = planId ?? tracked?.planId;
+    if (!id) {
+      return;
+    }
+    this.activeBuildPlanByConversation.delete(conversationId);
+    const tabToClose = this.fileTabs().find((t) => t.buildPlanId === id);
+    const closingTabId = tabToClose ? chatFileTabId(tabToClose) : null;
+    const remaining = removeBuildPlanTab(this.fileTabs(), id);
+    if (closingTabId && this.activeMainTabId() === closingTabId) {
+      if (remaining.length > 0) {
+        this.activeMainTabId.set(chatFileTabId(remaining[remaining.length - 1]!));
+      } else {
+        this.activeMainTabId.set(null);
+      }
+    }
+    this.fileTabs.set(remaining);
+  }
+
+  private removeFileTabByModelKey(keyToClose: string): void {
+    const remaining = this.fileTabs().filter((t) => chatFileTabModelKey(t) !== keyToClose);
+    const tabId = `file:${keyToClose}`;
+    if (this.activeMainTabId() === tabId) {
+      if (remaining.length > 0) {
+        const last = remaining[remaining.length - 1]!;
+        this.activeMainTabId.set(chatFileTabId(last));
+      } else {
+        this.activeMainTabId.set(null);
+      }
+    }
+    this.fileTabs.set(remaining);
+  }
+
   private applyFileRenamedTabs(oldRelativePath: string, newRelativePath: string): void {
     const { tabs, focusTabId } = openTabForRenamedFile(
       this.fileTabs(),
@@ -1483,6 +1618,21 @@ export class App implements OnInit, OnDestroy {
     const detached = this.monacoDetachedPaths().has(modelKey);
     const unsaved = this.fileTabIsUnsaved(modelKey);
 
+    if (tab?.buildPlanId && tab.buildPlanActive) {
+      const choice = await this.themedConfirm.open(activeBuildPlanClosePrompt(displayPath));
+      if (choice !== 'confirm') {
+        return;
+      }
+      const convId = this.activeConversationId();
+      if (convId) {
+        await this.electron.cancelBuildPlan(convId, tab.buildPlanId);
+        void this.electron.abortMessage(convId);
+        this.activeBuildPlanByConversation.delete(convId);
+      }
+      this.removeFileTabByModelKey(keyToClose);
+      return;
+    }
+
     if (detached && unsaved) {
       const choice = await this.themedConfirm.open(detachedFileClosePrompt(displayPath));
       if (choice === 'cancel') {
@@ -1506,16 +1656,7 @@ export class App implements OnInit, OnDestroy {
       await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
     }
 
-    const remaining = this.fileTabs().filter((t) => chatFileTabModelKey(t) !== keyToClose);
-    if (this.activeMainTabId() === tabId || this.activeMainTabId() === `file:${keyToClose}`) {
-      if (remaining.length > 0) {
-        const last = remaining[remaining.length - 1]!;
-        this.activeMainTabId.set(chatFileTabId(last));
-      } else {
-        this.activeMainTabId.set(null);
-      }
-    }
-    this.fileTabs.set(remaining);
+    this.removeFileTabByModelKey(keyToClose);
   }
 
   protected onWorkspaceFileOpen(payload: { absolutePath: string }): void {

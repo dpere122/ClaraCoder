@@ -65,6 +65,18 @@ export function unsavedCloseFileTabPrompt(relativePath: string): ThemedConfirmOp
   };
 }
 
+/** Copy when closing an active build-plan preview tab (cancels agent + deletes plan file). */
+export function activeBuildPlanClosePrompt(relativePath: string): ThemedConfirmOpenOptions {
+  return {
+    title: 'Cancel build plan?',
+    message: 'Closing this plan will cancel the agent and delete the build plan file.',
+    detail: `Plan:\n${relativePath}`,
+    cancelText: 'Keep open',
+    confirmText: 'Close and cancel',
+    variant: 'warning',
+  };
+}
+
 /** Copy when context usage is at or above the near-limit threshold before sending a message. */
 export function contextCapacityNearLimitPrompt(args: {
   usedTokens: number;

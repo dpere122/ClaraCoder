@@ -62,8 +62,8 @@
       </div>
     }
 
-    @if (planConfirm()?.message && showApprovalActions()) {
-      <p class="plan-panel__message">{{ planConfirm()!.message }}</p>
+    @if (approvalMessage() && showApprovalActions()) {
+      <p class="plan-panel__message">{{ approvalMessage() }}</p>
     }
 
     <ol class="plan-panel__steps">

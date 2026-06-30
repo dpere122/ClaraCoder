@@ -26,6 +26,7 @@ from nemo_backend.routes import router as runtime_router
 from nemo_backend.routes_audio import router as audio_router
 from nemo_backend.routes_chat import router as chat_router
 from nemo_backend.routes_conversation_title import router as conversation_title_router
+from nemo_backend.routes_build_plan import router as build_plan_router
 from nemo_backend.routes_checkpoint import router as checkpoint_router
 from nemo_backend.routes_session import router as session_router
 
@@ -55,3 +56,4 @@ app.include_router(audio_router)
 app.include_router(lsp_router)
 app.include_router(log_router)
 app.include_router(checkpoint_router)
+app.include_router(build_plan_router)

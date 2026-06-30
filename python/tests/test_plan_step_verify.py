@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nemo_backend.plan_execute import build_step_task_prompt
+from nemo_backend.plan_execute import build_build_plan_executor_prompt
 from nemo_backend.plan_step_verify import StepVerifyResult, invoke_step_verifier
 
 
-def test_build_step_task_prompt_includes_verifier_feedback() -> None:
-    prompt = build_step_task_prompt(['Fix bug'], 0, verifier_feedback='Add a unit test.')
-    assert 'Verifier feedback' in prompt
-    assert 'Add a unit test.' in prompt
+def test_build_build_plan_executor_prompt_mentions_mark_tool() -> None:
+    prompt = build_build_plan_executor_prompt('.nemo/build-plans/plan-1.md')
+    assert 'mark_build_plan_steps_complete' in prompt
+    assert 'read_build_plan' in prompt
 
 
 @patch('nemo_backend.plan_step_verify._step_verifier_chain')

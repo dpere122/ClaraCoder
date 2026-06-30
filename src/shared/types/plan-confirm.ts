@@ -7,4 +7,8 @@ export interface PlanConfirmPayload {
   confirmLabel: string;
   cancelLabel: string;
   steps: string[];
+  /** Workspace-relative path to the build plan markdown file (preview tab). */
+  buildPlanPath?: string;
+  /** Build plan id linked to the preview tab and cancel API. */
+  planId?: string;
 }

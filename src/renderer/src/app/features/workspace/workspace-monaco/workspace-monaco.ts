@@ -133,6 +133,8 @@ export class WorkspaceMonacoComponent {
   readonly conversationId = input<string | null>(null);
   /** After cross-file go-to-definition: reveal cursor once this path is the active editor model. */
   readonly pendingEditorReveal = input<{ relativePath: string; line: number; column: number } | null>(null);
+  /** Model keys that should open in markdown preview and hide the edit/preview toggle. */
+  readonly forcePreviewForKeys = input<ReadonlySet<string> | readonly string[]>([]);
 
   /** Model keys whose buffer differs from the last disk-synced version (unsaved). */
   readonly unsavedPathsChange = output<readonly string[]>();
@@ -214,6 +216,10 @@ export class WorkspaceMonacoComponent {
     const path = displayPathForModelKey(key);
     return path.toLowerCase().endsWith('.md');
   });
+  protected readonly activePreviewOnly = computed(() => this.isForcePreviewKey(this.activeModelKey()?.trim() ?? ''));
+  protected readonly showMdToolbar = computed(
+    () => this.isMarkdownFile() && !this.monacoDiffActive() && !this.activePreviewOnly(),
+  );
   /** Session-scoped view-mode memory per file (default: edit). */
   private readonly mdViewModeByPath = new Map<string, 'edit' | 'preview'>();
   private mdPreviewContentDisposable: Monaco.IDisposable | null = null;
@@ -347,6 +353,20 @@ export class WorkspaceMonacoComponent {
           this.mdViewModeByPath.set(key, 'edit');
         }
         this.exitMdPreview(false);
+      });
+    });
+
+    effect(() => {
+      const previewOnly = this.activePreviewOnly();
+      const ready = this.editorReady();
+      const diffOn = this.monacoDiffActive();
+      const key = this.activeModelKey()?.trim();
+      if (!previewOnly || !ready || diffOn || !key || !this.isMarkdownFile()) {
+        return;
+      }
+      untracked(() => {
+        this.mdViewModeByPath.set(key, 'preview');
+        this.enterMdPreview(key);
       });
     });
 
@@ -562,7 +582,7 @@ export class WorkspaceMonacoComponent {
 
   protected setMdViewMode(mode: 'edit' | 'preview'): void {
     const key = this.activeModelKey()?.trim();
-    if (!key || !this.isMarkdownFile()) {
+    if (!key || !this.isMarkdownFile() || this.isForcePreviewKey(key)) {
       return;
     }
     this.mdViewModeByPath.set(key, mode);
@@ -667,6 +687,17 @@ export class WorkspaceMonacoComponent {
   private applyScrollRatio(el: HTMLElement, ratio: number): void {
     const range = el.scrollHeight - el.clientHeight;
     el.scrollTop = range > 0 ? ratio * range : 0;
+  }
+
+  private isForcePreviewKey(modelKey: string): boolean {
+    if (!modelKey) {
+      return false;
+    }
+    const keys = this.forcePreviewForKeys();
+    if (keys instanceof Set) {
+      return keys.has(modelKey);
+    }
+    return (keys as readonly string[]).includes(modelKey);
   }
 
   protected readonly applying = computed(() => {
@@ -1509,7 +1540,11 @@ export class WorkspaceMonacoComponent {
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
     void this.prefetchSemanticLegendForModel(model);
-    const mdMode = this.mdViewModeByPath.get(modelKey) ?? 'edit';
+    const forcePreview = this.isForcePreviewKey(modelKey);
+    const mdMode = forcePreview ? 'preview' : (this.mdViewModeByPath.get(modelKey) ?? 'edit');
+    if (forcePreview) {
+      this.mdViewModeByPath.set(modelKey, 'preview');
+    }
     const displayPath = displayPathForModelKey(modelKey);
     if (displayPath.toLowerCase().endsWith('.md') && mdMode === 'preview') {
       this.enterMdPreview(modelKey);

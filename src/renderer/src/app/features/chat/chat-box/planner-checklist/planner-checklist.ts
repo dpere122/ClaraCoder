@@ -81,6 +81,9 @@ export class PlannerChecklistComponent implements OnDestroy {
   });
 
   readonly runningStepId = computed(() => {
+    if (this.planner().phase === 'executing') {
+      return null;
+    }
     const activeId = this.planner().activeStepId;
     if (activeId) {
       const active = this.planner().steps.find((s) => s.id === activeId);
@@ -99,6 +102,19 @@ export class PlannerChecklistComponent implements OnDestroy {
   readonly approvalResolved = computed(
     () => this.planConfirm() != null && this.planConfirmReviewStatus() !== 'pending',
   );
+
+  readonly approvalMessage = computed(() => {
+    const confirm = this.planConfirm();
+    if (!confirm?.message) {
+      return '';
+    }
+    const base = confirm.message.trim();
+    const path = confirm.buildPlanPath?.trim();
+    if (path) {
+      return `${base} Review the build plan in the preview tab (${path}).`;
+    }
+    return base;
+  });
 
   isActiveStep(step: PlannerStep): boolean {
     const activeId = this.planner().activeStepId;

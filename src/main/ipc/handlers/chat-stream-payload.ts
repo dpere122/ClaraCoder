@@ -50,6 +50,8 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-final-text', conversationId, parsed.text);
   } else if (parsed.type === 'planner_progress') {
     event.reply('message-planner-progress', conversationId, parsed.planner);
+  } else if (parsed.type === 'build_plan_open') {
+    event.reply('message-build-plan-open', conversationId, parsed.buildPlanOpen);
   } else if (parsed.type === 'plan_confirm') {
     event.reply('message-plan-confirm', conversationId, parsed.planConfirm);
   } else if (parsed.type === 'staged_transfer_batch') {

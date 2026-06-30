@@ -1,3 +1,4 @@
+import type { BuildPlanOpenPayload } from './types/build-plan';
 import type { AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
@@ -33,6 +34,7 @@ export type ParsedAgentStreamPayload =
   | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
   | { type: 'planner_progress'; planner: PlannerProgress }
+  | { type: 'build_plan_open'; buildPlanOpen: BuildPlanOpenPayload }
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
   | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
   | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
@@ -72,6 +74,7 @@ type RawAgentStreamPayload = {
   deleteConfirm?: unknown;
   planner?: unknown;
   planConfirm?: unknown;
+  buildPlanOpen?: unknown;
   stagedTransferBatch?: unknown;
 };
 
@@ -144,6 +147,13 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       return {
         type: 'plan_confirm',
         planConfirm: parsed.planConfirm as PlanConfirmPayload,
+      };
+    }
+
+    if (parsed.type === 'build_plan_open' && parsed.buildPlanOpen && typeof parsed.buildPlanOpen === 'object') {
+      return {
+        type: 'build_plan_open',
+        buildPlanOpen: parsed.buildPlanOpen as BuildPlanOpenPayload,
       };
     }
 

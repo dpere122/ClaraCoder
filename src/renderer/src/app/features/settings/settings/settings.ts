@@ -1,4 +1,16 @@
-import { Component, OnDestroy, OnInit, computed, signal } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  effect,
+  inject,
+  Injector,
+  OnDestroy,
+  OnInit,
+  computed,
+  signal,
+  untracked,
+} from '@angular/core';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
@@ -62,6 +74,16 @@ type SettingsSubTabEntry = {
   description: string;
 };
 
+const PLAN_PROGRESS_SPINNER_TYPE = 'line-spin-fade' as const;
+
+const CLOSE_SAVE_SPINNER = {
+  fullScreen: false as const,
+  bdColor: 'rgba(0,0,0,0)',
+  size: 'small' as const,
+  color: 'var(--bs-btn-color, #fff)',
+  type: PLAN_PROGRESS_SPINNER_TYPE,
+};
+
 const TALK_SILENCE_THRESHOLD_MIN = 0.5;
 const TALK_SILENCE_THRESHOLD_MAX = 5;
 const TALK_SILENCE_THRESHOLD_STEP = 0.5;
@@ -99,13 +121,20 @@ interface TalkAudioInputDevice {
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, LucideAngularModule, DecimalPipe, FontControl, ThemedConfirmDialogComponent],
+  imports: [FormsModule, LucideAngularModule, DecimalPipe, FontControl, ThemedConfirmDialogComponent, NgxSpinnerComponent],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })
 export class Settings implements OnInit, OnDestroy {
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
+  private destroyed = false;
+
   /** Shown in managed llama-server tips and placeholders (must match Electron substitution token). */
   protected readonly managedLlamaPortToken = '{{PORT}}';
+  protected readonly closeSaving = signal(false);
+  protected readonly closeSpinnerName = `settings-close-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
   /**
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
@@ -401,7 +430,12 @@ export class Settings implements OnInit, OnDestroy {
   constructor(
     private electron: ElectronService,
     private themedConfirm: ThemedConfirmDialogService,
-  ) {}
+  ) {
+    effect(() => {
+      const saving = this.closeSaving();
+      untracked(() => this.scheduleCloseSpinnerSync(saving));
+    });
+  }
 
   async ngOnInit(): Promise<void> {
     const config = await this.electron.loadConfig();
@@ -414,6 +448,8 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
+    void this.ngxSpinner.hide(this.closeSpinnerName);
     this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty) {
@@ -510,8 +546,32 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected async closeSettings(): Promise<void> {
-    await this.flushPersistForClose();
-    this.electron.closeSettingsWindow();
+    if (this.closeSaving()) {
+      return;
+    }
+    this.closeSaving.set(true);
+    try {
+      await this.flushPersistForClose();
+    } finally {
+      this.closeSaving.set(false);
+      this.electron.closeSettingsWindow();
+    }
+  }
+
+  private scheduleCloseSpinnerSync(show: boolean): void {
+    afterNextRender(
+      () => {
+        if (this.destroyed) {
+          return;
+        }
+        if (show) {
+          void this.ngxSpinner.show(this.closeSpinnerName, CLOSE_SAVE_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(this.closeSpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
   }
 
   private async flushPersistForClose(): Promise<void> {

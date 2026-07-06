@@ -401,3 +401,12 @@ app-planner-checklist .plan-panel__resolved-summary {
     transform: translateY(0);
   }
 }
+
+app-planner-checklist .plan-panel__enriched { margin: 0.4rem 0; font-size: 0.82rem; }
+app-planner-checklist .plan-panel__enriched-summary { cursor: pointer; color: var(--t-secondary); font-weight: 600; }
+app-planner-checklist .plan-panel__enriched-list { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+app-planner-checklist .plan-panel__enriched-qa { margin: 0.3rem 0 0; }
+app-planner-checklist .plan-panel__enriched-qa dt { font-weight: 600; }
+app-planner-checklist .plan-panel__enriched-qa dd { margin: 0 0 0.3rem; padding-left: 0.5rem; }
+app-planner-checklist .plan-panel__agent-question { margin: 0.5rem 0; }
+

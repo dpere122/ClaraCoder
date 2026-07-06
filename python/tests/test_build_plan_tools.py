@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.build_plan_store import BuildPlanModel, create_build_plan, parse_action_steps
+from nemo_backend.build_plan_store import ActionStep, BuildPlanModel, create_build_plan, parse_action_steps
 from nemo_backend.domain import SessionState
 from nemo_backend.tools.build_plan_tools import mark_build_plan_steps_complete, read_build_plan
 
@@ -16,7 +16,10 @@ def _sample_doc() -> BuildPlanModel:
         task='Verify tools',
         current_implementation='Baseline',
         files_to_change=['src/x.ts — edit'],
-        action_steps=['First milestone', 'Second milestone'],
+        action_steps=[
+            ActionStep(id='step-1', goal='First milestone'),
+            ActionStep(id='step-2', goal='Second milestone'),
+        ],
     )
 
 

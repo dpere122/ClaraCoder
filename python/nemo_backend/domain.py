@@ -102,6 +102,12 @@ class SessionState:
     pending_plan_confirm_request: dict | None = None
     #: Set by plan-confirm HITL when the user cancels; read by the plan orchestrator after pause.
     plan_execute_aborted: bool = False
+    # Plan-and-execute: batch of clarifying questions awaiting user answers before plan confirm.
+    pending_question_request: dict | None = None
+    #: Structured answers returned by the question HITL; read by the orchestrator after pause.
+    question_answers: list | None = None
+    #: Set by question HITL when the user cancels; read by the plan orchestrator after pause.
+    question_aborted: bool = False
     #: Active build plan registry id (``.nemo/build-plans``) while planning or executing.
     active_build_plan_id: str = ''
     #: Workspace-relative path to the active build plan Markdown file.

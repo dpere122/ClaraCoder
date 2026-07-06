@@ -1,5 +1,6 @@
-import type { BuildPlanOpenPayload } from './types/build-plan';
+import type { BuildPlanChunkPayload, BuildPlanOpenPayload, BuildPlanStreamEndPayload } from './types/build-plan';
 import type { AcceptCommandPayload } from './types/accept-command';
+import type { AgentQuestionPayload } from './types/agent-question';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
@@ -35,7 +36,10 @@ export type ParsedAgentStreamPayload =
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
   | { type: 'planner_progress'; planner: PlannerProgress }
   | { type: 'build_plan_open'; buildPlanOpen: BuildPlanOpenPayload }
+  | { type: 'build_plan_chunk'; buildPlanChunk: BuildPlanChunkPayload }
+  | { type: 'build_plan_stream_end'; buildPlanStreamEnd: BuildPlanStreamEndPayload }
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
+  | { type: 'agent_question'; agentQuestion: AgentQuestionPayload }
   | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
   | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
   | { type: 'final_text'; text: string }
@@ -74,7 +78,10 @@ type RawAgentStreamPayload = {
   deleteConfirm?: unknown;
   planner?: unknown;
   planConfirm?: unknown;
+  agentQuestion?: unknown;
   buildPlanOpen?: unknown;
+  buildPlanChunk?: unknown;
+  buildPlanStreamEnd?: unknown;
   stagedTransferBatch?: unknown;
 };
 
@@ -150,11 +157,45 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       };
     }
 
+    if (parsed.type === 'agent_question' && parsed.agentQuestion && typeof parsed.agentQuestion === 'object') {
+      return {
+        type: 'agent_question',
+        agentQuestion: parsed.agentQuestion as AgentQuestionPayload,
+      };
+    }
+
     if (parsed.type === 'build_plan_open' && parsed.buildPlanOpen && typeof parsed.buildPlanOpen === 'object') {
       return {
         type: 'build_plan_open',
         buildPlanOpen: parsed.buildPlanOpen as BuildPlanOpenPayload,
       };
+    }
+
+    if (parsed.type === 'build_plan_chunk' && parsed.buildPlanChunk && typeof parsed.buildPlanChunk === 'object') {
+      const chunk = parsed.buildPlanChunk as { relativePath?: unknown; content?: unknown };
+      if (typeof chunk.relativePath === 'string' && typeof chunk.content === 'string') {
+        return {
+          type: 'build_plan_chunk',
+          buildPlanChunk: {
+            relativePath: chunk.relativePath,
+            content: chunk.content,
+          },
+        };
+      }
+    }
+
+    if (
+      parsed.type === 'build_plan_stream_end'
+      && parsed.buildPlanStreamEnd
+      && typeof parsed.buildPlanStreamEnd === 'object'
+    ) {
+      const end = parsed.buildPlanStreamEnd as { relativePath?: unknown };
+      if (typeof end.relativePath === 'string') {
+        return {
+          type: 'build_plan_stream_end',
+          buildPlanStreamEnd: { relativePath: end.relativePath },
+        };
+      }
     }
 
     if (

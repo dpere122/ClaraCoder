@@ -71,6 +71,7 @@ import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../s
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
+import { editorModelKeyForRelativePath } from '../workspace/open-editor-file-ref';
 import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
 import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-formats';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
@@ -142,6 +143,10 @@ export class App implements OnInit, OnDestroy {
   protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
   protected readonly streamingParts = signal<StreamPart[]>([]);
   protected readonly streamingPlanner = signal<PlannerProgress | null>(null);
+  /** Live build-plan markdown streamed from the planner before finalize. */
+  protected readonly buildPlanLiveContent = signal<{ relativePath: string; content: string } | null>(null);
+  /** Monaco model keys currently receiving live build-plan chunks (skip disk reload). */
+  protected readonly buildPlanStreamingKeys = signal<ReadonlySet<string>>(new Set());
   /** Clean final reply for the active conversation (`final_text` SSE), before `[DONE]`. */
   protected readonly streamingFinalText = signal<string | undefined>(undefined);
   private readonly backgroundStreamPlanner = new Map<string, PlannerProgress>();
@@ -666,9 +671,62 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    this.electron.buildPlanChunk$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
+      if (conversationId !== this.activeConversationId()) {
+        return;
+      }
+      const relativePath = payload.relativePath?.trim();
+      if (!relativePath) {
+        return;
+      }
+      const norm = normalizePathSlashes(relativePath);
+      const modelKey = editorModelKeyForRelativePath(norm);
+      this.buildPlanLiveContent.set({ relativePath: norm, content: payload.content });
+      this.buildPlanStreamingKeys.update((prev) => {
+        const next = new Set(prev);
+        next.add(modelKey);
+        return next;
+      });
+    });
+
+    this.electron.buildPlanStreamEnd$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
+      if (conversationId !== this.activeConversationId()) {
+        return;
+      }
+      const relativePath = payload.relativePath?.trim();
+      if (!relativePath) {
+        return;
+      }
+      const norm = normalizePathSlashes(relativePath);
+      const modelKey = editorModelKeyForRelativePath(norm);
+      this.buildPlanStreamingKeys.update((prev) => {
+        const next = new Set(prev);
+        next.delete(modelKey);
+        return next;
+      });
+      const live = this.buildPlanLiveContent();
+      if (live && normalizePathSlashes(live.relativePath) === norm) {
+        this.buildPlanLiveContent.set(null);
+      }
+    });
+
     this.electron.planConfirm$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       const artifact = { role: 'plan_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      if (conversationId !== this.activeConversationId()) {
+        void this.persistArtifactToConversation(conversationId, artifact);
+        return;
+      }
+      this.messages.update((prev) => [...prev, artifact]);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...this.messages()];
+        this.pendingSave = true;
+      }
+    });
+
+    this.electron.agentQuestion$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
+      if (payload.version !== 1 || !payload.requestId || !payload.title) return;
+      const artifact = { role: 'agent_question', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
         return;
@@ -1135,6 +1193,41 @@ export class App implements OnInit, OnDestroy {
     }
     if (event.status === 'cancelled') {
       this.closeBuildPlanTab(this.activeConversationId());
+      return;
+    }
+    // Plan approved → execution begins. Flip the composer to agent mode for the
+    // execution phase and leave it there after completion (nothing flips it back).
+    this.composerMode.set('agent');
+  }
+
+  onAgentQuestionFinished(event: {
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'agent_question' &&
+          m.payload.requestId === event.requestId &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...this.messages()];
+      this.pendingSave = true;
+      this.autoSave();
     }
   }
 

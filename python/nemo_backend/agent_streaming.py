@@ -58,9 +58,30 @@ def plan_confirm_event(payload: dict[str, Any]) -> dict[str, Any]:
     return {'type': 'plan_confirm', 'planConfirm': payload}
 
 
+def agent_question_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """HITL card payload: batch of clarifying questions before plan confirm."""
+    return {'type': 'agent_question', 'agentQuestion': payload}
+
+
 def build_plan_open_event(payload: dict[str, Any]) -> dict[str, Any]:
     """Open the build-plan Markdown preview tab in the workspace UI."""
     return {'type': 'build_plan_open', 'buildPlanOpen': payload}
+
+
+def build_plan_chunk_event(*, relative_path: str, content: str) -> dict[str, Any]:
+    """Stream live build-plan markdown content to the workspace preview tab."""
+    return {
+        'type': 'build_plan_chunk',
+        'buildPlanChunk': {'relativePath': relative_path, 'content': content},
+    }
+
+
+def build_plan_stream_end_event(*, relative_path: str) -> dict[str, Any]:
+    """Signal that build-plan markdown streaming has finished."""
+    return {
+        'type': 'build_plan_stream_end',
+        'buildPlanStreamEnd': {'relativePath': relative_path},
+    }
 
 
 def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: str = '') -> dict[str, Any]:

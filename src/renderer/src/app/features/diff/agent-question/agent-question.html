@@ -1,0 +1,86 @@
+@if (reviewStatus() !== 'pending') {
+  <div class="agent-question-card agent-question-card--collapsed border rounded-2 px-3 py-2">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <div>
+        <span class="fw-medium">{{ payload().title }}</span>
+        @if (reviewSummary()) {
+          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
+        }
+      </div>
+      <span
+        class="badge"
+        [class.text-bg-success]="reviewStatus() === 'complete'"
+        [class.text-bg-secondary]="reviewStatus() === 'cancelled'"
+        >{{ reviewStatus() === 'complete' ? 'Answered' : 'Cancelled' }}</span
+      >
+    </div>
+  </div>
+} @else {
+  <div class="agent-question-card border border-info border-opacity-50 rounded-2 overflow-hidden">
+    <div class="agent-question-toolbar p-2 border-bottom bg-info bg-opacity-10">
+      <div class="fw-medium text-info-emphasis">{{ payload().title }}</div>
+      @if (payload().message) {
+        <div class="small text-secondary">{{ payload().message }}</div>
+      }
+      <div class="agent-question-list mt-2">
+        @for (q of payload().questions; track q.id) {
+          <div class="agent-question-item mb-2">
+            <div class="small fw-medium">{{ q.prompt }}</div>
+            <div class="agent-question-options mt-1">
+              @for (opt of q.options; track opt.id) {
+                <label class="agent-question-option d-flex align-items-start gap-2 small">
+                  <input
+                    type="radio"
+                    [name]="q.id"
+                    [checked]="isOptionSelected(q.id, opt.id)"
+                    (change)="selectOption(q.id, opt.id)"
+                  />
+                  <span>{{ opt.label }}</span>
+                </label>
+              }
+              @if (q.allowOther) {
+                <label class="agent-question-option d-flex align-items-start gap-2 small">
+                  <input
+                    type="radio"
+                    [name]="q.id"
+                    [checked]="isOtherSelected(q.id)"
+                    (change)="selectOther(q.id)"
+                  />
+                  <span class="agent-question-other">
+                    <span>Other:</span>
+                    <input
+                      type="text"
+                      class="form-control form-control-sm mt-1"
+                      [disabled]="!isOtherSelected(q.id)"
+                      [value]="selections()[q.id]?.otherText ?? ''"
+                      (input)="setOtherText(q.id, $any($event.target).value)"
+                      placeholder="Type your answer"
+                    />
+                  </span>
+                </label>
+              }
+            </div>
+          </div>
+        }
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          [disabled]="busy() || !canSubmit()"
+          (click)="onSubmit()"
+        >
+          {{ payload().submitLabel }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          [disabled]="busy()"
+          (click)="onCancel()"
+        >
+          {{ payload().cancelLabel || 'Cancel' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

@@ -35,8 +35,11 @@ import type {
   ModelManagerMutationResult,
   MaybeAutoTitleResult,
   PlanConfirmPayload,
+  AgentQuestionPayload,
   PlannerProgress,
+  BuildPlanChunkPayload,
   BuildPlanOpenPayload,
+  BuildPlanStreamEndPayload,
   StagedTransferBatchPayload,
   PythonInterpreterListItem,
   TtsStreamPacket,
@@ -135,6 +138,11 @@ export interface PlanConfirmMessage {
   payload: PlanConfirmPayload;
 }
 
+export interface AgentQuestionMessage {
+  conversationId: string;
+  payload: AgentQuestionPayload;
+}
+
 export interface PlannerProgressMessage {
   conversationId: string;
   planner: PlannerProgress;
@@ -143,6 +151,16 @@ export interface PlannerProgressMessage {
 export interface BuildPlanOpenMessage {
   conversationId: string;
   payload: BuildPlanOpenPayload;
+}
+
+export interface BuildPlanChunkMessage {
+  conversationId: string;
+  payload: BuildPlanChunkPayload;
+}
+
+export interface BuildPlanStreamEndMessage {
+  conversationId: string;
+  payload: BuildPlanStreamEndPayload;
 }
 
 export interface ScriptOutputMessage {
@@ -256,7 +274,10 @@ export class ElectronService {
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly plannerProgressSubject = new Subject<PlannerProgressMessage>();
   private readonly buildPlanOpenSubject = new Subject<BuildPlanOpenMessage>();
+  private readonly buildPlanChunkSubject = new Subject<BuildPlanChunkMessage>();
+  private readonly buildPlanStreamEndSubject = new Subject<BuildPlanStreamEndMessage>();
   private readonly planConfirmSubject = new Subject<PlanConfirmMessage>();
+  private readonly agentQuestionSubject = new Subject<AgentQuestionMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
@@ -296,7 +317,10 @@ export class ElectronService {
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly plannerProgress$ = this.plannerProgressSubject.asObservable();
   readonly buildPlanOpen$ = this.buildPlanOpenSubject.asObservable();
+  readonly buildPlanChunk$ = this.buildPlanChunkSubject.asObservable();
+  readonly buildPlanStreamEnd$ = this.buildPlanStreamEndSubject.asObservable();
   readonly planConfirm$ = this.planConfirmSubject.asObservable();
+  readonly agentQuestion$ = this.agentQuestionSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
@@ -466,9 +490,30 @@ export class ElectronService {
         }),
       );
     });
+    this.api?.onMessageBuildPlanChunk?.((_event, conversationId, payload) => {
+      this.zone.run(() =>
+        this.buildPlanChunkSubject.next({
+          conversationId,
+          payload: payload as BuildPlanChunkPayload,
+        }),
+      );
+    });
+    this.api?.onMessageBuildPlanStreamEnd?.((_event, conversationId, payload) => {
+      this.zone.run(() =>
+        this.buildPlanStreamEndSubject.next({
+          conversationId,
+          payload: payload as BuildPlanStreamEndPayload,
+        }),
+      );
+    });
     this.api?.onMessagePlanConfirm?.((_event, conversationId, payload) => {
       this.zone.run(() =>
         this.planConfirmSubject.next({ conversationId, payload: payload as PlanConfirmPayload }),
+      );
+    });
+    this.api?.onMessageAgentQuestion?.((_event, conversationId, payload) => {
+      this.zone.run(() =>
+        this.agentQuestionSubject.next({ conversationId, payload: payload as AgentQuestionPayload }),
       );
     });
     this.api?.onConfigUpdated((_event, config) => {
@@ -608,6 +653,19 @@ export class ElectronService {
         planConfirmAction,
         planConfirmRequestId,
       ) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Submit (or cancel) answers to a plan-mode clarifying-questions HITL card. */
+  notifyAgentQuestionAnswers(
+    conversationId: string,
+    action: 'submit' | 'cancel',
+    requestId: string,
+    answers: { questionId: string; optionId?: string; otherText?: string }[] = [],
+  ): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.agentQuestionAnswers(conversationId, action, requestId, answers) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

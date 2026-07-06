@@ -1955,9 +1955,28 @@
   </section>
 
   <footer class='settings-footer'>
-    <button type='button' class='action-button action-button--primary settings-close-btn' (click)='closeSettings()'>
-      <lucide-icon name='x' [size]='18' />
-      Close
+    <button
+      type='button'
+      class='action-button action-button--primary settings-close-btn'
+      [disabled]='closeSaving()'
+      [attr.aria-busy]='closeSaving()'
+      (click)='closeSettings()'
+    >
+      @if (closeSaving()) {
+        <span class='settings-close-btn__spinner-host' aria-hidden='true'>
+          <ngx-spinner
+            [name]='closeSpinnerName'
+            [type]='planProgressSpinnerType'
+            [fullScreen]='false'
+            bdColor='rgba(0,0,0,0)'
+            size='small'
+            color='var(--bs-btn-color, #fff)'
+          ></ngx-spinner>
+        </span>
+      } @else {
+        <lucide-icon name='x' [size]='18' />
+      }
+      {{ closeSaving() ? 'Saving…' : 'Close' }}
     </button>
   </footer>
   <app-themed-confirm-dialog />

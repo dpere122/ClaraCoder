@@ -179,6 +179,43 @@ export function registerChatIpc(): void {
 
   ipcMain.handle('abort-message', async (_event, conversationId: string) => abortChatStream(conversationId));
 
+  ipcMain.handle(
+    'agent-question-answers',
+    async (
+      _event,
+      conversationId: string,
+      action: 'submit' | 'cancel',
+      requestId: string,
+      answers: { questionId: string; optionId?: string; otherText?: string }[] = [],
+    ) => {
+      try {
+        const res = await pythonControlFetch('/chat/agent-question-answers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: conversationId,
+            request_id: requestId ?? '',
+            action: action ?? 'submit',
+            answers: (answers ?? []).map((a) => ({
+              question_id: a.questionId ?? '',
+              option_id: a.optionId ?? '',
+              other_text: a.otherText ?? '',
+            })),
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          return { ok: false, error: text || `HTTP ${res.status}` };
+        }
+        const data = (await res.json()) as { ok?: boolean };
+        return { ok: data.ok !== false };
+      } catch (err) {
+        console.error('agent-question-answers failed:', err);
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
   ipcMain.handle('build-plan-cancel', async (_event, conversationId: string, planId: string) => {
     try {
       const res = await pythonControlFetch('/build-plan/cancel', {

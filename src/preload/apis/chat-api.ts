@@ -80,9 +80,18 @@ export const chatApi = {
   onMessageBuildPlanOpen: (
     callback: (event: unknown, conversationId: string, payload: unknown) => void,
   ) => ipcRenderer.on('message-build-plan-open', callback),
+  onMessageBuildPlanChunk: (
+    callback: (event: unknown, conversationId: string, payload: unknown) => void,
+  ) => ipcRenderer.on('message-build-plan-chunk', callback),
+  onMessageBuildPlanStreamEnd: (
+    callback: (event: unknown, conversationId: string, payload: unknown) => void,
+  ) => ipcRenderer.on('message-build-plan-stream-end', callback),
   onMessagePlanConfirm: (
     callback: (event: unknown, conversationId: string, payload: unknown) => void,
   ) => ipcRenderer.on('message-plan-confirm', callback),
+  onMessageAgentQuestion: (
+    callback: (event: unknown, conversationId: string, payload: unknown) => void,
+  ) => ipcRenderer.on('message-agent-question', callback),
   onMessageStagedTransferBatch: (
     callback: (event: unknown, conversationId: string, payload: StagedTransferBatchPayload) => void,
   ) => ipcRenderer.on('message-staged-transfer-batch', callback),
@@ -142,6 +151,13 @@ export const chatApi = {
     planConfirmAction,
     planConfirmRequestId,
   ),
+  agentQuestionAnswers: (
+    conversationId: string,
+    action: 'submit' | 'cancel',
+    requestId: string,
+    answers?: { questionId: string; optionId?: string; otherText?: string }[],
+  ) =>
+    ipcRenderer.invoke('agent-question-answers', conversationId, action, requestId, answers ?? []),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
   startTtsStream: (text: string, voice: string, speed: number, seq: number) =>

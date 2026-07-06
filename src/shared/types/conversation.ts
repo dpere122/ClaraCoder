@@ -1,5 +1,6 @@
 import type { FileDiffPayload } from './diff';
 import type { AcceptCommandPayload } from './accept-command';
+import type { AgentQuestionPayload } from './agent-question';
 import type { CopyConfirmPayload } from './copy-confirm';
 import type { DeleteConfirmPayload } from './delete-confirm';
 import type { PlanConfirmPayload } from './plan-confirm';
@@ -102,6 +103,12 @@ export type ConversationMessage =
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
       fileResolutions?: Record<string, StagedTransferFileResolution>;
+    }
+  | {
+      role: 'agent_question';
+      payload: AgentQuestionPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
     };
 
 /** Full conversation as used in the renderer. */
@@ -172,6 +179,12 @@ export type ConversationFileMessage =
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
       fileResolutions?: Record<string, StagedTransferFileResolution>;
+    }
+  | {
+      role: 'agent_question';
+      payload: AgentQuestionPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
     };
 
 /**

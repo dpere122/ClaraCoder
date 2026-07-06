@@ -5,12 +5,17 @@ from pathlib import Path
 import pytest
 
 from nemo_backend.build_plan_store import (
+    ActionStep,
     BuildPlanModel,
+    OpenQuestion,
     cancel_build_plan,
     create_build_plan,
+    create_build_plan_draft,
+    finalize_build_plan_draft,
     get_active_plan,
     mark_steps_complete,
     parse_action_steps,
+    parse_build_plan_md,
     render_build_plan_md,
 )
 from nemo_backend.domain import SessionState
@@ -22,10 +27,43 @@ def _sample_doc(**overrides: object) -> BuildPlanModel:
         'task': 'Add feature',
         'current_implementation': 'Nothing yet',
         'files_to_change': ['src/a.ts — wire handler'],
-        'action_steps': ['Implement handler', 'Add tests'],
+        'action_steps': [
+            ActionStep(id='step-1', goal='Implement handler'),
+            ActionStep(id='step-2', goal='Add tests'),
+        ],
     }
     base.update(overrides)
     return BuildPlanModel(**base)
+
+
+def test_parse_build_plan_md_round_trips_rendered_document() -> None:
+    doc = _sample_doc()
+    md = render_build_plan_md(doc)
+    parsed = parse_build_plan_md(md)
+    assert parsed.title == doc.title
+    assert parsed.task == doc.task
+    assert parsed.current_implementation == doc.current_implementation
+    assert parsed.files_to_change == doc.files_to_change
+    assert [s.goal for s in parsed.action_steps] == [s.goal for s in doc.action_steps]
+    assert [s.id for s in parsed.action_steps] == ['step-1', 'step-2']
+
+
+def test_create_build_plan_draft_writes_stub_and_registers_drafting(tmp_path: Path) -> None:
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-draft', session=session)
+    assert record.status == 'drafting'
+    assert session.active_build_plan_id == record.id
+    text = (tmp_path / record.relative_path).read_text(encoding='utf-8')
+    assert text.startswith('# Build Plan')
+
+
+def test_finalize_build_plan_draft_promotes_to_active(tmp_path: Path) -> None:
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-final', session=session)
+    md = render_build_plan_md(_sample_doc())
+    finalized = finalize_build_plan_draft(str(tmp_path), record, md)
+    assert finalized.status == 'active'
+    assert finalized.title == 'Test plan'
 
 
 def test_render_build_plan_md_includes_sections_and_step_ids() -> None:
@@ -91,3 +129,89 @@ def test_get_active_plan_falls_back_to_registry_by_chat_session_id(tmp_path: Pat
     assert resolved is not None
     assert resolved.id == record.id
     assert session.active_build_plan_id == record.id
+
+
+def test_enriched_schema_round_trips_through_markdown() -> None:
+    doc = BuildPlanModel(
+        title='Enriched',
+        task='Do the thing',
+        current_implementation='Partial',
+        files_to_change=['src/a.ts — wire it'],
+        assumptions=['Module X is stable'],
+        open_questions=[OpenQuestion(id='q-1', prompt='Use REST or gRPC?', options=['REST', 'gRPC'])],
+        rollback_notes='Revert src/a.ts and drop the table.',
+        definition_of_done=['Endpoint returns 200', 'Tests green'],
+        action_steps=[
+            ActionStep(
+                id='step-1',
+                goal='Implement handler',
+                files_touched=['src/a.ts', 'src/b.ts'],
+                approach='Add handler in a.ts, wire from b.ts',
+                acceptance_criteria=['returns 200 for valid input', '400 for invalid input'],
+                verification='pytest tests/test_a.py',
+                risks=['touches shared middleware'],
+            ),
+        ],
+    )
+    md = render_build_plan_md(doc)
+    parsed = parse_build_plan_md(md)
+
+    assert parsed.assumptions == ['Module X is stable']
+    assert parsed.rollback_notes == 'Revert src/a.ts and drop the table.'
+    assert parsed.definition_of_done == ['Endpoint returns 200', 'Tests green']
+
+    assert len(parsed.open_questions) == 1
+    q = parsed.open_questions[0]
+    assert q.id == 'q-1'
+    assert q.prompt == 'Use REST or gRPC?'
+    assert q.options == ['REST', 'gRPC']
+
+    assert len(parsed.action_steps) == 1
+    step = parsed.action_steps[0]
+    assert step.goal == 'Implement handler'
+    assert step.files_touched == ['src/a.ts', 'src/b.ts']
+    assert step.approach == 'Add handler in a.ts, wire from b.ts'
+    assert step.acceptance_criteria == ['returns 200 for valid input', '400 for invalid input']
+    assert step.verification == 'pytest tests/test_a.py'
+    assert step.risks == ['touches shared middleware']
+
+
+def test_parse_action_steps_captures_enriched_details() -> None:
+    doc = BuildPlanModel(
+        title='x',
+        task='x',
+        current_implementation='',
+        files_to_change=[],
+        action_steps=[
+            ActionStep(
+                id='step-1',
+                goal='Implement handler',
+                files_touched=['src/a.ts'],
+                acceptance_criteria=['returns 200'],
+                verification='pytest tests/x',
+                risks=['shared code'],
+            ),
+        ],
+    )
+    steps = parse_action_steps(render_build_plan_md(doc))
+    assert steps[0]['files_touched'] == ['src/a.ts']
+    assert steps[0]['acceptance_criteria'] == ['returns 200']
+    assert steps[0]['verification'] == 'pytest tests/x'
+    assert steps[0]['risks'] == ['shared code']
+
+
+def test_mark_steps_complete_preserves_enriched_details(tmp_path: Path) -> None:
+    session = SessionState(workspace_path=str(tmp_path))
+    doc = BuildPlanModel(
+        title='x',
+        task='x',
+        current_implementation='',
+        files_to_change=[],
+        action_steps=[
+            ActionStep(id='step-1', goal='Implement handler', verification='pytest tests/x'),
+        ],
+    )
+    record = create_build_plan(str(tmp_path), 'sess-p', doc, session=session)
+    updated = mark_steps_complete(str(tmp_path), record, ['step-1'])
+    assert updated[0]['complete'] is True
+    assert updated[0]['verification'] == 'pytest tests/x'

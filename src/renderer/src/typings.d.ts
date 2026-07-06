@@ -124,8 +124,25 @@ declare global {
         payload: import('@shared/index').BuildPlanOpenPayload,
       ) => void,
     ) => void;
+    onMessageBuildPlanChunk?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: import('@shared/index').BuildPlanChunkPayload,
+      ) => void,
+    ) => void;
+    onMessageBuildPlanStreamEnd?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: import('@shared/index').BuildPlanStreamEndPayload,
+      ) => void,
+    ) => void;
     onMessagePlanConfirm?: (
       callback: (event: unknown, conversationId: string, payload: import('@shared/index').PlanConfirmPayload) => void,
+    ) => void;
+    onMessageAgentQuestion?: (
+      callback: (event: unknown, conversationId: string, payload: import('@shared/index').AgentQuestionPayload) => void,
     ) => void;
     onMessageStagedTransferBatch?: (
       callback: (
@@ -162,6 +179,12 @@ declare global {
       planConfirmAction?: 'confirm' | 'cancel',
       planConfirmRequestId?: string,
     ) => Promise<{ ok: boolean; error?: string; batchComplete?: boolean }>;
+    agentQuestionAnswers: (
+      conversationId: string,
+      action: 'submit' | 'cancel',
+      requestId: string,
+      answers?: { questionId: string; optionId?: string; otherText?: string }[],
+    ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
     writeWorkspaceFile?: (
       workspaceRoot: string,

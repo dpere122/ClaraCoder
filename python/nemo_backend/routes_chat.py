@@ -7,7 +7,12 @@ from fastapi.responses import StreamingResponse
 
 from nemo_backend.agent import stream_agent_reply
 from nemo_backend.chat_input import effective_user_message_content
-from nemo_backend.schemas import AbortRequest, AgentContinueRequest, ChatRequest
+from nemo_backend.schemas import (
+    AbortRequest,
+    AgentContinueRequest,
+    AgentQuestionAnswersRequest,
+    ChatRequest,
+)
 from nemo_backend import state
 
 router = APIRouter()
@@ -35,6 +40,25 @@ async def chat_abort(request: AbortRequest) -> dict[str, bool]:
     sess = state.get_session(request.session_id)
     sess.abort_event.set()
     # Also unblock any HITL pause so the generator can exit.
+    ev = sess.agent_pause_event
+    if ev is not None:
+        ev.set()
+    return {'ok': True}
+
+
+@router.post('/chat/agent-question-answers')
+async def agent_question_answers(request: AgentQuestionAnswersRequest) -> dict[str, bool | str]:
+    """Resolve a plan-mode question card and resume the paused planner stream."""
+    from nemo_backend.agent_question import execute_pending_question_decision
+
+    sess = state.get_session(request.session_id)
+    note = execute_pending_question_decision(
+        sess,
+        action=request.action,
+        request_id=request.request_id or None,
+        answers=[ans.model_dump() for ans in request.answers],
+    )
+    sess.agent_pause_note = note
     ev = sess.agent_pause_event
     if ev is not None:
         ev.set()

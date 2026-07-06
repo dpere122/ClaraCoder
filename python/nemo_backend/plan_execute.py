@@ -9,28 +9,46 @@ proposes a structured build plan written to ``.nemo/build-plans/``; user approve
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from nemo_backend.agent_langgraph import AgentGraphConfig, _stream_langgraph_tool_agent, build_nemo_single_outer_graph
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from nemo_backend.agent_pause import await_diff_review_note
+from nemo_backend.agent_pause import await_diff_review_note, await_question_answers
+from nemo_backend.agent_question import (
+    agent_question_sse_payload,
+    stage_question_request,
+)
 from nemo_backend.agent_streaming import (
+    agent_question_event,
+    aimessage_chunk_sse_delta,
+    build_plan_chunk_event,
     build_plan_open_event,
+    build_plan_stream_end_event,
+    is_meaningful_stream_delta,
     planner_progress_event,
     plan_confirm_event,
     sse_line,
     status_event,
 )
 from nemo_backend.build_plan_store import (
+    ActionStep,
     BuildPlanModel,
+    BuildPlanRecord,
+    OpenQuestion,
+    cancel_build_plan,
     complete_build_plan,
-    create_build_plan,
+    create_build_plan_draft,
+    finalize_build_plan_draft,
+    parse_build_plan_md,
     planner_progress_payload_from_parsed,
+    render_build_plan_md,
+    write_build_plan_draft_content,
 )
 from nemo_backend.deferred_tool_hitl import deferred_tool_hitl_bypass
 from nemo_backend.domain import SessionState
@@ -55,12 +73,83 @@ EXECUTE_BUILD_PLAN_LABEL = 'execute_build_plan'
 # regardless of the toolbar Editor toggle for this HTTP request.
 PLAN_EXECUTE_APPLY_MODE = True
 
+PLAN_MARKDOWN_TEMPLATE_EXAMPLE = render_build_plan_md(
+    BuildPlanModel(
+        title='Short title',
+        task='User goal in plain language.',
+        current_implementation='Relevant existing behavior from discovery.',
+        files_to_change=['src/example.ts — brief rationale'],
+        assumptions=['Assumption the planner made, stated explicitly.'],
+        open_questions=[
+            {
+                'id': 'q-1',
+                'prompt': 'A clarifying question only the user can answer?',
+                'options': ['First suggested answer', 'Second suggested answer'],
+            }
+        ],
+        rollback_notes='How to revert these changes if needed.',
+        definition_of_done=['Plan-level outcome that proves the objective is met.'],
+        action_steps=[
+            ActionStep(
+                id='step-1',
+                goal='First milestone',
+                files_touched=['src/example.ts'],
+                approach='Brief description of how to implement it.',
+                acceptance_criteria=['Checkable outcome that proves this step is done.'],
+                verification='Command or check to run (e.g. `pytest tests/x`).',
+                risks=['Risk or caveat for this step.'],
+            ),
+            ActionStep(id='step-2', goal='Second milestone'),
+        ],
+    )
+)
+
+PLAN_AUTHORING_GUIDELINES = (
+    'Plan authoring guidelines (apply to every build plan):\n'
+    '- Grounding: every files_to_change entry must be justified by a concrete discovery finding '
+    '(a path, symbol, or pattern you observed). If you cannot ground an entry, do not invent it — '
+    'surface the gap as an open_question instead.\n'
+    '- Granularity: use coarse-grained milestones — roughly one major outcome per action step. '
+    'Do not bundle unrelated changes in one step, and do not add superfluous steps.\n'
+    '- Verifiability: every action step must have checkable acceptance_criteria and a verification '
+    'command or check (e.g. `pytest tests/x`, `npm run build`, a smoke request). A step is done only '
+    'when its acceptance criteria are met.\n'
+    '- File mapping: list the files each step modifies in that step\'s files_touched. Keep files_to_change '
+    'as the plan-level summary with rationale.\n'
+    '- No discovery as action steps: discovery already ran. Do not add steps whose primary purpose is '
+    'read-only exploration (search, inspect, read files, semantic lookup, "understand the codebase").\n'
+    '- Risks: call out per-step risks (shared code, migrations, dep changes, breaking changes). At the '
+    'plan level, set rollback_notes describing how to revert.\n'
+    '- Assumptions: record assumptions explicitly in the assumptions section so the user can challenge them.\n'
+    '- Open questions: only include questions that genuinely block the plan and that only the user can '
+    'answer. Provide 2-4 concrete suggested options per question. If you have enough context to proceed, '
+    'omit open_questions entirely.\n'
+    '- Definition of done: list plan-level outcomes that prove the whole objective is met.\n'
+    '- Completion: the final action step must validate the whole objective (run the test suite / smoke check).'
+)
+
+PLAN_MARKDOWN_STREAM_INSTRUCTIONS = (
+    'You are in plan mode. Output ONLY the build-plan Markdown document (no preamble or commentary).\n'
+    'Use this exact structure:\n\n'
+    f'{PLAN_MARKDOWN_TEMPLATE_EXAMPLE}\n'
+    f'{PLAN_AUTHORING_GUIDELINES}\n'
+    'Markdown rules:\n'
+    '- Replace placeholder content with facts grounded in discovery.\n'
+    '- Include `<!-- step-id: step-N -->` immediately before each `- [ ]` action step line.\n'
+    '- Nest per-step details (Files, Approach, Acceptance criteria, Verification, Risks) as indented '
+    '`- **Key:**` bullets under each step checkbox. Put acceptance criteria and risks items as '
+    '4-space-indented `- item` sub-bullets.\n'
+    '- Mark each open question with `<!-- q-id: q-N -->` and list its suggested options as indented bullets.\n'
+    '- Omit any section that has no content (do not emit empty headers).'
+)
 
 PLAN_DRAFTING_OVERRIDE = (
     'Plan drafting override (for initial plan only — supersedes general inspect-first guidance above):\n'
     '- Read-only discovery already completed in a prior phase; do not plan exploration steps.\n'
     '- Plan only work the executor should mutate or deliver.'
 )
+
+PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC = 0.5
 
 
 def build_planner_context_block(
@@ -107,7 +196,108 @@ def _escape_prompt_template_braces(text: str) -> str:
     return text.replace('{', '{{').replace('}', '}}')
 
 
-def _planner_chain(planner_context: str, *, discovery_summary: str = ''):
+def _resolved_answers_preamble(resolved_answers: str) -> str:
+    """Format user answers to open questions for injection into the refinement prompt."""
+    text = (resolved_answers or '').strip()
+    if not text:
+        return ''
+    return (
+        f'\n\nResolved clarifying questions (authoritative — incorporate into the plan):\n'
+        f'{text}\n'
+    )
+
+
+def _grounding_gap_questions(plan_model: BuildPlanModel, discovery_summary: str) -> list[OpenQuestion]:
+    """Surface open questions for files_to_change entries not grounded by discovery.
+
+    Lightweight LLM-free heuristic: an entry is grounded when its path (or basename) appears in the
+    discovery summary. Ungrounded entries become a yes/no open question so the user can confirm the
+    planner should proceed despite the gap.
+    """
+    summary = (discovery_summary or '').strip()
+    if not summary:
+        return []
+    gaps: list[OpenQuestion] = []
+    summary_lower = summary.lower()
+    for entry in plan_model.files_to_change or []:
+        raw = str(entry).strip()
+        if not raw:
+            continue
+        path = raw.split('—', 1)[0].strip().split('–', 1)[0].strip()
+        if not path:
+            continue
+        basename = path.rsplit('/', 1)[-1].rsplit('\\', 1)[-1].strip().lower()
+        path_lower = path.lower()
+        if path_lower and path_lower in summary_lower:
+            continue
+        if basename and basename in summary_lower:
+            continue
+        gaps.append(
+            OpenQuestion(
+                id=f'q-ground-{len(gaps) + 1}',
+                prompt=(
+                    f'Discovery did not confirm the path "{path}". Should I proceed assuming it exists '
+                    f'and is the right place to make this change?'
+                ),
+                options=['Proceed with the assumption', 'Cancel and let me clarify'],
+            )
+        )
+    return gaps
+
+
+def _answer_text(question: OpenQuestion, answer: dict[str, Any]) -> str:
+    """Resolve one answer to display text (free-text wins over option id)."""
+    other = str(answer.get('other_text') or '').strip()
+    if other:
+        return other
+    option_id = str(answer.get('option_id') or '').strip()
+    if option_id:
+        # option ids are formatted as "{qid}-opt-{N}"; map back to the option label.
+        suffix = option_id.rsplit('-opt-', 1)[-1]
+        try:
+            index = int(suffix) - 1
+        except ValueError:
+            return option_id
+        if 0 <= index < len(question.options):
+            return str(question.options[index]).strip()
+    return ''
+
+
+def _format_resolved_answers(
+    open_questions: list[OpenQuestion], answers: list[dict[str, Any]]
+) -> str:
+    """Build a Q&A block string for injection into the refinement planner prompt."""
+    by_qid = {str(a.get('question_id') or '').strip(): a for a in answers}
+    lines: list[str] = []
+    for q in open_questions:
+        answer = by_qid.get(q.id.strip())
+        if not answer:
+            continue
+        text = _answer_text(q, answer)
+        if not text:
+            continue
+        lines.append(f'Q: {q.prompt}\nA: {text}')
+    return '\n'.join(lines)
+
+
+def _resolved_questions_for_confirm(
+    open_questions: list[OpenQuestion], answers: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    """Shape resolved Q&A pairs for the enriched plan_confirm payload."""
+    by_qid = {str(a.get('question_id') or '').strip(): a for a in answers}
+    out: list[dict[str, str]] = []
+    for q in open_questions:
+        answer = by_qid.get(q.id.strip())
+        if not answer:
+            continue
+        text = _answer_text(q, answer)
+        if not text:
+            continue
+        out.append({'prompt': q.prompt, 'answer': text})
+    return out
+
+
+def _planner_markdown_chain(planner_context: str, *, discovery_summary: str = ''):
     discovery_block = _build_discovery_preamble(discovery_summary)
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -115,18 +305,45 @@ def _planner_chain(planner_context: str, *, discovery_summary: str = ''):
                 'system',
                 f'{_escape_prompt_template_braces(planner_context)}'
                 f'{_escape_prompt_template_braces(discovery_block)}\n\n'
-                'You are in plan mode. For the given objective, produce a build plan with these sections:\n'
+                f'{_escape_prompt_template_braces(PLAN_MARKDOWN_STREAM_INSTRUCTIONS)}',
+            ),
+            ('placeholder', '{messages}'),
+        ]
+    )
+    return prompt | build_llm()
+
+
+def _planner_chain(planner_context: str, *, discovery_summary: str = '', resolved_answers: str = ''):
+    discovery_block = _build_discovery_preamble(discovery_summary)
+    answers_block = _resolved_answers_preamble(resolved_answers)
+    refinement_directive = (
+        '\n\nYou are producing the FINAL build plan after the user answered clarifying questions. '
+        'Incorporate the resolved answers below into the plan; do not emit an Open Questions section.\n'
+        if resolved_answers
+        else ''
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                'system',
+                f'{_escape_prompt_template_braces(planner_context)}'
+                f'{_escape_prompt_template_braces(discovery_block)}'
+                f'{_escape_prompt_template_braces(answers_block)}'
+                f'{_escape_prompt_template_braces(refinement_directive)}\n\n'
+                'You are in plan mode. Produce a build plan as a structured object with these fields:\n'
                 '- title: short document title\n'
                 '- task: user goal in plain language\n'
                 '- current_implementation: relevant existing behavior from discovery\n'
                 '- files_to_change: list of "path — rationale" lines\n'
-                '- action_steps: ordered milestones the executor will implement (mutating/delivering work only)\n\n'
-                'Rules:\n'
-                '- Each action step must describe mutating or delivering work (edit, create, delete, '
-                'stage/transfer, configure, run tests or smoke checks, install dependencies, etc.).\n'
-                '- Do not add steps whose primary purpose is read-only discovery.\n'
-                '- Use coarse-grained milestones (roughly one major outcome per step).\n'
-                '- Do not add superfluous steps. The final step should complete the objective.',
+                '- assumptions: explicit assumptions the planner made\n'
+                '- open_questions: list of objects (id, prompt, options list) — only questions that block '
+                'the plan and only the user can answer; empty if you have enough context\n'
+                '- rollback_notes: how to revert the changes\n'
+                '- definition_of_done: plan-level outcomes that prove the objective is met\n'
+                '- action_steps: list of objects (id, goal, files_touched list, approach, '
+                'acceptance_criteria list, verification, risks list) — ordered, verifiable milestones '
+                '(mutating/delivering work only)\n\n'
+                f'{_escape_prompt_template_braces(PLAN_AUTHORING_GUIDELINES)}',
             ),
             ('placeholder', '{messages}'),
         ]
@@ -215,16 +432,63 @@ def _plan_execute_outer_graph_builder(
     )
 
 
+async def _stream_planner_md(
+    user_input: str,
+    *,
+    session: SessionState,
+    apply_mode: bool,
+    discovery_summary: str,
+    record: BuildPlanRecord,
+    md_out: list[str],
+) -> AsyncIterator[str]:
+    """Stream planner markdown into SSE chunks and throttled disk writes."""
+
+    chain = _planner_markdown_chain(
+        build_planner_context_block(session, apply_mode, for_initial_plan=True),
+        discovery_summary=discovery_summary,
+    )
+    accumulated = ''
+    last_disk_write = 0.0
+    workspace_root = (session.workspace_path or '').strip()
+    relative_path = record.relative_path
+
+    async for chunk in chain.astream({'messages': [HumanMessage(content=user_input)]}):
+        if session.abort_event.is_set():
+            md_out.clear()
+            md_out.append('')
+            return
+        if not isinstance(chunk, AIMessageChunk):
+            continue
+        delta = aimessage_chunk_sse_delta(chunk)
+        if not is_meaningful_stream_delta(delta):
+            continue
+        accumulated += delta
+        yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
+        now = time.monotonic()
+        if workspace_root and now - last_disk_write >= PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC:
+            write_build_plan_draft_content(workspace_root, record, accumulated)
+            last_disk_write = now
+
+    if workspace_root and accumulated:
+        write_build_plan_draft_content(workspace_root, record, accumulated)
+
+    md_out.clear()
+    md_out.append(accumulated)
+
+
 async def _invoke_planner(
     user_input: str,
     *,
     session: SessionState,
     apply_mode: bool,
     discovery_summary: str = '',
+    resolved_answers: str = '',
+    for_initial_plan: bool = True,
 ) -> BuildPlanModel:
     chain = _planner_chain(
-        build_planner_context_block(session, apply_mode, for_initial_plan=True),
+        build_planner_context_block(session, apply_mode, for_initial_plan=for_initial_plan),
         discovery_summary=discovery_summary,
+        resolved_answers=resolved_answers,
     )
     return await chain.ainvoke({'messages': [HumanMessage(content=user_input)]})
 
@@ -358,41 +622,19 @@ async def stream_plan_execute_langgraph(
                 return
             yield line
         discovery_summary = discovery_summary_box[0] if discovery_summary_box else ''
-        plan_model = await _invoke_planner(
-            user_input,
-            session=session,
-            apply_mode=tool_apply_mode,
-            discovery_summary=discovery_summary,
-        )
     except Exception as exc:
-        logger.exception('Plan mode planner failed')
-        log_llm_failure(exc, context='plan:planner', agent_role=None)
+        logger.exception('Plan mode discovery failed')
+        log_llm_failure(exc, context='plan:discovery', agent_role=None)
         yield sse_line(
             status_event(
-                'plan-planner-error',
-                'Planning failed',
+                'plan-discovery-error',
+                'Discovery failed',
                 detail=str(exc).replace('\n', ' ')[:200],
                 state='error',
                 stream_tag=PLANNER_STREAM_TAG,
             )
         )
         outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
-        return
-
-    action_steps = [s.strip() for s in plan_model.action_steps if s.strip()]
-    if not action_steps:
-        outcome.mark_completed(
-            final_text='The planner returned an empty plan. Try rephrasing your request.',
-        )
-        yield sse_line(
-            status_event(
-                'plan-empty',
-                'Planning',
-                detail='No action steps generated.',
-                state='error',
-                stream_tag=PLANNER_STREAM_TAG,
-            )
-        )
         return
 
     if not (session.workspace_path or '').strip():
@@ -412,15 +654,159 @@ async def stream_plan_execute_langgraph(
         return
 
     try:
-        record = create_build_plan(
+        record = create_build_plan_draft(
             session.workspace_path,
             session_id,
-            plan_model,
             session=session,
         )
     except Exception as exc:
-        logger.exception('Build plan store write failed')
+        logger.exception('Build plan draft creation failed')
         outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
+        return
+
+    yield sse_line(
+        planner_progress_event(
+            _planner_progress_payload(phase='planning', steps=[], plan_ready=False),
+        )
+    )
+    yield sse_line(
+        build_plan_open_event(
+            {
+                'planId': record.id,
+                'relativePath': record.relative_path,
+                'title': 'Build plan',
+                'previewMode': True,
+            }
+        )
+    )
+
+    md_box: list[str] = ['']
+    try:
+        async for line in _stream_planner_md(
+            user_input,
+            session=session,
+            apply_mode=tool_apply_mode,
+            discovery_summary=discovery_summary,
+            record=record,
+            md_out=md_box,
+        ):
+            if session.abort_event.is_set():
+                outcome.mark_aborted()
+                return
+            yield line
+    except Exception as exc:
+        logger.exception('Plan mode planner failed')
+        log_llm_failure(exc, context='plan:planner', agent_role=None)
+        cancel_build_plan(session, record.id)
+        yield sse_line(
+            status_event(
+                'plan-planner-error',
+                'Planning failed',
+                detail=str(exc).replace('\n', ' ')[:200],
+                state='error',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+        outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
+        return
+
+    if session.abort_event.is_set():
+        outcome.mark_aborted()
+        return
+
+    md_text = md_box[0] if md_box else ''
+    try:
+        plan_model = parse_build_plan_md(md_text)
+        grounding_gaps = _grounding_gap_questions(plan_model, discovery_summary)
+        if grounding_gaps:
+            plan_model.open_questions = list(plan_model.open_questions) + grounding_gaps
+        record = finalize_build_plan_draft(session.workspace_path, record, md_text)
+    except Exception as exc:
+        logger.exception('Build plan finalize failed')
+        cancel_build_plan(session, record.id)
+        yield sse_line(
+            status_event(
+                'plan-planner-error',
+                'Planning failed',
+                detail=str(exc).replace('\n', ' ')[:200],
+                state='error',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+        outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
+        return
+
+    yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+
+    # Open-questions HITL: ask the user, then refine the plan with the resolved answers.
+    resolved_questions: list[dict[str, str]] = []
+    if plan_model.open_questions:
+        question_pending = stage_question_request(
+            session,
+            questions=[
+                {'id': q.id, 'prompt': q.prompt, 'options': list(q.options)}
+                for q in plan_model.open_questions
+            ],
+            build_plan_id=record.id,
+            build_plan_path=record.relative_path,
+        )
+        yield sse_line(agent_question_event(agent_question_sse_payload(question_pending)))
+        await await_question_answers(session_id)
+        if session.question_aborted or session.abort_event.is_set():
+            cancel_build_plan(session, record.id)
+            outcome.mark_aborted()
+            return
+        answers = list(session.question_answers or [])
+        session.question_answers = None
+        resolved_questions = _resolved_questions_for_confirm(plan_model.open_questions, answers)
+        resolved_answers_text = _format_resolved_answers(plan_model.open_questions, answers)
+        try:
+            refined = await _invoke_planner(
+                user_input,
+                session=session,
+                apply_mode=tool_apply_mode,
+                discovery_summary=discovery_summary,
+                resolved_answers=resolved_answers_text,
+                for_initial_plan=False,
+            )
+        except Exception as exc:
+            logger.exception('Plan refinement failed')
+            log_llm_failure(exc, context='plan:refine', agent_role=None)
+            cancel_build_plan(session, record.id)
+            yield sse_line(
+                status_event(
+                    'plan-refine-error',
+                    'Planning failed',
+                    detail=str(exc).replace('\n', ' ')[:200],
+                    state='error',
+                    stream_tag=PLANNER_STREAM_TAG,
+                )
+            )
+            outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
+            return
+        refined_md = render_build_plan_md(refined)
+        write_build_plan_draft_content(session.workspace_path, record, refined_md)
+        record = finalize_build_plan_draft(session.workspace_path, record, refined_md)
+        plan_model = parse_build_plan_md(refined_md)
+        # Refresh the preview tab with the finalized plan.
+        yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=refined_md))
+        yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+
+    action_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
+    if not action_step_goals:
+        cancel_build_plan(session, record.id)
+        outcome.mark_completed(
+            final_text='The planner returned an empty plan. Try rephrasing your request.',
+        )
+        yield sse_line(
+            status_event(
+                'plan-empty',
+                'Planning',
+                detail='No action steps generated.',
+                state='error',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
         return
 
     record_plan_id = f'plan-record-{uuid.uuid4().hex[:10]}'
@@ -435,28 +821,24 @@ async def stream_plan_execute_langgraph(
         )
     )
 
-    step_rows = _steps_from_texts(action_steps)
+    step_rows = _steps_from_texts(action_step_goals)
     yield sse_line(
         planner_progress_event(
             _planner_progress_payload(phase='planning', steps=step_rows, plan_ready=True),
         )
     )
-    yield sse_line(
-        build_plan_open_event(
-            {
-                'planId': record.id,
-                'relativePath': record.relative_path,
-                'title': record.title,
-                'previewMode': True,
-            }
-        )
-    )
 
+    all_risks = [r for step in plan_model.action_steps for r in step.risks if r.strip()]
     pending = stage_plan_confirm_request(
         session,
-        steps=action_steps,
+        steps=action_step_goals,
         build_plan_id=record.id,
         build_plan_path=record.relative_path,
+        files_to_change=list(plan_model.files_to_change),
+        current_implementation=plan_model.current_implementation,
+        risks=all_risks,
+        definition_of_done=list(plan_model.definition_of_done),
+        resolved_questions=resolved_questions,
     )
     yield sse_line(plan_confirm_event(plan_confirm_sse_payload(pending)))
     await await_diff_review_note(session_id)
@@ -576,6 +958,7 @@ async def stream_plan_execute_langgraph(
 __all__ = [
     'BuildPlanModel',
     'EXECUTE_BUILD_PLAN_LABEL',
+    'PLAN_AUTHORING_GUIDELINES',
     'PLAN_EXECUTE_APPLY_MODE',
     'RECORD_PLAN_LABEL',
     'build_build_plan_executor_prompt',

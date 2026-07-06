@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from nemo_backend.build_plan_store import BuildPlanModel
+from nemo_backend.build_plan_store import ActionStep, BuildPlanModel, OpenQuestion, render_build_plan_md
 from nemo_backend.domain import SessionState
 from nemo_backend.plan_confirm import (
     execute_pending_plan_confirm_decision,
@@ -18,7 +18,10 @@ from nemo_backend.plan_execute import (
     PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
     _build_discovery_preamble,
+    _grounding_gap_questions,
+    _invoke_planner,
     _planner_chain,
+    _planner_markdown_chain,
     build_build_plan_executor_prompt,
     build_planner_context_block,
     stream_plan_execute_langgraph,
@@ -38,7 +41,10 @@ def _sample_plan() -> BuildPlanModel:
         task='Build the feature',
         current_implementation='Legacy handler in place',
         files_to_change=['src/app.ts — update handler'],
-        action_steps=['Implement change', 'Run tests'],
+        action_steps=[
+            ActionStep(id='step-1', goal='Implement change'),
+            ActionStep(id='step-2', goal='Run tests'),
+        ],
     )
 
 
@@ -95,6 +101,34 @@ def test_build_discovery_preamble_includes_findings() -> None:
     assert 'Auth is in middleware/auth.py' in preamble
 
 
+def test_grounding_gap_questions_flags_ungrounded_paths() -> None:
+    plan = _sample_plan()  # files_to_change=['src/app.ts — update handler']
+    gaps = _grounding_gap_questions(plan, 'Discovery looked at src/other.ts and tests/foo.py')
+    assert len(gaps) == 1
+    assert 'src/app.ts' in gaps[0].prompt
+
+
+def test_grounding_gap_questions_empty_when_grounded() -> None:
+    plan = _sample_plan()
+    gaps = _grounding_gap_questions(plan, 'Discovery confirmed src/app.ts handler exists.')
+    assert gaps == []
+
+
+def test_grounding_gap_questions_no_summary_returns_empty() -> None:
+    plan = _sample_plan()
+    assert _grounding_gap_questions(plan, '') == []
+
+
+@patch('nemo_backend.plan_execute.build_llm')
+def test_planner_markdown_chain_prompt_requires_markdown_template(mock_llm: MagicMock) -> None:
+    mock_llm.return_value = MagicMock()
+    chain = _planner_markdown_chain('planner-context', discovery_summary='Auth in middleware')
+    system = chain.first.format_messages(messages=[])[0].content
+    assert '# Build Plan:' in system
+    assert 'step-id' in system
+    assert 'Auth in middleware' in system
+
+
 @patch('nemo_backend.plan_execute.build_llm')
 def test_planner_chain_prompt_requires_build_plan_sections(mock_llm: MagicMock) -> None:
     mock_llm.return_value.with_structured_output.return_value = MagicMock()
@@ -117,8 +151,27 @@ def test_plan_confirm_sse_payload_includes_build_plan_path() -> None:
     assert payload['buildPlanPath'] == '.nemo/build-plans/plan-abc.md'
 
 
+def _sample_plan_md() -> str:
+    return render_build_plan_md(_sample_plan())
+
+
+async def _fake_stream_planner_md(*_args: Any, **kwargs: Any):
+    md_out: list[str] = kwargs['md_out']
+    record = kwargs['record']
+    md = _sample_plan_md()
+    md_out.clear()
+    md_out.append(md)
+    import json
+
+    payload = {
+        'type': 'build_plan_chunk',
+        'buildPlanChunk': {'relativePath': record.relative_path, 'content': md},
+    }
+    yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
+
+
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._invoke_planner')
+@patch('nemo_backend.plan_execute._stream_planner_md')
 @patch('nemo_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
@@ -127,14 +180,20 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     mock_exec: AsyncMock,
     tmp_path: Path,
 ) -> None:
-    mock_planner.return_value = _sample_plan()
+    mock_planner.side_effect = _fake_stream_planner_md
 
     exec_apply_modes: list[bool] = []
+
+    call_count = {'n': 0}
 
     async def _fake_exec(*_args: Any, **_kwargs: Any):
         exec_apply_modes.append(bool(_args[1] if len(_args) > 1 else _kwargs.get('apply_mode')))
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
-        outcome.mark_completed(final_text='Discovery done.')
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            outcome.mark_completed(final_text='Discovery confirmed src/app.ts handler exists.')
+        else:
+            outcome.mark_completed(final_text='Discovery done.')
         yield 'data: {"type":"chunk"}\n\n'
 
     mock_exec.side_effect = _fake_exec
@@ -167,12 +226,16 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
 
     assert any('"type": "plan_confirm"' in line for line in lines)
     assert any('"type": "build_plan_open"' in line for line in lines)
+    assert any('"type": "build_plan_chunk"' in line for line in lines)
+    open_idx = next(i for i, line in enumerate(lines) if '"type": "build_plan_open"' in line)
+    chunk_idx = next(i for i, line in enumerate(lines) if '"type": "build_plan_chunk"' in line)
+    assert open_idx < chunk_idx
     assert outcome.state == AgentLoopOutcome.ABORTED
     assert exec_apply_modes == [False]
 
 
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._invoke_planner')
+@patch('nemo_backend.plan_execute._stream_planner_md')
 @patch('nemo_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_single_executor_after_confirm(
@@ -181,16 +244,21 @@ async def test_stream_plan_execute_single_executor_after_confirm(
     mock_exec: AsyncMock,
     tmp_path: Path,
 ) -> None:
-    mock_planner.return_value = _sample_plan()
+    mock_planner.side_effect = _fake_stream_planner_md
     mock_pause.return_value = None
 
     exec_calls: list[str] = []
+    call_count = {'n': 0}
 
     async def _fake_exec(*_args: Any, **_kwargs: Any):
         prompt = _args[2] if len(_args) > 2 else _kwargs.get('user_message', '')
         exec_calls.append(str(prompt))
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
-        outcome.mark_completed(final_text='Plan execution finished.')
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            outcome.mark_completed(final_text='Discovery confirmed src/app.ts handler exists.')
+        else:
+            outcome.mark_completed(final_text='Plan execution finished.')
         yield 'data: {"type":"chunk","delta":"ok"}\n\n'
 
     mock_exec.side_effect = _fake_exec
@@ -213,3 +281,137 @@ async def test_stream_plan_execute_single_executor_after_confirm(
     assert 'mark_build_plan_steps_complete' in exec_calls[1]
     assert outcome.state == AgentLoopOutcome.COMPLETED
     assert outcome.final_text == 'Plan execution finished.'
+
+
+def _sample_plan_with_open_questions_md() -> str:
+    return render_build_plan_md(
+        BuildPlanModel(
+            title='Feature plan',
+            task='Build the feature',
+            current_implementation='Legacy handler in place',
+            files_to_change=['src/app.ts — update handler'],
+            open_questions=[
+                OpenQuestion(id='q-1', prompt='Use REST or gRPC?', options=['REST', 'gRPC']),
+            ],
+            action_steps=[ActionStep(id='step-1', goal='Implement change')],
+        )
+    )
+
+
+@patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
+@patch('nemo_backend.plan_execute._stream_planner_md')
+@patch('nemo_backend.plan_execute.await_diff_review_note')
+@patch('nemo_backend.plan_execute.await_question_answers')
+@patch('nemo_backend.plan_execute._invoke_planner')
+@pytest.mark.asyncio(loop_scope='function')
+async def test_stream_plan_execute_asks_open_questions_then_refines(
+    mock_refine: AsyncMock,
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        md_out: list[str] = kwargs['md_out']
+        md_out.clear()
+        md_out.append(_sample_plan_with_open_questions_md())
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    mock_planner.side_effect = _fake_planner_md
+
+    async def _fake_exec(*_args: Any, **_kwargs: Any):
+        outcome: LangGraphWorkerOutcome = _kwargs['outcome']
+        outcome.mark_completed(final_text='Discovery confirmed src/app.ts handler.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
+
+    mock_question_pause.return_value = [
+        {'question_id': 'q-1', 'option_id': 'q-1-opt-1', 'other_text': None},
+    ]
+    mock_refine.return_value = BuildPlanModel(
+        title='Feature plan',
+        task='Build the feature',
+        current_implementation='Legacy handler in place',
+        files_to_change=['src/app.ts — update handler'],
+        action_steps=[ActionStep(id='step-1', goal='Implement REST handler')],
+    )
+    mock_pause.return_value = None
+
+    session = SessionState(workspace_path=str(tmp_path))
+    outcome = LangGraphWorkerOutcome()
+
+    lines = await _collect_lines(
+        stream_plan_execute_langgraph(
+            session,
+            'Build feature',
+            True,
+            session_id='sess-plan-q',
+            outcome=outcome,
+        )
+    )
+
+    assert any('"type": "agent_question"' in line for line in lines)
+    assert any('"type": "plan_confirm"' in line for line in lines)
+    # The resolved answer (REST) should be carried into the confirm payload.
+    confirm_line = next(line for line in lines if '"type": "plan_confirm"' in line)
+    assert 'resolvedQuestions' in confirm_line
+    assert 'REST' in confirm_line
+    assert mock_refine.await_count == 1
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+@patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
+@patch('nemo_backend.plan_execute._stream_planner_md')
+@patch('nemo_backend.plan_execute.await_diff_review_note')
+@patch('nemo_backend.plan_execute.await_question_answers')
+@pytest.mark.asyncio(loop_scope='function')
+async def test_stream_plan_execute_question_cancel_aborts(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        md_out: list[str] = kwargs['md_out']
+        md_out.clear()
+        md_out.append(_sample_plan_with_open_questions_md())
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    mock_planner.side_effect = _fake_planner_md
+
+    async def _fake_exec(*_args: Any, **_kwargs: Any):
+        outcome: LangGraphWorkerOutcome = _kwargs['outcome']
+        outcome.mark_completed(final_text='Discovery confirmed src/app.ts handler.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
+
+    async def _cancel_questions(sid: str) -> list[dict]:
+        sess = get_session(sid)
+        sess.question_aborted = True
+        return []
+
+    mock_question_pause.side_effect = _cancel_questions
+
+    session = SessionState(workspace_path=str(tmp_path))
+    from nemo_backend.state import sessions
+
+    sessions['sess-plan-q-cancel'] = session
+    outcome = LangGraphWorkerOutcome()
+
+    lines = await _collect_lines(
+        stream_plan_execute_langgraph(
+            session,
+            'Build feature',
+            True,
+            session_id='sess-plan-q-cancel',
+            outcome=outcome,
+        )
+    )
+
+    assert any('"type": "agent_question"' in line for line in lines)
+    assert not any('"type": "plan_confirm"' in line for line in lines)
+    assert outcome.state == AgentLoopOutcome.ABORTED

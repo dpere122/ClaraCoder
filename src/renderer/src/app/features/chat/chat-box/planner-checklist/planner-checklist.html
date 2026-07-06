@@ -66,6 +66,50 @@
       <p class="plan-panel__message">{{ approvalMessage() }}</p>
     }
 
+    @if (showApprovalActions() && planConfirm(); as confirm) {
+      @if (confirm.filesToChange.length > 0) {
+        <details class="plan-panel__enriched">
+          <summary class="plan-panel__enriched-summary">Files to change ({{ confirm.filesToChange.length }})</summary>
+          <ul class="plan-panel__enriched-list">
+            @for (f of confirm.filesToChange; track f) {
+              <li>{{ f }}</li>
+            }
+          </ul>
+        </details>
+      }
+      @if (confirm.risks.length > 0) {
+        <details class="plan-panel__enriched">
+          <summary class="plan-panel__enriched-summary">Risks ({{ confirm.risks.length }})</summary>
+          <ul class="plan-panel__enriched-list">
+            @for (r of confirm.risks; track r) {
+              <li>{{ r }}</li>
+            }
+          </ul>
+        </details>
+      }
+      @if (confirm.definitionOfDone.length > 0) {
+        <details class="plan-panel__enriched">
+          <summary class="plan-panel__enriched-summary">Definition of done</summary>
+          <ul class="plan-panel__enriched-list">
+            @for (d of confirm.definitionOfDone; track d) {
+              <li>{{ d }}</li>
+            }
+          </ul>
+        </details>
+      }
+      @if (confirm.resolvedQuestions.length > 0) {
+        <details class="plan-panel__enriched" open>
+          <summary class="plan-panel__enriched-summary">Resolved questions</summary>
+          <dl class="plan-panel__enriched-qa">
+            @for (q of confirm.resolvedQuestions; track q.prompt) {
+              <dt>{{ q.prompt }}</dt>
+              <dd>{{ q.answer }}</dd>
+            }
+          </dl>
+        </details>
+      }
+    }
+
     <ol class="plan-panel__steps">
       @for (step of planner().steps; track step.id; let i = $index) {
         <li
@@ -120,6 +164,18 @@
         </li>
       }
     </ol>
+
+    @if (agentQuestion()) {
+      <div class="plan-panel__agent-question">
+        <app-agent-question
+          [payload]="agentQuestion()!"
+          [conversationId]="conversationId()"
+          [reviewStatus]="agentQuestionReviewStatus()"
+          [reviewSummary]="agentQuestionReviewSummary()"
+          (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+        />
+      </div>
+    }
 
     @if (showApprovalActions()) {
       <div class="plan-panel__actions">

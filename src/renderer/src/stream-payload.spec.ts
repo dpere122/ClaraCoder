@@ -267,6 +267,52 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses agent_question payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'agent_question',
+          agentQuestion: {
+            version: 1,
+            requestId: 'q-abc',
+            title: 'Clarify the plan',
+            message: 'Answer a few questions',
+            submitLabel: 'Submit answers',
+            cancelLabel: 'Cancel',
+            questions: [
+              {
+                id: 'q-1',
+                prompt: 'Use REST or gRPC?',
+                options: [{ id: 'q-1-opt-1', label: 'REST' }],
+                allowOther: true,
+              },
+            ],
+            planId: 'plan-1',
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'agent_question',
+      agentQuestion: {
+        version: 1,
+        requestId: 'q-abc',
+        title: 'Clarify the plan',
+        message: 'Answer a few questions',
+        submitLabel: 'Submit answers',
+        cancelLabel: 'Cancel',
+        questions: [
+          {
+            id: 'q-1',
+            prompt: 'Use REST or gRPC?',
+            options: [{ id: 'q-1-opt-1', label: 'REST' }],
+            allowOther: true,
+          },
+        ],
+        planId: 'plan-1',
+      },
+    });
+  });
+
   it('parses build_plan_open payloads', () => {
     expect(
       parseAgentStreamPayload(
@@ -287,6 +333,44 @@ describe('parseAgentStreamPayload', () => {
         relativePath: '.nemo/build-plans/plan-1.md',
         title: 'Refactor auth',
         previewMode: true,
+      },
+    });
+  });
+
+  it('parses build_plan_chunk payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'build_plan_chunk',
+          buildPlanChunk: {
+            relativePath: '.nemo/build-plans/plan-1.md',
+            content: '# Build Plan: Draft\n',
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'build_plan_chunk',
+      buildPlanChunk: {
+        relativePath: '.nemo/build-plans/plan-1.md',
+        content: '# Build Plan: Draft\n',
+      },
+    });
+  });
+
+  it('parses build_plan_stream_end payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'build_plan_stream_end',
+          buildPlanStreamEnd: {
+            relativePath: '.nemo/build-plans/plan-1.md',
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'build_plan_stream_end',
+      buildPlanStreamEnd: {
+        relativePath: '.nemo/build-plans/plan-1.md',
       },
     });
   });

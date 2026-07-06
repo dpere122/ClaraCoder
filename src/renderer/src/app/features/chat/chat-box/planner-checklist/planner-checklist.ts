@@ -14,9 +14,10 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { DiffReviewStatus, PlanConfirmPayload, PlannerProgress, PlannerStep } from '@shared/index';
+import type { DiffReviewStatus, PlanConfirmPayload, AgentQuestionPayload, PlannerProgress, PlannerStep } from '@shared/index';
 import { planPanelCompleteCount } from '../chat-box-display';
 import { ElectronService } from '../../../../core/electron.service';
+import { AgentQuestionComponent } from '../../../diff/agent-question/agent-question';
 
 const PLAN_PROGRESS_SPINNER_TYPE = 'line-spin-fade' as const;
 
@@ -31,7 +32,7 @@ const INLINE_SPINNER = {
 @Component({
   selector: 'app-planner-checklist',
   standalone: true,
-  imports: [CommonModule, NgxSpinnerComponent],
+  imports: [CommonModule, NgxSpinnerComponent, AgentQuestionComponent],
   templateUrl: './planner-checklist.html',
   styleUrl: './planner-checklist.css',
   encapsulation: ViewEncapsulation.None,
@@ -54,8 +55,17 @@ export class PlannerChecklistComponent implements OnDestroy {
   readonly planConfirm = input<PlanConfirmPayload | null>(null);
   readonly planConfirmReviewStatus = input<DiffReviewStatus>('pending');
   readonly planConfirmReviewSummary = input<string | undefined>(undefined);
+  readonly agentQuestion = input<AgentQuestionPayload | null>(null);
+  readonly agentQuestionReviewStatus = input<DiffReviewStatus>('pending');
+  readonly agentQuestionReviewSummary = input<string | undefined>(undefined);
 
   readonly planConfirmFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+
+  readonly agentQuestionFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;

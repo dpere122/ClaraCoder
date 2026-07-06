@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, type BrowserWindow } from 'electron';
 import path = require('path');
 import { randomUUID } from 'crypto';
 import type { AppConfig, HealthMonitorConfig, Workspace, WorkspaceContextSyncExtras } from '../../../shared';
@@ -14,10 +14,21 @@ import { getRecentConversations } from '../../menu/recent-conversations';
 import { buildMenu } from '../../menu/application-menu';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './health';
 
+function sendToWindowIfAlive(win: BrowserWindow | null | undefined, channel: string, payload: unknown): void {
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  try {
+    win.webContents.send(channel, payload);
+  } catch {
+    // Window can be torn down between the check and send.
+  }
+}
+
 function broadcastConfig(config: AppConfig): void {
-  mainState.mainWindow?.webContents.send('config-updated', config);
-  mainState.settingsWindow?.webContents.send('config-updated', config);
-  mainState.healthWindow?.webContents.send('config-updated', config);
+  sendToWindowIfAlive(mainState.mainWindow, 'config-updated', config);
+  sendToWindowIfAlive(mainState.settingsWindow, 'config-updated', config);
+  sendToWindowIfAlive(mainState.healthWindow, 'config-updated', config);
 }
 
 async function publishConfig(config: AppConfig): Promise<AppConfig> {
@@ -203,7 +214,7 @@ export function registerConfigWorkspacesIpc(): void {
     });
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
-    mainState.mainWindow?.webContents.send('workspace-changed', id);
+    sendToWindowIfAlive(mainState.mainWindow, 'workspace-changed', id);
     broadcastConfig(config);
   });
 

@@ -135,8 +135,18 @@ export class WorkspaceMonacoComponent {
   readonly pendingEditorReveal = input<{ relativePath: string; line: number; column: number } | null>(null);
   /** Model keys that should open in markdown preview and hide the edit/preview toggle. */
   readonly forcePreviewForKeys = input<ReadonlySet<string> | readonly string[]>([]);
+  /** Live build-plan markdown while the planner streams (full content replacement). */
+  readonly buildPlanLiveContent = input<{ relativePath: string; content: string } | null>(null);
+  /** Model keys receiving live build-plan chunks — skip disk reload while streaming. */
+  readonly buildPlanStreamingKeys = input<ReadonlySet<string> | readonly string[]>([]);
 
-  /** Model keys whose buffer differs from the last disk-synced version (unsaved). */
+  private readonly buildPlanStreamingKeySet = computed(() => {
+    const raw = this.buildPlanStreamingKeys();
+    if (raw instanceof Set) {
+      return raw;
+    }
+    return new Set(raw);
+  });
   readonly unsavedPathsChange = output<readonly string[]>();
   readonly detachedPathsChange = output<readonly string[]>();
   readonly outsideWorkspacePathsChange = output<readonly string[]>();
@@ -367,6 +377,31 @@ export class WorkspaceMonacoComponent {
       untracked(() => {
         this.mdViewModeByPath.set(key, 'preview');
         this.enterMdPreview(key);
+      });
+    });
+
+    effect(() => {
+      const live = this.buildPlanLiveContent();
+      const key = this.activeModelKey()?.trim();
+      const ready = this.editorReady();
+      if (!live || !key || !ready) {
+        return;
+      }
+      const livePath = normalizePathSlashes(live.relativePath.trim());
+      const activeRel = relativePathFromModelKey(key);
+      if (!activeRel || normalizePathSlashes(activeRel) !== livePath) {
+        return;
+      }
+      untracked(() => {
+        const model = this.modelByPath.get(key);
+        if (!model || model.isDisposed()) {
+          return;
+        }
+        if (model.getValue() !== live.content) {
+          model.setValue(live.content);
+          this.diskSyncedAltVersionByPath.set(key, model.getAlternativeVersionId());
+          this.emitDirtyPaths();
+        }
       });
     });
 
@@ -967,6 +1002,9 @@ export class WorkspaceMonacoComponent {
   }
 
   private async reloadModelFromDiskIfUnmodified(modelKey: string): Promise<void> {
+    if (this.buildPlanStreamingKeySet().has(modelKey)) {
+      return;
+    }
     const monacoApi = this.monaco;
     const root = this.workspacePath()?.trim();
     const model = this.modelByPath.get(modelKey);

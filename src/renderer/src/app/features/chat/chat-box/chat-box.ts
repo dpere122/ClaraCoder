@@ -250,6 +250,12 @@ export class ChatBox implements OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
+  /** Plan-mode clarifying-questions card submitted or cancelled. */
+  readonly agentQuestionFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
   /** Staged file transfer batch reviewed (per-file resolution map). */
   readonly stagedTransferBatchFinished = output<{
     requestId: string;

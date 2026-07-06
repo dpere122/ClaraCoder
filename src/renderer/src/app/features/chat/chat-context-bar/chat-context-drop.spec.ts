@@ -6,7 +6,7 @@ describe('resolveChatContextDropEffect', () => {
     const dt = {
       types: ['application/x-nemo-workspace-internal-move'],
       effectAllowed: 'move',
-    } as DataTransfer;
+    } as unknown as DataTransfer;
     expect(resolveChatContextDropEffect(dt)).toBe('move');
   });
 
@@ -14,7 +14,7 @@ describe('resolveChatContextDropEffect', () => {
     const dt = {
       types: ['application/x-nemo-workspace-internal-move'],
       effectAllowed: 'copyMove',
-    } as DataTransfer;
+    } as unknown as DataTransfer;
     expect(resolveChatContextDropEffect(dt)).toBe('copy');
   });
 
@@ -22,7 +22,7 @@ describe('resolveChatContextDropEffect', () => {
     const dt = {
       types: ['Files'],
       effectAllowed: 'copy',
-    } as DataTransfer;
+    } as unknown as DataTransfer;
     expect(resolveChatContextDropEffect(dt)).toBe('copy');
   });
 });

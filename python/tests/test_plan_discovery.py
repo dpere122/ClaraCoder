@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from nemo_backend.build_plan_store import BuildPlanModel
+from nemo_backend.build_plan_store import ActionStep, BuildPlanModel, render_build_plan_md
 from nemo_backend.domain import SessionState
 from nemo_backend.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_freeform_discovery_prompt,
 )
 from nemo_backend.plan_execute import (
-    _invoke_planner,
+    _planner_markdown_chain,
     stream_plan_execute_langgraph,
 )
 
@@ -36,12 +36,27 @@ def _sample_plan() -> BuildPlanModel:
         task='Build feature',
         current_implementation='None',
         files_to_change=['src/a.ts — edit'],
-        action_steps=['Do work'],
+        action_steps=[ActionStep(id='step-1', goal='Do work')],
     )
 
 
+async def _fake_stream_planner_md(*_args: Any, **kwargs: Any):
+    md_out: list[str] = kwargs['md_out']
+    record = kwargs['record']
+    md = render_build_plan_md(_sample_plan())
+    md_out.clear()
+    md_out.append(md)
+    import json
+
+    payload = {
+        'type': 'build_plan_chunk',
+        'buildPlanChunk': {'relativePath': record.relative_path, 'content': md},
+    }
+    yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
+
+
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._invoke_planner')
+@patch('nemo_backend.plan_execute._stream_planner_md')
 @patch('nemo_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_freeform_discovery_runs_before_planner(
@@ -50,16 +65,21 @@ async def test_freeform_discovery_runs_before_planner(
     mock_exec: AsyncMock,
     tmp_path,
 ) -> None:
-    mock_planner.return_value = _sample_plan()
+    mock_planner.side_effect = _fake_stream_planner_md
     mock_pause.return_value = None
 
     exec_apply_modes: list[bool] = []
+    call_count = {'n': 0}
 
     async def _fake_exec(*_args: Any, **_kwargs: Any):
         apply_mode = _args[1] if len(_args) > 1 else _kwargs.get('apply_mode')
         exec_apply_modes.append(bool(apply_mode))
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
-        outcome.mark_completed(final_text='Found auth middleware.')
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            outcome.mark_completed(final_text='Found src/a.ts handler.')
+        else:
+            outcome.mark_completed(final_text='Found auth middleware.')
         yield 'data: {"type":"chunk","delta":"ok"}\n\n'
 
     mock_exec.side_effect = _fake_exec
@@ -86,7 +106,7 @@ async def test_freeform_discovery_runs_before_planner(
 
 
 @patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._invoke_planner')
+@patch('nemo_backend.plan_execute._stream_planner_md')
 @patch('nemo_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_freeform_discovery_emits_no_step_checklist(
@@ -95,12 +115,18 @@ async def test_freeform_discovery_emits_no_step_checklist(
     mock_exec: AsyncMock,
     tmp_path,
 ) -> None:
-    mock_planner.return_value = _sample_plan()
+    mock_planner.side_effect = _fake_stream_planner_md
     mock_pause.return_value = None
+
+    call_count = {'n': 0}
 
     async def _fake_exec(*_args: Any, **_kwargs: Any):
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
-        outcome.mark_completed(final_text='Explored workspace.')
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            outcome.mark_completed(final_text='Explored src/a.ts.')
+        else:
+            outcome.mark_completed(final_text='Explored workspace.')
         yield 'data: {"type":"chunk"}\n\n'
 
     mock_exec.side_effect = _fake_exec
@@ -123,24 +149,13 @@ async def test_freeform_discovery_emits_no_step_checklist(
     assert all('"steps": []' in line for line in discovery_lines)
 
 
-@patch('nemo_backend.plan_execute._planner_chain')
-@pytest.mark.asyncio(loop_scope='function')
-async def test_discovery_summary_passed_to_planner(mock_planner_chain: MagicMock) -> None:
-    mock_chain = MagicMock()
-    mock_chain.ainvoke = AsyncMock(return_value=_sample_plan())
-    mock_planner_chain.return_value = mock_chain
-
-    session = SessionState()
-    await _invoke_planner(
-        'Build feature',
-        session=session,
-        apply_mode=True,
-        discovery_summary='Auth is in middleware/auth.py',
-    )
-
-    mock_planner_chain.assert_called_once()
-    assert mock_planner_chain.call_args.kwargs['discovery_summary'] == 'Auth is in middleware/auth.py'
-    mock_chain.ainvoke.assert_called_once()
+@patch('nemo_backend.plan_execute.build_llm')
+def test_discovery_summary_passed_to_planner_markdown(mock_llm: MagicMock) -> None:
+    mock_llm.return_value = MagicMock()
+    chain = _planner_markdown_chain('planner-context', discovery_summary='Auth is in middleware/auth.py')
+    system = chain.first.format_messages(messages=[])[0].content
+    assert 'Auth is in middleware/auth.py' in system
+    assert '# Build Plan:' in system
 
 
 def test_plan_discovery_execute_label_is_stable() -> None:

@@ -74,6 +74,12 @@ export class ChatActiveStackComponent {
     summary?: string;
   }>();
 
+  readonly agentQuestionFinished = output<{
+    requestId: string;
+    status: 'complete' | 'cancelled';
+    summary?: string;
+  }>();
+
   readonly chatContextFiles = input<readonly ChatContextFile[]>([]);
   readonly workspaceRoot = input('');
   readonly removeChatContextFile = output<ChatContextFile>();

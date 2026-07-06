@@ -1,6 +1,7 @@
 import { diffLineChangeCounts, formatDiffLineChangeSummary } from './diff-stats';
 import type { DiffReviewStatus } from './types/conversation';
 import type { PlanConfirmPayload } from './types/plan-confirm';
+import type { AgentQuestionPayload } from './types/agent-question';
 import type { AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
@@ -34,6 +35,7 @@ export type HitlTrailArtifact =
   | { role: 'copy_confirm'; payload: CopyConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | { role: 'accept_command'; payload: AcceptCommandPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | { role: 'plan_confirm'; payload: PlanConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
+  | { role: 'agent_question'; payload: AgentQuestionPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | {
       role: 'staged_transfer_batch';
       payload: StagedTransferBatchPayload;

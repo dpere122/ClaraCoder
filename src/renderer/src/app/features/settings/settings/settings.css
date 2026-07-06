@@ -75,6 +75,33 @@
   gap: 0.45rem;
 }
 
+.settings-close-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.92;
+}
+
+.settings-close-btn__spinner-host {
+  position: relative;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.settings-close-btn__spinner-host ngx-spinner {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.settings-close-btn__spinner-host .ngx-spinner-overlay {
+  pointer-events: none;
+  z-index: 1 !important;
+}
+
 .settings-nav,
 .connection-card,
 .workspace-card {

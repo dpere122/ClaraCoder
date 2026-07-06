@@ -2,6 +2,7 @@ import type {
   ConversationMessage,
   DiffReviewStatus,
   PlanConfirmPayload,
+  AgentQuestionPayload,
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
@@ -35,7 +36,13 @@ type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 type ChainMessage = Extract<ChatMessage, { role: 'chain' }>;
 export type ArtifactMessage = Extract<
   ChatMessage,
-  { role: 'diff' | 'accept_command' | 'copy_confirm' | 'delete_confirm' | 'plan_confirm' | 'staged_transfer_batch' }
+  | { role: 'diff' }
+  | { role: 'accept_command' }
+  | { role: 'copy_confirm' }
+  | { role: 'delete_confirm' }
+  | { role: 'plan_confirm' }
+  | { role: 'agent_question' }
+  | { role: 'staged_transfer_batch' }
 >;
 
 export interface PlanPanelContext {
@@ -43,6 +50,9 @@ export interface PlanPanelContext {
   planConfirm?: PlanConfirmPayload;
   planConfirmReviewStatus?: DiffReviewStatus;
   planConfirmReviewSummary?: string;
+  agentQuestion?: AgentQuestionPayload;
+  agentQuestionReviewStatus?: DiffReviewStatus;
+  agentQuestionReviewSummary?: string;
 }
 
 function plannerFromPlanConfirm(payload: PlanConfirmPayload): PlannerProgress {
@@ -58,18 +68,24 @@ function plannerFromPlanConfirm(payload: PlanConfirmPayload): PlannerProgress {
   };
 }
 
-/** Merge live or persisted planner progress with an optional plan-confirm HITL artifact. */
+/** Merge live or persisted planner progress with optional plan-confirm / agent-question HITL artifacts. */
 export function planPanelContext(
   planner: PlannerProgress | null | undefined,
   artifacts: readonly ArtifactMessage[],
 ): PlanPanelContext | null {
   const planArtifact = artifacts.find((a): a is Extract<ArtifactMessage, { role: 'plan_confirm' }> => a.role === 'plan_confirm');
+  const questionArtifact = artifacts.find(
+    (a): a is Extract<ArtifactMessage, { role: 'agent_question' }> => a.role === 'agent_question',
+  );
   if (planner) {
     return {
       planner,
       planConfirm: planArtifact?.payload,
       planConfirmReviewStatus: planArtifact?.reviewStatus,
       planConfirmReviewSummary: planArtifact?.reviewSummary,
+      agentQuestion: questionArtifact?.payload,
+      agentQuestionReviewStatus: questionArtifact?.reviewStatus,
+      agentQuestionReviewSummary: questionArtifact?.reviewSummary,
     };
   }
   if (planArtifact) {
@@ -78,6 +94,9 @@ export function planPanelContext(
       planConfirm: planArtifact.payload,
       planConfirmReviewStatus: planArtifact.reviewStatus ?? 'pending',
       planConfirmReviewSummary: planArtifact.reviewSummary,
+      agentQuestion: questionArtifact?.payload,
+      agentQuestionReviewStatus: questionArtifact?.reviewStatus,
+      agentQuestionReviewSummary: questionArtifact?.reviewSummary,
     };
   }
   return null;
@@ -103,9 +122,9 @@ export function liveTurnPresentationSettled(
   return rawPrimaryText.trim().length === 0 && livePrimaryText.trim().length === 0;
 }
 
-/** Plan approval is rendered inside the unified plan panel — omit from the HITL detail stack. */
+/** Plan approval + clarifying questions are rendered inside the unified plan panel — omit from the HITL detail stack. */
 export function hitlArtifactsExcludingPlanConfirm(artifacts: readonly ArtifactMessage[]): ArtifactMessage[] {
-  return artifacts.filter((a) => a.role !== 'plan_confirm');
+  return artifacts.filter((a) => a.role !== 'plan_confirm' && a.role !== 'agent_question');
 }
 
 export function planPanelCompleteCount(planner: PlannerProgress): number {
@@ -194,6 +213,7 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
     m.role === 'copy_confirm' ||
     m.role === 'accept_command' ||
     m.role === 'plan_confirm' ||
+    m.role === 'agent_question' ||
     m.role === 'staged_transfer_batch'
   );
 }
@@ -206,6 +226,7 @@ export function isHitlActivationMessage(m: ChatMessage): boolean {
     m.role === 'copy_confirm' ||
     m.role === 'accept_command' ||
     m.role === 'plan_confirm' ||
+    m.role === 'agent_question' ||
     m.role === 'staged_transfer_batch'
   );
 }
@@ -371,6 +392,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
       msg.role === 'copy_confirm' ||
       msg.role === 'delete_confirm' ||
       msg.role === 'plan_confirm' ||
+      msg.role === 'agent_question' ||
       msg.role === 'staged_transfer_batch'
     ) {
       flushChainGroup();

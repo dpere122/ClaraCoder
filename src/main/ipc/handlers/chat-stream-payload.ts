@@ -52,8 +52,14 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-planner-progress', conversationId, parsed.planner);
   } else if (parsed.type === 'build_plan_open') {
     event.reply('message-build-plan-open', conversationId, parsed.buildPlanOpen);
+  } else if (parsed.type === 'build_plan_chunk') {
+    event.reply('message-build-plan-chunk', conversationId, parsed.buildPlanChunk);
+  } else if (parsed.type === 'build_plan_stream_end') {
+    event.reply('message-build-plan-stream-end', conversationId, parsed.buildPlanStreamEnd);
   } else if (parsed.type === 'plan_confirm') {
     event.reply('message-plan-confirm', conversationId, parsed.planConfirm);
+  } else if (parsed.type === 'agent_question') {
+    event.reply('message-agent-question', conversationId, parsed.agentQuestion);
   } else if (parsed.type === 'staged_transfer_batch') {
     event.reply('message-staged-transfer-batch', conversationId, parsed.stagedTransferBatch);
   }

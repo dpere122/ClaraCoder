@@ -1,0 +1,29 @@
+app-agent-question .agent-question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+app-agent-question .agent-question-item {
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.375rem;
+  background: rgba(13, 110, 253, 0.04);
+}
+
+app-agent-question .agent-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-left: 0.25rem;
+}
+
+app-agent-question .agent-question-option {
+  cursor: pointer;
+}
+
+app-agent-question .agent-question-other {
+  display: inline-flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;
+}

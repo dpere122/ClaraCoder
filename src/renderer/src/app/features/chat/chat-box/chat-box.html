@@ -66,9 +66,13 @@
               [planConfirm]="planCtx.planConfirm ?? null"
               [planConfirmReviewStatus]="planCtx.planConfirmReviewStatus ?? 'pending'"
               [planConfirmReviewSummary]="planCtx.planConfirmReviewSummary"
+              [agentQuestion]="planCtx.agentQuestion ?? null"
+              [agentQuestionReviewStatus]="planCtx.agentQuestionReviewStatus ?? 'pending'"
+              [agentQuestionReviewSummary]="planCtx.agentQuestionReviewSummary"
               [conversationId]="conversationId()"
               [live]="false"
               (planConfirmFinished)="planConfirmFinished.emit($event)"
+              (agentQuestionFinished)="agentQuestionFinished.emit($event)"
             />
           }
 
@@ -134,9 +138,13 @@
             [planConfirm]="planCtx.planConfirm ?? null"
             [planConfirmReviewStatus]="planCtx.planConfirmReviewStatus ?? 'pending'"
             [planConfirmReviewSummary]="planCtx.planConfirmReviewSummary"
+            [agentQuestion]="planCtx.agentQuestion ?? null"
+            [agentQuestionReviewStatus]="planCtx.agentQuestionReviewStatus ?? 'pending'"
+            [agentQuestionReviewSummary]="planCtx.agentQuestionReviewSummary"
             [conversationId]="conversationId()"
             [live]="true"
             (planConfirmFinished)="planConfirmFinished.emit($event)"
+            (agentQuestionFinished)="agentQuestionFinished.emit($event)"
           />
         }
         @if (primaryStreamLiveText().length > 0) {

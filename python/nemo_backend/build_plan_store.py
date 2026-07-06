@@ -20,6 +20,42 @@ INDEX_FILENAME = 'index.json'
 
 STEP_ID_COMMENT_RE = re.compile(r'<!--\s*step-id:\s*(\S+)\s*-->')
 CHECKBOX_LINE_RE = re.compile(r'^- \[( |x|X)\] (.*)$')
+BUILD_PLAN_TITLE_RE = re.compile(r'^#\s*Build\s+Plan:\s*(.+)$', re.IGNORECASE)
+SECTION_HEADER_RE = re.compile(r'^##\s+(.+)$')
+
+BUILD_PLAN_DRAFT_STUB = '# Build Plan\n\n_Generating plan…_\n'
+
+
+class OpenQuestion(BaseModel):
+    """A clarifying question the planner surfaces to the user before execution."""
+
+    id: str = Field(description='Stable id like q-1.')
+    prompt: str = Field(description='The question to ask the user.')
+    options: list[str] = Field(
+        default_factory=list,
+        description='Suggested answers the user can pick. The UI always appends an "Other" free-text choice.',
+    )
+
+
+class ActionStep(BaseModel):
+    """One enriched, verifiable milestone in a build plan."""
+
+    id: str = Field(description='Stable id like step-1.')
+    goal: str = Field(description='The milestone outcome in one line (renders on the checkbox).')
+    files_touched: list[str] = Field(
+        default_factory=list,
+        description='Workspace-relative paths this step modifies.',
+    )
+    approach: str = Field(default='', description='Brief description of how to implement the step.')
+    acceptance_criteria: list[str] = Field(
+        default_factory=list,
+        description='Checkable outcomes that prove the step is done.',
+    )
+    verification: str = Field(
+        default='',
+        description='Command or check to run to verify the step (e.g. `pytest tests/x`).',
+    )
+    risks: list[str] = Field(default_factory=list, description='Risks or caveats for this step.')
 
 
 class BuildPlanModel(BaseModel):
@@ -34,9 +70,22 @@ class BuildPlanModel(BaseModel):
         default_factory=list,
         description='Workspace-relative paths with brief rationale, e.g. "src/foo.ts — add handler".',
     )
-    action_steps: list[str] = Field(
+    assumptions: list[str] = Field(
         default_factory=list,
-        description='Ordered milestone steps the executor should accomplish.',
+        description='Assumptions the planner made that the user should be aware of.',
+    )
+    open_questions: list[OpenQuestion] = Field(
+        default_factory=list,
+        description='Clarifying questions to ask the user before execution.',
+    )
+    rollback_notes: str = Field(default='', description='How to roll back the changes if needed.')
+    definition_of_done: list[str] = Field(
+        default_factory=list,
+        description='Plan-level outcomes that prove the whole objective is met.',
+    )
+    action_steps: list[ActionStep] = Field(
+        default_factory=list,
+        description='Ordered, verifiable milestone steps the executor should accomplish.',
     )
 
 
@@ -121,6 +170,27 @@ def _evict_if_needed(workspace_root: str | Path, entries: list[dict[str, Any]]) 
     return out
 
 
+def _render_action_step(step: ActionStep, step_num: int) -> list[str]:
+    """Render one enriched action step as markdown lines (checkbox + nested details)."""
+    step_id = f'step-{step_num}'
+    lines = [f'<!-- step-id: {step_id} -->']
+    goal = step.goal.strip() or '(no goal)'
+    lines.append(f'- [ ] {goal}')
+    if step.files_touched:
+        lines.append(f'  - **Files:** {", ".join(step.files_touched)}')
+    if step.approach.strip():
+        lines.append(f'  - **Approach:** {step.approach.strip()}')
+    if step.acceptance_criteria:
+        lines.append('  - **Acceptance criteria:**')
+        lines.extend(f'    - {item.strip()}' for item in step.acceptance_criteria if item.strip())
+    if step.verification.strip():
+        lines.append(f'  - **Verification:** {step.verification.strip()}')
+    if step.risks:
+        lines.append('  - **Risks:**')
+        lines.extend(f'    - {item.strip()}' for item in step.risks if item.strip())
+    return lines
+
+
 def render_build_plan_md(doc: Any) -> str:
     """Render planner output into the build-plan Markdown template."""
 
@@ -140,17 +210,232 @@ def render_build_plan_md(doc: Any) -> str:
         lines.extend(f'- {row}' for row in file_rows)
     else:
         lines.append('- (none specified)')
+
+    assumptions = [str(a).strip() for a in (doc.assumptions or []) if str(a).strip()]
+    if assumptions:
+        lines.extend(['', '## Assumptions'])
+        lines.extend(f'- {a}' for a in assumptions)
+
+    open_questions = [q for q in (doc.open_questions or []) if getattr(q, 'prompt', '').strip()]
+    if open_questions:
+        lines.extend(['', '## Open Questions'])
+        for i, q in enumerate(open_questions, start=1):
+            qid = str(getattr(q, 'id', '') or f'q-{i}').strip() or f'q-{i}'
+            lines.append(f'<!-- q-id: {qid} -->')
+            lines.append(f'- {q.prompt.strip()}')
+            for opt in q.options or []:
+                opt_text = str(opt).strip()
+                if opt_text:
+                    lines.append(f'  - {opt_text}')
+
+    rollback = str(getattr(doc, 'rollback_notes', '') or '').strip()
+    if rollback:
+        lines.extend(['', '## Rollback Notes', rollback])
+
+    dod = [str(d).strip() for d in (doc.definition_of_done or []) if str(d).strip()]
+    if dod:
+        lines.extend(['', '## Definition of Done'])
+        lines.extend(f'- {d}' for d in dod)
+
     lines.extend(['', '## Action Steps'])
+    action_steps = doc.action_steps or []
+    rendered_any = False
     step_num = 0
-    for step in doc.action_steps or []:
-        text = str(step).strip()
-        if not text:
+    for step in action_steps:
+        goal = getattr(step, 'goal', '') if not isinstance(step, str) else step
+        if not str(goal).strip():
             continue
         step_num += 1
-        step_id = f'step-{step_num}'
-        lines.append(f'<!-- step-id: {step_id} -->')
-        lines.append(f'- [ ] {text}')
+        if isinstance(step, ActionStep):
+            lines.extend(_render_action_step(step, step_num))
+        else:
+            # Backward-compatible plain string step.
+            lines.append(f'<!-- step-id: step-{step_num} -->')
+            lines.append(f'- [ ] {str(goal).strip()}')
+        rendered_any = True
+    if not rendered_any:
+        lines.append('- (none specified)')
     return '\n'.join(lines) + '\n'
+
+
+def _parse_section_body(lines: list[str]) -> str:
+    return '\n'.join(lines).strip()
+
+
+def _parse_bullet_list(lines: list[str]) -> list[str]:
+    rows: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('- '):
+            text = stripped[2:].strip()
+            if text and text != '(none specified)':
+                rows.append(text)
+    return rows
+
+
+QUESTION_ID_COMMENT_RE = re.compile(r'<!--\s*q-id:\s*(\S+)\s*-->')
+
+
+def _parse_open_questions(lines: list[str]) -> list[OpenQuestion]:
+    """Parse the ``## Open Questions`` section into ``OpenQuestion`` models."""
+    questions: list[OpenQuestion] = []
+    current: OpenQuestion | None = None
+    current_id: str | None = None
+    for line in lines:
+        comment = QUESTION_ID_COMMENT_RE.search(line)
+        if comment:
+            current_id = comment.group(1)
+            continue
+        if not line.strip():
+            continue
+        is_indented = line.startswith('  ') or line.startswith('\t')
+        stripped = line.strip()
+        if not is_indented and stripped.startswith('- '):
+            prompt = stripped[2:].strip()
+            if not prompt:
+                continue
+            current = OpenQuestion(id=current_id or f'q-{len(questions) + 1}', prompt=prompt)
+            questions.append(current)
+            current_id = None
+            continue
+        if current is not None and is_indented and stripped.startswith('- '):
+            opt = stripped[2:].strip()
+            if opt:
+                current.options.append(opt)
+    return questions
+
+
+def parse_build_plan_md(md_text: str) -> BuildPlanModel:
+    """Parse a build-plan Markdown document into a structured model."""
+
+    title = ''
+    sections: dict[str, list[str]] = {}
+    current_key: str | None = None
+    current_lines: list[str] = []
+
+    for line in md_text.splitlines():
+        title_match = BUILD_PLAN_TITLE_RE.match(line.strip())
+        if title_match and not title:
+            title = title_match.group(1).strip()
+            continue
+        section_match = SECTION_HEADER_RE.match(line.strip())
+        if section_match:
+            if current_key is not None:
+                sections[current_key] = list(current_lines)
+            current_key = section_match.group(1).strip().lower()
+            current_lines = []
+            continue
+        if current_key is not None:
+            current_lines.append(line)
+
+    if current_key is not None:
+        sections[current_key] = list(current_lines)
+
+    parsed_steps = parse_action_steps(md_text)
+    action_steps: list[ActionStep] = []
+    for i, row in enumerate(parsed_steps, start=1):
+        goal = str(row.get('text') or '').strip()
+        if not goal:
+            continue
+        action_steps.append(
+            ActionStep(
+                id=str(row.get('id') or f'step-{i}'),
+                goal=goal,
+                files_touched=[str(f) for f in (row.get('files_touched') or []) if str(f).strip()],
+                approach=str(row.get('approach') or '').strip(),
+                acceptance_criteria=[str(c) for c in (row.get('acceptance_criteria') or []) if str(c).strip()],
+                verification=str(row.get('verification') or '').strip(),
+                risks=[str(r) for r in (row.get('risks') or []) if str(r).strip()],
+            )
+        )
+
+    return BuildPlanModel(
+        title=title or 'Build plan',
+        task=_parse_section_body(sections.get('task', [])),
+        current_implementation=_parse_section_body(sections.get('current implementation', [])),
+        files_to_change=_parse_bullet_list(sections.get('files to change', [])),
+        assumptions=_parse_bullet_list(sections.get('assumptions', [])),
+        open_questions=_parse_open_questions(sections.get('open questions', [])),
+        rollback_notes=_parse_section_body(sections.get('rollback notes', [])),
+        definition_of_done=_parse_bullet_list(sections.get('definition of done', [])),
+        action_steps=action_steps,
+    )
+
+
+def create_build_plan_draft(
+    workspace_root: str,
+    session_id: str,
+    *,
+    session: SessionState | None = None,
+    conversation_title: str = '',
+) -> BuildPlanRecord:
+    """Create a drafting build-plan stub file and attach it to the session."""
+
+    root_text = (workspace_root or '').strip()
+    if not root_text:
+        raise ValueError('workspace_root is required')
+
+    plan_id = f'plan-{uuid.uuid4().hex[:12]}'
+    relative_path = f'{BUILD_PLANS_REL_DIR}/{plan_id}.md'
+    md_path = _md_path(root_text, relative_path)
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(BUILD_PLAN_DRAFT_STUB, encoding='utf-8')
+
+    now = datetime.now(timezone.utc).isoformat()
+    entry: dict[str, Any] = {
+        'id': plan_id,
+        'relativePath': relative_path,
+        'sessionId': session_id,
+        'conversationTitle': conversation_title,
+        'createdAt': now,
+        'status': 'drafting',
+        'title': '',
+    }
+    entries = _load_index(root_text)
+    entries.append(entry)
+    entries = _evict_if_needed(root_text, entries)
+    _save_index(root_text, entries)
+
+    record = _entry_to_record(entry)
+    if session is not None:
+        attach_active_plan(session, record)
+    return record
+
+
+def write_build_plan_draft_content(
+    workspace_root: str,
+    record: BuildPlanRecord,
+    md_text: str,
+) -> None:
+    """Overwrite a drafting build-plan file with the latest streamed markdown."""
+
+    md_path = _md_path(workspace_root, record.relative_path)
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    text = md_text if md_text.endswith('\n') else md_text + '\n'
+    md_path.write_text(text, encoding='utf-8')
+
+
+def finalize_build_plan_draft(
+    workspace_root: str,
+    record: BuildPlanRecord,
+    md_text: str,
+) -> BuildPlanRecord:
+    """Write final markdown and promote a drafting plan to active status."""
+
+    root_text = (workspace_root or '').strip()
+    write_build_plan_draft_content(root_text, record, md_text)
+    doc = parse_build_plan_md(md_text)
+
+    entries = _load_index(root_text)
+    updated = record
+    for entry in entries:
+        if str(entry.get('id') or '') == record.id:
+            entry['status'] = 'active'
+            entry['title'] = doc.title.strip()
+            updated = _entry_to_record(entry)
+            break
+    _save_index(root_text, entries)
+    return updated
 
 
 def create_build_plan(
@@ -243,28 +528,94 @@ def read_build_plan_text(
     return path.read_text(encoding='utf-8')
 
 
+_ACTION_STEP_DETAIL_KEY_RE = re.compile(r'^-\s*\*\*([^*:]+):\*\*\s*(.*)$')
+
+
+def _merge_action_step_details(step: dict[str, Any], detail_lines: list[str]) -> None:
+    """Fold nested ``**Key:**`` detail bullets into an enriched step dict."""
+    current_list_key: str | None = None
+    for raw in detail_lines:
+        if not raw.strip():
+            current_list_key = None
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        line = raw.strip()
+        if indent >= 4 and current_list_key is not None:
+            item = line.lstrip('- ').strip()
+            if item:
+                step.setdefault(current_list_key, []).append(item)
+            continue
+        match = _ACTION_STEP_DETAIL_KEY_RE.match(line)
+        if not match:
+            current_list_key = None
+            continue
+        key = match.group(1).strip().lower()
+        rest = match.group(2).strip()
+        current_list_key = None
+        if key == 'files':
+            step['files_touched'] = [f.strip() for f in rest.split(',') if f.strip()]
+        elif key == 'approach':
+            step['approach'] = rest
+        elif key == 'verification':
+            step['verification'] = rest
+        elif key == 'acceptance criteria':
+            step['acceptance_criteria'] = []
+            current_list_key = 'acceptance_criteria'
+            if rest:
+                step['acceptance_criteria'].append(rest)
+        elif key == 'risks':
+            step['risks'] = []
+            current_list_key = 'risks'
+            if rest:
+                step['risks'].append(rest)
+
+
 def parse_action_steps(md_text: str) -> list[dict[str, Any]]:
-    """Parse action-step checkboxes from build-plan Markdown."""
+    """Parse action-step checkboxes (and nested enriched details) from build-plan Markdown."""
 
     steps: list[dict[str, Any]] = []
     current_id: str | None = None
+    pending: dict[str, Any] | None = None
+    detail_lines: list[str] = []
+
+    def _flush() -> None:
+        nonlocal pending, detail_lines
+        if pending is not None:
+            _merge_action_step_details(pending, detail_lines)
+            steps.append(pending)
+            pending = None
+            detail_lines = []
+
     for line in md_text.splitlines():
         comment = STEP_ID_COMMENT_RE.search(line)
         if comment:
+            _flush()
             current_id = comment.group(1)
             continue
         checkbox = CHECKBOX_LINE_RE.match(line.strip())
-        if checkbox and current_id:
-            steps.append(
-                {
+        if checkbox:
+            if current_id:
+                _flush()
+                pending = {
                     'id': current_id,
                     'text': checkbox.group(2).strip(),
                     'complete': checkbox.group(1).lower() == 'x',
+                    'files_touched': [],
+                    'approach': '',
+                    'acceptance_criteria': [],
+                    'verification': '',
+                    'risks': [],
                 }
-            )
-            current_id = None
-        elif checkbox:
-            current_id = None
+                current_id = None
+            else:
+                _flush()
+            continue
+        if pending is not None and (line.startswith('  ') or line.startswith('\t')):
+            detail_lines.append(line)
+            continue
+        if pending is not None:
+            _flush()
+    _flush()
     return steps
 
 
@@ -402,20 +753,27 @@ def cancel_build_plan(session: SessionState, plan_id: str) -> bool:
 
 __all__ = [
     'BUILD_PLANS_REL_DIR',
+    'BUILD_PLAN_DRAFT_STUB',
+    'ActionStep',
     'BuildPlanModel',
     'BuildPlanRecord',
     'MAX_BUILD_PLANS',
+    'OpenQuestion',
     'attach_active_plan',
     'cancel_build_plan',
     'complete_build_plan',
     'create_build_plan',
+    'create_build_plan_draft',
     'delete_build_plan',
+    'finalize_build_plan_draft',
     'get_active_plan',
     'mark_steps_complete',
     'parse_action_steps',
+    'parse_build_plan_md',
     'planner_progress_payload_from_parsed',
     'read_build_plan_md',
     'read_build_plan_text',
     'render_build_plan_md',
     'set_build_plan_status',
+    'write_build_plan_draft_content',
 ]

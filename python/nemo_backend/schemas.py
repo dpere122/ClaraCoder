@@ -109,6 +109,32 @@ class AgentContinueRequest(BaseModel):
     )
 
 
+class QuestionAnswer(BaseModel):
+    """One answer in a question-card HITL response."""
+
+    question_id: str = Field(
+        default='',
+        validation_alias=AliasChoices('question_id', 'questionId'),
+    )
+    option_id: str = Field(
+        default='',
+        validation_alias=AliasChoices('option_id', 'optionId'),
+    )
+    other_text: str = Field(
+        default='',
+        validation_alias=AliasChoices('other_text', 'otherText'),
+    )
+
+
+class AgentQuestionAnswersRequest(BaseModel):
+    """Body for POST /chat/agent-question-answers: resolve a plan-mode question card."""
+
+    session_id: str
+    request_id: str = Field(default='', validation_alias=AliasChoices('request_id', 'requestId'))
+    action: Literal['submit', 'cancel'] = 'submit'
+    answers: list[QuestionAnswer] = Field(default_factory=list)
+
+
 class AbortRequest(BaseModel):
     """Body for POST /chat/abort: cancel the in-flight stream for a session."""
 

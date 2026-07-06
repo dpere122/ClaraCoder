@@ -206,8 +206,14 @@ export {
   lspServerIdForMonacoLanguageId,
 } from './lsp-file-policy';
 export type { AcceptCommandPayload } from './types/accept-command';
-export type { PlanConfirmPayload } from './types/plan-confirm';
-export type { BuildPlanOpenPayload } from './types/build-plan';
+export type { PlanConfirmPayload, PlanConfirmResolvedQuestion } from './types/plan-confirm';
+export type {
+  AgentQuestionPayload,
+  QuestionAnswer,
+  QuestionOption,
+  QuestionPrompt,
+} from './types/agent-question';
+export type { BuildPlanChunkPayload, BuildPlanOpenPayload, BuildPlanStreamEndPayload } from './types/build-plan';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';
 export type {

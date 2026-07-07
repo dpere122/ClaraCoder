@@ -8,7 +8,7 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
@@ -16,6 +16,7 @@ from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_PROCESS_KILL
 from nemo_backend.domain import SessionState
 from nemo_backend.python_env import _run_subprocess_with_output
 from nemo_backend.state import current_session_id, get_session
+from nemo_backend.tools.tool_conventions import describe
 from nemo_backend.tools.workspace import truncate_text_head_tail
 
 SEARCH_NETSTAT_PORTS_NAME = 'search_netstat_ports'
@@ -284,12 +285,14 @@ def _format_port_report(
     return truncate_text_head_tail(body, _MAX_OUTPUT_CHARS)
 
 
-@tool(SEARCH_NETSTAT_PORTS_NAME)
-async def search_netstat_ports_tool(port: int | None = None, local_address_contains: str = '') -> str:
-    """List listening TCP/UDP sockets on the host (``netstat`` / ``ss``), optionally filtered by port or local address.
-
-    Read-only diagnostic for port conflicts (e.g. EADDRINUSE). Returns process IDs you can pass to ``kill_process``.
-    """
+@tool(SEARCH_NETSTAT_PORTS_NAME, description=describe('List listening TCP/UDP sockets on the host (`netstat` / `ss`).',
+        when='diagnosing port conflicts (e.g. EADDRINUSE) before smoke tests or dev servers.',
+        not_='killing processes (use `kill_process` after identifying a PID).',
+        shape='read-only; optional filter by port or local address substring; returns PIDs for `kill_process`.',))
+async def search_netstat_ports_tool(
+    port: Annotated[int | None, '1-65535 TCP/UDP port'] = None,
+    local_address_contains: str = '',
+) -> str:
 
     port_value: int | None = None
     if port is not None:
@@ -417,13 +420,18 @@ async def execute_pending_process_kill_request(session: SessionState, pending: d
     )
 
 
-@tool(KILL_PROCESS_NAME)
-async def kill_process_tool(pid: int, force: bool = True, kill_tree: bool = True) -> str:
-    """Kill a host process by PID (always requires user confirmation in chat).
-
-    Use after ``search_netstat_ports`` when a dev server or stuck process holds a port. On Windows uses
-    ``taskkill`` (``/T`` for child processes when ``kill_tree`` is true). Refuses protected system PIDs.
-    """
+@tool(KILL_PROCESS_NAME, description=describe('Kill a host process by PID.',
+        when='freeing a port or stopping a stuck process after `search_netstat_ports`.',
+        not_='graceful app shutdown inside the workspace (prefer stopping dev servers normally).',
+        shape=(
+            'always requires user confirmation; Windows `taskkill` (`/T` when `kill_tree`); '
+            'refuses protected system PIDs.'
+        ),))
+async def kill_process_tool(
+    pid: Annotated[int, 'host process id from search_netstat_ports'],
+    force: bool = True,
+    kill_tree: bool = True,
+) -> str:
 
     sid = (current_session_id.get() or '').strip()
     if not sid:

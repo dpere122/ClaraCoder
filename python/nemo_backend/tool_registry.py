@@ -284,14 +284,136 @@ def planner_discovery_tools_and_map(
     return worker_tools_and_map(False, session=session)
 
 
+# Ordered (label, members) registry: exact tool names and/or prefix tokens (trailing '_').
+TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
+    (
+        'Reads & search',
+        (
+            'list_workspace_directory',
+            'retrieve_workspace_semantic',
+            'retrieve_workspace_checkpoint_semantic',
+            'search_workspace',
+            'read_workspace_file',
+            'read_workspace_image',
+        ),
+    ),
+    ('Structured zoom (wsdl/xml/json)', ('wsdl_', 'xml_', 'json_')),
+    ('LSP', ('lsp_',)),
+    (
+        'Edits (staging + direct)',
+        (
+            'stage_create_file',
+            'stage_workspace_file_overwrite',
+            'stage_line_range_edit',
+            'stage_snippet_edit',
+            'apply_workspace_full_file',
+            'replace_workspace_line_range',
+            'replace_workspace_snippet',
+        ),
+    ),
+    (
+        'Staging review',
+        (
+            'list_staged_edits',
+            'diff_staged_edit_against_baseline',
+            'read_staged_edit',
+            'search_staged_edits',
+            'format_staging_file_black',
+            'format_staging_file_prettier',
+            'format_workspace_file_black',
+            'format_workspace_file_prettier',
+            'run_staging_overlay_command',
+            'transfer_staged_file_to_workspace',
+            'reject_staged_workspace_edit',
+        ),
+    ),
+    (
+        'Dependencies (python/node)',
+        (
+            'ensure_python_workspace_env',
+            'install_python_packages',
+            'remove_python_packages',
+            'install_python_requirements_file',
+            'freeze_python_requirements',
+            'write_frozen_python_requirements_file',
+            'bootstrap_python_testing_dependencies',
+            'discover_npm_projects',
+            'search_npm_packages',
+            'install_npm_packages',
+            'remove_npm_packages',
+            'npm_install_project',
+            'run_npm_script',
+            'angular_cli_tool',
+        ),
+    ),
+    (
+        'Verification',
+        (
+            'run_workspace_pytest_tests',
+            'run_workspace_python_smoke_test',
+            'run_workspace_node_smoke_test',
+        ),
+    ),
+    ('Process', ('search_netstat_ports', 'kill_process')),
+    ('Build plan', ('read_build_plan', 'mark_build_plan_steps_complete')),
+    ('Other', ()),
+]
+
+
+def _family_for(name: str) -> str:
+    """Classify a tool name into exactly one display family (fallback: Other)."""
+    classified = TOOL_FAMILIES[:-1]
+    for label, members in classified:
+        if name in members:
+            return label
+    for label, members in classified:
+        for member in members:
+            if member.endswith('_') and name.startswith(member):
+                return label
+    return 'Other'
+
+
+def _short_purpose(description: str) -> str:
+    """First sentence/clause of a tool docstring, truncated for compact catalog lines."""
+    desc = description.strip()
+    if not desc:
+        return '(no description)'
+    for sep in ('. ', '\n'):
+        if sep in desc:
+            desc = desc.split(sep, 1)[0]
+            break
+    desc = desc.strip()
+    if len(desc) > 90:
+        desc = desc[:87].rstrip() + '...'
+    return desc
+
+
+def _tool_name(tool: Any) -> str:
+    return getattr(tool, 'name', None) or getattr(tool, '__name__', 'unknown')
+
+
 def format_tools_catalog(tools: list[Any]) -> str:
-    """Name + description listing for planner/replanner prompts (mirrors executor bindings)."""
-    lines: list[str] = []
+    """Grouped one-line tool summaries for planner/replanner prompts.
+
+    Tools are bucketed by :data:`TOOL_FAMILIES` order. The first non-empty family
+    omits its ``**header**`` so the catalog still starts with ``- \\`name\\` — …``
+    (callers rely on ``catalog.startswith('- ')``).
+    """
+    buckets: dict[str, list[Any]] = {label: [] for label, _ in TOOL_FAMILIES}
     for tool in tools:
-        name = getattr(tool, 'name', None) or getattr(tool, '__name__', 'unknown')
-        desc = (getattr(tool, 'description', None) or '').strip()
-        if desc:
-            lines.append(f'- `{name}`: {desc}')
-        else:
-            lines.append(f'- `{name}`')
+        buckets[_family_for(_tool_name(tool))].append(tool)
+
+    lines: list[str] = []
+    first_family = True
+    for family, _ in TOOL_FAMILIES:
+        group = buckets[family]
+        if not group:
+            continue
+        if not first_family:
+            lines.append(f'**{family}**')
+        first_family = False
+        for tool in group:
+            name = _tool_name(tool)
+            desc = getattr(tool, 'description', None) or ''
+            lines.append(f'- `{name}` — {_short_purpose(desc)}')
     return '\n'.join(lines)

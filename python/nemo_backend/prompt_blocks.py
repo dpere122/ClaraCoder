@@ -62,6 +62,49 @@ def python_workspace_playbook() -> str:
     ).strip()
 
 
+def edit_semantics_block(direct: bool) -> str:
+    """Shared workspace edit semantics: per-extension LSP-mutator map + landing policy.
+
+    Used by both ``messages._outer_agent_operational_block`` and
+    ``model_tuning.tool_calling_and_edit_semantics_suffix`` so the two stop drifting.
+    ``direct=True`` describes the Auto-apply on-disk path; ``direct=False`` describes the
+    staging/LSP staging path with the ``land_in_workspace`` policy.
+    """
+    lsp_map = (
+        '`.py` → `lsp_create_python_file` / `lsp_update_python_file` / `lsp_delete_python_file`; '
+        '`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` → `lsp_create_typescript_file` / `lsp_update_typescript_file` / `lsp_delete_typescript_file`; '
+        '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file`'
+    )
+    if direct:
+        return (
+            '**Edit semantics (direct):** Editor and Auto-apply are on—write directly to disk with '
+            '`apply_workspace_full_file`, `replace_workspace_line_range`, or `replace_workspace_snippet` '
+            '(when bound) for text edits. Prefer language-matched LSP mutators when bound: '
+            f'{lsp_map}. Writes land on disk immediately—there is no staging draft plane and no '
+            '`transfer_staged_file_to_workspace` on your graph.'
+        )
+    return (
+        '**Edit semantics (staging):** Use `stage_create_file`, `stage_workspace_file_overwrite`, '
+        '`stage_line_range_edit`, and `stage_snippet_edit` (when bound) to create or revise any text path; '
+        'inspect drafts with `list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit`. '
+        'Before calling `stage_workspace_file_overwrite` or `stage_create_file` on an **existing** file, first '
+        'call `read_workspace_file` **without** `start_line`/`end_line` to capture the whole file so headers, '
+        'footers, and imports are preserved in the staged draft. '
+        'Prefer `stage_line_range_edit` or `stage_snippet_edit` for modifying specific sections; reserve '
+        '`stage_workspace_file_overwrite` for cases where the entire file\u2019s purpose or fundamental '
+        'structure is being completely replaced (e.g. full rewrite, format conversion, scaffolding a new '
+        'layout). Targeted edits via line-range/snippet stages produce smaller, reviewable diffs and avoid '
+        'clobbering unrelated regions. '
+        'You may also use language-matched LSP mutators when they appear in your bound tool list: '
+        f'{lsp_map} (same staging/review path); if they are not on your graph, use `stage_*` instead. '
+        'When drafts are approved, pass `land_in_workspace=true` on your final `stage_*` or LSP create/update '
+        'call to land in one step (HITL diff when auto-apply is off; stop after the tool returns when '
+        'auto-apply is off). Keep `land_in_workspace=false` (default) while iterating or before review '
+        'completes. For drafts already staged without landing, call `transfer_staged_file_to_workspace` with '
+        '`relative_paths` (batch when multiple files are ready).'
+    )
+
+
 def routing_handoff_contract() -> str:
     """Shared Operation / Paths / Existence rules when scoping a staged edit or review pass."""
     return dedent(

@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from langchain_core.tools import tool
 
@@ -33,6 +33,7 @@ from nemo_backend.lsp.diagnostics import format_diagnostics_summary, indentation
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.tools.lsp_tools import lsp_get_diagnostics
+from nemo_backend.tools.tool_conventions import GUTTER, ONE_BASED, RELATIVE_PATH, VERIFY_LSP, describe
 from nemo_backend.python_env import (
     ensure_session_python_workspace_env,
     session_workspace_subprocess_env,
@@ -581,13 +582,13 @@ def _materialize_staged_python_files(session, overlays: list[tuple[str, object]]
     return True, ''
 
 
-@tool(LIST_STAGED_EDITS_NAME)
+@tool(LIST_STAGED_EDITS_NAME, description=describe(
+        'List workspace-relative paths that have a pending staged draft (not yet transferred).',
+        when='see what is in the staging plane before diff/read/search.',
+        not_='disk directory listing (use `list_workspace_directory`); file text (use `read_staged_edit` or diff).',
+        shape=f'paths are same keys as `relative_path` on other staging tools ({RELATIVE_PATH})',
+    ))
 def list_staged_edits() -> str:
-    """List workspace-relative paths that have a pending staged draft (not yet transferred).
-
-    When: see what is in the staging plane before diff/read/search.
-    Not: disk directory listing (use `list_workspace_directory`); file text (use `read_staged_edit` or diff).
-    Shape: paths are same keys as `relative_path` on other staging tools (POSIX under workspace root)."""
 
     sid = current_session_id.get()
     blocked = mutation_tools_blocked_reason(sid)
@@ -600,13 +601,21 @@ def list_staged_edits() -> str:
     return 'Staged edits:\n' + '\n'.join(paths)
 
 
-@tool(DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME)
-def diff_staged_edit_against_baseline(relative_path: str) -> str:
-    """Unified diff: workspace baseline at stage time vs current staged `merged_text` (git-style).
-
-    When: mechanical review of what changed for one pending path; prefer before bulk `read_staged_edit`.
-    Not: on-disk vs disk (use workspace diff elsewhere); full draft text (use `read_staged_edit` if diff truncated or need context).
-    Shape: `relative_path` workspace-relative POSIX; new-file baseline is empty. Empty diff means baseline equals draft—re-read staged content or diagnostics."""
+@tool(DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME, description=describe(
+        'Unified diff: workspace baseline at stage time vs current staged `merged_text` (git-style).',
+        when='mechanical review of what changed for one pending path; prefer before bulk `read_staged_edit`.',
+        not_=(
+            'on-disk vs disk (use workspace diff elsewhere); full draft text '
+            '(use `read_staged_edit` if diff truncated or need context).'
+        ),
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} new-file baseline is empty. '
+            'Empty diff means baseline equals draft—re-read staged content or diagnostics.'
+        ),
+    ))
+def diff_staged_edit_against_baseline(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+) -> str:
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -640,18 +649,23 @@ def diff_staged_edit_against_baseline(relative_path: str) -> str:
     return out
 
 
-@tool(READ_STAGED_EDIT_NAME)
+@tool(READ_STAGED_EDIT_NAME, description=describe(
+        'Read a **window** of the pending staged merged draft for one path (temp file, not on-disk workspace).',
+        when='inspect or copy exact staged text; revise after review; anchor line edits on the draft.',
+        not_='on-disk checkpoint (use `read_workspace_file` after transfer or when no staging entry).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} must exist in `list_staged_edits`. '
+            f'`start_line`/`end_line` {ONE_BASED} over staged logical lines; window capped like `read_workspace_file`. '
+            'Encoding is the staging entry’s disk encoding (no separate `encoding` arg). '
+            f'{GUTTER}'
+        ),
+    ))
 def read_staged_edit(
-    relative_path: str,
-    start_line: int = 1,
-    end_line: int = 220,
-    include_line_numbers: bool = True,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    start_line: Annotated[int, '1-based inclusive'] = 1,
+    end_line: Annotated[int, '1-based inclusive'] = 220,
+    include_line_numbers: Annotated[bool, 'false for raw lines / snippet matches'] = True,
 ) -> str:
-    """Read a **window** of the pending staged merged draft for one path (temp file, not on-disk workspace).
-
-    When: inspect or copy exact staged text; revise after review; anchor line edits on the draft.
-    Not: on-disk checkpoint (use `read_workspace_file` after transfer or when no staging entry).
-    Shape: `relative_path` workspace-relative POSIX; must exist in `list_staged_edits`. `start_line`/`end_line` **1-based inclusive** over staged logical lines; window capped like `read_workspace_file`. Encoding is the staging entry’s disk encoding (no separate `encoding` arg). Gutter `n │ text` (U+2502) when `include_line_numbers` true—use false for raw lines (e.g. snippet match)."""
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -685,13 +699,17 @@ def read_staged_edit(
     return capped
 
 
-@tool(SEARCH_STAGED_EDITS_NAME)
-def search_staged_edits(query: str, relative_path: str = '', max_matches: int = 20) -> str:
-    """Grep **pending staging drafts** only (regex; tries ripgrep-style path then Python fallback).
-
-    When: pattern across staged files or one staged file (`relative_path` set).
-    Not: on-disk workspace (use `search_workspace`); discovery without staging (use `retrieve_workspace_semantic`).
-    Shape: optional `relative_path` filters to that staged path; `max_matches` bounded."""
+@tool(SEARCH_STAGED_EDITS_NAME, description=describe(
+        'Grep **pending staging drafts** only (regex; tries ripgrep-style path then Python fallback).',
+        when='pattern across staged files or one staged file (`relative_path` set).',
+        not_='on-disk workspace (use `search_workspace`); discovery without staging (use `retrieve_workspace_semantic`).',
+        shape='optional `relative_path` filters to that staged path; `max_matches` bounded.',
+    ))
+def search_staged_edits(
+    query: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
+    max_matches: int = 20,
+) -> str:
 
     sid = current_session_id.get()
     blocked = mutation_tools_blocked_reason(sid)
@@ -724,13 +742,15 @@ def search_staged_edits(query: str, relative_path: str = '', max_matches: int = 
     return '\n'.join(matches)
 
 
-@tool(FORMAT_STAGING_FILE_BLACK_NAME)
-def format_staging_file_black(relative_path: str) -> str:
-    """Run Black on the **staged** `.py` draft in place (updates merged staging content).
-
-    When: staged Python draft has style/indent issues per diagnostics.
-    Not: arbitrary extensions (`.py` only); formatting workspace disk directly (transfer first or use workspace tools).
-    Shape: `relative_path` workspace-relative POSIX; then `lsp_get_diagnostics` with `refresh_active_document=true` or `read_staged_edit` to verify."""
+@tool(FORMAT_STAGING_FILE_BLACK_NAME, description=describe(
+        'Run Black on the **staged** `.py` draft in place (updates merged staging content).',
+        when='staged Python draft has style/indent issues per diagnostics.',
+        not_='arbitrary extensions (`.py` only); formatting workspace disk directly (transfer first or use workspace tools).',
+        shape=f'`relative_path` {RELATIVE_PATH} then {VERIFY_LSP} or `read_staged_edit` to verify.',
+    ))
+def format_staging_file_black(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+) -> str:
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -756,14 +776,15 @@ def format_staging_file_black(relative_path: str) -> str:
     )
 
 
-@tool(FORMAT_STAGING_FILE_PRETTIER_NAME)
-def format_staging_file_prettier(relative_path: str) -> str:
-    """Run Prettier on the **staged** draft in place (updates merged staging content).
-
-    When: staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` draft has style issues per diagnostics.
-    Not: other extensions; formatting workspace disk directly (transfer first or use workspace tools).
-    Shape: `relative_path` workspace-relative POSIX; then `lsp_get_diagnostics` with `refresh_active_document=true`
-    (for TS/JS) or `read_staged_edit` to verify."""
+@tool(FORMAT_STAGING_FILE_PRETTIER_NAME, description=describe(
+        'Run Prettier on the **staged** draft in place (updates merged staging content).',
+        when='staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` draft has style issues per diagnostics.',
+        not_='other extensions; formatting workspace disk directly (transfer first or use workspace tools).',
+        shape=f'`relative_path` {RELATIVE_PATH} then {VERIFY_LSP} (for TS/JS) or `read_staged_edit` to verify.',
+    ))
+def format_staging_file_prettier(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+) -> str:
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
@@ -827,13 +848,15 @@ def _workspace_file_for_format(relative_path: str) -> tuple[str, Path, str, Disk
     return rel_key, target, disk_enc, nl
 
 
-@tool(FORMAT_WORKSPACE_FILE_BLACK_NAME)
-def format_workspace_file_black(relative_path: str) -> str:
-    """Run Black on a workspace `.py` file in place (direct Editor + Auto-apply mode).
-
-    When: on-disk Python needs style fixes after a direct write.
-    Not: staged drafts (use `format_staging_file_black` when staging is active).
-    Shape: workspace-relative POSIX path; then `lsp_get_diagnostics` with `refresh_active_document=true`."""
+@tool(FORMAT_WORKSPACE_FILE_BLACK_NAME, description=describe(
+        'Run Black on a workspace `.py` file in place (direct Editor + Auto-apply mode).',
+        when='on-disk Python needs style fixes after a direct write.',
+        not_='staged drafts (use `format_staging_file_black` when staging is active).',
+        shape=f'{RELATIVE_PATH} then {VERIFY_LSP}.',
+    ))
+def format_workspace_file_black(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+) -> str:
 
     got = _workspace_file_for_format(relative_path)
     if isinstance(got, str):
@@ -852,13 +875,15 @@ def format_workspace_file_black(relative_path: str) -> str:
     )
 
 
-@tool(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
-def format_workspace_file_prettier(relative_path: str) -> str:
-    """Run Prettier on a workspace file in place (direct Editor + Auto-apply mode).
-
-    When: on-disk `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` needs style fixes.
-    Not: staged drafts (use `format_staging_file_prettier` when staging is active).
-    Shape: workspace-relative POSIX path; then `lsp_get_diagnostics` with `refresh_active_document=true` for TS/JS."""
+@tool(FORMAT_WORKSPACE_FILE_PRETTIER_NAME, description=describe(
+        'Run Prettier on a workspace file in place (direct Editor + Auto-apply mode).',
+        when='on-disk `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` needs style fixes.',
+        not_='staged drafts (use `format_staging_file_prettier` when staging is active).',
+        shape=f'{RELATIVE_PATH} then {VERIFY_LSP} for TS/JS.',
+    ))
+def format_workspace_file_prettier(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+) -> str:
 
     got = _workspace_file_for_format(relative_path)
     if isinstance(got, str):
@@ -898,14 +923,21 @@ def _overlay_combined_output(stdout_chunks: list[str], stderr_chunks: list[str])
     return stdout
 
 
-@tool(RUN_STAGING_OVERLAY_COMMAND_NAME)
-async def run_staging_overlay_command(command_argv_json: str, cwd_relative: str = '') -> str:
-    """Run `command_argv_json` (JSON argv array, no shell) in an ephemeral overlay: workspace + pending staged drafts.
-
-    When: pytest/npm tests against drafts without writing real workspace (requires Settings → Allow staging overlay commands).
-    Not: substitute for `transfer_staged_file_to_workspace`; real workspace unchanged until transfer/reject flow.
-    Shape: `cwd_relative` optional under overlay root. Heavy dirs linked from workspace. Still finish review with transfer/reject.
-    Allowed: test/build/lint runners only (pytest, python -m pytest, npm/pnpm/yarn run, etc.)—no shells, `python -c`, or `node -e`."""
+@tool(RUN_STAGING_OVERLAY_COMMAND_NAME, description=describe(
+        'Run `command_argv_json` (JSON argv array, no shell) in an ephemeral overlay: workspace + pending staged drafts.',
+        when='pytest/npm tests against drafts without writing real workspace (requires Settings → Allow staging overlay commands).',
+        not_='substitute for `transfer_staged_file_to_workspace`; real workspace unchanged until transfer/reject flow.',
+        shape=(
+            '`cwd_relative` optional under overlay root. Heavy dirs linked from workspace. '
+            'Still finish review with transfer/reject. '
+            'Allowed: test/build/lint runners only (pytest, python -m pytest, npm/pnpm/yarn run, etc.)—'
+            'no shells, `python -c`, or `node -e`.'
+        ),
+    ))
+async def run_staging_overlay_command(
+    command_argv_json: Annotated[str, 'JSON argv array, no shell'],
+    cwd_relative: str = '',
+) -> str:
 
     if not getattr(runtime_config.tools, 'allow_staging_overlay_commands', False):
         return (
@@ -1299,18 +1331,20 @@ def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str
     return run_staged_transfer_batch(session, [rel_key.strip().replace('\\', '/')])
 
 
-@tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
+@tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME, description=describe(
+        'Approve landing staged draft(s): writes workspace (or queues HITL diff batch when auto-apply off).',
+        when='draft(s) are correct and should become the on-disk checkpoint.',
+        not_='request writer changes (use `reject_staged_workspace_edit` with feedback); reading only (use `read_staged_edit`).',
+        shape=(
+            f'`relative_paths` is a non-empty list of {RELATIVE_PATH}s (preferred for multiple files). '
+            'Legacy `relative_path` accepts a single path. After approval, follow-up reads use `read_workspace_file` / LSP on disk. '
+            'Workspace LSP refresh runs **once** after every staged path in this chain is transferred (not after each file).'
+        ),
+    ))
 def transfer_staged_file_to_workspace(
-    relative_paths: list[str] | None = None,
-    relative_path: str = '',
+    relative_paths: Annotated[list[str], 'workspace-relative POSIX paths'] | None = None,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
 ) -> str:
-    """Approve landing staged draft(s): writes workspace (or queues HITL diff batch when auto-apply off).
-
-    When: draft(s) are correct and should become the on-disk checkpoint.
-    Not: request writer changes (use `reject_staged_workspace_edit` with feedback); reading only (use `read_staged_edit`).
-    Shape: `relative_paths` is a non-empty list of workspace-relative POSIX paths (preferred for multiple files).
-    Legacy `relative_path` accepts a single path. After approval, follow-up reads use `read_workspace_file` / LSP on disk.
-    Workspace LSP refresh runs **once** after every staged path in this chain is transferred (not after each file)."""
 
     paths, norm_err = _normalize_transfer_paths(relative_paths, relative_path)
     if norm_err:
@@ -1323,13 +1357,16 @@ def transfer_staged_file_to_workspace(
     return run_staged_transfer_batch(session, paths)
 
 
-@tool(REJECT_STAGED_WORKSPACE_EDIT_NAME)
-def reject_staged_workspace_edit(relative_path: str, feedback: str) -> str:
-    """Fail review: block transfer and return concrete `feedback` so the writer can revise the staged draft.
-
-    When: staged content is wrong, incomplete, or unsafe—needs another staging iteration.
-    Not: pass / ship (use `transfer_staged_file_to_workspace`); generic praise without revision request.
-    Shape: `relative_path` workspace-relative POSIX; `feedback` must say what to fix."""
+@tool(REJECT_STAGED_WORKSPACE_EDIT_NAME, description=describe(
+        'Fail review: block transfer and return concrete `feedback` so the writer can revise the staged draft.',
+        when='staged content is wrong, incomplete, or unsafe—needs another staging iteration.',
+        not_='pass / ship (use `transfer_staged_file_to_workspace`); generic praise without revision request.',
+        shape=f'`relative_path` {RELATIVE_PATH} `feedback` must say what to fix.',
+    ))
+def reject_staged_workspace_edit(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    feedback: str,
+) -> str:
 
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):

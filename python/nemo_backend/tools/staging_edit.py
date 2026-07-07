@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
 from nemo_backend import edit_staging as _edit_staging
 from nemo_backend.domain import EditStagingEntry, SessionState
 from nemo_backend.tools.edit import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
+from nemo_backend.tools.tool_conventions import ENCODING_NEWLINE, ONE_BASED, RELATIVE_PATH, STAGE_LAND, describe
 from nemo_backend.lsp.diagnostics import post_edit_checks_footer
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import get_session_lsp_manager
@@ -298,20 +299,22 @@ def _run_staging_tool(
     return out
 
 
-@tool(STAGE_CREATE_FILE_NAME)
+@tool(STAGE_CREATE_FILE_NAME, description=describe(
+        'Stage a **new** file (or full replacement treated as create flow): merged content goes to review, disk unchanged until transfer.',
+        when='path should not rely on existing workspace bytes as old_text baseline in the same way as overwrite (new file or create flow).',
+        not_='read on-disk truth for an existing path before edit (use `read_workspace_file` first); inspect draft (use `read_staged_edit` / diff after).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} {ENCODING_NEWLINE} Parents created on transfer. '
+            f'{STAGE_LAND} Keep false in nested file-write author — code review should run first.'
+        ),
+    ))
 def stage_create_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
-    newline: str = '',
-    land_in_workspace: bool = False,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    newline: Annotated[str, 'lf|crlf|preserve (empty = Settings default)'] = '',
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Stage a **new** file (or full replacement treated as create flow): merged content goes to review, disk unchanged until transfer.
-
-    When: path should not rely on existing workspace bytes as old_text baseline in the same way as overwrite (new file or create flow).
-    Not: read on-disk truth for an existing path before edit (use `read_workspace_file` first); inspect draft (use `read_staged_edit` / diff after).
-    Shape: `relative_path` workspace-relative POSIX. `encoding` empty → Settings default; `newline` `lf` / `crlf` / `preserve`. Parents created on transfer.
-    Set `land_in_workspace` true to apply the same transfer step as `transfer_staged_file_to_workspace` in this call (HITL when auto-apply is off; keep false in nested file-write author — code review should run first)."""
 
     return _run_staging_tool(
         relative_path, encoding, newline,
@@ -321,19 +324,19 @@ def stage_create_file(
     )
 
 
-@tool(STAGE_WORKSPACE_FILE_OVERWRITE_NAME)
+@tool(STAGE_WORKSPACE_FILE_OVERWRITE_NAME, description=describe(
+        'Stage a **full-file** replace: seeds from workspace (or prior staged draft), writes merged draft to staging; disk unchanged until transfer.',
+        when='file exists on disk or a staged draft already exists for this path and you have full revised contents.',
+        not_='new path with no disk file and no prior staging (use `stage_create_file`); partial edits (use `stage_line_range_edit` / `stage_snippet_edit`).',
+        shape=f'same {ENCODING_NEWLINE} {RELATIVE_PATH} rules as `stage_create_file`. {STAGE_LAND}',
+    ))
 def stage_workspace_file_overwrite(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
-    newline: str = '',
-    land_in_workspace: bool = False,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    newline: Annotated[str, 'lf|crlf|preserve (empty = Settings default)'] = '',
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Stage a **full-file** replace: seeds from workspace (or prior staged draft), writes merged draft to staging; disk unchanged until transfer.
-
-    When: file exists on disk or a staged draft already exists for this path and you have full revised contents.
-    Not: new path with no disk file and no prior staging (use `stage_create_file`); partial edits (use `stage_line_range_edit` / `stage_snippet_edit`).
-    Shape: same `encoding` / `newline` / relative path rules as `stage_create_file`. Set `land_in_workspace` true to run `transfer_staged_file_to_workspace` in the same call (HITL when auto-apply is off; keep false in nested author before code review)."""
 
     blocked = mutation_tools_blocked_reason()
     if blocked:
@@ -377,22 +380,25 @@ def stage_workspace_file_overwrite(
     )
 
 
-@tool(STAGE_LINE_RANGE_EDIT_NAME)
+@tool(STAGE_LINE_RANGE_EDIT_NAME, description=describe(
+        'Stage replacement of an inclusive **1-based** line range with `new_snippet` (merged into staging copy).',
+        when='localized edit; keep diff small. `new_snippet` may be empty to delete lines. If `new_snippet` empty, `new_content` is used (LM alias).',
+        not_='new file (use `stage_create_file`); unique match by context (prefer `stage_snippet_edit`). Append: `start_line=end_line=n+1` after last line; seed empty: `1,1`.',
+        shape=(
+            f'line numbers align with `read_workspace_file` / `read_staged_edit` gutters on the text you matched ({ONE_BASED}). '
+            f'Footer in tool output has column/UTF-16 detail for follow-ups. {ENCODING_NEWLINE} {STAGE_LAND}'
+        ),
+    ))
 def stage_line_range_edit(
-    relative_path: str,
-    start_line: int,
-    end_line: int,
-    new_snippet: str = '',
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    start_line: Annotated[int, '1-based inclusive'],
+    end_line: Annotated[int, '1-based inclusive'],
+    new_snippet: Annotated[str, 'replacement text; empty deletes'] = '',
     new_content: str = '',
-    encoding: str = '',
-    newline: str = '',
-    land_in_workspace: bool = False,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    newline: Annotated[str, 'lf|crlf|preserve (empty = Settings default)'] = '',
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Stage replacement of an inclusive **1-based** line range with `new_snippet` (merged into staging copy).
-
-    When: localized edit; keep diff small. `new_snippet` may be empty to delete lines. If `new_snippet` empty, `new_content` is used (LM alias).
-    Not: new file (use `stage_create_file`); unique match by context (prefer `stage_snippet_edit`). Append: `start_line=end_line=n+1` after last line; seed empty: `1,1`.
-    Shape: line numbers align with `read_workspace_file` / `read_staged_edit` gutters on the text you matched. Footer in tool output has column/UTF-16 detail for follow-ups. Same `encoding`/`newline` as other stage tools. Optional `land_in_workspace` (see `stage_create_file`)."""
 
     ns = '' if new_snippet is None else new_snippet
     nc = '' if new_content is None else new_content
@@ -407,20 +413,20 @@ def stage_line_range_edit(
     )
 
 
-@tool(STAGE_SNIPPET_EDIT_NAME)
+@tool(STAGE_SNIPPET_EDIT_NAME, description=describe(
+        'Stage a single unique `old_snippet` → `new_snippet` replace in the staging/workspace merge base.',
+        when='change anchored by surrounding context; match must be unique (exact, CRLF-normalized, then gated fuzzy).',
+        not_='paste numbered gutters from `read_workspace_file`/`read_staged_edit` into `old_snippet` (use `include_line_numbers=false` or line-range edit).',
+        shape=f'{ENCODING_NEWLINE} {RELATIVE_PATH} {STAGE_LAND}',
+    ))
 def stage_snippet_edit(
-    relative_path: str,
-    old_snippet: str,
-    new_snippet: str = '',
-    encoding: str = '',
-    newline: str = '',
-    land_in_workspace: bool = False,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    old_snippet: Annotated[str, 'unique anchor; no line-number gutters'],
+    new_snippet: Annotated[str, 'replacement text; empty deletes'] = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    newline: Annotated[str, 'lf|crlf|preserve (empty = Settings default)'] = '',
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Stage a single unique `old_snippet` → `new_snippet` replace in the staging/workspace merge base.
-
-    When: change anchored by surrounding context; match must be unique (exact, CRLF-normalized, then gated fuzzy).
-    Not: paste numbered gutters from `read_workspace_file`/`read_staged_edit` into `old_snippet` (use `include_line_numbers=false` or line-range edit).
-    Shape: same `encoding`/`newline`/path as `stage_create_file`. Optional `land_in_workspace` (see `stage_create_file`)."""
 
     return _run_staging_tool(
         relative_path, encoding, newline,

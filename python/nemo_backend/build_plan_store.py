@@ -274,13 +274,49 @@ def _parse_bullet_list(lines: list[str]) -> list[str]:
 
 
 QUESTION_ID_COMMENT_RE = re.compile(r'<!--\s*q-id:\s*(\S+)\s*-->')
+_QUESTION_BULLET_RE = re.compile(r'^\s*(?:[-*+]\s+|\d+[.)]\s+)(.*)$')
+# Explicit labels the LLM sometimes emits — used to decide question vs option role.
+_QUESTION_LABEL_RE = re.compile(
+    r'^(?:question|q\d*|discovery|clarification|prompt)\s*\d*\s*:\s*',
+    re.IGNORECASE,
+)
+_OPTION_LABEL_RE = re.compile(
+    r'^(?:option|opt\d*|choice|answer|a)\s*\d*\s*:\s*',
+    re.IGNORECASE,
+)
+
+
+def _strip_bold(text: str) -> str:
+    return text.replace('**', '').strip()
+
+
+def _strip_question_label(text: str) -> str:
+    """Strip leading 'Question:' / 'Option 1:' / 'Discovery:' style labels the LLM sometimes emits."""
+    return (_OPTION_LABEL_RE.sub('', _QUESTION_LABEL_RE.sub('', text, count=1), count=1)).strip()
 
 
 def _parse_open_questions(lines: list[str]) -> list[OpenQuestion]:
-    """Parse the ``## Open Questions`` section into ``OpenQuestion`` models."""
+    """Parse the ``## Open Questions`` section into ``OpenQuestion`` models.
+
+    Tolerant of common LLM markdown variants:
+    - ``-``/``*``/``+`` bullets or ``1.`` numbered prompts.
+    - Optional ``<!-- q-id: q-N -->`` markers.
+    - ``**bold**`` prompts.
+    - Explicit ``Question:`` / ``Option N:`` labels (role detected from label, then stripped).
+    - Flat lists where a ``?`` question is followed by non-``?`` statement options
+      (LLM often does not indent options).
+    """
     questions: list[OpenQuestion] = []
     current: OpenQuestion | None = None
     current_id: str | None = None
+
+    def _new_question(prompt: str) -> OpenQuestion:
+        nonlocal current, current_id
+        current = OpenQuestion(id=current_id or f'q-{len(questions) + 1}', prompt=prompt)
+        questions.append(current)
+        current_id = None
+        return current
+
     for line in lines:
         comment = QUESTION_ID_COMMENT_RE.search(line)
         if comment:
@@ -289,19 +325,41 @@ def _parse_open_questions(lines: list[str]) -> list[OpenQuestion]:
         if not line.strip():
             continue
         is_indented = line.startswith('  ') or line.startswith('\t')
-        stripped = line.strip()
-        if not is_indented and stripped.startswith('- '):
-            prompt = stripped[2:].strip()
-            if not prompt:
-                continue
-            current = OpenQuestion(id=current_id or f'q-{len(questions) + 1}', prompt=prompt)
-            questions.append(current)
-            current_id = None
+        bullet_match = _QUESTION_BULLET_RE.match(line)
+        if not bullet_match:
             continue
-        if current is not None and is_indented and stripped.startswith('- '):
-            opt = stripped[2:].strip()
-            if opt:
-                current.options.append(opt)
+        raw_body = bullet_match.group(1)
+        body = _strip_question_label(_strip_bold(raw_body))
+        if not body:
+            continue
+
+        is_option_label = bool(_OPTION_LABEL_RE.match(raw_body))
+        is_question_label = bool(_QUESTION_LABEL_RE.match(raw_body))
+
+        if is_option_label:
+            if current is not None:
+                current.options.append(body)
+            else:
+                _new_question(body)
+            continue
+        if is_question_label:
+            _new_question(body)
+            continue
+
+        # No explicit label — fall back to indentation + '?' cue.
+        if is_indented:
+            if current is not None:
+                current.options.append(body)
+            else:
+                _new_question(body)
+            continue
+
+        # Flat (non-indented), no label: a '?' line starts a new question; a non-'?' line
+        # right after a question is treated as one of its options (LLM often lists options flat).
+        if current is not None and not body.rstrip().endswith('?') and len(current.options) < 8:
+            current.options.append(body)
+        else:
+            _new_question(body)
     return questions
 
 

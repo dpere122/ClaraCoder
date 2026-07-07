@@ -13,6 +13,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from nemo_backend.tools.node_deps import _validate_pkg_token
+from nemo_backend.tools.tool_conventions import describe
 from nemo_backend.tools.workspace import truncate_text_head_tail
 
 SEARCH_NPM_PACKAGES_NAME = 'search_npm_packages'
@@ -251,18 +252,18 @@ def format_npm_search_report(
     return truncate_text_head_tail(body, _MAX_OUTPUT_CHARS)
 
 
-@tool(SEARCH_NPM_PACKAGES_NAME)
+@tool(SEARCH_NPM_PACKAGES_NAME, description=describe('Search the public npm registry and resolve latest published versions.',
+        when='choosing packages or checking latest versions before install.',
+        not_='installing packages.',
+        shape=(
+            '`query` for keyword search (name, description, keywords); `package_names` for exact lookups '
+            '(including scoped like `@angular/core`); may pass both; read-only; follow with `install_npm_packages`.'
+        ),))
 async def search_npm_packages_tool(
     query: str = '',
     package_names: list[str] | None = None,
     limit: int = _DEFAULT_LIMIT,
 ) -> str:
-    """Search the public npm registry and resolve **latest** published versions.
-
-    Use ``query`` for keyword search (package name, description, keywords). Use ``package_names`` for exact
-    lookups (including scoped packages like ``@angular/core``). You may pass both in one call.
-    Read-only; does not install packages. Follow with ``install_npm_packages`` when adding dependencies.
-    """
 
     q = str(query or '').strip()
     if len(q) > _MAX_QUERY_LEN:

@@ -200,6 +200,76 @@ def test_parse_action_steps_captures_enriched_details() -> None:
     assert steps[0]['risks'] == ['shared code']
 
 
+def test_parse_open_questions_handles_numbered_and_star_bullets() -> None:
+    md = (
+        '# Build Plan: X\n\n## Task\nDo\n\n## Current Implementation\nNone\n\n'
+        '## Files to Change\n- src/a.ts\n\n'
+        '## Open Questions\n'
+        '1. Should we use REST or gRPC?\n   - REST\n   - gRPC\n'
+        '2. Add tests now?\n   * Yes\n   * No\n\n'
+        '## Action Steps\n<!-- step-id: step-1 -->\n- [ ] Implement\n'
+    )
+    parsed = parse_build_plan_md(md)
+    assert [q.prompt for q in parsed.open_questions] == ['Should we use REST or gRPC?', 'Add tests now?']
+    assert parsed.open_questions[0].options == ['REST', 'gRPC']
+    assert parsed.open_questions[1].options == ['Yes', 'No']
+
+
+def test_parse_open_questions_merges_flat_statement_options() -> None:
+    """LLM often lists options flat (no indent) after a '?' question — merge them as options."""
+    md = (
+        '# Build Plan: X\n\n## Task\nDo\n\n## Current Implementation\nNone\n\n'
+        '## Files to Change\n- src/a.ts\n\n'
+        '## Open Questions\n'
+        "1. Should the Total section update in real-time as the user types, or only after they click 'Submit'?\n"
+        "2. Only after 'Submit' (matches current BudgetInput behavior of logging on submit).\n"
+        '3. Real-time as the user types.\n\n'
+        '## Action Steps\n<!-- step-id: step-1 -->\n- [ ] Implement\n'
+    )
+    parsed = parse_build_plan_md(md)
+    assert len(parsed.open_questions) == 1
+    assert parsed.open_questions[0].prompt.startswith('Should the Total section update')
+    assert parsed.open_questions[0].options == [
+        "Only after 'Submit' (matches current BudgetInput behavior of logging on submit).",
+        'Real-time as the user types.',
+    ]
+
+
+def test_parse_open_questions_strips_question_and_option_labels() -> None:
+    md = (
+        '# Build Plan: X\n\n## Task\nDo\n\n## Current Implementation\nNone\n\n'
+        '## Files to Change\n- src/a.ts\n\n'
+        '## Open Questions\n'
+        '- Question: How should the total value be calculated?\n'
+        '  - Option 1: Pass it as an input attribute\n'
+        '  - Option 2: Fetch from store\n'
+        '- Discovery: Did not confirm the path src/foo.ts\n'
+        '  - Proceed with this assumption\n'
+        '  - Cancel and let me clarify\n\n'
+        '## Action Steps\n<!-- step-id: step-1 -->\n- [ ] Implement\n'
+    )
+    parsed = parse_build_plan_md(md)
+    assert [q.prompt for q in parsed.open_questions] == [
+        'How should the total value be calculated?',
+        'Did not confirm the path src/foo.ts',
+    ]
+    assert parsed.open_questions[0].options == ['Pass it as an input attribute', 'Fetch from store']
+    assert parsed.open_questions[1].options == ['Proceed with this assumption', 'Cancel and let me clarify']
+
+
+def test_parse_open_questions_strips_bold_prompts() -> None:
+    md = (
+        '# Build Plan: X\n\n## Task\nDo\n\n## Current Implementation\nNone\n\n'
+        '## Files to Change\n- src/a.ts\n\n'
+        '## Open Questions\n- **Which protocol?** REST or gRPC?\n  * REST\n  * gRPC\n\n'
+        '## Action Steps\n<!-- step-id: step-1 -->\n- [ ] Implement\n'
+    )
+    parsed = parse_build_plan_md(md)
+    assert len(parsed.open_questions) == 1
+    assert parsed.open_questions[0].prompt == 'Which protocol? REST or gRPC?'
+    assert parsed.open_questions[0].options == ['REST', 'gRPC']
+
+
 def test_mark_steps_complete_preserves_enriched_details(tmp_path: Path) -> None:
     session = SessionState(workspace_path=str(tmp_path))
     doc = BuildPlanModel(

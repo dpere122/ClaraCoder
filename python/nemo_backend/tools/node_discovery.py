@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
@@ -21,6 +21,7 @@ from nemo_backend.tools.node_deps import (
     detect_package_manager,
 )
 from nemo_backend.state import current_session_id, get_session
+from nemo_backend.tools.tool_conventions import describe
 from nemo_backend.tools.workspace import truncate_text_head_tail
 
 DISCOVER_NPM_PROJECTS_NAME = 'discover_npm_projects'
@@ -268,16 +269,18 @@ def format_npm_discovery_report(
     return truncate_text_head_tail(body, _MAX_OUTPUT_CHARS)
 
 
-@tool(DISCOVER_NPM_PROJECTS_NAME)
-async def discover_npm_projects_tool(relative_project_dir: str = '') -> str:
-    """Scan the workspace for npm/pnpm/yarn projects before changing dependencies.
-
-    Returns every ``package.json`` root under the workspace (or under ``relative_project_dir`` when set):
-    package manager, lockfiles, whether ``node_modules`` is populated, script names, dependency counts,
-  workspace layout, engines, and TypeScript / Angular CLI hints. Read-only; does not run install or scripts.
-    Use the reported ``relative_project_dir`` values with ``install_npm_packages``, ``npm_install_project``,
-    ``run_npm_script``, and ``angular_cli_tool``.
-    """
+@tool(DISCOVER_NPM_PROJECTS_NAME, description=describe('Read-only scan for `package.json` roots in the workspace.',
+        when='before changing Node dependencies or choosing `relative_project_dir`.',
+        not_='installing packages or running scripts.',
+        shape=(
+            'returns every `package.json` root (workspace or under `relative_project_dir` when set): '
+            'package manager, lockfiles, node_modules presence, script names, dependency counts, '
+            'workspace layout, engines, TypeScript/Angular CLI hints; use reported `relative_project_dir` '
+            'with `install_npm_packages`, `npm_install_project`, `run_npm_script`, and `angular_cli_tool`.'
+        ),))
+async def discover_npm_projects_tool(
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
+) -> str:
 
     sid = (current_session_id.get() or '').strip()
     if not sid:

@@ -741,6 +741,14 @@ async def stream_plan_execute_langgraph(
     # Open-questions HITL: ask the user, then refine the plan with the resolved answers.
     resolved_questions: list[dict[str, str]] = []
     if plan_model.open_questions:
+        # Show the draft steps in the plan panel while the user answers questions.
+        draft_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
+        draft_step_rows = _steps_from_texts(draft_step_goals)
+        yield sse_line(
+            planner_progress_event(
+                _planner_progress_payload(phase='planning', steps=draft_step_rows, plan_ready=True),
+            )
+        )
         question_pending = stage_question_request(
             session,
             questions=[

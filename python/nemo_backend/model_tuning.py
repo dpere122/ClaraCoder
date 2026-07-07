@@ -20,6 +20,7 @@ import os
 from typing import Any
 
 from nemo_backend.domain import RuntimeConnection
+from nemo_backend.prompt_blocks import edit_semantics_block
 from nemo_backend.state import runtime_config
 
 
@@ -202,37 +203,23 @@ def tool_calling_and_edit_semantics_suffix(
         return (
             '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
             'only use the API tool channel.\n'
-            '**Workspace edits (direct):** Editor and Auto-apply are on—write **directly to disk** with '
-            '`apply_workspace_full_file`, `replace_workspace_line_range`, or `replace_workspace_snippet` (when bound). '
-            'For `.py`, prefer `lsp_create_python_file`, `lsp_update_python_file`, and `lsp_delete_python_file`. '
-            'For `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, prefer `lsp_create_typescript_file`, `lsp_update_typescript_file`, and `lsp_delete_typescript_file`. '
-            'For `.gd`, prefer `lsp_create_gdscript_file`, `lsp_update_gdscript_file`, and `lsp_delete_gdscript_file`. '
-            'There is **no** staging draft plane and **no** `transfer_staged_file_to_workspace` on your graph. '
+            + edit_semantics_block(direct=True) + '\n'
+            'Discovery: reach for `search_workspace` first when you can name a needle (symbol, call site, error '
+            'string, config key, import)—run narrow probes before whole-file reads or guessing paths.\n'
             'Verify with `read_workspace_file`, LSP diagnostics, and workspace test tools.\n'
         )
-    nested_note = (
-        'Use staging (`stage_*`) and `transfer_staged_file_to_workspace` for source and structured-config paths. '
-    )
     return (
         '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
         'only use the API tool channel.\n'
-        '**Workspace edits:** Treat the on-disk workspace as the checkpoint. For **every** text path, create or revise '
-        'content with `stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, or `stage_snippet_edit` '
-        '(when bound), inspect drafts with `list_staged_edits` / `diff_staged_edit_against_baseline` / `read_staged_edit`. '
-        'When drafts are approved, pass **`land_in_workspace=true`** on your final `stage_*` or LSP create/update call '
-        'to land in one step (HITL diff when auto-apply is off); keep **`land_in_workspace=false`** while iterating. '
-        'For drafts already staged, call `transfer_staged_file_to_workspace` with `relative_paths` (batch when multiple '
-        'files are ready). Never ask the user to apply or approve landing for you—only the tool call counts. '
+        '**Workspace edits:** Treat the on-disk workspace as the checkpoint. '
+        + edit_semantics_block(direct=False)
+        + ' Never ask the user to apply or approve landing for you—only the tool call counts. '
         'Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
-        + nested_note
-        + '**LSP file mutations vs staging:** Prefer language-matched LSP mutators when they appear in **your** bound tool list (outer Clara with Editor on): '
-        '`.py` → `lsp_create_python_file` / `lsp_update_python_file` / `lsp_delete_python_file`; '
-        '`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` → `lsp_create_typescript_file` / `lsp_update_typescript_file` / `lsp_delete_typescript_file`; '
-        '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file`. '
-        'If they are not on your graph, use `stage_*` instead. '
         + 'For localized edits on existing files, prefer `stage_line_range_edit` or `stage_snippet_edit` over whole-file '
         'rewrites when practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
+        + 'Discovery: reach for `search_workspace` first when you can name a needle (symbol, call site, error '
+        'string, config key, import)—run narrow probes before whole-file reads or guessing paths.\n'
     )
 
 

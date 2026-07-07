@@ -6,6 +6,7 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
+from typing import Annotated
 
 logger = logging.getLogger('nemo.tools.delete')
 
@@ -16,6 +17,7 @@ from nemo_backend.domain import SessionState
 from nemo_backend.lsp.file_policy import is_lsp_managed_path
 from nemo_backend.lsp.manager import close_session_document
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
 DELETE_WORKSPACE_ENTRY_NAME = 'delete_workspace_entry'
@@ -166,13 +168,17 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
     return msg if ok else f'Delete failed: {msg}'
 
 
-@tool(DELETE_WORKSPACE_ENTRY_NAME)
-def delete_workspace_entry(relative_path: str, recursive: bool = False) -> str:
-    """Delete a file or directory under the workspace (relative path only).
-
-    For a non-empty directory you must pass recursive=true (destructive). Empty directories can be removed with
-    recursive=false. Requires Editor mode. If the user has not enabled auto-apply, deletion waits for explicit
-    confirmation in the UI."""
+@tool(DELETE_WORKSPACE_ENTRY_NAME, description=describe('Delete a file or directory under the workspace.',
+        when='removing files or dirs that are no longer needed.',
+        not_='partial file edits (use update or line-range tools).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH}; non-empty dir needs `recursive=true`; '
+            'Editor mode required; HITL confirm when auto-apply off.'
+        ),))
+def delete_workspace_entry(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    recursive: bool = False,
+) -> str:
 
     session_id = current_session_id.get()
     blocked = mutation_tools_blocked_reason(session_id)
@@ -274,12 +280,17 @@ def _collect_delete_entries(root: Path, paths: list[str], recursive: bool) -> tu
     return entries, None
 
 
-@tool(BATCH_DELETE_WORKSPACE_ENTRIES_NAME)
-def batch_delete_workspace_entries(relative_paths: list[str], recursive: bool = False) -> str:
-    """Delete multiple workspace files and/or directories in one tool call (relative paths only).
-
-    Uses the same rules as ``delete_workspace_entry``: non-empty directories require ``recursive=true``.
-    When auto-apply is off, the UI shows a single confirmation for the whole batch before anything is removed."""
+@tool(BATCH_DELETE_WORKSPACE_ENTRIES_NAME, description=describe('Delete multiple workspace files and/or directories in one tool call.',
+        when='batch cleanup of several paths.',
+        not_='single-file delete when one path suffices (use `delete_workspace_entry`).',
+        shape=(
+            f'same rules as `delete_workspace_entry`: non-empty dirs need `recursive=true`; '
+            'Editor mode required; single UI confirmation when auto-apply off.'
+        ),))
+def batch_delete_workspace_entries(
+    relative_paths: Annotated[list[str], 'workspace-relative POSIX paths'],
+    recursive: bool = False,
+) -> str:
 
     session_id = current_session_id.get()
     blocked = mutation_tools_blocked_reason(session_id)

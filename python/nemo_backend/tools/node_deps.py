@@ -7,7 +7,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
@@ -17,6 +17,7 @@ from nemo_backend.config import NEMO_NPM_SCRIPT_TIMEOUT_SEC
 from nemo_backend.python_env import _run_subprocess_with_output
 from nemo_backend.tools.workspace import truncate_text, truncate_text_head_tail
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
+from nemo_backend.tools.tool_conventions import describe
 
 INSTALL_NPM_PACKAGES_NAME = 'install_npm_packages'
 REMOVE_NPM_PACKAGES_NAME = 'remove_npm_packages'
@@ -344,13 +345,15 @@ def _build_run_script_args(pm: str, exe: str, script: str) -> list[str]:
     return [exe, 'run', script]
 
 
-@tool(INSTALL_NPM_PACKAGES_NAME)
+@tool(INSTALL_NPM_PACKAGES_NAME, description=describe('Install npm packages into a Node project.',
+        when='adding runtime or dev dependencies to a `package.json` root.',
+        not_='Python pip installs.',
+        shape='uses npm, pnpm, or yarn by lockfile detection; `dev=true` for devDependencies; HITL confirm when auto-apply off.',))
 async def install_npm_packages_tool(
-    packages: list[str],
+    packages: Annotated[list[str], 'package names (may include version specifiers)'],
     dev: bool = False,
-    relative_project_dir: str = '',
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
 ) -> str:
-    """Install npm packages into a project (uses npm, or pnpm/yarn when lockfiles indicate)."""
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -411,9 +414,14 @@ async def install_npm_packages_tool(
     )
 
 
-@tool(REMOVE_NPM_PACKAGES_NAME)
-async def remove_npm_packages_tool(packages: list[str], relative_project_dir: str = '') -> str:
-    """Remove packages from a Node project (npm uninstall / pnpm remove / yarn remove)."""
+@tool(REMOVE_NPM_PACKAGES_NAME, description=describe('Remove packages from a Node project.',
+        when='uninstalling unused or conflicting npm dependencies.',
+        not_='Python pip uninstall.',
+        shape='npm uninstall / pnpm remove / yarn remove by lockfile detection; HITL confirm when auto-apply off.',))
+async def remove_npm_packages_tool(
+    packages: Annotated[list[str], 'package names (may include version specifiers)'],
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
+) -> str:
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -472,9 +480,13 @@ async def remove_npm_packages_tool(packages: list[str], relative_project_dir: st
     )
 
 
-@tool(NPM_INSTALL_PROJECT_NAME)
-async def npm_install_project_tool(relative_project_dir: str = '') -> str:
-    """Run install for the whole project (``npm install``, ``pnpm install``, or ``yarn install``)."""
+@tool(NPM_INSTALL_PROJECT_NAME, description=describe('Run install for the whole Node project.',
+        when='syncing `node_modules` from lockfile/manifest after clone or manifest change.',
+        not_='adding individual packages (use `install_npm_packages`).',
+        shape='`npm install`, `pnpm install`, or `yarn install` by lockfile detection; HITL confirm when auto-apply off.',))
+async def npm_install_project_tool(
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
+) -> str:
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -524,9 +536,14 @@ async def npm_install_project_tool(relative_project_dir: str = '') -> str:
     )
 
 
-@tool(RUN_NPM_SCRIPT_NAME)
-async def run_npm_script_tool(script_name: str, relative_project_dir: str = '') -> str:
-    """Run a package.json script (``npm run <name>``, ``pnpm run``, ``yarn run``)."""
+@tool(RUN_NPM_SCRIPT_NAME, description=describe('Run a package.json script.',
+        when='running build, test, lint, or other declared npm scripts.',
+        not_='long-lived dev servers without timeout (prefer smoke-test tools for bounded runs).',
+        shape='`npm run <name>`, `pnpm run`, or `yarn run` by lockfile detection; HITL confirm when auto-apply off.',))
+async def run_npm_script_tool(
+    script_name: str,
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
+) -> str:
 
     _sid, session, error = _active_session_or_error()
     if error:

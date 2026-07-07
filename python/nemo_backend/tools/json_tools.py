@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from langchain_core.tools import tool
 
 from nemo_backend.state import runtime_config
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from nemo_backend.json.format import format_json_overview, format_search_results, format_section_detail
 from nemo_backend.json.namespaces import SEARCH_SCOPES
 from nemo_backend.json.parser import (
@@ -53,14 +56,16 @@ def _load_graph(relative_path: str):
     return graph, rel_display, None
 
 
-@tool(JSON_OVERVIEW_NAME)
-def json_overview(relative_path: str) -> str:
-    """Index a JSON/JSONC file by paths (root type, key tree, array indices).
-
-    When: starting work on `.json` or `.jsonc`; need structure before raw reads.
-    Not: fuzzy file discovery (use `search_workspace`); line-level grep (use `search_workspace`).
-    Shape: `relative_path` workspace-relative JSON path. Returns `section_ref` like `path:config.host`.
-    Next: `search_json` or `read_json_section`."""
+@tool(JSON_OVERVIEW_NAME, description=describe(
+        'Index a JSON/JSONC file by paths (root type, key tree, array indices).',
+        when='starting work on `.json` or `.jsonc`; need structure before raw reads.',
+        not_='fuzzy file discovery (use `search_workspace`); line-level grep (use `search_workspace`).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} JSON path. Returns `section_ref` like `path:config.host`. '
+            'Next: `search_json` or `read_json_section`.'
+        ),
+    ))
+def json_overview(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
 
     graph, _rel_display, err = _load_graph(relative_path)
     if err:
@@ -69,19 +74,19 @@ def json_overview(relative_path: str) -> str:
     return _truncate_output(format_json_overview(graph))
 
 
-@tool(SEARCH_JSON_NAME)
+@tool(SEARCH_JSON_NAME, description=describe(
+        'Search indexed JSON by key path, key name, or scalar value (case-insensitive).',
+        when='locating fields after `json_overview`.',
+        not_='repo-wide file discovery.',
+        shape='`scope` one of all|keys|values. Returns `section_ref` for zoom. '
+        'Next: `read_json_section(relative_path, section_ref)`.',
+    ))
 def search_json(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     query: str,
     scope: str = 'all',
     max_matches: int = 20,
 ) -> str:
-    """Search indexed JSON by key path, key name, or scalar value (case-insensitive).
-
-    When: locating fields after `json_overview`.
-    Not: repo-wide file discovery.
-    Shape: `scope` one of all|keys|values. Returns `section_ref` for zoom.
-    Next: `read_json_section(relative_path, section_ref)`."""
 
     graph, _rel_display, err = _load_graph(relative_path)
     if err:
@@ -102,13 +107,16 @@ def search_json(
     return _truncate_output(out)
 
 
-@tool(READ_JSON_SECTION_NAME)
-def read_json_section(relative_path: str, section_ref: str) -> str:
-    """Zoom into one JSON subtree by `section_ref` (pretty-printed JSON).
-
-    When: you have `section_ref` from `json_overview` or `search_json`.
-    Not: first pass on unknown JSON (use `json_overview` first).
-    Shape: `section_ref` like `path:$`, `path:users[0].profile`, `path:items[2]`."""
+@tool(READ_JSON_SECTION_NAME, description=describe(
+        'Zoom into one JSON subtree by `section_ref` (pretty-printed JSON).',
+        when='you have `section_ref` from `json_overview` or `search_json`.',
+        not_='first pass on unknown JSON (use `json_overview` first).',
+        shape='`section_ref` like `path:$`, `path:users[0].profile`, `path:items[2]`.',
+    ))
+def read_json_section(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    section_ref: Annotated[str, 'from *_overview or search_*'],
+) -> str:
 
     graph, _rel_display, err = _load_graph(relative_path)
     if err:

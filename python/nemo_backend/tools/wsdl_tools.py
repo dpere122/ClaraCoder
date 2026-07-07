@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from langchain_core.tools import tool
 
 from nemo_backend.state import runtime_config
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from nemo_backend.wsdl.format import format_search_results, format_section_detail, format_wsdl_overview
 from nemo_backend.wsdl.parser import (
     build_wsdl_graph,
@@ -46,14 +49,19 @@ def _clamp_import_depth(import_depth: int) -> int:
     return max(0, min(int(import_depth), 3))
 
 
-@tool(WSDL_OVERVIEW_NAME)
-def wsdl_overview(relative_path: str, import_depth: int = _DEFAULT_IMPORT_DEPTH) -> str:
-    """Index a WSDL 1.1 file: services, ports, operations, messages, bindings, XSD types.
-
-    When: starting work on a `.wsdl` SOAP contract; need structure before details.
-    Not: raw XML debugging (use `read_workspace_file`); fuzzy file discovery (use `search_workspace` first).
-    Shape: `relative_path` workspace-relative `.wsdl`; `import_depth` 0–3 (default 1) follows wsdl/xs imports.
-    Next: `search_wsdl` for names, or `read_wsdl_section` with a `section_ref` from this index."""
+@tool(WSDL_OVERVIEW_NAME, description=describe(
+        'Index a WSDL 1.1 file: services, ports, operations, messages, bindings, XSD types.',
+        when='starting work on a `.wsdl` SOAP contract; need structure before details.',
+        not_='raw XML debugging (use `read_workspace_file`); fuzzy file discovery (use `search_workspace` first).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} `.wsdl`; `import_depth` 0–3 (default 1) follows wsdl/xs imports. '
+            'Next: `search_wsdl` for names, or `read_wsdl_section` with a `section_ref` from this index.'
+        ),
+    ))
+def wsdl_overview(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    import_depth: int = _DEFAULT_IMPORT_DEPTH,
+) -> str:
 
     root = _workspace_root()
     target, err = resolve_wsdl_path(root, relative_path)
@@ -75,20 +83,20 @@ def wsdl_overview(relative_path: str, import_depth: int = _DEFAULT_IMPORT_DEPTH)
     return _truncate_output(out)
 
 
-@tool(SEARCH_WSDL_NAME)
+@tool(SEARCH_WSDL_NAME, description=describe(
+        'Search indexed WSDL symbols by name or substring (case-insensitive).',
+        when='you know part of an operation/message/type name after `wsdl_overview`.',
+        not_='finding which `.wsdl` file exists (use `search_workspace` with `.wsdl`); whole-file XML reads.',
+        shape='`scope` one of all|services|operations|messages|bindings|types. Returns `section_ref` for zoom. '
+        'Next: `read_wsdl_section(relative_path, section_ref)`.',
+    ))
 def search_wsdl(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     query: str,
     scope: str = 'all',
     max_matches: int = 20,
     import_depth: int = _DEFAULT_IMPORT_DEPTH,
 ) -> str:
-    """Search indexed WSDL symbols by name or substring (case-insensitive).
-
-    When: you know part of an operation/message/type name after `wsdl_overview`.
-    Not: finding which `.wsdl` file exists (use `search_workspace` with `.wsdl`); whole-file XML reads.
-    Shape: `scope` one of all|services|operations|messages|bindings|types. Returns `section_ref` for zoom.
-    Next: `read_wsdl_section(relative_path, section_ref)`."""
 
     root = _workspace_root()
     target, err = resolve_wsdl_path(root, relative_path)
@@ -120,19 +128,21 @@ def search_wsdl(
     return _truncate_output(out)
 
 
-@tool(READ_WSDL_SECTION_NAME)
+@tool(READ_WSDL_SECTION_NAME, description=describe(
+        'Zoom into one WSDL section by `section_ref` (pretty-printed XML snippet).',
+        when='you have a `section_ref` from `wsdl_overview` or `search_wsdl`.',
+        not_='first pass on an unknown WSDL (use `wsdl_overview` first).',
+        shape=(
+            '`section_ref` like `operation:PortType/GetCustomer`, `message:Req`, `type:CustomerType`. '
+            '`expand_depth` reserved for future nested expansion (currently 0).'
+        ),
+    ))
 def read_wsdl_section(
-    relative_path: str,
-    section_ref: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    section_ref: Annotated[str, 'from *_overview or search_*'],
     expand_depth: int = 0,
     import_depth: int = _DEFAULT_IMPORT_DEPTH,
 ) -> str:
-    """Zoom into one WSDL section by `section_ref` (pretty-printed XML snippet).
-
-    When: you have a `section_ref` from `wsdl_overview` or `search_wsdl`.
-    Not: first pass on an unknown WSDL (use `wsdl_overview` first).
-    Shape: `section_ref` like `operation:PortType/GetCustomer`, `message:Req`, `type:CustomerType`.
-    `expand_depth` reserved for future nested expansion (currently 0)."""
 
     root = _workspace_root()
     target, err = resolve_wsdl_path(root, relative_path)

@@ -8,6 +8,7 @@ import logging
 import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated
 
 from langchain_core.tools import tool
 
@@ -41,6 +42,7 @@ from nemo_backend.tools.workspace import (
     get_active_workspace_root,
     truncate_text_head_tail,
 )
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 
 logger = logging.getLogger('nemo.project_review')
 
@@ -351,9 +353,13 @@ async def maybe_bootstrap_python_workspace_env_for_project_review(session_id: st
     return '' if result is None else result.summary
 
 
-@tool(RUN_WORKSPACE_PYTEST_TESTS_NAME)
+@tool(RUN_WORKSPACE_PYTEST_TESTS_NAME, description=describe(
+    'Ensure workspace `.venv` exists, then run `pytest` in that environment.',
+    when='final verification when a pytest suite is present.',
+    not_='inventing tests during review when no suite exists (tool skips).',
+    shape='runs `pytest tests -v` from the detected Python project root.',
+))
 async def run_workspace_pytest_tests() -> str:
-    """Ensure the workspace `.venv` exists, then run `pytest` in that workspace environment."""
 
     sid = current_session_id.get()
     if not sid:
@@ -505,9 +511,13 @@ async def run_workspace_pytest_tests() -> str:
     )
 
 
-@tool(RUN_WORKSPACE_PYTHON_SMOKE_TEST_NAME)
-async def run_workspace_python_smoke_test(relative_path: str = '') -> str:
-    """Run a short-lived Python app smoke test for a workspace entry script, then stop it if it stays up."""
+@tool(RUN_WORKSPACE_PYTHON_SMOKE_TEST_NAME, description=describe('Run a short-lived Python app smoke test for a workspace entry script, then stop it if it stays up.',
+        when='quick runtime check when pytest is unavailable or insufficient.',
+        not_='long-lived servers (tool stops steady-state processes).',
+        shape=f'optional entry script `relative_path` {RELATIVE_PATH}; auto-discovers `main.py`, `app.py`, etc. when empty.',))
+async def run_workspace_python_smoke_test(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
+) -> str:
 
     sid = current_session_id.get()
     if not sid:
@@ -733,14 +743,18 @@ def _build_node_smoke_result(
     return truncate_text_head_tail(body, 120_000)
 
 
-@tool(RUN_WORKSPACE_NODE_SMOKE_TEST_NAME)
-async def run_workspace_node_smoke_test(relative_project_dir: str = '', script_name: str = '') -> str:
-    """Run a Node.js package script smoke test (npm/pnpm/yarn ``run``) and stop watch-mode dev servers when ready.
-
-    Discovers ``smoke``, ``dev``, ``start``, ``serve``, or ``preview`` from ``package.json`` when ``script_name`` is
-    omitted. Detects Vite/Angular/electronmon-style readiness in output; use ``search_netstat_ports`` + ``kill_process``
-    if the port is already in use.
-    """
+@tool(RUN_WORKSPACE_NODE_SMOKE_TEST_NAME, description=describe('Run a Node.js package script smoke test (npm/pnpm/yarn `run`) and stop watch-mode dev servers when ready.',
+        when='quick frontend or Node runtime check during project review.',
+        not_='indefinite dev servers without readiness detection.',
+        shape=(
+            'discovers `smoke`, `dev`, `start`, `serve`, or `preview` from `package.json` when `script_name` omitted; '
+            'detects Vite/Angular/electronmon-style readiness in output; use `search_netstat_ports` + `kill_process` '
+            'if the port is already in use.'
+        ),))
+async def run_workspace_node_smoke_test(
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
+    script_name: str = '',
+) -> str:
 
     sid = current_session_id.get()
     if not sid:

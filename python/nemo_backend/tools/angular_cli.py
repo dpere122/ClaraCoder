@@ -6,7 +6,7 @@ import re
 import sys
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
@@ -20,6 +20,7 @@ from nemo_backend.tools.node_deps import (
     _workspace_root,
 )
 from nemo_backend.python_env import _run_subprocess_with_output
+from nemo_backend.tools.tool_conventions import describe
 from nemo_backend.tools.workspace import truncate_text_head_tail
 from nemo_backend.state import current_session_id
 
@@ -245,17 +246,18 @@ async def execute_pending_angular_cli_request(session: SessionState, pending: di
     )
 
 
-@tool(ANGULAR_CLI_TOOL_NAME)
-async def angular_cli_tool(ng_args: list[str], relative_project_dir: str = '') -> str:
-    """Run the Angular CLI using **only** the project-local ``node_modules/.bin/ng`` (no global ``ng``).
-
-    Requires ``package.json`` at the resolved project directory and a successful local install that provides
-    ``@angular/cli`` (so ``node_modules/.bin/ng`` exists). Run ``npm_install_project`` for that directory first if needed.
-
-    Pass ``ng_args`` as the arguments **after** ``ng`` (e.g. ``["version"]``, ``["build","--configuration=production"]``).
-    Do **not** use ``serve``, ``run …:serve``, or watch mode (``--watch`` unless ``--watch=false``)—those never exit and will stall the agent.
-    Use ``relative_project_dir`` when the app lives under a subfolder (same rules as npm tools).
-    """
+@tool(ANGULAR_CLI_TOOL_NAME, description=describe('Run Angular CLI using only the project-local `node_modules/.bin/ng` (no global `ng`).',
+        when='finite Angular builds, codegen, or diagnostics via `ng`.',
+        not_='`serve`, `run …:serve`, or watch mode (`--watch` unless `--watch=false`)—those never exit and stall the agent.',
+        shape=(
+            'requires `package.json` and local `@angular/cli` (run `npm_install_project` first if missing); '
+            '`ng_args` are arguments after `ng` (e.g. `["version"]`, `["build","--configuration=production"]`); '
+            'HITL confirm when auto-apply off.'
+        ),))
+async def angular_cli_tool(
+    ng_args: list[str],
+    relative_project_dir: Annotated[str, 'workspace-relative POSIX project dir; empty = auto-detect'] = '',
+) -> str:
 
     _sid, session, error = _active_session_or_error()
     if error:

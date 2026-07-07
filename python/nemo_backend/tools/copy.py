@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from nemo_backend.domain import SessionState
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.tools.copy')
@@ -166,13 +167,16 @@ def execute_pending_copy_decision(session: SessionState, *, confirm: bool, reque
     return msg if ok else f'Copy failed: {msg}'
 
 
-@tool(COPY_WORKSPACE_FILES_NAME)
+@tool(COPY_WORKSPACE_FILES_NAME, description=describe(
+    'Batch duplicate existing workspace files to new workspace-relative destinations.',
+    when='copying files without rewriting content.',
+    not_='moving/renaming in place (use copy then delete) or directory trees.',
+    shape=(
+        f'each `copies` item needs `source_path` + `destination_path` ({RELATIVE_PATH}); '
+        'sources must exist as files; parent dirs created; HITL confirm when auto-apply off.'
+    ),
+))
 def copy_workspace_files(copies: list[CopyWorkspaceFileItem], overwrite: bool = False) -> str:
-    """Copy one or more existing workspace files to new workspace-relative destinations.
-
-    Each item must include a `source_path` and `destination_path`. This tool is for batch file duplication only:
-    sources must already exist as files, and destination parent directories are created automatically. When Editor mode
-    is on but auto-apply is off, the UI asks the user to confirm the copy batch before anything is written to disk."""
 
     session_id = current_session_id.get()
     blocked = mutation_tools_blocked_reason(session_id)

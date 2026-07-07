@@ -10,11 +10,13 @@ import os
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 from langchain_core.tools import tool
 from PIL import Image, UnidentifiedImageError
 
 from nemo_backend.state import current_session_id, get_session
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from nemo_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
 logger = logging.getLogger('nemo.tools.workspace_image')
@@ -169,14 +171,17 @@ def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, V
     return summary, payload
 
 
-@tool(READ_WORKSPACE_IMAGE_NAME)
-def read_workspace_image(relative_path: str, focus: str = '') -> str:
-    """Load a workspace image into vision context for description, OCR, or UI/diagram analysis.
-
-    When: PNG/JPEG/GIF/WebP/BMP under the workspace (screenshots, mockups, diagrams, photos).
-    Not: text files (use `read_workspace_file`); PDFs (use `read_workspace_file` text extraction).
-    Requires a vision-capable model (e.g. Qwen3.5-27B with the Qwen optimization preset).
-    Shape: `relative_path` workspace-relative (e.g. `docs/architecture.png`); optional `focus` steers what to inspect."""
+@tool(READ_WORKSPACE_IMAGE_NAME, description=describe(
+        'Load a workspace image into vision context for description, OCR, or UI/diagram analysis. '
+        'Requires a vision-capable model (e.g. Qwen3.5-27B with the Qwen optimization preset).',
+        when='PNG/JPEG/GIF/WebP/BMP under the workspace (screenshots, mockups, diagrams, photos).',
+        not_='text files (use `read_workspace_file`); PDFs (use `read_workspace_file` text extraction).',
+        shape=f'`relative_path` {RELATIVE_PATH} (e.g. `docs/architecture.png`); optional `focus` steers what to inspect.',
+    ))
+def read_workspace_image(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    focus: str = '',
+) -> str:
 
     summary, payload = load_workspace_image(relative_path, focus=focus)
     if payload is not None:

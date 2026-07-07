@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
@@ -27,6 +27,13 @@ from nemo_backend.lsp.manager import (
 from nemo_backend.lsp.registry import display_label_for_server
 from nemo_backend.tools.edit import apply_workspace_full_file
 from nemo_backend.tools.staging_edit import stage_create_file, stage_workspace_file_overwrite
+from nemo_backend.tools.tool_conventions import (
+    ENCODING_NEWLINE,
+    RELATIVE_PATH,
+    STAGE_LAND,
+    VERIFY_LSP,
+    describe,
+)
 from nemo_backend.state import current_session_id, direct_workspace_edits_active, get_session
 from nemo_backend.workspace_text_io import validate_workspace_encoding
 
@@ -329,18 +336,26 @@ def _session_lsp_scope_label(session_id: str | None) -> str:
     return str(get_session(sid).lsp_active_scope or 'workspace')
 
 
-@tool(LSP_GET_DIAGNOSTICS_NAME)
-def lsp_get_diagnostics(relative_path: str = '', refresh_active_document: bool = False, encoding: str = '') -> str:
-    """Return cached LSP diagnostics for one file, or all cached diagnostics when no path is given.
-
-    Works for Python (`.py`) and TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`).
-
-    Set ``refresh_active_document=true`` to re-sync before reporting diagnostics: in **workspace** scope this reads the
-    on-disk file; in **staging** scope the server uses the **materialized overlay** (pending drafts on disk in a mirror
-    tree) so cross-file resolution matches staged peers.
-    After `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` on a staged
-    `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with ``refresh_active_document=true`` on that path
-    (LSP applies to Python and TS/JS) to verify indentation-related diagnostics are gone where the server supports it."""
+@tool(LSP_GET_DIAGNOSTICS_NAME, description=describe('Return cached LSP diagnostics for one file, or all cached diagnostics when no path is given.',
+        when='checking errors after edits or auditing workspace health.',
+        not_='mutating files (use LSP mutators or staging tools).',
+        shape=(
+            '`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`; empty path = all cached. '
+            '`refresh_active_document=true` re-syncs first: workspace scope reads on-disk file; '
+            'staging scope uses materialized overlay (pending drafts on disk in a mirror tree) so '
+            'cross-file resolution matches staged peers.'
+        ),
+        verify=(
+            'after `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` '
+            'on a staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with '
+            '`refresh_active_document=true` on that path (LSP applies to Python and TS/JS) to verify '
+            'indentation-related diagnostics are gone where the server supports it.'
+        ),))
+def lsp_get_diagnostics(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
+    refresh_active_document: bool = False,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+) -> str:
 
     enc = validate_workspace_encoding((encoding or '').strip() or 'utf-8')
     rel = normalize_relative_posix_path(relative_path)
@@ -403,9 +418,15 @@ def lsp_get_diagnostics(relative_path: str = '', refresh_active_document: bool =
         return _format_lsp_tool_error('diagnostics lookup', exc, relative_path=rel, server=srv)
 
 
-@tool(LSP_HOVER_NAME)
-def lsp_hover(relative_path: str, line: int, character: int) -> str:
-    """Resolve LSP hover information at a 1-based line/character position (Python or TS/JS files)."""
+@tool(LSP_HOVER_NAME, description=describe('Resolve LSP hover information at a line/character position.',
+        when='need type docs or quick symbol context at cursor.',
+        not_='whole-file reads (use `read_workspace_file`).',
+        shape=f'Python or TS/JS; 1-based line/character; `relative_path` {RELATIVE_PATH}.',))
+def lsp_hover(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    line: int,
+    character: int,
+) -> str:
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
@@ -420,9 +441,15 @@ def lsp_hover(relative_path: str, line: int, character: int) -> str:
         return _format_lsp_tool_error('hover lookup', exc, relative_path=relative_path, server=srv)
 
 
-@tool(LSP_DEFINITION_NAME)
-def lsp_find_definition(relative_path: str, line: int, character: int) -> str:
-    """Find the definition location for the symbol at a 1-based line/character position (Python or TS/JS)."""
+@tool(LSP_DEFINITION_NAME, description=describe('Find the definition location for the symbol at a line/character position.',
+        when='jumping to where a symbol is declared.',
+        not_='listing all symbols (use `lsp_get_document_symbols`).',
+        shape=f'Python or TS/JS; 1-based line/character; `relative_path` {RELATIVE_PATH}.',))
+def lsp_find_definition(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    line: int,
+    character: int,
+) -> str:
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
@@ -434,14 +461,16 @@ def lsp_find_definition(relative_path: str, line: int, character: int) -> str:
         return _format_lsp_tool_error('definition lookup', exc, relative_path=relative_path, server=srv)
 
 
-@tool(LSP_REFERENCES_NAME)
+@tool(LSP_REFERENCES_NAME, description=describe('Find references for the symbol at a line/character position.',
+        when='tracing usages or impact of a symbol.',
+        not_='text grep across the repo (use `search_workspace`).',
+        shape=f'Python or TS/JS; 1-based line/character; `include_declaration` adds the definition site; `relative_path` {RELATIVE_PATH}.',))
 def lsp_find_references(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     line: int,
     character: int,
     include_declaration: bool = False,
 ) -> str:
-    """Find references for the symbol at a 1-based line/character position (Python or TS/JS)."""
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
@@ -453,9 +482,13 @@ def lsp_find_references(
         return _format_lsp_tool_error('reference lookup', exc, relative_path=relative_path, server=srv)
 
 
-@tool(LSP_DOCUMENT_SYMBOLS_NAME)
-def lsp_get_document_symbols(relative_path: str) -> str:
-    """List document symbols for a Python or TS/JS file using the active LSP session."""
+@tool(LSP_DOCUMENT_SYMBOLS_NAME, description=describe(
+    'List document symbols for a file using the active LSP session.',
+    when='need a structural outline before reading or editing.',
+    not_='cross-file search (use `search_workspace` or `lsp_find_references`).',
+    shape=f'Python or TS/JS; `relative_path` {RELATIVE_PATH}.',
+))
+def lsp_get_document_symbols(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
@@ -470,17 +503,18 @@ def lsp_get_document_symbols(relative_path: str) -> str:
         return _format_lsp_tool_error('document symbol lookup', exc, relative_path=relative_path, server=srv)
 
 
-@tool(LSP_CREATE_PYTHON_FILE_NAME)
+@tool(LSP_CREATE_PYTHON_FILE_NAME, description=describe('Create or whole-file rewrite a `.py` file via staging and code review (like `stage_create_file`).',
+        when='new Python file or full rewrite.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.py only; nested dirs OK; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
 def lsp_create_python_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: str = '',
-    land_in_workspace: bool = False,
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Use for new `.py` files or whole-file Python rewrites; routes through staging and code review like `stage_create_file`.
-
-    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. See `stage_create_file` for `land_in_workspace`."""
 
     return _lsp_create_file_impl(
         relative_path,
@@ -493,17 +527,18 @@ def lsp_create_python_file(
     )
 
 
-@tool(LSP_UPDATE_PYTHON_FILE_NAME)
+@tool(LSP_UPDATE_PYTHON_FILE_NAME, description=describe('Overwrite an existing `.py` file (or pending staged draft) with full updated text via staging and code review (like `stage_workspace_file_overwrite`).',
+        when='whole-file Python rewrite when file already exists.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.py only; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
 def lsp_update_python_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: str = '',
-    land_in_workspace: bool = False,
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Use when the Python file already exists (or has a pending staged draft); supply the full updated file text.
-
-    Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
 
     return _lsp_update_file_impl(
         relative_path,
@@ -516,9 +551,13 @@ def lsp_update_python_file(
     )
 
 
-@tool(LSP_DELETE_PYTHON_FILE_NAME)
-def lsp_delete_python_file(relative_path: str) -> str:
-    """Use to remove a `.py` file from the workspace; clears LSP state for that document."""
+@tool(LSP_DELETE_PYTHON_FILE_NAME, description=describe(
+    'Remove a `.py` file from the workspace; clears LSP state for that document.',
+    when='file should be deleted entirely.',
+    not_='partial content removal (use update or line-range tools).',
+    shape=f'.py only; `relative_path` {RELATIVE_PATH}.',
+))
+def lsp_delete_python_file(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
 
     try:
         _require_python_path(relative_path)
@@ -527,17 +566,21 @@ def lsp_delete_python_file(relative_path: str) -> str:
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 
-@tool(LSP_CREATE_TYPESCRIPT_FILE_NAME)
+@tool(LSP_CREATE_TYPESCRIPT_FILE_NAME, description=describe('Create or whole-file rewrite a TS/JS file via staging and code review (like `stage_create_file`).',
+        when='new `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs` file or full rewrite.',
+        not_='partial edits (use staged line-range tools).',
+        shape=(
+            f'.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` only; nested dirs OK; full `new_content`; '
+            f'{ENCODING_NEWLINE}; on staged drafts use `format_staging_file_prettier` before LSP refresh when formatting is needed; {STAGE_LAND}.'
+        ),
+        verify=VERIFY_LSP,))
 def lsp_create_typescript_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: str = '',
-    land_in_workspace: bool = False,
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Use for new `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs` files or whole-file rewrites; routes through staging and code review like `stage_create_file`.
-
-    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. On staged drafts, use `format_staging_file_prettier` before LSP refresh when formatting is needed. See `stage_create_file` for `land_in_workspace`."""
 
     return _lsp_create_file_impl(
         relative_path,
@@ -550,17 +593,18 @@ def lsp_create_typescript_file(
     )
 
 
-@tool(LSP_UPDATE_TYPESCRIPT_FILE_NAME)
+@tool(LSP_UPDATE_TYPESCRIPT_FILE_NAME, description=describe('Overwrite an existing TS/JS file (or pending staged draft) with full updated text via staging and code review (like `stage_workspace_file_overwrite`).',
+        when='whole-file TS/JS rewrite when file already exists.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` only; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
 def lsp_update_typescript_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: str = '',
-    land_in_workspace: bool = False,
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Use when a TS/JS file already exists (or has a pending staged draft); supply the full updated file text.
-
-    Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
 
     return _lsp_update_file_impl(
         relative_path,
@@ -573,9 +617,13 @@ def lsp_update_typescript_file(
     )
 
 
-@tool(LSP_DELETE_TYPESCRIPT_FILE_NAME)
-def lsp_delete_typescript_file(relative_path: str) -> str:
-    """Use to remove a `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs` file from the workspace; clears LSP state for that document."""
+@tool(LSP_DELETE_TYPESCRIPT_FILE_NAME, description=describe(
+    'Remove a TS/JS file from the workspace; clears LSP state for that document.',
+    when='file should be deleted entirely.',
+    not_='partial content removal (use update or line-range tools).',
+    shape=f'.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` only; `relative_path` {RELATIVE_PATH}.',
+))
+def lsp_delete_typescript_file(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
 
     try:
         _require_typescript_path(relative_path)
@@ -584,17 +632,18 @@ def lsp_delete_typescript_file(relative_path: str) -> str:
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 
-@tool(LSP_CREATE_GDSCRIPT_FILE_NAME)
+@tool(LSP_CREATE_GDSCRIPT_FILE_NAME, description=describe('Create or whole-file rewrite a `.gd` file via staging and code review (like `stage_create_file`).',
+        when='new GDScript file or full rewrite.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.gd` only; nested dirs OK; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
 def lsp_create_gdscript_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: str = '',
-    land_in_workspace: bool = False,
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Use for new `.gd` files or whole-file GDScript rewrites; routes through staging and code review like `stage_create_file`.
-
-    Provide the full relative path (nested directories are fine). Pass complete `new_content` for the file. See `stage_create_file` for `land_in_workspace`."""
 
     return _lsp_create_file_impl(
         relative_path,
@@ -607,17 +656,18 @@ def lsp_create_gdscript_file(
     )
 
 
-@tool(LSP_UPDATE_GDSCRIPT_FILE_NAME)
+@tool(LSP_UPDATE_GDSCRIPT_FILE_NAME, description=describe('Overwrite an existing `.gd` file (or pending staged draft) with full updated text via staging and code review (like `stage_workspace_file_overwrite`).',
+        when='whole-file GDScript rewrite when file already exists.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.gd` only; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
 def lsp_update_gdscript_file(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     new_content: str,
-    encoding: str = '',
+    encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: str = '',
-    land_in_workspace: bool = False,
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
-    """Use when a GDScript file already exists (or has a pending staged draft); supply the full updated file text.
-
-    Overwrites through the staged LSP-aware mutation path (code review before workspace update). See `stage_workspace_file_overwrite` for `land_in_workspace`."""
 
     return _lsp_update_file_impl(
         relative_path,
@@ -630,9 +680,13 @@ def lsp_update_gdscript_file(
     )
 
 
-@tool(LSP_DELETE_GDSCRIPT_FILE_NAME)
-def lsp_delete_gdscript_file(relative_path: str) -> str:
-    """Use to remove a `.gd` file from the workspace; clears LSP state for that document."""
+@tool(LSP_DELETE_GDSCRIPT_FILE_NAME, description=describe(
+    'Remove a `.gd` file from the workspace; clears LSP state for that document.',
+    when='file should be deleted entirely.',
+    not_='partial content removal (use update or line-range tools).',
+    shape=f'.gd` only; `relative_path` {RELATIVE_PATH}.',
+))
+def lsp_delete_gdscript_file(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
 
     try:
         _require_gdscript_path(relative_path)

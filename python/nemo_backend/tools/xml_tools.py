@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from langchain_core.tools import tool
 
 from nemo_backend.state import runtime_config
+from nemo_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from nemo_backend.xml.format import format_search_results, format_section_detail, format_xml_overview
 from nemo_backend.xml.namespaces import SEARCH_SCOPES
 from nemo_backend.xml.parser import (
@@ -53,14 +56,16 @@ def _load_graph(relative_path: str):
     return graph, rel_display, None
 
 
-@tool(XML_OVERVIEW_NAME)
-def xml_overview(relative_path: str) -> str:
-    """Index a generic XML file by element paths (root, tree outline, node count).
-
-    When: starting work on `.xml`/`.xsd`/`.xsl`/`.svg`/etc.; need structure before raw reads.
-    Not: `.wsdl` SOAP contracts (use `wsdl_overview`); fuzzy file discovery (use `search_workspace`).
-    Shape: `relative_path` workspace-relative XML path. Returns `section_ref` values like `path:/root/child`.
-    Next: `search_xml` or `read_xml_section`."""
+@tool(XML_OVERVIEW_NAME, description=describe(
+        'Index a generic XML file by element paths (root, tree outline, node count).',
+        when='starting work on `.xml`/`.xsd`/`.xsl`/`.svg`/etc.; need structure before raw reads.',
+        not_='`.wsdl` SOAP contracts (use `wsdl_overview`); fuzzy file discovery (use `search_workspace`).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} XML path. Returns `section_ref` values like `path:/root/child`. '
+            'Next: `search_xml` or `read_xml_section`.'
+        ),
+    ))
+def xml_overview(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
 
     graph, rel_display, err = _load_graph(relative_path)
     if err:
@@ -69,19 +74,19 @@ def xml_overview(relative_path: str) -> str:
     return _truncate_output(format_xml_overview(graph))
 
 
-@tool(SEARCH_XML_NAME)
+@tool(SEARCH_XML_NAME, description=describe(
+        'Search indexed XML by element name, path, attribute, or text snippet (case-insensitive).',
+        when='locating nodes after `xml_overview`.',
+        not_='repo-wide file discovery; `.wsdl` (use `search_wsdl`).',
+        shape='`scope` one of all|elements|attributes|text. Returns `section_ref` for zoom. '
+        'Next: `read_xml_section(relative_path, section_ref)`.',
+    ))
 def search_xml(
-    relative_path: str,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
     query: str,
     scope: str = 'all',
     max_matches: int = 20,
 ) -> str:
-    """Search indexed XML by element name, path, attribute, or text snippet (case-insensitive).
-
-    When: locating nodes after `xml_overview`.
-    Not: repo-wide file discovery; `.wsdl` (use `search_wsdl`).
-    Shape: `scope` one of all|elements|attributes|text. Returns `section_ref` for zoom.
-    Next: `read_xml_section(relative_path, section_ref)`."""
 
     graph, _rel_display, err = _load_graph(relative_path)
     if err:
@@ -102,13 +107,16 @@ def search_xml(
     return _truncate_output(out)
 
 
-@tool(READ_XML_SECTION_NAME)
-def read_xml_section(relative_path: str, section_ref: str) -> str:
-    """Zoom into one XML element by `section_ref` (pretty-printed XML snippet).
-
-    When: you have `section_ref` from `xml_overview` or `search_xml`.
-    Not: first pass on unknown XML (use `xml_overview` first).
-    Shape: `section_ref` like `path:/Envelope/Body/GetCustomer` or `path:/root/item[2]`."""
+@tool(READ_XML_SECTION_NAME, description=describe(
+        'Zoom into one XML element by `section_ref` (pretty-printed XML snippet).',
+        when='you have `section_ref` from `xml_overview` or `search_xml`.',
+        not_='first pass on unknown XML (use `xml_overview` first).',
+        shape='`section_ref` like `path:/Envelope/Body/GetCustomer` or `path:/root/item[2]`.',
+    ))
+def read_xml_section(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    section_ref: Annotated[str, 'from *_overview or search_*'],
+) -> str:
 
     graph, _rel_display, err = _load_graph(relative_path)
     if err:

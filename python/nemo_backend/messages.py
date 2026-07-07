@@ -18,7 +18,9 @@ from nemo_backend.gemma_output import gemma_content_needs_parsing, split_gemma_c
 from nemo_backend.model_tuning import combined_model_prompt_suffix, gemma_output_parsing_active
 from nemo_backend.state import get_active_connection
 from nemo_backend.prompt_blocks import (
+    edit_semantics_block,
     harness_mindset_block,
+    python_workspace_playbook,
     routing_handoff_contract,
     source_code_formatting_guidance,
 )
@@ -408,18 +410,25 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         '- Read-only inspection: start with the workspace tree in your system instructions above for structure and likely file paths. '
         'Use `list_workspace_directory` only when that tree is insufficient, stale, or you need to confirm a specific subtree.\n'
         '- Discovery / reads (follow each bound tool’s description for details):\n'
-        '  1. Unknown targets → `retrieve_workspace_semantic`, then verify with `read_workspace_file` / LSP / `search_workspace`.\n'
+        '- **Default first move for locating code: `search_workspace`.** It greps the on-disk workspace (literal or '
+        'regex, case-insensitive, line-precise `path:line` hits) and is cheap—use it liberally during discovery and '
+        'whenever you can name a needle: symbol names, call sites, error strings, config keys, import paths, TODO '
+        'markers, log lines. Run several narrow probes (one term per call) to map where things live before reading '
+        'whole files or speculating. Prefer it over guessing file paths from the tree, and over broad whole-file reads, '
+        'whenever a searchable term exists.\n'
+        '  1. Unknown / fuzzy targets (you cannot name a needle) → `retrieve_workspace_semantic`, then verify hits with '
+        '`search_workspace` / `read_workspace_file` / LSP.\n'
         '  2. Pending drafts → `search_staged_edits` or `read_staged_edit` (semantic index is workspace-only).\n'
         + (
-            '  3. Exact grep: use `search_workspace` on disk.\n'
+            '  3. Any literal/regex needle on disk → `search_workspace` (this is the default—see above).\n'
             if direct
-            else '  3. Exact grep: disk → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
+            else '  3. On-disk needle → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
         )
         + '  4. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
         + '  5. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
-        + '  7. `.wsdl` (SOAP contracts): prefer `wsdl_overview` → `search_wsdl` → `read_wsdl_section`; avoid reading whole WSDL/XSD with `read_workspace_file` unless debugging raw XML.\n'
-        + '  8. `.xml`/`.xsd`/`.xsl`/etc.: prefer `xml_overview` → `search_xml` → `read_xml_section`; avoid whole-file reads unless debugging raw markup.\n'
-        + '  9. `.json`/`.jsonc`: prefer `json_overview` → `search_json` → `read_json_section`; avoid whole-file reads for large configs.\n'
+        + '  6. `.wsdl` (SOAP contracts): prefer `wsdl_overview` → `search_wsdl` → `read_wsdl_section`; avoid reading whole WSDL/XSD with `read_workspace_file` unless debugging raw XML.\n'
+        + '  7. `.xml`/`.xsd`/`.xsl`/etc.: prefer `xml_overview` → `search_xml` → `read_xml_section`; avoid whole-file reads unless debugging raw markup.\n'
+        + '  8. `.json`/`.jsonc`: prefer `json_overview` → `search_json` → `read_json_section`; avoid whole-file reads for large configs.\n'
         + '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
     )
@@ -436,12 +445,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
             base
             + '- **Backend (authoritative):** Editor mode is **ON** and Auto-apply is **ON**; **direct workspace writes** '
             'are bound (no staging or transfer tools).\n'
-            + '- Use `apply_workspace_full_file`, `replace_workspace_line_range`, and `replace_workspace_snippet` '
-            '(when bound) for text edits; prefer language-matched LSP mutators when bound: '
-            '`.py` → `lsp_create_python_file` / `lsp_update_python_file` / `lsp_delete_python_file`; '
-            '`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` → `lsp_create_typescript_file` / `lsp_update_typescript_file` / `lsp_delete_typescript_file`; '
-            '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file` '
-            '(writes land on disk immediately).\n'
+            + f'- {edit_semantics_block(direct=True)}\n'
             + '- `read_workspace_file` and LSP reads/diagnostics reflect the **on-disk workspace**—there is no staging draft plane.\n'
             + '- Verify with `lsp_get_diagnostics` (`refresh_active_document=true` on touched paths) and '
             '`run_workspace_pytest_tests` / `run_workspace_python_smoke_test` / `run_workspace_node_smoke_test` / '
@@ -453,6 +457,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
             + '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
             f'{routing_handoff_contract()}\n'
             + '- **Inspect–integrate–mutate–verify:** Base **Existence** on `read_workspace_file` / LSP before mutating.\n'
+            f'\n{python_workspace_playbook()}\n'
         )
     return (
         base
@@ -465,21 +470,14 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         'workspace tests, and staging review tools (`list_staged_edits`, `diff_staged_edit_against_baseline`, '
         '`read_staged_edit`, `search_staged_edits`, `transfer_staged_file_to_workspace`, etc.). '
         'Use the **staging pipeline** for all programming-path and structured-config edits.\n'
-        '- **Direct writes on this graph:** Use `stage_*` for staged edits on any path; you may also use language-matched '
-        'LSP mutators (`lsp_create/update/delete_python_file`, `lsp_create/update/delete_typescript_file`, '
-        '`lsp_create/update/delete_gdscript_file`) when bound (same staging/review path). '
-        'LSP **read** and **diagnostics** tools for supported extensions are available.\n'
-        '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
+        + f'- {edit_semantics_block(direct=False)}\n'
+        + '- LSP **read** and **diagnostics** tools for supported extensions are available.\n'
+        + '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
         '**staging** until landed—use `list_staged_edits`, '
         '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
-        '- **Landing after review:** When drafts are approved, pass **`land_in_workspace=true`** on your final '
-        '`stage_*` or LSP create/update call to stage and queue the HITL diff in one step (stop after the tool '
-        'returns when auto-apply is off). Keep **`land_in_workspace=false`** (default) while iterating or before '
-        'review completes. For drafts **already staged** without landing, call **`transfer_staged_file_to_workspace`** '
-        'with **`relative_paths`** (batch when multiple files are ready).\n'
-        '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage with '
-        '`land_in_workspace=false`, run review/diagnostics on drafts, then land per **Landing after review** above.\n'
-        '- **All other text files** (e.g. .md, .txt): same staging tools and landing flow.\n'
+        + '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage with '
+        '`land_in_workspace=false`, run review/diagnostics on drafts, then land per the **Edit semantics** notes above.\n'
+        + '- **All other text files** (e.g. .md, .txt): same staging tools and landing flow.\n'
         '- **Python dependencies**, **Node/npm** tools (`discover_npm_projects` for package roots; `search_npm_packages` for registry search and latest versions), and '
         '**`angular_cli_tool`** (local `node_modules/.bin/ng` only—run `npm_install_project` for that folder first when '
         '`@angular/cli` is not yet installed) are available when you need them.\n'
@@ -497,6 +495,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         '- **Inspect–integrate–mutate–verify:** Base **Existence** on tools—for **update** (or when a path might already exist), '
         'use `read_workspace_file` and/or LSP reads on those paths first so you augment or replace real content, not a guess. '
         'When adding I/O, config, logging, or helpers, use `search_workspace` to find existing patterns and reuse them when they fit.\n'
+        f'{python_workspace_playbook()}\n'
     )
 
 
@@ -511,7 +510,7 @@ def build_system_prompt(
         f'{source_code_formatting_guidance()}\n\n' if (session.workspace_path or '').strip() else ''
     )
     return (
-        'You are Clara, a coding assistant.'
+        'You are Clara, a coding assistant. '
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
         'Prefer quoting exact file paths, line numbers, commands, and concrete next steps. '
         'Keep answers concise but useful, and explain what you actually inspected.\n\n'

@@ -11,13 +11,21 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import Annotated
 
 logger = logging.getLogger('nemo.tools.workspace')
 
 from langchain_core.tools import tool
 
 from nemo_backend.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
-from nemo_backend.tools.semantic import retrieve_workspace_semantic
+from nemo_backend.tools.semantic import retrieve_workspace_checkpoint_semantic, retrieve_workspace_semantic
+from nemo_backend.tools.tool_conventions import (
+    ENCODING_NEWLINE,
+    GUTTER,
+    ONE_BASED,
+    RELATIVE_PATH,
+    describe,
+)
 from nemo_backend.state import current_session_id, get_session, runtime_config
 from nemo_backend.workspace_text_io import (
     parse_newline_mode,
@@ -226,13 +234,18 @@ def write_workspace_file_utf8(relative_path: str, content: str) -> None:
     write_workspace_file(relative_path, content, encoding='utf-8', newline_mode='lf')
 
 
-@tool
-def list_workspace_directory(relative_path: str = '.') -> str:
-    """List immediate children of one workspace directory (names only; dirs end with `/`).
-
-    When: need subtree layout after the system workspace tree is stale or too coarse.
-    Not: file contents (use `read_workspace_file`); line-level grep across the repo (use `search_workspace`).
-    Shape: `relative_path` workspace-relative POSIX (e.g. `.`, `src/app`); omits `.gitignore` subset and built-in skips (same as `search_workspace`). For gitignored paths, read that path directly with `read_workspace_file`."""
+@tool(description=describe(
+        'List immediate children of one workspace directory (names only; dirs end with `/`).',
+        when='need subtree layout after the system workspace tree is stale or too coarse.',
+        not_='file contents (use `read_workspace_file`); line-level grep across the repo (use `search_workspace`).',
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} (e.g. `.`, `src/app`); omits `.gitignore` subset and built-in skips '
+            '(same as `search_workspace`). For gitignored paths, read that path directly with `read_workspace_file`.'
+        ),
+    ))
+def list_workspace_directory(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '.',
+) -> str:
 
     root = get_active_workspace_root()
     try:
@@ -410,22 +423,29 @@ def _search_workspace_grep(
     return rendered, skipped
 
 
-@tool
+@tool(description=describe(
+        'Read a **window** of literal on-disk workspace text or PDF extract (not staging, not semantic).',
+        when='need exact bytes-as-text for a known path; LSP insufficient for spans or non-LSP files.',
+        not_=(
+            'pending drafts (use `read_staged_edit` / diff tools); unknown locations '
+            '(use `retrieve_workspace_semantic` then verify); line grep across repo (use `search_workspace`).'
+        ),
+        shape=(
+            f'`relative_path` {RELATIVE_PATH} {ENCODING_NEWLINE} '
+            'codec must pass `validate_workspace_encoding` (invalid bytes → U+FFFD). '
+            f'Plain text: `start_line`/`end_line` {ONE_BASED} '
+            'output capped by `maxFileReadLines` (not EOF—widen range or call again; header shows total lines and excerpt hints). '
+            'PDF: same args are **1-based inclusive page numbers**; `include_line_numbers` and `encoding` ignored. '
+            f'{GUTTER}'
+        ),
+    ))
 def read_workspace_file(
-    relative_path: str,
-    start_line: int = 1,
-    end_line: int = 220,
-    include_line_numbers: bool = True,
-    encoding: str = '',
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    start_line: Annotated[int, '1-based inclusive'] = 1,
+    end_line: Annotated[int, '1-based inclusive'] = 220,
+    include_line_numbers: Annotated[bool, 'false for raw lines / snippet matches'] = True,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
 ) -> str:
-    """Read a **window** of literal on-disk workspace text or PDF extract (not staging, not semantic).
-
-    When: need exact bytes-as-text for a known path; LSP insufficient for spans or non-LSP files.
-    Not: pending drafts (use `read_staged_edit` / diff tools); unknown locations (use `retrieve_workspace_semantic` then verify); line grep across repo (use `search_workspace`).
-    Shape: `relative_path` workspace-relative POSIX; `encoding` empty → Settings → Tools default; codec must pass `validate_workspace_encoding` (invalid bytes → U+FFFD).
-    Lines: plain text `start_line`/`end_line` are **1-based inclusive** after `\\n` normalization; output capped by `maxFileReadLines` (not EOF—widen range or call again; header shows total lines and excerpt hints).
-    PDF: same args are **1-based inclusive page numbers**; `include_line_numbers` and `encoding` ignored.
-    Gutter: if `include_line_numbers` true, lines are `n │ text` (U+2502)—only `text` is file content; use `include_line_numbers=false` for exact lines (e.g. `stage_snippet_edit` `old_snippet`)."""
 
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
@@ -466,13 +486,21 @@ def read_workspace_file(
     return header + (body if body else '[empty range]')
 
 
-@tool
-def search_workspace(query: str, max_matches: int = 20, encoding: str = '') -> str:
-    """Grep the **on-disk workspace** for a literal or regex (case-insensitive), returning matching lines with path:line.
-
-    When: known needle or pattern across tracked-ish files; need line-precise disk hits.
-    Not: staging drafts (use `search_staged_edits`); fuzzy/topic discovery (use `retrieve_workspace_semantic` then verify).
-    Shape: `encoding` empty → Settings default; one encoding per call—mixed trees may need multiple calls. Hits `[path line N] │ full line` (indent preserved). Same ignore rules as `list_workspace_directory`; for gitignored files read with `read_workspace_file`."""
+@tool(description=describe(
+        'Grep the **on-disk workspace** for a literal or regex (case-insensitive), returning matching lines with path:line.',
+        when='known needle or pattern across tracked-ish files; need line-precise disk hits.',
+        not_='staging drafts (use `search_staged_edits`); fuzzy/topic discovery (use `retrieve_workspace_semantic` then verify).',
+        shape=(
+            f'{ENCODING_NEWLINE} one encoding per call—mixed trees may need multiple calls. '
+            'Hits `[path line N] │ full line` (indent preserved). Same ignore rules as `list_workspace_directory`; '
+            'for gitignored files read with `read_workspace_file`.'
+        ),
+    ))
+def search_workspace(
+    query: str,
+    max_matches: int = 20,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+) -> str:
 
     root = get_active_workspace_root()
     root_resolved = root.resolve()
@@ -518,6 +546,7 @@ from nemo_backend.tools.json_tools import JSON_TOOLS
 TOOLS = [
     list_workspace_directory,
     retrieve_workspace_semantic,
+    retrieve_workspace_checkpoint_semantic,
     search_workspace,
     read_workspace_file,
     read_workspace_image,

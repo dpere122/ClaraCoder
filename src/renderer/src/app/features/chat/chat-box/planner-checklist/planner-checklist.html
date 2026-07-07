@@ -1,4 +1,4 @@
-@if (planner().steps.length > 0 || planner().phase === 'discovery') {
+@if (planner().steps.length > 0 || planner().phase === 'discovery' || agentQuestion()) {
   <div
     class="plan-panel"
     [class.plan-panel--live]="live()"

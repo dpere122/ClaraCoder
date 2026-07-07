@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Annotated, Awaitable, Callable
 
 from langchain_core.tools import tool
 
@@ -18,6 +18,7 @@ from nemo_backend.python_env import (
     truncate_text,
 )
 from nemo_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
+from nemo_backend.tools.tool_conventions import describe
 
 INSTALL_PYTHON_PACKAGES_NAME = 'install_python_packages'
 REMOVE_PYTHON_PACKAGES_NAME = 'remove_python_packages'
@@ -421,9 +422,13 @@ def _filtered_freeze_output(raw_output: str) -> str:
     return '\n'.join(kept_lines)
 
 
-@tool(INSTALL_PYTHON_PACKAGES_NAME)
-async def install_python_packages_tool(packages: list[str]) -> str:
-    """Install one or more packages into the current workspace `.venv` using that session's Python interpreter."""
+@tool(INSTALL_PYTHON_PACKAGES_NAME, description=describe('Install packages into the current workspace `.venv` using the session Python interpreter.',
+        when='adding runtime or dev dependencies.',
+        not_='system Python or global pip.',
+        shape='`packages` names (may include version specifiers); HITL confirm when auto-apply off.',))
+async def install_python_packages_tool(
+    packages: Annotated[list[str], 'package names (may include version specifiers)'],
+) -> str:
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -458,9 +463,13 @@ async def install_python_packages_tool(packages: list[str]) -> str:
     )
 
 
-@tool(REMOVE_PYTHON_PACKAGES_NAME)
-async def remove_python_packages_tool(packages: list[str]) -> str:
-    """Uninstall one or more packages from the current workspace `.venv` using that session's Python interpreter."""
+@tool(REMOVE_PYTHON_PACKAGES_NAME, description=describe('Uninstall packages from the current workspace `.venv` using the session Python interpreter.',
+        when='removing unused or conflicting dependencies.',
+        not_='system Python or global pip.',
+        shape='`packages` names; HITL confirm when auto-apply off.',))
+async def remove_python_packages_tool(
+    packages: Annotated[list[str], 'package names (may include version specifiers)'],
+) -> str:
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -495,9 +504,13 @@ async def remove_python_packages_tool(packages: list[str]) -> str:
     )
 
 
-@tool(INSTALL_PYTHON_REQUIREMENTS_FILE_NAME)
+@tool(INSTALL_PYTHON_REQUIREMENTS_FILE_NAME, description=describe(
+    'Install dependencies from a requirements file in the active workspace Python project.',
+    when='syncing from `requirements.txt` or similar manifest.',
+    not_='ad-hoc single packages (use `install_python_packages`).',
+    shape='requirements file path inside the active Python project; HITL confirm when auto-apply off.',
+))
 async def install_python_requirements_file_tool(requirements_file: str) -> str:
-    """Install dependencies from a requirements file inside the active workspace Python project."""
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -534,9 +547,13 @@ async def install_python_requirements_file_tool(requirements_file: str) -> str:
     )
 
 
-@tool(FREEZE_PYTHON_REQUIREMENTS_NAME)
+@tool(FREEZE_PYTHON_REQUIREMENTS_NAME, description=describe(
+    'Return `pip freeze` output from the active workspace `.venv`.',
+    when='inspecting installed versions before pinning.',
+    not_='writing a file (use `write_frozen_python_requirements_file`).',
+    shape='read-only snapshot of the session venv.',
+))
 async def freeze_python_requirements_tool() -> str:
-    """Return `pip freeze` output from the active workspace `.venv`."""
 
     sid = (current_session_id.get() or '').strip()
     if not sid:
@@ -564,9 +581,13 @@ async def freeze_python_requirements_tool() -> str:
     )
 
 
-@tool(WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME)
+@tool(WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME, description=describe(
+    'Run `pip freeze` and write filtered output to a requirements file in the active workspace.',
+    when='pinning dependencies after installs or upgrades.',
+    not_='installing packages (use `install_python_packages` or `install_python_requirements_file`).',
+    shape='output file inside the active Python project (default `requirements.txt`); filters bootstrap-only packages; HITL confirm when auto-apply off.',
+))
 async def write_frozen_python_requirements_file_tool(output_file: str = 'requirements.txt') -> str:
-    """Run `pip freeze` and write the filtered output to a requirements file in the active workspace."""
 
     _sid, session, error = _active_session_or_error()
     if error:
@@ -620,9 +641,13 @@ async def write_frozen_python_requirements_file_tool(output_file: str = 'require
     )
 
 
-@tool(BOOTSTRAP_PYTHON_TESTING_DEPENDENCIES_NAME)
+@tool(BOOTSTRAP_PYTHON_TESTING_DEPENDENCIES_NAME, description=describe(
+    'Install workspace requirements, testing dependencies, and Python LSP helpers into the current workspace `.venv`.',
+    when='preparing env for pytest, smoke tests, or LSP before project review.',
+    not_='Node/npm setup.',
+    shape='installs `requirements.txt`/`requirements-dev.txt` when present plus `jedi-language-server` and testing deps.',
+))
 async def bootstrap_python_testing_dependencies_tool() -> str:
-    """Install workspace requirements, testing dependencies, and Python LSP helpers into the current workspace `.venv`."""
 
     sid = (current_session_id.get() or '').strip()
     if not sid:

@@ -27,6 +27,7 @@ from nemo_backend.plan_execute import (
     stream_plan_execute_langgraph,
 )
 from nemo_backend.tool_registry import format_tools_catalog, plan_execute_tools_and_map, worker_tools_and_map
+from nemo_backend.tools.build_plan_tools import read_build_plan
 from nemo_backend.tools.workspace import read_workspace_file
 from nemo_backend.state import get_session
 
@@ -67,9 +68,11 @@ def test_build_build_plan_executor_prompt_references_plan_and_mark_tool() -> Non
 
 
 def test_format_tools_catalog_includes_name_and_description() -> None:
-    catalog = format_tools_catalog([read_workspace_file])
+    catalog = format_tools_catalog([read_workspace_file, read_build_plan])
     assert '`read_workspace_file`' in catalog
     assert catalog.startswith('- ')
+    assert '**' in catalog
+    assert '—' in catalog
 
 
 def test_plan_execute_tools_include_build_plan_helpers() -> None:

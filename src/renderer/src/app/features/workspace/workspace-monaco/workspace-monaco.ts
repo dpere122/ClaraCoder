@@ -10,6 +10,7 @@ import {
   HostListener,
   inject,
   input,
+  Injector,
   NgZone,
   output,
   signal,
@@ -117,6 +118,7 @@ export class WorkspaceMonacoComponent {
   private readonly zone = inject(NgZone);
   private readonly pendingDiffReview = inject(PendingDiffReviewService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly inj = inject(Injector);
 
   /** Absolute workspace root (empty when none). */
   readonly workspacePath = input<string>('');
@@ -629,9 +631,15 @@ export class WorkspaceMonacoComponent {
   }
 
   /** Shows the rendered preview for {@param key} and keeps it live against model changes. */
-  private enterMdPreview(key: string): void {
+  private enterMdPreview(key: string, attempt = 0): void {
     const model = this.modelByPath.get(key);
     if (!model || model.isDisposed()) {
+      // The activePreviewOnly effect can fire before syncActiveModel finishes creating the
+      // model (modelByPath is a plain Map, not reactive). Retry a few frames so the preview
+      // still enters once the model lands.
+      if (attempt < 4 && this.activePreviewOnly()) {
+        afterNextRender(() => this.enterMdPreview(key, attempt + 1), { injector: this.inj });
+      }
       return;
     }
     const ratio = this.editorScrollRatio();

@@ -99,6 +99,66 @@ def test_build_planner_context_block_includes_plan_drafting_override_for_initial
     assert PLAN_DRAFTING_OVERRIDE.split('\n')[0] in block
 
 
+def test_build_planner_context_block_without_tools_catalog_forbids_tool_calls() -> None:
+    """The markdown-streaming planner has no tool channel; its context must not advertise tools."""
+    session = SessionState(workspace_path='/tmp/ws')
+    block = build_planner_context_block(
+        session,
+        apply_mode=True,
+        for_initial_plan=True,
+        with_tools_catalog=False,
+    )
+    assert 'Available tools' not in block
+    # The formatted tool catalog (header + per-tool `` `name` `` descriptions) is gone; the
+    # explicit no-tools directive is present instead.
+    assert 'You have NO tools in this phase' in block
+    assert '<tool_call>' in block
+    assert 'cannot call any tool' in block
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_stream_planner_md_retries_when_model_emits_tool_call(tmp_path: Path) -> None:
+    """A tool-call-as-text first attempt should trigger one retry that yields the real plan."""
+    from langchain_core.messages import AIMessageChunk
+
+    from nemo_backend.build_plan_store import create_build_plan_draft
+    from nemo_backend.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+    call = {'n': 0}
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            if call['n'] == 0:
+                yield AIMessageChunk(content='<tool_call>\n<read_workspace_file>\n<path>x</path>\n</read_workspace_file>')
+            else:
+                yield AIMessageChunk(content=plan_md)
+            call['n'] += 1
+
+    def _fake_chain(_ctx: str, *, discovery_summary: str = '') -> _FakeChain:
+        return _FakeChain()
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-retry', session=session)
+    md_out: list[str] = ['']
+
+    with patch('nemo_backend.plan_execute._planner_markdown_chain', side_effect=_fake_chain):
+        lines = await _collect_lines(
+            _stream_planner_md(
+                'Build feature',
+                session=session,
+                apply_mode=True,
+                discovery_summary='discovery found src/app.ts',
+                record=record,
+                md_out=md_out,
+            )
+        )
+
+    assert call['n'] == 2
+    assert md_out and md_out[0] == plan_md
+    assert any('"type": "build_plan_chunk"' in line for line in lines)
+
+
 def test_build_discovery_preamble_includes_findings() -> None:
     preamble = _build_discovery_preamble('Auth is in middleware/auth.py')
     assert 'Auth is in middleware/auth.py' in preamble

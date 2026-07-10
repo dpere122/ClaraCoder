@@ -285,3 +285,46 @@ def test_mark_steps_complete_preserves_enriched_details(tmp_path: Path) -> None:
     updated = mark_steps_complete(str(tmp_path), record, ['step-1'])
     assert updated[0]['complete'] is True
     assert updated[0]['verification'] == 'pytest tests/x'
+
+
+def test_parse_action_steps_handles_checkboxes_without_step_id_markers() -> None:
+    """LLMs often omit the ``<!-- step-id -->`` marker; checkboxes must still become steps."""
+    md = (
+        '# Build Plan: Demo\n\n'
+        '## Action Steps\n'
+        '- [ ] First milestone\n'
+        '- [ ] Second milestone\n'
+    )
+    steps = parse_action_steps(md)
+    assert [s['id'] for s in steps] == ['step-1', 'step-2']
+    assert [s['text'] for s in steps] == ['First milestone', 'Second milestone']
+    assert all(s['complete'] is False for s in steps)
+
+
+def test_parse_build_plan_md_keeps_steps_when_markers_missing() -> None:
+    """A plan whose only "flaw" is missing step-id comments must not parse as empty."""
+    md = (
+        '# Build Plan: Demo\n\n'
+        '## Task\nDo the thing.\n\n'
+        '## Action Steps\n'
+        '- [ ] First milestone\n'
+        '- [ ] Second milestone\n'
+    )
+    parsed = parse_build_plan_md(md)
+    assert [s.goal for s in parsed.action_steps] == ['First milestone', 'Second milestone']
+
+
+def test_mark_steps_complete_flips_checkboxes_without_step_id_markers(tmp_path: Path) -> None:
+    session = SessionState(workspace_path=str(tmp_path))
+    md = (
+        '# Build Plan: Demo\n\n'
+        '## Task\nDo the thing.\n\n'
+        '## Action Steps\n'
+        '- [ ] First milestone\n'
+        '- [ ] Second milestone\n'
+    )
+    record = create_build_plan_draft(str(tmp_path), 'sess-m', session=session)
+    finalize_build_plan_draft(str(tmp_path), record, md)
+    updated = mark_steps_complete(str(tmp_path), record, ['step-2'])
+    states = {row['id']: row['complete'] for row in updated}
+    assert states == {'step-1': False, 'step-2': True}

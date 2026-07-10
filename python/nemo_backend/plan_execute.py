@@ -47,7 +47,9 @@ from nemo_backend.build_plan_store import (
     finalize_build_plan_draft,
     parse_build_plan_md,
     planner_progress_payload_from_parsed,
+    read_build_plan_md,
     render_build_plan_md,
+    set_build_plan_status,
     write_build_plan_draft_content,
 )
 from nemo_backend.deferred_tool_hitl import deferred_tool_hitl_bypass
@@ -130,6 +132,9 @@ PLAN_AUTHORING_GUIDELINES = (
 
 PLAN_MARKDOWN_STREAM_INSTRUCTIONS = (
     'You are in plan mode. Output ONLY the build-plan Markdown document (no preamble or commentary).\n'
+    'Do NOT emit tool calls, <tool_call> XML, pseudo-tool tags, or function calls — you have no '
+    'tools in this phase and any tool invocation is ignored. Start the document with `# Build Plan:` '
+    'and write the plan from the discovery context provided.\n'
     'Use this exact structure:\n\n'
     f'{PLAN_MARKDOWN_TEMPLATE_EXAMPLE}\n'
     f'{PLAN_AUTHORING_GUIDELINES}\n'
@@ -157,17 +162,34 @@ def build_planner_context_block(
     apply_mode: bool,
     *,
     for_initial_plan: bool = False,
+    with_tools_catalog: bool = True,
 ) -> str:
-    """System prompt + tool catalog shared by the planner (matches executor bindings)."""
+    """System prompt + tool catalog shared by the planner (matches executor bindings).
+
+    ``with_tools_catalog=False`` is used by the markdown-streaming planner phase, which has no
+    tool channel bound. Advertising tools there makes tool-happy local models emit
+    ``<tool_call>`` XML as plain text instead of the plan document, so the catalog is omitted and
+    tool invocations are explicitly forbidden.
+    """
     system_prompt = build_system_prompt(session, apply_mode)
-    tools, _ = plan_execute_tools_and_map(apply_mode, session=session)
-    catalog = format_tools_catalog(tools)
     override = f'{PLAN_DRAFTING_OVERRIDE}\n\n' if for_initial_plan else ''
+    if with_tools_catalog:
+        tools, _ = plan_execute_tools_and_map(apply_mode, session=session)
+        catalog = format_tools_catalog(tools)
+        return (
+            f'{system_prompt}\n\n'
+            f'{override}'
+            'Available tools (same bindings the executor will use):\n'
+            f'{catalog}'
+        )
     return (
         f'{system_prompt}\n\n'
         f'{override}'
-        'Available tools (same bindings the executor will use):\n'
-        f'{catalog}'
+        'You have NO tools in this phase and cannot call any tool. Do not emit <tool_call>, '
+        'function-call XML, pseudo-tool tags (e.g. <read_workspace_file>), or any tool '
+        'invocation — there is no tool channel here, so any such output is ignored. Read-only '
+        'discovery already ran; write the build-plan Markdown document from the provided '
+        'discovery context alone.\n'
     )
 
 
@@ -441,39 +463,83 @@ async def _stream_planner_md(
     record: BuildPlanRecord,
     md_out: list[str],
 ) -> AsyncIterator[str]:
-    """Stream planner markdown into SSE chunks and throttled disk writes."""
+    """Stream planner markdown into SSE chunks and throttled disk writes.
 
-    chain = _planner_markdown_chain(
-        build_planner_context_block(session, apply_mode, for_initial_plan=True),
-        discovery_summary=discovery_summary,
-    )
+    The markdown phase has no tool channel, so the planner context omits the tool catalog and
+    forbids tool invocations. If the model still emits a tool call / non-plan output instead of
+    a ``# Build Plan`` document, retry once — local tool-happy models occasionally need a re-roll.
+    """
+
     accumulated = ''
     last_disk_write = 0.0
     workspace_root = (session.workspace_path or '').strip()
     relative_path = record.relative_path
 
-    async for chunk in chain.astream({'messages': [HumanMessage(content=user_input)]}):
-        if session.abort_event.is_set():
-            md_out.clear()
-            md_out.append('')
-            return
-        if not isinstance(chunk, AIMessageChunk):
-            continue
-        delta = aimessage_chunk_sse_delta(chunk)
-        if not is_meaningful_stream_delta(delta):
-            continue
-        accumulated += delta
-        yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
-        now = time.monotonic()
-        if workspace_root and now - last_disk_write >= PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC:
-            write_build_plan_draft_content(workspace_root, record, accumulated)
-            last_disk_write = now
+    for attempt in range(2):
+        accumulated = ''
+        last_disk_write = 0.0
+        chain = _planner_markdown_chain(
+            build_planner_context_block(
+                session,
+                apply_mode,
+                for_initial_plan=True,
+                with_tools_catalog=False,
+            ),
+            discovery_summary=discovery_summary,
+        )
+        async for chunk in chain.astream({'messages': [HumanMessage(content=user_input)]}):
+            if session.abort_event.is_set():
+                md_out.clear()
+                md_out.append('')
+                return
+            if not isinstance(chunk, AIMessageChunk):
+                continue
+            delta = aimessage_chunk_sse_delta(chunk)
+            if not is_meaningful_stream_delta(delta):
+                continue
+            accumulated += delta
+            yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
+            now = time.monotonic()
+            if workspace_root and now - last_disk_write >= PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC:
+                write_build_plan_draft_content(workspace_root, record, accumulated)
+                last_disk_write = now
 
-    if workspace_root and accumulated:
-        write_build_plan_draft_content(workspace_root, record, accumulated)
+        if workspace_root and accumulated:
+            write_build_plan_draft_content(workspace_root, record, accumulated)
+
+        # Accept the stream if it produced a real plan document; otherwise retry once when the
+        # model emitted a tool call / garbage instead of markdown.
+        if '# Build Plan' in accumulated or not accumulated.strip():
+            break
+        if attempt == 0:
+            logger.warning(
+                'Planner emitted non-plan output for %s (len=%d); retrying once. Tail: %r',
+                relative_path,
+                len(accumulated),
+                accumulated[-400:],
+            )
+            # Clear the preview so the retry's first chunk doesn't append to the garbage.
+            yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=''))
 
     md_out.clear()
     md_out.append(accumulated)
+
+    # Surface empty / truncated planner output so the cause isn't erased when the caller
+    # discards the draft. A missing "## Action Steps" header usually means the model hit a
+    # token cap mid-document; empty content means the chat model returned nothing parseable
+    # (e.g. a reasoning model that streamed everything into a reasoning channel).
+    if not accumulated.strip():
+        logger.warning('Planner markdown stream produced no content for %s', relative_path)
+    elif '## Action Steps' not in accumulated:
+        logger.warning(
+            'Planner markdown for %s has no "## Action Steps" section (likely truncated; '
+            'len=%d). Tail: %r',
+            relative_path,
+            len(accumulated),
+            accumulated[-400:],
+        )
+    else:
+        logger.info('Planner markdown stream finished for %s (len=%d)', relative_path, len(accumulated))
 
 
 async def _invoke_planner(
@@ -802,15 +868,37 @@ async def stream_plan_execute_langgraph(
 
     action_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
     if not action_step_goals:
-        cancel_build_plan(session, record.id)
+        # Preserve the draft file so the user can see what the planner actually emitted
+        # (often a plan truncated mid-document by a token cap, or content the parser couldn't
+        # turn into checkboxes). Deleting it here destroys the only evidence of why planning
+        # failed. Mark it cancelled so it stops being the session's active plan.
+        try:
+            draft_md = read_build_plan_md(session.workspace_path, record)
+        except OSError:
+            draft_md = ''
+        logger.warning(
+            'Plan parsed with no action steps; preserving draft at %s (md_len=%d, '
+            'open_questions=%d). Excerpt: %r',
+            record.relative_path,
+            len(draft_md),
+            len(plan_model.open_questions or []),
+            draft_md[:800],
+        )
+        set_build_plan_status(session, record.id, 'cancelled')
+        session.active_build_plan_id = ''
+        session.active_build_plan_path = ''
         outcome.mark_completed(
-            final_text='The planner returned an empty plan. Try rephrasing your request.',
+            final_text=(
+                'The planner did not produce any action steps, so the plan was not run. '
+                'The draft was kept at .nemo/build-plans/ — open it to see what the planner '
+                'generated (it may have been cut off mid-document).'
+            ),
         )
         yield sse_line(
             status_event(
                 'plan-empty',
                 'Planning',
-                detail='No action steps generated.',
+                detail='No action steps generated — draft kept for inspection.',
                 state='error',
                 stream_tag=PLANNER_STREAM_TAG,
             )

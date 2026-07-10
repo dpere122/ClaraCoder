@@ -652,21 +652,22 @@ def parse_action_steps(md_text: str) -> list[dict[str, Any]]:
             continue
         checkbox = CHECKBOX_LINE_RE.match(line.strip())
         if checkbox:
-            if current_id:
-                _flush()
-                pending = {
-                    'id': current_id,
-                    'text': checkbox.group(2).strip(),
-                    'complete': checkbox.group(1).lower() == 'x',
-                    'files_touched': [],
-                    'approach': '',
-                    'acceptance_criteria': [],
-                    'verification': '',
-                    'risks': [],
-                }
-                current_id = None
-            else:
-                _flush()
+            _flush()
+            # LLMs frequently omit the ``<!-- step-id: step-N -->`` marker even when asked to
+            # emit it. Drop the checkbox here and the whole plan gets discarded as "empty", so
+            # fall back to a positional id instead of skipping the step.
+            step_id = current_id or f'step-{len(steps) + 1}'
+            pending = {
+                'id': step_id,
+                'text': checkbox.group(2).strip(),
+                'complete': checkbox.group(1).lower() == 'x',
+                'files_touched': [],
+                'approach': '',
+                'acceptance_criteria': [],
+                'verification': '',
+                'risks': [],
+            }
+            current_id = None
             continue
         if pending is not None and (line.startswith('  ') or line.startswith('\t')):
             detail_lines.append(line)
@@ -696,6 +697,7 @@ def mark_steps_complete(
     md_path = _md_path(workspace_root, record.relative_path)
     original = md_path.read_text(encoding='utf-8')
     current_id: str | None = None
+    checkbox_ordinal = 0
     out_lines: list[str] = []
     for line in original.splitlines():
         comment = STEP_ID_COMMENT_RE.search(line)
@@ -704,13 +706,18 @@ def mark_steps_complete(
             out_lines.append(line)
             continue
         checkbox = CHECKBOX_LINE_RE.match(line.strip())
-        if checkbox and current_id and current_id in want:
-            out_lines.append(f'- [x] {checkbox.group(2).strip()}')
+        if checkbox:
+            checkbox_ordinal += 1
+            # Prefer an explicit step-id comment; fall back to the positional id the parser
+            # assigns when the LLM omitted the marker.
+            effective_id = current_id or f'step-{checkbox_ordinal}'
+            if effective_id in want:
+                out_lines.append(f'- [x] {checkbox.group(2).strip()}')
+            else:
+                out_lines.append(line)
             current_id = None
             continue
         out_lines.append(line)
-        if checkbox:
-            current_id = None
 
     trailing_newline = original.endswith('\n')
     updated = '\n'.join(out_lines)

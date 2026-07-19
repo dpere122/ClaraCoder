@@ -5,6 +5,7 @@ import { mainState } from '../state';
 import { buildMenu } from '../menu/application-menu';
 import { resolveAppIconPath } from '../utils/app-icon';
 import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
+import { attachBrowserWindowRevealFallbacks } from '../utils/reveal-browser-window';
 import { registerSelectableTextContextMenu } from '../utils/register-selectable-text-context-menu';
 
 /** Preload bundle lives next to main output: `dist/preload/preload.js`. */
@@ -29,15 +30,6 @@ export function createMainWindow(): void {
 
   const icon = resolveAppIconPath();
   const preload = preloadPath();
-  let windowRevealed = false;
-  const revealMainWindow = (): void => {
-    if (windowRevealed || win.isDestroyed()) return;
-    windowRevealed = true;
-    if (!win.isVisible()) {
-      win.show();
-    }
-    win.focus();
-  };
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
@@ -51,28 +43,15 @@ export function createMainWindow(): void {
   mainState.mainWindow = win;
   hardenBrowserWindow(win);
   registerSelectableTextContextMenu(win);
-  // Avoid a blank flash before first paint; fall back when ready-to-show is skipped (Linux Wayland + disable-gpu).
-  win.once('ready-to-show', () => {
-    revealMainWindow();
-    if (DEV_SERVER_URL) {
+  attachBrowserWindowRevealFallbacks(win);
+  if (DEV_SERVER_URL) {
+    win.once('ready-to-show', () => {
       win.webContents.openDevTools({ mode: 'detach' });
-    }
-  });
-  win.webContents.once('did-finish-load', () => {
-    setTimeout(() => {
-      if (!win.isDestroyed() && !win.isVisible()) {
-        revealMainWindow();
-      }
-    }, 500);
-  });
-  setTimeout(revealMainWindow, 3000);
+    });
+  }
 
   win.webContents.on('preload-error', (_event, failedPreload, error) => {
     console.error('[Main] Preload failed:', failedPreload, error);
-  });
-  win.webContents.on('did-fail-load', (_event, code, description, url) => {
-    console.error('[Main] Renderer failed to load:', code, description, url);
-    revealMainWindow();
   });
   if (DEV_SERVER_URL) {
     win.webContents.on('console-message', (_event, level, message, line, sourceId) => {

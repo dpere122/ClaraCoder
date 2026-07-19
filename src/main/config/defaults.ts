@@ -194,6 +194,7 @@ export function createDefaultConfig(): AppConfig {
     configSchemaVersion: APP_CONFIG_SCHEMA_VERSION,
     currentWorkspaceId: null,
     lastActiveConversationByWorkspaceId: {},
+    workspaceMonacoScrollByWorkspaceId: {},
     workspaces: [],
     themeId: FIRST_THEME_ID,
     noWorkspaceThemeId: FIRST_THEME_ID,

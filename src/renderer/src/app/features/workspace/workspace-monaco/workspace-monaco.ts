@@ -30,6 +30,7 @@ import {
   type StagedTransferBatchPayload,
   type StagedTransferFileResolution,
   type WorkspaceFilesChangedMessage,
+  type WorkspaceMonacoEditorScrollState,
 } from '@shared/index';
 import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
@@ -126,6 +127,14 @@ export class WorkspaceMonacoComponent {
   readonly activeModelKey = input<string | null>(null);
   /** Open file tabs Monaco should keep models for. */
   readonly openEditorFiles = input<readonly OpenEditorFileRef[]>([]);
+  /** Workspace card id for persisting per-tab scroll state. */
+  readonly workspaceId = input<string | null>(null);
+  /** Persisted scroll positions for the active workspace (relative path → scroll). */
+  readonly persistedScrollByPath = input<Readonly<Record<string, WorkspaceMonacoEditorScrollState>>>({});
+  /** Active file as POSIX relative path, or null when the conversation tab is selected. */
+  readonly relativePath = input<string | null>(null);
+  /** Relative paths of all open file tabs; models for closed tabs are disposed. */
+  readonly openFileRelativePaths = input<readonly string[]>([]);
   /** Persisted Monaco options from app config (optional until loaded). */
   readonly editorSettings = input<MonacoWorkspaceEditorSettings | null | undefined>(undefined);
   /** Pending diff for this path from the shell (same artifact as chat review). */
@@ -261,11 +270,34 @@ export class WorkspaceMonacoComponent {
     string,
     { tempAbsolutePath: string; snapshotAltVersionId: number; defaultRelativePath: string }
   >();
+  /** In-session Monaco view state per open file (scroll + cursor). */
+  private readonly viewStateByPath = new Map<string, Monaco.editor.ICodeEditorViewState>();
+  private lastActiveEditorPath: string | null = null;
+  private lastScrollPersistWorkspaceId: string | null = null;
+  private scrollPersistTimer: number | null = null;
+  private pendingScrollPersist: {
+    workspaceId: string;
+    key: string;
+    scrollTop: number;
+    scrollLeft: number;
+  } | null = null;
   private lspHoverDisposables: Monaco.IDisposable[] = [];
   private lspLanguageDisposable: Monaco.IDisposable | null = null;
 
   constructor() {
     afterNextRender(() => void this.bootstrapEditor());
+
+    effect(() => {
+      const rel = this.relativePath();
+      const ready = this.editorReady();
+      untracked(() => {
+        const next = rel?.trim() ? normalizePathSlashes(rel.trim()) : null;
+        if (ready && this.lastActiveEditorPath && this.lastActiveEditorPath !== next) {
+          this.captureEditorViewStateForPath(this.lastActiveEditorPath);
+        }
+        this.lastActiveEditorPath = next;
+      });
+    });
 
     effect(() => {
       const open = this.openEditorFiles().map((f) => f.modelKey);
@@ -280,6 +312,10 @@ export class WorkspaceMonacoComponent {
         for (const [key, model] of this.modelByPath) {
           if (!open.includes(key)) {
             if (this.editor?.getModel() === model) {
+              const activeRel = relativePathFromModelKey(key);
+              if (activeRel) {
+                this.captureEditorViewStateForPath(normalizePathSlashes(activeRel));
+              }
               this.editor.setModel(null);
             }
             this.modelDirtyDisposables.get(key)?.dispose();
@@ -290,11 +326,29 @@ export class WorkspaceMonacoComponent {
             void this.cleanupDetachedSnapshot(key);
             this.detachedByKey.delete(key);
             this.fileRefByKey.delete(key);
+            const closedRel = relativePathFromModelKey(key);
+            if (closedRel) {
+              this.viewStateByPath.delete(normalizePathSlashes(closedRel));
+            }
           }
         }
         this.emitDetachedPaths();
         this.emitOutsideWorkspacePaths();
         this.emitDirtyPaths();
+      });
+    });
+
+    effect(() => {
+      const wsId = this.workspaceId()?.trim() ?? null;
+      untracked(() => {
+        const prev = this.lastScrollPersistWorkspaceId;
+        if (prev && wsId !== prev) {
+          if (this.lastActiveEditorPath && this.editorReady()) {
+            this.captureEditorViewStateForPath(this.lastActiveEditorPath, prev);
+          }
+          void this.flushPendingScrollPersist(prev);
+        }
+        this.lastScrollPersistWorkspaceId = wsId;
       });
     });
 
@@ -468,6 +522,7 @@ export class WorkspaceMonacoComponent {
       this.diskSyncedAltVersionByPath.clear();
       this.detachedByKey.clear();
       this.fileRefByKey.clear();
+      this.viewStateByPath.clear();
       this.disposeEditorSelectionListener();
       this.editor?.dispose();
       this.editor = null;
@@ -1206,6 +1261,7 @@ export class WorkspaceMonacoComponent {
       void this.saveCurrent();
     });
     this.wireEditorSelectionListener();
+    this.editor.onDidScrollChange(() => this.onEditorScrollChanged());
     this.registerWorkspaceLspHoverProviders(monacoApi);
     this.lspLanguageDisposable?.dispose();
 
@@ -1571,6 +1627,18 @@ export class WorkspaceMonacoComponent {
     if (!monacoApi || !ed) {
       return;
     }
+    const currentModel = ed.getModel();
+    if (currentModel) {
+      const currentRel = this.workspaceRelativePathForModel(currentModel);
+      const nextRel = relativePathFromModelKey(modelKey);
+      if (
+        currentRel &&
+        nextRel &&
+        normalizePathSlashes(currentRel) !== normalizePathSlashes(nextRel)
+      ) {
+        this.captureEditorViewStateForPath(normalizePathSlashes(currentRel));
+      }
+    }
     const model = await this.getOrCreateModel(workspaceRoot, modelKey);
     if (!model) {
       return;
@@ -1596,9 +1664,118 @@ export class WorkspaceMonacoComponent {
       this.enterMdPreview(modelKey);
     } else {
       this.exitMdPreview(false);
-      ed.focus();
+      requestAnimationFrame(() => {
+        const rel = relativePathFromModelKey(modelKey);
+        if (rel) {
+          this.restoreEditorViewStateForPath(normalizePathSlashes(rel));
+        }
+        ed.focus();
+      });
     }
     this.emitDirtyPaths();
+  }
+
+  private captureEditorViewStateForPath(relativeKey: string, workspaceIdOverride?: string): void {
+    const ed = this.editor;
+    if (!ed || this.monacoDiffActive() || this.mdPreviewActive()) {
+      return;
+    }
+    const model = ed.getModel();
+    if (!model) {
+      return;
+    }
+    const modelRel = this.workspaceRelativePathForModel(model);
+    if (!modelRel || normalizePathSlashes(modelRel) !== normalizePathSlashes(relativeKey)) {
+      return;
+    }
+    const state = ed.saveViewState();
+    if (!state) {
+      return;
+    }
+    this.viewStateByPath.set(relativeKey, state);
+    this.schedulePersistScroll(
+      relativeKey,
+      ed.getScrollTop(),
+      ed.getScrollLeft(),
+      workspaceIdOverride,
+    );
+  }
+
+  private restoreEditorViewStateForPath(relativeKey: string): void {
+    const ed = this.editor;
+    if (!ed || this.monacoDiffActive() || this.mdPreviewActive()) {
+      return;
+    }
+    const state = this.viewStateByPath.get(relativeKey);
+    if (state) {
+      ed.restoreViewState(state);
+      return;
+    }
+    const persisted = this.persistedScrollByPath()[relativeKey];
+    if (persisted) {
+      ed.setScrollTop(persisted.scrollTop);
+      ed.setScrollLeft(persisted.scrollLeft);
+    }
+  }
+
+  private onEditorScrollChanged(): void {
+    const ed = this.editor;
+    if (!ed || this.monacoDiffActive() || this.mdPreviewActive()) {
+      return;
+    }
+    const model = ed.getModel();
+    if (!model) {
+      return;
+    }
+    const key = this.workspaceRelativePathForModel(model);
+    if (!key) {
+      return;
+    }
+    const state = ed.saveViewState();
+    if (!state) {
+      return;
+    }
+    this.viewStateByPath.set(key, state);
+    this.schedulePersistScroll(key, ed.getScrollTop(), ed.getScrollLeft());
+  }
+
+  private schedulePersistScroll(
+    relativeKey: string,
+    scrollTop: number,
+    scrollLeft: number,
+    workspaceIdOverride?: string,
+  ): void {
+    const wsId = (workspaceIdOverride ?? this.workspaceId()?.trim()) || '';
+    if (!wsId || !this.electron.isElectron) {
+      return;
+    }
+    this.pendingScrollPersist = { workspaceId: wsId, key: relativeKey, scrollTop, scrollLeft };
+    if (this.scrollPersistTimer != null) {
+      clearTimeout(this.scrollPersistTimer);
+    }
+    this.scrollPersistTimer = window.setTimeout(() => {
+      this.scrollPersistTimer = null;
+      void this.flushPendingScrollPersist();
+    }, 400);
+  }
+
+  private async flushPendingScrollPersist(forceWorkspaceId?: string): Promise<void> {
+    if (this.scrollPersistTimer != null) {
+      clearTimeout(this.scrollPersistTimer);
+      this.scrollPersistTimer = null;
+    }
+    const pending = this.pendingScrollPersist;
+    if (!pending || !this.electron.isElectron) {
+      return;
+    }
+    if (forceWorkspaceId && pending.workspaceId !== forceWorkspaceId) {
+      return;
+    }
+    this.pendingScrollPersist = null;
+    await this.electron.patchWorkspaceMonacoScroll(pending.workspaceId, pending.key, {
+      scrollTop: pending.scrollTop,
+      scrollLeft: pending.scrollLeft,
+    });
   }
 
   private async promptSaveAs(modelKey: string): Promise<string | null> {

@@ -35,6 +35,8 @@ export type {
   AppConfig,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
+  WorkspaceMonacoEditorScrollState,
+  WorkspaceMonacoScrollByWorkspaceId,
   WorkspaceToolsConfig,
   ContextCompressionConfig,
   HealthMonitorConfig,
@@ -49,6 +51,7 @@ export {
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWorkspaceMonacoScrollByWorkspaceId,
 } from './types/app-config';
 export { GEMMA4_CHAT_TEMPLATE_FILENAME } from './gemma-template';
 export { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from './qwen-template';

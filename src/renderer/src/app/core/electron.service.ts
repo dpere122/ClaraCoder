@@ -1140,6 +1140,14 @@ export class ElectronService {
     );
   }
 
+  patchWorkspaceMonacoScroll(
+    workspaceId: string,
+    relativePath: string,
+    scroll: { scrollTop: number; scrollLeft: number } | null,
+  ): Promise<void> {
+    return this.api?.patchWorkspaceMonacoScroll(workspaceId, relativePath, scroll) ?? Promise.resolve();
+  }
+
   setActiveLlmModel(modelId: string): Promise<AppConfig> {
     return this.api?.setActiveLlmModel(modelId) ?? Promise.resolve({
       currentWorkspaceId: null,

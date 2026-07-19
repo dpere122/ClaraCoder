@@ -4,6 +4,10 @@ import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { resolveAppIconPath } from '../utils/app-icon';
 import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
+import {
+  attachBrowserWindowRevealFallbacks,
+  settingsWindowParentOptions,
+} from '../utils/reveal-browser-window';
 
 function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
@@ -18,10 +22,15 @@ function rendererIndexHtml(): string {
  */
 export function createSettingsWindow(): void {
   const mainWindow = mainState.mainWindow;
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  const notifyVisibility = (isOpen: boolean): void => {
+    if (mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('settings-window-visibility-changed', isOpen);
+  };
 
   if (mainState.settingsWindow) {
-    mainWindow.webContents.send('settings-window-visibility-changed', true);
+    notifyVisibility(true);
     mainState.settingsWindow.focus();
     return;
   }
@@ -30,12 +39,12 @@ export function createSettingsWindow(): void {
   mainState.settingsWindow = new BrowserWindow({
     width: 1440,
     height: 800,
-    parent: mainWindow,
-    modal: true,
+    ...settingsWindowParentOptions(mainWindow),
     frame: false,
     resizable: false,
     maximizable: false,
     show: false,
+    backgroundColor: '#0a0a0a',
     title: 'Clara Coder — Settings',
     ...(icon ? { icon } : {}),
     webPreferences: secureWebPreferences(preloadPath()),
@@ -44,10 +53,8 @@ export function createSettingsWindow(): void {
   const sw = mainState.settingsWindow;
   hardenBrowserWindow(sw);
   sw.removeMenu();
-  sw.once('ready-to-show', () => {
-    sw.show();
-  });
-  mainWindow.webContents.send('settings-window-visibility-changed', true);
+  attachBrowserWindowRevealFallbacks(sw);
+  notifyVisibility(true);
 
   if (DEV_SERVER_URL) {
     sw.loadURL(`${DEV_SERVER_URL}/#/settings`);
@@ -56,7 +63,7 @@ export function createSettingsWindow(): void {
   }
 
   sw.on('closed', () => {
-    mainWindow.webContents.send('settings-window-visibility-changed', false);
+    notifyVisibility(false);
     mainState.settingsWindow = null;
   });
 }

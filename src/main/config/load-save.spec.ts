@@ -26,6 +26,9 @@ function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ],
     currentWorkspaceId: 'ws-a',
     lastActiveConversationByWorkspaceId: { 'ws-a': 'conv-a' },
+    workspaceMonacoScrollByWorkspaceId: {
+      'ws-a': { 'src/a.ts': { scrollTop: 120, scrollLeft: 0 } },
+    },
     chatFontSizeRem: 1.1,
     ...overrides,
   };
@@ -45,6 +48,9 @@ describe('mergeSettingsConfigSave', () => {
     expect(merged.workspaces).toEqual(disk.workspaces);
     expect(merged.currentWorkspaceId).toBe('ws-a');
     expect(merged.lastActiveConversationByWorkspaceId).toEqual({ 'ws-a': 'conv-a' });
+    expect(merged.workspaceMonacoScrollByWorkspaceId).toEqual({
+      'ws-a': { 'src/a.ts': { scrollTop: 120, scrollLeft: 0 } },
+    });
     expect(merged.chatFontSizeRem).toBe(1.4);
   });
 });

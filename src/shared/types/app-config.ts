@@ -433,6 +433,66 @@ export function normalizeMonacoWorkspaceEditorSettings(raw: unknown): {
   return { settings, migrated };
 }
 
+/** Scroll position for one workspace Monaco file tab (client-only). */
+export interface WorkspaceMonacoEditorScrollState {
+  scrollTop: number;
+  scrollLeft: number;
+}
+
+/** Per-workspace Monaco scroll positions keyed by workspace-relative file path. */
+export type WorkspaceMonacoScrollByWorkspaceId = Record<
+  string,
+  Record<string, WorkspaceMonacoEditorScrollState>
+>;
+
+/** Coerce unknown persisted scroll JSON; drops invalid entries. */
+export function normalizeWorkspaceMonacoScrollByWorkspaceId(raw: unknown): {
+  scrollByWorkspaceId: WorkspaceMonacoScrollByWorkspaceId;
+  migrated: boolean;
+} {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { scrollByWorkspaceId: {}, migrated: raw != null };
+  }
+  const scrollByWorkspaceId: WorkspaceMonacoScrollByWorkspaceId = {};
+  let migrated = false;
+  for (const [workspaceId, pathsRaw] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+      migrated = true;
+      continue;
+    }
+    if (!pathsRaw || typeof pathsRaw !== 'object' || Array.isArray(pathsRaw)) {
+      migrated = true;
+      continue;
+    }
+    const paths: Record<string, WorkspaceMonacoEditorScrollState> = {};
+    for (const [relativePath, scrollRaw] of Object.entries(pathsRaw as Record<string, unknown>)) {
+      if (typeof relativePath !== 'string' || !relativePath.trim()) {
+        migrated = true;
+        continue;
+      }
+      if (!scrollRaw || typeof scrollRaw !== 'object' || Array.isArray(scrollRaw)) {
+        migrated = true;
+        continue;
+      }
+      const scrollTop = (scrollRaw as { scrollTop?: unknown }).scrollTop;
+      const scrollLeft = (scrollRaw as { scrollLeft?: unknown }).scrollLeft;
+      if (typeof scrollTop !== 'number' || Number.isNaN(scrollTop) || scrollTop < 0) {
+        migrated = true;
+        continue;
+      }
+      if (typeof scrollLeft !== 'number' || Number.isNaN(scrollLeft) || scrollLeft < 0) {
+        migrated = true;
+        continue;
+      }
+      paths[relativePath.replace(/\\/g, '/').trim()] = { scrollTop, scrollLeft };
+    }
+    if (Object.keys(paths).length > 0) {
+      scrollByWorkspaceId[workspaceId] = paths;
+    }
+  }
+  return { scrollByWorkspaceId, migrated };
+}
+
 /** Root persisted settings for the desktop app (config.json). */
 export interface AppConfig {
   /**
@@ -466,4 +526,6 @@ export interface AppConfig {
   chatSidebarWidthPercent?: number;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
+  /** Per-workspace Monaco scroll positions for open file tabs (client-only). */
+  workspaceMonacoScrollByWorkspaceId?: WorkspaceMonacoScrollByWorkspaceId;
 }

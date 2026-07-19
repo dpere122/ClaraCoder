@@ -1,7 +1,13 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import path = require('path');
 import { randomUUID } from 'crypto';
-import type { AppConfig, HealthMonitorConfig, Workspace, WorkspaceContextSyncExtras } from '../../../shared';
+import type {
+  AppConfig,
+  HealthMonitorConfig,
+  Workspace,
+  WorkspaceContextSyncExtras,
+  WorkspaceMonacoEditorScrollState,
+} from '../../../shared';
 import { findLlmModelLocation } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
@@ -54,6 +60,47 @@ export function registerConfigWorkspacesIpc(): void {
   });
 
   ipcMain.handle('get-workspace-monaco-unsaved-paths', () => [...(mainState.monacoWorkspaceUnsavedPaths ?? [])]);
+
+  ipcMain.handle(
+    'patch-workspace-monaco-scroll',
+    async (
+      _event,
+      workspaceId: string,
+      relativePath: string,
+      scroll: WorkspaceMonacoEditorScrollState | null,
+    ) => {
+      const wsId = typeof workspaceId === 'string' ? workspaceId.trim() : '';
+      const rel = typeof relativePath === 'string' ? relativePath.replace(/\\/g, '/').trim() : '';
+      if (!wsId || !rel) {
+        return;
+      }
+      const scrollTop = scroll?.scrollTop;
+      const scrollLeft = scroll?.scrollLeft;
+      const validScroll =
+        scroll != null &&
+        typeof scrollTop === 'number' &&
+        !Number.isNaN(scrollTop) &&
+        scrollTop >= 0 &&
+        typeof scrollLeft === 'number' &&
+        !Number.isNaN(scrollLeft) &&
+        scrollLeft >= 0;
+      await updateConfig((cfg) => {
+        const byWs = { ...(cfg.workspaceMonacoScrollByWorkspaceId ?? {}) };
+        const wsScroll = { ...(byWs[wsId] ?? {}) };
+        if (!validScroll) {
+          delete wsScroll[rel];
+        } else {
+          wsScroll[rel] = { scrollTop, scrollLeft };
+        }
+        if (Object.keys(wsScroll).length === 0) {
+          delete byWs[wsId];
+        } else {
+          byWs[wsId] = wsScroll;
+        }
+        cfg.workspaceMonacoScrollByWorkspaceId = byWs;
+      });
+    },
+  );
 
   ipcMain.handle('get-recent-conversations', (_event, limit: number) => getRecentConversations(limit));
 

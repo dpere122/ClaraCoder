@@ -308,6 +308,11 @@ declare global {
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
     setLastActiveConversation: (workspaceKey: string, conversationId: string) => Promise<AppConfig>;
+    patchWorkspaceMonacoScroll: (
+      workspaceId: string,
+      relativePath: string,
+      scroll: { scrollTop: number; scrollLeft: number } | null,
+    ) => Promise<void>;
     setActiveLlmModel: (modelId: string) => Promise<AppConfig>;
     patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => Promise<AppConfig>;
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;

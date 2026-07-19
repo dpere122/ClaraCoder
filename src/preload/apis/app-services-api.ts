@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron';
-import type { AppConfig, HealthMonitorConfig } from '../../shared';
+import type { AppConfig, HealthMonitorConfig, WorkspaceMonacoEditorScrollState } from '../../shared';
 
 /** App config, window chrome, scripts, and LLM server IPC. */
 export const appServicesApi = {
@@ -8,6 +8,11 @@ export const appServicesApi = {
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
   setLastActiveConversation: (workspaceKey: string, conversationId: string) =>
     ipcRenderer.invoke('set-last-active-conversation', workspaceKey, conversationId),
+  patchWorkspaceMonacoScroll: (
+    workspaceId: string,
+    relativePath: string,
+    scroll: WorkspaceMonacoEditorScrollState | null,
+  ) => ipcRenderer.invoke('patch-workspace-monaco-scroll', workspaceId, relativePath, scroll),
   setActiveLlmModel: (modelId: string) => ipcRenderer.invoke('set-active-llm-model', modelId),
   patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => ipcRenderer.invoke('patch-health-monitor', patch),
   onConfigUpdated: (callback: (event: unknown, config: unknown) => void) => ipcRenderer.on('config-updated', callback),

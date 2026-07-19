@@ -128,6 +128,7 @@ function stubElectronApi(): StubRefs {
     loadConfig: async () => ({ ...defaultConfig }),
     saveConfig: async (c: unknown) => c as typeof defaultConfig,
     setLastActiveConversation: async (_workspaceKey: string, _conversationId: string) => ({ ...defaultConfig }),
+    patchWorkspaceMonacoScroll: async () => {},
     setActiveLlmModel: async (_modelId: string) => ({ ...defaultConfig }),
     patchHealthMonitor: async (patch: { logLevel?: string; metricsEnabled?: boolean }) => ({
       ...defaultConfig,

@@ -22,6 +22,7 @@ import {
   isLegacyLlamaCppManagedShape,
   migrateLegacyLlamaCppManagedToCommands,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWorkspaceMonacoScrollByWorkspaceId,
   getDefaultContextCompression,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
@@ -915,6 +916,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const scrollNorm = normalizeWorkspaceMonacoScrollByWorkspaceId(
+    (newConfig as AppConfig).workspaceMonacoScrollByWorkspaceId,
+  );
+  if (scrollNorm.migrated) {
+    (newConfig as AppConfig).workspaceMonacoScrollByWorkspaceId = scrollNorm.scrollByWorkspaceId;
+    migrated = true;
+  }
+
   const hm = (newConfig as AppConfig & { healthMonitor?: HealthMonitorConfig }).healthMonitor;
   if (!hm || typeof hm !== 'object') {
     (newConfig as AppConfig).healthMonitor = getDefaultHealthMonitor();
@@ -1070,6 +1079,7 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
     workspaces: disk.workspaces,
     currentWorkspaceId: disk.currentWorkspaceId,
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,
+    workspaceMonacoScrollByWorkspaceId: disk.workspaceMonacoScrollByWorkspaceId,
   };
 }
 

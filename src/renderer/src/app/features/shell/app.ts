@@ -277,6 +277,14 @@ export class App implements OnInit, OnDestroy {
     this.activeFileIsImage() ? null : this.activeModelKey(),
   );
 
+  protected readonly monacoActiveFileRelativePath = computed(() =>
+    this.activeFileIsImage() ? null : this.activeFileRelativePath(),
+  );
+
+  protected readonly monacoOpenFileRelativePaths = computed(() =>
+    this.openFileRelativePaths().filter((p) => !isViewableImagePath(p)),
+  );
+
   /** Model keys for build-plan tabs that should open in preview-only mode. */
   protected readonly monacoForcePreviewKeys = computed(() => {
     const keys = new Set<string>();
@@ -289,6 +297,15 @@ export class App implements OnInit, OnDestroy {
       }
     }
     return keys;
+  });
+
+  /** Persisted Monaco scroll positions for the active workspace. */
+  protected readonly workspaceMonacoScrollByPath = computed(() => {
+    const wsId = this.currentWorkspaceId();
+    if (!wsId) {
+      return {};
+    }
+    return this.appConfig()?.workspaceMonacoScrollByWorkspaceId?.[wsId] ?? {};
   });
 
   /** Latest pending file diff for the currently focused editor tab (Monaco inline review). */

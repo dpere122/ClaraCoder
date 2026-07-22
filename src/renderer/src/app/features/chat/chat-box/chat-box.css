@@ -543,6 +543,10 @@ app-chat-box .empty-state {
   font-size: 0.85rem;
 }
 
+.tui-frame-bar {
+  display: none;
+}
+
 /* Auxiliary reasoning stream (distinct from tool delegated blocks). */
 app-chat-box .llm-reasoning-panel {
   margin-top: 0.15rem;

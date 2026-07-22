@@ -206,6 +206,7 @@ export function createDefaultConfig(): AppConfig {
     healthMonitor: getDefaultHealthMonitor(),
     modelManager: getDefaultModelManagerConfig(),
     chatFontSizeRem: 0.9,
+    uiFontSizeRem: 1.1,
     chatSidebarWidthPercent: 0.75,
     uiFontFamily: '',
     codeFontFamily: '',

@@ -46,6 +46,11 @@ import {
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
   UI_FONT_FAMILY_OPTIONS,
+  UI_FONT_SIZE_REM_DEFAULT,
+  UI_FONT_SIZE_REM_MAX,
+  UI_FONT_SIZE_REM_MIN,
+  UI_FONT_SIZE_REM_STEP,
+  clampUiFontSizeRem,
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
   GEMMA_PRESET_DEFAULTS,
@@ -202,7 +207,7 @@ export class Settings implements OnInit, OnDestroy {
       {
         id: 'chat',
         label: 'Chat appearance',
-        description: 'Font size, app-wide UI font, and code font for message text in the chat area.',
+        description: 'App UI scale, chat font size, app-wide UI font, and code font for message text.',
       },
     ],
     tools: [
@@ -314,6 +319,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly talkAudioInputDevices = signal<TalkAudioInputDevice[]>([]);
   protected readonly talkAudioInputsLoadError = signal('');
   protected readonly chatFontSizeRem = signal(0.9);
+  protected readonly uiFontSizeRem = signal(UI_FONT_SIZE_REM_DEFAULT);
   /** App-wide UI font override (CSS font-family value); empty = theme default. */
   protected readonly uiFontFamily = signal('');
   /** Code font override (CSS font-family value); empty = theme default. Overrides Monaco's own fontFamily. */
@@ -349,6 +355,10 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerMigratingPath = signal<string | null>(null);
   protected readonly modelManagerMigrateProgress = signal<ModelManagerMigrateProgressPayload | null>(null);
   private migrateProgressUnsub: (() => void) | null = null;
+  protected readonly uiFontSizeRemMin = UI_FONT_SIZE_REM_MIN;
+  protected readonly uiFontSizeRemMax = UI_FONT_SIZE_REM_MAX;
+  protected readonly uiFontSizeRemDefault = UI_FONT_SIZE_REM_DEFAULT;
+  protected readonly uiFontSizeRemStep = UI_FONT_SIZE_REM_STEP;
   protected readonly selectedLocation = computed(() => {
     const modelId = this.selectedModelId();
     if (!modelId) {
@@ -505,7 +515,7 @@ export class Settings implements OnInit, OnDestroy {
     switch (tab) {
       case 'general':
         if (id === 'chat') {
-          return `${this.chatFontSizeRem()}rem`;
+          return `UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
         }
         break;
       case 'tools':
@@ -1470,17 +1480,36 @@ export class Settings implements OnInit, OnDestroy {
     this.markSettingsDirty();
   }
 
+  protected onUiFontSizeRemChange(rem: number): void {
+    const clamped = clampUiFontSizeRem(rem);
+    this.uiFontSizeRem.set(clamped);
+    applyAppFontOverrides({
+      uiFontSizeRem: clamped,
+      uiFontFamily: this.uiFontFamily(),
+      codeFontFamily: this.codeFontFamily(),
+    });
+    this.markSettingsDirty();
+  }
+
   /** App-wide UI font (everything except Monaco + rendered code blocks). Applies live in this window. */
   protected onUiFontFamilyChange(stack: string): void {
     this.uiFontFamily.set(stack ?? '');
-    applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
+    applyAppFontOverrides({
+      uiFontSizeRem: this.uiFontSizeRem(),
+      uiFontFamily: this.uiFontFamily(),
+      codeFontFamily: this.codeFontFamily(),
+    });
     this.markSettingsDirty();
   }
 
   /** Code font: rendered markdown code blocks + overrides the Monaco editor's own fontFamily. */
   protected onCodeFontFamilyChange(stack: string): void {
     this.codeFontFamily.set(stack ?? '');
-    applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
+    applyAppFontOverrides({
+      uiFontSizeRem: this.uiFontSizeRem(),
+      uiFontFamily: this.uiFontFamily(),
+      codeFontFamily: this.codeFontFamily(),
+    });
     this.markSettingsDirty();
   }
 
@@ -1868,6 +1897,7 @@ export class Settings implements OnInit, OnDestroy {
     return {
       ...base,
       chatFontSizeRem: this.chatFontSizeRem(),
+      uiFontSizeRem: this.uiFontSizeRem(),
       uiFontFamily: this.uiFontFamily(),
       codeFontFamily: this.codeFontFamily(),
       workspaces: this.workspaces(),
@@ -1971,9 +2001,14 @@ export class Settings implements OnInit, OnDestroy {
       this.chatFontSizeRem.set(
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
       );
+      this.uiFontSizeRem.set(clampUiFontSizeRem(config.uiFontSizeRem));
       this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
       this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');
-      applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
+      applyAppFontOverrides({
+        uiFontSizeRem: this.uiFontSizeRem(),
+        uiFontFamily: this.uiFontFamily(),
+        codeFontFamily: this.codeFontFamily(),
+      });
       this.monacoWorkspaceEditor.set(
         normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
       );
@@ -2012,9 +2047,14 @@ export class Settings implements OnInit, OnDestroy {
     this.chatFontSizeRem.set(
       typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
     );
+    this.uiFontSizeRem.set(clampUiFontSizeRem(config.uiFontSizeRem));
     this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
     this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');
-    applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
+    applyAppFontOverrides({
+      uiFontSizeRem: this.uiFontSizeRem(),
+      uiFontFamily: this.uiFontFamily(),
+      codeFontFamily: this.codeFontFamily(),
+    });
 
     this.monacoWorkspaceEditor.set(
       normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,

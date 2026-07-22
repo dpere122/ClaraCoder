@@ -30,16 +30,19 @@
     </select>
     <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
   </div>
-  <input
-    #messageInput
-    type="text"
-    class="form-control"
-    [ngModel]="userInput()"
-    (ngModelChange)="userInput.set($event)"
-    (keydown.enter)="send()"
-    [disabled]="contextBlocked()"
-    [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
-  />
+  <div class="composer-input-wrap">
+    <span class="composer-prompt" aria-hidden="true">&gt;</span>
+    <input
+      #messageInput
+      type="text"
+      class="form-control"
+      [ngModel]="userInput()"
+      (ngModelChange)="userInput.set($event)"
+      (keydown.enter)="send()"
+      [disabled]="contextBlocked()"
+      [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
+    />
+  </div>
   @if (loading()) {
     <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">
       <lucide-icon name="square" [size]="16" class="stop-icon"></lucide-icon>

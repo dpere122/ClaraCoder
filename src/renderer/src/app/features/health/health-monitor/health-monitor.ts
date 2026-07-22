@@ -10,7 +10,7 @@ import {
 import Chart from 'chart.js/auto';
 import type { AppConfig, HealthMetricsSnapshot } from '@shared/index';
 import { THEMES } from '../../layout/theme-selector/theme-selector';
-import { resolveAppThemeId } from '../../shell/app-theme';
+import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme';
 import { ElectronService } from '../../../core/electron.service';
 import { HealthLogViewer } from '../health-log-viewer/health-log-viewer';
 import { HealthMetricsToggle } from '../health-metrics-toggle/health-metrics-toggle';
@@ -127,6 +127,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
 
   private syncFromConfig(config: AppConfig): void {
     this.applyTheme(config);
+    applyAppFontOverrides(config);
     this.syncMetricsEnabled(config.healthMonitor.metricsEnabled);
     this.refreshChartColors();
   }

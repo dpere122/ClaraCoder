@@ -15,6 +15,22 @@
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
       >
         @if (slot.row.kind === 'user') {
+          <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--user" aria-hidden="true">
+            <span class="tui-frame-bar__corner">┌</span>
+            <span class="tui-frame-bar__label">─ USER ─</span>
+            <span class="tui-frame-bar__fill"></span>
+            <span class="tui-frame-bar__corner">┐</span>
+          </div>
+        } @else {
+          <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara" aria-hidden="true">
+            <span class="tui-frame-bar__corner">┌</span>
+            <span class="tui-frame-bar__label">─ CLARA ─</span>
+            <span class="tui-frame-bar__fill"></span>
+            <span class="tui-frame-bar__corner">┐</span>
+          </div>
+        }
+        <div class="tui-frame-bar__body">
+        @if (slot.row.kind === 'user') {
           @let userImages = userImageUrls(slot.row.msg);
           @let userFiles = userAttachedFiles(slot.row.msg);
           @if (userImages.length || userFiles.length) {
@@ -96,11 +112,38 @@
             }
           }
         }
+        </div>
+        @if (slot.row.kind === 'user') {
+          <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user" aria-hidden="true">
+            <span class="tui-frame-bar__corner">└</span>
+            <span class="tui-frame-bar__fill"></span>
+            <span class="tui-frame-bar__corner">┘</span>
+          </div>
+        } @else {
+          <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">
+            <span class="tui-frame-bar__corner">└</span>
+            <span class="tui-frame-bar__fill"></span>
+            <span class="tui-frame-bar__corner">┘</span>
+          </div>
+        }
       </div>
     </div>
     </div>
   } @empty {
-    <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
+    <div class="empty-state-wrap">
+      <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--input" aria-hidden="true">
+        <span class="tui-frame-bar__corner">┌</span>
+        <span class="tui-frame-bar__label">─ AWAITING INPUT ─</span>
+        <span class="tui-frame-bar__fill"></span>
+        <span class="tui-frame-bar__corner">┐</span>
+      </div>
+      <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
+      <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--input" aria-hidden="true">
+        <span class="tui-frame-bar__corner">└</span>
+        <span class="tui-frame-bar__fill"></span>
+        <span class="tui-frame-bar__corner">┘</span>
+      </div>
+    </div>
   }
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().bottomSpacer" aria-hidden="true"></div>
   @if (liveTurn(); as liveTurn) {
@@ -109,6 +152,13 @@
         class="msg-bubble assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
+        <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara" aria-hidden="true">
+          <span class="tui-frame-bar__corner">┌</span>
+          <span class="tui-frame-bar__label">─ CLARA ─</span>
+          <span class="tui-frame-bar__fill"></span>
+          <span class="tui-frame-bar__corner">┐</span>
+        </div>
+        <div class="tui-frame-bar__body">
         @if (showLiveAuxiliaryPanel() || liveHitlArtifacts().length > 0) {
           <div aria-live="polite">
             <app-auxiliary-stream-panel
@@ -172,6 +222,12 @@
             <span class="processing-text">{{ processingBubbleLabel() }}</span>
           </div>
         }
+        </div>
+        <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">
+          <span class="tui-frame-bar__corner">└</span>
+          <span class="tui-frame-bar__fill"></span>
+          <span class="tui-frame-bar__corner">┘</span>
+        </div>
       </div>
     </div>
   }

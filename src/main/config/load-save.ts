@@ -797,6 +797,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const ufs = (newConfig as AppConfig).uiFontSizeRem;
+  if (typeof ufs !== 'number' || Number.isNaN(ufs) || ufs < 0.8 || ufs > 1.4) {
+    (newConfig as AppConfig).uiFontSizeRem = 1.1;
+    migrated = true;
+  }
+
   const csw = (newConfig as AppConfig).chatSidebarWidthPercent;
   if (typeof csw !== 'number' || Number.isNaN(csw) || csw < 0.05 || csw > 0.95) {
     (newConfig as AppConfig).chatSidebarWidthPercent = 0.75;

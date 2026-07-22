@@ -25,7 +25,7 @@
             } @else if (tab.id === 'modelManager') {
               {{ modelManagerCustomModels().length }} local models
             } @else if (tab.id === 'general') {
-              {{ chatFontSizeRem() | number: '1.1-1' }} rem
+              UI {{ uiFontSizeRem() | number: '1.1-1' }} rem
             } @else if (tab.id === 'tools') {
               {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
@@ -99,6 +99,20 @@
             @if (activeSubTabId('general') === 'chat') {
               <div class='form-section'>
                 <div class='form-grid'>
+                  <div
+                    class='field settings-general-font'
+                    title='Scales rem-based app UI text — sidebar, toolbar, dialogs, and settings. Does not change Monaco or the terminal.'
+                  >
+                    <span>App font size</span>
+                    <app-font-control
+                      [fontSize]='uiFontSizeRem()'
+                      [minSize]='uiFontSizeRemMin'
+                      [maxSize]='uiFontSizeRemMax'
+                      [step]='uiFontSizeRemStep'
+                      [defaultSize]='uiFontSizeRemDefault'
+                      (fontSizeChange)='onUiFontSizeRemChange($event)'
+                    />
+                  </div>
                   <div
                     class='field settings-general-font'
                     title='Font size for message text in the chat area.'

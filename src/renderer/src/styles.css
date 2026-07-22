@@ -1,7 +1,8 @@
 /*
  * `--t-font-ui-override` / `--t-font-code-override` are NOT declared here. They're optional
  * inline properties set on `documentElement.style` by `applyAppFontOverrides()` (app-theme.ts)
- * from the Settings → General "App font" / "Code font" pickers. Consumers reference them as
+ * from Settings → General "App font" / "Code font" pickers. Root `html` font-size is scaled there
+ * too from `uiFontSizeRem`. Consumers reference them as
  * `var(--t-font-ui-override, var(--t-font))` / `var(--t-font-code-override, <default stack>)`
  * so they fall through to the theme's own font when unset.
  */
@@ -258,7 +259,72 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-log-level-warning: #d4a84b;
 }
 
-/* Deep navy boot-screen chrome, electric cyan-blue highlights — PS2-era console UI */
+.theme-clara-tui {
+  --t-bg: #2b2938;
+  --t-bg-surface: #3f3d56;
+  --t-bg-deep: #252334;
+  --t-panel: #353348;
+  --t-primary: #f8f9fa;
+  --t-secondary: #00b4d8;
+  --t-fg: #f8f9fa;
+  --t-border: #00b4d840;
+  --t-border-subtle: #00b4d824;
+  --t-glow: #00b4d820;
+  --t-glow-soft: #00b4d810;
+  --t-hover-bg: rgba(0, 180, 216, 0.08);
+  --t-active-bg: rgba(0, 180, 216, 0.12);
+  --t-selection-bg: rgba(0, 180, 216, 0.28);
+  --t-text-muted: #a8a6b8;
+  --t-muted: #a8a6b8;
+  --t-user-bg: #2a3348;
+  --t-user-fg: #eef6f8;
+  --t-user-border: #00b4d840;
+  --t-assistant-bg: #383452;
+  --t-assistant-fg: #f2eff8;
+  --t-assistant-border: #b19cd940;
+  --t-code-bg: #252334;
+  --t-code-inline-bg: #32304a;
+  --t-code-text: #e8ecf0;
+  --t-input-bg: #252334;
+  --t-input-fg: #f8f9fa;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-titlebar-start: #3f3d56;
+  --t-titlebar-end: #2b2938;
+  --t-titlebar-text: #f8f9fa;
+  --t-edge-light: #00b4d8;
+  --t-edge-mid: #007a94;
+  --t-edge-dark: #3f3d56;
+  --t-edge-darkest: #2b2938;
+  --t-process-a: #00b4d8;
+  --t-process-b: #b19cd9;
+  --t-process-c: #48cae4;
+  --t-run-command-tab: #00b4d8;
+  --t-hljs-keyword: #00b4d8;
+  --t-hljs-string: #b19cd9;
+  --t-hljs-number: #48cae4;
+  --t-hljs-comment: #8a8898;
+  --t-hljs-function: #90e0ef;
+  --t-hljs-class: #00b4d8;
+  --t-hljs-attr: #b19cd9;
+  --t-hljs-params: #e8ecf0;
+  --t-hljs-property: #90e0ef;
+  --t-hljs-punctuation: #a8a6b8;
+  --t-hljs-operator: #00b4d8;
+  --t-hljs-meta: #48cae4;
+  --t-hljs-tag: #00b4d8;
+  --t-hljs-name: #90e0ef;
+  --t-hljs-symbol: #48cae4;
+  --t-hljs-selector: #b19cd9;
+  --t-log-level-error: #e07a7a;
+  --t-log-level-warning: #d4a84b;
+  --t-tui-frame: #00b4d855;
+  --t-tui-label: #00b4d8;
+  --t-tui-user-frame: #00b4d855;
+  --t-tui-clara-frame: #b19cd955;
+  --t-tui-input-frame: #00b4d848;
+}
+
+/* Deep Indigo foundation, Clarity Cyan precision, Electric Violet spark — Luminous Clarity */
 
 /* Olive drab metal, amber HUD highlights, shield cyan — Halo 3-era sci‑fi military UI */
 
@@ -820,6 +886,374 @@ html.theme-woodland app-message-box .composer-mode-select {
 html.theme-woodland app-message-box .composer-mode-select option {
   background-color: var(--t-input-bg);
   color: var(--t-input-fg);
+}
+
+/* ── Clara TUI: ASCII-framed chat + terminal composer ── */
+html.theme-clara-tui app-chat-box .chat-row-mount {
+  width: 100%;
+  max-width: 100%;
+}
+
+html.theme-clara-tui app-chat-box .chat-box {
+  border: none;
+  background-color: var(--t-bg);
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+html.theme-clara-tui app-chat-box .chat-row {
+  margin-bottom: 0 !important;
+  width: 100%;
+}
+
+html.theme-clara-tui app-chat-box .chat-row.d-flex {
+  display: block;
+}
+
+html.theme-clara-tui app-chat-box .chat-row .msg-bubble,
+html.theme-clara-tui app-chat-box .user-bubble,
+html.theme-clara-tui app-chat-box .assistant-bubble {
+  width: 100%;
+  max-width: 100%;
+}
+
+html.theme-clara-tui app-chat-box .assistant-turn-bubble {
+  gap: 0.1rem;
+}
+
+html.theme-clara-tui app-chat-box .msg-bubble {
+  border: none;
+  border-radius: 0;
+  margin: 0.05rem 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  box-shadow: none;
+}
+
+html.theme-clara-tui app-chat-box .user-bubble {
+  background-color: var(--t-user-bg);
+  color: var(--t-user-fg);
+  border: none;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble {
+  background-color: var(--t-assistant-bg);
+  color: var(--t-assistant-fg);
+  border: none;
+}
+
+html.theme-clara-tui .tui-frame-bar {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  font-family: var(--t-font);
+  font-size: 0.72rem;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+html.theme-clara-tui .tui-frame-bar--top {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
+html.theme-clara-tui .tui-frame-bar--bottom {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+html.theme-clara-tui .tui-frame-bar--user {
+  color: var(--t-tui-user-frame);
+}
+
+html.theme-clara-tui .tui-frame-bar--clara {
+  color: var(--t-tui-clara-frame);
+}
+
+html.theme-clara-tui .tui-frame-bar--input {
+  color: var(--t-tui-input-frame);
+}
+
+html.theme-clara-tui .tui-frame-bar__corner,
+html.theme-clara-tui .tui-frame-bar__fill,
+html.theme-clara-tui .tui-frame-bar__fill::before {
+  opacity: 0.42;
+}
+
+html.theme-clara-tui .tui-frame-bar__corner,
+html.theme-clara-tui .tui-frame-bar__label {
+  flex: 0 0 auto;
+}
+
+html.theme-clara-tui .tui-frame-bar__label {
+  letter-spacing: 0.06em;
+  opacity: 1;
+}
+
+html.theme-clara-tui .tui-frame-bar--user .tui-frame-bar__label {
+  color: #00b4d8;
+}
+
+html.theme-clara-tui .tui-frame-bar--clara .tui-frame-bar__label {
+  color: #b19cd9;
+}
+
+html.theme-clara-tui .tui-frame-bar--input .tui-frame-bar__label {
+  color: #00b4d8;
+}
+
+html.theme-clara-tui .tui-frame-bar__fill {
+  min-width: 0;
+  min-height: 1em;
+  overflow: hidden;
+  color: inherit;
+}
+
+html.theme-clara-tui .tui-frame-bar__fill::before {
+  content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
+  display: inline-block;
+  min-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: top;
+  line-height: 1;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+html.theme-clara-tui app-chat-box .tui-frame-bar__body,
+html.theme-clara-tui .chat-active-stack__composer .tui-frame-bar__body {
+  padding: 0.05rem 0.35rem;
+  min-width: 0;
+}
+
+html.theme-clara-tui app-chat-box .user-bubble::before,
+html.theme-clara-tui app-chat-box .assistant-bubble::before,
+html.theme-clara-tui app-chat-box .msg-bubble::after,
+html.theme-clara-tui app-chat-box .empty-state::before {
+  content: none;
+  display: none;
+}
+
+html.theme-clara-tui app-chat-box .user-attachment-image,
+html.theme-clara-tui app-chat-box .user-attachment-file {
+  border-radius: 0;
+  border: none;
+}
+
+html.theme-clara-tui app-chat-box .user-attachments {
+  gap: 0.15rem;
+  margin-bottom: 0.1rem;
+}
+
+html.theme-clara-tui app-chat-box .user-attachment-file {
+  padding: 0.05rem 0.15rem;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble h1,
+html.theme-clara-tui app-chat-box .assistant-bubble h2,
+html.theme-clara-tui app-chat-box .assistant-bubble h3,
+html.theme-clara-tui app-chat-box .assistant-bubble h4,
+html.theme-clara-tui app-chat-box .assistant-bubble h5,
+html.theme-clara-tui app-chat-box .assistant-bubble h6 {
+  text-shadow: none;
+  margin: 0.15em 0 0.05em;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble p {
+  margin: 0.15em 0;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble code {
+  border: none;
+  border-radius: 0;
+  padding: 0.05em 0.2em;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble pre {
+  border: none;
+  border-radius: 0;
+  margin: 0.15em 0;
+  padding: 0.15rem 0.25rem;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble blockquote {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  margin: 0.15em 0;
+  padding: 0 0 0 0.35rem;
+}
+
+html.theme-clara-tui app-chat-box .assistant-bubble hr {
+  border: none;
+  margin: 0.15em 0;
+}
+
+html.theme-clara-tui app-chat-box .processing-bubble,
+html.theme-clara-tui app-chat-box .tts-loading {
+  border: none;
+  gap: 0.15rem;
+  margin-top: 0.1rem;
+  padding-top: 0.1rem;
+}
+
+html.theme-clara-tui app-chat-box .empty-state-wrap {
+  margin: 0.1rem 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+html.theme-clara-tui app-chat-box .empty-state {
+  margin: 0;
+  padding: 0.05rem 0.35rem;
+  border: none;
+  color: var(--t-text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+html.theme-clara-tui .chat-active-stack__composer {
+  border: none;
+  margin: 0 0 0.05rem;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  background: var(--t-bg-deep);
+}
+
+html.theme-clara-tui .chat-active-stack__composer::before {
+  content: none;
+  display: none;
+}
+
+html.theme-clara-tui .chat-active-stack__composer-input {
+  padding: 0;
+  gap: 0.1rem;
+}
+
+html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-panel__toggle,
+html.theme-clara-tui app-hitl-trail-panel .stream-trail-panel__toggle {
+  border: none;
+  padding: 0 0 0.05rem;
+}
+
+html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row,
+html.theme-clara-tui app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
+  border: none;
+}
+
+html.theme-clara-tui app-chat-box .llm-reasoning-panel {
+  border: none;
+  border-radius: 0;
+  margin-top: 0.05rem;
+  padding: 0.1rem 0.15rem;
+  background-color: rgba(177, 156, 217, 0.06);
+}
+
+html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-panel,
+html.theme-clara-tui app-hitl-trail-panel .stream-trail-panel {
+  margin-top: 0.05rem;
+  margin-bottom: 0.05rem;
+}
+
+html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-panel {
+  background-color: rgba(0, 180, 216, 0.04);
+}
+
+html.theme-clara-tui app-hitl-trail-panel .stream-trail-panel {
+  background-color: rgba(177, 156, 217, 0.05);
+}
+
+html.theme-clara-tui app-chat-context-bar .chat-context-bar {
+  padding: 0.05rem 0;
+}
+
+html.theme-clara-tui app-chat-context-bar .chat-context-chip {
+  padding: 0.05rem 0.15rem;
+}
+
+html.theme-clara-tui app-message-box .talk-status {
+  padding: 0.05rem 0.1rem;
+  margin-bottom: 0.05rem;
+}
+
+html.theme-clara-tui app-message-box .composer-prompt {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 0.05rem 0 0.1rem;
+  color: var(--t-secondary);
+  font-family: var(--t-font);
+  font-size: 0.9rem;
+  user-select: none;
+}
+
+html.theme-clara-tui app-message-box .composer-input-wrap .form-control {
+  border: none;
+  font-family: var(--t-font);
+  background-color: var(--t-input-bg);
+  box-shadow: none;
+}
+
+html.theme-clara-tui app-message-box .composer-input-wrap .form-control:focus {
+  border: none;
+  box-shadow: none;
+}
+
+html.theme-clara-tui app-message-box .input-group .btn-voice,
+html.theme-clara-tui app-message-box .input-group .composer-mode-select,
+html.theme-clara-tui app-message-box .input-group .form-control,
+html.theme-clara-tui app-message-box .input-group .btn,
+html.theme-clara-tui app-message-box .input-group .btn-abort {
+  border: none;
+  padding: 0.1rem 0.25rem;
+}
+
+html.theme-clara-tui app-message-box .input-group .composer-mode-select {
+  padding: 0.1rem 0.85rem 0.1rem 0.2rem;
+}
+
+html.theme-clara-tui app-message-box .input-group .btn-voice:hover,
+html.theme-clara-tui app-message-box .input-group .composer-mode-select:hover,
+html.theme-clara-tui app-message-box .input-group .btn:hover {
+  border: none;
+  background-color: var(--t-hover-bg);
+}
+
+html.theme-clara-tui app-message-box .input-group .btn-voice--active {
+  border: none;
+  box-shadow: none;
+}
+
+html.theme-clara-tui app-message-box .composer-mode-select {
+  color-scheme: dark;
+}
+
+html.theme-clara-tui app-message-box .composer-mode-select option {
+  background-color: var(--t-input-bg);
+  color: var(--t-input-fg);
+}
+
+html.theme-clara-tui .chat-active-stack__status {
+  border: none;
+}
+
+/* ASCII pseudo-elements provide frame lines; strip all other CSS borders in chat + composer. */
+html.theme-clara-tui app-chat-box *,
+html.theme-clara-tui app-chat-box *::before,
+html.theme-clara-tui app-chat-box *::after,
+html.theme-clara-tui .chat-active-stack__composer,
+html.theme-clara-tui .chat-active-stack__composer *,
+html.theme-clara-tui .chat-active-stack__composer *::before,
+html.theme-clara-tui .chat-active-stack__composer *::after,
+html.theme-clara-tui .chat-active-stack__status,
+html.theme-clara-tui .chat-active-stack__status * {
+  border: none !important;
+  box-shadow: none !important;
 }
 
 @media (max-width: 1100px) {

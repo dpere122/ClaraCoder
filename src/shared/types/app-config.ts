@@ -116,6 +116,18 @@ export const TTS_SPEECH_SPEED_MIN = 0.5;
 export const TTS_SPEECH_SPEED_MAX = 2;
 export const TTS_SPEECH_SPEED_DEFAULT = 1;
 
+/** Bounds for Settings → General → app UI font size (scales `html` root; rem-based UI follows). */
+export const UI_FONT_SIZE_REM_MIN = 0.8;
+export const UI_FONT_SIZE_REM_MAX = 1.4;
+export const UI_FONT_SIZE_REM_DEFAULT = 1.1;
+export const UI_FONT_SIZE_REM_STEP = 0.1;
+
+/** Coerce persisted or live UI font size to the allowed rem multiplier range. */
+export function clampUiFontSizeRem(value: unknown): number {
+  const n = typeof value === 'number' && !Number.isNaN(value) ? value : UI_FONT_SIZE_REM_DEFAULT;
+  return Math.min(UI_FONT_SIZE_REM_MAX, Math.max(UI_FONT_SIZE_REM_MIN, +n.toFixed(1)));
+}
+
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
   provider: 'openai' | 'disabled' | 'google';
@@ -573,6 +585,11 @@ export interface AppConfig {
   modelManager: ModelManagerConfig;
   /** Chat message font size in `rem` (e.g. 0.9). Client-only UI preference. */
   chatFontSizeRem?: number;
+  /**
+   * App-wide UI text scale as a rem multiplier on the document root (e.g. 1.1 → 110% of browser default).
+   * Scales rem-based UI chrome; chat messages and Monaco keep their own size settings.
+   */
+  uiFontSizeRem?: number;
   /**
    * App-wide UI font family override (CSS `font-family` value). Empty/undefined = theme default.
    * Applies everywhere except the Monaco editor and rendered markdown code blocks (see {@link codeFontFamily}).

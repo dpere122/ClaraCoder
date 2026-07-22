@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
+    "font-list": "^2.1.0",
     "iconv-lite": "^0.6.3",
     "node-pty": "^1.1.0",
     "prettier": "^3.8.1",

@@ -1,4 +1,9 @@
-<div class='settings-shell'>
+<div class='settings-window'>
+  <header class='settings-top-bar' (dblclick)='onTopBarDoubleClick()'>
+    <h1 class='settings-top-bar__title'>&gt; Settings_</h1>
+  </header>
+
+  <div class='settings-shell'>
   <aside class='settings-nav'>
     <div class='settings-nav__header'>
       <p class='settings-eyebrow'>Configuration</p>
@@ -94,13 +99,58 @@
             @if (activeSubTabId('general') === 'chat') {
               <div class='form-section'>
                 <div class='form-grid'>
-                  <div class='field settings-general-font'>
+                  <div
+                    class='field settings-general-font'
+                    title='Font size for message text in the chat area.'
+                  >
                     <span>Chat font size</span>
                     <app-font-control
                       [fontSize]='chatFontSizeRem()'
                       (fontSizeChange)='onChatFontSizeRemChange($event)'
                     />
                   </div>
+                  <label
+                    class='field'
+                    title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
+                  >
+                    <span>App font</span>
+                    <select
+                      [ngModel]='uiFontFamily()'
+                      (ngModelChange)='onUiFontFamilyChange($event)'
+                    >
+                      @for (opt of uiFontFamilyOptions; track opt.stack) {
+                        <option [value]='opt.stack'>{{ opt.label }}</option>
+                      }
+                      @if (systemFontOptions().length > 0) {
+                        <optgroup label='System fonts'>
+                          @for (opt of systemFontOptions(); track opt.stack) {
+                            <option [value]='opt.stack'>{{ opt.label }}</option>
+                          }
+                        </optgroup>
+                      }
+                    </select>
+                  </label>
+                  <label
+                    class='field'
+                    title='Code font: applies to rendered code blocks in chat and overrides the font family set on the Monaco tab (Settings → Monaco → Typography) when not left on Theme default. Includes your OS-installed fonts under "System fonts".'
+                  >
+                    <span>Code font</span>
+                    <select
+                      [ngModel]='codeFontFamily()'
+                      (ngModelChange)='onCodeFontFamilyChange($event)'
+                    >
+                      @for (opt of codeFontFamilyOptions; track opt.stack) {
+                        <option [value]='opt.stack'>{{ opt.label }}</option>
+                      }
+                      @if (systemFontOptions().length > 0) {
+                        <optgroup label='System fonts'>
+                          @for (opt of systemFontOptions(); track opt.stack) {
+                            <option [value]='opt.stack'>{{ opt.label }}</option>
+                          }
+                        </optgroup>
+                      }
+                    </select>
+                  </label>
                 </div>
               </div>
             }
@@ -1889,24 +1939,13 @@
               <div class='form-section'>
                 <div class='form-grid'>
                   <label class='field'>
-                    <span>Global Theme</span>
-                    <select [ngModel]='themeId()' (ngModelChange)='onGlobalThemeChange($event)'>
+                    <span>Theme</span>
+                    <select [ngModel]='themeId()' (ngModelChange)='onThemeChange($event)'>
                       @for (theme of themes; track theme.id) {
                         <option [value]='theme.id'>{{ theme.label }}</option>
                       }
                     </select>
                   </label>
-                  <label class='field'>
-                    <span>No-Workspace Theme</span>
-                    <select [ngModel]='noWorkspaceThemeId()' (ngModelChange)='onNoWorkspaceThemeChange($event)'>
-                      @for (theme of themes; track theme.id) {
-                        <option [value]='theme.id'>{{ theme.label }}</option>
-                      }
-                    </select>
-                  </label>
-                </div>
-                <div class='callout'>
-                  <p>The active workspace can still override its own theme. These settings control the defaults the app falls back to.</p>
                 </div>
               </div>
             }
@@ -1943,15 +1982,6 @@
               </button>
 
               <div class='workspace-card__controls'>
-                <label class='field'>
-                  <span>Theme</span>
-                  <select [ngModel]='workspace.themeId' (ngModelChange)='onWorkspaceThemeChange(workspace.id, $event)'>
-                    @for (theme of themes; track theme.id) {
-                      <option [value]='theme.id'>{{ theme.label }}</option>
-                    }
-                  </select>
-                </label>
-
                 <button type='button' class='action-button action-button--danger' (click)='removeWorkspace(workspace.id)'>
                   <lucide-icon name='trash' [size]='16' />
                   Remove
@@ -1994,4 +2024,5 @@
     </button>
   </footer>
   <app-themed-confirm-dialog />
+  </div>
 </div>

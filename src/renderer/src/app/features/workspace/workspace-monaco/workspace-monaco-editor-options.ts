@@ -12,9 +12,13 @@ function fontSpecUsesCssVariables(spec: string): boolean {
  * Monaco measures glyph widths using the `fontFamily` string it is given. If we pass `var(--t-font-mono, …)`,
  * the string never changes when the shell theme switches, even though the **resolved** font (Georgia vs Cascadia, etc.)
  * does — hit-testing and selection then drift. Resolve theme vars to the browser's computed family before handing off.
+ *
+ * The Settings → General "Code font" picker sets `--t-font-code-override` and always takes priority over this
+ * per-editor `fontFamily` setting when present (it "overrides the Monaco editor font option", per design).
  */
 export function resolveMonacoWorkspaceFontFamily(s: MonacoWorkspaceEditorSettings): string {
-  const raw = s.fontFamily.trim() ? s.fontFamily.trim() : DEFAULT_MONO_FONT;
+  const perEditor = s.fontFamily.trim() ? s.fontFamily.trim() : DEFAULT_MONO_FONT;
+  const raw = `var(--t-font-code-override, ${perEditor})`;
   if (typeof document === 'undefined' || !fontSpecUsesCssVariables(raw)) {
     return raw;
   }

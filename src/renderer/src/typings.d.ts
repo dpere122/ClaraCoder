@@ -28,6 +28,7 @@ import type {
   LmStudioMutationResult,
   MaybeAutoTitleResult,
   PythonInterpreterListItem,
+  SystemFontInfo,
   TtsStreamPacket,
   Workspace,
   WorkspaceContextSyncExtras,
@@ -341,8 +342,7 @@ declare global {
     reportWorkspaceMonacoUnsavedPaths: (paths: string[]) => void;
     getCurrentWorkspace: () => Promise<Workspace | null>;
     setConversationTheme: (id: string, themeId: string) => Promise<void>;
-    setWorkspaceTheme: (workspaceId: string, themeId: string) => Promise<void>;
-    setNoWorkspaceTheme: (themeId: string) => Promise<void>;
+    setTheme: (themeId: string) => Promise<AppConfig>;
     getActiveConversationId: () => Promise<string | null>;
     onConfigUpdated: (callback: (event: unknown, config: AppConfig) => void) => void;
     onSettingsWindowVisibilityChanged: (callback: (event: unknown, isOpen: boolean) => void) => void;
@@ -524,6 +524,7 @@ declare global {
     windowClose: () => void;
     windowIsMaximized: () => Promise<boolean>;
     onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => void;
+    listSystemFonts: () => Promise<SystemFontInfo[]>;
   }
 
   interface Window {

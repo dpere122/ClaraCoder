@@ -66,7 +66,7 @@ import {
   markToolExecStreamComplete,
   upsertToolTrailStatusStreamPart,
 } from './app-stream-parts';
-import { applyAppTheme, resolveAppThemeId } from './app-theme';
+import { applyAppFontOverrides, applyAppTheme, resolveAppThemeId } from './app-theme';
 import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../status/context-capacity/context-capacity.utils';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
@@ -168,7 +168,6 @@ export class App implements OnInit, OnDestroy {
     const tokens = this.measuredPromptTokensByConversation()[id];
     return typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0 ? tokens : null;
   });
-  protected readonly settingsWindowOpen = signal(false);
   /** Main window zoom state (frameless window controls). */
   protected readonly windowMaximized = signal(false);
   /** In-flight tool call ids for the active conversation (drives processing-row spinner color). */
@@ -518,17 +517,13 @@ export class App implements OnInit, OnDestroy {
           ? Math.min(TTS_SPEECH_SPEED_MAX, Math.max(TTS_SPEECH_SPEED_MIN, sp))
           : TTS_SPEECH_SPEED_DEFAULT,
       );
-      // Resolve theme: workspace theme > noWorkspaceThemeId > dark
       applyAppTheme(resolveAppThemeId(config));
+      applyAppFontOverrides(config);
       this.workspaces.set(config.workspaces);
       this.currentWorkspaceId.set(config.currentWorkspaceId);
       if (this.pendingSidebarWidthPercent == null && this.resizing !== 'sidebar') {
         this.syncSidebarWidthFromEffectivePercent();
       }
-    });
-
-    this.electron.settingsWindowVisibility$.pipe(takeUntilDestroyed()).subscribe((isOpen) => {
-      this.settingsWindowOpen.set(isOpen);
     });
 
     this.electron.chunk$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, delta, streamTag }) => {
@@ -854,7 +849,6 @@ export class App implements OnInit, OnDestroy {
     this.workspaces.set(config.workspaces);
     this.currentWorkspaceId.set(config.currentWorkspaceId);
 
-    // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     applyAppTheme(resolveAppThemeId(config));
 
     if (this.electron.isElectron) {
@@ -1068,9 +1062,8 @@ export class App implements OnInit, OnDestroy {
     this.toolPhaseEngaged.set(false);
     this.streamingParts.set([]);
     this.streamingFinalText.set(undefined);
-    // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
-    applyAppTheme(resolveAppThemeId(config, workspaceId));
+    applyAppTheme(resolveAppThemeId(config));
     await this.refreshConversationList();
     await this.rememberLastActiveForWorkspace(conv);
     this.chatHubView.set('activeChat');
@@ -2021,9 +2014,8 @@ export class App implements OnInit, OnDestroy {
       this.streamingFinalText.set(undefined);
     }
 
-    // Resolve theme: workspace theme > noWorkspaceThemeId > dark
     const config = await this.electron.loadConfig();
-    applyAppTheme(resolveAppThemeId(config, workspaceId));
+    applyAppTheme(resolveAppThemeId(config));
     await this.rememberLastActiveForWorkspace(conv);
   }
 

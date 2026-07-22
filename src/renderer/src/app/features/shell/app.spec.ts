@@ -22,9 +22,8 @@ function stubElectronApi(): StubRefs {
   const defaultConfig = {
     currentWorkspaceId: null as string | null,
     lastActiveConversationByWorkspaceId: {} as Record<string, string>,
-    workspaces: [] as { id: string; name: string; path: string; themeId?: string }[],
+    workspaces: [] as { id: string; name: string; path: string }[],
     themeId: 'dark',
-    noWorkspaceThemeId: 'dark',
     activeLlmModelId: 'default-lmstudio',
     llmProviders: [
       {

@@ -21,7 +21,6 @@ function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         name: 'A',
         path: '/tmp/a',
         createdAt: '2026-01-01T00:00:00.000Z',
-        themeId: 'dark',
       },
     ],
     currentWorkspaceId: 'ws-a',
@@ -79,7 +78,6 @@ describe('updateConfig serialization', () => {
           name: 'B',
           path: '/tmp/b',
           createdAt: '2026-01-02T00:00:00.000Z',
-          themeId: 'dark',
         });
       }),
       updateConfig((cfg) => {

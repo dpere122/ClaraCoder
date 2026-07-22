@@ -1,11 +1,13 @@
 import { ipcRenderer } from 'electron';
-import type { AppConfig, HealthMonitorConfig, WorkspaceMonacoEditorScrollState } from '../../shared';
+import type { AppConfig, HealthMonitorConfig, SystemFontInfo, WorkspaceMonacoEditorScrollState } from '../../shared';
 
 /** App config, window chrome, scripts, and LLM server IPC. */
 export const appServicesApi = {
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
+  /** App-wide UI theme (single `AppConfig.themeId`, no per-workspace override). */
+  setTheme: (themeId: string) => ipcRenderer.invoke('set-theme', themeId),
   setLastActiveConversation: (workspaceKey: string, conversationId: string) =>
     ipcRenderer.invoke('set-last-active-conversation', workspaceKey, conversationId),
   patchWorkspaceMonacoScroll: (
@@ -51,6 +53,7 @@ export const appServicesApi = {
   windowToggleMaximize: () => ipcRenderer.send('window-toggle-maximize'),
   windowClose: () => ipcRenderer.send('window-close'),
   windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized') as Promise<boolean>,
+  listSystemFonts: () => ipcRenderer.invoke('list-system-fonts') as Promise<SystemFontInfo[]>,
   onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => {
     ipcRenderer.on('window-maximized-changed', (_event, maximized: boolean) => callback(maximized));
   },

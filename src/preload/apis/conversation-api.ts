@@ -1,6 +1,6 @@
 import { ipcRenderer } from 'electron';
 
-/** Conversation persistence and workspace theme IPC. */
+/** Conversation persistence IPC. */
 export const conversationApi = {
   getConversations: (workspaceId?: string | null) => ipcRenderer.invoke('get-conversations', workspaceId),
   readConversationFromDisk: (id: string, workspaceId?: string | null) =>
@@ -14,9 +14,6 @@ export const conversationApi = {
   maybeAutoTitleConversation: (id: string) => ipcRenderer.invoke('maybe-auto-title-conversation', id),
   newConversation: (workspaceId: string | null) => ipcRenderer.invoke('new-conversation', workspaceId),
   setConversationTheme: (id: string, themeId: string) => ipcRenderer.invoke('set-conversation-theme', id, themeId),
-  setWorkspaceTheme: (workspaceId: string, themeId: string) =>
-    ipcRenderer.invoke('set-workspace-theme', workspaceId, themeId),
-  setNoWorkspaceTheme: (themeId: string) => ipcRenderer.invoke('set-no-workspace-theme', themeId),
   getActiveConversationId: () => ipcRenderer.invoke('get-active-conversation-id'),
   onActiveConversationChanged: (callback: (event: unknown, conversationId: string) => void) =>
     ipcRenderer.on('active-conversation-changed', callback),

@@ -16,6 +16,7 @@ import { registerLlamaServerIpc } from './handlers/llama-server';
 import { registerLmStudioIpc } from './handlers/lm-studio';
 import { registerLspStatusIpc } from './handlers/lsp-status';
 import { registerModelManagerIpc } from './handlers/model-manager';
+import { registerListSystemFontsIpc } from './handlers/list-system-fonts';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -37,4 +38,5 @@ export function registerAllIpc(): void {
   registerWorkspaceEditorSnapshotIpc();
   registerHealthIpc();
   registerHealthWindowIpc();
+  registerListSystemFontsIpc();
 }

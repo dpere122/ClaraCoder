@@ -42,6 +42,7 @@ import type {
   BuildPlanStreamEndPayload,
   StagedTransferBatchPayload,
   PythonInterpreterListItem,
+  SystemFontInfo,
   TtsStreamPacket,
   Workspace,
   WorkspaceContextSyncExtras,
@@ -49,6 +50,40 @@ import type {
   WorkspaceFilesChangedMessage,
 } from '@shared/index';
 import { getDefaultContextCompression } from '@shared/index';
+
+/** Shape returned when `window.electronAPI` is unavailable (e.g. browser preview outside Electron). */
+const FALLBACK_APP_CONFIG: AppConfig = {
+  currentWorkspaceId: null,
+  workspaces: [],
+  themeId: 'dark',
+  activeLlmModelId: 'default-lmstudio',
+  llmProviders: [],
+  audioTranscription: {
+    provider: 'openai',
+    baseUrl: '',
+    model: 'gpt-4o-mini-transcribe',
+    apiKey: '',
+  },
+  workspaceTools: {
+    editToolsMode: 'standard',
+    maxFileReadLines: 400,
+    maxSearchResults: 40,
+    defaultWorkspaceEncoding: 'utf-8',
+    defaultWorkspaceNewline: 'lf',
+    allowStagingOverlayCommands: false,
+    exposeAllWorkspaceFiles: false,
+  },
+  contextCompression: getDefaultContextCompression(),
+  healthMonitor: {
+    logLevel: 'info',
+    metricsEnabled: false,
+  },
+  modelManager: {
+    customModelsDir: '',
+    huggingFaceToken: '',
+  },
+  chatSidebarWidthPercent: 0.75,
+};
 
 export interface ChunkMessage {
   conversationId: string;
@@ -1050,12 +1085,9 @@ export class ElectronService {
     return this.api?.setConversationTheme(id, themeId) ?? Promise.resolve();
   }
 
-  setWorkspaceTheme(workspaceId: string, themeId: string): Promise<void> {
-    return this.api?.setWorkspaceTheme(workspaceId, themeId) ?? Promise.resolve();
-  }
-
-  setNoWorkspaceTheme(themeId: string): Promise<void> {
-    return this.api?.setNoWorkspaceTheme(themeId) ?? Promise.resolve();
+  /** App-wide UI theme (single `AppConfig.themeId`, no per-workspace override). */
+  setTheme(themeId: string): Promise<AppConfig> {
+    return this.api?.setTheme(themeId) ?? Promise.resolve(structuredClone(FALLBACK_APP_CONFIG));
   }
 
   getActiveConversationId(): Promise<string | null> {
@@ -1063,39 +1095,7 @@ export class ElectronService {
   }
 
   loadConfig(): Promise<AppConfig> {
-    return this.api?.loadConfig() ?? Promise.resolve({
-      currentWorkspaceId: null,
-      workspaces: [],
-      themeId: 'dark',
-      noWorkspaceThemeId: 'dark',
-      activeLlmModelId: 'default-lmstudio',
-      llmProviders: [],
-      audioTranscription: {
-        provider: 'openai',
-        baseUrl: '',
-        model: 'gpt-4o-mini-transcribe',
-        apiKey: '',
-      },
-      workspaceTools: {
-        editToolsMode: 'standard',
-        maxFileReadLines: 400,
-        maxSearchResults: 40,
-        defaultWorkspaceEncoding: 'utf-8',
-        defaultWorkspaceNewline: 'lf',
-        allowStagingOverlayCommands: false,
-        exposeAllWorkspaceFiles: false,
-      },
-      contextCompression: getDefaultContextCompression(),
-      healthMonitor: {
-        logLevel: 'info',
-        metricsEnabled: false,
-      },
-      modelManager: {
-        customModelsDir: '',
-        huggingFaceToken: '',
-      },
-      chatSidebarWidthPercent: 0.75,
-    });
+    return this.api?.loadConfig() ?? Promise.resolve(structuredClone(FALLBACK_APP_CONFIG));
   }
 
   saveConfig(config: AppConfig): Promise<AppConfig> {
@@ -1105,38 +1105,7 @@ export class ElectronService {
   setLastActiveConversation(workspaceKey: string, conversationId: string): Promise<AppConfig> {
     return (
       this.api?.setLastActiveConversation(workspaceKey, conversationId) ??
-      Promise.resolve({
-        currentWorkspaceId: null,
-        workspaces: [],
-        themeId: 'dark',
-        noWorkspaceThemeId: 'dark',
-        activeLlmModelId: 'default-lmstudio',
-        llmProviders: [],
-        audioTranscription: {
-          provider: 'openai',
-          baseUrl: '',
-          model: 'gpt-4o-mini-transcribe',
-          apiKey: '',
-        },
-        workspaceTools: {
-          editToolsMode: 'standard',
-          maxFileReadLines: 400,
-          maxSearchResults: 40,
-          defaultWorkspaceEncoding: 'utf-8',
-          defaultWorkspaceNewline: 'lf',
-          allowStagingOverlayCommands: false,
-          exposeAllWorkspaceFiles: false,
-        },
-        contextCompression: getDefaultContextCompression(),
-        healthMonitor: {
-          logLevel: 'info',
-          metricsEnabled: false,
-        },
-        modelManager: {
-          customModelsDir: '',
-          huggingFaceToken: '',
-        },
-      })
+      Promise.resolve(structuredClone(FALLBACK_APP_CONFIG))
     );
   }
 
@@ -1149,75 +1118,18 @@ export class ElectronService {
   }
 
   setActiveLlmModel(modelId: string): Promise<AppConfig> {
-    return this.api?.setActiveLlmModel(modelId) ?? Promise.resolve({
-      currentWorkspaceId: null,
-      workspaces: [],
-      themeId: 'dark',
-      noWorkspaceThemeId: 'dark',
-      activeLlmModelId: modelId,
-      llmProviders: [],
-      audioTranscription: {
-        provider: 'openai',
-        baseUrl: '',
-        model: 'gpt-4o-mini-transcribe',
-        apiKey: '',
-      },
-      workspaceTools: {
-        editToolsMode: 'standard',
-        maxFileReadLines: 400,
-        maxSearchResults: 40,
-        defaultWorkspaceEncoding: 'utf-8',
-        defaultWorkspaceNewline: 'lf',
-        allowStagingOverlayCommands: false,
-        exposeAllWorkspaceFiles: false,
-      },
-      contextCompression: getDefaultContextCompression(),
-      healthMonitor: {
-        logLevel: 'info',
-        metricsEnabled: false,
-      },
-      modelManager: {
-        customModelsDir: '',
-        huggingFaceToken: '',
-      },
-    });
+    return (
+      this.api?.setActiveLlmModel(modelId) ??
+      Promise.resolve({ ...structuredClone(FALLBACK_APP_CONFIG), activeLlmModelId: modelId })
+    );
   }
 
   patchHealthMonitor(patch: Partial<HealthMonitorConfig>): Promise<AppConfig> {
     return (
       this.api?.patchHealthMonitor(patch) ??
       Promise.resolve({
-        currentWorkspaceId: null,
-        workspaces: [],
-        themeId: 'dark',
-        noWorkspaceThemeId: 'dark',
-        activeLlmModelId: 'default-lmstudio',
-        llmProviders: [],
-        audioTranscription: {
-          provider: 'openai',
-          baseUrl: '',
-          model: 'gpt-4o-mini-transcribe',
-          apiKey: '',
-        },
-        workspaceTools: {
-          editToolsMode: 'standard',
-          maxFileReadLines: 400,
-          maxSearchResults: 40,
-          defaultWorkspaceEncoding: 'utf-8',
-          defaultWorkspaceNewline: 'lf',
-          allowStagingOverlayCommands: false,
-          exposeAllWorkspaceFiles: false,
-        },
-        contextCompression: getDefaultContextCompression(),
-        healthMonitor: {
-          logLevel: 'info',
-          metricsEnabled: false,
-          ...patch,
-        },
-        modelManager: {
-          customModelsDir: '',
-          huggingFaceToken: '',
-        },
+        ...structuredClone(FALLBACK_APP_CONFIG),
+        healthMonitor: { ...FALLBACK_APP_CONFIG.healthMonitor, ...patch },
       })
     );
   }
@@ -1546,5 +1458,10 @@ export class ElectronService {
 
   windowIsMaximized(): Promise<boolean> {
     return this.api?.windowIsMaximized() ?? Promise.resolve(false);
+  }
+
+  /** OS-installed fonts for the Settings → General font pickers. Empty array if unavailable. */
+  listSystemFonts(): Promise<SystemFontInfo[]> {
+    return this.api?.listSystemFonts() ?? Promise.resolve([]);
   }
 }

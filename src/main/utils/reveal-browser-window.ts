@@ -55,13 +55,12 @@ export function attachBrowserWindowRevealFallbacks(
 
 /**
  * Parent/modal options for the settings BrowserWindow.
- * Modal child windows are unreliable on Linux Wayland (especially with frameless parents).
+ * Non-modal on every platform so the main window stays interactive while Settings is open
+ * (mirrors the Health window). Modal child windows are also unreliable on Linux Wayland
+ * (especially with frameless parents).
  */
 export function settingsWindowParentOptions(
   mainWindow: BrowserWindow,
 ): Pick<BrowserWindowConstructorOptions, 'parent' | 'modal'> {
-  if (process.platform === 'linux') {
-    return { parent: mainWindow, modal: false };
-  }
-  return { parent: mainWindow, modal: true };
+  return { parent: mainWindow, modal: false };
 }

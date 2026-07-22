@@ -30,11 +30,13 @@ app-chat-box .chat-box {
   padding: 0.35rem 0;
 }
 
-app-chat-box .chat-row--assistant {
+app-chat-box .chat-row--assistant,
+app-chat-box .chat-row--user {
   width: 100%;
 }
 
-app-chat-box .chat-row--assistant .msg-bubble {
+app-chat-box .chat-row--assistant .msg-bubble,
+app-chat-box .chat-row--user .msg-bubble {
   width: 100%;
   max-width: 100%;
 }
@@ -169,7 +171,7 @@ app-chat-box .assistant-md {
 }
 
 .assistant-bubble code {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: var(--t-font-code-override, 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace);
   background-color: var(--t-code-inline-bg);
   color: var(--t-primary);
   padding: 0.15em 0.4em;

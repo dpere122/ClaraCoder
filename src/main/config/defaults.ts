@@ -198,7 +198,6 @@ export function createDefaultConfig(): AppConfig {
     workspaceMonacoScrollByWorkspaceId: {},
     workspaces: [],
     themeId: FIRST_THEME_ID,
-    noWorkspaceThemeId: FIRST_THEME_ID,
     activeLlmModelId: llmProviders[0]?.models[0]?.id ?? 'default-lmstudio',
     llmProviders,
     audioTranscription: getDefaultAudioTranscription(),
@@ -208,17 +207,18 @@ export function createDefaultConfig(): AppConfig {
     modelManager: getDefaultModelManagerConfig(),
     chatFontSizeRem: 0.9,
     chatSidebarWidthPercent: 0.75,
+    uiFontFamily: '',
+    codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
   };
 }
 
 /** Build a workspace row when migrating legacy `currentWorkspace` string paths. */
-export function workspaceFromLegacyPath(oldPath: string, themeId: string): Workspace {
+export function workspaceFromLegacyPath(oldPath: string): Workspace {
   return {
     id: randomUUID(),
     name: path.basename(oldPath) || 'Default Workspace',
     path: oldPath,
     createdAt: new Date().toISOString(),
-    themeId,
   };
 }

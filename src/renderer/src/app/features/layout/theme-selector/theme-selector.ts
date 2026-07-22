@@ -62,7 +62,6 @@ export const THEMES: ThemeOption[] = [
 export class ThemeSelector implements OnInit {
   readonly themeId = signal(THEMES[0].id);
   protected readonly themes = THEMES;
-  protected readonly themeLabel = signal('Workspace Theme');
 
   constructor(
     private electron: ElectronService,
@@ -79,24 +78,13 @@ export class ThemeSelector implements OnInit {
   }
 
   async onThemeChange(id: string): Promise<void> {
-    const workspace = await this.electron.getCurrentWorkspace();
     this.themeId.set(id);
     this.applyTheme(id);
-
-    if (workspace) {
-      await this.electron.setWorkspaceTheme(workspace.id, id);
-      return;
-    }
-
-    await this.electron.setNoWorkspaceTheme(id);
+    await this.electron.setTheme(id);
   }
 
   private syncFromConfig(config: AppConfig): void {
-    const workspace = config.currentWorkspaceId
-      ? config.workspaces.find((item) => item.id === config.currentWorkspaceId) ?? null
-      : null;
-    const themeToApply = workspace?.themeId || config.noWorkspaceThemeId || 'dark';
-    this.themeLabel.set(workspace ? 'Workspace Theme' : 'No-Workspace Theme');
+    const themeToApply = config.themeId || 'dark';
     this.themeId.set(themeToApply);
     this.applyTheme(themeToApply);
   }

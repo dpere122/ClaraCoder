@@ -221,6 +221,55 @@ export function getDefaultContextCompression(): ContextCompressionConfig {
   };
 }
 
+/** A selectable font choice for the app-wide font pickers (Settings → General). */
+export interface FontFamilyOption {
+  label: string;
+  /** CSS `font-family` value. Empty string means "theme default" (clears the override). */
+  stack: string;
+}
+
+/**
+ * An OS-installed font family, as reported by the main process (`list-system-fonts` IPC,
+ * backed by the `font-list` package: `fc-list` on Linux, PowerShell on Windows, CoreText on macOS).
+ */
+export interface SystemFontInfo {
+  /** Raw family name as reported by the OS, e.g. `DejaVu Sans Mono`. Use for display. */
+  name: string;
+  /** CSS-safe `font-family` value (quoted when needed), e.g. `"DejaVu Sans Mono"`. Use for the stack. */
+  familyName: string;
+  /** Whether the OS reports this family as monospace (used to bias sort order per picker). */
+  monospace: boolean;
+}
+
+/**
+ * App-wide UI font choices ({@link AppConfig.uiFontFamily}). Applies to all UI text —
+ * chat messages, buttons, nav, dialogs — everywhere *except* the Monaco editor and
+ * rendered markdown code blocks, which follow {@link CODE_FONT_FAMILY_OPTIONS} instead.
+ */
+export const UI_FONT_FAMILY_OPTIONS: readonly FontFamilyOption[] = [
+  { label: 'Theme default', stack: '' },
+  { label: 'JetBrains Mono (default look)', stack: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace" },
+  { label: 'Inter', stack: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
+  { label: 'System UI', stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
+  { label: 'Verdana', stack: "Verdana, Geneva, sans-serif" },
+  { label: 'Georgia', stack: "Georgia, 'Times New Roman', serif" },
+];
+
+/**
+ * Code font choices ({@link AppConfig.codeFontFamily}). Applies to rendered markdown code
+ * blocks in chat and overrides the Monaco editor's own font family setting
+ * ({@link MonacoWorkspaceEditorSettings.fontFamily}) when set.
+ */
+export const CODE_FONT_FAMILY_OPTIONS: readonly FontFamilyOption[] = [
+  { label: 'Theme default', stack: '' },
+  { label: 'JetBrains Mono', stack: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace" },
+  { label: 'Fira Code', stack: "'Fira Code', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace" },
+  { label: 'Source Code Pro', stack: "'Source Code Pro', 'JetBrains Mono', monospace" },
+  { label: 'IBM Plex Mono', stack: "'IBM Plex Mono', 'JetBrains Mono', monospace" },
+  { label: 'Cascadia Code', stack: "'Cascadia Code', Consolas, 'JetBrains Mono', monospace" },
+  { label: 'Consolas', stack: "Consolas, 'Courier New', monospace" },
+];
+
 /** Built-in Monaco themes plus the app-defined `clara-monaco` (CSS-variable aligned). */
 export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['clara-monaco', 'vs', 'vs-dark', 'hc-black', 'hc-light'] as const;
 export type MonacoWorkspaceEditorThemeId = (typeof MONACO_WORKSPACE_EDITOR_THEME_IDS)[number];
@@ -512,8 +561,8 @@ export interface AppConfig {
    */
   lastActiveConversationByWorkspaceId?: Record<string, string>;
   workspaces: Workspace[];
+  /** The single app-wide UI theme id (see `THEMES` in `theme-selector.ts`). Not per-workspace. */
   themeId: string;
-  noWorkspaceThemeId: string;
   /** Which model preset is used for chat (`LlmModelProfile.id`). */
   activeLlmModelId: string;
   llmProviders: LlmProviderConfig[];
@@ -524,6 +573,17 @@ export interface AppConfig {
   modelManager: ModelManagerConfig;
   /** Chat message font size in `rem` (e.g. 0.9). Client-only UI preference. */
   chatFontSizeRem?: number;
+  /**
+   * App-wide UI font family override (CSS `font-family` value). Empty/undefined = theme default.
+   * Applies everywhere except the Monaco editor and rendered markdown code blocks (see {@link codeFontFamily}).
+   */
+  uiFontFamily?: string;
+  /**
+   * Code font family override (CSS `font-family` value). Empty/undefined = theme default.
+   * Applies to rendered markdown code blocks and overrides {@link MonacoWorkspaceEditorSettings.fontFamily}
+   * when set.
+   */
+  codeFontFamily?: string;
   /**
    * Chat sidebar width as a fraction of the chat+sidebar layout region (0–1).
    * Client-only UI preference; default 0.75.

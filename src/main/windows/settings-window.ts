@@ -18,7 +18,8 @@ function rendererIndexHtml(): string {
 }
 
 /**
- * Modal settings surface (Angular `#/settings`). Reuses preload; notifies renderer when shown/hidden.
+ * Non-modal, resizable settings surface (Angular `#/settings`). Reuses preload; notifies renderer
+ * when shown/hidden. The main window stays interactive and undimmed while this is open.
  */
 export function createSettingsWindow(): void {
   const mainWindow = mainState.mainWindow;
@@ -39,10 +40,12 @@ export function createSettingsWindow(): void {
   mainState.settingsWindow = new BrowserWindow({
     width: 1440,
     height: 800,
+    minWidth: 960,
+    minHeight: 600,
     ...settingsWindowParentOptions(mainWindow),
     frame: false,
-    resizable: false,
-    maximizable: false,
+    resizable: true,
+    maximizable: true,
     show: false,
     backgroundColor: '#0a0a0a',
     title: 'Clara Coder — Settings',

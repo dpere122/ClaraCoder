@@ -33,6 +33,8 @@ export type {
   GemmaThinkingMode,
   AudioTranscriptionConfig,
   AppConfig,
+  FontFamilyOption,
+  SystemFontInfo,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   WorkspaceMonacoEditorScrollState,
@@ -43,11 +45,13 @@ export type {
   ModelManagerConfig,
 } from './types/app-config';
 export {
+  CODE_FONT_FAMILY_OPTIONS,
   DEFAULT_KOKORO_TTS_VOICE,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
+  UI_FONT_FAMILY_OPTIONS,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,

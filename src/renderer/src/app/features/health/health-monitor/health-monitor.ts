@@ -10,6 +10,7 @@ import {
 import Chart from 'chart.js/auto';
 import type { AppConfig, HealthMetricsSnapshot } from '@shared/index';
 import { THEMES } from '../../layout/theme-selector/theme-selector';
+import { resolveAppThemeId } from '../../shell/app-theme';
 import { ElectronService } from '../../../core/electron.service';
 import { HealthLogViewer } from '../health-log-viewer/health-log-viewer';
 import { HealthMetricsToggle } from '../health-metrics-toggle/health-metrics-toggle';
@@ -101,16 +102,8 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     await this.electron.patchHealthMonitor({ metricsEnabled: enabled });
   }
 
-  /** Match main app: workspace theme, else no-workspace theme, else dark. */
-  private resolveThemeId(config: AppConfig): string {
-    const workspace = config.currentWorkspaceId
-      ? (config.workspaces.find((w) => w.id === config.currentWorkspaceId) ?? null)
-      : null;
-    return workspace?.themeId || config.noWorkspaceThemeId || 'dark';
-  }
-
   private applyTheme(config: AppConfig): void {
-    const theme = THEMES.find((t) => t.id === this.resolveThemeId(config));
+    const theme = THEMES.find((t) => t.id === resolveAppThemeId(config));
     document.documentElement.className = theme?.cssClass ?? '';
     document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
   }

@@ -4,6 +4,37 @@
   font-size: 13px;
 }
 
+.settings-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Frameless window: drag strip + title, matching the main Clara Coder top bar. */
+.settings-top-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--t-border-subtle);
+  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.settings-top-bar__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  text-align: center;
+  cursor: default;
+  color: var(--t-primary);
+  text-shadow: 0 0 8px var(--t-glow), 0 0 20px var(--t-glow-soft);
+  font-size: 1.15rem;
+  letter-spacing: 0.05em;
+}
+
 .settings-general-font {
   display: flex;
   flex-direction: column;
@@ -46,7 +77,8 @@
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   grid-template-rows: 1fr auto;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 14px 18px 12px;
   box-sizing: border-box;
   gap: 14px 20px;
@@ -991,12 +1023,9 @@
 .workspace-card__controls {
   display: flex;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 10px;
   margin-top: 12px;
-}
-
-.workspace-card__controls .field {
-  flex: 1;
 }
 
 @media (max-width: 1100px) {

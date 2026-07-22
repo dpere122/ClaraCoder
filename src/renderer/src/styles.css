@@ -1,3 +1,10 @@
+/*
+ * `--t-font-ui-override` / `--t-font-code-override` are NOT declared here. They're optional
+ * inline properties set on `documentElement.style` by `applyAppFontOverrides()` (app-theme.ts)
+ * from the Settings → General "App font" / "Code font" pickers. Consumers reference them as
+ * `var(--t-font-ui-override, var(--t-font))` / `var(--t-font-code-override, <default stack>)`
+ * so they fall through to the theme's own font when unset.
+ */
 :root {
   --t-bg: #0a0a0a;
   --t-bg-surface: #0d1a0d;
@@ -882,7 +889,7 @@ html, body {
   margin: 0;
   background-color: var(--t-bg);
   color: var(--t-fg);
-  font-family: var(--t-font);
+  font-family: var(--t-font-ui-override, var(--t-font));
 }
 
 /* Routed windows (settings, health) fill the shell like the main app. */
@@ -1258,7 +1265,7 @@ html.theme-win95 {
 html.theme-win95 body {
   color: var(--t-fg);
   letter-spacing: 0;
-  font-family: var(--t-font);
+  font-family: var(--t-font-ui-override, var(--t-font));
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;
 }
@@ -1359,7 +1366,7 @@ html.theme-win95 .title-glow {
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  font-family: var(--t-font);
+  font-family: var(--t-font-ui-override, var(--t-font));
 }
 
 html.theme-win95 app-context-capacity .context-capacity__auto-apply-label,
@@ -1651,7 +1658,7 @@ html.theme-win95 .assistant-bubble td,
 html.theme-win95 .code-block-output,
 html.theme-win95 .output-pre {
   background-color: #fffff8;
-  font-family: var(--t-font-mono);
+  font-family: var(--t-font-code-override, var(--t-font-mono));
 }
 
 html.theme-win95 .assistant-bubble code {
@@ -1747,7 +1754,7 @@ html.theme-win95 .chat-main-tab {
   border-bottom: 2px solid transparent;
   box-shadow: none;
   color: var(--t-fg);
-  font-family: var(--t-font);
+  font-family: var(--t-font-ui-override, var(--t-font));
 }
 
 html.theme-win95 .chat-main-tab--active {
@@ -1768,12 +1775,12 @@ html.theme-win95 .user-bubble {
 }
 
 html.theme-win95 .msg-bubble {
-  font-family: var(--t-font);
+  font-family: var(--t-font-ui-override, var(--t-font));
 }
 
 html.theme-win95 .form-control,
 html.theme-win95 textarea {
-  font-family: var(--t-font);
+  font-family: var(--t-font-ui-override, var(--t-font));
   color: var(--t-fg);
   line-height: 1.4;
 }

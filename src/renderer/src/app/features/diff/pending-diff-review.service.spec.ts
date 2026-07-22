@@ -23,7 +23,7 @@ describe('PendingDiffReviewService', () => {
         {
           provide: ElectronService,
           useValue: {
-            getCurrentWorkspace: async () => ({ path: '/w', id: 'w1', name: 'W', themeId: 'dark' }),
+            getCurrentWorkspace: async () => ({ path: '/w', id: 'w1', name: 'W' }),
             writeWorkspaceFile: async () => ({ ok: true }),
             notifyAgentContinue: async () => ({ ok: true }),
           },

@@ -6,8 +6,8 @@
       class="chat-row d-flex mb-2"
       [class.chat-row--user]="slot.row.kind === 'user'"
       [class.chat-row--assistant]="slot.row.kind === 'assistant-turn'"
-      [class.justify-content-end]="slot.row.kind === 'user'"
     >
+
       <div
         class="msg-bubble"
         [class.user-bubble]="slot.row.kind === 'user'"

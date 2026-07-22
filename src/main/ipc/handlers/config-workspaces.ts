@@ -228,7 +228,6 @@ export function registerConfigWorkspacesIpc(): void {
         name: name || path.basename(workspacePath) || 'New Workspace',
         path: workspacePath,
         createdAt: new Date().toISOString(),
-        themeId: cfg.themeId || FIRST_THEME_ID,
       };
       cfg.workspaces.push(workspace);
     });
@@ -265,23 +264,13 @@ export function registerConfigWorkspacesIpc(): void {
     broadcastConfig(config);
   });
 
-  ipcMain.handle('set-workspace-theme', async (_event, workspaceId: string, themeId: string) => {
+  ipcMain.handle('set-theme', async (_event, themeId: string) => {
     const config = await updateConfig((cfg) => {
-      const workspace = cfg.workspaces.find((w) => w.id === workspaceId);
-      if (workspace) {
-        workspace.themeId = themeId;
-      }
+      cfg.themeId = themeId || FIRST_THEME_ID;
     });
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     broadcastConfig(config);
-  });
-
-  ipcMain.handle('set-no-workspace-theme', async (_event, themeId: string) => {
-    const config = await updateConfig((cfg) => {
-      cfg.noWorkspaceThemeId = themeId;
-    });
-    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
-    broadcastConfig(config);
+    return config;
   });
 
   ipcMain.handle('get-current-workspace', async () => {

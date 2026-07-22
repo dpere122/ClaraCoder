@@ -143,31 +143,6 @@
   overflow: hidden;
 }
 
-.app-top-bar,
-.app-content {
-  transition: filter 0.18s ease, opacity 0.18s ease;
-}
-
-.app-layout--dimmed .app-top-bar,
-.app-layout--dimmed .app-content {
-  filter: saturate(0.84) brightness(0.72) blur(1.2px);
-}
-
-.app-modal-scrim {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 32%),
-    rgba(7, 11, 20, 0.42);
-  transition: opacity 0.18s ease;
-}
-
-.app-layout--dimmed .app-modal-scrim {
-  opacity: 1;
-}
-
 .workspace-panel {
   flex-shrink: 0;
   display: flex;

@@ -596,22 +596,29 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  // Themes are app-wide now (`themeId` only). Strip stale per-workspace / no-workspace theme
+  // fields left over from older config files instead of re-filling them.
   for (const workspace of newConfig.workspaces) {
-    if ((workspace as { themeId?: string }).themeId === undefined) {
-      (workspace as { themeId: string }).themeId = newConfig.themeId || FIRST_THEME_ID;
+    if ('themeId' in workspace) {
+      delete (workspace as { themeId?: string }).themeId;
       migrated = true;
     }
   }
 
-  if ((newConfig as { noWorkspaceThemeId?: string }).noWorkspaceThemeId === undefined) {
-    (newConfig as { noWorkspaceThemeId: string }).noWorkspaceThemeId = newConfig.themeId || FIRST_THEME_ID;
+  if ('noWorkspaceThemeId' in newConfig) {
+    delete (newConfig as { noWorkspaceThemeId?: string }).noWorkspaceThemeId;
+    migrated = true;
+  }
+
+  if (!newConfig.themeId) {
+    newConfig.themeId = FIRST_THEME_ID;
     migrated = true;
   }
 
   if ('currentWorkspace' in newConfig && typeof (newConfig as { currentWorkspace?: string }).currentWorkspace === 'string') {
     const oldPath = (newConfig as { currentWorkspace: string }).currentWorkspace;
     if (oldPath && newConfig.workspaces.length === 0) {
-      const defaultWorkspace = workspaceFromLegacyPath(oldPath, newConfig.themeId || FIRST_THEME_ID);
+      const defaultWorkspace = workspaceFromLegacyPath(oldPath);
       newConfig.workspaces.push(defaultWorkspace);
       newConfig.currentWorkspaceId = defaultWorkspace.id;
     }
@@ -788,6 +795,18 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const csw = (newConfig as AppConfig).chatSidebarWidthPercent;
   if (typeof csw !== 'number' || Number.isNaN(csw) || csw < 0.05 || csw > 0.95) {
     (newConfig as AppConfig).chatSidebarWidthPercent = 0.75;
+    migrated = true;
+  }
+
+  const uiFont = (newConfig as AppConfig).uiFontFamily;
+  if (uiFont !== undefined && typeof uiFont !== 'string') {
+    (newConfig as AppConfig).uiFontFamily = '';
+    migrated = true;
+  }
+
+  const codeFont = (newConfig as AppConfig).codeFontFamily;
+  if (codeFont !== undefined && typeof codeFont !== 'string') {
+    (newConfig as AppConfig).codeFontFamily = '';
     migrated = true;
   }
 

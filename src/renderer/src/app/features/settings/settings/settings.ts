@@ -17,6 +17,7 @@ import { Subscription } from 'rxjs';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
+  FontFamilyOption,
   HuggingFaceModelSearchItem,
   LlamaCppManaged,
   LlmConnectionConfig,
@@ -29,12 +30,14 @@ import type {
   ModelManagerMigrateProgressPayload,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
+  SystemFontInfo,
   Workspace,
   WorkspaceToolsConfig,
   ContextCompressionConfig,
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
+  CODE_FONT_FAMILY_OPTIONS,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
@@ -42,6 +45,7 @@ import {
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
+  UI_FONT_FAMILY_OPTIONS,
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
   GEMMA_PRESET_DEFAULTS,
@@ -63,6 +67,7 @@ import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dia
 import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
 import { FontControl } from '../../layout/font-control/font-control';
+import { applyAppFontOverrides } from '../../shell/app-theme';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import { LucideAngularModule } from 'lucide-angular';
 
@@ -169,8 +174,8 @@ export class Settings implements OnInit, OnDestroy {
       description: 'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
     },
     { id: 'audio', label: 'Audio', description: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.' },
-    { id: 'appearance', label: 'Appearance', description: 'Global and no-workspace theme defaults.' },
-    { id: 'workspaces', label: 'Workspaces', description: 'Attached folders, active project, and per-workspace themes.' },
+    { id: 'appearance', label: 'Appearance', description: 'App-wide theme.' },
+    { id: 'workspaces', label: 'Workspaces', description: 'Attached folders and active project.' },
   ];
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   protected readonly ttsVoiceChoices = VOICE_OPTIONS;
@@ -179,12 +184,24 @@ export class Settings implements OnInit, OnDestroy {
     id,
     label: MONACO_EDITOR_THEME_LABELS[id],
   }));
+  /** Curated App font choices (Settings → General → Chat appearance). */
+  protected readonly uiFontFamilyOptions = UI_FONT_FAMILY_OPTIONS;
+  /** Curated Code font choices (Settings → General → Chat appearance). */
+  protected readonly codeFontFamilyOptions = CODE_FONT_FAMILY_OPTIONS;
+  /** OS-installed fonts (from `list-system-fonts` IPC), shown under "System fonts" in both pickers. */
+  protected readonly systemFonts = signal<SystemFontInfo[]>([]);
+  protected readonly systemFontOptions = computed<FontFamilyOption[]>(() =>
+    this.systemFonts().map((f) => ({
+      label: f.monospace ? `${f.name} (monospace)` : f.name,
+      stack: `${f.familyName}, ${f.monospace ? 'monospace' : 'sans-serif'}`,
+    })),
+  );
   protected readonly settingsSubTabCatalog: Partial<Record<SettingsTab, SettingsSubTabEntry[]>> = {
     general: [
       {
         id: 'chat',
         label: 'Chat appearance',
-        description: 'Font size for message text in the chat area.',
+        description: 'Font size, app-wide UI font, and code font for message text in the chat area.',
       },
     ],
     tools: [
@@ -275,8 +292,8 @@ export class Settings implements OnInit, OnDestroy {
     appearance: [
       {
         id: 'themes',
-        label: 'Theme defaults',
-        description: 'Global theme and the fallback when no workspace is active.',
+        label: 'Theme',
+        description: 'App-wide UI theme.',
       },
     ],
   };
@@ -284,7 +301,6 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspace = signal<Workspace | null>(null);
   protected readonly themeId = signal('dark');
-  protected readonly noWorkspaceThemeId = signal('dark');
   protected readonly llmProviders = signal<LlmProviderConfig[]>([]);
   protected readonly activeLlmModelId = signal('default-lmstudio');
   protected readonly selectedModelId = signal<string | null>(null);
@@ -297,6 +313,10 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly talkAudioInputDevices = signal<TalkAudioInputDevice[]>([]);
   protected readonly talkAudioInputsLoadError = signal('');
   protected readonly chatFontSizeRem = signal(0.9);
+  /** App-wide UI font override (CSS font-family value); empty = theme default. */
+  protected readonly uiFontFamily = signal('');
+  /** Code font override (CSS font-family value); empty = theme default. Overrides Monaco's own fontFamily. */
+  protected readonly codeFontFamily = signal('');
   protected readonly monacoWorkspaceEditor = signal<MonacoWorkspaceEditorSettings>(defaultMonacoWorkspaceEditorSettings());
   protected readonly ttsVoice = signal(DEFAULT_KOKORO_TTS_VOICE);
   protected readonly ttsSpeechSpeed = signal(TTS_SPEECH_SPEED_DEFAULT);
@@ -446,6 +466,8 @@ export class Settings implements OnInit, OnDestroy {
     this.subscription = this.electron.config$.subscribe((nextConfig) => {
       this.syncFromConfig(nextConfig, false);
     });
+
+    void this.electron.listSystemFonts().then((fonts) => this.systemFonts.set(fonts));
   }
 
   ngOnDestroy(): void {
@@ -546,6 +568,11 @@ export class Settings implements OnInit, OnDestroy {
     }
   }
 
+  /** Double-clicking the top bar toggles maximize, matching the main window's title bar. */
+  protected onTopBarDoubleClick(): void {
+    this.electron.windowToggleMaximize();
+  }
+
   protected async closeSettings(): Promise<void> {
     if (this.closeSaving()) {
       return;
@@ -588,18 +615,9 @@ export class Settings implements OnInit, OnDestroy {
     document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
   }
 
-  protected onGlobalThemeChange(themeId: string): void {
+  protected onThemeChange(themeId: string): void {
     this.themeId.set(themeId);
     this.markSettingsDirty();
-  }
-
-  protected onNoWorkspaceThemeChange(themeId: string): void {
-    this.noWorkspaceThemeId.set(themeId);
-    this.markSettingsDirty();
-  }
-
-  protected async onWorkspaceThemeChange(workspaceId: string, themeId: string): Promise<void> {
-    await this.electron.setWorkspaceTheme(workspaceId, themeId);
   }
 
   protected async addWorkspace(): Promise<void> {
@@ -1449,6 +1467,20 @@ export class Settings implements OnInit, OnDestroy {
     this.markSettingsDirty();
   }
 
+  /** App-wide UI font (everything except Monaco + rendered code blocks). Applies live in this window. */
+  protected onUiFontFamilyChange(stack: string): void {
+    this.uiFontFamily.set(stack ?? '');
+    applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
+    this.markSettingsDirty();
+  }
+
+  /** Code font: rendered markdown code blocks + overrides the Monaco editor's own fontFamily. */
+  protected onCodeFontFamilyChange(stack: string): void {
+    this.codeFontFamily.set(stack ?? '');
+    applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
+    this.markSettingsDirty();
+  }
+
   protected onTalkInputDeviceIdChange(deviceId: string): void {
     this.updateAudioSettings({ talkInputDeviceId: deviceId || 'default' });
   }
@@ -1833,10 +1865,11 @@ export class Settings implements OnInit, OnDestroy {
     return {
       ...base,
       chatFontSizeRem: this.chatFontSizeRem(),
+      uiFontFamily: this.uiFontFamily(),
+      codeFontFamily: this.codeFontFamily(),
       workspaces: this.workspaces(),
       currentWorkspaceId: this.currentWorkspace()?.id ?? base.currentWorkspaceId,
       themeId: this.themeId(),
-      noWorkspaceThemeId: this.noWorkspaceThemeId(),
       activeLlmModelId: this.activeLlmModelId(),
       llmProviders: structuredClone(this.llmProviders()).map((p) =>
         isPinnedLmStudioProviderId(p.id)
@@ -1925,12 +1958,9 @@ export class Settings implements OnInit, OnDestroy {
         this.configSnapshot.workspaces = structuredClone(config.workspaces);
         this.configSnapshot.currentWorkspaceId = config.currentWorkspaceId;
         this.configSnapshot.themeId = config.themeId;
-        this.configSnapshot.noWorkspaceThemeId = config.noWorkspaceThemeId;
       }
       this.themeId.set(config.themeId || 'dark');
-      this.noWorkspaceThemeId.set(config.noWorkspaceThemeId || config.themeId || 'dark');
-      const themeToApply = currentWorkspace?.themeId || config.noWorkspaceThemeId || config.themeId || 'dark';
-      this.applyTheme(themeToApply);
+      this.applyTheme(config.themeId || 'dark');
       const at = config.audioTranscription;
       this.ttsVoice.set(at?.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
       this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(at?.ttsSpeechSpeed));
@@ -1938,6 +1968,9 @@ export class Settings implements OnInit, OnDestroy {
       this.chatFontSizeRem.set(
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
       );
+      this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
+      this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');
+      applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
       this.monacoWorkspaceEditor.set(
         normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
       );
@@ -1952,7 +1985,6 @@ export class Settings implements OnInit, OnDestroy {
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;
     this.currentWorkspace.set(currentWorkspace);
     this.themeId.set(config.themeId || 'dark');
-    this.noWorkspaceThemeId.set(config.noWorkspaceThemeId || config.themeId || 'dark');
     this.llmProviders.set(config.llmProviders);
     this.activeLlmModelId.set(config.activeLlmModelId);
     this.audioProvider.set(config.audioTranscription.provider);
@@ -1977,6 +2009,9 @@ export class Settings implements OnInit, OnDestroy {
     this.chatFontSizeRem.set(
       typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
     );
+    this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
+    this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');
+    applyAppFontOverrides({ uiFontFamily: this.uiFontFamily(), codeFontFamily: this.codeFontFamily() });
 
     this.monacoWorkspaceEditor.set(
       normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
@@ -2041,7 +2076,6 @@ export class Settings implements OnInit, OnDestroy {
       void this.refreshModelManagerData();
     }
 
-    const themeToApply = currentWorkspace?.themeId || config.noWorkspaceThemeId || config.themeId || 'dark';
-    this.applyTheme(themeToApply);
+    this.applyTheme(config.themeId || 'dark');
   }
 }

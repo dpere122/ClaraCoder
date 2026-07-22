@@ -11,6 +11,15 @@ app-chat-box {
   /** User bubble width; assistant responses use full transcript width. */
   --chat-bubble-width: min(80%, 36rem);
   --chat-response-bubble-width: 100%;
+  /**
+   * Distinct section tints for an assistant turn, derived from the active theme
+   * (--t-* vars change per theme, so these follow the app color scheme):
+   * header = response-details toggle title, stream = reasoning/tools/changes trail,
+   * response = final markdown reply.
+   */
+  --chat-details-header-fg: color-mix(in srgb, var(--t-primary) 72%, var(--t-secondary) 28%);
+  --chat-details-stream-fg: color-mix(in srgb, var(--t-secondary) 55%, var(--t-text-muted) 45%);
+  --chat-final-response-fg: var(--t-assistant-fg, var(--t-secondary));
 }
 
 app-chat-box .chat-box {
@@ -46,6 +55,7 @@ app-chat-box .msg-bubble {
   box-sizing: border-box;
   word-break: break-word;
   overflow-wrap: anywhere;
+  padding: 0.25rem 0.5rem;
 }
 
 app-chat-box .assistant-turn-bubble {
@@ -114,12 +124,15 @@ app-chat-box .assistant-bubble {
   background-color: var(--t-assistant-bg);
   color: var(--t-assistant-fg, var(--t-secondary));
   border-bottom-color: var(--t-assistant-border, var(--t-border-subtle));
+  /* Breathing room between agent response content and the bubble edges. */
+  padding: 0.8rem 1rem 0.9rem;
 }
 
 /* Block wrapper for rendered markdown (must not use <span>: headings/pre are flow content). */
 app-chat-box .assistant-md {
   display: block;
   min-width: 0;
+  color: var(--chat-final-response-fg);
 }
 
 .assistant-bubble p {

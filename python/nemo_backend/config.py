@@ -58,6 +58,13 @@ except ValueError:
 # ``NEMO_SUBPROCESS_TIMEOUT_SEC`` instead. Prevents hung or long-lived script processes.
 NEMO_NPM_SCRIPT_TIMEOUT_SEC = _env_int('NEMO_NPM_SCRIPT_TIMEOUT_SEC', 300, 0, 86_400)
 
+# Default window ``run_command`` waits for a background command before returning its command id.
+NEMO_RUN_COMMAND_DEFAULT_WAIT_SEC = _env_int('NEMO_RUN_COMMAND_DEFAULT_WAIT_SEC', 30, 1, 3_600)
+# Upper bound for any single ``run_command`` / ``wait_for_command`` wait window.
+NEMO_RUN_COMMAND_MAX_WAIT_SEC = _env_int('NEMO_RUN_COMMAND_MAX_WAIT_SEC', 600, 30, 86_400)
+# Fail-open cap for the side risk-assessment LLM call on `run_command` HITL approvals (see command_risk_assess.py).
+NEMO_COMMAND_RISK_ASSESS_TIMEOUT_SEC = _env_int('NEMO_COMMAND_RISK_ASSESS_TIMEOUT_SEC', 15, 3, 120)
+
 # Smoke tests against watch-mode dev servers (Vite, electronmon, ``ng serve``, etc.).
 # After ``NEMO_SMOKE_STEADY_STATE_SEC`` without exit, a still-running process counts as passed steady state.
 NEMO_SMOKE_STEADY_STATE_SEC = _env_int('NEMO_SMOKE_STEADY_STATE_SEC', 3, 1, 120)

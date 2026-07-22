@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
@@ -384,29 +384,112 @@ def test_chat_model_end_emits_token_usage_when_usage_metadata_present() -> None:
     assert '12' in usage_lines[0]
 
 
-def test_hitl_sse_lines_diff_sentinel_only() -> None:
+@pytest.mark.asyncio(loop_scope='function')
+async def test_hitl_sse_lines_diff_sentinel_only() -> None:
     from nemo_backend.agent_langgraph import _hitl_sse_lines
     from nemo_backend.domain import SessionState
 
     s = SessionState()
     payload = {'version': 1, 'rows': []}
     s.pending_diff_payload = payload
-    lines = _hitl_sse_lines(s, ('diff',))
+    lines = await _hitl_sse_lines(s, ('diff',))
     assert len(lines) == 1
     assert 'diff' in lines[0]
     assert s.pending_diff_payload is None
 
     s1b = SessionState()
     embedded = {'version': 1, 'rows': [], 'relativePath': 'x.py'}
-    lines_b = _hitl_sse_lines(s1b, ('diff', embedded))
+    lines_b = await _hitl_sse_lines(s1b, ('diff', embedded))
     assert len(lines_b) == 1
     assert 'x.py' in lines_b[0]
     assert s1b.pending_diff_payload is None
 
     s2 = SessionState()
-    assert _hitl_sse_lines(s2, ('diff',)) == []
+    assert await _hitl_sse_lines(s2, ('diff',)) == []
 
     s3 = SessionState()
     s3.pending_diff_payload = {'version': 1, 'rows': []}
-    assert _hitl_sse_lines(s3, ('unexpected',)) == []
+    assert await _hitl_sse_lines(s3, ('unexpected',)) == []
     assert s3.pending_diff_payload is not None
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_hitl_sse_lines_accept_command_skips_risk_enrichment_when_setting_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+    from nemo_backend.agent_langgraph import _hitl_sse_lines
+    from nemo_backend.domain import SessionState
+    from nemo_backend.state import runtime_config
+
+    monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', False, raising=False)
+
+    s = SessionState()
+    s.pending_accept_command_request = {
+        'request_id': 'req-1',
+        'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
+        'title': 'Run terminal command',
+        'message': 'Run a shell command in the workspace.',
+        'confirm_label': 'Run',
+        'cancel_label': 'Cancel',
+        'command_text': 'ls -la',
+        'details': [],
+        'action': {
+            'tool_name': 'run_command',
+            'tool_input': {'command': 'ls -la', 'cwd': ''},
+        },
+    }
+
+    with patch('nemo_backend.agent_langgraph.maybe_enrich_pending_command_risk') as mock_enrich:
+        lines = await _hitl_sse_lines(s, ('accept_command',))
+
+    assert len(lines) == 1
+    assert mock_enrich.await_count == 1
+    assert '"riskAssessmentStatus"' not in lines[0]
+    assert '"riskLevel"' not in lines[0]
+    assert '"riskDescription"' not in lines[0]
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_hitl_sse_lines_accept_command_includes_risk_fields_when_enriched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+    from nemo_backend.agent_langgraph import _hitl_sse_lines
+    from nemo_backend.domain import SessionState
+    from nemo_backend.state import runtime_config
+
+    monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', True, raising=False)
+
+    s = SessionState()
+    s.pending_accept_command_request = {
+        'request_id': 'req-2',
+        'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
+        'title': 'Run terminal command',
+        'message': 'Run a shell command in the workspace.',
+        'confirm_label': 'Run',
+        'cancel_label': 'Cancel',
+        'command_text': 'rm -rf build',
+        'details': [],
+        'action': {
+            'tool_name': 'run_command',
+            'tool_input': {'command': 'rm -rf build', 'cwd': ''},
+        },
+    }
+
+    async def _fake_enrich(pending: dict) -> None:
+        pending['risk_assessment_status'] = 'ok'
+        pending['risk_level'] = 'medium'
+        pending['risk_description'] = 'Deletes the build directory.'
+
+    with patch(
+        'nemo_backend.agent_langgraph.maybe_enrich_pending_command_risk',
+        new=AsyncMock(side_effect=_fake_enrich),
+    ) as mock_enrich:
+        lines = await _hitl_sse_lines(s, ('accept_command',))
+
+    assert len(lines) == 1
+    assert mock_enrich.await_count == 1
+    assert '"riskAssessmentStatus": "ok"' in lines[0]
+    assert '"riskLevel": "medium"' in lines[0]
+    assert 'Deletes the build directory.' in lines[0]

@@ -71,6 +71,9 @@ async def clear_session(request: ClearRequest) -> dict[str, bool]:
     except Exception:
         logger.debug('invalidate staging semantic index on clear failed', exc_info=True)
     cleanup_staging_snapshot_session(state.get_session(sid), sid)
+    from nemo_backend.tools.run_command import kill_session_background_commands
+
+    await kill_session_background_commands(sid)
     await delete_outer_threads_for_session(sid)
     state.sessions[sid] = SessionState()
     return {'ok': True}

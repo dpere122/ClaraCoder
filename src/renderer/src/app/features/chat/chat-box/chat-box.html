@@ -9,7 +9,7 @@
       [class.justify-content-end]="slot.row.kind === 'user'"
     >
       <div
-        class="msg-bubble px-2 py-1"
+        class="msg-bubble"
         [class.user-bubble]="slot.row.kind === 'user'"
         [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
@@ -34,30 +34,31 @@
           @let row = slot.row;
 
           @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
-          @if (auxPersisted.length > 0) {
+          @let turnArtifacts = hitlArtifactsForTurn(row);
+          @if (auxPersisted.length > 0 || turnArtifacts.length > 0) {
             <div aria-live="polite">
               <app-auxiliary-stream-panel
                 [parts]="auxPersisted"
                 [live]="false"
                 [planPanelVisible]="!!planPanelForTurn(row)"
                 [title]="auxiliaryPanelTitleForTurn(row)"
-              />
+              >
+                @if (turnArtifacts.length > 0) {
+                  <app-hitl-trail-panel
+                    [artifacts]="turnArtifacts"
+                    [live]="false"
+                    [chatLayout]="layout()"
+                    [conversationId]="conversationId()"
+                    (diffReviewFinished)="diffReviewFinished.emit($event)"
+                    (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+                    (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+                    (copyReviewFinished)="copyReviewFinished.emit($event)"
+                    (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+                    (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
+                  />
+                }
+              </app-auxiliary-stream-panel>
             </div>
-          }
-
-          @if (hitlArtifactsForTurn(row).length > 0) {
-            <app-hitl-trail-panel
-              [artifacts]="hitlArtifactsForTurn(row)"
-              [live]="false"
-              [chatLayout]="layout()"
-              [conversationId]="conversationId()"
-              (diffReviewFinished)="diffReviewFinished.emit($event)"
-              (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-              (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-              (copyReviewFinished)="copyReviewFinished.emit($event)"
-              (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-              (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-            />
           }
 
           @if (planPanelForTurn(row); as planCtx) {
@@ -105,32 +106,33 @@
   @if (liveTurn(); as liveTurn) {
     <div class="chat-row chat-row--assistant d-flex mb-2">
       <div
-        class="msg-bubble px-2 py-1 assistant-bubble assistant-turn-bubble"
+        class="msg-bubble assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
-        @if (showLiveAuxiliaryPanel()) {
+        @if (showLiveAuxiliaryPanel() || liveHitlArtifacts().length > 0) {
           <div aria-live="polite">
             <app-auxiliary-stream-panel
               [parts]="liveAuxiliaryTimeline()"
               [live]="true"
               [planPanelVisible]="!!livePlanPanel()"
               [title]="liveAuxiliaryPanelTitle()"
-            />
+            >
+              @if (liveHitlArtifacts().length > 0) {
+                <app-hitl-trail-panel
+                  [artifacts]="liveHitlArtifacts()"
+                  [live]="true"
+                  [chatLayout]="layout()"
+                  [conversationId]="conversationId()"
+                  (diffReviewFinished)="diffReviewFinished.emit($event)"
+                  (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+                  (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+                  (copyReviewFinished)="copyReviewFinished.emit($event)"
+                  (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+                  (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
+                />
+              }
+            </app-auxiliary-stream-panel>
           </div>
-        }
-        @if (liveHitlArtifacts().length > 0) {
-          <app-hitl-trail-panel
-            [artifacts]="liveHitlArtifacts()"
-            [live]="true"
-            [chatLayout]="layout()"
-            [conversationId]="conversationId()"
-            (diffReviewFinished)="diffReviewFinished.emit($event)"
-            (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-            (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-            (copyReviewFinished)="copyReviewFinished.emit($event)"
-            (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-            (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-          />
         }
         @if (livePlanPanel(); as planCtx) {
           <app-planner-checklist

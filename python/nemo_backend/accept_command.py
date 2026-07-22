@@ -26,7 +26,7 @@ __all__ = [
 def accept_command_sse_payload(pending: dict[str, Any]) -> dict[str, Any]:
     """Shape for SSE `acceptCommand` / frontend `AcceptCommandPayload`."""
 
-    return {
+    payload: dict[str, Any] = {
         'version': 1,
         'requestId': str(pending.get('request_id') or ''),
         'kind': str(pending.get('kind') or ''),
@@ -37,6 +37,15 @@ def accept_command_sse_payload(pending: dict[str, Any]) -> dict[str, Any]:
         'commandText': str(pending.get('command_text') or ''),
         'details': [str(item) for item in (pending.get('details') or []) if str(item).strip()],
     }
+
+    risk_status = pending.get('risk_assessment_status')
+    if risk_status:
+        payload['riskAssessmentStatus'] = str(risk_status)
+        if risk_status == 'ok':
+            payload['riskLevel'] = pending.get('risk_level')
+            payload['riskDescription'] = pending.get('risk_description')
+
+    return payload
 
 
 async def execute_pending_accept_command_decision(

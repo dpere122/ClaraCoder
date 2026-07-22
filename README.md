@@ -62,10 +62,10 @@ On Debian/Ubuntu, if `ensurepip` is missing, install `python3-venv` (or `python3
 Still from the repo root:
 
 ```bash
-npm run setup:python:cpu
+npm run setup:python
 ```
 
-Use `setup:python:cpu` on machines without a CUDA GPU (typical laptops). Use `npm run setup:python` if you want pip to pull the default GPU-enabled PyTorch wheel.
+Use `setup:python` when you have an NVIDIA GPU (installs CUDA PyTorch `cu129`, required for RTX 50-series / Blackwell). Use `npm run setup:python:cpu` on machines without CUDA.
 
 What this script does:
 
@@ -96,7 +96,9 @@ This starts:
 - TypeScript watch build for the Electron main process
 - Electron with hot reload (`electronmon`)
 
+Use the **Electron window** for the full app. Do not use `npm run start` for development — that expects a pre-built UI under `dist/renderer/`.
 
+Stop dev with **Ctrl+C** in the terminal running `npm run dev`.
 
 ### 5. Verify the setup (optional)
 
@@ -106,6 +108,13 @@ This starts:
 .venv/bin/python -c "from kokoro import KPipeline; print('Kokoro OK')"
 ```
 
+**GPU PyTorch (NVIDIA)**
+
+```bash
+.venv/bin/python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
+```
+
+Expect `2.13.0+cu129` and your GPU name. RTX 50-series (Blackwell) needs `cu129`; if you see a CPU build (`+cpu`) or sm_120 warnings, re-run `npm run setup:python` (not `setup:python:cpu`).
 **Renderer tests**
 
 ```bash
@@ -133,7 +142,8 @@ Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the fo
 | `npm run dev`               | Development (UI + Electron + Python backend)           |
 | `npm run build`             | Compile main process + Angular for production          |
 | `npm run pack`              | Build installer (`.exe`, `.dmg`, etc.)                 |
-| `npm run setup:python:cpu`  | Reinstall Python deps after pulling dependency changes |
+| `npm run setup:python`      | Reinstall Python deps + GPU PyTorch + Kokoro (NVIDIA)  |
+| `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
 | `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |
 
 
@@ -161,7 +171,7 @@ Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the fo
 Ensure Git is installed and reachable. The 3.13 path clones [hexgrad/misaki](https://github.com/hexgrad/misaki) and [hexgrad/kokoro](https://github.com/hexgrad/kokoro). Re-run:
 
 ```bash
-npm run setup:python:cpu
+npm run setup:python
 ```
 
 
@@ -172,7 +182,7 @@ Install Python 3.10 or newer, recreate `.venv`, and run setup again:
 
 ```bash
 python3 -m venv .venv
-npm run setup:python:cpu
+npm run setup:python
 ```
 
 
@@ -188,6 +198,8 @@ Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If t
 ### Kokoro / TTS errors at runtime
 
 Confirm Kokoro imports in your venv (see step 5 above). For English OOD fallback, install **espeak-ng** on your OS.
+
+On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CPU, verify the GPU check in step 5 and reinstall with `npm run setup:python`.
 
 ## Project layout (short)
 

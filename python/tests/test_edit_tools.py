@@ -144,11 +144,18 @@ def test_outer_agent_tools_staging_mode() -> None:
         'run_workspace_python_smoke_test',
         'run_workspace_node_smoke_test',
     }
+    background_command_names = {
+        'run_command',
+        'wait_for_command',
+        'kill_background_command',
+        'list_background_commands',
+    }
 
     tools_on, map_on = worker_tools_and_map(True, session=session)
     assert {t.name for t in tools_on} == (
         read_names
         | {'copy_workspace_files', 'angular_cli_tool', 'kill_process'}
+        | background_command_names
         | edit_names
         | lsp_mut_names
         | dep_names

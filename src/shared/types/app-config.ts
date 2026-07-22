@@ -180,6 +180,11 @@ export interface WorkspaceToolsConfig {
    */
   allowStagingOverlayCommands?: boolean;
   /**
+   * When true and Auto-apply is off, asks the model for a one-line description and a low/medium/high risk
+   * rating for each `run_command` approval request, shown on the confirmation card. Default false.
+   */
+  commandLineExplainStep?: boolean;
+  /**
    * When true, the agent sees every workspace path in tree/list/search/semantic indexing (no built-in skips or root `.gitignore`).
    * Default false. Direct `read_workspace_file` by path already works when filters are on.
    */

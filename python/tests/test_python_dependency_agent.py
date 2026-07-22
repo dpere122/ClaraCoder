@@ -121,6 +121,13 @@ async def test_install_python_packages_stages_generic_accept_command_when_auto_a
     assert payload['confirmLabel'] == 'Install packages'
     assert 'pytest' in payload['commandText']
     assert 'ruff' in payload['commandText']
+    # Regression guard: non-`run_command` accept-command kinds never carry a
+    # `risk_assessment_status` key, so the payload must omit all risk fields
+    # (byte-for-byte unchanged from before the command-risk-assess feature).
+    assert 'risk_assessment_status' not in pending
+    assert 'riskAssessmentStatus' not in payload
+    assert 'riskLevel' not in payload
+    assert 'riskDescription' not in payload
 
 
 @pytest.mark.asyncio

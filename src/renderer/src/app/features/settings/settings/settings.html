@@ -1079,6 +1079,20 @@
                       bulk-listed. Off by default.
                     </p>
                   </div>
+                  <div class='field field--hint'>
+                    <label class='toggle-row'>
+                      <input
+                        type='checkbox'
+                        [ngModel]='commandLineExplainStep()'
+                        (ngModelChange)='onCommandLineExplainStepChange($event)'
+                      />
+                      <span>Explain terminal commands before running</span>
+                    </label>
+                    <p class='settings-field-hint'>
+                      When Auto-apply is off, asks the model for a one-line description and a low/medium/high risk rating for
+                      each <code>run_command</code> approval request, shown on the confirmation card.
+                    </p>
+                  </div>
                 </div>
                 <div class='callout'>
                   <p>

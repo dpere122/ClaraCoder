@@ -248,6 +248,9 @@ class RuntimeToolsConfig:
     default_workspace_newline: str = 'lf'
     #: When True, nested code review may call ``run_staging_overlay_command`` (Settings → Tools).
     allow_staging_overlay_commands: bool = False
+    #: When True and Auto-apply is off, asks the model for a description + low/medium/high risk rating for
+    #: each ``run_command`` approval request, shown on the confirmation card (Settings → Tools).
+    command_line_explain_step: bool = False
     #: When True, list/search/tree/semantic indexing include all workspace paths (no built-in or ``.gitignore`` skips).
     expose_all_workspace_files: bool = False
 

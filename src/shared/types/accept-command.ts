@@ -9,4 +9,7 @@ export interface AcceptCommandPayload {
   cancelLabel: string;
   commandText: string;
   details: string[];
+  riskLevel?: 'low' | 'medium' | 'high';
+  riskDescription?: string;
+  riskAssessmentStatus?: 'ok' | 'failed';
 }

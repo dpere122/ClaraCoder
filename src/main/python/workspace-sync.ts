@@ -193,6 +193,7 @@ export async function syncRuntimeConfigToPython(
           defaultWorkspaceEncoding: config.workspaceTools.defaultWorkspaceEncoding,
           defaultWorkspaceNewline: config.workspaceTools.defaultWorkspaceNewline,
           allowStagingOverlayCommands: config.workspaceTools.allowStagingOverlayCommands ?? false,
+          commandLineExplainStep: config.workspaceTools.commandLineExplainStep ?? false,
           exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
         },
         contextCompression: {

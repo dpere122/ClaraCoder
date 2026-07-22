@@ -18,6 +18,7 @@ DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
         'ensure_python_workspace_env',
         'bootstrap_python_testing_dependencies',
         'run_staging_overlay_command',
+        'run_command',
         'run_workspace_pytest_tests',
         'run_workspace_python_smoke_test',
         'run_workspace_node_smoke_test',
@@ -77,6 +78,16 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
             'Run workspace Node smoke test',
             'Run an npm/pnpm/yarn script in the selected Node project.',
             cmd,
+            details,
+        )
+    if tool_name == 'run_command':
+        command = str(tool_input.get('command') or '').strip()
+        cwd = str(tool_input.get('cwd') or '').strip()
+        details = [f'Working directory: `{cwd or "."}`']
+        return (
+            'Run terminal command',
+            'Run a shell command in the workspace as a managed background job.',
+            command or '(empty command)',
             details,
         )
     if tool_name == 'run_staging_overlay_command':
@@ -176,6 +187,10 @@ def _resolve_deferred_tool(tool_name: str) -> Any | None:
         from nemo_backend.tools.python_deps import bootstrap_python_testing_dependencies_tool
 
         return bootstrap_python_testing_dependencies_tool
+    if tool_name == 'run_command':
+        from nemo_backend.tools.run_command import run_command_tool
+
+        return run_command_tool
     if tool_name == 'run_staging_overlay_command':
         from nemo_backend.tools.review_tools import run_staging_overlay_command
 

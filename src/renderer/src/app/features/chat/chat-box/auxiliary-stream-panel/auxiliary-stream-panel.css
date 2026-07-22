@@ -2,6 +2,18 @@
  * Auxiliary panel content (reasoning, delegated tools, shells) — chrome in stream-trail-panel-shared.css.
  */
 
+/**
+ * Consolidated "Response details" section (reasoning/tools stream + trailing
+ * file-change entries): subtle themed surface so it reads as one block,
+ * visually distinct from the final response prose below it.
+ */
+app-auxiliary-stream-panel .stream-trail-panel.auxiliary-stream-panel {
+  background: color-mix(in srgb, var(--t-surface-2, var(--t-bg)) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 60%, transparent);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.6rem 0.5rem;
+}
+
 /** Expanded mode: capped height with a single outer scroll (overrides shared --full). */
 app-auxiliary-stream-panel .stream-trail-panel__viewport--full {
   max-height: min(50vh, 28rem);
@@ -29,7 +41,7 @@ app-chat-box app-auxiliary-stream-panel .llm-reasoning-body.auxiliary-stream-pan
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.74rem;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--t-secondary) 88%, transparent);
+  color: var(--chat-details-stream-fg, color-mix(in srgb, var(--t-secondary) 88%, transparent));
   white-space: pre-wrap;
   word-break: break-word;
 }

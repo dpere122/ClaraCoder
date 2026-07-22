@@ -17,8 +17,10 @@ When Editor and Auto-apply are both on, staging tools are replaced by direct wor
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
 ``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
 the user confirms in chat (or returns for re-review) unless auto-apply is on.
-Workspace **execute** tools (venv bootstrap, pytest/smoke, staging overlay commands) use the same
-accept-command pause when auto-apply is off (see :mod:`nemo_backend.deferred_tool_hitl`).
+Workspace **execute** tools (venv bootstrap, pytest/smoke, staging overlay commands, and generic
+``run_command`` background jobs with ``wait_for_command`` / ``kill_background_command`` /
+``list_background_commands``) use the same accept-command pause when auto-apply is off
+(see :mod:`nemo_backend.deferred_tool_hitl`).
 """
 
 from __future__ import annotations
@@ -235,6 +237,11 @@ def worker_tools_and_map(
         mapping[BATCH_DELETE_WORKSPACE_ENTRIES_NAME] = batch_delete_workspace_entries
         tools.append(kill_process_tool)
         mapping[kill_process_tool.name] = kill_process_tool
+        from nemo_backend.tools.run_command import background_command_tools
+
+        for command_tool in background_command_tools():
+            tools.append(command_tool)
+            mapping[command_tool.name] = command_tool
         from nemo_backend.tools.dependency_tools import dependency_specialist_tools, node_dependency_specialist_tools
         from nemo_backend.tools.project_review_tools import (
             run_workspace_node_smoke_test,
@@ -354,7 +361,17 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'run_workspace_node_smoke_test',
         ),
     ),
-    ('Process', ('search_netstat_ports', 'kill_process')),
+    (
+        'Process',
+        (
+            'search_netstat_ports',
+            'kill_process',
+            'run_command',
+            'wait_for_command',
+            'kill_background_command',
+            'list_background_commands',
+        ),
+    ),
     ('Build plan', ('read_build_plan', 'mark_build_plan_steps_complete')),
     ('Other', ()),
 ]

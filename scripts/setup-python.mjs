@@ -125,6 +125,15 @@ function installTorchCpu(py) {
   );
 }
 
+function installTorchCuda(py) {
+  console.info('[setup:python] Installing CUDA PyTorch (cu129) for GPU Kokoro TTS…');
+  runPip(
+    py,
+    ['torch', '--index-url', 'https://download.pytorch.org/whl/cu129'],
+    null,
+  );
+}
+
 /** Kokoro on Python 3.13+: PyPI misaki/kokoro still declare Requires-Python <3.13. */
 function installKokoroFromGit(py) {
   console.info(
@@ -170,6 +179,7 @@ function main() {
     process.env.NEMO_PYTORCH_CPU === 'true';
 
   if (cpu) installTorchCpu(py);
+  else installTorchCuda(py);
 
   runPip(py, ['-r', req], 'core requirements');
 

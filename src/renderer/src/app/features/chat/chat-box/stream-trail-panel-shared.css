@@ -54,7 +54,7 @@ app-hitl-trail-panel .stream-trail-panel__title {
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--t-text-muted);
+  color: var(--chat-details-header-fg, var(--t-text-muted));
 }
 
 app-auxiliary-stream-panel .stream-trail-panel__title--custom {
@@ -68,7 +68,7 @@ app-auxiliary-stream-panel .stream-trail-panel__chevron,
 app-hitl-trail-panel .stream-trail-panel__chevron {
   flex-shrink: 0;
   font-size: 0.55rem;
-  color: var(--t-text-muted);
+  color: var(--chat-details-header-fg, var(--t-text-muted));
   opacity: 0.65;
 }
 
@@ -107,7 +107,7 @@ app-hitl-trail-panel .stream-trail-row {
   padding: 0.18rem 0;
   font-size: 0.72rem;
   line-height: 1.45;
-  color: color-mix(in srgb, var(--t-secondary) 86%, transparent);
+  color: var(--chat-details-stream-fg, color-mix(in srgb, var(--t-secondary) 86%, transparent));
 }
 
 app-chat-box .stream-trail-row + .stream-trail-row,
@@ -158,4 +158,26 @@ app-hitl-trail-panel .stream-trail-row--cancelled .stream-trail-row__meta {
 
 app-auxiliary-stream-panel .stream-trail-row--running .stream-trail-row__name {
   opacity: 1;
+}
+
+/**
+ * Consolidated details stream: the HITL changes trail is projected into the
+ * auxiliary panel as trailing entries after the reasoning/tools stream.
+ * Its sub-header joins the stream color group (only the outer
+ * "Response details" toggle keeps the header accent color).
+ */
+app-auxiliary-stream-panel app-hitl-trail-panel .stream-trail-panel {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  padding-left: 0.55rem;
+  border-left: 2px solid color-mix(in srgb, var(--chat-details-header-fg, var(--t-border-subtle)) 35%, transparent);
+}
+
+app-auxiliary-stream-panel app-hitl-trail-panel .stream-trail-panel__title {
+  font-size: 0.66rem;
+  color: var(--chat-details-stream-fg, var(--t-text-muted));
+}
+
+app-auxiliary-stream-panel app-hitl-trail-panel .stream-trail-panel__chevron {
+  color: var(--chat-details-stream-fg, var(--t-text-muted));
 }

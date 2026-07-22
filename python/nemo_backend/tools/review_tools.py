@@ -1020,6 +1020,7 @@ async def run_staging_overlay_command(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=proc_env,
+                start_new_session=True,
             )
         except OSError as exc:
             await _emit_project_review_tool_complete(

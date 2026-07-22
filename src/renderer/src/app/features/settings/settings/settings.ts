@@ -306,6 +306,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly defaultWorkspaceEncoding = signal('utf-8');
   protected readonly defaultWorkspaceNewline = signal<'lf' | 'crlf' | 'preserve'>('lf');
   protected readonly allowStagingOverlayCommands = signal(false);
+  protected readonly commandLineExplainStep = signal(false);
   protected readonly exposeAllWorkspaceFiles = signal(false);
   protected readonly contextCompressionEnabled = signal(true);
   protected readonly contextCompressionTriggerRatio = signal(0.7);
@@ -1520,6 +1521,9 @@ export class Settings implements OnInit, OnDestroy {
     if (changes.allowStagingOverlayCommands !== undefined) {
       this.allowStagingOverlayCommands.set(!!changes.allowStagingOverlayCommands);
     }
+    if (changes.commandLineExplainStep !== undefined) {
+      this.commandLineExplainStep.set(!!changes.commandLineExplainStep);
+    }
     if (changes.exposeAllWorkspaceFiles !== undefined) {
       this.exposeAllWorkspaceFiles.set(!!changes.exposeAllWorkspaceFiles);
     }
@@ -1565,6 +1569,11 @@ export class Settings implements OnInit, OnDestroy {
 
   protected onAllowStagingOverlayCommandsChange(enabled: boolean): void {
     this.allowStagingOverlayCommands.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  protected onCommandLineExplainStepChange(enabled: boolean): void {
+    this.commandLineExplainStep.set(!!enabled);
     this.markSettingsDirty();
   }
 
@@ -1851,6 +1860,7 @@ export class Settings implements OnInit, OnDestroy {
         defaultWorkspaceEncoding: this.defaultWorkspaceEncoding(),
         defaultWorkspaceNewline: this.defaultWorkspaceNewline(),
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
+        commandLineExplainStep: this.commandLineExplainStep(),
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
       },
       contextCompression: {
@@ -1982,6 +1992,7 @@ export class Settings implements OnInit, OnDestroy {
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
+    this.commandLineExplainStep.set(!!(wt.commandLineExplainStep ?? false));
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
 
     const cc = config.contextCompression ?? getDefaultContextCompression();

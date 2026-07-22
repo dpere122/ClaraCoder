@@ -22,6 +22,7 @@ from nemo_backend.agent_streaming import sse_line, status_event
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from nemo_backend.accept_command import accept_command_sse_payload
 from nemo_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from nemo_backend.command_risk_assess import maybe_enrich_pending_command_risk
 from nemo_backend.tools.review_tools import rollback_test_run_materializations
 from nemo_backend.checkpointing import get_graph_checkpointer, outer_agent_thread_id
 from nemo_backend.config import MAX_AGENT_STEPS
@@ -212,7 +213,7 @@ async def _race_stream_inputs(
         await _cancel_pending_waiters(all_tasks)
 
 
-def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
+async def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
     """Translate HITL queue signals into SSE payloads."""
 
     raw_hitl = item
@@ -224,6 +225,7 @@ def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
     if raw_hitl == ('accept_command',):
         pending_cmd = session.pending_accept_command_request
         if pending_cmd:
+            await maybe_enrich_pending_command_risk(pending_cmd)
             return [
                 sse_line({'type': 'accept_command', 'acceptCommand': accept_command_sse_payload(pending_cmd)})
             ]
@@ -475,7 +477,7 @@ async def _stream_langgraph_tool_agent(
                     break
 
                 if kind == 'hitl':
-                    for line in _hitl_sse_lines(get_session(cfg.session_id), item):
+                    for line in await _hitl_sse_lines(get_session(cfg.session_id), item):
                         yield line
                     continue
 

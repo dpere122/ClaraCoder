@@ -402,6 +402,7 @@ async def run_workspace_pytest_tests() -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=with_subprocess_color_env(session_workspace_subprocess_env(session)),
+            start_new_session=True,
         )
     except OSError as exc:
         await _emit_project_review_tool_complete(
@@ -574,6 +575,7 @@ async def run_workspace_python_smoke_test(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=with_subprocess_color_env(session_workspace_subprocess_env(session)),
+            start_new_session=True,
         )
     except OSError as exc:
         await _emit_project_review_tool_complete(
@@ -822,6 +824,7 @@ async def run_workspace_node_smoke_test(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=with_subprocess_color_env(session_workspace_subprocess_env(session)),
+            start_new_session=True,
         )
     except OSError as exc:
         await _emit_project_review_tool_complete(

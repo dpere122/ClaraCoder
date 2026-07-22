@@ -1507,6 +1507,9 @@ export class App implements OnInit, OnDestroy {
       this.fileTabs.update((ts) => [...ts, tab]);
     }
     this.activeMainTabId.set(id);
+    // Opening a file in the workspace Monaco editor collapses the expanded chat
+    // overlay so the editor is actually visible.
+    this.chatExpanded.set(false);
   }
 
   protected openOrFocusBuildPlanTab(relativePath: string, planId: string, active: boolean): void {
@@ -1711,6 +1714,11 @@ export class App implements OnInit, OnDestroy {
 
   protected selectMainTab(tabId: string): void {
     this.activeMainTabId.set(tabId);
+    if (tabId.startsWith('file:')) {
+      // Focusing an editor file tab collapses the expanded chat overlay so the
+      // selected file is actually visible.
+      this.chatExpanded.set(false);
+    }
   }
 
   protected async closeMainFileTab(event: MouseEvent, tabId: string): Promise<void> {

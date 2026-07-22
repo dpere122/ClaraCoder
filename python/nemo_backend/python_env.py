@@ -152,9 +152,20 @@ async def _terminate_subprocess_tree(proc: asyncio.subprocess.Process) -> None:
         except (asyncio.TimeoutError, ProcessLookupError):
             pass
     else:
+        # Never signal a group we belong to: if the child shares our process
+        # group (spawned without start_new_session=True), killpg would take
+        # down this backend and its parent Electron/npm processes too.
+        def _own_group(target_pid: int) -> bool:
+            try:
+                return os.getpgid(target_pid) == os.getpgid(0)
+            except (ProcessLookupError, PermissionError, OSError):
+                return True
+
         try:
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGTERM)
+            if _own_group(pid):
+                proc.terminate()
+            else:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             try:
                 proc.kill()
@@ -164,7 +175,9 @@ async def _terminate_subprocess_tree(proc: asyncio.subprocess.Process) -> None:
             await asyncio.wait_for(proc.wait(), timeout=8.0)
         except (asyncio.TimeoutError, ProcessLookupError):
             try:
-                if isinstance(pid, int) and pid > 0:
+                if _own_group(pid):
+                    proc.kill()
+                else:
                     os.killpg(os.getpgid(pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError, OSError):
                 try:

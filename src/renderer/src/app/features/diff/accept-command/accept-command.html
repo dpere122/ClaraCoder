@@ -18,9 +18,17 @@
 } @else {
   <div class="accept-command-card border border-primary border-opacity-50 rounded-2 overflow-hidden">
     <div class="accept-command-toolbar p-2 border-bottom bg-primary bg-opacity-10">
-      <div class="fw-medium text-primary">{{ payload().title }}</div>
+      <div class="d-flex align-items-center gap-2">
+        <div class="fw-medium text-primary">{{ payload().title }}</div>
+        @if (riskBadge(); as badge) {
+          <span class="badge" [class]="badge.badgeClass">{{ badge.label }}</span>
+        }
+      </div>
       @if (payload().message) {
         <div class="small text-secondary">{{ payload().message }}</div>
+      }
+      @if (payload().riskAssessmentStatus === 'ok' && payload().riskDescription) {
+        <div class="small text-secondary">{{ payload().riskDescription }}</div>
       }
       @if (payload().commandText) {
         <code class="accept-command-code small d-block mt-1">{{ payload().commandText }}</code>

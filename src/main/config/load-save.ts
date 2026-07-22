@@ -842,6 +842,15 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.allowStagingOverlayCommands = false;
       migrated = true;
     }
+    const explainStepRaw = (wt as unknown as { commandLineExplainStep?: unknown }).commandLineExplainStep;
+    if (typeof explainStepRaw === 'string') {
+      const s = explainStepRaw.trim().toLowerCase();
+      wt.commandLineExplainStep = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof explainStepRaw !== 'boolean') {
+      wt.commandLineExplainStep = false;
+      migrated = true;
+    }
     const exposeAllRaw = (wt as unknown as { exposeAllWorkspaceFiles?: unknown }).exposeAllWorkspaceFiles;
     if (typeof exposeAllRaw === 'string') {
       const s = exposeAllRaw.trim().toLowerCase();

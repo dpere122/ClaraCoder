@@ -186,6 +186,28 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses background_command_open payloads', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'background_command_open',
+          command_id: 'abc12345',
+          command_text: 'npm run dev',
+          cwd_label: '.',
+          label: 'npm run dev',
+          stream_tag: 'run-command:abc12345',
+        }),
+      ),
+    ).toEqual({
+      type: 'background_command_open',
+      commandId: 'abc12345',
+      commandText: 'npm run dev',
+      cwdLabel: '.',
+      label: 'npm run dev',
+      streamTag: 'run-command:abc12345',
+    });
+  });
+
   it('falls back to a plain text chunk for unknown payloads', () => {
     expect(parseAgentStreamPayload('not-json')).toEqual({
       type: 'chunk',

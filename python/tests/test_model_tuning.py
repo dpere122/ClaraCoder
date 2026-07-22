@@ -134,6 +134,8 @@ def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_
     g = gemma_sparse_expert_workspace_suffix(sparse_model)
     assert 'workspace edits' in g
     assert 'stage_snippet_edit' in g
+    assert 'stage_line_range_edit' in g
+    assert 'when line numbers are known' in g
 
     generic = _conn(
         model='google/gemma-4-26b-a4b-it',

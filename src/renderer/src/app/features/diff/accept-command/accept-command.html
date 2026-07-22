@@ -1,10 +1,10 @@
 @if (reviewStatus() !== 'pending') {
-  <div class="accept-command-card accept-command-card--collapsed border rounded-2 px-3 py-2">
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-      <div>
-        <span class="fw-medium">{{ payload().title }}</span>
+  <div class="accept-command-card accept-command-card--collapsed">
+    <div class="accept-command-collapsed">
+      <div class="accept-command-collapsed__summary">
+        <span class="accept-command-collapsed__text">{{ summaryText() }}</span>
         @if (reviewSummary()) {
-          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
+          <span class="accept-command-collapsed__meta">{{ reviewSummary() }}</span>
         }
       </div>
       <span
@@ -16,48 +16,53 @@
     </div>
   </div>
 } @else {
-  <div class="accept-command-card border border-primary border-opacity-50 rounded-2 overflow-hidden">
-    <div class="accept-command-toolbar p-2 border-bottom bg-primary bg-opacity-10">
-      <div class="d-flex align-items-center gap-2">
-        <div class="fw-medium text-primary">{{ payload().title }}</div>
-        @if (riskBadge(); as badge) {
-          <span class="badge" [class]="badge.badgeClass">{{ badge.label }}</span>
+  <div class="accept-command-card accept-command-card--pending">
+    @if (riskBadge(); as badge) {
+      <div class="accept-command-header">
+        <span class="badge" [class]="badge.badgeClass">{{ badge.label }}</span>
+      </div>
+    }
+
+    @if (descriptionText()) {
+      <div class="accept-command-description">{{ descriptionText() }}</div>
+    }
+
+    @if (payload().commandText) {
+      <div class="accept-command-command">
+        <code class="accept-command-command__text">{{ payload().commandText }}</code>
+      </div>
+    }
+
+    @if (contextHints().length > 0) {
+      <div class="accept-command-context">
+        @for (hint of contextHints(); track hint.kind + hint.value) {
+          <span class="accept-command-context__chip">
+            @if (hint.kind) {
+              <span class="accept-command-context__kind">{{ hint.kind }}</span>
+            }
+            <code class="accept-command-context__value">{{ hint.value }}</code>
+          </span>
         }
       </div>
-      @if (payload().message) {
-        <div class="small text-secondary">{{ payload().message }}</div>
-      }
-      @if (payload().riskAssessmentStatus === 'ok' && payload().riskDescription) {
-        <div class="small text-secondary">{{ payload().riskDescription }}</div>
-      }
-      @if (payload().commandText) {
-        <code class="accept-command-code small d-block mt-1">{{ payload().commandText }}</code>
-      }
-      @if (payload().details.length > 0) {
-        <div class="accept-command-list small mt-2">
-          @for (item of payload().details; track $index) {
-            <div class="accept-command-list__row">{{ item }}</div>
-          }
-        </div>
-      }
-      <div class="d-flex flex-wrap gap-2 mt-2">
-        <button
-          type="button"
-          class="btn btn-sm btn-primary"
-          [disabled]="busy()"
-          (click)="onConfirm()"
-        >
-          {{ payload().confirmLabel }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-secondary"
-          [disabled]="busy()"
-          (click)="onCancel()"
-        >
-          {{ payload().cancelLabel || 'Cancel' }}
-        </button>
-      </div>
+    }
+
+    <div class="accept-command-actions">
+      <button
+        type="button"
+        class="btn btn-sm btn-primary"
+        [disabled]="busy()"
+        (click)="onConfirm()"
+      >
+        {{ payload().confirmLabel }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-secondary"
+        [disabled]="busy()"
+        (click)="onCancel()"
+      >
+        {{ payload().cancelLabel || 'Cancel' }}
+      </button>
     </div>
   </div>
 }

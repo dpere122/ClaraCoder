@@ -13,6 +13,14 @@ export type ParsedAgentStreamPayload =
   | { type: 'tool_read_chunk'; delta: string }
   | { type: 'tool_exec_chunk'; delta: string; streamTag?: string; label?: string }
   | {
+      type: 'background_command_open';
+      commandId: string;
+      commandText: string;
+      cwdLabel: string;
+      label: string;
+      streamTag: string;
+    }
+  | {
       type: 'tool_exec_complete';
       streamTag?: string;
       label?: string;
@@ -74,6 +82,9 @@ type RawAgentStreamPayload = {
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
   diff?: unknown;
   acceptCommand?: unknown;
+  command_id?: unknown;
+  command_text?: unknown;
+  cwd_label?: unknown;
   copyConfirm?: unknown;
   deleteConfirm?: unknown;
   planner?: unknown;
@@ -211,6 +222,24 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
 
     if (parsed.type === 'tool_read_chunk' && typeof parsed.delta === 'string') {
       return { type: 'tool_read_chunk', delta: parsed.delta };
+    }
+
+    if (parsed.type === 'background_command_open') {
+      const commandId = optionalTrimmedString(parsed.command_id);
+      const commandText = typeof parsed.command_text === 'string' ? parsed.command_text : '';
+      const cwdLabel = typeof parsed.cwd_label === 'string' ? parsed.cwd_label : '';
+      const label = optionalTrimmedString(parsed.label) ?? '';
+      const streamTag = optionalTrimmedString(parsed.stream_tag) ?? '';
+      if (commandId) {
+        return {
+          type: 'background_command_open',
+          commandId,
+          commandText,
+          cwdLabel,
+          label,
+          streamTag,
+        };
+      }
     }
 
     if (parsed.type === 'tool_exec_chunk' && typeof parsed.delta === 'string') {

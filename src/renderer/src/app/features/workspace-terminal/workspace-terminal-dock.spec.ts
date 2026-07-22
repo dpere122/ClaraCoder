@@ -3,6 +3,11 @@ import { Component, signal } from '@angular/core';
 import { TestBed, ComponentFixture, fakeAsync, tick, flush } from '@angular/core/testing';
 import { Subject, of } from 'rxjs';
 import type { AppConfig } from '@shared/index';
+import type {
+  BackgroundCommandOpenMessage,
+  ToolExecChunkMessage,
+  ToolExecCompleteMessage,
+} from '../../core/electron.service';
 
 const mockTerminal = {
   write: vi.fn(),
@@ -52,6 +57,9 @@ describe('WorkspaceTerminalDockComponent', () => {
   let mockElectronService: Partial<ElectronService>;
   let workspacePtyDataSubject: Subject<{ sessionId: string; data: string }>;
   let workspacePtyExitSubject: Subject<{ sessionId: string; exitCode: number; signal: number | null }>;
+  let backgroundCommandOpenSubject: Subject<BackgroundCommandOpenMessage>;
+  let toolExecChunkSubject: Subject<ToolExecChunkMessage>;
+  let toolExecCompleteSubject: Subject<ToolExecCompleteMessage>;
   let configSubject: Subject<AppConfig>;
 
   beforeEach(async () => {
@@ -59,12 +67,18 @@ describe('WorkspaceTerminalDockComponent', () => {
 
     workspacePtyDataSubject = new Subject();
     workspacePtyExitSubject = new Subject();
+    backgroundCommandOpenSubject = new Subject();
+    toolExecChunkSubject = new Subject();
+    toolExecCompleteSubject = new Subject();
     configSubject = new Subject();
 
     mockElectronService = {
       isElectron: true,
       workspacePtyData$: workspacePtyDataSubject.asObservable(),
       workspacePtyExit$: workspacePtyExitSubject.asObservable(),
+      backgroundCommandOpen$: backgroundCommandOpenSubject.asObservable(),
+      toolExecChunk$: toolExecChunkSubject.asObservable(),
+      toolExecComplete$: toolExecCompleteSubject.asObservable(),
       llamaServerOutput$: new Subject<never>().asObservable(),
       llamaServerProcessExit$: new Subject<never>().asObservable(),
       llamaServerLifecycle$: new Subject<never>().asObservable(),
@@ -74,6 +88,7 @@ describe('WorkspaceTerminalDockComponent', () => {
       workspacePtyResize: vi.fn().mockResolvedValue({ success: true }),
       workspacePtyKill: vi.fn().mockResolvedValue({ success: true }),
       workspacePtyKillAll: vi.fn().mockResolvedValue({ success: true }),
+      notifyBackgroundCommandTerminalClosed: vi.fn().mockResolvedValue({ ok: true, detail: 'ok' }),
     };
 
     await TestBed.configureTestingModule({
@@ -526,6 +541,85 @@ describe('WorkspaceTerminalDockComponent', () => {
       expect(mockTerminal.dispose).toHaveBeenCalled();
     }));
   });
+
+  describe('agent command tabs', () => {
+    it('opens a tab when background_command_open arrives for the active conversation', fakeAsync(() => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      backgroundCommandOpenSubject.next({
+        conversationId: 'conv-1',
+        commandId: 'abc12345',
+        commandText: 'npm run dev',
+        cwdLabel: '.',
+        label: 'npm run dev',
+        streamTag: 'run-command:abc12345',
+      });
+      tick();
+
+      expect(component.expanded()).toBe(true);
+      expect(component.agentCommandTabsForConversation().length).toBe(1);
+      expect(component.agentCommandTabsForConversation()[0].title).toBe('npm run dev');
+      expect(component.activeTabId()).toBe('agent-command-tab-abc12345');
+    }));
+
+    it('notifies backend and removes tab when closed', fakeAsync(async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      backgroundCommandOpenSubject.next({
+        conversationId: 'conv-1',
+        commandId: 'abc12345',
+        commandText: 'npm run dev',
+        cwdLabel: '.',
+        label: 'npm run dev',
+        streamTag: 'run-command:abc12345',
+      });
+      tick();
+
+      const tabId = component.agentCommandTabsForConversation()[0].id;
+      await component.closeTab(tabId);
+      tick();
+
+      expect(mockElectronService.notifyBackgroundCommandTerminalClosed).toHaveBeenCalledWith(
+        'conv-1',
+        'abc12345',
+      );
+      expect(component.agentCommandTabsForConversation().length).toBe(0);
+    }));
+
+    it('routes run_command output chunks to the matching tab', fakeAsync(() => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      backgroundCommandOpenSubject.next({
+        conversationId: 'conv-1',
+        commandId: 'abc12345',
+        commandText: 'echo hi',
+        cwdLabel: '.',
+        label: 'echo hi',
+        streamTag: 'run-command:abc12345',
+      });
+      tick();
+
+      const tabId = component.agentCommandTabsForConversation()[0].id;
+      (component as any).xterms.set(tabId, {
+        terminal: mockTerminal,
+        fit: mockFitAddon,
+        sessionId: 'agent-command:abc12345',
+      });
+
+      toolExecChunkSubject.next({
+        conversationId: 'conv-1',
+        delta: 'hello\n',
+        streamTag: 'run-command:abc12345',
+        label: 'echo hi',
+      });
+      tick();
+
+      expect(mockTerminal.write).toHaveBeenCalledWith('hello\n');
+    }));
+  });
 });
 
 describe('WorkspaceTerminalDockComponent - ANSI color rendering', () => {
@@ -542,6 +636,9 @@ describe('WorkspaceTerminalDockComponent - ANSI color rendering', () => {
       isElectron: true,
       workspacePtyData$: workspacePtyDataSubject.asObservable(),
       workspacePtyExit$: new Subject().asObservable(),
+      backgroundCommandOpen$: new Subject<never>().asObservable(),
+      toolExecChunk$: new Subject<never>().asObservable(),
+      toolExecComplete$: new Subject<never>().asObservable(),
       llamaServerOutput$: new Subject<never>().asObservable(),
       llamaServerProcessExit$: new Subject<never>().asObservable(),
       llamaServerLifecycle$: new Subject<never>().asObservable(),

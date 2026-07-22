@@ -15,6 +15,8 @@ import { LucideAngularModule } from 'lucide-angular';
 import type { PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
+import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
@@ -64,6 +66,7 @@ import {
 })
 export class WorkspaceComponent implements OnDestroy {
   private readonly workspaceFileChangeStatus = inject(WorkspaceFileChangeStatusService);
+  private readonly themedConfirm = inject(ThemedConfirmDialogService);
 
   readonly workspaces = input<Workspace[]>([]);
   readonly currentWorkspaceId = input<string | null>(null);
@@ -1092,9 +1095,11 @@ export class WorkspaceComponent implements OnDestroy {
     if (!node || !ws?.path) {
       return;
     }
-    const kind = node.isDirectory ? 'folder' : 'file';
-    const extra = node.isDirectory ? ' and everything inside it' : '';
-    if (!window.confirm(`Delete ${kind} "${node.name}"${extra}? This cannot be undone.`)) {
+    const confirmed =
+      (await this.themedConfirm.open(
+        workspaceEntryDeletePrompt({ name: node.name, isDirectory: node.isDirectory }),
+      )) === 'confirm';
+    if (!confirmed) {
       return;
     }
     this.markDiskOpPending(node.path);

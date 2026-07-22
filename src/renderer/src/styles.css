@@ -6,63 +6,62 @@
  * so they fall through to the theme's own font when unset.
  */
 :root {
-  --t-bg: #0a0a0a;
-  --t-bg-surface: #0d1a0d;
-  --t-bg-deep: #060a06;
-  --t-panel: var(--t-bg-surface);
-  --t-primary: #00ff41;
-  --t-secondary: #00cc33;
-  --t-fg: #00ff41;
-  --t-border: #00ff4133;
-  --t-border-subtle: #00ff4122;
-  --t-glow: #00ff4180;
-  --t-glow-soft: #00ff4140;
-  --t-hover-bg: #00ff4115;
-  --t-active-bg: #00ff4118;
-  --t-selection-bg: #00ff4140;
-  --t-text-muted: #00ff4155;
-  --t-muted: var(--t-text-muted);
-  --t-user-bg: #004808;
-  --t-user-fg: #80ff80;
-  --t-user-border: #00cc4466;
-  --t-assistant-bg: #0a100a;
-  --t-assistant-fg: #7ab87a;
-  --t-assistant-border: #00cc3366;
-  --t-code-bg: #050d05;
-  --t-code-inline-bg: #001a00;
-  --t-code-text: #c8e6c8;
-  --t-input-bg: var(--t-bg);
-  --t-input-fg: var(--t-primary);
+  --t-bg: #191c17;
+  --t-bg-surface: #22261f;
+  --t-bg-deep: #121410;
+  --t-panel: #1e221b;
+  --t-primary: #a8b89a;
+  --t-secondary: #c9a96e;
+  --t-fg: #d2cdc2;
+  --t-border: #3d4436;
+  --t-border-subtle: #2e3429;
+  --t-glow: transparent;
+  --t-glow-soft: transparent;
+  --t-hover-bg: rgba(168, 184, 154, 0.1);
+  --t-active-bg: rgba(168, 184, 154, 0.14);
+  --t-selection-bg: rgba(168, 184, 154, 0.28);
+  --t-text-muted: #7a8470;
+  --t-muted: #7a8470;
+  --t-user-bg: #2e3628;
+  --t-user-fg: #d8c8a0;
+  --t-user-border: #c9a96e66;
+  --t-assistant-bg: #161812;
+  --t-assistant-fg: #a8b89a;
+  --t-assistant-border: #8a7a5a;
+  --t-code-bg: #151812;
+  --t-code-inline-bg: #252b20;
+  --t-code-text: #ddd8cc;
   --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #0d1a0d;
-  --t-titlebar-end: #003b00;
-  --t-titlebar-text: #00ff41;
-  --t-edge-light: #2d5b2d;
-  --t-edge-mid: #184018;
-  --t-edge-dark: #081108;
-  --t-edge-darkest: #020402;
-  --t-process-a: #41ffc9;
-  --t-process-b: #ff41c8;
-  --t-process-c: #c941ff;
-  --t-hljs-keyword: #00ff41;
-  --t-hljs-string: #7dff7d;
-  --t-hljs-number: #41ffc9;
-  --t-hljs-comment: #4a7a4a;
-  --t-hljs-function: #66ff99;
-  --t-hljs-class: #80ffbf;
-  --t-hljs-attr: #99ffcc;
-  --t-hljs-params: #c8e6c8;
-  --t-hljs-property: #88ddaa;
-  --t-hljs-punctuation: #5a9a5a;
-  --t-hljs-operator: #00cc88;
-  --t-hljs-meta: #44bb88;
-  --t-hljs-tag: #00cc66;
-  --t-hljs-name: #00ff80;
-  --t-hljs-symbol: #55dd99;
-  --t-hljs-selector: #66ffbb;
+  --t-titlebar-start: #2a3024;
+  --t-titlebar-end: #1a1e17;
+  --t-titlebar-text: #d2cdc2;
+  --t-edge-light: #4a5442;
+  --t-edge-mid: #343b2e;
+  --t-edge-dark: #1e2319;
+  --t-edge-darkest: #0d0f0b;
+  --t-process-a: #a8b89a;
+  --t-process-b: #c9a96e;
+  --t-process-c: #7eb5a6;
+  --t-run-command-tab: #7eb5a6;
+  --t-hljs-keyword: #a8b89a;
+  --t-hljs-string: #c9a96e;
+  --t-hljs-number: #7eb5a6;
+  --t-hljs-comment: #6b7361;
+  --t-hljs-function: #d4c49a;
+  --t-hljs-class: #b8a88a;
+  --t-hljs-attr: #c4a87a;
+  --t-hljs-params: #d2cdc2;
+  --t-hljs-property: #9bb88e;
+  --t-hljs-punctuation: #7a8470;
+  --t-hljs-operator: #b89a7a;
+  --t-hljs-meta: #8aaa80;
+  --t-hljs-tag: #c49a70;
+  --t-hljs-name: #a8b89a;
+  --t-hljs-symbol: #7eb5a6;
+  --t-hljs-selector: #9bb88e;
+  --t-log-level-error: #e07a7a;
+  --t-log-level-warning: #d4a84b;
   --t-elev-shadow: 0 10px 28px color-mix(in srgb, var(--t-edge-darkest) 42%, transparent);
-  --t-log-level-error: #ff8585;
-  --t-log-level-warning: #ffd166;
   --t-font-mono: var(--t-font);
 }
 
@@ -76,53 +75,6 @@ lucide-icon {
 
 lucide-icon svg {
   display: block;
-}
-
-.theme-pink {
-  --t-bg: #0a0a0a;
-  --t-bg-surface: #1a0d18;
-  --t-bg-deep: #0a060a;
-  --t-primary: #ff41c8;
-  --t-secondary: #cc33aa;
-  --t-fg: #ff41c8;
-  --t-border: #ff41c833;
-  --t-border-subtle: #ff41c822;
-  --t-glow: #ff41c880;
-  --t-glow-soft: #ff41c840;
-  --t-hover-bg: #ff41c815;
-  --t-active-bg: #ff41c818;
-  --t-selection-bg: #ff41c840;
-  --t-text-muted: #ff41c855;
-  --t-user-bg: #4a0838;
-  --t-user-fg: #ff99dd;
-  --t-user-border: #ff41c866;
-  --t-assistant-bg: #140a12;
-  --t-assistant-fg: #cc88bb;
-  --t-assistant-border: #cc33aa66;
-  --t-code-bg: #0d050c;
-  --t-code-inline-bg: #1a0015;
-  --t-code-text: #e6c8e0;
-  --t-process-a: #41ffc9;
-  --t-process-b: #ff41c8;
-  --t-process-c: #c941ff;
-  --t-hljs-keyword: #ff41c8;
-  --t-hljs-string: #ff7dd4;
-  --t-hljs-number: #c941ff;
-  --t-hljs-comment: #7a4a72;
-  --t-hljs-function: #ff66b2;
-  --t-hljs-class: #ff80d5;
-  --t-hljs-attr: #ffaadd;
-  --t-hljs-params: #e6c8e0;
-  --t-hljs-property: #dd88cc;
-  --t-hljs-punctuation: #9a5a8e;
-  --t-hljs-operator: #cc00aa;
-  --t-hljs-meta: #bb44aa;
-  --t-hljs-tag: #cc66aa;
-  --t-hljs-name: #ff80cc;
-  --t-hljs-symbol: #dd55bb;
-  --t-hljs-selector: #ff66cc;
-  --t-log-level-error: #ff7a9d;
-  --t-log-level-warning: #ffc266;
 }
 
 .theme-classical {
@@ -162,6 +114,7 @@ lucide-icon svg {
   --t-process-a: #7b5b3a;
   --t-process-b: #5c3d2e;
   --t-process-c: #6b3a8a;
+  --t-run-command-tab: #6b3a8a;
   --t-hljs-keyword: #7b3014;
   --t-hljs-string: #2e6b2e;
   --t-hljs-number: #1a5276;
@@ -219,6 +172,7 @@ lucide-icon svg {
   --t-process-a: #cfa575;
   --t-process-b: #a97c50;
   --t-process-c: #8d5d7a;
+  --t-run-command-tab: #8d5d7a;
   --t-hljs-keyword: #e3b07d;
   --t-hljs-string: #a9cf95;
   --t-hljs-number: #8fc3d4;
@@ -242,67 +196,6 @@ lucide-icon svg {
 html.theme-classical .terminal-shell,
 html.theme-classical .interactive-output .terminal-shell {
   background: var(--t-code-bg);
-}
-
-.theme-win95 {
-  --t-bg: #008080;
-  --t-bg-surface: #c0c0c0;
-  --t-bg-deep: #a8a8a8;
-  --t-panel: #c0c0c0;
-  --t-primary: #000080;
-  --t-secondary: #800000;
-  --t-fg: #000000;
-  --t-border: #808080;
-  --t-border-subtle: #9a9a9a;
-  --t-glow: transparent;
-  --t-glow-soft: transparent;
-  --t-hover-bg: #d4d0c8;
-  --t-active-bg: #b0b0b0;
-  --t-selection-bg: #000080;
-  --t-text-muted: #404040;
-  --t-muted: #404040;
-  --t-warn: #996600;
-  --t-user-bg: #ffffff;
-  --t-user-fg: #000080;
-  --t-user-border: #000080;
-  --t-assistant-bg: #e8e8e8;
-  --t-assistant-fg: #404040;
-  --t-assistant-border: #808080;
-  --t-code-bg: #fffff8;
-  --t-code-inline-bg: #e8e8e8;
-  --t-code-text: #000000;
-  --t-input-bg: #ffffff;
-  --t-input-fg: #000000;
-  --t-font: 'MS Sans Serif', 'Segoe UI', 'Tahoma', sans-serif;
-  --t-font-mono: 'Fixedsys', 'Lucida Console', 'Consolas', monospace;
-  --t-titlebar-start: #000080;
-  --t-titlebar-end: #1084d0;
-  --t-titlebar-text: #ffffff;
-  --t-edge-light: #ffffff;
-  --t-edge-mid: #dfdfdf;
-  --t-edge-dark: #808080;
-  --t-edge-darkest: #404040;
-  --t-process-a: #0000c0;
-  --t-process-b: #c00000;
-  --t-process-c: #008000;
-  --t-hljs-keyword: #0000c0;
-  --t-hljs-string: #008000;
-  --t-hljs-number: #c00000;
-  --t-hljs-comment: #606060;
-  --t-hljs-function: #000080;
-  --t-hljs-class: #800080;
-  --t-hljs-attr: #a00000;
-  --t-hljs-params: #000000;
-  --t-hljs-property: #000080;
-  --t-hljs-punctuation: #303030;
-  --t-hljs-operator: #303030;
-  --t-hljs-meta: #666000;
-  --t-hljs-tag: #a00000;
-  --t-hljs-name: #000080;
-  --t-hljs-symbol: #a00000;
-  --t-hljs-selector: #800080;
-  --t-log-level-error: #c00000;
-  --t-log-level-warning: #806000;
 }
 
 .theme-woodland {
@@ -344,6 +237,7 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-process-a: #a8b89a;
   --t-process-b: #c9a96e;
   --t-process-c: #7eb5a6;
+  --t-run-command-tab: #7eb5a6;
   --t-hljs-keyword: #a8b89a;
   --t-hljs-string: #c9a96e;
   --t-hljs-number: #7eb5a6;
@@ -364,495 +258,15 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-log-level-warning: #d4a84b;
 }
 
-.theme-ion {
-  --t-bg: #070a10;
-  --t-bg-surface: #0e1420;
-  --t-bg-deep: #040508;
-  --t-panel: #0a0f18;
-  --t-primary: #58a6ff;
-  --t-secondary: #39d4d4;
-  --t-fg: #e2e8f4;
-  --t-border: #1c2d45;
-  --t-border-subtle: #121a28;
-  --t-glow: transparent;
-  --t-glow-soft: transparent;
-  --t-hover-bg: rgba(88, 166, 255, 0.09);
-  --t-active-bg: rgba(88, 166, 255, 0.14);
-  --t-selection-bg: rgba(88, 166, 255, 0.28);
-  --t-text-muted: #6b7c95;
-  --t-muted: #6b7c95;
-  --t-user-bg: #142038;
-  --t-user-fg: #90c8ff;
-  --t-user-border: #58a6ff66;
-  --t-assistant-bg: #060a10;
-  --t-assistant-fg: #80b0e0;
-  --t-assistant-border: #39d4d4;
-  --t-code-bg: #06090e;
-  --t-code-inline-bg: #121a28;
-  --t-code-text: #dce5f2;
-  --t-input-bg: #070a10;
-  --t-input-fg: #e2e8f4;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #0d1522;
-  --t-titlebar-end: #070a10;
-  --t-titlebar-text: #e2e8f4;
-  --t-edge-light: #2a3f5c;
-  --t-edge-mid: #1a2838;
-  --t-edge-dark: #0c121c;
-  --t-edge-darkest: #030508;
-  --t-process-a: #58a6ff;
-  --t-process-b: #39d4d4;
-  --t-process-c: #a4b8ff;
-  --t-hljs-keyword: #58a6ff;
-  --t-hljs-string: #39d4d4;
-  --t-hljs-number: #a4b8ff;
-  --t-hljs-comment: #5c6b82;
-  --t-hljs-function: #7ec8ff;
-  --t-hljs-class: #9bccff;
-  --t-hljs-attr: #5ec4c4;
-  --t-hljs-params: #e2e8f4;
-  --t-hljs-property: #7eb8ff;
-  --t-hljs-punctuation: #6b7c95;
-  --t-hljs-operator: #5ec4c4;
-  --t-hljs-meta: #6aa6ff;
-  --t-hljs-tag: #39b8b8;
-  --t-hljs-name: #58a6ff;
-  --t-hljs-symbol: #a4b8ff;
-  --t-hljs-selector: #7eb8ff;
-  --t-log-level-error: #f85149;
-  --t-log-level-warning: #d29922;
-}
-
-.theme-purple-girl {
-  --t-bg: #12081c;
-  --t-bg-surface: #1d0f2a;
-  --t-bg-deep: #090511;
-  --t-panel: #180d24;
-  --t-primary: #d08dff;
-  --t-secondary: #8e6bff;
-  --t-fg: #f1dcff;
-  --t-border: #6f43a3;
-  --t-border-subtle: #3f2a5f;
-  --t-glow: rgba(208, 141, 255, 0.42);
-  --t-glow-soft: rgba(142, 107, 255, 0.22);
-  --t-hover-bg: rgba(208, 141, 255, 0.11);
-  --t-active-bg: rgba(208, 141, 255, 0.18);
-  --t-selection-bg: rgba(208, 141, 255, 0.32);
-  --t-text-muted: #9f83b8;
-  --t-muted: #9f83b8;
-  --t-user-bg: #341850;
-  --t-user-fg: #f0c0ff;
-  --t-user-border: #d08dff66;
-  --t-assistant-bg: #100818;
-  --t-assistant-fg: #b898d8;
-  --t-assistant-border: #b067ff;
-  --t-code-bg: #0d0616;
-  --t-code-inline-bg: #241239;
-  --t-code-text: #efdeff;
-  --t-input-bg: #12081c;
-  --t-input-fg: #f1dcff;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #4f2b7a;
-  --t-titlebar-end: #211038;
-  --t-titlebar-text: #f7e8ff;
-  --t-edge-light: #8159b2;
-  --t-edge-mid: #56357f;
-  --t-edge-dark: #2a173f;
-  --t-edge-darkest: #0a0612;
-  --t-process-a: #d08dff;
-  --t-process-b: #8e6bff;
-  --t-process-c: #ff7de3;
-  --t-hljs-keyword: #d08dff;
-  --t-hljs-string: #b7f27a;
-  --t-hljs-number: #ff9de8;
-  --t-hljs-comment: #7f6a96;
-  --t-hljs-function: #b49bff;
-  --t-hljs-class: #eb9dff;
-  --t-hljs-attr: #7ac9ff;
-  --t-hljs-params: #f1dcff;
-  --t-hljs-property: #d9b9ff;
-  --t-hljs-punctuation: #a186bd;
-  --t-hljs-operator: #c087ff;
-  --t-hljs-meta: #aa95ff;
-  --t-hljs-tag: #e39cff;
-  --t-hljs-name: #d08dff;
-  --t-hljs-symbol: #ff9de8;
-  --t-hljs-selector: #b7f27a;
-  --t-log-level-error: #ff7fa8;
-  --t-log-level-warning: #ffd06e;
-}
-
-html.theme-purple-girl body {
-  background-image: radial-gradient(circle at 12% 18%, rgba(190, 120, 255, 0.28) 0%, transparent 42%),
-    radial-gradient(circle at 88% 10%, rgba(120, 100, 255, 0.24) 0%, transparent 40%),
-    radial-gradient(circle at 70% 90%, rgba(255, 120, 220, 0.2) 0%, transparent 36%),
-    linear-gradient(180deg, #1a0d2a 0%, #12081c 44%, #0a0511 100%);
-  background-attachment: fixed;
-}
-
-html.theme-purple-girl .terminal-shell,
-html.theme-purple-girl .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
-
 /* Deep navy boot-screen chrome, electric cyan-blue highlights — PS2-era console UI */
-.theme-ps2 {
-  --t-bg: #050a12;
-  --t-bg-surface: #0c1626;
-  --t-bg-deep: #03060a;
-  --t-panel: #0a1420;
-  --t-primary: #00c8ff;
-  --t-secondary: #9ec8e8;
-  --t-fg: #d2e4f8;
-  --t-border: #1a3a58;
-  --t-border-subtle: #122438;
-  --t-glow: rgba(0, 200, 255, 0.38);
-  --t-glow-soft: rgba(0, 200, 255, 0.16);
-  --t-hover-bg: rgba(0, 200, 255, 0.09);
-  --t-active-bg: rgba(0, 200, 255, 0.15);
-  --t-selection-bg: rgba(0, 200, 255, 0.3);
-  --t-text-muted: #6a8cad;
-  --t-muted: #6a8cad;
-  --t-user-bg: #0c2848;
-  --t-user-fg: #70d8ff;
-  --t-user-border: #00c8ff55;
-  --t-assistant-bg: #040810;
-  --t-assistant-fg: #90b8d8;
-  --t-assistant-border: #40d8ff;
-  --t-code-bg: #040810;
-  --t-code-inline-bg: #0f1e32;
-  --t-code-text: #dceaf8;
-  --t-input-bg: #050a12;
-  --t-input-fg: #d2e4f8;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #0c2848;
-  --t-titlebar-end: #050a12;
-  --t-titlebar-text: #b8ecff;
-  --t-edge-light: #3d6a9a;
-  --t-edge-mid: #284060;
-  --t-edge-dark: #142838;
-  --t-edge-darkest: #030508;
-  --t-process-a: #00c8ff;
-  --t-process-b: #38f0c8;
-  --t-process-c: #ffb060;
-  --t-hljs-keyword: #00c8ff;
-  --t-hljs-string: #38f0c8;
-  --t-hljs-number: #ffb060;
-  --t-hljs-comment: #5a7898;
-  --t-hljs-function: #7cd8ff;
-  --t-hljs-class: #a8e0ff;
-  --t-hljs-attr: #68c8e8;
-  --t-hljs-params: #d2e4f8;
-  --t-hljs-property: #8cc8f0;
-  --t-hljs-punctuation: #6a8cad;
-  --t-hljs-operator: #40d8ff;
-  --t-hljs-meta: #58b8e8;
-  --t-hljs-tag: #38d8c8;
-  --t-hljs-name: #00c8ff;
-  --t-hljs-symbol: #ffb060;
-  --t-hljs-selector: #7cd8ff;
-  --t-log-level-error: #ff7088;
-  --t-log-level-warning: #f0c860;
-}
-
-html.theme-ps2 body {
-  background-image: radial-gradient(ellipse 130% 70% at 50% -15%, rgba(0, 140, 220, 0.28) 0%, transparent 52%),
-    radial-gradient(ellipse 55% 45% at 95% 45%, rgba(0, 90, 180, 0.14) 0%, transparent 46%),
-    linear-gradient(185deg, #071320 0%, #050a12 38%, #030608 100%);
-  background-attachment: fixed;
-}
-
-html.theme-ps2 .terminal-shell,
-html.theme-ps2 .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
 
 /* Olive drab metal, amber HUD highlights, shield cyan — Halo 3-era sci‑fi military UI */
-.theme-halo3 {
-  --t-bg: #0e110d;
-  --t-bg-surface: #181f16;
-  --t-bg-deep: #080a07;
-  --t-panel: #141a12;
-  --t-primary: #f4b030;
-  --t-secondary: #88b878;
-  --t-fg: #dfe8d8;
-  --t-border: #3a4534;
-  --t-border-subtle: #252e20;
-  --t-glow: rgba(244, 176, 48, 0.36);
-  --t-glow-soft: rgba(244, 176, 48, 0.14);
-  --t-hover-bg: rgba(244, 176, 48, 0.1);
-  --t-active-bg: rgba(244, 176, 48, 0.17);
-  --t-selection-bg: rgba(244, 176, 48, 0.28);
-  --t-text-muted: #8a9a80;
-  --t-muted: #8a9a80;
-  --t-user-bg: #222c1c;
-  --t-user-fg: #ffe090;
-  --t-user-border: #f4b03066;
-  --t-assistant-bg: #0c100a;
-  --t-assistant-fg: #98b088;
-  --t-assistant-border: #e09028;
-  --t-code-bg: #0a0d09;
-  --t-code-inline-bg: #1c2419;
-  --t-code-text: #eaf0e4;
-  --t-input-bg: #0e110d;
-  --t-input-fg: #dfe8d8;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #283420;
-  --t-titlebar-end: #0e110d;
-  --t-titlebar-text: #f2e8c8;
-  --t-edge-light: #5a6850;
-  --t-edge-mid: #3a4538;
-  --t-edge-dark: #22291c;
-  --t-edge-darkest: #060806;
-  --t-process-a: #f4b030;
-  --t-process-b: #58c8f0;
-  --t-process-c: #c8a0e8;
-  --t-hljs-keyword: #f4b030;
-  --t-hljs-string: #9cdb78;
-  --t-hljs-number: #58d0f0;
-  --t-hljs-comment: #6b7a62;
-  --t-hljs-function: #ffd878;
-  --t-hljs-class: #d0a8f0;
-  --t-hljs-attr: #b0d890;
-  --t-hljs-params: #dfe8d8;
-  --t-hljs-property: #c8e0b0;
-  --t-hljs-punctuation: #8a9a80;
-  --t-hljs-operator: #f4b030;
-  --t-hljs-meta: #88c8b8;
-  --t-hljs-tag: #e89840;
-  --t-hljs-name: #f4b030;
-  --t-hljs-symbol: #58d0f0;
-  --t-hljs-selector: #9cdb78;
-  --t-log-level-error: #ff7088;
-  --t-log-level-warning: #ffd060;
-}
-
-html.theme-halo3 body {
-  background-image: radial-gradient(ellipse 110% 60% at 50% -12%, rgba(244, 176, 48, 0.14) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 42% at 6% 88%, rgba(70, 110, 55, 0.16) 0%, transparent 44%),
-    linear-gradient(178deg, #131a12 0%, #0e110d 42%, #070806 100%);
-  background-attachment: fixed;
-}
-
-html.theme-halo3 .terminal-shell,
-html.theme-halo3 .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
 
 /* Parchment charts, ocean teal, map gold — Phantom Hourglass nautical DS UI */
-.theme-phantom-hourglass {
-  --t-bg: #f2e8d4;
-  --t-bg-surface: #ebe0cc;
-  --t-bg-deep: #e5d8bc;
-  --t-panel: #efe6d6;
-  --t-primary: #1a5890;
-  --t-secondary: #c9a227;
-  --t-fg: #3a3228;
-  --t-border: #c4b490;
-  --t-border-subtle: #ddd0b8;
-  --t-glow: rgba(26, 88, 144, 0.2);
-  --t-glow-soft: rgba(201, 162, 39, 0.18);
-  --t-hover-bg: rgba(26, 88, 144, 0.09);
-  --t-active-bg: rgba(26, 88, 144, 0.13);
-  --t-selection-bg: rgba(26, 88, 144, 0.22);
-  --t-text-muted: #7a7060;
-  --t-muted: #7a7060;
-  --t-user-bg: #b8dce8;
-  --t-user-fg: #1a4878;
-  --t-user-border: #4a9ec888;
-  --t-assistant-bg: #faf6ee;
-  --t-assistant-fg: #5a5040;
-  --t-assistant-border: #4a9ec8;
-  --t-code-bg: #faf4e8;
-  --t-code-inline-bg: #ebe3d4;
-  --t-code-text: #3a3228;
-  --t-input-bg: #fffdf8;
-  --t-input-fg: #3a3228;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #3d78b8;
-  --t-titlebar-end: #285a94;
-  --t-titlebar-text: #fdf8ee;
-  --t-edge-light: #faf6ee;
-  --t-edge-mid: #d8ccb8;
-  --t-edge-dark: #a89878;
-  --t-edge-darkest: #685848;
-  --t-process-a: #1a5890;
-  --t-process-b: #c9a227;
-  --t-process-c: #38a078;
-  --t-hljs-keyword: #1a5890;
-  --t-hljs-string: #2d8858;
-  --t-hljs-number: #c07818;
-  --t-hljs-comment: #8a8068;
-  --t-hljs-function: #156090;
-  --t-hljs-class: #8860a0;
-  --t-hljs-attr: #c9a227;
-  --t-hljs-params: #3a3228;
-  --t-hljs-property: #5a4838;
-  --t-hljs-punctuation: #7a7060;
-  --t-hljs-operator: #1a5890;
-  --t-hljs-meta: #508870;
-  --t-hljs-tag: #c07818;
-  --t-hljs-name: #1a5890;
-  --t-hljs-symbol: #c07818;
-  --t-hljs-selector: #2d8858;
-  --t-log-level-error: #c62828;
-  --t-log-level-warning: #e09818;
-}
-
-html.theme-phantom-hourglass body {
-  background-image: radial-gradient(ellipse 95% 58% at 78% 6%, rgba(120, 198, 232, 0.24) 0%, transparent 50%),
-    radial-gradient(ellipse 48% 38% at 10% 90%, rgba(238, 218, 178, 0.45) 0%, transparent 44%),
-    linear-gradient(176deg, #faf6ec 0%, #f2e8d4 52%, #ebdcc4 100%);
-  background-attachment: fixed;
-}
-
-html.theme-phantom-hourglass .terminal-shell,
-html.theme-phantom-hourglass .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
 
 /* Pastel pink, sky blue, and butter yellow — soft “bow and overalls” cute desk vibe */
-.theme-kawaii-bow {
-  --t-bg: #fff7fb;
-  --t-bg-surface: #ffeef6;
-  --t-bg-deep: #ffdfea;
-  --t-panel: #fff5f9;
-  --t-primary: #ff3d7a;
-  --t-secondary: #4db8e8;
-  --t-fg: #5a3d52;
-  --t-border: #ffc4dc;
-  --t-border-subtle: #ffe0ec;
-  --t-glow: rgba(255, 61, 122, 0.28);
-  --t-glow-soft: rgba(77, 184, 232, 0.2);
-  --t-hover-bg: rgba(255, 61, 122, 0.09);
-  --t-active-bg: rgba(255, 61, 122, 0.14);
-  --t-selection-bg: rgba(255, 182, 214, 0.5);
-  --t-text-muted: #9a7186;
-  --t-muted: #9a7186;
-  --t-user-bg: #ffd0e8;
-  --t-user-fg: #c02868;
-  --t-user-border: #ff3d7a55;
-  --t-assistant-bg: #fffafc;
-  --t-assistant-fg: #6a4860;
-  --t-assistant-border: #ffb3d9;
-  --t-code-bg: #fff0f7;
-  --t-code-inline-bg: #ffe4f1;
-  --t-code-text: #4a3545;
-  --t-input-bg: #ffffff;
-  --t-input-fg: #5a3d52;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #ffb7d5;
-  --t-titlebar-end: #9fd4f7;
-  --t-titlebar-text: #5a2d45;
-  --t-edge-light: #fffafd;
-  --t-edge-mid: #ffd6e8;
-  --t-edge-dark: #f5a8c8;
-  --t-edge-darkest: #e889b8;
-  --t-process-a: #ff3d7a;
-  --t-process-b: #4db8e8;
-  --t-process-c: #ffd54f;
-  --t-hljs-keyword: #d63384;
-  --t-hljs-string: #2d8a6e;
-  --t-hljs-number: #e36414;
-  --t-hljs-comment: #b0889c;
-  --t-hljs-function: #6f42c1;
-  --t-hljs-class: #9d4edd;
-  --t-hljs-attr: #0984e3;
-  --t-hljs-params: #5a3d52;
-  --t-hljs-property: #c2185b;
-  --t-hljs-punctuation: #8a6b7c;
-  --t-hljs-operator: #d63384;
-  --t-hljs-meta: #7c5cbf;
-  --t-hljs-tag: #e84393;
-  --t-hljs-name: #d63384;
-  --t-hljs-symbol: #fdcb6e;
-  --t-hljs-selector: #00b894;
-  --t-log-level-error: #d63031;
-  --t-log-level-warning: #f39c12;
-}
 
 /* Microsoft-style light: white tool surfaces, #0078D4 blue chrome and accents, Segoe / Consolas */
-.theme-visual-studio {
-  --t-bg: #ffffff;
-  --t-bg-surface: #f3f3f3;
-  --t-bg-deep: #ececec;
-  --t-panel: #f3f3f3;
-  --t-primary: #1e1e1e;
-  --t-secondary: #0078d4;
-  --t-fg: #1e1e1e;
-  --t-border: #d0d0d0;
-  --t-border-subtle: #e8e8e8;
-  --t-glow: rgba(0, 120, 212, 0.2);
-  --t-glow-soft: rgba(0, 99, 177, 0.1);
-  --t-hover-bg: rgba(0, 120, 212, 0.08);
-  --t-active-bg: rgba(0, 120, 212, 0.12);
-  --t-selection-bg: rgba(0, 120, 212, 0.22);
-  --t-text-muted: #6e6e6e;
-  --t-muted: #6e6e6e;
-  --t-user-bg: #cce4f8;
-  --t-user-fg: #004578;
-  --t-user-border: #0078d488;
-  --t-assistant-bg: #f8f8f8;
-  --t-assistant-fg: #1e1e1e;
-  --t-assistant-border: #8dbddd;
-  --t-code-bg: #fafafa;
-  --t-code-inline-bg: #e8e8e8;
-  --t-code-text: #1e1e1e;
-  --t-input-bg: #ffffff;
-  --t-input-fg: #1e1e1e;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #0e5fa8;
-  --t-titlebar-end: #0063b1;
-  --t-titlebar-text: #ffffff;
-  --t-edge-light: #fafafa;
-  --t-edge-mid: #e0e0e0;
-  --t-edge-dark: #b0b0b0;
-  --t-edge-darkest: #808080;
-  --t-process-a: #0078d4;
-  --t-process-b: #00a4ef;
-  --t-process-c: #8764b8;
-  --t-elev-shadow: 0 10px 28px color-mix(in srgb, var(--t-edge-darkest) 32%, transparent);
-  --t-hljs-keyword: #0000ff;
-  --t-hljs-string: #a31515;
-  --t-hljs-number: #09885a;
-  --t-hljs-comment: #008000;
-  --t-hljs-function: #74531f;
-  --t-hljs-class: #2b91af;
-  --t-hljs-attr: #e50000;
-  --t-hljs-params: #1e1e1e;
-  --t-hljs-property: #1e1e1e;
-  --t-hljs-punctuation: #1e1e1e;
-  --t-hljs-operator: #1e1e1e;
-  --t-hljs-meta: #2b91af;
-  --t-hljs-tag: #2b91af;
-  --t-hljs-name: #1e1e1e;
-  --t-hljs-symbol: #1e1e1e;
-  --t-hljs-selector: #2b91af;
-  --t-log-level-error: #e81123;
-  --t-log-level-warning: #ca5010;
-}
-
-html.theme-visual-studio body {
-  background-image: linear-gradient(180deg, #f0f5fb 0%, #ffffff 28%, #fafafa 100%);
-}
-
-html.theme-visual-studio .terminal-shell,
-html.theme-visual-studio .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
-
-html.theme-kawaii-bow body {
-  background-image: radial-gradient(circle at 12% 18%, rgba(255, 182, 222, 0.24) 0%, transparent 42%),
-    radial-gradient(circle at 88% 10%, rgba(159, 212, 247, 0.22) 0%, transparent 40%),
-    radial-gradient(circle at 72% 88%, rgba(255, 213, 140, 0.18) 0%, transparent 38%);
-}
-
-html.theme-kawaii-bow .terminal-shell,
-html.theme-kawaii-bow .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
 
 [data-bs-theme="dark"] {
   --bs-body-bg: var(--t-bg);
@@ -1258,533 +672,6 @@ app-shell > router-outlet + * {
   cursor: wait;
 }
 
-html.theme-win95 {
-  font-size: 14px;
-}
-
-html.theme-win95 body {
-  color: var(--t-fg);
-  letter-spacing: 0;
-  font-family: var(--t-font-ui-override, var(--t-font));
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
-}
-
-html.theme-win95 ::selection {
-  background: var(--t-selection-bg);
-  color: #ffffff;
-}
-
-html.theme-win95 ::-webkit-scrollbar {
-  width: 16px;
-  height: 16px;
-}
-
-html.theme-win95 ::-webkit-scrollbar-track {
-  background: var(--t-bg-surface);
-  box-shadow: inset 1px 1px 0 var(--t-edge-dark), inset -1px -1px 0 var(--t-edge-light);
-}
-
-html.theme-win95 ::-webkit-scrollbar-thumb {
-  background: var(--t-bg-surface);
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
-}
-
-html.theme-win95 ::-webkit-scrollbar-thumb:hover {
-  background: #d4d0c8;
-}
-
-html.theme-win95 button,
-html.theme-win95 select,
-html.theme-win95 .btn {
-  text-shadow: none;
-}
-
-html.theme-win95 button:focus-visible,
-html.theme-win95 select:focus-visible,
-html.theme-win95 input:focus-visible,
-html.theme-win95 textarea:focus-visible,
-html.theme-win95 .btn:focus-visible {
-  outline: 1px dotted #000000;
-  outline-offset: -4px;
-}
-
-html.theme-win95 app-root {
-  background: var(--t-bg);
-}
-
-html.theme-win95 .app-layout {
-  background: var(--t-bg);
-}
-
-html.theme-win95 .app-top-bar {
-  margin: 0.5rem 0.5rem 0;
-  padding-bottom: 0.85rem;
-  background: var(--t-bg-surface);
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
-}
-
-html.theme-win95 .app-content {
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background: var(--t-bg);
-}
-
-html.theme-win95 .workspace-panel,
-html.theme-win95 .sidebar,
-html.theme-win95 .chat-area {
-  background: var(--t-bg-surface);
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
-}
-
-html.theme-win95 .workspace-resize-handle,
-html.theme-win95 .sidebar-resize-handle {
-  width: 6px;
-  background: transparent;
-}
-
-html.theme-win95 .workspace-resize-handle:hover,
-html.theme-win95 .sidebar-resize-handle:hover,
-html.theme-win95 body.workspace-resizing .workspace-resize-handle,
-html.theme-win95 body.sidebar-resizing .sidebar-resize-handle {
-  background: repeating-linear-gradient(180deg, transparent 0, transparent 2px, rgba(255,255,255,0.45) 2px, rgba(255,255,255,0.45) 3px);
-}
-
-html.theme-win95 .title-glow {
-  display: block;
-  margin: 0 0 0.75rem;
-  padding: 0.32rem 0.6rem;
-  background: linear-gradient(90deg, var(--t-titlebar-start), var(--t-titlebar-end));
-  color: var(--t-titlebar-text);
-  text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  font-family: var(--t-font-ui-override, var(--t-font));
-}
-
-html.theme-win95 app-context-capacity .context-capacity__auto-apply-label,
-html.theme-win95 app-theme-selector .theme-label,
-html.theme-win95 app-font-control .font-size-label,
-html.theme-win95 app-font-control .size-label,
-html.theme-win95 app-settings .settings-voice-threshold-value {
-  color: var(--t-fg);
-  font-size: 0.85rem;
-  font-weight: 400;
-}
-
-html.theme-win95 app-context-capacity .context-capacity__auto-apply-toggle {
-  width: 1.15rem;
-  height: 1.15rem;
-  padding: 0;
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  background: var(--t-bg-surface);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
-}
-
-html.theme-win95 app-context-capacity .context-capacity__auto-apply-toggle .context-capacity__auto-apply-track {
-  width: 100%;
-  height: 100%;
-  background: transparent;
-  border-radius: 0;
-}
-
-html.theme-win95 app-context-capacity .context-capacity__auto-apply-toggle .context-capacity__auto-apply-thumb {
-  top: 2px;
-  left: 2px;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 0;
-  background: var(--t-titlebar-start);
-  opacity: 0;
-  transform: none;
-}
-
-html.theme-win95 app-context-capacity .context-capacity__auto-apply-toggle.context-capacity__auto-apply-toggle--on .context-capacity__auto-apply-thumb {
-  opacity: 1;
-  transform: none;
-}
-
-html.theme-win95 app-context-capacity .context-capacity__auto-apply-toggle:hover .context-capacity__auto-apply-track {
-  box-shadow: none;
-}
-
-html.theme-win95 app-font-control .font-control button,
-html.theme-win95 app-settings .settings-voice-threshold button,
-html.theme-win95 .input-group .btn-voice,
-html.theme-win95 .input-group .btn,
-html.theme-win95 .new-conv-btn,
-html.theme-win95 .workspace-icon-btn,
-html.theme-win95 .code-block-run-btn,
-html.theme-win95 .send-output-btn,
-html.theme-win95 .read-more-btn,
-html.theme-win95 .interactive-submit-btn,
-html.theme-win95 .interactive-output .end-script-btn {
-  background: var(--t-bg-surface);
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  box-shadow: inset -1px -1px 0 var(--t-edge-dark), inset 1px 1px 0 var(--t-edge-mid);
-  color: var(--t-fg);
-}
-
-html.theme-win95 app-font-control .font-control button:hover,
-html.theme-win95 app-settings .settings-voice-threshold button:hover,
-html.theme-win95 .input-group .btn-voice:hover,
-html.theme-win95 .input-group .btn:hover,
-html.theme-win95 .new-conv-btn:hover,
-html.theme-win95 .workspace-icon-btn:hover,
-html.theme-win95 .code-block-run-btn:hover,
-html.theme-win95 .send-output-btn:hover,
-html.theme-win95 .read-more-btn:hover,
-html.theme-win95 .interactive-submit-btn:hover,
-html.theme-win95 .interactive-output .end-script-btn:hover {
-  background: #d4d0c8;
-}
-
-html.theme-win95 app-font-control .font-control button:active,
-html.theme-win95 app-settings .settings-voice-threshold button:active,
-html.theme-win95 .input-group .btn-voice:active,
-html.theme-win95 .input-group .btn:active,
-html.theme-win95 .new-conv-btn:active,
-html.theme-win95 .workspace-icon-btn:active {
-  border-color: var(--t-edge-darkest) var(--t-edge-light) var(--t-edge-light) var(--t-edge-darkest);
-  box-shadow: inset 1px 1px 0 var(--t-edge-dark), inset -1px -1px 0 var(--t-edge-mid);
-  background: #bdbdbd;
-}
-
-html.theme-win95 app-theme-selector .theme-dropdown,
-html.theme-win95 .workspace-select,
-html.theme-win95 .rename-input,
-html.theme-win95 .input-group .form-control,
-html.theme-win95 app-speech-module .voice-select,
-html.theme-win95 app-settings .settings-voice-device-select,
-html.theme-win95 .interactive-input {
-  background: #ffffff;
-  border: 2px solid;
-  border-color: var(--t-edge-darkest) var(--t-edge-light) var(--t-edge-light) var(--t-edge-darkest);
-  box-shadow: inset 1px 1px 0 var(--t-edge-dark), inset -1px -1px 0 var(--t-edge-mid);
-  color: var(--t-fg);
-}
-
-html.theme-win95 app-theme-selector .theme-dropdown {
-  min-width: 9rem;
-  padding: 0.22rem 1.8rem 0.22rem 0.45rem;
-}
-
-html.theme-win95 .workspace-select {
-  padding: 0.4rem 1.8rem 0.4rem 0.6rem;
-}
-
-html.theme-win95 app-theme-selector .theme-dropdown,
-html.theme-win95 app-speech-module .voice-select,
-html.theme-win95 app-settings .settings-voice-device-select,
-html.theme-win95 .transcript-preview {
-  border-radius: 0;
-}
-
-html.theme-win95 app-theme-selector .theme-dropdown option,
-html.theme-win95 .workspace-select option,
-html.theme-win95 app-speech-module .voice-select option,
-html.theme-win95 app-settings .settings-voice-device-select option {
-  background-color: #ffffff;
-  color: #000000;
-}
-
-html.theme-win95 .workspace,
-html.theme-win95 .conv-manager {
-  background-color: transparent;
-  padding: 0.55rem;
-}
-
-html.theme-win95 .workspace-header {
-  margin-bottom: 0.55rem;
-  padding: 0 0 0.55rem;
-  border-bottom: 1px solid var(--t-edge-dark);
-}
-
-html.theme-win95 .file-tree,
-html.theme-win95 .conv-list {
-  background: #ffffff;
-  border: 2px solid;
-  border-color: var(--t-edge-darkest) var(--t-edge-light) var(--t-edge-light) var(--t-edge-darkest);
-  box-shadow: inset 1px 1px 0 var(--t-edge-dark), inset -1px -1px 0 var(--t-edge-mid);
-}
-
-html.theme-win95 app-chat-box .chat-box {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-html.theme-win95 .tree-node,
-html.theme-win95 .conv-title,
-html.theme-win95 .assistant-bubble,
-html.theme-win95 .tree-node,
-html.theme-win95 .conv-title,
-html.theme-win95 .assistant-bubble,
-html.theme-win95 .msg-bubble,
-html.theme-win95 .talk-status-text,
-html.theme-win95 .transcript-text,
-html.theme-win95 h2 {
-  color: var(--t-fg);
-}
-
-html.theme-win95 .tree-node:hover,
-html.theme-win95 .conv-item:hover,
-html.theme-win95 .conv-item.active {
-  background-color: #000080;
-  color: #ffffff;
-}
-
-html.theme-win95 .tree-node:hover .node-chevron,
-html.theme-win95 .tree-node:hover .folder-icon,
-html.theme-win95 .tree-node:hover .file-icon,
-html.theme-win95 .conv-item:hover .conv-title,
-html.theme-win95 .conv-item:hover .delete-btn,
-html.theme-win95 .conv-item:hover .conv-pending-spinner-host,
-html.theme-win95 .conv-item.active .conv-title,
-html.theme-win95 .conv-item.active .delete-btn,
-html.theme-win95 .conv-item.active .conv-pending-spinner-host {
-  color: #ffffff;
-}
-
-html.theme-win95 .folder-icon,
-html.theme-win95 lucide-icon.folder-icon {
-  color: #8c5a00;
-  opacity: 1;
-}
-
-html.theme-win95 .file-icon {
-  color: #404040;
-}
-
-html.theme-win95 .node-chevron {
-  color: #000000;
-}
-
-html.theme-win95 .empty-hint,
-html.theme-win95 .hint,
-html.theme-win95 .delete-btn,
-html.theme-win95 app-chat-box .empty-state {
-  color: #505050;
-}
-
-html.theme-win95 .msg-bubble,
-html.theme-win95 .assistant-bubble,
-html.theme-win95 .talk-status,
-html.theme-win95 .code-block-output,
-html.theme-win95 .output-pre,
-html.theme-win95 .assistant-bubble pre {
-  border: none;
-  border-bottom: 1px solid var(--t-edge-dark);
-  box-shadow: none;
-}
-
-html.theme-win95 .user-bubble {
-  background-color: var(--t-user-bg);
-  color: var(--t-user-fg, var(--t-fg));
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-}
-
-html.theme-win95 .assistant-bubble {
-  background-color: var(--t-assistant-bg);
-  color: var(--t-assistant-fg, var(--t-fg));
-  line-height: 1.5;
-}
-
-html.theme-win95 .assistant-bubble p {
-  margin-bottom: 0.6em;
-}
-
-html.theme-win95 .assistant-bubble ul,
-html.theme-win95 .assistant-bubble ol {
-  padding-left: 1.5em;
-  margin-bottom: 0.6em;
-}
-
-html.theme-win95 .assistant-bubble li {
-  margin-bottom: 0.25em;
-}
-
-html.theme-win95 .assistant-bubble h1,
-html.theme-win95 .assistant-bubble h2,
-html.theme-win95 .assistant-bubble h3,
-html.theme-win95 .assistant-bubble h4,
-html.theme-win95 .assistant-bubble h5,
-html.theme-win95 .assistant-bubble h6 {
-  color: var(--t-fg);
-  text-shadow: none;
-  font-weight: 700;
-  margin-bottom: 0.5em;
-}
-
-html.theme-win95 .assistant-bubble strong {
-  color: var(--t-fg);
-  font-weight: 700;
-}
-
-html.theme-win95 .assistant-bubble a {
-  color: var(--t-primary);
-  text-decoration: underline;
-}
-
-html.theme-win95 .assistant-bubble a:hover {
-  color: #0000ff;
-}
-
-html.theme-win95 .assistant-bubble blockquote {
-  border-left: 3px solid var(--t-primary);
-  background: #e8e8e8;
-  padding: 0.5rem 0.75rem;
-  margin: 0.5rem 0;
-  color: var(--t-fg);
-}
-
-html.theme-win95 .assistant-bubble .hljs-section {
-  color: var(--t-fg);
-  text-shadow: none;
-}
-
-html.theme-win95 .assistant-bubble code,
-html.theme-win95 .assistant-bubble pre,
-html.theme-win95 .assistant-bubble td,
-html.theme-win95 .code-block-output,
-html.theme-win95 .output-pre {
-  background-color: #fffff8;
-  font-family: var(--t-font-code-override, var(--t-font-mono));
-}
-
-html.theme-win95 .assistant-bubble code {
-  padding: 0.15em 0.35em;
-  background-color: #e8e8e8;
-  border: 1px solid #c0c0c0;
-  font-size: 0.9em;
-}
-
-html.theme-win95 .assistant-bubble pre code {
-  padding: 0;
-  background-color: transparent;
-  border: none;
-}
-
-html.theme-win95 .terminal-shell,
-html.theme-win95 .interactive-output .terminal-shell {
-  background: #000000;
-  color: #c0c0c0;
-  font-family: var(--t-font-mono);
-}
-
-html.theme-win95 .terminal-shell-header {
-  background: var(--t-bg-surface);
-  border: 2px solid;
-  border-color: var(--t-edge-light) var(--t-edge-darkest) var(--t-edge-darkest) var(--t-edge-light);
-  color: var(--t-fg);
-}
-
-html.theme-win95 .output-pre.terminal-output {
-  background: #000000;
-  color: #c0c0c0;
-}
-
-html.theme-win95 .assistant-bubble th {
-  background-color: #d4d0c8;
-  color: var(--t-fg);
-}
-
-html.theme-win95 app-chat-box .processing-text {
-  color: var(--t-fg);
-  text-shadow: none;
-  animation: none;
-}
-
-html.theme-win95 app-chat-box .processing-ngx-host .ngx-spinner-overlay,
-html.theme-win95 app-chat-box .tts-ngx-host .ngx-spinner-overlay {
-  animation: none !important;
-}
-
-html.theme-win95 app-chat-box .processing-ngx-host .la-ball-atom > div,
-html.theme-win95 app-chat-box .tts-ngx-host .la-line-scale > div,
-html.theme-win95 app-conversation-manager .conv-pending-spinner-host .la-ball-atom > div {
-  animation: none !important;
-}
-
-html.theme-win95 app-conversation-manager .conv-pending-spinner-host .la-ball-atom > div {
-  animation: none !important;
-}
-
-html.theme-win95 app-chat-box .streaming-cursor {
-  background-color: #000000;
-  box-shadow: none;
-}
-
-html.theme-win95 .talk-status,
-html.theme-win95 .transcript-preview {
-  background-color: #ffffe1;
-  animation: none;
-}
-
-html.theme-win95 .talk-status-dot,
-html.theme-win95 .listening-dot {
-  border-radius: 0;
-  box-shadow: none;
-  animation: none;
-}
-
-html.theme-win95 .talk-status-dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  background-color: #ff0000;
-}
-
-html.theme-win95 .transcript-text,
-html.theme-win95 .talk-status-text {
-  font-style: normal;
-}
-
-html.theme-win95 .chat-main-tab {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  box-shadow: none;
-  color: var(--t-fg);
-  font-family: var(--t-font-ui-override, var(--t-font));
-}
-
-html.theme-win95 .chat-main-tab--active {
-  background: transparent;
-  border-bottom-color: var(--t-primary);
-  color: var(--t-fg);
-}
-
-html.theme-win95 .chat-main-tab-close:hover {
-  background: #c00000;
-  color: #ffffff;
-}
-
-html.theme-win95 .user-bubble {
-  background-color: var(--t-user-bg);
-  color: var(--t-user-fg, var(--t-fg));
-  line-height: 1.5;
-}
-
-html.theme-win95 .msg-bubble {
-  font-family: var(--t-font-ui-override, var(--t-font));
-}
-
-html.theme-win95 .form-control,
-html.theme-win95 textarea {
-  font-family: var(--t-font-ui-override, var(--t-font));
-  color: var(--t-fg);
-  line-height: 1.4;
-}
-
 html .code-block-output,
 html .interactive-output.code-block-output {
   padding: 0;
@@ -1810,326 +697,133 @@ html .terminal-shell .output-pre.terminal-output {
   box-shadow: none;
 }
 
-/* ── Flat divider layout (woodland, ion, ps2, halo3, phantom-hourglass) ─ */
-
+/* ── Flat divider layout (woodland) ─ */
 html.theme-woodland .settings-nav,
-html.theme-ion .settings-nav,
-html.theme-ps2 .settings-nav,
-html.theme-halo3 .settings-nav,
-html.theme-phantom-hourglass .settings-nav,
 html.theme-woodland .connection-card,
-html.theme-ion .connection-card,
-html.theme-ps2 .connection-card,
-html.theme-halo3 .connection-card,
-html.theme-phantom-hourglass .connection-card,
-html.theme-woodland .workspace-card,
-html.theme-ion .workspace-card,
-html.theme-ps2 .workspace-card,
-html.theme-halo3 .workspace-card,
-html.theme-phantom-hourglass .workspace-card {
+html.theme-woodland .workspace-card {
   border: none;
   box-shadow: none;
 }
-
-html.theme-woodland .settings-nav,
-html.theme-ion .settings-nav,
-html.theme-ps2 .settings-nav,
-html.theme-halo3 .settings-nav,
-html.theme-phantom-hourglass .settings-nav {
+html.theme-woodland .settings-nav {
   border-bottom: 1px solid var(--t-border);
 }
-
 html.theme-woodland .connection-card,
-html.theme-ion .connection-card,
-html.theme-ps2 .connection-card,
-html.theme-halo3 .connection-card,
-html.theme-phantom-hourglass .connection-card,
 html.theme-woodland .workspace-card__body,
-html.theme-ion .workspace-card__body,
-html.theme-ps2 .workspace-card__body,
-html.theme-halo3 .workspace-card__body,
-html.theme-phantom-hourglass .workspace-card__body,
-html.theme-woodland .workspace-card--none,
-html.theme-ion .workspace-card--none,
-html.theme-ps2 .workspace-card--none,
-html.theme-halo3 .workspace-card--none,
-html.theme-phantom-hourglass .workspace-card--none {
+html.theme-woodland .workspace-card--none {
   border: none;
   box-shadow: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-
 html.theme-woodland .connection-card:last-child,
-html.theme-ion .connection-card:last-child,
-html.theme-ps2 .connection-card:last-child,
-html.theme-halo3 .connection-card:last-child,
-html.theme-phantom-hourglass .connection-card:last-child,
-html.theme-woodland .workspace-card:last-child .workspace-card__body,
-html.theme-ion .workspace-card:last-child .workspace-card__body,
-html.theme-ps2 .workspace-card:last-child .workspace-card__body,
-html.theme-halo3 .workspace-card:last-child .workspace-card__body,
-html.theme-phantom-hourglass .workspace-card:last-child .workspace-card__body {
+html.theme-woodland .workspace-card:last-child .workspace-card__body {
   border-bottom: none;
 }
-
-html.theme-woodland .tab-button,
-html.theme-ion .tab-button,
-html.theme-ps2 .tab-button,
-html.theme-halo3 .tab-button,
-html.theme-phantom-hourglass .tab-button {
+html.theme-woodland .tab-button {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-
 html.theme-woodland .tab-button:hover,
-html.theme-ion .tab-button:hover,
-html.theme-ps2 .tab-button:hover,
-html.theme-halo3 .tab-button:hover,
-html.theme-phantom-hourglass .tab-button:hover,
-html.theme-woodland .tab-button.is-active,
-html.theme-ion .tab-button.is-active,
-html.theme-ps2 .tab-button.is-active,
-html.theme-halo3 .tab-button.is-active,
-html.theme-phantom-hourglass .tab-button.is-active {
+html.theme-woodland .tab-button.is-active {
   border: none;
   border-bottom: 1px solid var(--t-primary);
   background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
   transform: none;
 }
-
-html.theme-woodland .settings-overview,
-html.theme-ion .settings-overview,
-html.theme-ps2 .settings-overview,
-html.theme-halo3 .settings-overview,
-html.theme-phantom-hourglass .settings-overview {
+html.theme-woodland .settings-overview {
   border-bottom: 1px solid var(--t-border);
 }
-
-html.theme-woodland .settings-footer,
-html.theme-ion .settings-footer,
-html.theme-ps2 .settings-footer,
-html.theme-halo3 .settings-footer,
-html.theme-phantom-hourglass .settings-footer {
+html.theme-woodland .settings-footer {
   border-top: 1px solid var(--t-border);
 }
-
-html.theme-woodland .form-section + .settings-divider,
-html.theme-ion .form-section + .settings-divider,
-html.theme-ps2 .form-section + .settings-divider,
-html.theme-halo3 .form-section + .settings-divider,
-html.theme-phantom-hourglass .form-section + .settings-divider {
+html.theme-woodland .form-section + .settings-divider {
   border-color: var(--t-border-subtle);
 }
-
-html.theme-woodland .chat-box,
-html.theme-ion .chat-box,
-html.theme-ps2 .chat-box,
-html.theme-halo3 .chat-box,
-html.theme-phantom-hourglass .chat-box {
+html.theme-woodland .chat-box {
   border: none;
 }
-
-html.theme-woodland .msg-bubble,
-html.theme-ion .msg-bubble,
-html.theme-ps2 .msg-bubble,
-html.theme-halo3 .msg-bubble,
-html.theme-phantom-hourglass .msg-bubble {
+html.theme-woodland .msg-bubble {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-
-html.theme-woodland .user-bubble,
-html.theme-ion .user-bubble,
-html.theme-ps2 .user-bubble,
-html.theme-halo3 .user-bubble,
-html.theme-phantom-hourglass .user-bubble {
+html.theme-woodland .user-bubble {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-
-html.theme-woodland .assistant-bubble,
-html.theme-ion .assistant-bubble,
-html.theme-ps2 .assistant-bubble,
-html.theme-halo3 .assistant-bubble,
-html.theme-phantom-hourglass .assistant-bubble {
+html.theme-woodland .assistant-bubble {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-
 html.theme-woodland .assistant-bubble h1,
-html.theme-ion .assistant-bubble h1,
-html.theme-ps2 .assistant-bubble h1,
-html.theme-halo3 .assistant-bubble h1,
-html.theme-phantom-hourglass .assistant-bubble h1,
 html.theme-woodland .assistant-bubble h2,
-html.theme-ion .assistant-bubble h2,
-html.theme-ps2 .assistant-bubble h2,
-html.theme-halo3 .assistant-bubble h2,
-html.theme-phantom-hourglass .assistant-bubble h2,
 html.theme-woodland .assistant-bubble h3,
-html.theme-ion .assistant-bubble h3,
-html.theme-ps2 .assistant-bubble h3,
-html.theme-halo3 .assistant-bubble h3,
-html.theme-phantom-hourglass .assistant-bubble h3,
 html.theme-woodland .assistant-bubble h4,
-html.theme-ion .assistant-bubble h4,
-html.theme-ps2 .assistant-bubble h4,
-html.theme-halo3 .assistant-bubble h4,
-html.theme-phantom-hourglass .assistant-bubble h4,
 html.theme-woodland .assistant-bubble h5,
-html.theme-ion .assistant-bubble h5,
-html.theme-ps2 .assistant-bubble h5,
-html.theme-halo3 .assistant-bubble h5,
-html.theme-phantom-hourglass .assistant-bubble h5,
-html.theme-woodland .assistant-bubble h6,
-html.theme-ion .assistant-bubble h6,
-html.theme-ps2 .assistant-bubble h6,
-html.theme-halo3 .assistant-bubble h6,
-html.theme-phantom-hourglass .assistant-bubble h6 {
+html.theme-woodland .assistant-bubble h6 {
   text-shadow: none;
 }
-
-html.theme-woodland .assistant-bubble code,
-html.theme-ion .assistant-bubble code,
-html.theme-ps2 .assistant-bubble code,
-html.theme-halo3 .assistant-bubble code,
-html.theme-phantom-hourglass .assistant-bubble code {
+html.theme-woodland .assistant-bubble code {
   border: none;
 }
-
-html.theme-woodland .assistant-bubble pre,
-html.theme-ion .assistant-bubble pre,
-html.theme-ps2 .assistant-bubble pre,
-html.theme-halo3 .assistant-bubble pre,
-html.theme-phantom-hourglass .assistant-bubble pre {
+html.theme-woodland .assistant-bubble pre {
   border: none;
   border-top: 1px solid var(--t-border-subtle);
   border-bottom: 1px solid var(--t-border-subtle);
 }
-
-html.theme-woodland .assistant-bubble a:hover,
-html.theme-ion .assistant-bubble a:hover,
-html.theme-ps2 .assistant-bubble a:hover,
-html.theme-halo3 .assistant-bubble a:hover,
-html.theme-phantom-hourglass .assistant-bubble a:hover {
+html.theme-woodland .assistant-bubble a:hover {
   text-shadow: none;
 }
-
-html.theme-woodland .assistant-bubble blockquote,
-html.theme-ion .assistant-bubble blockquote,
-html.theme-ps2 .assistant-bubble blockquote,
-html.theme-halo3 .assistant-bubble blockquote,
-html.theme-phantom-hourglass .assistant-bubble blockquote {
+html.theme-woodland .assistant-bubble blockquote {
   border-left: 3px solid var(--t-assistant-border);
   background: transparent;
 }
-
-html.theme-woodland .terminal-shell-badge,
-html.theme-ion .terminal-shell-badge,
-html.theme-ps2 .terminal-shell-badge,
-html.theme-halo3 .terminal-shell-badge,
-html.theme-phantom-hourglass .terminal-shell-badge {
+html.theme-woodland .terminal-shell-badge {
   border: none;
   background: var(--t-hover-bg);
 }
-
-html.theme-woodland .section-count,
-html.theme-ion .section-count,
-html.theme-ps2 .section-count,
-html.theme-halo3 .section-count,
-html.theme-phantom-hourglass .section-count {
+html.theme-woodland .section-count {
   border: none;
   background: var(--t-hover-bg);
 }
-
-html.theme-woodland .processing-text,
-html.theme-ion .processing-text,
-html.theme-ps2 .processing-text,
-html.theme-halo3 .processing-text,
-html.theme-phantom-hourglass .processing-text {
+html.theme-woodland .processing-text {
   text-shadow: none;
 }
-
-html.theme-woodland .streaming-cursor,
-html.theme-ion .streaming-cursor,
-html.theme-ps2 .streaming-cursor,
-html.theme-halo3 .streaming-cursor,
-html.theme-phantom-hourglass .streaming-cursor {
+html.theme-woodland .streaming-cursor {
   box-shadow: none;
 }
-
-html.theme-woodland .code-block-run-btn,
-html.theme-ion .code-block-run-btn,
-html.theme-ps2 .code-block-run-btn,
-html.theme-halo3 .code-block-run-btn,
-html.theme-phantom-hourglass .code-block-run-btn {
+html.theme-woodland .code-block-run-btn {
   border: none;
   background: var(--t-hover-bg);
 }
-
-html.theme-woodland .code-block-run-btn:hover,
-html.theme-ion .code-block-run-btn:hover,
-html.theme-ps2 .code-block-run-btn:hover,
-html.theme-halo3 .code-block-run-btn:hover,
-html.theme-phantom-hourglass .code-block-run-btn:hover {
+html.theme-woodland .code-block-run-btn:hover {
   border: none;
   background: var(--t-active-bg);
 }
-
 html.theme-woodland .interactive-submit-btn,
-html.theme-ion .interactive-submit-btn,
-html.theme-ps2 .interactive-submit-btn,
-html.theme-halo3 .interactive-submit-btn,
-html.theme-phantom-hourglass .interactive-submit-btn,
 html.theme-woodland .read-more-btn,
-html.theme-ion .read-more-btn,
-html.theme-ps2 .read-more-btn,
-html.theme-halo3 .read-more-btn,
-html.theme-phantom-hourglass .read-more-btn,
 html.theme-woodland .send-output-btn,
-html.theme-ion .send-output-btn,
-html.theme-ps2 .send-output-btn,
-html.theme-halo3 .send-output-btn,
-html.theme-phantom-hourglass .send-output-btn,
-html.theme-woodland .end-script-btn,
-html.theme-ion .end-script-btn,
-html.theme-ps2 .end-script-btn,
-html.theme-halo3 .end-script-btn,
-html.theme-phantom-hourglass .end-script-btn {
+html.theme-woodland .end-script-btn {
   border: none;
   background: var(--t-hover-bg);
 }
-
 html.theme-woodland .interactive-submit-btn:hover,
-html.theme-ion .interactive-submit-btn:hover,
-html.theme-ps2 .interactive-submit-btn:hover,
-html.theme-halo3 .interactive-submit-btn:hover,
-html.theme-phantom-hourglass .interactive-submit-btn:hover,
 html.theme-woodland .read-more-btn:hover,
-html.theme-ion .read-more-btn:hover,
-html.theme-ps2 .read-more-btn:hover,
-html.theme-halo3 .read-more-btn:hover,
-html.theme-phantom-hourglass .read-more-btn:hover,
 html.theme-woodland .send-output-btn:hover,
-html.theme-ion .send-output-btn:hover,
-html.theme-ps2 .send-output-btn:hover,
-html.theme-halo3 .send-output-btn:hover,
-html.theme-phantom-hourglass .send-output-btn:hover,
-html.theme-woodland .end-script-btn:hover,
-html.theme-ion .end-script-btn:hover,
-html.theme-ps2 .end-script-btn:hover,
-html.theme-halo3 .end-script-btn:hover,
-html.theme-phantom-hourglass .end-script-btn:hover {
+html.theme-woodland .end-script-btn:hover {
   border: none;
   background: var(--t-active-bg);
+}
+
+html.theme-woodland app-message-box .composer-mode-select {
+  color-scheme: dark;
+}
+
+html.theme-woodland app-message-box .composer-mode-select option {
+  background-color: var(--t-input-bg);
+  color: var(--t-input-fg);
 }
 
 @media (max-width: 1100px) {
-  html.theme-woodland .settings-nav,
-  html.theme-ion .settings-nav,
-  html.theme-ps2 .settings-nav,
-  html.theme-halo3 .settings-nav,
-  html.theme-phantom-hourglass .settings-nav {
+  html.theme-woodland .settings-nav {
     border-bottom: 1px solid var(--t-border);
     border-right: none;
   }

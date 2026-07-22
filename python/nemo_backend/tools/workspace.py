@@ -24,6 +24,7 @@ from nemo_backend.tools.tool_conventions import (
     GUTTER,
     ONE_BASED,
     RELATIVE_PATH,
+    clamp_line_window,
     describe,
 )
 from nemo_backend.state import current_session_id, get_session, runtime_config
@@ -308,9 +309,8 @@ def _read_workspace_pdf(path: Path, rel_display: str, start_page: int, end_page:
     if n_pages == 0:
         return f'File: {rel_display}\nPages: (none)\n\n[empty PDF]'
 
-    safe_start = max(1, start_page)
     cap = _effective_max_file_read_lines()
-    safe_end = max(safe_start, min(end_page, safe_start + cap - 1, n_pages))
+    safe_start, safe_end = clamp_line_window(start_page, end_page, cap, max_value=n_pages)
     if safe_start > n_pages:
         return (
             f'File: {rel_display}\nPages: {safe_start}-{safe_end} (document has {n_pages} page(s))\n\n'
@@ -463,9 +463,8 @@ def read_workspace_file(
     enc = validate_workspace_encoding(enc)
 
     # Clamp line range so one call cannot read unbounded megabytes.
-    safe_start = max(1, start_line)
     cap = _effective_max_file_read_lines()
-    safe_end = max(safe_start, min(end_line, safe_start + cap - 1))
+    safe_start, safe_end = clamp_line_window(start_line, end_line, cap)
     window = read_file_line_window_for_tools(target, enc, safe_start, safe_end)
     excerpt = window.excerpt_lines
     n_lines = window.n_lines
@@ -493,7 +492,10 @@ def read_workspace_file(
         shape=(
             f'{ENCODING_NEWLINE} one encoding per call—mixed trees may need multiple calls. '
             'Hits `[path line N] │ full line` (indent preserved). Same ignore rules as `list_workspace_directory`; '
-            'for gitignored files read with `read_workspace_file`.'
+            'for gitignored files read with `read_workspace_file`. `query` is a **regex**: a literal code snippet '
+            'containing `( ) [ ] { } . * + ? ^ $ |` (e.g. a call like `foo("bar"`) is parsed as a pattern and can '
+            'error on unbalanced brackets/parens—escape those characters (`\\(`, `\\)`, …) or search a shorter, '
+            'metacharacter-free substring instead.'
         ),
     ))
 def search_workspace(
@@ -506,7 +508,13 @@ def search_workspace(
     root_resolved = root.resolve()
     ignore_rules = get_workspace_ignore_rules_cached(root)
     limit = max(1, min(max_matches, _effective_max_search_results()))
-    pattern = re.compile(query, re.IGNORECASE)
+    try:
+        pattern = re.compile(query, re.IGNORECASE)
+    except re.error as exc:
+        return (
+            f'Tool error: invalid regex: {exc}. If you meant a literal string (not a pattern), escape regex '
+            'metacharacters like ( ) [ ] { } . * + ? ^ $ | \\ or search a shorter, unambiguous substring instead.'
+        )
 
     enc = (encoding or '').strip() or runtime_config.tools.default_workspace_encoding
     enc = validate_workspace_encoding(enc)

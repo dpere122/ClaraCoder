@@ -13,7 +13,7 @@ from nemo_backend.config import (
     SNIPPET_FUZZY_TIE_DELTA,
 )
 
-__all__ = ['merge_partial_edit', 'line_range_edit_tool_feedback']
+__all__ = ['merge_partial_edit', 'line_range_edit_tool_feedback', 'snippet_unique_on_text']
 
 logger = logging.getLogger('nemo.partial_workspace_edit')
 
@@ -23,6 +23,14 @@ _LINE_NUMBER_GUTTER_PIPE = re.compile(r'^\s*(\d+)\s*[│|]\s(.*)$')
 
 # Fuzzy locate is unsafe for very short snippets (repeated tokens, wrong spans).
 SNIPPET_FUZZY_MIN_LENGTH = 4
+
+_SNIPPET_DIAG_MAX_CHARS = 1600
+
+_LINE_RANGE_TOOL_HINT = (
+    'If you know line numbers from a numbered read, call `stage_line_range_edit` '
+    '(or `replace_workspace_line_range` in direct/auto-apply mode) with `start_line`/`end_line` '
+    'and `new_snippet` instead of retrying the snippet tool.'
+)
 
 
 def _strip_one_read_tool_line(line: str) -> str | None:
@@ -58,6 +66,25 @@ def _strip_numbered_read_prefixes(snippet: str) -> str | None:
     return result
 
 
+def _gutter_line_counts(snippet: str) -> tuple[int, int]:
+    """Return ``(gutter_shaped_nonempty_lines, nonempty_lines)`` for partial-gutter detection."""
+    gutter = 0
+    nonempty = 0
+    for line in snippet.splitlines():
+        if line == '':
+            continue
+        nonempty += 1
+        if _strip_one_read_tool_line(line) is not None:
+            gutter += 1
+    return gutter, nonempty
+
+
+def _is_partial_gutter_paste(snippet: str) -> bool:
+    """True when some but not all non-empty lines look like numbered read-tool output."""
+    gutter, nonempty = _gutter_line_counts(snippet)
+    return gutter > 0 and gutter < nonempty
+
+
 def _norm_crlf(s: str) -> str:
     return s.replace('\r\n', '\n').replace('\r', '\n')
 
@@ -89,11 +116,33 @@ def _similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
 
 
+def snippet_unique_on_text(text: str, snippet: str) -> bool:
+    """True when ``snippet`` occurs exactly once in ``text`` (exact byte match)."""
+    if not snippet:
+        return False
+    return text.count(snippet) == 1
+
+
 def _exact_unique_replace(old_text: str, old_snippet: str, new_snippet: str) -> str | None:
     count = old_text.count(old_snippet)
     if count == 1:
         return old_text.replace(old_snippet, new_snippet, 1)
     return None
+
+
+def _fuzzy_aligned_span_end(file_window: str, snippet: str) -> int:
+    """Exclusive end index in ``file_window`` aligned to the full ``snippet`` via SequenceMatcher opcodes."""
+    if not file_window:
+        return 0
+    sm = difflib.SequenceMatcher(None, snippet, file_window, autojunk=False)
+    end_b = 0
+    for _tag, _i1, i2, _j1, j2 in sm.get_opcodes():
+        end_b = max(end_b, j2)
+        if i2 >= len(snippet):
+            break
+    if end_b <= 0:
+        return min(len(snippet), len(file_window))
+    return end_b
 
 
 def _fuzzy_replace(dmp: diff_match_patch, old_text: str, old_snippet: str, new_snippet: str) -> str | None:
@@ -145,9 +194,15 @@ def _fuzzy_replace(dmp: diff_match_patch, old_text: str, old_snippet: str, new_s
         return None
 
     best_loc = max(close, key=lambda x: (x[1], -x[0]))[0]
-    end = best_loc + pat_len
+    # Align the replaced file span to the snippet via opcodes (not blindly len(old_snippet)).
+    window_limit = min(len(old_text), best_loc + max(pat_len * 2, pat_len + 64))
+    file_window = old_text[best_loc:window_limit]
+    span_len = _fuzzy_aligned_span_end(file_window, old_snippet)
+    end = best_loc + span_len
     if end > len(old_text):
         end = len(old_text)
+    if end <= best_loc:
+        end = min(len(old_text), best_loc + pat_len)
     return old_text[:best_loc] + new_snippet + old_text[end:]
 
 
@@ -164,6 +219,138 @@ def _crlf_relaxed_unique_replace(old_text: str, old_snippet: str, new_snippet: s
     start_raw = _norm_index_to_raw(old_text, ni)
     end_raw = _norm_index_to_raw(old_text, ni + len(ns))
     return old_text[:start_raw] + new_snippet + old_text[end_raw:]
+
+
+def _line_ending_suffix(line: str) -> str:
+    if line.endswith('\r\n'):
+        return '\r\n'
+    if line.endswith('\n'):
+        return '\n'
+    if line.endswith('\r'):
+        return '\r'
+    return ''
+
+
+def _trailing_ws_relaxed_unique_replace(old_text: str, old_snippet: str, new_snippet: str) -> str | None:
+    """Unique match after CRLF normalize + stripping trailing spaces/tabs per line; preserves leading/interior WS."""
+    snip_norm = _norm_crlf(old_snippet)
+    snip_lines = snip_norm.splitlines()
+    if not snip_lines:
+        return None
+    snip_bodies = [line.rstrip(' \t') for line in snip_lines]
+    snip_ends_with_nl = snip_norm.endswith('\n')
+
+    # Keep original line strings (with their endings) for accurate splice.
+    file_lines = old_text.splitlines(keepends=True)
+    if not file_lines and not old_text:
+        return None
+
+    file_bodies: list[str] = []
+    for line in file_lines:
+        body = line[: -len(_line_ending_suffix(line))] if _line_ending_suffix(line) else line
+        file_bodies.append(body.rstrip(' \t'))
+
+    m = len(snip_bodies)
+    n = len(file_bodies)
+    if m == 0 or m > n:
+        return None
+
+    starts: list[int] = []
+    for i in range(n - m + 1):
+        if all(file_bodies[i + j] == snip_bodies[j] for j in range(m)):
+            starts.append(i)
+    if len(starts) != 1:
+        return None
+
+    start_i = starts[0]
+    end_i = start_i + m
+    before = ''.join(file_lines[:start_i])
+    # Mirror exact-match semantics: if the snippet has no trailing newline, keep the last matched
+    # line's ending in the file so a bare last-line anchor does not eat the EOL.
+    if not snip_ends_with_nl:
+        after = _line_ending_suffix(file_lines[end_i - 1]) + ''.join(file_lines[end_i:])
+    else:
+        after = ''.join(file_lines[end_i:])
+    return before + new_snippet + after
+
+
+def _occurrence_line_numbers(text: str, snippet: str, *, limit: int = 8) -> list[int]:
+    """1-based line numbers of the first ``limit`` exact occurrences of ``snippet``."""
+    out: list[int] = []
+    start = 0
+    while len(out) < limit:
+        i = text.find(snippet, start)
+        if i < 0:
+            break
+        out.append(text.count('\n', 0, i) + 1)
+        start = i + max(1, len(snippet))
+    return out
+
+
+def _closest_line_hints(text: str, snippet: str, *, max_hints: int = 3) -> list[str]:
+    """Up to ``max_hints`` closest file lines to the first non-empty snippet line."""
+    file_lines = text.splitlines()
+    if not file_lines:
+        return []
+    needle_lines = [line for line in snippet.splitlines() if line.strip()]
+    if not needle_lines:
+        return []
+    needle = needle_lines[0].strip()
+    if len(needle) < 2:
+        needle = snippet.strip()[:80]
+    scored: list[tuple[float, int, str]] = []
+    for i, line in enumerate(file_lines, 1):
+        ratio = difflib.SequenceMatcher(None, needle, line.strip(), autojunk=False).ratio()
+        if ratio >= 0.45:
+            scored.append((ratio, i, line))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    hints: list[str] = []
+    for _ratio, i, line in scored[:max_hints]:
+        clipped = line if len(line) <= 120 else line[:120] + '...'
+        hints.append(f'  L{i}: {clipped}')
+    return hints
+
+
+def _snippet_failure_diagnostic(
+    old_text: str,
+    old_snippet: str,
+    *,
+    kind: str,
+    count: int | None = None,
+) -> str:
+    """Compact recovery block: line count, occurrence lines / closest lines, line-range tool hint."""
+    n_lines = len(old_text.splitlines())
+    parts = [f'Merge base has {n_lines} line(s).']
+    if kind == 'ambiguous' and count is not None and count > 0:
+        locs = _occurrence_line_numbers(old_text, old_snippet)
+        if locs:
+            loc_str = ', '.join(str(x) for x in locs)
+            more = f' (showing first {len(locs)} of {count})' if count > len(locs) else ''
+            parts.append(f'Occurrences at line(s): {loc_str}{more}.')
+        parts.append('Include more surrounding lines so the match is unique.')
+    else:
+        hints = _closest_line_hints(old_text, old_snippet)
+        if hints:
+            parts.append('Closest line(s) in merge base:')
+            parts.extend(hints)
+    parts.append(_LINE_RANGE_TOOL_HINT)
+    diag = '\n'.join(parts)
+    if len(diag) > _SNIPPET_DIAG_MAX_CHARS:
+        return diag[:_SNIPPET_DIAG_MAX_CHARS] + '\n... [diagnostic truncated]'
+    return diag
+
+
+def _ambiguous_error(old_text: str, old_snippet: str, count: int, *, after_strip: bool = False) -> str:
+    prefix = (
+        f'old_snippet appears {count} times'
+        + (' after stripping line numbers' if after_strip else '')
+        + '; '
+    )
+    return (
+        prefix
+        + 'include more surrounding lines so the match is unique. '
+        + _snippet_failure_diagnostic(old_text, old_snippet, kind='ambiguous', count=count)
+    )
 
 
 def _snippet_try_one(
@@ -185,6 +372,10 @@ def _snippet_try_one(
     if out is not None:
         return out, 'crlf_relaxed_exact'
 
+    out = _trailing_ws_relaxed_unique_replace(old_text, old_snippet, new_snippet)
+    if out is not None:
+        return out, 'trailing_ws_relaxed_exact'
+
     out = _fuzzy_replace(dmp, old_text, old_snippet, new_snippet)
     if out is not None:
         return out, 'fuzzy_match_main'
@@ -193,20 +384,24 @@ def _snippet_try_one(
 
 
 def _snippet_replace(old_text: str, old_snippet: str, new_snippet: str) -> tuple[str | None, str | None]:
-    """Replace old_snippet with new_snippet: exact, CRLF-normalized exact, gated fuzzy; then strip ``N:`` read prefixes."""
+    """Replace old_snippet with new_snippet: exact, CRLF, trailing-WS, gated fuzzy; then strip numbered gutters."""
     if not old_snippet:
-        return None, 'old_snippet is empty.'
+        return None, 'old_snippet is empty. Provide the exact text to replace (no line-number gutters).'
+
+    if _is_partial_gutter_paste(old_snippet):
+        return (
+            None,
+            'old_snippet looks like a partial paste of numbered read output (some lines have `N │` / `N |` / `N:` '
+            'gutters, others do not). Re-copy the anchor with `include_line_numbers=false`, or call '
+            '`stage_line_range_edit` / `replace_workspace_line_range` with `start_line`/`end_line` instead.',
+        )
 
     dmp = diff_match_patch()
     _configure_dmp(dmp, len(old_text))
 
     merged, tag = _snippet_try_one(old_text, old_snippet, new_snippet, dmp)
     if tag == 'ambiguous':
-        return (
-            None,
-            f'old_snippet appears {old_text.count(old_snippet)} times; include more surrounding lines so the match is unique, '
-            'or use start_line and end_line with new_snippet.',
-        )
+        return None, _ambiguous_error(old_text, old_snippet, old_text.count(old_snippet))
     if merged is not None:
         logger.info('snippet_merge strategy=%s', tag)
         return merged, None
@@ -217,24 +412,21 @@ def _snippet_replace(old_text: str, old_snippet: str, new_snippet: str) -> tuple
         _configure_dmp(dmp2, len(old_text))
         merged, tag = _snippet_try_one(old_text, stripped, new_snippet, dmp2)
         if tag == 'ambiguous':
-            return (
-                None,
-                f'old_snippet appears {old_text.count(stripped)} times after stripping line numbers; '
-                'include more context or use start_line and end_line with new_snippet.',
-            )
+            return None, _ambiguous_error(old_text, stripped, old_text.count(stripped), after_strip=True)
         if merged is not None:
             logger.info('snippet_merge strategy=%s phase=strip_line_numbers', tag)
             return merged, None
 
     count = old_text.count(old_snippet)
     if count > 1:
-        return (
-            None,
-            f'old_snippet appears {count} times; include more surrounding lines so the match is unique, '
-            'or use start_line and end_line with new_snippet.',
-        )
+        return None, _ambiguous_error(old_text, old_snippet, count)
 
-    return None, 'old_snippet not found in file (tried exact match, CRLF-normalized exact, fuzzy locate, and numbered-line strip).'
+    return (
+        None,
+        'old_snippet not found in file (tried exact match, CRLF-normalized exact, trailing-whitespace-tolerant '
+        'exact, fuzzy locate, and numbered-line strip).\n'
+        + _snippet_failure_diagnostic(old_text, old_snippet, kind='not_found'),
+    )
 
 
 def _line_range_replace(old_text: str, start_line: int, end_line: int, new_snippet: str) -> tuple[str | None, str | None]:

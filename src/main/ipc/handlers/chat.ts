@@ -180,6 +180,31 @@ export function registerChatIpc(): void {
   ipcMain.handle('abort-message', async (_event, conversationId: string) => abortChatStream(conversationId));
 
   ipcMain.handle(
+    'background-command-terminal-closed',
+    async (_event, conversationId: string, commandId: string) => {
+      try {
+        const res = await pythonControlFetch('/chat/background-command-terminal-closed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: conversationId,
+            command_id: commandId ?? '',
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          return { ok: false, error: text || `HTTP ${res.status}` };
+        }
+        const data = (await res.json()) as { ok?: boolean; detail?: string };
+        return { ok: data.ok !== false, detail: data.detail ?? '' };
+      } catch (err) {
+        console.error('background-command-terminal-closed failed:', err);
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
     'agent-question-answers',
     async (
       _event,

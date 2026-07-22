@@ -36,6 +36,8 @@ RUN_COMMAND_NAME = 'run_command'
 WAIT_FOR_COMMAND_NAME = 'wait_for_command'
 KILL_BACKGROUND_COMMAND_NAME = 'kill_background_command'
 LIST_BACKGROUND_COMMANDS_NAME = 'list_background_commands'
+RUN_COMMAND_STREAM_TAG_PREFIX = 'run-command:'
+_RUN_COMMAND_LABEL_MAX = 28
 
 # Rolling capture cap per job (oldest output dropped first, like a terminal scrollback).
 _MAX_CAPTURE_CHARS = 2_000_000
@@ -53,9 +55,11 @@ __all__ = [
     'KILL_BACKGROUND_COMMAND_NAME',
     'LIST_BACKGROUND_COMMANDS_NAME',
     'RUN_COMMAND_NAME',
+    'RUN_COMMAND_STREAM_TAG_PREFIX',
     'WAIT_FOR_COMMAND_NAME',
     'background_command_jobs',
     'background_command_tools',
+    'handle_background_command_terminal_closed',
     'kill_background_command_tool',
     'kill_session_background_commands',
     'list_background_commands_tool',
@@ -96,6 +100,77 @@ def background_command_jobs() -> dict[str, CommandJob]:
     return _JOBS
 
 
+def _run_command_stream_tag(command_id: str) -> str:
+    return f'{RUN_COMMAND_STREAM_TAG_PREFIX}{command_id}'
+
+
+def _run_command_tab_label(command_text: str) -> str:
+    text = (command_text or '').strip().replace('\n', ' ')
+    if len(text) <= _RUN_COMMAND_LABEL_MAX:
+        return text or RUN_COMMAND_NAME
+    return text[: _RUN_COMMAND_LABEL_MAX - 1] + '…'
+
+
+async def _emit_run_command_nested(
+    session_id: str,
+    stream_tag: str,
+    event: str,
+    data: dict[str, object],
+) -> None:
+    session = get_session(session_id)
+    queue = session.planning_nested_events_q
+    if queue is None:
+        return
+    await queue.put((stream_tag, {'event': event, 'data': data}))
+
+
+async def _emit_run_command_chunk(session_id: str, job: CommandJob, delta: str) -> None:
+    if not delta:
+        return
+    await _emit_run_command_nested(
+        session_id,
+        _run_command_stream_tag(job.job_id),
+        'tool_exec_chunk',
+        {
+            'delta': delta,
+            'stream_tag': _run_command_stream_tag(job.job_id),
+            'label': _run_command_tab_label(job.command_text),
+        },
+    )
+
+
+async def _emit_run_command_open(session_id: str, job: CommandJob) -> None:
+    label = _run_command_tab_label(job.command_text)
+    stream_tag = _run_command_stream_tag(job.job_id)
+    await _emit_run_command_nested(
+        session_id,
+        stream_tag,
+        'background_command_open',
+        {
+            'command_id': job.job_id,
+            'command_text': job.command_text,
+            'cwd_label': job.cwd_label,
+            'label': label,
+            'stream_tag': stream_tag,
+        },
+    )
+
+
+async def _emit_run_command_complete(session_id: str, job: CommandJob) -> None:
+    label = _run_command_tab_label(job.command_text)
+    stream_tag = _run_command_stream_tag(job.job_id)
+    await _emit_run_command_nested(
+        session_id,
+        stream_tag,
+        'tool_exec_complete',
+        {
+            'stream_tag': stream_tag,
+            'label': label,
+            'exit_code': job.exit_code,
+        },
+    )
+
+
 def _append_output(job: CommandJob, text: str) -> None:
     if not text:
         return
@@ -125,14 +200,19 @@ async def _pump_output(job: CommandJob) -> None:
                 block = await stdout.read(_READ_BLOCK_BYTES)
                 if not block:
                     break
-                _append_output(job, decoder.decode(block))
-            _append_output(job, decoder.decode(b'', True))
+                chunk = decoder.decode(block)
+                _append_output(job, chunk)
+                await _emit_run_command_chunk(job.session_id, job, chunk)
+            tail = decoder.decode(b'', True)
+            _append_output(job, tail)
+            await _emit_run_command_chunk(job.session_id, job, tail)
     finally:
         code = await job.proc.wait()
         job.exit_code = code
         if job.status == STATUS_RUNNING:
             job.status = STATUS_EXITED
         job.done.set()
+        await _emit_run_command_complete(job.session_id, job)
 
 
 def _normalize_wait_seconds(wait_seconds: object, *, default: float) -> tuple[float | None, str | None]:
@@ -239,6 +319,7 @@ async def _start_job(
     )
     job.reader_task = asyncio.create_task(_pump_output(job))
     _JOBS[job.job_id] = job
+    await _emit_run_command_open(session_id, job)
     return job, None
 
 
@@ -405,6 +486,51 @@ async def list_background_commands_tool() -> str:
         command_preview = job.command_text if len(job.command_text) <= 80 else job.command_text[:77] + '...'
         lines.append(f'{index}. `{job.job_id}` — {status} — `{command_preview}` (cwd `{job.cwd_label}`)')
     return '\n'.join(lines) + '\n'
+
+
+async def handle_background_command_terminal_closed(session_id: str, command_id: str) -> tuple[bool, str]:
+    """Kill a background command when the user closes its terminal tab; queue an agent note."""
+    from nemo_backend.user_events import queue_user_event_note
+
+    sid = (session_id or '').strip()
+    cleaned = (command_id or '').strip()
+    if not sid:
+        return False, 'Missing session_id.'
+    if not cleaned:
+        return False, 'Missing command_id.'
+
+    session = get_session(sid)
+    job, find_err = _find_session_job(sid, cleaned)
+    if find_err:
+        note = (
+            f'User closed the terminal tab for background command `{cleaned or "(empty)"}`, '
+            'but that command is no longer tracked in this session (it may have already exited).'
+        )
+        queue_user_event_note(session, note)
+        return True, note
+
+    assert job is not None
+    was_running = job.status == STATUS_RUNNING
+    if was_running:
+        await _kill_job(job)
+        try:
+            await asyncio.wait_for(job.done.wait(), timeout=_KILL_REPORT_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            pass
+    if job.status == STATUS_KILLED:
+        status = f'killed (exit code {job.exit_code})' if job.exit_code is not None else 'killed'
+    elif job.status == STATUS_EXITED:
+        status = f'exited with code {job.exit_code}'
+    else:
+        status = 'still running'
+    note = (
+        f'User closed the terminal tab for background command `{job.job_id}` (`{job.command_text}`). '
+        f'The command was {"terminated" if was_running else "already finished"} ({status}).'
+    )
+    queue_user_event_note(session, note)
+    if job.status != STATUS_RUNNING:
+        _JOBS.pop(job.job_id, None)
+    return True, note
 
 
 async def kill_session_background_commands(session_id: str) -> None:

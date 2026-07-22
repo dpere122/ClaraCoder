@@ -3,6 +3,41 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import type { AcceptCommandPayload, DiffReviewStatus } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 
+export interface AcceptCommandContextHint {
+  kind: string;
+  value: string;
+}
+
+function indicativeDetailKind(label: string): string {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes('working directory')) {
+    return 'cwd';
+  }
+  if (normalized.includes('entry script')) {
+    return 'script';
+  }
+  if (normalized.includes('project dir')) {
+    return 'dir';
+  }
+  if (normalized.includes('script')) {
+    return 'script';
+  }
+  return '';
+}
+
+function parseDetailItem(item: string): AcceptCommandContextHint {
+  const trimmed = item.trim();
+  const labeled = trimmed.match(/^([^:]+):\s*(.+)$/);
+  if (!labeled) {
+    return { kind: '', value: trimmed };
+  }
+  const value = labeled[2].replace(/^`|`$/g, '').trim();
+  return {
+    kind: indicativeDetailKind(labeled[1]),
+    value: value || trimmed,
+  };
+}
+
 @Component({
   selector: 'app-accept-command',
   standalone: true,
@@ -26,6 +61,33 @@ export class AcceptCommandComponent {
 
   readonly busy = signal(false);
   private continueSent = false;
+
+  readonly summaryText = computed(() => {
+    const p = this.payload();
+    return p.message.trim() || p.title.trim() || p.commandText.trim() || 'Approval';
+  });
+
+  readonly descriptionText = computed(() => {
+    const p = this.payload();
+    const parts: string[] = [];
+    const message = p.message.trim();
+    if (message) {
+      parts.push(message);
+    }
+    if (p.riskAssessmentStatus === 'ok') {
+      const riskDescription = p.riskDescription?.trim();
+      if (riskDescription && riskDescription !== message) {
+        parts.push(riskDescription);
+      }
+    }
+    return parts.join('\n\n');
+  });
+
+  readonly contextHints = computed(() =>
+    this.payload()
+      .details.map(parseDetailItem)
+      .filter((hint) => hint.value.length > 0),
+  );
 
   /** Maps the payload's risk assessment fields to a Bootstrap badge class + label, or null if none applies. */
   readonly riskBadge = computed<{ badgeClass: string; label: string } | null>(() => {

@@ -141,6 +141,13 @@ class AbortRequest(BaseModel):
     session_id: str
 
 
+class BackgroundCommandTerminalClosedRequest(BaseModel):
+    """Body for POST /chat/background-command-terminal-closed: user closed a run_command tab."""
+
+    session_id: str
+    command_id: str = Field(default='', validation_alias=AliasChoices('command_id', 'commandId'))
+
+
 class BuildPlanCancelRequest(BaseModel):
     """Body for POST /build-plan/cancel: delete plan file and abort in-flight stream."""
 

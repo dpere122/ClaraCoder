@@ -11,6 +11,7 @@ from nemo_backend.schemas import (
     AbortRequest,
     AgentContinueRequest,
     AgentQuestionAnswersRequest,
+    BackgroundCommandTerminalClosedRequest,
     ChatRequest,
 )
 from nemo_backend import state
@@ -44,6 +45,20 @@ async def chat_abort(request: AbortRequest) -> dict[str, bool]:
     if ev is not None:
         ev.set()
     return {'ok': True}
+
+
+@router.post('/chat/background-command-terminal-closed')
+async def background_command_terminal_closed(
+    request: BackgroundCommandTerminalClosedRequest,
+) -> dict[str, bool | str]:
+    """User closed a run_command terminal tab: kill the job and queue an agent note."""
+    from nemo_backend.tools.run_command import handle_background_command_terminal_closed
+
+    ok, detail = await handle_background_command_terminal_closed(
+        request.session_id,
+        request.command_id,
+    )
+    return {'ok': ok, 'detail': detail}
 
 
 @router.post('/chat/agent-question-answers')

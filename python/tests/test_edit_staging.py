@@ -277,6 +277,94 @@ def test_stage_snippet_edit_stages_python(staging_env) -> None:
     )
     assert 'for review' in out.lower()
     assert 'sn.py' in session.pending_edit_stagings
+    assert 'Next partial edit on this path' in out
+    assert 'read_staged_edit' in out
+
+
+def test_stage_snippet_edit_new_content_alias(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'alias_snip.py').write_text('alpha\nbeta\ngamma\n', encoding='utf-8')
+    out = stage_snippet_edit.invoke(
+        {
+            'relative_path': 'alias_snip.py',
+            'old_snippet': 'beta',
+            'new_snippet': '',
+            'new_content': 'BETA',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'for review' in out.lower()
+    entry = session.pending_edit_stagings['alias_snip.py']
+    assert 'BETA' in entry.merged_text
+    assert 'beta' not in entry.merged_text
+
+
+def test_stage_snippet_edit_stale_disk_anchor_after_prior_stage_hints_read_staged_edit(staging_env) -> None:
+    """Anchoring on disk text after a prior stage already changed those lines in the draft should point at read_staged_edit."""
+    ws = staging_env.workspace
+    (ws / 'stale.py').write_text('alpha\nbeta\ngamma\n', encoding='utf-8')
+    first = stage_snippet_edit.invoke(
+        {
+            'relative_path': 'stale.py',
+            'old_snippet': 'beta',
+            'new_snippet': 'BETA',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'for review' in first.lower()
+
+    # Second call still anchors on the *disk* text ('beta'); the draft now has 'BETA' instead.
+    second = stage_snippet_edit.invoke(
+        {
+            'relative_path': 'stale.py',
+            'old_snippet': 'beta',
+            'new_snippet': 'nope',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert second.startswith('Tool error:')
+    assert 'old_snippet not found' in second
+    assert 'staged draft' in second
+    assert 'read_staged_edit' in second
+    assert 'not `read_workspace_file`' in second
+    assert 'on-disk' in second and 'absent from the staged draft' in second
+
+
+def test_stage_line_range_edit_past_draft_end_after_prior_stage_hints_read_staged_edit(staging_env) -> None:
+    """A line-range anchored on the disk length should hint at the draft once a prior stage shrank it."""
+    ws = staging_env.workspace
+    (ws / 'shrink.py').write_text('line1\nline2\nline3\nline4\nline5\n', encoding='utf-8')
+    first = stage_line_range_edit.invoke(
+        {
+            'relative_path': 'shrink.py',
+            'start_line': 2,
+            'end_line': 5,
+            'new_snippet': '',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert 'for review' in first.lower()
+
+    # Second call still uses the disk-based end_line (5), now past the end of the 1-line draft.
+    second = stage_line_range_edit.invoke(
+        {
+            'relative_path': 'shrink.py',
+            'start_line': 1,
+            'end_line': 5,
+            'new_snippet': 'x',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    assert second.startswith('Tool error:')
+    assert 'past end of file' in second
+    assert 'staged draft' in second
+    assert 'read_staged_edit' in second
 
 
 def test_stage_workspace_file_overwrite_stages_python(staging_env) -> None:

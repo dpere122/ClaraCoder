@@ -12,45 +12,13 @@ export interface ThemeOption {
 }
 
 export const THEMES: ThemeOption[] = [
-  { id: 'dark', label: 'Dark', cssClass: '', bsTheme: 'dark' },
-  { id: 'pink', label: 'Pink', cssClass: 'theme-pink', bsTheme: 'dark' },
+  { id: 'woodland', label: 'Woodland', cssClass: 'theme-woodland', bsTheme: 'dark' },
   { id: 'classical', label: 'Classical', cssClass: 'theme-classical', bsTheme: 'light' },
   { id: 'dark-classical', label: 'Dark Classical', cssClass: 'theme-dark-classical', bsTheme: 'dark' },
-  { id: 'win95', label: 'Windows 95', cssClass: 'theme-win95', bsTheme: 'light' },
-  { id: 'woodland', label: 'Woodland', cssClass: 'theme-woodland', bsTheme: 'dark' },
-  { id: 'ion', label: 'Ion', cssClass: 'theme-ion', bsTheme: 'dark' },
-  { id: 'purple-girl', label: 'Purple Girl', cssClass: 'theme-purple-girl', bsTheme: 'dark' },
-  {
-    id: 'ps2',
-    label: 'PS2',
-    cssClass: 'theme-ps2',
-    bsTheme: 'dark',
-  },
-  {
-    id: 'halo3',
-    label: 'Halo 3',
-    cssClass: 'theme-halo3',
-    bsTheme: 'dark',
-  },
-  {
-    id: 'phantom-hourglass',
-    label: 'Phantom Hourglass',
-    cssClass: 'theme-phantom-hourglass',
-    bsTheme: 'light',
-  },
-  {
-    id: 'kawaii-bow',
-    label: 'Kawaii Bow',
-    cssClass: 'theme-kawaii-bow',
-    bsTheme: 'light',
-  },
-  {
-    id: 'visual-studio',
-    label: 'Visual Studio',
-    cssClass: 'theme-visual-studio',
-    bsTheme: 'light',
-  },
 ];
+
+export const APP_THEME_IDS = THEMES.map((t) => t.id);
+export const DEFAULT_THEME_ID = 'woodland';
 
 @Component({
   selector: 'app-theme-selector',
@@ -84,14 +52,14 @@ export class ThemeSelector implements OnInit {
   }
 
   private syncFromConfig(config: AppConfig): void {
-    const themeToApply = config.themeId || 'dark';
+    const themeToApply = config.themeId || DEFAULT_THEME_ID;
     this.themeId.set(themeToApply);
     this.applyTheme(themeToApply);
   }
 
   private applyTheme(themeId: string): void {
-    const theme = THEMES.find((t) => t.id === themeId);
-    document.documentElement.className = theme?.cssClass ?? '';
-    document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
+    const theme = THEMES.find((t) => t.id === themeId) ?? THEMES[0];
+    document.documentElement.className = theme.cssClass;
+    document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
   }
 }

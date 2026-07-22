@@ -145,6 +145,21 @@
   background: transparent;
 }
 
+.workspace-terminal-dock__tab--agent-command {
+  color: var(--t-run-command-tab);
+}
+
+.workspace-terminal-dock__tab--agent-command.workspace-terminal-dock__tab--active {
+  color: var(--t-run-command-tab);
+  border-bottom-color: var(--t-run-command-tab);
+}
+
+.workspace-terminal-dock__pane--agent-command {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .workspace-terminal-dock__tab-title {
   overflow: hidden;
   text-overflow: ellipsis;

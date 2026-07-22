@@ -23,7 +23,7 @@ function stubElectronApi(): StubRefs {
     currentWorkspaceId: null as string | null,
     lastActiveConversationByWorkspaceId: {} as Record<string, string>,
     workspaces: [] as { id: string; name: string; path: string }[],
-    themeId: 'dark',
+    themeId: 'woodland',
     activeLlmModelId: 'default-lmstudio',
     llmProviders: [
       {
@@ -137,12 +137,12 @@ function stubElectronApi(): StubRefs {
     readConversationFromDisk: async () => ({
       ...convMeta,
       messages: [],
-      themeId: 'dark',
+      themeId: 'woodland',
     }),
     loadConversation: async () => ({
       ...convMeta,
       messages: [],
-      themeId: 'dark',
+      themeId: 'woodland',
     }),
     saveConversation: refs.saveConversation,
     onMessageDeleteConfirm: (cb: DeleteConfirmHandler) => {

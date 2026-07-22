@@ -107,6 +107,11 @@
   box-shadow: none;
 }
 
+.input-group .composer-mode-select option {
+  background-color: var(--t-input-bg, var(--t-bg-deep));
+  color: var(--t-input-fg, var(--t-fg));
+}
+
 .input-group .composer-mode-chevron {
   position: absolute;
   right: 0.35rem;

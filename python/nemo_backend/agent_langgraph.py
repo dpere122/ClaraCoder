@@ -35,6 +35,8 @@ from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
 from nemo_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
+from nemo_backend.user_event_injection_middleware import UserEventInjectionMiddleware
+from nemo_backend.user_events import drain_user_event_notes
 from nemo_backend.vision_tool_middleware import VisionImageInjectionMiddleware
 from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from nemo_backend.domain import SessionState
@@ -100,6 +102,7 @@ def build_nemo_single_outer_graph(
         tools, _ = worker_tools_and_map(apply_mode, session=session)
     system_prompt = build_system_prompt(session, apply_mode)
     core_middleware: list[Any] = [
+        UserEventInjectionMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
         PseudoToolXmlMiddleware(),
         EmptyResponseNudgeMiddleware(),
@@ -392,10 +395,15 @@ async def _stream_langgraph_tool_agent(
     has_checkpoint_messages = bool(existing)
 
     human_content = compose_outer_turn_human_content(session, apply_mode, user_message)
+    pending_event_messages = [HumanMessage(content=note) for note in drain_user_event_notes(session)]
     if has_checkpoint_messages:
-        input_messages: list[Any] = [HumanMessage(content=human_content)]
+        input_messages: list[Any] = [*pending_event_messages, HumanMessage(content=human_content)]
     else:
-        input_messages = [*session_to_messages(session), HumanMessage(content=human_content)]
+        input_messages = [
+            *session_to_messages(session),
+            *pending_event_messages,
+            HumanMessage(content=human_content),
+        ]
     inputs: dict[str, Any] = {'messages': input_messages}
 
     events_q: asyncio.Queue = asyncio.Queue()

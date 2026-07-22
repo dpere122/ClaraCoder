@@ -15,6 +15,14 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-copy-confirm', conversationId, parsed.copyConfirm);
   } else if (parsed.type === 'delete_confirm') {
     event.reply('message-delete-confirm', conversationId, parsed.deleteConfirm);
+  } else if (parsed.type === 'background_command_open') {
+    event.reply('message-background-command-open', conversationId, {
+      commandId: parsed.commandId,
+      commandText: parsed.commandText,
+      cwdLabel: parsed.cwdLabel,
+      label: parsed.label,
+      streamTag: parsed.streamTag,
+    });
   } else if (parsed.type === 'tool_read_chunk') {
     event.reply('message-tool-read-chunk', conversationId, parsed.delta);
   } else if (parsed.type === 'tool_exec_chunk') {

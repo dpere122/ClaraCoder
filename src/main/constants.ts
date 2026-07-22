@@ -42,5 +42,8 @@ export const WORKSPACE_CONTEXT_IGNORED_SUFFIXES = ['.pyc', '.pyo', '.tmp', '.swp
 
 export const WORKSPACE_NODE_MODULES_DIR = 'node_modules';
 
-/** Default theme when none is set (matches renderer). */
-export const FIRST_THEME_ID = 'dark';
+/** Default theme when none is set (matches renderer `DEFAULT_THEME_ID`). */
+export const FIRST_THEME_ID = 'woodland';
+
+/** Allowed app UI theme ids (keep aligned with `THEMES` in theme-selector.ts). */
+export const APP_THEME_IDS = ['woodland', 'classical', 'dark-classical'] as const;

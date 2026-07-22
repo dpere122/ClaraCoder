@@ -103,9 +103,9 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private applyTheme(config: AppConfig): void {
-    const theme = THEMES.find((t) => t.id === resolveAppThemeId(config));
-    document.documentElement.className = theme?.cssClass ?? '';
-    document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
+    const theme = THEMES.find((t) => t.id === resolveAppThemeId(config)) ?? THEMES[0];
+    document.documentElement.className = theme.cssClass;
+    document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
   }
 
   private readThemePrimary(): string {

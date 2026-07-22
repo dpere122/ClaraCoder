@@ -33,6 +33,7 @@ async def test_empty_response_nudge_resets_after_tool_call() -> None:
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
         'staging_continuation_nudge_streak': 0,
+        'action_commitment_nudge_streak': 0,
     }
 
 
@@ -109,6 +110,7 @@ async def test_prose_only_resets_pseudo_streak() -> None:
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
         'staging_continuation_nudge_streak': 0,
+        'action_commitment_nudge_streak': 0,
     }
 
 
@@ -225,4 +227,5 @@ async def test_staging_continuation_skipped_when_transfer_hitl_pending() -> None
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
         'staging_continuation_nudge_streak': 0,
+        'action_commitment_nudge_streak': 0,
     }

@@ -36,6 +36,19 @@ export const chatApi = {
       outcome?: 'passed' | 'failed',
     ) => void,
   ) => ipcRenderer.on('message-tool-exec-complete', callback),
+  onMessageBackgroundCommandOpen: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      payload: {
+        commandId: string;
+        commandText: string;
+        cwdLabel: string;
+        label: string;
+        streamTag: string;
+      },
+    ) => void,
+  ) => ipcRenderer.on('message-background-command-open', callback),
   onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
   onMessageTokenUsage: (
     callback: (
@@ -160,6 +173,8 @@ export const chatApi = {
     ipcRenderer.invoke('agent-question-answers', conversationId, action, requestId, answers ?? []),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
+  backgroundCommandTerminalClosed: (conversationId: string, commandId: string) =>
+    ipcRenderer.invoke('background-command-terminal-closed', conversationId, commandId),
   startTtsStream: (text: string, voice: string, speed: number, seq: number) =>
     ipcRenderer.invoke('tts-stream-start', { text, voice, speed, seq }),
   registerTtsStreamUrl: (text: string, voice: string, speed: number) =>

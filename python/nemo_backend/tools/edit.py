@@ -356,23 +356,33 @@ def replace_workspace_snippet(
     relative_path: str,
     old_snippet: str,
     new_snippet: str = '',
+    new_content: str = '',
     encoding: str = '',
     newline: str = '',
 ) -> str:
     """Search-replace: find `old_snippet` once in the file and replace it with `new_snippet` (empty removes it).
 
+    Prefer this when you have unique multi-line raw context from `read_workspace_file` with
+    `include_line_numbers=false`. If you already know line numbers from a numbered read, prefer
+    `replace_workspace_line_range` instead.
+
+    Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
+
     Include enough context that the match is unique. Do not paste line-number gutters from numbered `read_workspace_file`
-    output (lines look like ``<n> │ ...`` or ``<n> | ...`` or legacy ``<n>: ...``) into `old_snippet`; use `read_workspace_file` with `include_line_numbers` false or use line-range replace.
+    output (lines look like ``<n> │ ...`` or ``<n> | ...`` or legacy ``<n>: ...``) into `old_snippet`.
     See `apply_workspace_full_file` for `encoding` and `newline`.
-    Matching tries exact unique match, CRLF-normalized exact, then gated fuzzy locate.
+    Matching tries exact unique match, CRLF-normalized exact, trailing-whitespace-tolerant exact, then gated fuzzy locate.
 
     Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
 
+    ns = '' if new_snippet is None else new_snippet
+    nc = '' if new_content is None else new_content
+    snippet = ns if ns != '' else nc
     return _run_edit_tool(
         relative_path, encoding, newline,
         mode='snippet',
         old_snippet=old_snippet or '',
-        new_snippet=new_snippet if new_snippet is not None else '',
+        new_snippet=snippet,
     )
 
 

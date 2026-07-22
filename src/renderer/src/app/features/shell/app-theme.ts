@@ -1,15 +1,17 @@
 import type { AppConfig } from '@shared/index';
-import { THEMES } from '../layout/theme-selector/theme-selector';
+import { APP_THEME_IDS, DEFAULT_THEME_ID, THEMES } from '../layout/theme-selector/theme-selector';
 
 /** Resolve the app-wide theme id (single `AppConfig.themeId`; no per-workspace override). */
 export function resolveAppThemeId(config: Pick<AppConfig, 'themeId'>): string {
-  return config.themeId || 'dark';
+  const themeId = config.themeId || DEFAULT_THEME_ID;
+  return APP_THEME_IDS.includes(themeId) ? themeId : DEFAULT_THEME_ID;
 }
 
 export function applyAppTheme(themeId: string): void {
-  const theme = THEMES.find((t) => t.id === themeId);
-  document.documentElement.className = theme?.cssClass ?? '';
-  document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
+  const resolvedId = resolveAppThemeId({ themeId });
+  const theme = THEMES.find((t) => t.id === resolvedId) ?? THEMES[0];
+  document.documentElement.className = theme.cssClass;
+  document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
 }
 
 /**

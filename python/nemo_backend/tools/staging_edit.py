@@ -19,7 +19,11 @@ from nemo_backend.tools.tool_conventions import ENCODING_NEWLINE, ONE_BASED, REL
 from nemo_backend.lsp.diagnostics import post_edit_checks_footer
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import get_session_lsp_manager
-from nemo_backend.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
+from nemo_backend.partial_workspace_edit import (
+    line_range_edit_tool_feedback,
+    merge_partial_edit,
+    snippet_unique_on_text,
+)
 from nemo_backend.state import current_session_id, mutation_tools_blocked_reason
 from nemo_backend.workspace_text_io import (
     DiskNewline,
@@ -221,10 +225,17 @@ def _staging_after_merge(
             f'{action} `{rel_display}` for review.{diagnostics_note}\n\n'
             f'---\n\n{_review_tools.run_staged_transfer_to_workspace(session, rel_display)}'
         )
+    next_partial = ''
+    if mode == 'snippet':
+        next_partial = (
+            ' **Next partial edit on this path:** refresh anchors from `read_staged_edit` '
+            '(draft plane)—do not reuse `old_snippet` from `read_workspace_file` or memory.'
+        )
     return (
         f'{action} `{rel_display}` for review. The workspace file on disk is **unchanged** until '
         f'`transfer_staged_file_to_workspace` succeeds. Inspect the draft with `diff_staged_edit_against_baseline` '
-        f'and/or `read_staged_edit` (not `read_workspace_file` for new staged content). **Next:** review then call '
+        f'and/or `read_staged_edit` (not `read_workspace_file` for new staged content).{next_partial} '
+        f'**Next:** review then call '
         f'`transfer_staged_file_to_workspace` or `reject_staged_workspace_edit` yourself; '
         f'Use staging review tools (`list_staged_edits`, `diff_staged_edit_against_baseline`, `read_staged_edit`, '
         f'`search_staged_edits`) when you need a formal review pass before transfer.'
@@ -280,6 +291,24 @@ def _run_staging_tool(
         end_line=end_line,
     )
     if merge_err:
+        if prior:
+            disk_vs_draft = ''
+            if mode == 'snippet' and old_snippet and snippet_unique_on_text(
+                workspace_old_text, old_snippet
+            ) and old_snippet not in base_text:
+                disk_vs_draft = (
+                    ' Your `old_snippet` matches the **on-disk** file uniquely but is **absent from the '
+                    'staged draft**—a prior stage on this path already changed or moved that text. '
+                )
+            return (
+                f'Tool error: {merge_err} `{rel_display}` already has a **staged draft**—this search ran '
+                'against that draft\'s current text, not the on-disk workspace file (which is unchanged until '
+                'transfer).'
+                f'{disk_vs_draft}'
+                ' If a prior edit on this path already changed or moved those lines, your anchor/line '
+                'numbers are stale. Call `read_staged_edit` (not `read_workspace_file`) on this path to see the '
+                'draft as it stands right now, then retry with anchors/line numbers taken from that output.'
+            )
         return f'Tool error: {merge_err}'
     assert merged is not None
 
@@ -414,25 +443,40 @@ def stage_line_range_edit(
 
 
 @tool(STAGE_SNIPPET_EDIT_NAME, description=describe(
-        'Stage a single unique `old_snippet` → `new_snippet` replace in the staging/workspace merge base.',
-        when='change anchored by surrounding context; match must be unique (exact, CRLF-normalized, then gated fuzzy).',
-        not_='paste numbered gutters from `read_workspace_file`/`read_staged_edit` into `old_snippet` (use `include_line_numbers=false` or line-range edit).',
-        shape=f'{ENCODING_NEWLINE} {RELATIVE_PATH} {STAGE_LAND}',
+        'Stage a single unique `old_snippet` → `new_snippet` replace in the staging/workspace merge base '
+        '(draft if one exists for the path, else on-disk file).',
+        when=(
+            'you have unique multi-line raw context copied with `include_line_numbers=false`. '
+            'Match must be unique (exact, CRLF-normalized, trailing-whitespace-tolerant, then gated fuzzy). '
+            'If `new_snippet` is empty, `new_content` is used (LM alias).'
+        ),
+        not_=(
+            'you already know line numbers from a numbered read—prefer `stage_line_range_edit` instead; '
+            'paste numbered gutters into `old_snippet` (use `include_line_numbers=false` or line-range).'
+        ),
+        shape=(
+            f'After the first stage on a path, refresh `old_snippet` from `read_staged_edit`, not '
+            f'`read_workspace_file`. {ENCODING_NEWLINE} {RELATIVE_PATH} {STAGE_LAND}'
+        ),
     ))
 def stage_snippet_edit(
     relative_path: Annotated[str, 'workspace-relative POSIX path'],
-    old_snippet: Annotated[str, 'unique anchor; no line-number gutters'],
+    old_snippet: Annotated[str, 'unique raw anchor; no line-number gutters'],
     new_snippet: Annotated[str, 'replacement text; empty deletes'] = '',
+    new_content: Annotated[str, 'LM alias used when new_snippet is empty'] = '',
     encoding: Annotated[str, 'empty = Settings default'] = '',
     newline: Annotated[str, 'lf|crlf|preserve (empty = Settings default)'] = '',
     land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
 ) -> str:
 
+    ns = '' if new_snippet is None else new_snippet
+    nc = '' if new_content is None else new_content
+    snippet = ns if ns != '' else nc
     return _run_staging_tool(
         relative_path, encoding, newline,
         mode='snippet',
         old_snippet=old_snippet or '',
-        new_snippet=new_snippet if new_snippet is not None else '',
+        new_snippet=snippet,
         land_in_workspace=land_in_workspace,
     )
 

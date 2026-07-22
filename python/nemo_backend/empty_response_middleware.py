@@ -9,6 +9,10 @@ but the completion includes no registered ``tool_calls``—a frequent mismatch w
 When untransferred staged drafts exist in Editor mode, a staging-continuation nudge runs before
 prose-only completion is allowed (see :data:`nemo_backend.config.MAX_AGENT_STAGING_CONTINUATION_NUDGES`).
 
+It also nudges (separate cap, :data:`nemo_backend.config.MAX_AGENT_ACTION_COMMITMENT_NUDGES`) when the
+model's visible text *announces* a next step ("I'll now check the file...") but ends the completion with
+no tool call at all—seen with some Gemma stacks that narrate an action and then stop short of issuing it.
+
 The nudge streak counter only resets when the model produces *visible text* (the goal of
 the nudge).  Tool calls alone do **not** reset it—this prevents an alternating loop where
 the model answers a nudge with tool calls instead of text and then goes empty again, which
@@ -29,11 +33,16 @@ from typing_extensions import NotRequired, override
 
 from nemo_backend.tools.review_tools import pending_untransferred_staging_paths
 from nemo_backend.config import (
+    MAX_AGENT_ACTION_COMMITMENT_NUDGES,
     MAX_AGENT_EMPTY_NUDGES,
     MAX_AGENT_PSEUDO_TOOL_NUDGES,
     MAX_AGENT_STAGING_CONTINUATION_NUDGES,
 )
-from nemo_backend.messages import final_assistant_text, text_uses_pseudo_tool_markup
+from nemo_backend.messages import (
+    final_assistant_text,
+    text_ends_with_unfulfilled_action_commitment,
+    text_uses_pseudo_tool_markup,
+)
 from nemo_backend.state import current_session_id, get_session
 
 logger = logging.getLogger('nemo.agent.langgraph')
@@ -54,6 +63,12 @@ _PSEUDO_TOOL_MARKUP_NUDGE_TEXT = (
     '``<tool_call>`` / ``<function=...>`` or ``<parameter=...>`` XML in the assistant or reasoning text. '
     'That form is not executed. Issue the same action again using the model\'s **tool-calling** channel only '
     '(normal function/tool invocations the API accepts), not as raw XML. Keep any prose minimal or empty.'
+)
+
+_ACTION_COMMITMENT_NUDGE_TEXT = (
+    'Your last message ended by announcing a next step but the turn finished with no tool call at all. '
+    'Do not just describe the action in text—issue the actual tool call now (the API tool-calling channel, '
+    'not prose) to carry it out.'
 )
 
 
@@ -99,6 +114,7 @@ class _EmptyResponseNudgeState(AgentState[ResponseT]):
     empty_response_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
     pseudo_tool_markup_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
     staging_continuation_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
+    action_commitment_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
 
 
 class EmptyResponseNudgeMiddleware(AgentMiddleware):
@@ -121,16 +137,11 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
         if not isinstance(last, AIMessage):
             return None
         if last.tool_calls:
-            if final_assistant_text(last).strip():
-                return {
-                    'empty_response_nudge_streak': 0,
-                    'pseudo_tool_markup_nudge_streak': 0,
-                    'staging_continuation_nudge_streak': 0,
-                }
             return {
                 'empty_response_nudge_streak': 0,
                 'pseudo_tool_markup_nudge_streak': 0,
                 'staging_continuation_nudge_streak': 0,
+                'action_commitment_nudge_streak': 0,
             }
         inv = getattr(last, 'invalid_tool_calls', None) or ()
         if inv:
@@ -157,6 +168,7 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
                     'staging_continuation_nudge_streak': s_streak + 1,
                     'empty_response_nudge_streak': 0,
                     'pseudo_tool_markup_nudge_streak': 0,
+                    'action_commitment_nudge_streak': 0,
                 }
         if text_uses_pseudo_tool_markup(fat) and MAX_AGENT_PSEUDO_TOOL_NUDGES > 0:
             p_streak = int(state.get('pseudo_tool_markup_nudge_streak') or 0)
@@ -172,12 +184,29 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
                 'jump_to': 'model',
                 'pseudo_tool_markup_nudge_streak': p_streak + 1,
                 'empty_response_nudge_streak': 0,
+                'action_commitment_nudge_streak': 0,
             }
+        if fat and text_ends_with_unfulfilled_action_commitment(fat) and MAX_AGENT_ACTION_COMMITMENT_NUDGES > 0:
+            a_streak = int(state.get('action_commitment_nudge_streak') or 0)
+            if a_streak < MAX_AGENT_ACTION_COMMITMENT_NUDGES:
+                logger.info(
+                    'Nudging after assistant text announced a next step with no tool call (%s/%s LLM steps)',
+                    a_streak + 1,
+                    MAX_AGENT_ACTION_COMMITMENT_NUDGES,
+                )
+                return {
+                    'messages': [HumanMessage(content=_ACTION_COMMITMENT_NUDGE_TEXT)],
+                    'jump_to': 'model',
+                    'action_commitment_nudge_streak': a_streak + 1,
+                    'empty_response_nudge_streak': 0,
+                    'pseudo_tool_markup_nudge_streak': 0,
+                }
         if fat:
             return {
                 'empty_response_nudge_streak': 0,
                 'pseudo_tool_markup_nudge_streak': 0,
                 'staging_continuation_nudge_streak': 0,
+                'action_commitment_nudge_streak': 0,
             }
         streak = int(state.get('empty_response_nudge_streak') or 0)
         if streak >= MAX_AGENT_EMPTY_NUDGES:
@@ -201,4 +230,5 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             'jump_to': 'model',
             'empty_response_nudge_streak': streak + 1,
             'pseudo_tool_markup_nudge_streak': 0,
+            'action_commitment_nudge_streak': 0,
         }

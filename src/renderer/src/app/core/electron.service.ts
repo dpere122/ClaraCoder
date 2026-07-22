@@ -55,7 +55,7 @@ import { getDefaultContextCompression } from '@shared/index';
 const FALLBACK_APP_CONFIG: AppConfig = {
   currentWorkspaceId: null,
   workspaces: [],
-  themeId: 'dark',
+  themeId: 'woodland',
   activeLlmModelId: 'default-lmstudio',
   llmProviders: [],
   audioTranscription: {
@@ -111,6 +111,15 @@ export interface ToolExecCompleteMessage {
   exitCode?: number | null;
   outputExcerpt?: string;
   outcome?: 'passed' | 'failed';
+}
+
+export interface BackgroundCommandOpenMessage {
+  conversationId: string;
+  commandId: string;
+  commandText: string;
+  cwdLabel: string;
+  label: string;
+  streamTag: string;
 }
 
 export interface DoneMessage {
@@ -296,6 +305,7 @@ export class ElectronService {
   private readonly toolReadChunkSubject = new Subject<ToolReadChunkMessage>();
   private readonly toolExecChunkSubject = new Subject<ToolExecChunkMessage>();
   private readonly toolExecCompleteSubject = new Subject<ToolExecCompleteMessage>();
+  private readonly backgroundCommandOpenSubject = new Subject<BackgroundCommandOpenMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
@@ -337,6 +347,7 @@ export class ElectronService {
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly toolExecChunk$ = this.toolExecChunkSubject.asObservable();
   readonly toolExecComplete$ = this.toolExecCompleteSubject.asObservable();
+  readonly backgroundCommandOpen$ = this.backgroundCommandOpenSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
   readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
@@ -443,6 +454,33 @@ export class ElectronService {
         });
       },
     );
+    this.api?.onMessageBackgroundCommandOpen?.((_event, conversationId, payload) => {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      const commandId = typeof (p as { commandId?: unknown }).commandId === 'string'
+        ? (p as { commandId: string }).commandId
+        : '';
+      if (!commandId.trim()) {
+        return;
+      }
+      this.zone.run(() =>
+        this.backgroundCommandOpenSubject.next({
+          conversationId,
+          commandId: commandId.trim(),
+          commandText: typeof (p as { commandText?: unknown }).commandText === 'string'
+            ? (p as { commandText: string }).commandText
+            : '',
+          cwdLabel: typeof (p as { cwdLabel?: unknown }).cwdLabel === 'string'
+            ? (p as { cwdLabel: string }).cwdLabel
+            : '',
+          label: typeof (p as { label?: unknown }).label === 'string'
+            ? (p as { label: string }).label
+            : commandId.trim(),
+          streamTag: typeof (p as { streamTag?: unknown }).streamTag === 'string'
+            ? (p as { streamTag: string }).streamTag
+            : '',
+        }),
+      );
+    });
     this.api?.onMessageDone((_event, conversationId) => {
       this.zone.run(() => this.doneSubject.next({ conversationId }));
     });
@@ -653,6 +691,16 @@ export class ElectronService {
     return (
       this.api?.abortPendingStreamsForWorkspace(workspaceId) ??
       Promise.resolve({ aborted: [] })
+    );
+  }
+
+  notifyBackgroundCommandTerminalClosed(
+    conversationId: string,
+    commandId: string,
+  ): Promise<{ ok: boolean; error?: string; detail?: string }> {
+    return (
+      this.api?.backgroundCommandTerminalClosed(conversationId, commandId) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
 

@@ -84,6 +84,25 @@ def build_plan_stream_end_event(*, relative_path: str) -> dict[str, Any]:
     }
 
 
+def background_command_open_event(
+    *,
+    command_id: str,
+    command_text: str,
+    cwd_label: str,
+    label: str,
+    stream_tag: str,
+) -> dict[str, Any]:
+    """Open a read-only terminal tab in the workspace dock for a ``run_command`` job."""
+    return {
+        'type': 'background_command_open',
+        'command_id': command_id,
+        'command_text': command_text,
+        'cwd_label': cwd_label,
+        'label': label,
+        'stream_tag': stream_tag,
+    }
+
+
 def tool_exec_chunk_event(delta: str, *, stream_tag: str | None = None, label: str = '') -> dict[str, Any]:
     """Build one structured live tool execution output payload for the UI."""
     row: dict[str, Any] = {'type': 'tool_exec_chunk', 'delta': delta}

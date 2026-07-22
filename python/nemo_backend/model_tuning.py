@@ -216,8 +216,9 @@ def tool_calling_and_edit_semantics_suffix(
         + ' Never ask the user to apply or approve landing for you—only the tool call counts. '
         'Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
-        + 'For localized edits on existing files, prefer `stage_line_range_edit` or `stage_snippet_edit` over whole-file '
-        'rewrites when practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
+        + 'For localized edits on existing files, prefer `stage_line_range_edit` when line numbers are known, or '
+        '`stage_snippet_edit` with unique raw context (`include_line_numbers=false`), over whole-file rewrites when '
+        'practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
         + 'Discovery: reach for `search_workspace` first when you can name a needle (symbol, call site, error '
         'string, config key, import)—run narrow probes before whole-file reads or guessing paths.\n'
     )
@@ -305,8 +306,9 @@ def gemma_sparse_expert_workspace_suffix(connection: RuntimeConnection) -> str:
         'pre-transfer baseline). To land after review, pass **`land_in_workspace=true`** on the final stage/LSP call '
         'or use `transfer_staged_file_to_workspace` for already-staged paths. After landing, treat the workspace file '
         'as source of truth and use `read_workspace_file` or LSP with `refresh_active_document=true` before the next mutation.\n'
-        '- **Atomic patches, stable anchors:** Prefer `stage_snippet_edit` with **unique surrounding context** over '
-        'stacking dependent line-range replacements without re-reading staged or workspace text.\n'
+        '- **Atomic patches, stable anchors:** Prefer `stage_line_range_edit` when line numbers are known from a '
+        'numbered read; use `stage_snippet_edit` only with **unique raw context** (`include_line_numbers=false`). '
+        'Re-read staged or workspace text between dependent edits—do not stack anchors from memory.\n'
         '- **Review synthesis:** When code review rejects staged work, deconstruct each issue, locate the exact '
         'region, apply minimal surgical fixes, then re-check diagnostics on touched paths.\n'
     )

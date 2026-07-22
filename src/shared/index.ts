@@ -149,6 +149,8 @@ export {
   TOOL_OVERLAY_STREAM_TAG,
   TOOL_PYTEST_STREAM_TAG,
   TOOL_SMOKE_STREAM_TAG,
+  RUN_COMMAND_STREAM_TAG_PREFIX,
+  isRunCommandStreamTag,
   SHELL_STYLE_TOOL_STREAM_TAGS,
   shellDelegatedStreamPartsForDisplay,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,

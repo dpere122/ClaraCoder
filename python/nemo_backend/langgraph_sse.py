@@ -415,6 +415,35 @@ def sse_lines_for_graph_event(
                 ),
             ),
         ]
+    if et == 'background_command_open':
+        command_id = data.get('command_id')
+        command_text = data.get('command_text')
+        cwd_label = data.get('cwd_label')
+        label_value = data.get('label')
+        stream_tag_value = data.get('stream_tag')
+        if not isinstance(command_id, str) or not command_id.strip():
+            return []
+        if not isinstance(command_text, str):
+            return []
+        if not isinstance(cwd_label, str):
+            return []
+        label_out = label_value if isinstance(label_value, str) and label_value.strip() else ''
+        stream_tag_out = (
+            stream_tag_value if isinstance(stream_tag_value, str) and stream_tag_value.strip() else stream_tag
+        )
+        from nemo_backend.agent_streaming import background_command_open_event
+
+        return [
+            sse_line(
+                background_command_open_event(
+                    command_id=command_id.strip(),
+                    command_text=command_text,
+                    cwd_label=cwd_label,
+                    label=label_out,
+                    stream_tag=stream_tag_out,
+                ),
+            ),
+        ]
     if et == 'tool_exec_chunk':
         delta = data.get('delta')
         if not isinstance(delta, str) or not delta:

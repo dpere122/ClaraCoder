@@ -65,7 +65,8 @@ import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
-import { THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
+import { customModelDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
+import { DEFAULT_THEME_ID, THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
 import { FontControl } from '../../layout/font-control/font-control';
 import { applyAppFontOverrides } from '../../shell/app-theme';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
@@ -300,7 +301,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly selectedSubTabs = signal<Partial<Record<SettingsTab, string>>>({});
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspace = signal<Workspace | null>(null);
-  protected readonly themeId = signal('dark');
+  protected readonly themeId = signal(DEFAULT_THEME_ID);
   protected readonly llmProviders = signal<LlmProviderConfig[]>([]);
   protected readonly activeLlmModelId = signal('default-lmstudio');
   protected readonly selectedModelId = signal<string | null>(null);
@@ -610,9 +611,9 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   protected applyTheme(themeId: string): void {
-    const theme = THEMES.find((item) => item.id === themeId);
-    document.documentElement.className = theme?.cssClass ?? '';
-    document.documentElement.setAttribute('data-bs-theme', theme?.bsTheme ?? 'dark');
+    const theme = THEMES.find((item) => item.id === themeId) ?? THEMES[0];
+    document.documentElement.className = theme.cssClass;
+    document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
   }
 
   protected onThemeChange(themeId: string): void {
@@ -1372,12 +1373,14 @@ export class Settings implements OnInit, OnDestroy {
     if (!customDir) {
       return;
     }
-    const ok = window.confirm(
-      model.entryKind === 'hubRepo'
-        ? `Delete hub folder "${model.fileName}" and everything inside it?`
-        : `Delete model file ${model.fileName}?`,
-    );
-    if (!ok) {
+    const confirmed =
+      (await this.themedConfirm.open(
+        customModelDeletePrompt({
+          fileName: model.fileName,
+          isHubRepo: model.entryKind === 'hubRepo',
+        }),
+      )) === 'confirm';
+    if (!confirmed) {
       return;
     }
     this.modelManagerBusy.set(true);
@@ -1959,8 +1962,8 @@ export class Settings implements OnInit, OnDestroy {
         this.configSnapshot.currentWorkspaceId = config.currentWorkspaceId;
         this.configSnapshot.themeId = config.themeId;
       }
-      this.themeId.set(config.themeId || 'dark');
-      this.applyTheme(config.themeId || 'dark');
+      this.themeId.set(config.themeId || DEFAULT_THEME_ID);
+      this.applyTheme(config.themeId || DEFAULT_THEME_ID);
       const at = config.audioTranscription;
       this.ttsVoice.set(at?.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
       this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(at?.ttsSpeechSpeed));
@@ -1984,7 +1987,7 @@ export class Settings implements OnInit, OnDestroy {
 
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;
     this.currentWorkspace.set(currentWorkspace);
-    this.themeId.set(config.themeId || 'dark');
+    this.themeId.set(config.themeId || DEFAULT_THEME_ID);
     this.llmProviders.set(config.llmProviders);
     this.activeLlmModelId.set(config.activeLlmModelId);
     this.audioProvider.set(config.audioTranscription.provider);
@@ -2076,6 +2079,6 @@ export class Settings implements OnInit, OnDestroy {
       void this.refreshModelManagerData();
     }
 
-    this.applyTheme(config.themeId || 'dark');
+    this.applyTheme(config.themeId || DEFAULT_THEME_ID);
   }
 }

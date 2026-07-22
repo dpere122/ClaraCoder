@@ -162,7 +162,9 @@ def test_mixed_numbered_and_plain_no_strip() -> None:
         start_line=0,
         end_line=0,
     )
+    assert out is None
     assert err is not None
+    assert 'partial paste of numbered read output' in err
 
 
 def test_crlf_relaxed_exact() -> None:
@@ -192,10 +194,12 @@ def test_ambiguous_snippet_error() -> None:
     assert out is None
     assert err is not None
     assert 'appears 2 times' in err
+    assert 'stage_line_range_edit' in err
+    assert 'Occurrences at line(s):' in err
 
 
 def test_snippet_not_found() -> None:
-    old = 'abc\n'
+    old = 'abc\nhello_world\n'
     out, err = merge_partial_edit(
         old,
         new_content='',
@@ -206,6 +210,103 @@ def test_snippet_not_found() -> None:
     )
     assert out is None
     assert err is not None
+    assert 'old_snippet not found' in err
+    assert 'Merge base has' in err
+    assert 'stage_line_range_edit' in err
+
+
+def test_trailing_ws_relaxed_unique_match() -> None:
+    old = 'def foo():\n    return 1\n'
+    # Anchor has trailing spaces that the file line does not.
+    out, err = merge_partial_edit(
+        old,
+        new_content='',
+        old_snippet='def foo():  \n    return 1',
+        new_snippet='def foo():\n    return 2',
+        start_line=0,
+        end_line=0,
+    )
+    assert err is None
+    assert out == 'def foo():\n    return 2\n'
+
+
+def test_partial_gutter_paste_dedicated_error() -> None:
+    old = 'def foo():\n    return 1\n'
+    out, err = merge_partial_edit(
+        old,
+        new_content='',
+        old_snippet='1 │ def foo():\n    return 1',
+        new_snippet='def foo():\n    return 2',
+        start_line=0,
+        end_line=0,
+    )
+    assert out is None
+    assert err is not None
+    assert 'partial paste of numbered read output' in err
+    assert 'include_line_numbers=false' in err
+
+
+def test_fuzzy_near_match_succeeds() -> None:
+    # Exact match fails (one-char drift); gated fuzzy should still locate a unique near-match.
+    old = 'prefix\nhello world\nsuffix\n'
+    out, err = merge_partial_edit(
+        old,
+        new_content='',
+        old_snippet='hello w0rld',
+        new_snippet='HELLO',
+        start_line=0,
+        end_line=0,
+    )
+    assert err is None
+    assert out is not None
+    assert 'HELLO' in out
+    assert 'prefix' in out and 'suffix' in out
+
+
+def test_fuzzy_tie_rejects_ambiguous() -> None:
+    old = 'aaaa_unique_marker_aaaa\n' 'bbbb_unique_marker_bbbb\n'
+    # Pattern close to both markers → ambiguous fuzzy should reject.
+    out, err = merge_partial_edit(
+        old,
+        new_content='',
+        old_snippet='xxxx_unique_marker_xxxx',
+        new_snippet='Z',
+        start_line=0,
+        end_line=0,
+    )
+    assert out is None
+    assert err is not None
+    assert 'old_snippet not found' in err or 'appears' in err
+
+
+def test_fuzzy_span_uses_aligned_length_not_blind_snippet_len() -> None:
+    """Near-miss should replace the actual file span, not blindly len(old_snippet) bytes."""
+    old = 'KEEP\nhello world!!\nTAIL\n'
+    # Snippet is shorter than the file's near-match span ("hello world!!"); splice must not eat TAIL.
+    out, err = merge_partial_edit(
+        old,
+        new_content='',
+        old_snippet='hello world',
+        new_snippet='HI',
+        start_line=0,
+        end_line=0,
+    )
+    # Exact match succeeds here — strengthen with a true near-miss:
+    old2 = 'KEEP\nhello world!!\nTAIL\n'
+    out2, err2 = merge_partial_edit(
+        old2,
+        new_content='',
+        old_snippet='hello w0rld!!',
+        new_snippet='HI',
+        start_line=0,
+        end_line=0,
+    )
+    assert err2 is None
+    assert out2 is not None
+    assert out2 == 'KEEP\nHI\nTAIL\n'
+    # Exact path still works for the first case:
+    assert err is None
+    assert out == 'KEEP\nHI!!\nTAIL\n'
 
 
 def test_line_range_past_end_error_suggests_append() -> None:

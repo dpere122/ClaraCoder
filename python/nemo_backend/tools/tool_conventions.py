@@ -22,6 +22,25 @@ VERIFY_READ = (
 )
 
 
+def clamp_line_window(start: int, end: int, cap: int, *, max_value: int | None = None) -> tuple[int, int]:
+    """Clamp a 1-based inclusive ``(start, end)`` window to at most ``cap`` entries.
+
+    Treats ``end < start`` as "read up to ``cap`` entries from ``start``" rather than collapsing to a
+    single entry. This matters because tool defaults for ``end_line``/``end_page`` are a fixed small
+    number (sane when ``start`` is also near the beginning), but when a model continues pagination with
+    a later ``start_line`` and omits ``end_line``, the unchanged default is smaller than ``start_line``—
+    without this guard the window would silently shrink to one line/page per call instead of a full
+    window, driving the model into a one-entry-at-a-time read loop.
+    """
+    safe_start = max(1, start)
+    requested_end = end if end >= safe_start else safe_start + cap - 1
+    safe_end = min(requested_end, safe_start + cap - 1)
+    if max_value is not None:
+        safe_end = min(safe_end, max_value)
+    safe_end = max(safe_start, safe_end)
+    return safe_start, safe_end
+
+
 def describe(
     purpose: str,
     when: str = "",
@@ -50,5 +69,6 @@ __all__ = [
     "STAGE_LAND",
     "VERIFY_LSP",
     "VERIFY_READ",
+    "clamp_line_window",
     "describe",
 ]

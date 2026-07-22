@@ -116,6 +116,8 @@ class SessionState:
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).
     agent_pause_note: str | None = None
+    # UI/system events (e.g. user closed a run_command terminal tab) drained into HumanMessages.
+    pending_user_event_notes: list[str] = field(default_factory=list)
     # Live mirror of the UI toggle; POST /session/auto-apply updates this during an in-flight stream.
     auto_apply_mode: bool = False
     #: Concurrent :func:`~nemo_backend.agent_langgraph._stream_langgraph_tool_agent` runs per session (nested SSE workers).

@@ -78,6 +78,19 @@ declare global {
         outcome?: 'passed' | 'failed',
       ) => void,
     ) => void;
+    onMessageBackgroundCommandOpen?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: {
+          commandId: string;
+          commandText: string;
+          cwdLabel: string;
+          label: string;
+          streamTag: string;
+        },
+      ) => void,
+    ) => void;
     onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageTokenUsage?: (
       callback: (
@@ -187,6 +200,10 @@ declare global {
       answers?: { questionId: string; optionId?: string; otherText?: string }[],
     ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
+    backgroundCommandTerminalClosed: (
+      conversationId: string,
+      commandId: string,
+    ) => Promise<{ ok: boolean; error?: string; detail?: string }>;
     writeWorkspaceFile?: (
       workspaceRoot: string,
       relativePath: string,

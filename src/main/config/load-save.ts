@@ -34,7 +34,7 @@ import {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
 } from '../../shared';
-import { FIRST_THEME_ID } from '../constants';
+import { APP_THEME_IDS, FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
   APP_CONFIG_SCHEMA_VERSION,
@@ -611,6 +611,11 @@ export function migrateConfig(config: AppConfig): AppConfig {
   }
 
   if (!newConfig.themeId) {
+    newConfig.themeId = FIRST_THEME_ID;
+    migrated = true;
+  }
+
+  if (!(APP_THEME_IDS as readonly string[]).includes(newConfig.themeId)) {
     newConfig.themeId = FIRST_THEME_ID;
     migrated = true;
   }

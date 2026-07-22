@@ -33,7 +33,14 @@ from nemo_backend.lsp.diagnostics import format_diagnostics_summary, indentation
 from nemo_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from nemo_backend.lsp.manager import sync_session_document
 from nemo_backend.tools.lsp_tools import lsp_get_diagnostics
-from nemo_backend.tools.tool_conventions import GUTTER, ONE_BASED, RELATIVE_PATH, VERIFY_LSP, describe
+from nemo_backend.tools.tool_conventions import (
+    GUTTER,
+    ONE_BASED,
+    RELATIVE_PATH,
+    VERIFY_LSP,
+    clamp_line_window,
+    describe,
+)
 from nemo_backend.python_env import (
     ensure_session_python_workspace_env,
     session_workspace_subprocess_env,
@@ -677,9 +684,8 @@ def read_staged_edit(
         text = edit_staging.read_staging_text(path, entry.disk_encoding)
     except OSError as exc:
         return f'Tool error: could not read staging file ({exc}).'
-    safe_start = max(1, start_line)
     cap = _effective_max_file_read_lines()
-    safe_end = max(safe_start, min(end_line, safe_start + cap - 1))
+    safe_start, safe_end = clamp_line_window(start_line, end_line, cap)
     lines = text.splitlines()
     excerpt = lines[safe_start - 1 : safe_end]
     if include_line_numbers:
@@ -719,7 +725,10 @@ def search_staged_edits(
     try:
         pattern = re.compile(query, re.IGNORECASE)
     except re.error as exc:
-        return f'Tool error: invalid regex: {exc}'
+        return (
+            f'Tool error: invalid regex: {exc}. If you meant a literal string (not a pattern), escape regex '
+            'metacharacters like ( ) [ ] { } . * + ? ^ $ | \\ or search a shorter, unambiguous substring instead.'
+        )
 
     rel_filter = (relative_path or '').strip().replace('\\', '/')
     limit = max(1, min(int(max_matches), _effective_max_search_results()))

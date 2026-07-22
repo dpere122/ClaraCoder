@@ -84,6 +84,11 @@ export const TOOL_SMOKE_STREAM_TAG = 'tool-smoke';
 
 /** Workspace Node smoke-test subprocess lane. */
 export const TOOL_NODE_SMOKE_STREAM_TAG = 'tool-node-smoke';
+export const RUN_COMMAND_STREAM_TAG_PREFIX = 'run-command:';
+
+export function isRunCommandStreamTag(streamTag: string | undefined): boolean {
+  return (streamTag ?? '').trim().startsWith(RUN_COMMAND_STREAM_TAG_PREFIX);
+}
 
 /** Plan-and-execute planner lane (status rows + progress payloads). */
 export const PLANNER_STREAM_TAG = 'planner';

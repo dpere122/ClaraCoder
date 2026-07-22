@@ -42,7 +42,7 @@ pip install -r requirements-dev.txt
 
 To use the venv's interpreter explicitly, run `.\.venv\Scripts\python` (Windows) or `./.venv/bin/python` (Unix) instead of `python`.
 
-From the repository root you can still install into the active environment with `python -m pip install -r python/requirements.txt` (see root `package.json` `setup:python`). The Electron app spawns the system `python` by default; point it at `.venv\Scripts\python` if you want the packaged backend to use this environment.
+From the repository root, run `npm run setup:python` (see root `package.json`). That installs `python/requirements.txt` plus Kokoro TTS: from PyPI on Python 3.10–3.12, or from GitHub on 3.13 until upstream publishes 3.13 wheels. The Electron app spawns the system `python` by default; point it at `.venv\Scripts\python` if you want the packaged backend to use this environment.
 
 When the final project reviewer runs Python tests for a workspace, it now bootstraps a workspace-local `.venv` automatically if one does not exist yet. That bootstrap installs both `requirements.txt` and `requirements-dev.txt` before running pytest.
 

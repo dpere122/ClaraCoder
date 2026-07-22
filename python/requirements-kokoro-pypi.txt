@@ -1,0 +1,2 @@
+# PyPI Kokoro stack (Python 3.10–3.12). On 3.13+, setup-python.mjs installs from GitHub instead.
+kokoro>=0.7.11,<0.10

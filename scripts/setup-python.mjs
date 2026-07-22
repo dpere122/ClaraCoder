@@ -1,6 +1,8 @@
 /**
- * Install python/requirements.txt using Python 3.10–3.12.
- * Kokoro/misaki wheels declare Requires-Python <3.13, so 3.13+ cannot resolve deps.
+ * Install python/requirements.txt plus Kokoro TTS deps.
+ * Python 3.10–3.12: kokoro/misaki from PyPI.
+ * Python 3.13: PyPI wheels still cap at <3.13, so install misaki/kokoro from GitHub
+ * with spacy>=3.8.14 preinstalled (cp313 wheels).
  */
 import { spawnSync, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -9,6 +11,10 @@ import path from 'node:path';
 
 const root = path.join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const req = path.join(root, 'python', 'requirements.txt');
+const reqKokoroPypi = path.join(root, 'python', 'requirements-kokoro-pypi.txt');
+
+const MISAKI_GIT = 'git+https://github.com/hexgrad/misaki.git';
+const KOKORO_GIT = 'git+https://github.com/hexgrad/kokoro.git';
 
 function venvPython() {
   const unix = path.join(root, '.venv', 'bin', 'python');
@@ -18,20 +24,30 @@ function venvPython() {
   return null;
 }
 
-function versionOk(py) {
+function pythonVersionInfo(py) {
   try {
-    execFileSync(
+    const out = execFileSync(
       py,
-      [
-        '-c',
-        'import sys; raise SystemExit(0 if (3, 10) <= sys.version_info < (3, 13) else 1)',
-      ],
-      { stdio: 'ignore' },
-    );
-    return true;
+      ['-c', 'import sys; print(sys.version_info[:2])'],
+      { encoding: 'utf8' },
+    ).trim();
+    const [major, minor] = out.replace(/[()]/g, '').split(',').map((s) => Number(s.trim()));
+    return { major, minor };
   } catch {
-    return false;
+    return null;
   }
+}
+
+function versionOk(py) {
+  const info = pythonVersionInfo(py);
+  if (!info) return false;
+  const { major, minor } = info;
+  return major === 3 && minor >= 10 && minor <= 13;
+}
+
+function needsKokoroGitInstall(py) {
+  const info = pythonVersionInfo(py);
+  return info?.major === 3 && info.minor >= 13;
 }
 
 function findPython() {
@@ -41,7 +57,14 @@ function findPython() {
   const vp = venvPython();
   if (vp && versionOk(vp)) return vp;
 
-  const candidates = ['python3.12', 'python3.11', 'python3.10', 'python3', 'python'];
+  const candidates = [
+    'python3.13',
+    'python3.12',
+    'python3.11',
+    'python3.10',
+    'python3',
+    'python',
+  ];
   for (const cmd of candidates) {
     if (versionOk(cmd)) return cmd;
   }
@@ -55,6 +78,15 @@ function pipWorks(py) {
   } catch {
     return false;
   }
+}
+
+function runPip(py, args, label) {
+  if (label) console.info(`[setup:python] ${label}`);
+  const r = spawnSync(py, ['-m', 'pip', 'install', ...args], {
+    stdio: 'inherit',
+    cwd: root,
+  });
+  if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
 /** Venvs built with --without-pip or minimal Pythons may lack pip until ensurepip runs. */
@@ -77,11 +109,44 @@ function ensurePip(py) {
   console.error(
     [
       'Could not install pip into this Python (ensurepip failed or pip still missing).',
-      'Try: recreate the venv with pip — rm -rf .venv && python3.12 -m venv .venv',
+      'Try: recreate the venv with pip — rm -rf .venv && python3 -m venv .venv',
       'On some distros you need python packages that ship ensurepip (e.g. Arch: extra/python).',
     ].join('\n'),
   );
   return false;
+}
+
+function installTorchCpu(py) {
+  console.info('[setup:python] NEMO_PYTORCH_CPU: installing CPU-only PyTorch first…');
+  runPip(
+    py,
+    ['torch', '--index-url', 'https://download.pytorch.org/whl/cpu'],
+    null,
+  );
+}
+
+/** Kokoro on Python 3.13+: PyPI misaki/kokoro still declare Requires-Python <3.13. */
+function installKokoroFromGit(py) {
+  console.info(
+    '[setup:python] Python 3.13+: installing Kokoro stack from GitHub (PyPI wheels cap at <3.13)…',
+  );
+  runPip(py, ['spacy>=3.8.14'], 'spacy (cp313 wheels)');
+  runPip(py, [MISAKI_GIT], 'misaki from GitHub');
+  runPip(
+    py,
+    ['num2words', 'phonemizer-fork', 'espeakng-loader', 'attrs'],
+    'misaki[en] runtime deps',
+  );
+  runPip(py, ['--no-deps', KOKORO_GIT], 'kokoro from GitHub');
+  runPip(
+    py,
+    ['huggingface-hub', 'loguru', 'numpy', 'transformers'],
+    'kokoro runtime deps',
+  );
+}
+
+function installKokoroFromPypi(py) {
+  runPip(py, ['-r', reqKokoroPypi], 'kokoro from PyPI');
 }
 
 function main() {
@@ -89,10 +154,10 @@ function main() {
   if (!py) {
     console.error(
       [
-        'No Python 3.10–3.12 found. Kokoro TTS depends on misaki/kokoro, which require Python <3.13.',
-        'Install Python 3.12, add python3.12 to PATH, then create a venv and reinstall:',
-        '  python3.12 -m venv .venv && . .venv/bin/activate && npm run setup:python',
-        'Or set PYTHON=/absolute/path/to/python3.12',
+        'No Python 3.10–3.13 found.',
+        'Install Python 3.10+ and create a venv, then reinstall:',
+        '  python3 -m venv .venv && . .venv/bin/activate && npm run setup:python',
+        'Or set PYTHON=/absolute/path/to/python3',
       ].join('\n'),
     );
     process.exit(1);
@@ -104,30 +169,14 @@ function main() {
     process.env.NEMO_PYTORCH_CPU === '1' ||
     process.env.NEMO_PYTORCH_CPU === 'true';
 
-  if (cpu) {
-    console.info(
-      '[setup:python] NEMO_PYTORCH_CPU: installing CPU-only PyTorch first…',
-    );
-    const r1 = spawnSync(
-      py,
-      [
-        '-m',
-        'pip',
-        'install',
-        'torch',
-        '--index-url',
-        'https://download.pytorch.org/whl/cpu',
-      ],
-      { stdio: 'inherit', cwd: root },
-    );
-    if (r1.status !== 0) process.exit(r1.status ?? 1);
-  }
+  if (cpu) installTorchCpu(py);
 
-  const r2 = spawnSync(py, ['-m', 'pip', 'install', '-r', req], {
-    stdio: 'inherit',
-    cwd: root,
-  });
-  process.exit(r2.status ?? 1);
+  runPip(py, ['-r', req], 'core requirements');
+
+  if (needsKokoroGitInstall(py)) installKokoroFromGit(py);
+  else installKokoroFromPypi(py);
+
+  process.exit(0);
 }
 
 main();

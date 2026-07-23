@@ -45,16 +45,27 @@
           <lucide-icon name='chevron-right' [size]='15' />
         </button>
         <span class='image-viewer-toolbar-divider' aria-hidden='true'></span>
-        <button
-          type='button'
-          class='image-viewer-btn'
-          [class.image-viewer-btn--active]='autoPlayEnabled()'
-          (click)='toggleAutoPlay()'
-          [title]='autoPlayEnabled() ? "Pause auto-play" : "Start auto-play"'
-        >
-          <lucide-icon [name]='autoPlayEnabled() ? "pause" : "play"' [size]='15' />
-          <span>{{ autoPlayEnabled() ? 'Pause' : 'Play' }}</span>
-        </button>
+        @if (autoPlayEnabled()) {
+          <button
+            type='button'
+            class='image-viewer-btn image-viewer-btn--active'
+            (click)='toggleAutoPlay()'
+            title='Pause auto-play'
+          >
+            <lucide-icon name='pause' [size]='15' />
+            <span>Pause</span>
+          </button>
+        } @else {
+          <button
+            type='button'
+            class='image-viewer-btn'
+            (click)='toggleAutoPlay()'
+            title='Start auto-play'
+          >
+            <lucide-icon name='play' [size]='15' />
+            <span>Start</span>
+          </button>
+        }
         <select
           class='image-viewer-interval-select'
           [value]='autoPlayIntervalMs()'

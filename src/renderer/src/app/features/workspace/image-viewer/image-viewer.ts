@@ -5,6 +5,7 @@ import {
   ElementRef,
   inject,
   input,
+  NgZone,
   OnDestroy,
   output,
   signal,
@@ -37,6 +38,7 @@ const ZOOM_STEP = 1.25;
 export class ImageViewerComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
   private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
 
   readonly workspacePath = input<string>('');
   readonly relativePath = input<string | null>(null);
@@ -59,6 +61,7 @@ export class ImageViewerComponent implements OnDestroy {
 
   private galleryFolderKey: string | null = null;
   private autoPlayTimer: ReturnType<typeof setInterval> | null = null;
+  private autoPlayTimerGeneration = 0;
   private readonly keydownHandler = (event: KeyboardEvent) => this.onWindowKeydown(event);
 
   protected readonly fileName = computed(() => {
@@ -206,6 +209,9 @@ export class ImageViewerComponent implements OnDestroy {
       return;
     }
     this.autoPlayEnabled.update((enabled) => !enabled);
+    if (!this.autoPlayEnabled()) {
+      this.stopAutoPlay();
+    }
   }
 
   protected onAutoPlayIntervalChange(event: Event): void {
@@ -314,8 +320,12 @@ export class ImageViewerComponent implements OnDestroy {
     ) {
       return;
     }
+    const generation = this.autoPlayTimerGeneration;
     this.autoPlayTimer = setInterval(() => {
-      this.showNext();
+      if (generation !== this.autoPlayTimerGeneration || !this.autoPlayEnabled()) {
+        return;
+      }
+      this.zone.run(() => this.showNext());
     }, this.autoPlayIntervalMs());
   }
 
@@ -327,6 +337,7 @@ export class ImageViewerComponent implements OnDestroy {
   }
 
   private stopAutoPlay(): void {
+    this.autoPlayTimerGeneration += 1;
     if (this.autoPlayTimer !== null) {
       clearInterval(this.autoPlayTimer);
       this.autoPlayTimer = null;

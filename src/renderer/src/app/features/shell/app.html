@@ -136,6 +136,8 @@
               class='chat-area__panel-host'
               [workspacePath]='currentWorkspacePath()'
               [relativePath]='activeFileRelativePath()'
+              [active]='activeFileIsImage() && !chatExpanded()'
+              (navigateTo)='onImageViewerNavigate($event)'
             />
           </div>
 

@@ -1,3 +1,5 @@
+import type { ChatStructuredContentPart } from '@shared/index';
+
 /** Custom drag mime used by the file tree to mark drags that carry an absolute file path. */
 export const WORKSPACE_TREE_DRAG_MIME = 'application/x-nemo-workspace-path';
 
@@ -102,6 +104,7 @@ export function formatChatContextChipTitle(file: ChatContextFile): string {
 }
 
 const ATTACHED_FILE_PREFIX = 'Attached file: ';
+export const ATTACHED_IMAGE_PREFIX = 'Attached image: ';
 export const ATTACHED_FOLDER_PREFIX = 'Attached folder: ';
 
 /** Normalize workspace-relative path for attachment payloads (`.` at workspace root). */
@@ -110,9 +113,21 @@ export function chatContextRelativePathForAttach(relativePath: string): string {
   return trimmed || '.';
 }
 
+/** Structured text block sent to the LLM for a chat-attached image. */
+export function formatAttachedImageText(file: ChatContextFile): string {
+  const rel = chatContextRelativePathForAttach(file.relativePath);
+  return (
+    `${ATTACHED_IMAGE_PREFIX}${rel} ` +
+    `(use read_workspace_image with relative_path="${rel}" for visual analysis)`
+  );
+}
+
 /** Structured text block sent to the LLM for a context attachment. */
 export function formatAttachedFileText(file: ChatContextFile): string {
   const rel = chatContextRelativePathForAttach(file.relativePath);
+  if (file.kind === 'image') {
+    return formatAttachedImageText(file);
+  }
   if (file.kind === 'folder') {
     return `${ATTACHED_FOLDER_PREFIX}${rel} (use list_workspace_directory with relative_path="${rel}")`;
   }
@@ -124,6 +139,19 @@ export function formatAttachedFileText(file: ChatContextFile): string {
     `${ATTACHED_FILE_PREFIX}${rel} (lines ${startLine}-${endLine} inclusive; ` +
     `use read_workspace_file with start_line=${startLine}, end_line=${endLine})`
   );
+}
+
+/** Drop inline image payloads before POST /chat/stream; backend loads workspace images by path. */
+export function structuredContentForBackendRequest(
+  content: readonly ChatStructuredContentPart[] | undefined,
+): readonly ChatStructuredContentPart[] | undefined {
+  if (!content?.length) {
+    return undefined;
+  }
+  const blocks = content.filter(
+    (part) => String((part as { type?: string }).type ?? '').toLowerCase() !== 'image_url',
+  );
+  return blocks.length > 0 ? blocks : undefined;
 }
 
 /** Build a chat context file from an editor selection payload. */

@@ -260,9 +260,11 @@ def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
     if not is_qwen35_vision_model(connection.model):
         return ''
     return (
-        '\nModel note (Qwen vision): For PNG/JPEG/GIF/WebP/BMP files in the workspace, call '
+        '\nModel note (Qwen vision): For PNG/JPEG/GIF/WebP/BMP in the workspace, call '
         '`read_workspace_image` with the relative path. The tool attaches the image for visual analysis '
-        '(OCR, diagrams, UI screenshots). Optional `focus` narrows what to inspect.\n'
+        '(OCR, diagrams, UI screenshots). Optional `focus` narrows what to inspect. '
+        'When the user attaches an image in chat, a vision turn is injected automatically; you may also '
+        'call `read_workspace_image` using the path from the `Attached image:` line to re-open it later.\n'
     )
 
 

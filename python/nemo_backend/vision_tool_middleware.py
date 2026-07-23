@@ -17,10 +17,14 @@ from nemo_backend.tools.workspace_image import (
 )
 
 
-def _vision_human_content(payload: VisionImagePayload) -> list[dict[str, object]]:
+def vision_human_content_for_payload(
+    payload: VisionImagePayload,
+    *,
+    source: str = READ_WORKSPACE_IMAGE_NAME,
+) -> list[dict[str, object]]:
     focus_line = f'\nFocus: {payload.focus}' if payload.focus else ''
     text = (
-        f'Vision input from `{READ_WORKSPACE_IMAGE_NAME}`: `{payload.relative_path}` '
+        f'Vision input from `{source}`: `{payload.relative_path}` '
         f'({payload.mime_type}, {payload.width}x{payload.height} px). '
         'Describe and analyze this image for the user\'s task.'
         f'{focus_line}'
@@ -29,6 +33,10 @@ def _vision_human_content(payload: VisionImagePayload) -> list[dict[str, object]
         {'type': 'text', 'text': text},
         {'type': 'image_url', 'image_url': {'url': payload.data_url}},
     ]
+
+
+def _vision_human_content(payload: VisionImagePayload) -> list[dict[str, object]]:
+    return vision_human_content_for_payload(payload, source=READ_WORKSPACE_IMAGE_NAME)
 
 
 def _tool_message_from_result(

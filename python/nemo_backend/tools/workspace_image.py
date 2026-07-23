@@ -87,6 +87,49 @@ def _format_size(size_bytes: int) -> str:
     return f'{size_bytes / (1024 * 1024):.1f} MB'
 
 
+def vision_payload_from_data_url(
+    data_url: str,
+    *,
+    relative_path: str,
+    focus: str = '',
+) -> VisionImagePayload | None:
+    """Build a vision payload from an inline ``data:...;base64,...`` URL."""
+    raw = (data_url or '').strip()
+    if not raw.startswith('data:'):
+        return None
+    try:
+        header, encoded = raw.split(',', 1)
+    except ValueError:
+        return None
+    mime = header[5:].split(';', 1)[0].strip().lower() or 'application/octet-stream'
+    if not mime.startswith('image/'):
+        return None
+    try:
+        data = base64.standard_b64decode(encoded, validate=True)
+    except (ValueError, OSError):
+        return None
+    max_bytes = _max_image_bytes()
+    if len(data) > max_bytes:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im.verify()
+        with Image.open(io.BytesIO(data)) as im:
+            width, height = im.size
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None
+    rel_display = (relative_path or 'attached-image').replace('\\', '/')
+    return VisionImagePayload(
+        relative_path=rel_display,
+        mime_type=mime,
+        width=width,
+        height=height,
+        size_bytes=len(data),
+        data_url=raw,
+        focus=(focus or '').strip(),
+    )
+
+
 def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, VisionImagePayload | None]:
     """Read a workspace image and prepare a vision payload for middleware injection."""
     rel = (relative_path or '').strip()

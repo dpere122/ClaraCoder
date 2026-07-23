@@ -41,6 +41,8 @@ import {
   chatContextFileKey,
   chatContextFilesEqual,
   formatAttachedFileText,
+  formatAttachedImageText,
+  structuredContentForBackendRequest,
   isImagePath,
   type EditorSelectionPayload,
 } from '../chat/chat-context-bar/chat-context-file';
@@ -56,6 +58,7 @@ import {
   openTabForRenamedFile,
   removeBuildPlanTab,
   replaceFileTabAfterSaveAs,
+  retargetFileTabPath,
   type ChatFileTab,
   workspaceChatFileTab,
   buildPlanChatFileTab,
@@ -997,9 +1000,6 @@ export class App implements OnInit, OnDestroy {
     if (this.contextChatBlocked()) {
       return;
     }
-    const structuredContent = await this.buildStructuredContent(normalized, attachments);
-    this.clearChatContextFiles();
-    this.pushMessage('user', normalized, undefined, undefined, undefined, undefined, structuredContent);
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
     if (this.speechEnabled()) {
@@ -1008,17 +1008,25 @@ export class App implements OnInit, OnDestroy {
     this.streamingParts.set([]);
     this.streamingPlanner.set(null);
     this.streamingFinalText.set(undefined);
-    const workspaceId = this.activeConversation?.workspaceId ?? this.currentWorkspaceId();
-    this.electron.sendMessage(
-      convId,
-      normalized,
-      this.editorMode(),
-      this.editorMode() && this.autoApplyMode(),
-      structuredContent,
-      workspaceId,
-      this.composerMode(),
-    );
-    this.autoSave();
+    try {
+      const structuredContent = await this.buildStructuredContent(normalized, attachments);
+      this.clearChatContextFiles();
+      this.pushMessage('user', normalized, undefined, undefined, undefined, undefined, structuredContent);
+      const workspaceId = this.activeConversation?.workspaceId ?? this.currentWorkspaceId();
+      this.electron.sendMessage(
+        convId,
+        normalized,
+        this.editorMode(),
+        this.editorMode() && this.autoApplyMode(),
+        structuredContentForBackendRequest(structuredContent),
+        workspaceId,
+        this.composerMode(),
+      );
+      this.autoSave();
+    } catch (err) {
+      console.error('[App] onMessageSent failed:', err);
+      this.removePending(convId);
+    }
   }
 
   /**
@@ -1039,12 +1047,16 @@ export class App implements OnInit, OnDestroy {
       blocks.push({ type: 'text', text });
     }
     for (const file of attachments) {
-      if (file.kind === 'image' && root) {
-        const res = await this.electron.readWorkspaceImageBase64(root, file.relativePath);
-        if (res.ok && res.dataUrl) {
-          blocks.push({ type: 'image_url', image_url: { url: res.dataUrl } });
-          continue;
+      if (file.kind === 'image') {
+        blocks.push({ type: 'text', text: formatAttachedImageText(file) });
+        if (root) {
+          const res = await this.electron.readWorkspaceImageBase64(root, file.relativePath);
+          if (res.ok && res.dataUrl) {
+            blocks.push({ type: 'image_url', image_url: { url: res.dataUrl } });
+            continue;
+          }
         }
+        continue;
       }
       blocks.push({ type: 'text', text: formatAttachedFileText(file) });
     }
@@ -1699,6 +1711,19 @@ export class App implements OnInit, OnDestroy {
       line: payload.line,
       column: payload.column,
     });
+  }
+
+  protected onImageViewerNavigate(payload: { relativePath: string }): void {
+    const newPath = normalizePathSlashes(payload.relativePath);
+    if (!newPath) {
+      return;
+    }
+    const oldPath = this.activeFileRelativePath();
+    if (!oldPath || normalizePathSlashes(oldPath) === newPath) {
+      return;
+    }
+    this.fileTabs.update((tabs) => retargetFileTabPath(tabs, oldPath, newPath));
+    this.activeMainTabId.set(chatFileTabId({ relativePath: newPath, outsideWorkspace: false }));
   }
 
   protected onMonacoRevealHandled(): void {

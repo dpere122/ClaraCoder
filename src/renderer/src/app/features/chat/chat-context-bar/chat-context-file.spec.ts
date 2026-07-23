@@ -4,6 +4,8 @@ import {
   chatContextFileKey,
   chatContextFilesEqual,
   formatAttachedFileText,
+  formatAttachedImageText,
+  structuredContentForBackendRequest,
   formatChatContextChipLabel,
   formatLineRangeLabel,
   type ChatContextFile,
@@ -71,6 +73,32 @@ describe('formatChatContextChipLabel', () => {
   it('shows basename and line range for editor chips', () => {
     const file = chatContextFileFromEditorSelection(selectionPayload, false);
     expect(formatChatContextChipLabel(file)).toBe('app.ts · 12–45');
+  });
+});
+
+describe('formatAttachedImageText', () => {
+  it('includes read_workspace_image hint for image attachments', () => {
+    const image: ChatContextFile = {
+      absolutePath: '/ws/assets/logo.png',
+      relativePath: 'assets/logo.png',
+      name: 'logo.png',
+      kind: 'image',
+    };
+    expect(formatAttachedImageText(image)).toBe(
+      'Attached image: assets/logo.png (use read_workspace_image with relative_path="assets/logo.png" for visual analysis)',
+    );
+  });
+});
+
+describe('structuredContentForBackendRequest', () => {
+  it('removes image_url blocks but keeps attachment hints', () => {
+    const content = [
+      { type: 'text', text: 'Attached image: logo.png (use read_workspace_image...)' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } },
+    ];
+    expect(structuredContentForBackendRequest(content)).toEqual([
+      { type: 'text', text: 'Attached image: logo.png (use read_workspace_image...)' },
+    ]);
   });
 });
 

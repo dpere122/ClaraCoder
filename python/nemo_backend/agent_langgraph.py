@@ -37,6 +37,7 @@ from nemo_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from nemo_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from nemo_backend.user_event_injection_middleware import UserEventInjectionMiddleware
 from nemo_backend.user_events import drain_user_event_notes
+from nemo_backend.chat_attachment_vision import prepare_chat_attachment_vision_turn
 from nemo_backend.vision_tool_middleware import VisionImageInjectionMiddleware
 from nemo_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from nemo_backend.domain import SessionState
@@ -395,6 +396,7 @@ async def _stream_langgraph_tool_agent(
     has_checkpoint_messages = bool(existing)
 
     human_content = compose_outer_turn_human_content(session, apply_mode, user_message)
+    human_content = prepare_chat_attachment_vision_turn(human_content)
     pending_event_messages = [HumanMessage(content=note) for note in drain_user_event_notes(session)]
     if has_checkpoint_messages:
         input_messages: list[Any] = [*pending_event_messages, HumanMessage(content=human_content)]

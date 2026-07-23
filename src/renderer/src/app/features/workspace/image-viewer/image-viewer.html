@@ -29,6 +29,49 @@
       </button>
       <span class='image-viewer-zoom-label'>{{ isFit() ? 'Fit' : zoomPercent() + '%' }}</span>
     </div>
+
+    @if (hasGallery()) {
+      <div class='image-viewer-toolbar-group image-viewer-toolbar-group--gallery'>
+        <button
+          type='button'
+          class='image-viewer-btn'
+          (click)='showPrevious()'
+          title='Previous image'
+        >
+          <lucide-icon name='chevron-left' [size]='15' />
+        </button>
+        <span class='image-viewer-gallery-counter'>{{ galleryCounterLabel() }}</span>
+        <button type='button' class='image-viewer-btn' (click)='showNext()' title='Next image'>
+          <lucide-icon name='chevron-right' [size]='15' />
+        </button>
+        <span class='image-viewer-toolbar-divider' aria-hidden='true'></span>
+        <button
+          type='button'
+          class='image-viewer-btn'
+          [class.image-viewer-btn--active]='autoPlayEnabled()'
+          (click)='toggleAutoPlay()'
+          [title]='autoPlayEnabled() ? "Pause auto-play" : "Start auto-play"'
+        >
+          <lucide-icon [name]='autoPlayEnabled() ? "pause" : "play"' [size]='15' />
+          <span>{{ autoPlayEnabled() ? 'Pause' : 'Play' }}</span>
+        </button>
+        <select
+          class='image-viewer-interval-select'
+          [value]='autoPlayIntervalMs()'
+          (change)='onAutoPlayIntervalChange($event)'
+          title='Auto-play interval'
+        >
+          @for (intervalMs of autoPlayIntervalOptions; track intervalMs) {
+            <option [value]='intervalMs'>{{ intervalMs / 1000 }}s</option>
+          }
+        </select>
+      </div>
+    } @else if (galleryLoading()) {
+      <div class='image-viewer-toolbar-group image-viewer-toolbar-group--gallery'>
+        <span class='image-viewer-gallery-loading'>Loading gallery…</span>
+      </div>
+    }
+
     <div class='image-viewer-toolbar-info'>
       <span class='image-viewer-name' [title]='fileName()'>{{ fileName() }}</span>
       @if (naturalWidth() > 0 && !loadError()) {
@@ -56,4 +99,22 @@
       />
     }
   </div>
+
+  @if (hasGallery()) {
+    <div class='image-viewer-thumbs' role='listbox' aria-label='Images in folder'>
+      @for (path of galleryPaths(); track path) {
+        <button
+          type='button'
+          class='image-viewer-thumb'
+          [class.image-viewer-thumb--active]='isActiveGalleryPath(path)'
+          role='option'
+          [attr.aria-selected]='isActiveGalleryPath(path)'
+          [title]='path'
+          (click)='onThumbnailClick(path)'
+        >
+          <img class='image-viewer-thumb-img' [src]='assetUrlForPath(path)' [alt]='path' />
+        </button>
+      }
+    </div>
+  }
 </div>

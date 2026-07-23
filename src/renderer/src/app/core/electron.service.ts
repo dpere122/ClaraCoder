@@ -268,6 +268,19 @@ export interface LspEditorTextEditPayload {
   newText: string;
 }
 
+export interface LspEditorDiagnosticPayload {
+  relative_path: string;
+  message: string;
+  severity: string;
+  severity_value: number;
+  code: string;
+  source: string;
+  line: number;
+  character: number;
+  end_line: number;
+  end_character: number;
+}
+
 export interface LspEditorCompletionItemPayload {
   label: string;
   kind?: number;
@@ -1316,7 +1329,7 @@ export class ElectronService {
     character: number,
     documentText: string,
     skipDocumentSync?: boolean,
-  ): Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; markdown: string | null; range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null } | { ok: false; error: string }> {
     return (
       this.api?.lspEditorHover?.(sessionId, relativePath, line, character, documentText, skipDocumentSync === true) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
@@ -1462,6 +1475,276 @@ export class ElectronService {
       this.api?.lspEditorSemanticTokensFull?.(sessionId, relativePath, documentText, skipDocumentSync === true) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
     );
+  }
+
+  lspEditorDiagnostics(
+    sessionId: string,
+    relativePath: string,
+    documentText: string,
+    skipDocumentSync?: boolean,
+  ): Promise<
+    | { ok: true; diagnostics: import('@shared/index').LspEditorDiagnostic[]; generation: number }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorDiagnostics?.(sessionId, relativePath, documentText, skipDocumentSync === true) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspDiagnosticsGeneration(
+    sessionId: string,
+    relativePath: string,
+  ): Promise<{ ok: true; generation: number; count: number } | { ok: false; error: string }> {
+    return (
+      this.api?.lspDiagnosticsGeneration?.(sessionId, relativePath) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorSignatureHelp(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    triggerCharacter: string | null,
+    isRetrigger: boolean,
+    skipDocumentSync?: boolean,
+  ): Promise<{ ok: true; signatureHelp: Record<string, unknown> | null } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorSignatureHelp?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        documentText,
+        triggerCharacter,
+        isRetrigger,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorDocumentHighlight(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    documentText: string,
+    skipDocumentSync?: boolean,
+  ): Promise<{ ok: true; highlights: Array<{ range: LspEditorIRangePayload; kind?: number }> } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorDocumentHighlight?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        documentText,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorCompletionResolve(
+    sessionId: string,
+    relativePath: string,
+    item: Record<string, unknown>,
+  ): Promise<{ ok: true; item: LspEditorCompletionItemPayload } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorCompletionResolve?.(sessionId, relativePath, item) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorCodeAction(
+    sessionId: string,
+    relativePath: string,
+    startLine: number,
+    startCharacter: number,
+    endLine: number,
+    endCharacter: number,
+    documentText: string,
+    diagnostics: import('@shared/index').LspEditorDiagnostic[],
+    skipDocumentSync?: boolean,
+  ): Promise<
+    | { ok: true; actions: Array<{ title: string; kind: string; isPreferred?: boolean; edit?: LspWorkspaceEditPayload }> }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorCodeAction?.(
+        sessionId,
+        relativePath,
+        startLine,
+        startCharacter,
+        endLine,
+        endCharacter,
+        documentText,
+        diagnostics,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorFormatting(
+    sessionId: string,
+    relativePath: string,
+    documentText: string,
+    tabSize: number,
+    insertSpaces: boolean,
+    skipDocumentSync?: boolean,
+  ): Promise<{ ok: true; edits: LspEditorTextEditPayload[] } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorFormatting?.(
+        sessionId,
+        relativePath,
+        documentText,
+        tabSize,
+        insertSpaces,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorRangeFormatting(
+    sessionId: string,
+    relativePath: string,
+    startLine: number,
+    startCharacter: number,
+    endLine: number,
+    endCharacter: number,
+    documentText: string,
+    tabSize: number,
+    insertSpaces: boolean,
+    skipDocumentSync?: boolean,
+  ): Promise<{ ok: true; edits: LspEditorTextEditPayload[] } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorRangeFormatting?.(
+        sessionId,
+        relativePath,
+        startLine,
+        startCharacter,
+        endLine,
+        endCharacter,
+        documentText,
+        tabSize,
+        insertSpaces,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorOnTypeFormatting(
+    sessionId: string,
+    relativePath: string,
+    line: number,
+    character: number,
+    ch: string,
+    documentText: string,
+    tabSize: number,
+    insertSpaces: boolean,
+    skipDocumentSync?: boolean,
+  ): Promise<{ ok: true; edits: LspEditorTextEditPayload[] } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorOnTypeFormatting?.(
+        sessionId,
+        relativePath,
+        line,
+        character,
+        ch,
+        documentText,
+        tabSize,
+        insertSpaces,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorInlayHints(
+    sessionId: string,
+    relativePath: string,
+    startLine: number,
+    startCharacter: number,
+    endLine: number,
+    endCharacter: number,
+    documentText: string,
+    skipDocumentSync?: boolean,
+  ): Promise<
+    | {
+        ok: true;
+        hints: Array<{
+          position: { lineNumber: number; column: number };
+          label: string;
+          kind?: number;
+          paddingLeft?: boolean;
+          paddingRight?: boolean;
+          tooltip?: string | { value: string; isTrusted?: boolean };
+        }>;
+      }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorInlayHints?.(
+        sessionId,
+        relativePath,
+        startLine,
+        startCharacter,
+        endLine,
+        endCharacter,
+        documentText,
+        skipDocumentSync === true,
+      ) ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorCodeLens(
+    sessionId: string,
+    relativePath: string,
+    documentText: string,
+    skipDocumentSync?: boolean,
+  ): Promise<
+    | { ok: true; lenses: Array<{ range: LspEditorIRangePayload; command?: { title: string; command: string; arguments?: unknown } }> }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorCodeLens?.(sessionId, relativePath, documentText, skipDocumentSync === true) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorCodeLensResolve(
+    sessionId: string,
+    relativePath: string,
+    lens: Record<string, unknown>,
+  ): Promise<
+    | { ok: true; lens: { range: LspEditorIRangePayload; command?: { title: string; command: string; arguments?: unknown } } | null }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorCodeLensResolve?.(sessionId, relativePath, lens) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspDiagnosticsWatchStart(sessionId: string, relativePath: string): void {
+    this.api?.lspDiagnosticsWatchStart?.(sessionId, relativePath);
+  }
+
+  lspDiagnosticsWatchStop(): void {
+    this.api?.lspDiagnosticsWatchStop?.();
+  }
+
+  onLspDiagnosticsUpdated(callback: (payload: { sessionId: string; relativePath: string; generation: number }) => void): () => void {
+    if (!this.api?.onLspDiagnosticsUpdated) {
+      return () => {};
+    }
+    const handler = (_event: unknown, payload: { sessionId: string; relativePath: string; generation: number }) => {
+      this.zone.run(() => callback(payload));
+    };
+    this.api.onLspDiagnosticsUpdated(handler);
+    return () => {
+      // ipcRenderer.on has no remove in typings; watch-stop clears server-side poll
+    };
   }
 
   healthLogsRecent(limit: number): Promise<HealthLogRecord[]> {

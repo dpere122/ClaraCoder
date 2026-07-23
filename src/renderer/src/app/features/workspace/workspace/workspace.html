@@ -148,6 +148,12 @@
 
   @if (electron.isElectron && currentWorkspaceId()) {
     <div class='workspace-interpreter-footer'>
+      <app-workspace-outline-dock
+        [symbols]='outlineSymbols()'
+        [relativePath]='outlineRelativePath()'
+        [visible]='outlinePanelVisible()'
+        (revealSymbol)='onOutlineSymbolReveal($event)'
+      />
       @if (pythonInterpreterControlsActive()) {
         <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
         <select

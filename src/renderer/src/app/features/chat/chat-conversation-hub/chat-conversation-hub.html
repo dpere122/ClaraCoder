@@ -12,6 +12,17 @@
       <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="16" />
     </button>
 
+    <button
+      type="button"
+      class="chat-hub__new-conv"
+      aria-label="New conversation"
+      title="New conversation"
+      (click)="newConversation.emit()"
+    >
+      <lucide-icon name="plus" [size]="16" />
+      <span class="chat-hub__new-conv-label">New Conversation</span>
+    </button>
+
     @if (!expanded()) {
       <button
         type="button"
@@ -33,7 +44,6 @@
       [activeId]="activeConversationId()"
       [activeFileRelativePath]="activeFileRelativePath()"
       [pendingIds]="pendingIds()"
-      (newConversation)="newConversation.emit()"
       (selectConversation)="onSelectFromList($event)"
       (deleteConversation)="deleteConversation.emit($event)"
       (renameConversation)="renameConversation.emit($event)"
@@ -85,7 +95,6 @@
       [maxTokens]="maxTokens()"
       [remainingTokens]="remainingTokens()"
       [usedPercentage]="usedPercentage()"
-      [compressionNotice]="compressionNotice()"
       [(autoApplyMode)]="autoApplyMode"
     />
   }

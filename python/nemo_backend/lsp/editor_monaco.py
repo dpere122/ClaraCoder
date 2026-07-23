@@ -277,3 +277,197 @@ def serialize_semantic_tokens_payload(manager: Any, raw: Any) -> dict[str, Any]:
         'data': out_data,
         'resultId': None if rid is None else str(rid),
     }
+
+
+def serialize_diagnostics_payload(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Pass through normalized diagnostics (already Monaco-compatible 1-based ranges)."""
+
+    return list(items or [])
+
+
+def serialize_signature_help_payload(raw: Any) -> dict[str, Any] | None:
+    if raw is None or not isinstance(raw, dict):
+        return None
+    sigs = raw.get('signatures')
+    if not isinstance(sigs, list) or not sigs:
+        return None
+    out_sigs: list[dict[str, Any]] = []
+    for sig in sigs[:5]:
+        if not isinstance(sig, dict):
+            continue
+        label = sig.get('label')
+        if isinstance(label, list):
+            label = ''.join(str(x) for x in label)
+        entry: dict[str, Any] = {'label': '' if label is None else str(label)}
+        doc = _format_documentation(sig.get('documentation'))
+        if doc is not None:
+            entry['documentation'] = doc
+        params_in = sig.get('parameters')
+        if isinstance(params_in, list):
+            params: list[dict[str, Any]] = []
+            for p in params_in:
+                if not isinstance(p, dict):
+                    continue
+                pl = p.get('label')
+                if isinstance(pl, list) and len(pl) >= 2:
+                    pl = str(p.get('label'))
+                row: dict[str, Any] = {'label': '' if pl is None else str(pl)}
+                pdoc = _format_documentation(p.get('documentation'))
+                if pdoc is not None:
+                    row['documentation'] = pdoc
+                params.append(row)
+            if params:
+                entry['parameters'] = params
+        out_sigs.append(entry)
+    if not out_sigs:
+        return None
+    active = raw.get('activeSignature')
+    active_param = raw.get('activeParameter')
+    result: dict[str, Any] = {'signatures': out_sigs}
+    if isinstance(active, int):
+        result['activeSignature'] = active
+    if isinstance(active_param, int):
+        result['activeParameter'] = active_param
+    return result
+
+
+def serialize_document_highlights_payload(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        ir = _lsp_range_to_monaco_irange(item.get('range'))
+        if ir is None:
+            continue
+        kind = item.get('kind')
+        row: dict[str, Any] = {'range': ir}
+        if isinstance(kind, int):
+            row['kind'] = kind
+        out.append(row)
+    return out
+
+
+def serialize_text_edits_list(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for edit in raw:
+        se = _serialize_text_edit(edit)
+        if se is not None:
+            out.append(se)
+    return out
+
+
+def serialize_code_actions_payload(manager: Any, raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[dict[str, Any]] = []
+    for item in items[:50]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get('title') or '').strip()
+        if not title:
+            continue
+        row: dict[str, Any] = {
+            'title': title,
+            'kind': str(item.get('kind') or 'quickfix'),
+            'isPreferred': bool(item.get('isPreferred')),
+        }
+        edit = item.get('edit')
+        if isinstance(edit, dict):
+            row['edit'] = {'changes': _collect_workspace_edit_changes(manager, edit)}
+        cmd = item.get('command')
+        if isinstance(cmd, dict) and cmd.get('command'):
+            row['command'] = {
+                'title': str(cmd.get('title') or title),
+                'command': str(cmd.get('command')),
+                'arguments': cmd.get('arguments'),
+            }
+        out.append(row)
+    return out
+
+
+def serialize_inlay_hints_payload(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for hint in raw[:500]:
+        if not isinstance(hint, dict):
+            continue
+        pos = hint.get('position')
+        if not isinstance(pos, dict):
+            continue
+        ir = _lsp_range_to_monaco_irange({'start': pos, 'end': pos})
+        if ir is None:
+            continue
+        label = hint.get('label')
+        if isinstance(label, list):
+            parts = []
+            for part in label:
+                if isinstance(part, dict):
+                    parts.append(str(part.get('value') or ''))
+                else:
+                    parts.append(str(part))
+            label = ''.join(parts)
+        row: dict[str, Any] = {
+            'position': {'lineNumber': ir['startLineNumber'], 'column': ir['startColumn']},
+            'label': '' if label is None else str(label),
+            'kind': hint.get('kind'),
+            'paddingLeft': bool(hint.get('paddingLeft')),
+            'paddingRight': bool(hint.get('paddingRight')),
+        }
+        tooltip = _format_documentation(hint.get('tooltip'))
+        if tooltip is not None:
+            row['tooltip'] = tooltip
+        out.append(row)
+    return out
+
+
+def serialize_code_lenses_payload(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for lens in raw[:200]:
+        if not isinstance(lens, dict):
+            continue
+        rng = _lsp_range_to_monaco_irange(lens.get('range'))
+        if rng is None:
+            continue
+        row: dict[str, Any] = {'range': rng}
+        cmd = lens.get('command')
+        if isinstance(cmd, dict) and cmd.get('command'):
+            row['command'] = {
+                'title': str(cmd.get('title') or ''),
+                'command': str(cmd.get('command')),
+                'arguments': cmd.get('arguments'),
+            }
+        if lens.get('data') is not None:
+            row['data'] = lens.get('data')
+        out.append(row)
+    return out
+
+
+def serialize_semantic_tokens_delta_payload(manager: Any, raw: Any) -> dict[str, Any]:
+    leg = getattr(manager, 'semantic_tokens_legend', None)
+    if isinstance(leg, dict):
+        legend = {
+            'tokenTypes': [str(x) for x in (leg.get('tokenTypes') or [])],
+            'tokenModifiers': [str(x) for x in (leg.get('tokenModifiers') or [])],
+        }
+    else:
+        legend = {'tokenTypes': [], 'tokenModifiers': []}
+    if raw is None or not isinstance(raw, dict):
+        return {'legend': legend, 'data': [], 'resultId': None, 'edits': []}
+    edits = raw.get('edits')
+    if not isinstance(edits, list):
+        edits = []
+    rid = raw.get('resultId')
+    return {
+        'legend': legend,
+        'resultId': None if rid is None else str(rid),
+        'edits': edits,
+    }

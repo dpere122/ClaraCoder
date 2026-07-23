@@ -31,6 +31,7 @@ import {
   type StagedTransferFileResolution,
   type WorkspaceFilesChangedMessage,
   type WorkspaceMonacoEditorScrollState,
+  type LspEditorDiagnostic,
 } from '@shared/index';
 import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
@@ -50,8 +51,12 @@ import { renderMarkdownDoc } from './markdown-doc-renderer';
 import type { EditorSelectionPayload } from '../../chat/chat-context-bar/chat-context-file';
 import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
 import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
+import { applyLspDiagnosticsToModel, clearLspDiagnosticsFromModel } from './workspace-monaco-diagnostics';
+import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
 
 const EDITOR_SELECTION_DEBOUNCE_MS = 50;
+const LSP_DIAGNOSTICS_DEBOUNCE_MS = 450;
+const LSP_OUTLINE_DEBOUNCE_MS = 450;
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript',
@@ -187,6 +192,16 @@ export class WorkspaceMonacoComponent {
   readonly pendingEditorRevealHandled = output<void>();
   /** Non-empty editor text selection in a workspace file (null when cleared or unavailable). */
   readonly editorSelectionChange = output<EditorSelectionPayload | null>();
+  /** Document outline symbols for the active editor tab (sidebar outline panel). */
+  readonly outlineSymbolsChange = output<{
+    relativePath: string | null;
+    symbols: readonly EditorOutlineSymbol[];
+  }>();
+  /** LSP diagnostics for the active editor tab (terminal dock Problems tab). */
+  readonly diagnosticsChange = output<{
+    relativePath: string | null;
+    diagnostics: readonly LspEditorDiagnostic[];
+  }>();
 
   protected readonly loadError = signal('');
   protected readonly detachedBanner = signal('');
@@ -283,6 +298,14 @@ export class WorkspaceMonacoComponent {
   } | null = null;
   private lspHoverDisposables: Monaco.IDisposable[] = [];
   private lspLanguageDisposable: Monaco.IDisposable | null = null;
+  private lspDiagnosticsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private lspDiagnosticsUnsubscribe: (() => void) | null = null;
+  private lastLspDiagnosticsGeneration = -1;
+  private readonly diagnosticsByModelKey = new Map<string, LspEditorDiagnostic[]>();
+  private readonly activeDiagnostics = signal<readonly LspEditorDiagnostic[]>([]);
+  private lspOutlineDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
+  private lastEmittedDiagnosticsRelativePath: string | null | undefined;
 
   constructor() {
     afterNextRender(() => void this.bootstrapEditor());
@@ -382,6 +405,18 @@ export class WorkspaceMonacoComponent {
           void this.syncActiveModel(root, key);
         });
       }
+    });
+
+    effect(() => {
+      const key = this.activeModelKey()?.trim();
+      const rel = this.relativePath()?.trim();
+      if (key && rel) {
+        return;
+      }
+      untracked(() => {
+        this.setActiveDiagnostics(null, []);
+        this.electron.lspDiagnosticsWatchStop();
+      });
     });
 
     effect(() => {
@@ -490,12 +525,24 @@ export class WorkspaceMonacoComponent {
         requestAnimationFrame(() => {
           ed.setPosition({ lineNumber: pending.line, column: pending.column });
           ed.revealLineInCenter(pending.line);
-          this.zone.run(() => this.pendingEditorRevealHandled.emit());
+          this.zone.run(() => this.emitOutputVoid(this.pendingEditorRevealHandled));
         });
       });
     });
 
     this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.lspDiagnosticsUnsubscribe?.();
+      this.lspDiagnosticsUnsubscribe = null;
+      if (this.lspDiagnosticsDebounceTimer != null) {
+        clearTimeout(this.lspDiagnosticsDebounceTimer);
+        this.lspDiagnosticsDebounceTimer = null;
+      }
+      if (this.lspOutlineDebounceTimer != null) {
+        clearTimeout(this.lspOutlineDebounceTimer);
+        this.lspOutlineDebounceTimer = null;
+      }
+      this.electron.lspDiagnosticsWatchStop();
       this.mdPreviewContentDisposable?.dispose();
       this.mdPreviewContentDisposable = null;
       if (this.mdPreviewRenderTimer != null) {
@@ -535,16 +582,31 @@ export class WorkspaceMonacoComponent {
     status: 'complete' | 'cancelled';
     summary?: string;
   }): void => {
-    this.diffReviewFinished.emit(e);
+    this.emitOutput(this.diffReviewFinished, e);
   };
 
   private readonly batchFinishEmit: BatchFinishFn = (e) => {
-    this.stagedTransferBatchFinished.emit(e);
+    this.emitOutput(this.stagedTransferBatchFinished, e);
   };
 
   private readonly batchPartialEmit: BatchPartialFn = (e) => {
-    this.stagedTransferBatchFileResolved.emit(e);
+    this.emitOutput(this.stagedTransferBatchFileResolved, e);
   };
+
+  /** Skip output emits after teardown (avoids NG0953 from async LSP / Monaco callbacks). */
+  private emitOutput<T>(output: { emit(value: T): void }, value: T): void {
+    if (this.destroyed) {
+      return;
+    }
+    output.emit(value);
+  }
+
+  private emitOutputVoid(output: { emit(): void }): void {
+    if (this.destroyed) {
+      return;
+    }
+    output.emit();
+  }
 
   private async resolveBatchStagedTransfer(
     action: 'confirm' | 're_review',
@@ -989,7 +1051,7 @@ export class WorkspaceMonacoComponent {
 
   private emitDetachedPaths(): void {
     const list = [...this.detachedByKey.keys()].sort();
-    this.zone.run(() => this.detachedPathsChange.emit(list));
+    this.zone.run(() => this.emitOutput(this.detachedPathsChange, list));
   }
 
   private emitOutsideWorkspacePaths(): void {
@@ -997,7 +1059,7 @@ export class WorkspaceMonacoComponent {
       .filter(([, ref]) => ref.outsideWorkspace)
       .map(([k]) => k)
       .sort();
-    this.zone.run(() => this.outsideWorkspacePathsChange.emit(list));
+    this.zone.run(() => this.emitOutput(this.outsideWorkspacePathsChange, list));
   }
 
   /** Shell: close tab after discard — remove temp snapshot for a detached key. */
@@ -1236,12 +1298,23 @@ export class WorkspaceMonacoComponent {
       noSemanticValidation: true,
       noSuggestionDiagnostics: true,
     });
-    // Built-in TS/JS worker hover (QuickInfo) still runs by default and merges with our LSP
-    // hover — same symbol appears twice. Workspace IntelliSense uses the LSP bridge only.
+    // Built-in TS/JS worker features duplicate LSP bridge results — disable IntelliSense in worker.
     const tsDefaults = monacoApi.languages.typescript.typescriptDefaults;
     const jsDefaults = monacoApi.languages.typescript.javascriptDefaults;
-    tsDefaults.setModeConfiguration({ ...tsDefaults.modeConfiguration, hovers: false });
-    jsDefaults.setModeConfiguration({ ...jsDefaults.modeConfiguration, hovers: false });
+    const lspOnlyMode = {
+      ...tsDefaults.modeConfiguration,
+      hovers: false,
+      documentHighlights: false,
+      definitions: false,
+      references: false,
+      completions: false,
+      diagnostics: false,
+      signatureHelp: false,
+      rename: false,
+      codeActions: false,
+    };
+    tsDefaults.setModeConfiguration(lspOnlyMode);
+    jsDefaults.setModeConfiguration(lspOnlyMode);
     this.defineClaraTheme(monacoApi);
     const host = this.editorHost().nativeElement;
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
@@ -1260,21 +1333,194 @@ export class WorkspaceMonacoComponent {
     this.editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
       void this.saveCurrent();
     });
+    this.editor.addAction({
+      id: 'clara-format-document',
+      label: 'Format Document',
+      keybindings: [monacoApi.KeyMod.Shift | monacoApi.KeyMod.Alt | monacoApi.KeyCode.KeyF],
+      run: (ed) => {
+        void ed.getAction('editor.action.formatDocument')?.run();
+      },
+    });
     this.wireEditorSelectionListener();
     this.editor.onDidScrollChange(() => this.onEditorScrollChanged());
+    this.editor.onDidChangeModel(() => {
+      void this.refreshActiveLspDiagnostics(true);
+      void this.refreshOutlineSymbols();
+    });
     this.registerWorkspaceLspHoverProviders(monacoApi);
     this.lspLanguageDisposable?.dispose();
 
     this.lspLanguageDisposable = registerWorkspaceMonacoLsp({
       monacoApi,
       electron: this.electron,
+      getLspSessionId: () => this.lspSessionId(),
       getConversationId: () => this.conversationId()?.trim() ?? null,
       getWorkspaceRelativePathForModel: (m) => this.workspaceRelativePathForModel(m),
-      onNavigateToWorkspaceFile: (p) => this.navigateWorkspaceFile.emit(p),
+      getDiagnosticsForModel: (m) => this.diagnosticsForModel(m),
+      getEditorTabSettings: () => {
+        const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() ?? undefined);
+        return {
+          tabSize: settings.tabSize,
+          insertSpaces: settings.insertSpaces,
+          formatOnSave: settings.formatOnSave,
+        };
+      },
+      getEditor: () => this.editor,
+      onNavigateToWorkspaceFile: (p) => this.emitOutput(this.navigateWorkspaceFile, p),
       semanticLegendsByServer: this.semanticLegendsByServer,
+    });
+    this.lspDiagnosticsUnsubscribe = this.electron.onLspDiagnosticsUpdated(() => {
+      void this.refreshActiveLspDiagnostics(false);
     });
     this.editorReady.set(true);
     this.emitDirtyPaths();
+    void this.refreshActiveLspDiagnostics(true);
+    void this.refreshOutlineSymbols();
+  }
+
+  /** Conversation id gates LSP; when a workspace is open without chat, IntelliSense stays off. */
+  private lspSessionId(): string | null {
+    return this.conversationId()?.trim() ?? null;
+  }
+
+  private diagnosticsForModel(model: Monaco.editor.ITextModel): readonly LspEditorDiagnostic[] {
+    for (const [k, m] of this.modelByPath) {
+      if (m === model) {
+        return this.diagnosticsByModelKey.get(k) ?? [];
+      }
+    }
+    return [];
+  }
+
+  private scheduleLspDiagnosticsRefresh(): void {
+    if (this.lspDiagnosticsDebounceTimer != null) {
+      clearTimeout(this.lspDiagnosticsDebounceTimer);
+    }
+    this.lspDiagnosticsDebounceTimer = setTimeout(() => {
+      this.lspDiagnosticsDebounceTimer = null;
+      void this.refreshActiveLspDiagnostics(false);
+    }, LSP_DIAGNOSTICS_DEBOUNCE_MS);
+  }
+
+  private async refreshActiveLspDiagnostics(forceSync: boolean): Promise<void> {
+    const monacoApi = this.monaco;
+    const ed = this.editor;
+    const sid = this.lspSessionId();
+    const rel = this.relativePath()?.trim();
+    if (!monacoApi || !ed || !sid || !rel || !lspServerKindForWorkspaceRelativePath(rel)) {
+      this.setActiveDiagnostics(null, []);
+      this.electron.lspDiagnosticsWatchStop();
+      return;
+    }
+    const model = ed.getModel();
+    const modelKey = this.activeModelKey()?.trim();
+    if (!model || !modelKey || model.uri.scheme !== 'clara-workspace') {
+      this.setActiveDiagnostics(null, []);
+      this.electron.lspDiagnosticsWatchStop();
+      return;
+    }
+    const requestRel = normalizePathSlashes(rel);
+    const requestKey = modelKey;
+    this.electron.lspDiagnosticsWatchStart(sid, rel);
+    const skipSync = !forceSync && !monacoModelNeedsLspDocumentSync(model);
+    const res = await this.electron.lspEditorDiagnostics(
+      sid,
+      rel,
+      skipSync ? '' : model.getValue(),
+      skipSync,
+    );
+    if (!res.ok) {
+      return;
+    }
+    const activeRel = this.relativePath()?.trim();
+    const activeKey = this.activeModelKey()?.trim();
+    if (
+      !activeRel
+      || !activeKey
+      || activeKey !== requestKey
+      || normalizePathSlashes(activeRel) !== requestRel
+    ) {
+      return;
+    }
+    const liveModel = ed.getModel();
+    if (!liveModel || liveModel !== model) {
+      return;
+    }
+    if (!skipSync) {
+      markMonacoModelLspDocumentSynced(model);
+    }
+    this.diagnosticsByModelKey.set(modelKey, [...res.diagnostics]);
+    this.lastLspDiagnosticsGeneration = res.generation;
+    applyLspDiagnosticsToModel(monacoApi, model, res.diagnostics);
+    this.zone.run(() => this.setActiveDiagnostics(normalizePathSlashes(rel), [...res.diagnostics]));
+  }
+
+  private setActiveDiagnostics(relativePath: string | null, diagnostics: readonly LspEditorDiagnostic[]): void {
+    if (this.destroyed) {
+      return;
+    }
+    if (
+      relativePath === this.lastEmittedDiagnosticsRelativePath
+      && diagnostics.length === 0
+      && this.activeDiagnostics().length === 0
+    ) {
+      return;
+    }
+    this.lastEmittedDiagnosticsRelativePath = relativePath;
+    this.activeDiagnostics.set(diagnostics);
+    this.emitOutput(this.diagnosticsChange, { relativePath, diagnostics });
+  }
+
+  private emitOutlineSymbolsChange(relativePath: string | null, symbols: readonly EditorOutlineSymbol[]): void {
+    this.emitOutput(this.outlineSymbolsChange, { relativePath, symbols });
+  }
+
+  private setOutlineSymbols(relativePath: string | null, symbols: readonly EditorOutlineSymbol[]): void {
+    this.emitOutlineSymbolsChange(relativePath, symbols);
+  }
+
+  private scheduleOutlineRefresh(): void {
+    if (this.lspOutlineDebounceTimer != null) {
+      clearTimeout(this.lspOutlineDebounceTimer);
+    }
+    this.lspOutlineDebounceTimer = setTimeout(() => {
+      this.lspOutlineDebounceTimer = null;
+      void this.refreshOutlineSymbols();
+    }, LSP_OUTLINE_DEBOUNCE_MS);
+  }
+
+  private async refreshOutlineSymbols(): Promise<void> {
+    const sid = this.lspSessionId();
+    const rel = this.relativePath()?.trim();
+    const ed = this.editor;
+    if (!sid || !rel || !ed || !lspServerKindForWorkspaceRelativePath(rel)) {
+      this.zone.run(() => this.setOutlineSymbols(null, []));
+      return;
+    }
+    const model = ed.getModel();
+    if (!model) {
+      return;
+    }
+    const normalizedRel = normalizePathSlashes(rel);
+    const skip = !monacoModelNeedsLspDocumentSync(model);
+    const res = await this.electron.lspEditorDocumentSymbols(sid, rel, skip ? '' : model.getValue(), skip);
+    if (!res.ok) {
+      this.zone.run(() => this.setOutlineSymbols(normalizedRel, []));
+      return;
+    }
+    this.zone.run(() => this.setOutlineSymbols(normalizedRel, res.hierarchical ?? []));
+  }
+
+  /** Jump to a diagnostic range in the active editor (Problems tab). */
+  revealDiagnostic(d: LspEditorDiagnostic): void {
+    const ed = this.editor;
+    const monacoApi = this.monaco;
+    if (!ed || !monacoApi) {
+      return;
+    }
+    const range = new monacoApi.Range(d.line, d.character, d.end_line || d.line, d.end_character || d.character + 1);
+    ed.setSelection(range);
+    ed.revealRangeInCenter(range);
   }
 
   private workspaceRelativePathForModel(model: Monaco.editor.ITextModel): string | undefined {
@@ -1315,22 +1561,22 @@ export class WorkspaceMonacoComponent {
   private emitEditorSelectionFromActiveEditor(): void {
     const ed = this.editor;
     if (!ed || this.monacoDiffActive()) {
-      this.zone.run(() => this.editorSelectionChange.emit(null));
+      this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     const model = ed.getModel();
     if (!model) {
-      this.zone.run(() => this.editorSelectionChange.emit(null));
+      this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     const rel = this.workspaceRelativePathForModel(model);
     if (!rel?.trim()) {
-      this.zone.run(() => this.editorSelectionChange.emit(null));
+      this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     const selection = ed.getSelection();
     if (!selection || selection.isEmpty()) {
-      this.zone.run(() => this.editorSelectionChange.emit(null));
+      this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     let modelKey: string | undefined;
@@ -1341,7 +1587,7 @@ export class WorkspaceMonacoComponent {
       }
     }
     if (!modelKey || isExternalModelKey(modelKey)) {
-      this.zone.run(() => this.editorSelectionChange.emit(null));
+      this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     const relNorm = normalizePathSlashes(rel.trim());
@@ -1351,7 +1597,7 @@ export class WorkspaceMonacoComponent {
       absFromRef ||
       (root ? `${normalizePathSlashes(root).replace(/\/+$/, '')}/${relNorm}` : '');
     if (!abs) {
-      this.zone.run(() => this.editorSelectionChange.emit(null));
+      this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     const name = relNorm.split('/').filter(Boolean).pop() ?? relNorm;
@@ -1368,7 +1614,7 @@ export class WorkspaceMonacoComponent {
       lineRange,
       selectedText: model.getValueInRange(selection),
     };
-    this.zone.run(() => this.editorSelectionChange.emit(payload));
+    this.zone.run(() => this.emitOutput(this.editorSelectionChange, payload));
   }
 
   private async prefetchSemanticLegendForModel(model: Monaco.editor.ITextModel): Promise<void> {
@@ -1449,8 +1695,17 @@ export class WorkspaceMonacoComponent {
     if (!skipSync) {
       markMonacoModelLspDocumentSynced(model);
     }
+    const hoverRange = res.range
+      ? new this.monaco!.Range(
+          res.range.startLineNumber,
+          res.range.startColumn,
+          res.range.endLineNumber,
+          res.range.endColumn,
+        )
+      : undefined;
     return {
       contents: [{ value: res.markdown, isTrusted: true }],
+      ...(hoverRange ? { range: hoverRange } : {}),
     };
   }
 
@@ -1537,7 +1792,11 @@ export class WorkspaceMonacoComponent {
 
   private ensureModelDirtyListener(key: string, model: Monaco.editor.ITextModel): void {
     this.modelDirtyDisposables.get(key)?.dispose();
-    const d = model.onDidChangeContent(() => this.emitDirtyPaths());
+    const d = model.onDidChangeContent(() => {
+      this.emitDirtyPaths();
+      this.scheduleLspDiagnosticsRefresh();
+      this.scheduleOutlineRefresh();
+    });
     this.modelDirtyDisposables.set(key, d);
   }
 
@@ -1556,7 +1815,7 @@ export class WorkspaceMonacoComponent {
       }
     }
     list.sort();
-    this.zone.run(() => this.unsavedPathsChange.emit(list));
+    this.zone.run(() => this.emitOutput(this.unsavedPathsChange, list));
   }
 
   /**
@@ -1826,7 +2085,7 @@ export class WorkspaceMonacoComponent {
     this.emitDirtyPaths();
     this.loadError.set('');
     this.zone.run(() =>
-      this.saveAsCompleted.emit({
+      this.emitOutput(this.saveAsCompleted, {
         oldModelKey: oldKey,
         relativePath: res.relativePath,
         absolutePath: res.absolutePath,
@@ -1846,6 +2105,10 @@ export class WorkspaceMonacoComponent {
     const model = ed.getModel();
     if (!model || this.modelByPath.get(modelKey) !== model) {
       return;
+    }
+    const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() ?? undefined);
+    if (settings.formatOnSave && model.uri.scheme === 'clara-workspace') {
+      await ed.getAction('editor.action.formatDocument')?.run();
     }
     if (this.detachedByKey.has(modelKey)) {
       await this.promptSaveAs(modelKey);

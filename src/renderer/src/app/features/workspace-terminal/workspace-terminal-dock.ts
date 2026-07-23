@@ -7,6 +7,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
 } from '@angular/core';
@@ -19,10 +20,12 @@ import type {
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
+  LspEditorDiagnostic,
 } from '@shared/index';
 import { findLlmModelLocation, resolveActiveLlmConnection, isRunCommandStreamTag } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
 import { buildXtermThemeFromCssVars, invalidateTerminalPaletteCache } from './xterm-theme-from-css';
+import { EditorProblemsComponent } from '../workspace/editor-problems/editor-problems';
 
 /** Prefix for read-only llama.cpp server log tabs (not PTYs). */
 const LLAMA_SERVER_TAB_PREFIX = 'managed-llama-server-tab';
@@ -30,6 +33,8 @@ const LLAMA_XTERM_SESSION_PREFIX = 'llama-log';
 /** Prefix for read-only agent ``run_command`` output tabs. */
 const AGENT_COMMAND_TAB_PREFIX = 'agent-command-tab';
 const AGENT_COMMAND_XTERM_SESSION_PREFIX = 'agent-command';
+/** Fixed tab id for the unclosable Problems panel. */
+export const PROBLEMS_TAB_ID = 'editor-problems-tab';
 
 interface PtyTerminalTab {
   readonly id: string;
@@ -73,6 +78,7 @@ interface XtermInstance {
 @Component({
   selector: 'app-workspace-terminal-dock',
   standalone: true,
+  imports: [EditorProblemsComponent],
   templateUrl: './workspace-terminal-dock.html',
   styleUrl: './workspace-terminal-dock.css',
   encapsulation: ViewEncapsulation.None,
@@ -104,6 +110,12 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   readonly conversationId = input<string>('');
   /** When the active model uses llama.cpp, show a dedicated llama-server log tab. */
   readonly appConfig = input<AppConfig | null>(null);
+  /** LSP diagnostics for the active Monaco editor tab. */
+  readonly editorDiagnostics = input<readonly LspEditorDiagnostic[]>([]);
+  /** Relative path of the file whose diagnostics are shown. */
+  readonly editorDiagnosticsRelativePath = input<string | null>(null);
+
+  readonly revealEditorDiagnostic = output<LspEditorDiagnostic>();
 
   readonly expanded = signal(false);
   readonly panelHeightPx = signal(260);
@@ -111,6 +123,9 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   readonly agentCommandTabs = signal<AgentCommandTab[]>([]);
   readonly llamaTabs = signal<LlamaTerminalTab[]>([]);
   readonly activeTabId = signal<string | null>(null);
+
+  /** Exposed for template bindings. */
+  readonly problemsTabId = PROBLEMS_TAB_ID;
 
   private lastWorkspacePath = '';
 
@@ -135,6 +150,10 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     () => this.hasWorkspace() || this.showLlamaServerTab() || this.agentCommandTabsForConversation().length > 0,
   );
 
+  readonly showProblemsTab = computed(() => this.hasDockPanelContent());
+
+  readonly problemsTabCount = computed(() => (this.editorDiagnostics().length > 0 ? this.editorDiagnostics().length : null));
+
   /** Shell tabs first; llama tab is rendered separately at the trailing edge (after +). */
   readonly ptyDisplayTabs = computed((): MergedTab[] =>
     this.ptyTabs().map((t) => ({
@@ -146,11 +165,20 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   );
 
   readonly tabStripCount = computed(() => {
-    return this.ptyTabs().length + this.agentCommandTabsForConversation().length + this.llamaTabs().length;
+    return (
+      this.ptyTabs().length
+      + this.agentCommandTabsForConversation().length
+      + this.llamaTabs().length
+      + (this.showProblemsTab() ? 1 : 0)
+    );
   });
 
   readonly allManagedTabIds = computed((): string[] => {
-    const ids = this.ptyTabs().map((t) => t.id);
+    const ids: string[] = [];
+    if (this.showProblemsTab()) {
+      ids.push(PROBLEMS_TAB_ID);
+    }
+    ids.push(...this.ptyTabs().map((t) => t.id));
     ids.push(...this.agentCommandTabsForConversation().map((t) => t.id));
     ids.push(...this.llamaTabs().map((t) => t.id));
     return ids;
@@ -468,6 +496,9 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
   async closeTab(tabId: string, ev?: Event): Promise<void> {
     ev?.stopPropagation();
+    if (tabId === PROBLEMS_TAB_ID) {
+      return;
+    }
     if (this.isLlamaTabId(tabId)) {
       return;
     }
@@ -503,6 +534,12 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         });
         return;
       }
+      if (this.hasWorkspace() && this.showProblemsTab()) {
+        this.teardownResizeTracking();
+        this.ptyTabs.set([]);
+        this.activeTabId.set(PROBLEMS_TAB_ID);
+        return;
+      }
       this.teardownResizeTracking();
       this.ptyTabs.set([]);
       if (this.agentCommandTabsForConversation().length > 0) {
@@ -532,6 +569,10 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   selectTab(tabId: string): void {
     this.activeTabId.set(tabId);
     this.queueSafe(() => {
+      if (tabId === PROBLEMS_TAB_ID) {
+        this.teardownResizeTracking();
+        return;
+      }
       this.observeActiveHostResize();
       void this.ensureActiveTabSession();
       this.mountAgentCommandXtermsIfNeeded();
@@ -624,7 +665,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     this.queueSafe(() => this.mountLlamaXtermsIfNeeded());
     this.queueSafe(() => this.mountAgentCommandXtermsIfNeeded());
     const tabId = this.activeTabId();
-    if (!tabId) {
+    if (!tabId || tabId === PROBLEMS_TAB_ID) {
       return;
     }
     if (this.isLlamaTabId(tabId) || this.isAgentCommandTabId(tabId)) {
@@ -859,7 +900,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     const tabId = this.activeTabId();
-    if (!tabId) {
+    if (!tabId || tabId === PROBLEMS_TAB_ID) {
       return;
     }
     const inst = this.xterms.get(tabId);
@@ -1090,7 +1131,10 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     const remainingVisible = remainingAll.filter((t) => t.conversationId === this.conversationId().trim());
     if (this.activeTabId() === tabId) {
       this.activeTabId.set(
-        this.ptyTabs()[0]?.id ?? remainingVisible[0]?.id ?? this.llamaTabs()[0]?.id ?? null,
+        this.ptyTabs()[0]?.id
+          ?? remainingVisible[0]?.id
+          ?? this.llamaTabs()[0]?.id
+          ?? (this.showProblemsTab() ? PROBLEMS_TAB_ID : null),
       );
     }
     if (
@@ -1098,6 +1142,11 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       && remainingVisible.length === 0
       && this.llamaTabs().length === 0
     ) {
+      if (this.hasWorkspace() && this.showProblemsTab()) {
+        this.teardownResizeTracking();
+        this.activeTabId.set(PROBLEMS_TAB_ID);
+        return;
+      }
       this.teardownResizeTracking();
       this.expanded.set(false);
       this.activeTabId.set(null);
@@ -1164,6 +1213,14 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
   hostDomId(tabId: string): string {
     return `workspace-term-host-${tabId}`;
+  }
+
+  isProblemsTabId(tabId: string): boolean {
+    return tabId === PROBLEMS_TAB_ID;
+  }
+
+  protected onRevealEditorDiagnostic(d: LspEditorDiagnostic): void {
+    this.revealEditorDiagnostic.emit(d);
   }
 
   /**

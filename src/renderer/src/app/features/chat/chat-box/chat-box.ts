@@ -224,7 +224,7 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
-  /** True when Clara TUI / Mae TUI ASCII frame chrome is active on `<html>`. */
+  /** True when chat message role labels (USER / CLARA) drive expand/collapse chrome on `<html>`. */
   readonly tuiFrameChrome = signal(false);
 
   // --- Outputs (HITL completion + composer send) ---
@@ -486,7 +486,13 @@ export class ChatBox implements OnDestroy {
     afterNextRender(() => {
       const syncTuiFrameChrome = (): void => {
         const root = document.documentElement.classList;
-        this.tuiFrameChrome.set(root.contains('theme-clara-tui') || root.contains('theme-mae-tui'));
+        this.tuiFrameChrome.set(
+          root.contains('theme-clara-tui')
+          || root.contains('theme-mae-tui')
+          || root.contains('theme-classical')
+          || root.contains('theme-dark-classical')
+          || root.contains('theme-woodland'),
+        );
       };
       syncTuiFrameChrome();
       const themeObserver = new MutationObserver(syncTuiFrameChrome);

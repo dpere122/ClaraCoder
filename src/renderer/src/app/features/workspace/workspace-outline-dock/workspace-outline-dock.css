@@ -1,0 +1,112 @@
+app-workspace .workspace-outline-dock {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+app-workspace .workspace-outline-dock__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.14rem 0.28rem;
+  border: none;
+  border-radius: 0;
+  background: var(--t-bg-deep);
+  color: var(--t-primary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+app-workspace .workspace-outline-dock__bar:hover {
+  background: var(--t-hover-bg);
+}
+
+app-workspace .workspace-outline-dock__chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--t-secondary);
+  transition: transform 0.15s ease;
+}
+
+app-workspace .workspace-outline-dock__chevron--open {
+  transform: rotate(90deg);
+}
+
+app-workspace .workspace-outline-dock__bar-label {
+  flex: 1;
+  text-align: left;
+}
+
+app-workspace .workspace-outline-dock__bar-count {
+  font-size: 0.6rem;
+  padding: 0 0.25rem;
+  border: 1px solid var(--t-border);
+  color: var(--t-text-muted);
+  border-radius: 3px;
+  line-height: 1.25;
+}
+
+app-workspace .workspace-outline-dock--expanded .workspace-outline-dock__bar {
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+app-workspace .workspace-outline-dock__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--t-bg-deep);
+  transition: height 0.18s ease, opacity 0.15s ease;
+}
+
+app-workspace .workspace-outline-dock__panel--collapsed {
+  height: 0 !important;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+app-workspace .workspace-outline-dock__resize-handle {
+  height: 4px;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+app-workspace .workspace-outline-dock__resize-handle:hover {
+  background: var(--t-primary);
+  opacity: 0.35;
+}
+
+app-workspace .workspace-outline-dock__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+app-workspace .workspace-outline-dock__body app-editor-outline {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+app-workspace .workspace-outline-dock__body app-editor-outline-node {
+  display: block;
+}

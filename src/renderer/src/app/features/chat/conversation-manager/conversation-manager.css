@@ -12,26 +12,6 @@ app-conversation-manager .conv-manager {
   padding: 0.75rem 0;
 }
 
-app-conversation-manager .new-conv-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-  margin: 0 0.6rem 0.6rem;
-  padding: 0.45rem 0.7rem;
-  background: transparent;
-  border: 1px solid var(--t-border);
-  color: var(--t-primary);
-  font-family: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-app-conversation-manager .new-conv-btn:hover {
-  background-color: var(--t-hover-bg);
-  border-color: var(--t-primary);
-}
-
 app-conversation-manager .conv-list {
   flex: 1;
   overflow-y: auto;

@@ -1,4 +1,4 @@
-import { Component, ElementRef, input, model, output, signal, viewChild } from '@angular/core';
+import { afterNextRender, Component, ElementRef, inject, Injector, input, model, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   COMPOSER_RUN_MODES,
@@ -10,6 +10,8 @@ import {
 import { LucideAngularModule } from 'lucide-angular';
 
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
+
+type ComposerField = HTMLInputElement | HTMLTextAreaElement;
 
 @Component({
   selector: 'app-message-box',
@@ -59,12 +61,103 @@ export class MessageBox {
   readonly abortRequested = output<void>();
   /** Draft text bound to the composer input. */
   protected readonly userInput = signal('');
+  /** Session-scoped multiline composer toggle (prompt button). */
+  protected readonly multilineMode = signal(false);
   /** `#messageInput` in template; used to restore focus after send. */
-  private readonly messageInputEl = viewChild<ElementRef<HTMLInputElement>>('messageInput');
+  private readonly messageInputEl = viewChild<ElementRef<ComposerField>>('messageInput');
+  private readonly injector = inject(Injector);
 
   /** Forwards the voice button click to {@link voiceToggle}. */
   onVoiceButtonClick(): void {
     this.voiceToggle.emit();
+  }
+
+  /**
+   * Keeps focus on the composer field when clicking the prompt toggle.
+   *
+   * @param event - Native mousedown; default prevented so the button does not retain focus.
+   */
+  onPromptMouseDown(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  /**
+   * Toggles multiline mode. Collapses embedded newlines when returning to single-line.
+   *
+   * @param event - Click event; propagation stopped so composer mousedown does not refocus.
+   */
+  toggleMultilineMode(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.multilineMode()) {
+      this.disableMultilineMode();
+    } else {
+      this.enableMultilineMode();
+    }
+  }
+
+  /**
+   * Single-line keyboard routing: Enter sends; Shift+Enter enables multiline.
+   *
+   * @param event - Native keydown from the input.
+   */
+  onSingleLineKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    if (event.shiftKey) {
+      this.enableMultilineMode();
+      return;
+    }
+    this.send();
+  }
+
+  /** Enables multiline mode and prepares the draft for a new line. */
+  private enableMultilineMode(): void {
+    if (this.multilineMode()) {
+      return;
+    }
+    const current = this.userInput();
+    const wasEmpty = current.length === 0;
+    if (wasEmpty) {
+      this.userInput.set('\n');
+    } else if (!current.endsWith('\n')) {
+      this.userInput.set(`${current}\n`);
+    }
+    this.multilineMode.set(true);
+    this.focusComposerAfterRender(wasEmpty ? 0 : undefined);
+  }
+
+  /** Disables multiline mode and collapses embedded newlines. */
+  private disableMultilineMode(): void {
+    if (!this.multilineMode()) {
+      return;
+    }
+    const text = this.userInput();
+    if (text.includes('\n')) {
+      this.userInput.set(text.replace(/\n+/g, ' ').trim());
+    }
+    this.multilineMode.set(false);
+    this.focusComposerAfterRender();
+  }
+
+  /**
+   * Multiline keyboard routing: Enter inserts a newline; Shift+Enter sends.
+   *
+   * @param event - Native keydown from the textarea.
+   */
+  onComposerKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || !event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    this.send();
+  }
+
+  /** Re-syncs textarea height after content or wrap changes. */
+  onTextareaInput(): void {
+    this.adjustTextareaHeight();
   }
 
   /**
@@ -77,6 +170,9 @@ export class MessageBox {
     if (!msg && this.attachmentCount() === 0) return;
     this.messageSent.emit(msg);
     this.userInput.set('');
+    if (this.multilineMode()) {
+      queueMicrotask(() => this.adjustTextareaHeight());
+    }
     this.focusInput();
   }
 
@@ -93,6 +189,10 @@ export class MessageBox {
    */
   onComposerMouseDown(event: MouseEvent): void {
     if (event.button !== 0) {
+      return;
+    }
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('.composer-prompt')) {
       return;
     }
     queueMicrotask(() => this.focusInput());
@@ -113,5 +213,62 @@ export class MessageBox {
       active.blur();
     }
     input.focus({ preventScroll: true });
+  }
+
+  /** Grows the multiline textarea to fit content up to the CSS max-height. */
+  private adjustTextareaHeight(): void {
+    const el = this.messageInputEl()?.nativeElement;
+    if (!(el instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }
+
+  /**
+   * Focuses the composer after Angular swaps input/textarea on toggle.
+   * Height is synced first; focus is deferred so layout can expand cleanly.
+   *
+   * @param cursor - Optional caret position; defaults to end of current value.
+   */
+  private focusComposerAfterRender(cursor?: number): void {
+    afterNextRender(() => {
+      this.syncComposerFieldLayout();
+
+      requestAnimationFrame(() => {
+        this.syncComposerFieldLayout();
+
+        window.setTimeout(() => {
+          this.focusComposerField(cursor);
+        }, 0);
+      });
+    }, { injector: this.injector });
+  }
+
+  /** Syncs multiline textarea height without moving focus. */
+  private syncComposerFieldLayout(): void {
+    if (this.multilineMode()) {
+      this.adjustTextareaHeight();
+    }
+  }
+
+  /**
+   * Moves focus into the composer and restores the caret.
+   *
+   * @param cursor - Optional caret position; defaults to end of current value.
+   */
+  private focusComposerField(cursor?: number): void {
+    const el = this.messageInputEl()?.nativeElement;
+    if (!el) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== el) {
+      active.blur();
+    }
+    el.focus({ preventScroll: true });
+    const caret = cursor ?? el.value.length;
+    el.setSelectionRange(caret, caret);
+    this.syncComposerFieldLayout();
   }
 }

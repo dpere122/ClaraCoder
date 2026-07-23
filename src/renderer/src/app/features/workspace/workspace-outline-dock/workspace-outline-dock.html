@@ -1,0 +1,39 @@
+@if (visible()) {
+  <div class="workspace-outline-dock" [class.workspace-outline-dock--expanded]="expanded()">
+    <div
+      class="workspace-outline-dock__panel"
+      [class.workspace-outline-dock__panel--collapsed]="!expanded()"
+      [style.height.px]="expanded() ? panelHeightPx() : 0"
+      [attr.inert]="expanded() ? null : ''"
+    >
+      <div
+        class="workspace-outline-dock__resize-handle"
+        (mousedown)="onResizeHandleDown($event)"
+        title="Drag to resize"
+      ></div>
+      <div class="workspace-outline-dock__body">
+        <app-editor-outline
+          [symbols]="symbols()"
+          [relativePath]="relativePath()"
+          (revealSymbol)="onOutlineReveal($event)"
+        />
+      </div>
+    </div>
+    <button
+      type="button"
+      class="workspace-outline-dock__bar"
+      (click)="toggleExpanded()"
+      [attr.aria-expanded]="expanded()"
+    >
+      <span
+        class="workspace-outline-dock__chevron"
+        [class.workspace-outline-dock__chevron--open]="expanded()"
+        aria-hidden="true"
+      ></span>
+      <span class="workspace-outline-dock__bar-label">Outline</span>
+      @if (symbolCount() > 0) {
+        <span class="workspace-outline-dock__bar-count">{{ symbolCount() }}</span>
+      }
+    </button>
+  </div>
+}

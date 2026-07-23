@@ -37,10 +37,13 @@
         [currentWorkspaceId]='currentWorkspaceId()'
         [activeConversationId]='activeConversationId()'
         [activeFileRelativePath]='activeFileRelativePath()'
+        [outlineSymbols]='monacoOutlineState().symbols'
+        [outlineRelativePath]='monacoOutlineState().relativePath'
         (workspaceChanged)='onWorkspaceChanged($event)'
         (addWorkspace)='onAddWorkspace()'
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'
         (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
+        (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'
       />
     </div>
 
@@ -50,31 +53,41 @@
       <section class='chat-area__stage'>
         <div class='chat-area__tabs' role='presentation'>
         <div class='chat-area__tab-strip' role='tablist' aria-label='Open files'>
-          <div class='chat-area__tab-strip-tabs'>
+          <div
+            class='chat-area__tab-strip-tabs'
+            cdkDropList
+            cdkDropListOrientation='horizontal'
+            (cdkDropListDropped)='onFileTabDrop($event)'
+          >
           @for (tab of fileTabs(); track fileTabIdForTab(tab)) {
             <button
               type='button'
               class='chat-main-tab'
               role='tab'
+              cdkDrag
+              cdkDragLockAxis='x'
               [attr.aria-selected]='activeMainTabId() === fileTabIdForTab(tab)'
               [class.chat-main-tab--active]='activeMainTabId() === fileTabIdForTab(tab)'
               [class.chat-main-tab--detached]='fileTabIsDetached(chatFileTabModelKey(tab))'
               (click)='selectMainTab(fileTabIdForTab(tab))'
+              (contextmenu)='onFileTabContextMenu($event, fileTabIdForTab(tab))'
               [attr.title]='fileTabTitle(tab)'
             >
-              @if (tab.outsideWorkspace) {
-                <lucide-icon
-                  name='triangle-alert'
-                  [size]='14'
-                  class='chat-main-tab-outside-warn'
-                  aria-label='This file is outside of the workspace.'
-                  title='This file is outside of the workspace.'
-                ></lucide-icon>
-              }
-              <span class='chat-main-tab-label'>{{ fileTabBasenameForTab(tab) }}</span>
-              @if (fileTabIsUnsaved(chatFileTabModelKey(tab))) {
-                <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
-              }
+              <span class='chat-main-tab-drag-handle' cdkDragHandle>
+                @if (tab.outsideWorkspace) {
+                  <lucide-icon
+                    name='triangle-alert'
+                    [size]='14'
+                    class='chat-main-tab-outside-warn'
+                    aria-label='This file is outside of the workspace.'
+                    title='This file is outside of the workspace.'
+                  ></lucide-icon>
+                }
+                <span class='chat-main-tab-label'>{{ fileTabBasenameForTab(tab) }}</span>
+                @if (fileTabIsUnsaved(chatFileTabModelKey(tab))) {
+                  <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
+                }
+              </span>
               <span
                 class='chat-main-tab-close'
                 role='presentation'
@@ -85,6 +98,49 @@
           }
           </div>
         </div>
+        @if (fileTabContextMenuVisible()) {
+          <div
+            class='file-tab-context-menu'
+            role='menu'
+            [style.left.px]='fileTabContextMenuX()'
+            [style.top.px]='fileTabContextMenuY()'
+          >
+            <button
+              type='button'
+              class='file-tab-context-menu-item'
+              role='menuitem'
+              (mousedown)='onFileTabContextMenuItemMousedown($event); onFileTabContextMenuClose()'
+            >
+              Close
+            </button>
+            <button
+              type='button'
+              class='file-tab-context-menu-item'
+              role='menuitem'
+              [disabled]='!fileTabContextMenuCanCloseLeft()'
+              (mousedown)='onFileTabContextMenuItemMousedown($event); onFileTabContextMenuCloseLeft()'
+            >
+              Close tabs to the left
+            </button>
+            <button
+              type='button'
+              class='file-tab-context-menu-item'
+              role='menuitem'
+              [disabled]='!fileTabContextMenuCanCloseRight()'
+              (mousedown)='onFileTabContextMenuItemMousedown($event); onFileTabContextMenuCloseRight()'
+            >
+              Close tabs to the right
+            </button>
+            <button
+              type='button'
+              class='file-tab-context-menu-item'
+              role='menuitem'
+              (mousedown)='onFileTabContextMenuItemMousedown($event); onFileTabContextMenuCloseAll()'
+            >
+              Close all tabs
+            </button>
+          </div>
+        }
         <div class='chat-area__tab-panels'>
           <div
             class='chat-area__tab-panel chat-area__tab-panel--empty'
@@ -126,6 +182,8 @@
               (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
               (pendingEditorRevealHandled)='onMonacoRevealHandled()'
               (editorSelectionChange)='onEditorSelectionChange($event)'
+              (outlineSymbolsChange)='onMonacoOutlineChange($event)'
+              (diagnosticsChange)='onMonacoDiagnosticsChange($event)'
             />
           </div>
           <div
@@ -189,7 +247,6 @@
                 [maxTokens]='contextCapacity().maxTokens'
                 [remainingTokens]='contextCapacity().remainingTokens'
                 [usedPercentage]='contextCapacity().usedPercentage'
-                [compressionNotice]='activeContextStatusNotice()'
                 [(autoApplyMode)]='autoApplyMode'
               />
             </div>
@@ -203,6 +260,9 @@
           [workspacePath]='currentWorkspacePath()'
           [appConfig]='appConfig()'
           [conversationId]='activeConversationId() ?? ""'
+          [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
+          [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'
+          (revealEditorDiagnostic)='onRevealEditorDiagnostic($event)'
         />
       </section>
     </div>
@@ -263,7 +323,6 @@
         [maxTokens]='contextCapacity().maxTokens'
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
-        [compressionNotice]='activeContextStatusNotice()'
         [(autoApplyMode)]='autoApplyMode'
       />
     </div>

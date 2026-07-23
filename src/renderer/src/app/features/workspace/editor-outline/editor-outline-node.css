@@ -1,0 +1,76 @@
+:host {
+  display: block;
+}
+
+.editor-outline-node {
+  min-width: 0;
+}
+
+.editor-outline-node__row {
+  display: grid;
+  grid-template-columns: 0.65rem minmax(0, 1fr);
+  column-gap: 0.12rem;
+  align-items: center;
+  min-width: 0;
+  min-height: 1.05rem;
+}
+
+.editor-outline-node__chevron-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.65rem;
+  min-width: 0.65rem;
+  height: 0.65rem;
+}
+
+.editor-outline-node__chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-outline-node__chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 4px solid var(--t-secondary);
+  transition: transform 0.12s ease;
+}
+
+.editor-outline-node__chevron--open {
+  transform: rotate(90deg);
+}
+
+.editor-outline-node__label {
+  min-width: 0;
+  margin: 0;
+  padding: 0.02rem 0.2rem 0.02rem 0;
+  border: none;
+  background: transparent;
+  color: var(--t-primary);
+  font-size: inherit;
+  line-height: 1.1;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-outline-node__label:hover {
+  background: var(--t-hover-bg);
+}
+
+.editor-outline-node__children {
+  min-width: 0;
+}

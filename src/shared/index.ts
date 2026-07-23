@@ -35,6 +35,7 @@ export type {
   GemmaThinkingMode,
   AudioTranscriptionConfig,
   AppConfig,
+  ChatContainerSize,
   FontFamilyOption,
   SystemFontInfo,
   MonacoWorkspaceEditorSettings,
@@ -47,7 +48,9 @@ export type {
   ModelManagerConfig,
 } from './types/app-config';
 export {
+  CHAT_CONTAINER_SIZE_OPTIONS,
   CODE_FONT_FAMILY_OPTIONS,
+  DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_KOKORO_TTS_VOICE,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
@@ -59,6 +62,7 @@ export {
   UI_FONT_SIZE_REM_MIN,
   UI_FONT_SIZE_REM_STEP,
   clampUiFontSizeRem,
+  normalizeChatContainerSize,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,
@@ -212,6 +216,7 @@ export {
 } from './hitl-trail';
 export type { HitlTrailArtifact, HitlTrailItem, HitlTrailKind } from './hitl-trail';
 export type { LspDashboardServerEntry, LspDashboardStatus } from './types/lsp-dashboard';
+export type { LspEditorDiagnostic, LspEditorDiagnosticsPayload } from './types/lsp-editor-diagnostics';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
 export type { LspServerKind } from './lsp-file-policy';
 export {

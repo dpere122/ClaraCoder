@@ -21,6 +21,7 @@ import {
   inferContextWindowTokens,
   isLegacyLlamaCppManagedShape,
   migrateLegacyLlamaCppManagedToCommands,
+  normalizeChatContainerSize,
   normalizeMonacoWorkspaceEditorSettings,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   getDefaultContextCompression,
@@ -806,6 +807,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const csw = (newConfig as AppConfig).chatSidebarWidthPercent;
   if (typeof csw !== 'number' || Number.isNaN(csw) || csw < 0.05 || csw > 0.95) {
     (newConfig as AppConfig).chatSidebarWidthPercent = 0.75;
+    migrated = true;
+  }
+
+  const normalizedContainerSize = normalizeChatContainerSize((newConfig as AppConfig).chatContainerSize);
+  if ((newConfig as AppConfig).chatContainerSize !== normalizedContainerSize) {
+    (newConfig as AppConfig).chatContainerSize = normalizedContainerSize;
     migrated = true;
   }
 

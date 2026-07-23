@@ -1,0 +1,40 @@
+<div class="editor-outline-node" role="treeitem" [attr.aria-expanded]="hasChildren(symbol()) ? expanded() : null">
+  <div
+    class="editor-outline-node__row"
+    [style.padding-left.rem]="0.5 + depth() * 0.5"
+    (dblclick)="onRowDoubleClick($event)"
+  >
+    <span class="editor-outline-node__chevron-slot">
+      @if (hasChildren(symbol())) {
+        <button
+          type="button"
+          class="editor-outline-node__chevron-btn"
+          [attr.aria-expanded]="expanded()"
+          (click)="toggleExpanded($event)"
+          (dblclick)="onChevronDoubleClick($event)"
+        >
+          <span
+            class="editor-outline-node__chevron"
+            [class.editor-outline-node__chevron--open]="expanded()"
+            aria-hidden="true"
+          ></span>
+        </button>
+      }
+    </span>
+    <button type="button" class="editor-outline-node__label" (click)="onLabelClick(symbol())">
+      {{ symbol().name }}
+    </button>
+  </div>
+  @if (hasChildren(symbol()) && expanded()) {
+    <div class="editor-outline-node__children" role="group">
+      @for (child of symbol().children; track trackKey(child)) {
+        <app-editor-outline-node
+          [symbol]="child"
+          [depth]="depth() + 1"
+          [bulkExpansion]="bulkExpansion()"
+          (revealSymbol)="revealSymbol.emit($event)"
+        />
+      }
+    </div>
+  }
+</div>

@@ -125,6 +125,20 @@
                   </div>
                   <label
                     class='field'
+                    title='Content width when chat is expanded to the main panel. Sidebar chat is always full width.'
+                  >
+                    <span>Chat container size</span>
+                    <select
+                      [ngModel]='chatContainerSize()'
+                      (ngModelChange)='onChatContainerSizeChange($event)'
+                    >
+                      @for (opt of chatContainerSizeOptions; track opt.value) {
+                        <option [value]='opt.value'>{{ opt.label }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label
+                    class='field'
                     title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
                   >
                     <span>App font</span>
@@ -1766,6 +1780,48 @@
                       <option value='off'>Off</option>
                       <option value='smart'>Smart</option>
                     </select>
+                  </label>
+                  <label class='field field--checkbox'>
+                    <input
+                      type='checkbox'
+                      [ngModel]='monacoWorkspaceEditor().stickyScrollEnabled'
+                      (ngModelChange)='patchMonaco({ stickyScrollEnabled: $event })'
+                    />
+                    <span>Sticky scroll (scope headers)</span>
+                  </label>
+                  <label class='field field--checkbox'>
+                    <input
+                      type='checkbox'
+                      [ngModel]='monacoWorkspaceEditor().formatOnSave'
+                      (ngModelChange)='patchMonaco({ formatOnSave: $event })'
+                    />
+                    <span>Format on save (LSP languages)</span>
+                  </label>
+                  <label class='field field--checkbox'>
+                    <input
+                      type='checkbox'
+                      [ngModel]='monacoWorkspaceEditor().parameterHintsEnabled'
+                      (ngModelChange)='patchMonaco({ parameterHintsEnabled: $event })'
+                    />
+                    <span>Parameter hints (signature help)</span>
+                  </label>
+                  <label class='field field--checkbox'>
+                    <input
+                      type='checkbox'
+                      [ngModel]='monacoWorkspaceEditor().hoverEnabled'
+                      (ngModelChange)='patchMonaco({ hoverEnabled: $event })'
+                    />
+                    <span>Hover tooltips</span>
+                  </label>
+                  <label class='field'>
+                    <span>Hover delay (ms)</span>
+                    <input
+                      type='number'
+                      min='0'
+                      max='5000'
+                      [ngModel]='monacoWorkspaceEditor().hoverDelay'
+                      (ngModelChange)='patchMonaco({ hoverDelay: parseMonacoInt($event, monacoWorkspaceEditor().hoverDelay) })'
+                    />
                   </label>
                 </div>
               </div>

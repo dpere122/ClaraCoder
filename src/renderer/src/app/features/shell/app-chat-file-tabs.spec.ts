@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  allFileTabIds,
   buildPlanChatFileTab,
   chatFileTabBasename,
   chatFileTabId,
   chatFileTabModelKey,
   deactivateBuildPlanTab,
+  fileTabIdsToLeft,
+  fileTabIdsToRight,
   findBuildPlanTab,
   openTabForRenamedFile,
   removeBuildPlanTab,
   replaceFileTabAfterSaveAs,
+  reorderFileTabs,
   retargetFileTabPath,
   workspaceChatFileTab,
 } from './app-chat-file-tabs';
@@ -78,6 +82,36 @@ describe('app-chat-file-tabs', () => {
     expect(tab.buildPlanId).toBe('p1');
     expect(tab.buildPlanActive).toBe(true);
     expect(chatFileTabId(tab)).toBe('file:rel:.nemo/build-plans/p1.md');
+  });
+
+  it('lists tab ids to the left and right of an anchor tab', () => {
+    const tabs = [
+      workspaceChatFileTab('a.ts'),
+      workspaceChatFileTab('b.ts'),
+      workspaceChatFileTab('c.ts'),
+    ];
+    const anchor = chatFileTabId(tabs[1]!);
+    expect(fileTabIdsToLeft(tabs, anchor)).toEqual(['file:rel:a.ts']);
+    expect(fileTabIdsToRight(tabs, anchor)).toEqual(['file:rel:c.ts']);
+    expect(allFileTabIds(tabs)).toEqual([
+      'file:rel:a.ts',
+      'file:rel:b.ts',
+      'file:rel:c.ts',
+    ]);
+    expect(fileTabIdsToLeft(tabs, chatFileTabId(tabs[0]!))).toEqual([]);
+    expect(fileTabIdsToRight(tabs, chatFileTabId(tabs[2]!))).toEqual([]);
+  });
+
+  it('reorders tabs by moving one index to another', () => {
+    const tabs = [
+      workspaceChatFileTab('a.ts'),
+      workspaceChatFileTab('b.ts'),
+      workspaceChatFileTab('c.ts'),
+    ];
+    expect(reorderFileTabs(tabs, 0, 2).map((t) => t.relativePath)).toEqual(['b.ts', 'c.ts', 'a.ts']);
+    expect(reorderFileTabs(tabs, 2, 0).map((t) => t.relativePath)).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    expect(reorderFileTabs(tabs, 1, 1)).toEqual(tabs);
+    expect(reorderFileTabs(tabs, -1, 1)).toEqual(tabs);
   });
 
   it('deactivates and removes build-plan tabs by plan id', () => {

@@ -7,6 +7,23 @@
   overflow: hidden;
 }
 
+.workspace-monaco-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-monaco-editor-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .workspace-monaco-error {
   flex-shrink: 0;
   padding: 0.35rem 0.5rem;

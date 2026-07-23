@@ -37,9 +37,12 @@ import type {
 } from '../../shared/index';
 import type {
   LspEditorCompletionItemPayload,
+  LspEditorDiagnosticPayload,
   LspEditorDocumentSymbolPayload,
   LspEditorFlatSymbolPayload,
+  LspEditorIRangePayload,
   LspEditorLocationPayload,
+  LspEditorTextEditPayload,
   LspSemanticTokensFullPayload,
   LspSemanticTokensLegendPayload,
   LspWorkspaceEditPayload,
@@ -464,7 +467,7 @@ declare global {
       character: number,
       documentText: string,
       skipDocumentSync?: boolean,
-    ) => Promise<{ ok: true; markdown: string | null } | { ok: false; error: string }>;
+    ) => Promise<{ ok: true; markdown: string | null; range?: LspEditorIRangePayload | null } | { ok: false; error: string }>;
     lspEditorDefinition?: (
       sessionId: string,
       relativePath: string,
@@ -527,6 +530,155 @@ declare global {
       documentText: string,
       skipDocumentSync?: boolean,
     ) => Promise<{ ok: true; payload: LspSemanticTokensFullPayload } | { ok: false; error: string }>;
+    lspEditorDiagnostics?: (
+      sessionId: string,
+      relativePath: string,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<
+      | { ok: true; diagnostics: LspEditorDiagnosticPayload[]; generation: number }
+      | { ok: false; error: string }
+    >;
+    lspDiagnosticsGeneration?: (
+      sessionId: string,
+      relativePath: string,
+    ) => Promise<{ ok: true; generation: number; count: number } | { ok: false; error: string }>;
+    lspEditorSignatureHelp?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+      triggerCharacter: string | null,
+      isRetrigger: boolean,
+      skipDocumentSync?: boolean,
+    ) => Promise<{ ok: true; signatureHelp: Record<string, unknown> | null } | { ok: false; error: string }>;
+    lspEditorDocumentHighlight?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<{ ok: true; highlights: Array<{ range: LspEditorIRangePayload; kind?: number }> } | { ok: false; error: string }>;
+    lspEditorCompletionResolve?: (
+      sessionId: string,
+      relativePath: string,
+      item: Record<string, unknown>,
+    ) => Promise<{ ok: true; item: LspEditorCompletionItemPayload } | { ok: false; error: string }>;
+    lspEditorCodeAction?: (
+      sessionId: string,
+      relativePath: string,
+      startLine: number,
+      startCharacter: number,
+      endLine: number,
+      endCharacter: number,
+      documentText: string,
+      diagnostics: LspEditorDiagnosticPayload[],
+      skipDocumentSync?: boolean,
+    ) => Promise<
+      | {
+          ok: true;
+          actions: Array<{ title: string; kind: string; isPreferred?: boolean; edit?: LspWorkspaceEditPayload }>;
+        }
+      | { ok: false; error: string }
+    >;
+    lspEditorFormatting?: (
+      sessionId: string,
+      relativePath: string,
+      documentText: string,
+      tabSize: number,
+      insertSpaces: boolean,
+      skipDocumentSync?: boolean,
+    ) => Promise<{ ok: true; edits: LspEditorTextEditPayload[] } | { ok: false; error: string }>;
+    lspEditorRangeFormatting?: (
+      sessionId: string,
+      relativePath: string,
+      startLine: number,
+      startCharacter: number,
+      endLine: number,
+      endCharacter: number,
+      documentText: string,
+      tabSize: number,
+      insertSpaces: boolean,
+      skipDocumentSync?: boolean,
+    ) => Promise<{ ok: true; edits: LspEditorTextEditPayload[] } | { ok: false; error: string }>;
+    lspEditorOnTypeFormatting?: (
+      sessionId: string,
+      relativePath: string,
+      line: number,
+      character: number,
+      ch: string,
+      documentText: string,
+      tabSize: number,
+      insertSpaces: boolean,
+      skipDocumentSync?: boolean,
+    ) => Promise<{ ok: true; edits: LspEditorTextEditPayload[] } | { ok: false; error: string }>;
+    lspEditorInlayHints?: (
+      sessionId: string,
+      relativePath: string,
+      startLine: number,
+      startCharacter: number,
+      endLine: number,
+      endCharacter: number,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<
+      | {
+          ok: true;
+          hints: Array<{
+            position: { lineNumber: number; column: number };
+            label: string;
+            kind?: number;
+            paddingLeft?: boolean;
+            paddingRight?: boolean;
+            tooltip?: string | { value: string; isTrusted?: boolean };
+          }>;
+        }
+      | { ok: false; error: string }
+    >;
+    lspEditorCodeLens?: (
+      sessionId: string,
+      relativePath: string,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<
+      | {
+          ok: true;
+          lenses: Array<{ range: LspEditorIRangePayload; command?: { title: string; command: string; arguments?: unknown } }>;
+        }
+      | { ok: false; error: string }
+    >;
+    lspEditorCodeLensResolve?: (
+      sessionId: string,
+      relativePath: string,
+      lens: Record<string, unknown>,
+    ) => Promise<
+      | { ok: true; lens: { range: LspEditorIRangePayload; command?: { title: string; command: string; arguments?: unknown } } | null }
+      | { ok: false; error: string }
+    >;
+    lspEditorSemanticTokensDelta?: (
+      sessionId: string,
+      relativePath: string,
+      previousResultId: string,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<
+      | {
+          ok: true;
+          payload: {
+            legend: { tokenTypes: string[]; tokenModifiers: string[] };
+            resultId: string | null;
+            edits: unknown[];
+          };
+        }
+      | { ok: false; error: string }
+    >;
+    lspDiagnosticsWatchStart?: (sessionId: string, relativePath: string) => void;
+    lspDiagnosticsWatchStop?: () => void;
+    onLspDiagnosticsUpdated?: (
+      callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number }) => void,
+    ) => void;
     healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
     healthSetLogLevel: (level: string) => Promise<{ ok: boolean }>;
     healthLogsSubscribe: () => void;

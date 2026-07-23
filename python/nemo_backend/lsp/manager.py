@@ -107,6 +107,39 @@ def _workspace_capabilities() -> dict[str, Any]:
                 'serverCancelSupport': False,
             },
             'publishDiagnostics': {'relatedInformation': True},
+            'signatureHelp': {
+                'dynamicRegistration': False,
+                'signatureInformation': {
+                    'documentationFormat': ['markdown', 'plaintext'],
+                    'parameterInformation': {'labelOffsetSupport': True},
+                },
+            },
+            'documentHighlight': {'dynamicRegistration': False},
+            'codeAction': {
+                'dynamicRegistration': False,
+                'codeActionLiteralSupport': {
+                    'codeActionKind': {
+                        'valueSet': [
+                            'quickfix',
+                            'refactor',
+                            'refactor.extract',
+                            'refactor.inline',
+                            'refactor.rewrite',
+                            'source',
+                            'source.organizeImports',
+                            'source.fixAll',
+                        ],
+                    },
+                },
+            },
+            'formatting': {'dynamicRegistration': False},
+            'rangeFormatting': {'dynamicRegistration': False},
+            'onTypeFormatting': {'dynamicRegistration': False},
+            'inlayHint': {
+                'dynamicRegistration': False,
+                'resolveSupport': {'properties': ['tooltip', 'textEdits', 'label.tooltip']},
+            },
+            'codeLens': {'dynamicRegistration': False, 'resolveProvider': True},
             'synchronization': {'didSave': True, 'dynamicRegistration': False},
         },
         'workspace': {
@@ -446,6 +479,171 @@ class SessionWorkspaceLspManager:
         rel = self._ensure_workspace_synced(relative_path)
         params = {'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))}}
         return self._require_client().request('textDocument/semanticTokens/full', params, timeout_s=20.0)
+
+    def semantic_tokens_full_delta(self, relative_path: str, previous_result_id: str) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'previousResultId': str(previous_result_id),
+        }
+        return self._require_client().request('textDocument/semanticTokens/full/delta', params, timeout_s=20.0)
+
+    def get_diag_generation(self, relative_path: str) -> int:
+        rel = normalize_relative_posix_path(relative_path)
+        with self._lock:
+            return int(self._diag_generation.get(rel, 0))
+
+    def signature_help(
+        self,
+        relative_path: str,
+        line: int,
+        character: int,
+        *,
+        trigger_character: str | None = None,
+        is_retrigger: bool = False,
+    ) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        ctx: dict[str, Any] = {'isRetrigger': bool(is_retrigger)}
+        if trigger_character:
+            ctx['triggerCharacter'] = trigger_character
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
+            'context': ctx,
+        }
+        return self._require_client().request('textDocument/signatureHelp', params, timeout_s=8.0)
+
+    def document_highlight(self, relative_path: str, line: int, character: int) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
+        }
+        return self._require_client().request('textDocument/documentHighlight', params, timeout_s=8.0)
+
+    def completion_resolve(self, item: dict[str, Any]) -> Any:
+        self.ensure_started()
+        return self._require_client().request('completionItem/resolve', item, timeout_s=8.0)
+
+    def code_action(
+        self,
+        relative_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+        diagnostics: list[dict[str, Any]],
+    ) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        uri = _path_to_uri(normalize_relative_path(self.workspace_root, rel))
+        lsp_diags: list[dict[str, Any]] = []
+        for d in diagnostics:
+            if not isinstance(d, dict):
+                continue
+            sl = max(0, int(d.get('line', 1)) - 1)
+            sc = max(0, int(d.get('character', 1)) - 1)
+            el = max(0, int(d.get('end_line', d.get('line', 1))) - 1)
+            ec = max(0, int(d.get('end_character', d.get('character', 1))) - 1)
+            entry: dict[str, Any] = {
+                'range': {
+                    'start': {'line': sl, 'character': sc},
+                    'end': {'line': el, 'character': ec},
+                },
+                'message': str(d.get('message') or ''),
+                'severity': int(d.get('severity_value') or 3),
+            }
+            code = d.get('code')
+            if code not in (None, ''):
+                entry['code'] = code
+            source = d.get('source')
+            if source not in (None, ''):
+                entry['source'] = str(source)
+            lsp_diags.append(entry)
+        params = {
+            'textDocument': {'uri': uri},
+            'range': {
+                'start': {'line': max(0, int(start_line) - 1), 'character': max(0, int(start_character) - 1)},
+                'end': {'line': max(0, int(end_line) - 1), 'character': max(0, int(end_character) - 1)},
+            },
+            'context': {'diagnostics': lsp_diags},
+        }
+        return self._require_client().request('textDocument/codeAction', params, timeout_s=15.0)
+
+    def formatting(self, relative_path: str, *, tab_size: int = 4, insert_spaces: bool = True) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'options': {'tabSize': max(1, int(tab_size)), 'insertSpaces': bool(insert_spaces)},
+        }
+        return self._require_client().request('textDocument/formatting', params, timeout_s=25.0)
+
+    def range_formatting(
+        self,
+        relative_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+        *,
+        tab_size: int = 4,
+        insert_spaces: bool = True,
+    ) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'range': {
+                'start': {'line': max(0, int(start_line) - 1), 'character': max(0, int(start_character) - 1)},
+                'end': {'line': max(0, int(end_line) - 1), 'character': max(0, int(end_character) - 1)},
+            },
+            'options': {'tabSize': max(1, int(tab_size)), 'insertSpaces': bool(insert_spaces)},
+        }
+        return self._require_client().request('textDocument/rangeFormatting', params, timeout_s=25.0)
+
+    def on_type_formatting(
+        self,
+        relative_path: str,
+        line: int,
+        character: int,
+        ch: str,
+        *,
+        tab_size: int = 4,
+        insert_spaces: bool = True,
+    ) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
+            'ch': str(ch),
+            'options': {'tabSize': max(1, int(tab_size)), 'insertSpaces': bool(insert_spaces)},
+        }
+        return self._require_client().request('textDocument/onTypeFormatting', params, timeout_s=8.0)
+
+    def inlay_hints(
+        self,
+        relative_path: str,
+        start_line: int,
+        start_character: int,
+        end_line: int,
+        end_character: int,
+    ) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'range': {
+                'start': {'line': max(0, int(start_line) - 1), 'character': max(0, int(start_character) - 1)},
+                'end': {'line': max(0, int(end_line) - 1), 'character': max(0, int(end_character) - 1)},
+            },
+        }
+        return self._require_client().request('textDocument/inlayHint', params, timeout_s=15.0)
+
+    def code_lens(self, relative_path: str) -> Any:
+        rel = self._ensure_workspace_synced(relative_path)
+        params = {'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))}}
+        return self._require_client().request('textDocument/codeLens', params, timeout_s=15.0)
+
+    def code_lens_resolve(self, code_lens: dict[str, Any]) -> Any:
+        self.ensure_started()
+        return self._require_client().request('codeLens/resolve', code_lens, timeout_s=8.0)
 
     @property
     def semantic_tokens_legend(self) -> dict[str, list[str]] | None:

@@ -203,13 +203,6 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Clara Coder');
   });
 
-  it('should render the status bar', async () => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-status-bar')).not.toBeNull();
-  });
-
   it('persists a delete-confirm for a non-active conversation so it re-surfaces on reopen', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();

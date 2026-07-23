@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { Component, computed, effect, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
+import { Component, computed, effect, HostListener, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -17,6 +17,7 @@ import type {
   Workspace,
   WorkspaceFilesChangedMessage,
   PlannerProgress,
+  LspEditorDiagnostic,
 } from '@shared/index';
 import {
   DEFAULT_COMPOSER_RUN_MODE,
@@ -54,12 +55,16 @@ import {
   chatFileTabBasename,
   chatFileTabId,
   chatFileTabModelKey,
+  allFileTabIds,
   deactivateBuildPlanTab,
+  fileTabIdsToLeft,
+  fileTabIdsToRight,
   findTabByModelKey,
   openEditorFileRefFromTab,
   openTabForRenamedFile,
   removeBuildPlanTab,
   replaceFileTabAfterSaveAs,
+  reorderFileTabs,
   retargetFileTabPath,
   type ChatFileTab,
   workspaceChatFileTab,
@@ -76,6 +81,7 @@ import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../s
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
+import type { EditorOutlineSymbol } from '../workspace/editor-outline/editor-outline';
 import { editorModelKeyForRelativePath } from '../workspace/open-editor-file-ref';
 import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
 import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-formats';
@@ -94,6 +100,7 @@ import {
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 
 function parentRelativePath(relativePath: string): string {
   const norm = normalizePathSlashes(relativePath);
@@ -113,6 +120,9 @@ function parentRelativePath(relativePath: string): string {
     ImageViewerComponent,
     WorkspaceTerminalDockComponent,
     ThemedConfirmDialogComponent,
+    CdkDropList,
+    CdkDrag,
+    CdkDragHandle,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
@@ -218,8 +228,36 @@ export class App implements OnInit, OnDestroy {
     line: number;
     column: number;
   } | null>(null);
+  /** Document outline symbols for the active Monaco tab (sidebar footer panel). */
+  protected readonly monacoOutlineState = signal<{
+    relativePath: string | null;
+    symbols: readonly EditorOutlineSymbol[];
+  }>({ relativePath: null, symbols: [] });
+  /** LSP diagnostics for the active Monaco tab (terminal dock Problems tab). */
+  protected readonly monacoDiagnosticsState = signal<{
+    relativePath: string | null;
+    diagnostics: readonly LspEditorDiagnostic[];
+  }>({ relativePath: null, diagnostics: [] });
   /** Open file tab id (`file:<relativePath>`) or null when no editor tab is selected. */
   protected readonly activeMainTabId = signal<string | null>(null);
+  protected readonly fileTabContextMenuVisible = signal(false);
+  protected readonly fileTabContextMenuX = signal(0);
+  protected readonly fileTabContextMenuY = signal(0);
+  protected readonly fileTabContextMenuTabId = signal<string | null>(null);
+  protected readonly fileTabContextMenuCanCloseLeft = computed(() => {
+    const tabId = this.fileTabContextMenuTabId();
+    if (!tabId) {
+      return false;
+    }
+    return fileTabIdsToLeft(this.fileTabs(), tabId).length > 0;
+  });
+  protected readonly fileTabContextMenuCanCloseRight = computed(() => {
+    const tabId = this.fileTabContextMenuTabId();
+    if (!tabId) {
+      return false;
+    }
+    return fileTabIdsToRight(this.fileTabs(), tabId).length > 0;
+  });
   /** Sidebar hub body: conversation list or active chat stack. */
   protected readonly chatHubView = model<ChatHubView>('activeChat');
   /** When true, active chat stack overlays the main editor stage. */
@@ -379,9 +417,6 @@ export class App implements OnInit, OnDestroy {
   }));
   protected readonly contextChatBlocked = computed(
     () => this.contextCapacity().usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT,
-  );
-  protected readonly activeContextStatusNotice = computed(() =>
-    this.contextChatBlocked() ? 'Context full — start a new conversation to continue.' : '',
   );
 
   // Layout
@@ -1594,6 +1629,78 @@ export class App implements OnInit, OnDestroy {
     this.fileTabs.set(remaining);
   }
 
+  private closeFileTabContextMenu(): void {
+    this.fileTabContextMenuVisible.set(false);
+    this.fileTabContextMenuTabId.set(null);
+  }
+
+  private async tryCloseFileTabById(tabId: string): Promise<boolean> {
+    if (!tabId.startsWith('file:')) {
+      return false;
+    }
+    return this.tryCloseFileTabByModelKey(tabId.slice(5));
+  }
+
+  private async tryCloseFileTabByModelKey(modelKey: string): Promise<boolean> {
+    let keyToClose = modelKey;
+    const tab = findTabByModelKey(this.fileTabs(), modelKey);
+    const displayPath =
+      relativePathFromModelKey(modelKey) ??
+      (tab ? chatFileTabBasename(tab) : modelKey);
+    const detached = this.monacoDetachedPaths().has(modelKey);
+    const unsaved = this.fileTabIsUnsaved(modelKey);
+
+    if (tab?.buildPlanId && tab.buildPlanActive) {
+      const choice = await this.themedConfirm.open(activeBuildPlanClosePrompt(displayPath));
+      if (choice !== 'confirm') {
+        return false;
+      }
+      const convId = this.activeConversationId();
+      if (convId) {
+        await this.electron.cancelBuildPlan(convId, tab.buildPlanId);
+        void this.electron.abortMessage(convId);
+        this.activeBuildPlanByConversation.delete(convId);
+      }
+      this.removeFileTabByModelKey(keyToClose);
+      return true;
+    }
+
+    if (detached && unsaved) {
+      const choice = await this.themedConfirm.open(detachedFileClosePrompt(displayPath));
+      if (choice === 'cancel') {
+        return false;
+      }
+      if (choice === 'middle') {
+        const newKey = await this.workspaceMonaco?.saveAsForKey(modelKey);
+        if (!newKey) {
+          return false;
+        }
+        keyToClose = newKey;
+      } else if (choice === 'confirm') {
+        await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
+      }
+    } else if (unsaved) {
+      const discard = await this.themedConfirm.open(unsavedCloseFileTabPrompt(displayPath));
+      if (discard !== 'confirm') {
+        return false;
+      }
+    } else if (detached) {
+      await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
+    }
+
+    this.removeFileTabByModelKey(keyToClose);
+    return true;
+  }
+
+  private async closeFileTabsInOrder(tabIds: readonly string[]): Promise<void> {
+    for (const tabId of tabIds) {
+      const closed = await this.tryCloseFileTabById(tabId);
+      if (!closed) {
+        break;
+      }
+    }
+  }
+
   private removeFileTabByModelKey(keyToClose: string): void {
     const remaining = this.fileTabs().filter((t) => chatFileTabModelKey(t) !== keyToClose);
     const tabId = `file:${keyToClose}`;
@@ -1712,6 +1819,30 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  protected onMonacoOutlineChange(payload: {
+    relativePath: string | null;
+    symbols: readonly EditorOutlineSymbol[];
+  }): void {
+    this.monacoOutlineState.set({
+      relativePath: payload.relativePath,
+      symbols: payload.symbols,
+    });
+  }
+
+  protected onMonacoDiagnosticsChange(payload: {
+    relativePath: string | null;
+    diagnostics: readonly LspEditorDiagnostic[];
+  }): void {
+    this.monacoDiagnosticsState.set({
+      relativePath: payload.relativePath,
+      diagnostics: payload.diagnostics,
+    });
+  }
+
+  protected onRevealEditorDiagnostic(d: LspEditorDiagnostic): void {
+    this.workspaceMonaco?.revealDiagnostic(d);
+  }
+
   protected onImageViewerNavigate(payload: { relativePath: string }): void {
     const newPath = normalizePathSlashes(payload.relativePath);
     if (!newPath) {
@@ -1738,60 +1869,90 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  protected onFileTabDrop(event: CdkDragDrop<ChatFileTab[]>): void {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+    this.fileTabs.update((tabs) => reorderFileTabs(tabs, event.previousIndex, event.currentIndex));
+  }
+
   protected async closeMainFileTab(event: MouseEvent, tabId: string): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
-    if (!tabId.startsWith('file:')) {
+    await this.tryCloseFileTabById(tabId);
+  }
+
+  protected onFileTabContextMenu(event: MouseEvent, tabId: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.fileTabContextMenuTabId.set(tabId);
+    this.fileTabContextMenuX.set(event.clientX);
+    this.fileTabContextMenuY.set(event.clientY);
+    this.fileTabContextMenuVisible.set(true);
+  }
+
+  protected onFileTabContextMenuItemMousedown(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  protected async onFileTabContextMenuClose(): Promise<void> {
+    const tabId = this.fileTabContextMenuTabId();
+    this.closeFileTabContextMenu();
+    if (tabId) {
+      await this.tryCloseFileTabById(tabId);
+    }
+  }
+
+  protected async onFileTabContextMenuCloseAll(): Promise<void> {
+    const tabId = this.fileTabContextMenuTabId();
+    this.closeFileTabContextMenu();
+    if (!tabId) {
       return;
     }
-    const modelKey = tabId.slice(5);
-    let keyToClose = modelKey;
-    const tab = findTabByModelKey(this.fileTabs(), modelKey);
-    const displayPath =
-      relativePathFromModelKey(modelKey) ??
-      (tab ? chatFileTabBasename(tab) : modelKey);
-    const detached = this.monacoDetachedPaths().has(modelKey);
-    const unsaved = this.fileTabIsUnsaved(modelKey);
+    const tabIds = [...allFileTabIds(this.fileTabs())].reverse();
+    await this.closeFileTabsInOrder(tabIds);
+  }
 
-    if (tab?.buildPlanId && tab.buildPlanActive) {
-      const choice = await this.themedConfirm.open(activeBuildPlanClosePrompt(displayPath));
-      if (choice !== 'confirm') {
-        return;
-      }
-      const convId = this.activeConversationId();
-      if (convId) {
-        await this.electron.cancelBuildPlan(convId, tab.buildPlanId);
-        void this.electron.abortMessage(convId);
-        this.activeBuildPlanByConversation.delete(convId);
-      }
-      this.removeFileTabByModelKey(keyToClose);
+  protected async onFileTabContextMenuCloseLeft(): Promise<void> {
+    const tabId = this.fileTabContextMenuTabId();
+    this.closeFileTabContextMenu();
+    if (!tabId) {
       return;
     }
+    const tabIds = [...fileTabIdsToLeft(this.fileTabs(), tabId)].reverse();
+    await this.closeFileTabsInOrder(tabIds);
+  }
 
-    if (detached && unsaved) {
-      const choice = await this.themedConfirm.open(detachedFileClosePrompt(displayPath));
-      if (choice === 'cancel') {
-        return;
-      }
-      if (choice === 'middle') {
-        const newKey = await this.workspaceMonaco?.saveAsForKey(modelKey);
-        if (!newKey) {
-          return;
-        }
-        keyToClose = newKey;
-      } else if (choice === 'confirm') {
-        await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
-      }
-    } else if (unsaved) {
-      const discard = await this.themedConfirm.open(unsavedCloseFileTabPrompt(displayPath));
-      if (discard !== 'confirm') {
-        return;
-      }
-    } else if (detached) {
-      await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
+  protected async onFileTabContextMenuCloseRight(): Promise<void> {
+    const tabId = this.fileTabContextMenuTabId();
+    this.closeFileTabContextMenu();
+    if (!tabId) {
+      return;
     }
+    const tabIds = [...fileTabIdsToRight(this.fileTabs(), tabId)].reverse();
+    await this.closeFileTabsInOrder(tabIds);
+  }
 
-    this.removeFileTabByModelKey(keyToClose);
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(ev: MouseEvent): void {
+    if (!this.fileTabContextMenuVisible()) {
+      return;
+    }
+    const inside = ev
+      .composedPath()
+      .some((n) => n instanceof HTMLElement && n.classList.contains('file-tab-context-menu'));
+    if (inside) {
+      return;
+    }
+    this.closeFileTabContextMenu();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeCloseFileTabContextMenu(): void {
+    if (this.fileTabContextMenuVisible()) {
+      this.closeFileTabContextMenu();
+    }
   }
 
   protected onWorkspaceFileOpen(payload: { absolutePath: string }): void {

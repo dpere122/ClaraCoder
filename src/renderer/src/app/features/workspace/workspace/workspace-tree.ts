@@ -62,6 +62,24 @@ export interface DirectoryEntry {
   isDirectory: boolean;
 }
 
+/** Identity of the workspace whose file tree is currently loaded. */
+export interface WorkspaceTreeLoadKey {
+  id: string | null;
+  path: string | undefined;
+}
+
+/** Skip reload when the same workspace is already loaded (preserves folder expansion). */
+export function shouldReloadWorkspaceTree(
+  lastLoaded: WorkspaceTreeLoadKey | null,
+  next: WorkspaceTreeLoadKey,
+  initialLoadComplete: boolean,
+): boolean {
+  if (!initialLoadComplete || !lastLoaded) {
+    return true;
+  }
+  return lastLoaded.id !== next.id || lastLoaded.path !== next.path;
+}
+
 export function fileNodesFromDirectoryEntries(entries: DirectoryEntry[], depth: number): FileNode[] {
   return entries.map((e) => ({
     name: e.name,

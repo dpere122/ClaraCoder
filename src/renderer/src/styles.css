@@ -134,6 +134,15 @@ lucide-icon svg {
   --t-hljs-selector: #2e6b2e;
   --t-log-level-error: #b3261e;
   --t-log-level-warning: #b45309;
+  --t-tui-frame: #8a7a68;
+  --t-tui-user-frame: #5c3d2e;
+  --t-tui-clara-frame: #5c4030;
+  --t-tui-input-frame: #5c3d2e;
+  --t-input-bg: #ebe5d9;
+  --t-input-fg: #2c1810;
+  --t-composer-bg: #e8dfd0;
+  --t-composer-input-bg: #ebe5d9;
+  --t-composer-input-focus-bg: #e0d6c6;
 }
 
 .theme-dark-classical {
@@ -192,6 +201,15 @@ lucide-icon svg {
   --t-hljs-selector: #a9cf95;
   --t-log-level-error: #ff8a7a;
   --t-log-level-warning: #f0c674;
+  --t-tui-frame: #d7b98d;
+  --t-tui-user-frame: #ffe8c8;
+  --t-tui-clara-frame: #c8b090;
+  --t-tui-input-frame: #d7b98dcc;
+  --t-input-bg: #16110e;
+  --t-input-fg: #f3e6d0;
+  --t-composer-bg: #140f0c;
+  --t-composer-input-bg: #261f1a;
+  --t-composer-input-focus-bg: #2e2520;
 }
 
 html.theme-classical .terminal-shell,
@@ -257,6 +275,13 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-hljs-selector: #9bb88e;
   --t-log-level-error: #e07a7a;
   --t-log-level-warning: #d4a84b;
+  --t-tui-frame: #c9a96e;
+  --t-tui-user-frame: #d8c8a0;
+  --t-tui-clara-frame: #a8b89a;
+  --t-tui-input-frame: #c9a96ecc;
+  --t-composer-bg: #121410;
+  --t-composer-input-bg: #22261f;
+  --t-composer-input-focus-bg: #2a3024;
 }
 
 .theme-clara-tui {
@@ -1004,13 +1029,19 @@ html.theme-woodland app-message-box .composer-mode-select option {
   color: var(--t-input-fg);
 }
 
-/* ── TUI themes (Clara TUI, Mae TUI): ASCII-framed chat + terminal composer ── */
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row-mount {
+/* ── ASCII-framed chat (TUI, Classical, Dark Classical, Woodland) ── */
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box.chat-layout-sidebar {
+  --chat-bubble-width: 100%;
+  --chat-response-bubble-width: 100%;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .chat-row-mount {
   width: 100%;
   max-width: 100%;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-box {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .chat-box {
   border: none;
   background-color: var(--t-bg);
   padding: 0;
@@ -1018,27 +1049,27 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-box {
   max-width: 100%;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .chat-row {
   margin-bottom: 0 !important;
   width: 100%;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row.d-flex {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .chat-row.d-flex {
   display: block;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row .msg-bubble,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-bubble,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .chat-row .msg-bubble,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-bubble,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble {
   width: 100%;
   max-width: 100%;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-turn-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-turn-bubble {
   gap: 0.1rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .msg-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .msg-bubble {
   border: none;
   border-radius: 0;
   margin: 0.05rem 0;
@@ -1048,19 +1079,19 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .msg-bubble {
   box-shadow: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-bubble {
   background-color: var(--t-user-bg);
   color: var(--t-user-fg);
   border: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble {
   background-color: var(--t-assistant-bg);
   color: var(--t-assistant-fg);
   border: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar {
   display: grid;
   width: 100%;
   min-width: 0;
@@ -1072,98 +1103,98 @@ html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar {
   white-space: nowrap;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--top {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--top {
   grid-template-columns: auto auto minmax(0, 1fr) auto;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--bottom {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--bottom {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--user {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--user {
   color: var(--t-tui-user-frame);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--clara {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--clara {
   color: var(--t-tui-clara-frame);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--input {
   color: var(--t-tui-input-frame);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__corner,
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill,
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__fill::before {
   opacity: 0.42;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar {
   font-size: 0.78rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__corner,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__fill,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__fill::before,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__corner,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill::before,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--input .tui-frame-bar__corner,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--input .tui-frame-bar__fill,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--input .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--user .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--user .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--user .tui-frame-bar__fill::before,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill::before,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--input .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--input .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--input .tui-frame-bar__fill::before {
   opacity: 0.92;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__corner,
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__label {
   flex: 0 0 auto;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__label {
   letter-spacing: 0.06em;
   opacity: 1;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--user .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--user .tui-frame-bar__label {
   color: var(--t-tui-frame);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--user .tui-frame-bar__label {
   color: var(--t-tui-user-frame);
   font-weight: 600;
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-user-frame) 45%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--clara .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--clara .tui-frame-bar__label {
   color: var(--t-tui-clara-frame);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label {
   color: var(--t-tui-clara-frame);
   font-weight: 600;
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--input .tui-frame-bar__label {
   color: var(--t-tui-user-frame);
   font-weight: 600;
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-input-frame) 35%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__corner,
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__fill,
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--input .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--input .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--input .tui-frame-bar__fill::before {
   opacity: 0.82;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__fill {
   min-width: 0;
   min-height: 1em;
   overflow: hidden;
   color: inherit;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__fill::before {
   content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
   display: inline-block;
   min-width: 100%;
@@ -1176,73 +1207,73 @@ html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill::before {
   color: inherit;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar__fill::before {
   content: "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════";
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar__body {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar__body {
   padding: 0.05rem 0.35rem;
   min-width: 0;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer .tui-frame-bar__body {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer .tui-frame-bar__body {
   padding: 0.15rem 0.35rem 0.2rem;
   min-width: 0;
   background: color-mix(in srgb, var(--t-secondary) 5%, transparent);
   overflow: visible;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-bubble::before,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble::before,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .msg-bubble::after,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-bubble::before,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble::before,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .msg-bubble::after,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .empty-state::before {
   content: none;
   display: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachment-image,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachment-file {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-attachment-image,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-attachment-file {
   border-radius: 0;
   border: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachments {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-attachments {
   gap: 0.15rem;
   margin-bottom: 0.1rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachment-file {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .user-attachment-file {
   padding: 0.05rem 0.15rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h1,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h2,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h3,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h4,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h5,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h6 {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble h1,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble h2,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble h3,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble h4,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble h5,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble h6 {
   text-shadow: none;
   margin: 0.15em 0 0.05em;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble p {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble p {
   margin: 0.15em 0;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble code {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble code {
   border: none;
   border-radius: 0;
   padding: 0.05em 0.2em;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble pre {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble pre {
   border: none;
   border-radius: 0;
   margin: 0.15em 0;
   padding: 0.15rem 0.25rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble blockquote {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble blockquote {
   border: none;
   border-radius: 0;
   background: transparent;
@@ -1250,26 +1281,26 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble blockqu
   padding: 0 0 0 0.35rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble hr {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .assistant-bubble hr {
   border: none;
   margin: 0.15em 0;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .processing-bubble,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tts-loading {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .processing-bubble,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tts-loading {
   border: none;
   gap: 0.15rem;
   margin-top: 0.1rem;
   padding-top: 0.1rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state-wrap {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .empty-state-wrap {
   margin: 0.1rem 0;
   width: 100%;
   max-width: 100%;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .empty-state {
   margin: 0;
   padding: 0.05rem 0;
   border: none;
@@ -1278,7 +1309,7 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state {
   letter-spacing: 0.04em;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer {
   border: none;
   margin: 0 0 0.05rem;
   padding: 0;
@@ -1287,21 +1318,21 @@ html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer {
   background: var(--t-composer-bg);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer::before {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer::before {
   content: none;
   display: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer-input {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer-input {
   padding: 0;
   gap: 0.1rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--top.tui-frame-bar--clara.tui-frame-bar--has-details {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--top.tui-frame-bar--clara.tui-frame-bar--has-details {
   grid-template-columns: auto auto minmax(0, 1fr) auto;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label-group {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__label-group {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -1319,41 +1350,41 @@ html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label-group {
   opacity: 0.88;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group {
   color: var(--t-tui-clara-frame);
   font-weight: 600;
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group .tui-frame-bar__label {
   letter-spacing: 0.06em;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label-group:hover {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__label-group:hover {
   opacity: 1;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__chevron-icon {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__chevron-icon {
   flex: 0 0 auto;
   letter-spacing: 0;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel > .auxiliary-stream-panel.stream-trail-panel > .stream-trail-panel__toggle {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel > .auxiliary-stream-panel.stream-trail-panel > .stream-trail-panel__toggle {
   display: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-panel__toggle,
-html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-panel__toggle {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel__toggle,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-panel__toggle {
   border: none;
   padding: 0 0 0.05rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row,
-html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
   border: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .llm-reasoning-panel {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .llm-reasoning-panel {
   border: none;
   border-radius: 0;
   margin-top: 0.05rem;
@@ -1361,34 +1392,34 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .llm-reasoning-panel {
   background-color: color-mix(in srgb, var(--t-tui-clara-frame) 6%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-panel,
-html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-panel {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-panel {
   margin-top: 0.05rem;
   margin-bottom: 0.05rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-panel {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel {
   background-color: color-mix(in srgb, var(--t-secondary) 4%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-panel {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-panel {
   background-color: color-mix(in srgb, var(--t-tui-clara-frame) 5%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-context-bar .chat-context-bar {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-context-bar .chat-context-bar {
   padding: 0.05rem 0;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-context-bar .chat-context-chip {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-context-bar .chat-context-chip {
   padding: 0.05rem 0.15rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .talk-status {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .talk-status {
   padding: 0.05rem 0.1rem;
   margin-bottom: 0.05rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-prompt {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-prompt {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
@@ -1399,21 +1430,39 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-prompt {
   font-weight: 600;
   user-select: none;
   text-shadow: 0 0 6px color-mix(in srgb, var(--t-tui-user-frame) 35%, transparent);
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-prompt:hover {
+  background-color: var(--t-hover-bg);
+  color: color-mix(in srgb, var(--t-tui-user-frame) 70%, white);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-prompt--active {
+  background-color: color-mix(in srgb, var(--t-tui-user-frame) 20%, transparent);
+  color: var(--t-tui-user-frame);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-prompt--active:hover {
+  background-color: color-mix(in srgb, var(--t-tui-user-frame) 28%, transparent);
+  color: color-mix(in srgb, var(--t-tui-user-frame) 70%, white);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row {
   background-color: var(--t-composer-input-bg);
   padding: 0.12rem 0.2rem;
   min-height: 2rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-input-wrap {
   background-color: transparent;
   padding: 0;
   min-height: unset;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .form-control {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-input-wrap .form-control {
   border: none;
   font-family: var(--t-font);
   background-color: transparent;
@@ -1421,11 +1470,11 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .
   padding-left: 0.1rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .form-control::placeholder {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-input-wrap .form-control::placeholder {
   color: color-mix(in srgb, var(--t-text-muted) 88%, var(--t-secondary) 12%);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .form-control:focus {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-input-wrap .form-control:focus {
   border: none;
   box-shadow: none;
   background-color: transparent;
@@ -1433,96 +1482,126 @@ html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .
   outline-offset: -1px;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-input-wrap .form-control--multiline {
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+  line-height: 1.35;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row {
   gap: 0.25rem 0.45rem;
   padding: 0 0.05rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .composer-mode-select,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .form-control,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-abort {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .composer-mode-select,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .form-control,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .composer-prompt,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-abort {
   border: none;
   padding: 0.1rem 0.25rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .composer-mode-select {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .composer-mode-select {
   padding: 0.1rem 0.85rem 0.1rem 0.2rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice:hover,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice:hover,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .composer-mode-select:hover,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn:hover {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .composer-mode-select:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .composer-prompt:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn:hover {
   border: none;
   background-color: var(--t-hover-bg);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice--active,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice--active {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice--active,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active {
   border: none;
   box-shadow: none;
   background-color: color-mix(in srgb, var(--t-tui-user-frame) 20%, transparent);
   color: var(--t-tui-user-frame);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice--active:hover,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice--active:hover {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice--active:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active:hover {
   border: none;
   background-color: color-mix(in srgb, var(--t-tui-user-frame) 28%, transparent);
   color: color-mix(in srgb, var(--t-tui-user-frame) 70%, white);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice--active .voice-mic-icon,
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice--active .voice-mic-icon {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice--active .voice-mic-icon,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active .voice-mic-icon {
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--t-tui-user-frame) 55%, transparent));
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-mode-select {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-mode-select {
   color-scheme: dark;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-mode-select option {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-mode-select option {
   background-color: var(--t-input-bg);
   color: var(--t-input-fg);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__status {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__status {
   border: none;
   padding: 0;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-status-cluster .context-capacity {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-status-cluster .context-capacity {
   gap: 0.35rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-status-cluster .context-capacity__circle-button {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-status-cluster .context-capacity__circle-button {
   width: 1.85rem;
   height: 1.85rem;
 }
 
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-conversation-hub .chat-hub__expand,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-conversation-hub .chat-hub__conv-toggle {
+  border: none;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-conversation-hub .chat-hub__expand:hover:not(:disabled),
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-conversation-hub .chat-hub__conv-toggle:hover {
+  border: none;
+}
+
 /* ASCII pseudo-elements provide frame lines; strip all other CSS borders in chat + composer. */
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box *,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box *::before,
-html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box *::after,
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer,
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer *,
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer *::before,
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer *::after,
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__status,
-html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__status * {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box *,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box *::before,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box *::after,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer *,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer *::before,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__composer *::after,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__status,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .chat-active-stack__status * {
   border: none !important;
   box-shadow: none !important;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-send {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-send {
   border: 1px dashed color-mix(in srgb, var(--t-secondary) 60%, transparent) !important;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-send:hover:not(:disabled) {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-send:hover:not(:disabled) {
   border-color: var(--t-secondary) !important;
+}
+
+/* Light Classical: skip glow on ASCII labels; native light dropdowns in composer. */
+html.theme-classical app-chat-box .tui-frame-bar--user .tui-frame-bar__label,
+html.theme-classical app-chat-box .tui-frame-bar--clara .tui-frame-bar__label,
+html.theme-classical app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group,
+html.theme-classical app-message-box .composer-prompt {
+  text-shadow: none;
+}
+
+html.theme-classical app-message-box .composer-mode-select {
+  color-scheme: light;
 }
 
 @media (max-width: 1100px) {

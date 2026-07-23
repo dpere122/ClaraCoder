@@ -111,24 +111,28 @@
       </div>
     </div>
   }
-  <div
-    #editorHost
-    class="workspace-monaco-editor workspace-monaco-pane"
-    [class.workspace-monaco-pane--hidden]="monacoDiffActive() || mdPreviewActive()"
-    aria-label="Workspace file editor"
-  ></div>
-  <div
-    #previewHost
-    class="workspace-monaco-md-preview workspace-monaco-pane"
-    [class.workspace-monaco-pane--hidden]="!mdPreviewActive() || monacoDiffActive()"
-    [innerHTML]="mdPreviewHtml()"
-    tabindex="0"
-    aria-label="Markdown preview"
-  ></div>
-  <div
-    #diffHost
-    class="workspace-monaco-diff workspace-monaco-pane"
-    [class.workspace-monaco-pane--hidden]="!monacoDiffActive()"
-    aria-label="Proposed edit diff"
-  ></div>
+  <div class="workspace-monaco-body">
+    <div class="workspace-monaco-editor-stack">
+      <div
+        #editorHost
+        class="workspace-monaco-editor workspace-monaco-pane"
+        [class.workspace-monaco-pane--hidden]="monacoDiffActive() || mdPreviewActive()"
+        aria-label="Workspace file editor"
+      ></div>
+      <div
+        #previewHost
+        class="workspace-monaco-md-preview workspace-monaco-pane"
+        [class.workspace-monaco-pane--hidden]="!mdPreviewActive() || monacoDiffActive()"
+        [innerHTML]="mdPreviewHtml()"
+        tabindex="0"
+        aria-label="Markdown preview"
+      ></div>
+      <div
+        #diffHost
+        class="workspace-monaco-diff workspace-monaco-pane"
+        [class.workspace-monaco-pane--hidden]="!monacoDiffActive()"
+        aria-label="Proposed edit diff"
+      ></div>
+    </div>
+  </div>
 </div>

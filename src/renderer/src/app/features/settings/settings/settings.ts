@@ -17,6 +17,7 @@ import { Subscription } from 'rxjs';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
+  ChatContainerSize,
   FontFamilyOption,
   HuggingFaceModelSearchItem,
   LlamaCppManaged,
@@ -37,7 +38,9 @@ import type {
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
+  CHAT_CONTAINER_SIZE_OPTIONS,
   CODE_FONT_FAMILY_OPTIONS,
+  DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
@@ -58,6 +61,7 @@ import {
   findLlmModelLocation,
   inferContextWindowTokens,
   mergeLlmProviderModel,
+  normalizeChatContainerSize,
   normalizeMonacoWorkspaceEditorSettings,
   optimizationPresetsForProvider,
   QWEN_PRESET_DEFAULTS,
@@ -207,7 +211,8 @@ export class Settings implements OnInit, OnDestroy {
       {
         id: 'chat',
         label: 'Chat appearance',
-        description: 'App UI scale, chat font size, app-wide UI font, and code font for message text.',
+        description:
+          'App UI scale, chat font size, expanded chat width, app-wide UI font, and code font for message text.',
       },
     ],
     tools: [
@@ -319,6 +324,8 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly talkAudioInputDevices = signal<TalkAudioInputDevice[]>([]);
   protected readonly talkAudioInputsLoadError = signal('');
   protected readonly chatFontSizeRem = signal(0.9);
+  protected readonly chatContainerSize = signal<ChatContainerSize>(DEFAULT_CHAT_CONTAINER_SIZE);
+  protected readonly chatContainerSizeOptions = CHAT_CONTAINER_SIZE_OPTIONS;
   protected readonly uiFontSizeRem = signal(UI_FONT_SIZE_REM_DEFAULT);
   /** App-wide UI font override (CSS font-family value); empty = theme default. */
   protected readonly uiFontFamily = signal('');
@@ -515,7 +522,9 @@ export class Settings implements OnInit, OnDestroy {
     switch (tab) {
       case 'general':
         if (id === 'chat') {
-          return `UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
+          const sizeLabel =
+            CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
+          return `${sizeLabel} · UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
         }
         break;
       case 'tools':
@@ -1480,6 +1489,11 @@ export class Settings implements OnInit, OnDestroy {
     this.markSettingsDirty();
   }
 
+  protected onChatContainerSizeChange(size: ChatContainerSize): void {
+    this.chatContainerSize.set(normalizeChatContainerSize(size));
+    this.markSettingsDirty();
+  }
+
   protected onUiFontSizeRemChange(rem: number): void {
     const clamped = clampUiFontSizeRem(rem);
     this.uiFontSizeRem.set(clamped);
@@ -1897,6 +1911,7 @@ export class Settings implements OnInit, OnDestroy {
     return {
       ...base,
       chatFontSizeRem: this.chatFontSizeRem(),
+      chatContainerSize: this.chatContainerSize(),
       uiFontSizeRem: this.uiFontSizeRem(),
       uiFontFamily: this.uiFontFamily(),
       codeFontFamily: this.codeFontFamily(),
@@ -2001,6 +2016,7 @@ export class Settings implements OnInit, OnDestroy {
       this.chatFontSizeRem.set(
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
       );
+      this.chatContainerSize.set(normalizeChatContainerSize(config.chatContainerSize));
       this.uiFontSizeRem.set(clampUiFontSizeRem(config.uiFontSizeRem));
       this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
       this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');
@@ -2047,6 +2063,7 @@ export class Settings implements OnInit, OnDestroy {
     this.chatFontSizeRem.set(
       typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
     );
+    this.chatContainerSize.set(normalizeChatContainerSize(config.chatContainerSize));
     this.uiFontSizeRem.set(clampUiFontSizeRem(config.uiFontSizeRem));
     this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
     this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');

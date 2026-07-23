@@ -128,6 +128,29 @@ export function clampUiFontSizeRem(value: unknown): number {
   return Math.min(UI_FONT_SIZE_REM_MAX, Math.max(UI_FONT_SIZE_REM_MIN, +n.toFixed(1)));
 }
 
+/** Max content width when chat is expanded to the main panel. Sidebar chat is always full width. */
+export type ChatContainerSize = 'narrow' | 'standard' | 'full-width';
+
+export const CHAT_CONTAINER_SIZE_OPTIONS: readonly { value: ChatContainerSize; label: string }[] = [
+  { value: 'narrow', label: 'Narrow' },
+  { value: 'standard', label: 'Standard' },
+  { value: 'full-width', label: 'Full width' },
+];
+
+export const DEFAULT_CHAT_CONTAINER_SIZE: ChatContainerSize = 'standard';
+
+const CHAT_CONTAINER_SIZE_VALUES = new Set<ChatContainerSize>(
+  CHAT_CONTAINER_SIZE_OPTIONS.map((opt) => opt.value),
+);
+
+/** Coerce persisted chat container size to a known value. */
+export function normalizeChatContainerSize(value: unknown): ChatContainerSize {
+  if (typeof value === 'string' && CHAT_CONTAINER_SIZE_VALUES.has(value as ChatContainerSize)) {
+    return value as ChatContainerSize;
+  }
+  return DEFAULT_CHAT_CONTAINER_SIZE;
+}
+
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
   provider: 'openai' | 'disabled' | 'google';
@@ -328,6 +351,11 @@ export interface MonacoWorkspaceEditorSettings {
   acceptSuggestionOnEnter: 'on' | 'off' | 'smart';
   paddingTop: number;
   paddingBottom: number;
+  stickyScrollEnabled: boolean;
+  formatOnSave: boolean;
+  parameterHintsEnabled: boolean;
+  hoverEnabled: boolean;
+  hoverDelay: number;
 }
 
 export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSettings {
@@ -367,6 +395,11 @@ export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSet
     acceptSuggestionOnEnter: 'on',
     paddingTop: 0,
     paddingBottom: 0,
+    stickyScrollEnabled: true,
+    formatOnSave: false,
+    parameterHintsEnabled: true,
+    hoverEnabled: true,
+    hoverDelay: 300,
   };
 }
 
@@ -487,6 +520,11 @@ export function normalizeMonacoWorkspaceEditorSettings(raw: unknown): {
     ),
     paddingTop: pickInt('paddingTop', 0, 200, base.paddingTop),
     paddingBottom: pickInt('paddingBottom', 0, 200, base.paddingBottom),
+    stickyScrollEnabled: pickBool('stickyScrollEnabled', base.stickyScrollEnabled),
+    formatOnSave: pickBool('formatOnSave', base.formatOnSave),
+    parameterHintsEnabled: pickBool('parameterHintsEnabled', base.parameterHintsEnabled),
+    hoverEnabled: pickBool('hoverEnabled', base.hoverEnabled),
+    hoverDelay: pickInt('hoverDelay', 0, 5000, base.hoverDelay),
   };
 
   for (const k of Object.keys(base) as (keyof MonacoWorkspaceEditorSettings)[]) {
@@ -606,6 +644,11 @@ export interface AppConfig {
    * Client-only UI preference; default 0.75.
    */
   chatSidebarWidthPercent?: number;
+  /**
+   * Max content width when chat is expanded to the main panel.
+   * Sidebar chat is always full width regardless of this setting.
+   */
+  chatContainerSize?: ChatContainerSize;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */

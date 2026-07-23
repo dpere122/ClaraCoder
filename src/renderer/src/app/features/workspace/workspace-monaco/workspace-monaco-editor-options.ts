@@ -93,5 +93,8 @@ export function monacoWorkspaceSettingsToEditorOptions(
     autoClosingQuotes: s.autoClosingQuotes,
     acceptSuggestionOnEnter: s.acceptSuggestionOnEnter,
     padding: { top: s.paddingTop, bottom: s.paddingBottom },
+    stickyScroll: { enabled: s.stickyScrollEnabled },
+    parameterHints: { enabled: s.parameterHintsEnabled },
+    hover: { enabled: s.hoverEnabled, delay: s.hoverDelay },
   } as Monaco.editor.IEditorOptions;
 }

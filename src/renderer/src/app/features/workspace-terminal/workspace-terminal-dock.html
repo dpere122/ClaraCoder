@@ -30,6 +30,20 @@
     } @else {
       <div class="workspace-terminal-dock__toolbar">
         <div class="workspace-terminal-dock__tabs" role="tablist">
+          @if (showProblemsTab()) {
+            <div
+              class="workspace-terminal-dock__tab workspace-terminal-dock__tab--problems"
+              [class.workspace-terminal-dock__tab--active]="problemsTabId === activeTabId()"
+              role="tab"
+              [attr.aria-selected]="problemsTabId === activeTabId()"
+              (click)="selectTab(problemsTabId)"
+            >
+              <span class="workspace-terminal-dock__tab-title">Problems</span>
+              @if (problemsTabCount(); as count) {
+                <span class="workspace-terminal-dock__tab-badge">{{ count }}</span>
+              }
+            </div>
+          }
           @for (tab of ptyDisplayTabs(); track tab.id) {
             <div
               class="workspace-terminal-dock__tab"
@@ -85,6 +99,19 @@
         </div>
       </div>
       <div class="workspace-terminal-dock__body">
+        @if (showProblemsTab()) {
+          <div
+            class="workspace-terminal-dock__pane workspace-terminal-dock__pane--problems"
+            [class.workspace-terminal-dock__pane--hidden]="problemsTabId !== activeTabId()"
+            role="tabpanel"
+          >
+            <app-editor-problems
+              [diagnostics]="editorDiagnostics()"
+              [relativePath]="editorDiagnosticsRelativePath()"
+              (revealDiagnostic)="onRevealEditorDiagnostic($event)"
+            />
+          </div>
+        }
         @for (tab of ptyTabs(); track tab.id) {
           <div
             class="workspace-terminal-dock__pane workspace-terminal-dock__pane--pty"

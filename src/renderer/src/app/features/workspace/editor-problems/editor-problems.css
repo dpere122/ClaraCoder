@@ -1,0 +1,91 @@
+.editor-problems {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--t-bg-deep);
+}
+
+.editor-problems__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--t-border-subtle);
+  color: var(--t-text-muted);
+  font-size: 0.75rem;
+}
+
+.editor-problems__path {
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-problems__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.editor-problems__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.2rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--t-fg);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-problems__row:hover {
+  background: var(--t-hover-bg);
+}
+
+.editor-problems__badge {
+  text-transform: capitalize;
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.editor-problems__severity--error .editor-problems__badge {
+  color: var(--t-log-level-error);
+}
+
+.editor-problems__severity--warning .editor-problems__badge {
+  color: var(--t-log-level-warning);
+}
+
+.editor-problems__severity--info .editor-problems__badge {
+  color: var(--t-hljs-number);
+}
+
+.editor-problems__severity--hint .editor-problems__badge {
+  color: var(--t-text-muted);
+}
+
+.editor-problems__message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-problems__loc {
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.editor-problems__empty {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--t-text-muted);
+}

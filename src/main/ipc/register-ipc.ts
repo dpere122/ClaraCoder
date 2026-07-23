@@ -15,6 +15,8 @@ import { registerWindowChromeIpc } from './handlers/window-chrome';
 import { registerLlamaServerIpc } from './handlers/llama-server';
 import { registerLmStudioIpc } from './handlers/lm-studio';
 import { registerLspStatusIpc } from './handlers/lsp-status';
+import { registerLspEditorExtendedIpc } from './handlers/lsp-editor-extended-ipc';
+import { registerLspDiagnosticsWatchIpc } from './handlers/lsp-diagnostics-watch';
 import { registerModelManagerIpc } from './handlers/model-manager';
 import { registerListSystemFontsIpc } from './handlers/list-system-fonts';
 
@@ -26,6 +28,8 @@ export function registerAllIpc(): void {
   registerLmStudioIpc();
   registerModelManagerIpc();
   registerLspStatusIpc();
+  registerLspEditorExtendedIpc();
+  registerLspDiagnosticsWatchIpc();
   registerWindowChromeIpc();
   registerConfigWorkspacesIpc();
   registerAudioTtsIpc();

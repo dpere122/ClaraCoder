@@ -60,6 +60,14 @@
   gap: 0;
   padding: 0.25rem 0.35rem;
   overflow: visible;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: filter 0.15s ease;
+}
+
+:host-context(body.sidebar-resizing) .chat-active-stack__composer {
+  filter: blur(5px);
+  pointer-events: none;
 }
 
 .chat-active-stack__composer-input {
@@ -75,13 +83,6 @@
   width: 100%;
 }
 
-.chat-active-stack__status {
-  flex-shrink: 0;
-  min-width: 0;
-  border-top: 1px solid var(--t-border-subtle);
-  padding: 0;
-}
-
 .composer-talk {
   flex: 0 1 auto;
   min-width: 0;
@@ -90,4 +91,31 @@
 
 .composer-talk--hidden {
   display: none !important;
+}
+
+:host.chat-active-stack--layout-expanded.chat-active-stack--container-narrow {
+  --chat-container-max-width: 32rem;
+}
+
+:host.chat-active-stack--layout-expanded.chat-active-stack--container-standard {
+  --chat-container-max-width: 48rem;
+}
+
+:host.chat-active-stack--layout-expanded:is(
+  .chat-active-stack--container-narrow,
+  .chat-active-stack--container-standard
+) .chat-active-stack {
+  align-items: center;
+}
+
+:host.chat-active-stack--layout-expanded:is(
+  .chat-active-stack--container-narrow,
+  .chat-active-stack--container-standard
+) .chat-active-stack__transcript,
+:host.chat-active-stack--layout-expanded:is(
+  .chat-active-stack--container-narrow,
+  .chat-active-stack--container-standard
+) .chat-active-stack__composer {
+  width: 100%;
+  max-width: var(--chat-container-max-width);
 }

@@ -1,0 +1,25 @@
+<div class="editor-problems">
+  @if (relativePath()) {
+    <div class="editor-problems__header">
+      <span class="editor-problems__path">{{ relativePath() }}</span>
+    </div>
+  }
+  <ul class="editor-problems__list" role="list">
+    @for (d of diagnostics(); track d.line + ':' + d.character + ':' + d.message) {
+      <li>
+        <button
+          type="button"
+          class="editor-problems__row"
+          [class]="severityClass(d)"
+          (click)="onRowClick(d)"
+        >
+          <span class="editor-problems__badge">{{ severityLabel(d) }}</span>
+          <span class="editor-problems__message">{{ d.message }}</span>
+          <span class="editor-problems__loc">Ln {{ d.line }}, Col {{ d.character }}</span>
+        </button>
+      </li>
+    } @empty {
+      <li class="editor-problems__empty">No problems detected.</li>
+    }
+  </ul>
+</div>

@@ -6,18 +6,44 @@
 }
 <div class="composer-stack" (mousedown)="onComposerMouseDown($event)">
   <div class="composer-entry-row">
-    <div class="composer-input-wrap">
-      <span class="composer-prompt" aria-hidden="true">&gt;</span>
-      <input
-        #messageInput
-        type="text"
-        class="form-control"
-        [ngModel]="userInput()"
-        (ngModelChange)="userInput.set($event)"
-        (keydown.enter)="send()"
-        [disabled]="contextBlocked()"
-        [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
-      />
+    <div
+      class="composer-input-wrap"
+      [class.composer-input-wrap--multiline]="multilineMode()"
+    >
+      <button
+        type="button"
+        class="composer-prompt"
+        [class.composer-prompt--active]="multilineMode()"
+        [attr.aria-pressed]="multilineMode()"
+        [title]="multilineMode() ? 'Multiline: Enter for new line · Shift+Enter to send' : 'Shift+Enter for multiline · Enter to send'"
+        aria-label="Toggle multiline input"
+        (mousedown)="onPromptMouseDown($event)"
+        (click)="toggleMultilineMode($event)"
+      >&gt;</button>
+      @if (multilineMode()) {
+        <textarea
+          #messageInput
+          class="form-control form-control--multiline"
+          rows="1"
+          [ngModel]="userInput()"
+          (ngModelChange)="userInput.set($event)"
+          (keydown)="onComposerKeydown($event)"
+          (input)="onTextareaInput()"
+          [disabled]="contextBlocked()"
+          [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
+        ></textarea>
+      } @else {
+        <input
+          #messageInput
+          type="text"
+          class="form-control"
+          [ngModel]="userInput()"
+          (ngModelChange)="userInput.set($event)"
+          (keydown)="onSingleLineKeydown($event)"
+          [disabled]="contextBlocked()"
+          [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
+        />
+      }
     </div>
     @if (loading()) {
       <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">

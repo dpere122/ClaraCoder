@@ -20,6 +20,12 @@ app-chat-box {
   --chat-details-header-fg: color-mix(in srgb, var(--t-primary) 72%, var(--t-secondary) 28%);
   --chat-details-stream-fg: color-mix(in srgb, var(--t-secondary) 55%, var(--t-text-muted) 45%);
   --chat-final-response-fg: var(--t-assistant-fg, var(--t-secondary));
+  transition: filter 0.15s ease;
+}
+
+body.sidebar-resizing app-chat-box {
+  filter: blur(5px);
+  pointer-events: none;
 }
 
 app-chat-box .chat-box {

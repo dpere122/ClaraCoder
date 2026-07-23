@@ -12,6 +12,7 @@ import type {
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
+  DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_KOKORO_TTS_VOICE,
   defaultLlamaCppManaged,
@@ -208,6 +209,7 @@ export function createDefaultConfig(): AppConfig {
     chatFontSizeRem: 0.9,
     uiFontSizeRem: 1.1,
     chatSidebarWidthPercent: 0.75,
+    chatContainerSize: DEFAULT_CHAT_CONTAINER_SIZE,
     uiFontFamily: '',
     codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),

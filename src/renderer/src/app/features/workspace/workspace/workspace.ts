@@ -20,6 +20,8 @@ import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialo
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
 import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
+import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
+import { WorkspaceOutlineDockComponent } from '../workspace-outline-dock/workspace-outline-dock';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
   absolutePathsFromWorkspaceChangeEvent,
@@ -41,9 +43,11 @@ import {
   renameFileNodeAtPath,
   scrollWorkspaceTreeNodeToPath,
   scrollWorkspaceTreeNodeToSelected,
+  shouldReloadWorkspaceTree,
   workspaceFileChangeDescriptorsFromEvent,
   type FileNode,
   type FlatNode,
+  type WorkspaceTreeLoadKey,
 } from './workspace-tree';
 import {
   isSafeNewFileRelativeName,
@@ -59,7 +63,7 @@ import {
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, ThemeSelector],
+  imports: [LucideAngularModule, ThemeSelector, WorkspaceOutlineDockComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -74,6 +78,10 @@ export class WorkspaceComponent implements OnDestroy {
   readonly activeConversationId = input<string | null>(null);
   /** Active editor tab path (workspace-relative); drives which integrated LSP is warmed and shown. */
   readonly activeFileRelativePath = input<string | null>(null);
+  /** Document outline symbols from the active Monaco tab. */
+  readonly outlineSymbols = input<readonly EditorOutlineSymbol[]>([]);
+  /** Relative path for the active outline (from Monaco). */
+  readonly outlineRelativePath = input<string | null>(null);
 
   readonly workspaceChanged = output<string | null>();
   readonly addWorkspace = output<void>();
@@ -81,6 +89,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly workspaceFileOpen = output<{ absolutePath: string }>();
   /** User chose "Add to chat" or dragged a file/folder out of the tree (absolute path on disk). */
   readonly addToChatContext = output<{ absolutePath: string; isDirectory: boolean }>();
+  /** User clicked a symbol in the outline panel — reveal in the editor. */
+  readonly outlineSymbolReveal = output<{ relativePath: string; line: number; column: number }>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   /** Flat tree with an inline pending-create row when the user is naming a new file/folder. */
@@ -162,6 +172,15 @@ export class WorkspaceComponent implements OnDestroy {
     return this.lspPythonServerRunning() || this.pythonWorkspaceTreeHints();
   });
 
+  /** Show outline dock when the active tab is an LSP-supported file. */
+  protected readonly outlinePanelVisible = computed(() => {
+    const rel = this.outlineRelativePath()?.trim() || this.activeFileRelativePath()?.trim();
+    if (!rel) {
+      return false;
+    }
+    return !!lspServerKindForWorkspaceRelativePath(rel.replace(/\\/g, '/'));
+  });
+
   /** Load interpreter list only when the workspace hints Python or a ``.py`` tab is active. */
   protected readonly shouldLoadPythonInterpreters = computed(() => {
     const path = this.activeFileRelativePath()?.trim().replace(/\\/g, '/');
@@ -189,6 +208,8 @@ export class WorkspaceComponent implements OnDestroy {
   private lastRevealedAbsolutePath: string | null = null;
   /** Flag to prevent reveal during initial tree load. */
   private initialLoadComplete = false;
+  /** Workspace identity for which `tree` was last loaded from disk. */
+  private lastLoadedWorkspaceKey: WorkspaceTreeLoadKey | null = null;
 
   /** Drop target folder (absolute path) while dragging over the tree. */
   protected readonly treeDropTargetDir = signal<string | null>(null);
@@ -210,6 +231,7 @@ export class WorkspaceComponent implements OnDestroy {
         this.clearAllDiskOpPending();
         this.lastRevealedAbsolutePath = null;
         this.initialLoadComplete = false;
+        this.lastLoadedWorkspaceKey = null;
         this.selectedPath.set(null);
       }
       this.lastEffectWorkspaceId = wsId ?? null;
@@ -330,6 +352,19 @@ export class WorkspaceComponent implements OnDestroy {
     const select = event.target as HTMLSelectElement;
     const value = select.value;
     this.workspaceChanged.emit(value || null);
+  }
+
+  protected onOutlineSymbolReveal(sym: EditorOutlineSymbol): void {
+    const rel = this.outlineRelativePath()?.trim() || this.activeFileRelativePath()?.trim();
+    if (!rel) {
+      return;
+    }
+    const r = sym.selectionRange ?? sym.range;
+    this.outlineSymbolReveal.emit({
+      relativePath: normalizePathSlashes(rel),
+      line: r.startLineNumber,
+      column: r.startColumn,
+    });
   }
 
   async onPythonInterpreterChange(event: Event): Promise<void> {
@@ -1136,6 +1171,14 @@ export class WorkspaceComponent implements OnDestroy {
       : wsId;
     this.pendingWorkspaceId = undefined;
     const ws = workspaces.find(w => w.id === targetWorkspaceId);
+    const nextKey: WorkspaceTreeLoadKey = {
+      id: targetWorkspaceId ?? null,
+      path: ws?.path,
+    };
+    if (!shouldReloadWorkspaceTree(this.lastLoadedWorkspaceKey, nextKey, this.initialLoadComplete)) {
+      return;
+    }
+    this.lastLoadedWorkspaceKey = nextKey;
     await this.loadRoot(ws?.path);
   }
 

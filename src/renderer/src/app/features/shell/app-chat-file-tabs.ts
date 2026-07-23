@@ -181,4 +181,55 @@ export function removeBuildPlanTab(tabs: readonly ChatFileTab[], planId: string)
   return tabs.filter((t) => t.buildPlanId !== planId);
 }
 
+function anchorTabIndex(tabs: readonly ChatFileTab[], anchorTabId: string): number {
+  return tabs.findIndex((t) => chatFileTabId(t) === anchorTabId);
+}
+
+/** Tab ids for open files strictly to the left of `anchorTabId`. */
+export function fileTabIdsToLeft(tabs: readonly ChatFileTab[], anchorTabId: string): string[] {
+  const anchorIdx = anchorTabIndex(tabs, anchorTabId);
+  if (anchorIdx <= 0) {
+    return [];
+  }
+  return tabs.slice(0, anchorIdx).map((t) => chatFileTabId(t));
+}
+
+/** Tab ids for open files strictly to the right of `anchorTabId`. */
+export function fileTabIdsToRight(tabs: readonly ChatFileTab[], anchorTabId: string): string[] {
+  const anchorIdx = anchorTabIndex(tabs, anchorTabId);
+  if (anchorIdx < 0 || anchorIdx >= tabs.length - 1) {
+    return [];
+  }
+  return tabs.slice(anchorIdx + 1).map((t) => chatFileTabId(t));
+}
+
+/** All open file tab ids, left-to-right. */
+export function allFileTabIds(tabs: readonly ChatFileTab[]): string[] {
+  return tabs.map((t) => chatFileTabId(t));
+}
+
+/** Reorder open file tabs; no-op when indices are equal or out of range. */
+export function reorderFileTabs(
+  tabs: readonly ChatFileTab[],
+  fromIndex: number,
+  toIndex: number,
+): ChatFileTab[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= tabs.length ||
+    toIndex >= tabs.length
+  ) {
+    return [...tabs];
+  }
+  const next = [...tabs];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) {
+    return [...tabs];
+  }
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
 export { openEditorFileRefFromRelativePath };

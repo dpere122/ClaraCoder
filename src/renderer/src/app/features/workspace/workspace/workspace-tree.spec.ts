@@ -11,6 +11,7 @@ import {
   PENDING_CREATE_TREE_PATH,
   removeFileNodeAtPath,
   renameFileNodeAtPath,
+  shouldReloadWorkspaceTree,
   treePathsEqual,
   workspaceFileChangeDescriptorsFromEvent,
   type FileNode,
@@ -211,5 +212,29 @@ describe('workspace-tree incremental mutations', () => {
   it('derives parent relative paths', () => {
     expect(parentWorkspaceRelativePath('src/main.ts')).toBe('src');
     expect(parentWorkspaceRelativePath('main.ts')).toBe('.');
+  });
+});
+
+describe('shouldReloadWorkspaceTree', () => {
+  const loaded = { id: 'ws-1', path: '/home/project' };
+
+  it('reloads when initial load is not complete', () => {
+    expect(shouldReloadWorkspaceTree(loaded, loaded, false)).toBe(true);
+  });
+
+  it('reloads when no prior workspace was loaded', () => {
+    expect(shouldReloadWorkspaceTree(null, loaded, true)).toBe(true);
+  });
+
+  it('skips reload when workspace id and path are unchanged', () => {
+    expect(shouldReloadWorkspaceTree(loaded, loaded, true)).toBe(false);
+  });
+
+  it('reloads when workspace id changes', () => {
+    expect(shouldReloadWorkspaceTree(loaded, { id: 'ws-2', path: '/home/project' }, true)).toBe(true);
+  });
+
+  it('reloads when workspace path changes', () => {
+    expect(shouldReloadWorkspaceTree(loaded, { id: 'ws-1', path: '/home/other' }, true)).toBe(true);
   });
 });

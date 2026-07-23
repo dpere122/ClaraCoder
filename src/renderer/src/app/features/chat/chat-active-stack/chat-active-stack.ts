@@ -1,27 +1,34 @@
-import { Component, input, model, output, signal } from '@angular/core';
+import { Component, computed, input, model, output, signal } from '@angular/core';
 import type {
   AppConfig,
   ComposerRunMode,
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
-import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
+import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize } from '@shared/index';
 import { ChatBox, type ChatMessage } from '../chat-box/chat-box';
 import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { MessageBox } from '../message-box/message-box';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
-import { StatusBarComponent } from '../../status/status-bar/status-bar';
-
 export type ChatLayoutMode = 'sidebar' | 'expanded';
 
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
 @Component({
   selector: 'app-chat-active-stack',
-  imports: [ChatBox, ChatContextBar, MessageBox, TalkMode, StatusBarComponent],
+  imports: [ChatBox, ChatContextBar, MessageBox, TalkMode],
   templateUrl: './chat-active-stack.html',
   styleUrl: './chat-active-stack.css',
+  host: {
+    '[class.chat-active-stack--layout-expanded]': 'layout() === "expanded"',
+    '[class.chat-active-stack--container-narrow]':
+      'layout() === "expanded" && resolvedContainerSize() === "narrow"',
+    '[class.chat-active-stack--container-standard]':
+      'layout() === "expanded" && resolvedContainerSize() === "standard"',
+    '[class.chat-active-stack--container-full-width]':
+      'layout() === "expanded" && resolvedContainerSize() === "full-width"',
+  },
 })
 export class ChatActiveStackComponent {
   /** Sidebar hub vs main-panel expanded overlay — reserved for layout-specific chrome. */
@@ -108,8 +115,11 @@ export class ChatActiveStackComponent {
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
-  readonly compressionNotice = input('');
   readonly autoApplyMode = model(false);
+
+  protected readonly resolvedContainerSize = computed(() =>
+    normalizeChatContainerSize(this.appConfig()?.chatContainerSize),
+  );
 
   protected readonly dragActive = signal(false);
 

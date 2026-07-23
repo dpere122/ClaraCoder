@@ -8,7 +8,7 @@
 
 :host ::ng-deep app-workspace-monaco,
 :host ::ng-deep app-workspace-terminal-dock,
-:host ::ng-deep app-chat-active-stack,
+:host ::ng-deep app-chat-active-stack .chat-active-stack__transcript,
 :host ::ng-deep input,
 :host ::ng-deep textarea {
   user-select: text;
@@ -291,6 +291,19 @@
   color: color-mix(in srgb, var(--t-warn, #e8b931) 75%, var(--t-text-muted, #888));
 }
 
+.chat-main-tab-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  cursor: grab;
+}
+
+.chat-main-tab-drag-handle:active {
+  cursor: grabbing;
+}
+
 .chat-main-tab-label {
   min-width: 0;
   flex: 1 1 auto;
@@ -298,6 +311,22 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+
+.chat-main-tab.cdk-drag-preview {
+  box-sizing: border-box;
+  border-bottom: 2px solid var(--t-primary, #0f0);
+  background: var(--t-bg-surface, #1a1a1a);
+  color: var(--t-primary, #0f0);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--t-fg, #fff) 18%, transparent);
+}
+
+.chat-main-tab.cdk-drag-placeholder {
+  opacity: 0.35;
+}
+
+.chat-area__tab-strip-tabs.cdk-drop-list-dragging .chat-main-tab:not(.cdk-drag-placeholder) {
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
 }
 
 .chat-main-tab-unsaved {
@@ -331,6 +360,40 @@
 .chat-main-tab-close:hover {
   opacity: 1;
   background: var(--t-hover-bg, #333);
+}
+
+.file-tab-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 11rem;
+  padding: 0.2rem 0;
+  margin: 0;
+  border: 1px solid var(--t-border, #444);
+  border-radius: 4px;
+  background: var(--t-bg, #1e1e1e);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.file-tab-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--t-primary, #0f0);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-tab-context-menu-item:hover:not(:disabled) {
+  background: var(--t-hover-bg, #333);
+}
+
+.file-tab-context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .chat-area__tab-panels {

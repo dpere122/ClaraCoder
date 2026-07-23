@@ -45,7 +45,6 @@ export class ConversationManager implements OnDestroy {
   readonly pendingIds = input<Set<string>>(new Set());
   readonly activeFileRelativePath = input<string | null>(null);
 
-  readonly newConversation = output<void>();
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();
   readonly renameConversation = output<{ id: string; title: string }>();

@@ -109,7 +109,6 @@ export class ChatActiveStackComponent {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
-  readonly editorMode = model(true);
   readonly autoApplyMode = model(false);
 
   protected readonly dragActive = signal(false);

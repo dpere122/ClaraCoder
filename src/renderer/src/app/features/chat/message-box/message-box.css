@@ -2,6 +2,7 @@
   display: block;
   width: 100%;
   min-width: 0;
+  overflow: visible;
 }
 
 .talk-status {
@@ -46,7 +47,16 @@
   font-style: italic;
 }
 
-.input-group {
+.composer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.composer-entry-row {
   display: flex;
   flex-wrap: nowrap;
   align-items: stretch;
@@ -54,7 +64,31 @@
   min-width: 0;
 }
 
-.input-group .btn-voice {
+.composer-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.composer-status-cluster {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  min-width: 0;
+  overflow: visible;
+}
+
+.composer-status-cluster app-context-capacity {
+  width: auto;
+}
+
+.composer-entry-row .btn-voice,
+.composer-options-row .btn-voice {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -63,28 +97,26 @@
   padding: 0.28rem 0.4rem;
   background-color: transparent;
   border: 1px solid var(--t-border-subtle);
-  border-right: none;
   border-radius: 0;
   color: var(--t-text-muted);
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.input-group .composer-mode-wrap {
+.composer-mode-wrap {
   position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: stretch;
 }
 
-.input-group .composer-mode-select {
+.composer-mode-select {
   appearance: none;
   margin: 0;
   min-width: 4.5rem;
   padding: 0.28rem 1.2rem 0.28rem 0.45rem;
   background-color: var(--t-input-bg, var(--t-bg));
   border: 1px solid var(--t-border-subtle);
-  border-right: none;
   border-radius: 0;
   color: var(--t-input-fg, var(--t-primary));
   font-family: inherit;
@@ -96,23 +128,23 @@
   transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.input-group .composer-mode-select:hover {
+.composer-mode-select:hover {
   background-color: var(--t-hover-bg);
 }
 
-.input-group .composer-mode-select:focus,
-.input-group .composer-mode-select:focus-visible,
-.input-group .composer-mode-select:active {
+.composer-mode-select:focus,
+.composer-mode-select:focus-visible,
+.composer-mode-select:active {
   outline: none;
   box-shadow: none;
 }
 
-.input-group .composer-mode-select option {
+.composer-mode-select option {
   background-color: var(--t-input-bg, var(--t-bg-deep));
   color: var(--t-input-fg, var(--t-fg));
 }
 
-.input-group .composer-mode-chevron {
+.composer-mode-chevron {
   position: absolute;
   right: 0.35rem;
   top: 50%;
@@ -127,40 +159,43 @@
   fill: none;
 }
 
-.input-group .btn-voice:hover {
+.composer-entry-row .btn-voice:hover,
+.composer-options-row .btn-voice:hover {
   background-color: var(--t-hover-bg);
   color: var(--t-fg);
 }
 
-.input-group .btn-voice--active {
+.composer-entry-row .btn-voice--active,
+.composer-options-row .btn-voice--active {
   color: var(--t-primary);
   border-color: var(--t-primary);
   box-shadow: 0 0 0 1px var(--t-primary);
   z-index: 1;
 }
 
-.input-group .btn-voice:focus-visible {
+.composer-entry-row .btn-voice:focus-visible,
+.composer-options-row .btn-voice:focus-visible {
   outline: 2px solid var(--t-primary);
   outline-offset: 1px;
 }
 
-.input-group .composer-input-wrap {
+.composer-input-wrap {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
   align-items: stretch;
 }
 
-.input-group .composer-prompt {
+.composer-prompt {
   display: none;
 }
 
-.input-group .composer-input-wrap .form-control {
+.composer-input-wrap .form-control {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.input-group .form-control {
+.composer-entry-row .form-control {
   border-radius: 0;
   flex: 1 1 auto;
   min-width: 0;
@@ -172,35 +207,38 @@
   font-size: 0.9rem;
 }
 
-.input-group .composer-input-wrap + .btn,
-.input-group .composer-input-wrap + .btn-abort,
-.input-group .form-control + .btn,
-.input-group .form-control + .btn-abort {
+.composer-entry-row .composer-input-wrap + .btn,
+.composer-entry-row .composer-input-wrap + .btn-abort {
   border-radius: 0;
 }
 
-.input-group .form-control::placeholder {
+.composer-entry-row .form-control::placeholder {
   color: var(--t-text-muted);
 }
 
-.input-group .form-control:focus {
+.composer-entry-row .form-control:focus {
   background-color: var(--t-input-bg, var(--t-bg));
   border-color: var(--t-primary);
   color: var(--t-input-fg, var(--t-primary));
   box-shadow: 0 0 0 1px var(--t-border);
 }
 
-.input-group .form-control:disabled {
+.composer-entry-row .form-control:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
 
-.input-group .btn:disabled {
+.composer-entry-row .btn-send {
+  border-style: dashed;
+}
+
+.composer-entry-row .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.input-group .btn {
+.composer-entry-row .btn {
+  flex-shrink: 0;
   background-color: transparent;
   border: 1px solid var(--t-border-subtle);
   color: var(--t-primary);
@@ -210,16 +248,16 @@
   transition: background-color 0.15s, border-color 0.15s;
 }
 
-.input-group .btn:hover {
+.composer-entry-row .btn:hover {
   background-color: var(--t-active-bg);
   border-color: var(--t-primary);
 }
 
-.input-group .btn:active {
+.composer-entry-row .btn:active {
   background-color: var(--t-hover-bg);
 }
 
-.input-group .btn-abort {
+.composer-entry-row .btn-abort {
   color: #e05050;
   border-color: #e05050;
   display: inline-flex;
@@ -228,9 +266,41 @@
   padding: 0.375rem 0.75rem;
 }
 
-.input-group .btn-abort:hover {
+.composer-entry-row .btn-abort:hover {
   background-color: rgba(224, 80, 80, 0.15);
   border-color: #e05050;
+}
+
+.composer-auto-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.composer-auto-run-checkbox {
+  width: 0.85rem;
+  height: 0.85rem;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--t-primary);
+  cursor: pointer;
+}
+
+.composer-auto-run-checkbox:focus-visible {
+  outline: 2px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
+.composer-auto-run-label {
+  color: var(--t-secondary);
+  font-size: 0.75rem;
+}
+
+.composer-auto-run:hover .composer-auto-run-label {
+  color: var(--t-fg);
 }
 
 :host ::ng-deep .stop-icon svg {

@@ -287,6 +287,9 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-code-text: #e8ecf0;
   --t-input-bg: #252334;
   --t-input-fg: #f8f9fa;
+  --t-composer-bg: #1e1c2a;
+  --t-composer-input-bg: #32304a;
+  --t-composer-input-focus-bg: #3a3852;
   --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --t-titlebar-start: #3f3d56;
   --t-titlebar-end: #2b2938;
@@ -317,14 +320,83 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-hljs-selector: #b19cd9;
   --t-log-level-error: #e07a7a;
   --t-log-level-warning: #d4a84b;
-  --t-tui-frame: #00b4d855;
+  --t-tui-frame: #00b4d8;
   --t-tui-label: #00b4d8;
-  --t-tui-user-frame: #00b4d855;
-  --t-tui-clara-frame: #b19cd955;
-  --t-tui-input-frame: #00b4d848;
+  --t-tui-user-frame: #48cae4;
+  --t-tui-clara-frame: #d4c4f5;
+  --t-tui-input-frame: #00b4d8cc;
+}
+
+.theme-mae-tui {
+  --t-bg: #0a0a0a;
+  --t-bg-surface: #111111;
+  --t-bg-deep: #050505;
+  --t-panel: #0e0e0e;
+  --t-primary: #d8d8d8;
+  --t-secondary: #39ff14;
+  --t-fg: #c8c8c8;
+  --t-border: #39ff1428;
+  --t-border-subtle: #39ff1414;
+  --t-glow: #39ff1420;
+  --t-glow-soft: #39ff140a;
+  --t-hover-bg: rgba(57, 255, 20, 0.08);
+  --t-active-bg: rgba(57, 255, 20, 0.14);
+  --t-selection-bg: rgba(57, 255, 20, 0.28);
+  --t-text-muted: #5a5a5a;
+  --t-muted: #5a5a5a;
+  --t-user-bg: #0c0c0c;
+  --t-user-fg: #00f0ff;
+  --t-user-border: #ffd70040;
+  --t-assistant-bg: #101010;
+  --t-assistant-fg: #ffffff;
+  --t-assistant-border: #00f0ff35;
+  --t-code-bg: #080808;
+  --t-code-inline-bg: #141414;
+  --t-code-text: #d0d0d0;
+  --t-input-bg: #080808;
+  --t-input-fg: #d8d8d8;
+  --t-composer-bg: #060606;
+  --t-composer-input-bg: #0e0e0e;
+  --t-composer-input-focus-bg: #161616;
+  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --t-titlebar-start: #111111;
+  --t-titlebar-end: #0a0a0a;
+  --t-titlebar-text: #39ff14;
+  --t-edge-light: #39ff14;
+  --t-edge-mid: #00cc44;
+  --t-edge-dark: #111111;
+  --t-edge-darkest: #0a0a0a;
+  --t-process-a: #39ff14;
+  --t-process-b: #ff0080;
+  --t-process-c: #00f0ff;
+  --t-run-command-tab: #39ff14;
+  --t-hljs-keyword: #39ff14;
+  --t-hljs-string: #ff0080;
+  --t-hljs-number: #ffaa00;
+  --t-hljs-comment: #505050;
+  --t-hljs-function: #00f0ff;
+  --t-hljs-class: #39ff14;
+  --t-hljs-attr: #ff0080;
+  --t-hljs-params: #d0d0d0;
+  --t-hljs-property: #00f0ff;
+  --t-hljs-punctuation: #666666;
+  --t-hljs-operator: #ffaa00;
+  --t-hljs-meta: #ff6600;
+  --t-hljs-tag: #39ff14;
+  --t-hljs-name: #00f0ff;
+  --t-hljs-symbol: #ffaa00;
+  --t-hljs-selector: #ff0080;
+  --t-log-level-error: #ff0040;
+  --t-log-level-warning: #ffaa00;
+  --t-tui-frame: #39ff14;
+  --t-tui-label: #39ff14;
+  --t-tui-user-frame: #ffd700;
+  --t-tui-clara-frame: #00f0ff;
+  --t-tui-input-frame: #ffd700cc;
 }
 
 /* Deep Indigo foundation, Clarity Cyan precision, Electric Violet spark — Luminous Clarity */
+/* Pitch black CRT, phosphor green chrome, neon cyan/magenta/amber sparks — Grungy Terminal */
 
 /* Olive drab metal, amber HUD highlights, shield cyan — Halo 3-era sci‑fi military UI */
 
@@ -398,6 +470,50 @@ app-shell > router-outlet + * {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--t-secondary);
+}
+
+/* TUI themes: chunky square scrollbars */
+html:is(.theme-clara-tui, .theme-mae-tui) {
+  scrollbar-color: var(--t-secondary) var(--t-bg-deep);
+  scrollbar-width: auto;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) ::-webkit-scrollbar-track {
+  background: var(--t-bg-deep);
+  border: 1px solid var(--t-border-subtle);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) ::-webkit-scrollbar-thumb {
+  background: var(--t-secondary);
+  border: 3px solid var(--t-bg-deep);
+  border-radius: 0;
+  min-height: 32px;
+  min-width: 32px;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) ::-webkit-scrollbar-thumb:hover {
+  background: var(--t-primary);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) ::-webkit-scrollbar-corner {
+  background: var(--t-bg-deep);
+  border: 1px solid var(--t-border-subtle);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .assistant-bubble pre code::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .assistant-bubble pre code::-webkit-scrollbar-thumb {
+  background: var(--t-secondary);
+  border: 2px solid var(--t-bg-deep);
+  border-radius: 0;
 }
 
 .code-block-wrapper {
@@ -888,13 +1004,13 @@ html.theme-woodland app-message-box .composer-mode-select option {
   color: var(--t-input-fg);
 }
 
-/* ── Clara TUI: ASCII-framed chat + terminal composer ── */
-html.theme-clara-tui app-chat-box .chat-row-mount {
+/* ── TUI themes (Clara TUI, Mae TUI): ASCII-framed chat + terminal composer ── */
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row-mount {
   width: 100%;
   max-width: 100%;
 }
 
-html.theme-clara-tui app-chat-box .chat-box {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-box {
   border: none;
   background-color: var(--t-bg);
   padding: 0;
@@ -902,27 +1018,27 @@ html.theme-clara-tui app-chat-box .chat-box {
   max-width: 100%;
 }
 
-html.theme-clara-tui app-chat-box .chat-row {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row {
   margin-bottom: 0 !important;
   width: 100%;
 }
 
-html.theme-clara-tui app-chat-box .chat-row.d-flex {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row.d-flex {
   display: block;
 }
 
-html.theme-clara-tui app-chat-box .chat-row .msg-bubble,
-html.theme-clara-tui app-chat-box .user-bubble,
-html.theme-clara-tui app-chat-box .assistant-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .chat-row .msg-bubble,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-bubble,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble {
   width: 100%;
   max-width: 100%;
 }
 
-html.theme-clara-tui app-chat-box .assistant-turn-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-turn-bubble {
   gap: 0.1rem;
 }
 
-html.theme-clara-tui app-chat-box .msg-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .msg-bubble {
   border: none;
   border-radius: 0;
   margin: 0.05rem 0;
@@ -932,19 +1048,19 @@ html.theme-clara-tui app-chat-box .msg-bubble {
   box-shadow: none;
 }
 
-html.theme-clara-tui app-chat-box .user-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-bubble {
   background-color: var(--t-user-bg);
   color: var(--t-user-fg);
   border: none;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble {
   background-color: var(--t-assistant-bg);
   color: var(--t-assistant-fg);
   border: none;
 }
 
-html.theme-clara-tui .tui-frame-bar {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar {
   display: grid;
   width: 100%;
   min-width: 0;
@@ -956,62 +1072,98 @@ html.theme-clara-tui .tui-frame-bar {
   white-space: nowrap;
 }
 
-html.theme-clara-tui .tui-frame-bar--top {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--top {
   grid-template-columns: auto auto minmax(0, 1fr) auto;
 }
 
-html.theme-clara-tui .tui-frame-bar--bottom {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--bottom {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
-html.theme-clara-tui .tui-frame-bar--user {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--user {
   color: var(--t-tui-user-frame);
 }
 
-html.theme-clara-tui .tui-frame-bar--clara {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--clara {
   color: var(--t-tui-clara-frame);
 }
 
-html.theme-clara-tui .tui-frame-bar--input {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input {
   color: var(--t-tui-input-frame);
 }
 
-html.theme-clara-tui .tui-frame-bar__corner,
-html.theme-clara-tui .tui-frame-bar__fill,
-html.theme-clara-tui .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill::before {
   opacity: 0.42;
 }
 
-html.theme-clara-tui .tui-frame-bar__corner,
-html.theme-clara-tui .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar {
+  font-size: 0.78rem;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__fill::before,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill::before,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--input .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--input .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--input .tui-frame-bar__fill::before {
+  opacity: 0.92;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label {
   flex: 0 0 auto;
 }
 
-html.theme-clara-tui .tui-frame-bar__label {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label {
   letter-spacing: 0.06em;
   opacity: 1;
 }
 
-html.theme-clara-tui .tui-frame-bar--user .tui-frame-bar__label {
-  color: #00b4d8;
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--user .tui-frame-bar__label {
+  color: var(--t-tui-frame);
 }
 
-html.theme-clara-tui .tui-frame-bar--clara .tui-frame-bar__label {
-  color: #b19cd9;
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--user .tui-frame-bar__label {
+  color: var(--t-tui-user-frame);
+  font-weight: 600;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-user-frame) 45%, transparent);
 }
 
-html.theme-clara-tui .tui-frame-bar--input .tui-frame-bar__label {
-  color: #00b4d8;
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--clara .tui-frame-bar__label {
+  color: var(--t-tui-clara-frame);
 }
 
-html.theme-clara-tui .tui-frame-bar__fill {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label {
+  color: var(--t-tui-clara-frame);
+  font-weight: 600;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__label {
+  color: var(--t-tui-user-frame);
+  font-weight: 600;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-input-frame) 35%, transparent);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__corner,
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__fill,
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--input .tui-frame-bar__fill::before {
+  opacity: 0.82;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill {
   min-width: 0;
   min-height: 1em;
   overflow: hidden;
   color: inherit;
 }
 
-html.theme-clara-tui .tui-frame-bar__fill::before {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__fill::before {
   content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
   display: inline-block;
   min-width: 100%;
@@ -1024,63 +1176,73 @@ html.theme-clara-tui .tui-frame-bar__fill::before {
   color: inherit;
 }
 
-html.theme-clara-tui app-chat-box .tui-frame-bar__body,
-html.theme-clara-tui .chat-active-stack__composer .tui-frame-bar__body {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar__fill::before {
+  content: "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════";
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar__body {
   padding: 0.05rem 0.35rem;
   min-width: 0;
 }
 
-html.theme-clara-tui app-chat-box .user-bubble::before,
-html.theme-clara-tui app-chat-box .assistant-bubble::before,
-html.theme-clara-tui app-chat-box .msg-bubble::after,
-html.theme-clara-tui app-chat-box .empty-state::before {
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer .tui-frame-bar__body {
+  padding: 0.15rem 0.35rem 0.2rem;
+  min-width: 0;
+  background: color-mix(in srgb, var(--t-secondary) 5%, transparent);
+  overflow: visible;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-bubble::before,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble::before,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .msg-bubble::after,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state::before {
   content: none;
   display: none;
 }
 
-html.theme-clara-tui app-chat-box .user-attachment-image,
-html.theme-clara-tui app-chat-box .user-attachment-file {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachment-image,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachment-file {
   border-radius: 0;
   border: none;
 }
 
-html.theme-clara-tui app-chat-box .user-attachments {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachments {
   gap: 0.15rem;
   margin-bottom: 0.1rem;
 }
 
-html.theme-clara-tui app-chat-box .user-attachment-file {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .user-attachment-file {
   padding: 0.05rem 0.15rem;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble h1,
-html.theme-clara-tui app-chat-box .assistant-bubble h2,
-html.theme-clara-tui app-chat-box .assistant-bubble h3,
-html.theme-clara-tui app-chat-box .assistant-bubble h4,
-html.theme-clara-tui app-chat-box .assistant-bubble h5,
-html.theme-clara-tui app-chat-box .assistant-bubble h6 {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h1,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h2,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h3,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h4,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h5,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble h6 {
   text-shadow: none;
   margin: 0.15em 0 0.05em;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble p {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble p {
   margin: 0.15em 0;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble code {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble code {
   border: none;
   border-radius: 0;
   padding: 0.05em 0.2em;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble pre {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble pre {
   border: none;
   border-radius: 0;
   margin: 0.15em 0;
   padding: 0.15rem 0.25rem;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble blockquote {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble blockquote {
   border: none;
   border-radius: 0;
   background: transparent;
@@ -1088,172 +1250,279 @@ html.theme-clara-tui app-chat-box .assistant-bubble blockquote {
   padding: 0 0 0 0.35rem;
 }
 
-html.theme-clara-tui app-chat-box .assistant-bubble hr {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .assistant-bubble hr {
   border: none;
   margin: 0.15em 0;
 }
 
-html.theme-clara-tui app-chat-box .processing-bubble,
-html.theme-clara-tui app-chat-box .tts-loading {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .processing-bubble,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tts-loading {
   border: none;
   gap: 0.15rem;
   margin-top: 0.1rem;
   padding-top: 0.1rem;
 }
 
-html.theme-clara-tui app-chat-box .empty-state-wrap {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state-wrap {
   margin: 0.1rem 0;
   width: 100%;
   max-width: 100%;
 }
 
-html.theme-clara-tui app-chat-box .empty-state {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .empty-state {
   margin: 0;
-  padding: 0.05rem 0.35rem;
+  padding: 0.05rem 0;
   border: none;
   color: var(--t-text-muted);
   font-size: 0.78rem;
   letter-spacing: 0.04em;
 }
 
-html.theme-clara-tui .chat-active-stack__composer {
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer {
   border: none;
   margin: 0 0 0.05rem;
   padding: 0;
   width: 100%;
   max-width: 100%;
-  background: var(--t-bg-deep);
+  background: var(--t-composer-bg);
 }
 
-html.theme-clara-tui .chat-active-stack__composer::before {
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer::before {
   content: none;
   display: none;
 }
 
-html.theme-clara-tui .chat-active-stack__composer-input {
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer-input {
   padding: 0;
   gap: 0.1rem;
 }
 
-html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-panel__toggle,
-html.theme-clara-tui app-hitl-trail-panel .stream-trail-panel__toggle {
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar--top.tui-frame-bar--clara.tui-frame-bar--has-details {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label-group {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.2em;
+  margin: 0;
+  margin-right: 0.2em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.88;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group {
+  color: var(--t-tui-clara-frame);
+  font-weight: 600;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group .tui-frame-bar__label {
+  letter-spacing: 0.06em;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__label-group:hover {
+  opacity: 1;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) .tui-frame-bar__chevron-icon {
+  flex: 0 0 auto;
+  letter-spacing: 0;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel > .auxiliary-stream-panel.stream-trail-panel > .stream-trail-panel__toggle {
+  display: none;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-panel__toggle,
+html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-panel__toggle {
   border: none;
   padding: 0 0 0.05rem;
 }
 
-html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row,
-html.theme-clara-tui app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
+html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row,
+html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
   border: none;
 }
 
-html.theme-clara-tui app-chat-box .llm-reasoning-panel {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box .llm-reasoning-panel {
   border: none;
   border-radius: 0;
   margin-top: 0.05rem;
   padding: 0.1rem 0.15rem;
-  background-color: rgba(177, 156, 217, 0.06);
+  background-color: color-mix(in srgb, var(--t-tui-clara-frame) 6%, transparent);
 }
 
-html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-panel,
-html.theme-clara-tui app-hitl-trail-panel .stream-trail-panel {
+html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-panel,
+html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-panel {
   margin-top: 0.05rem;
   margin-bottom: 0.05rem;
 }
 
-html.theme-clara-tui app-auxiliary-stream-panel .stream-trail-panel {
-  background-color: rgba(0, 180, 216, 0.04);
+html:is(.theme-clara-tui, .theme-mae-tui) app-auxiliary-stream-panel .stream-trail-panel {
+  background-color: color-mix(in srgb, var(--t-secondary) 4%, transparent);
 }
 
-html.theme-clara-tui app-hitl-trail-panel .stream-trail-panel {
-  background-color: rgba(177, 156, 217, 0.05);
+html:is(.theme-clara-tui, .theme-mae-tui) app-hitl-trail-panel .stream-trail-panel {
+  background-color: color-mix(in srgb, var(--t-tui-clara-frame) 5%, transparent);
 }
 
-html.theme-clara-tui app-chat-context-bar .chat-context-bar {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-context-bar .chat-context-bar {
   padding: 0.05rem 0;
 }
 
-html.theme-clara-tui app-chat-context-bar .chat-context-chip {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-context-bar .chat-context-chip {
   padding: 0.05rem 0.15rem;
 }
 
-html.theme-clara-tui app-message-box .talk-status {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .talk-status {
   padding: 0.05rem 0.1rem;
   margin-bottom: 0.05rem;
 }
 
-html.theme-clara-tui app-message-box .composer-prompt {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-prompt {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  padding: 0 0.05rem 0 0.1rem;
-  color: var(--t-secondary);
+  padding: 0 0.15rem 0 0.05rem;
+  color: var(--t-tui-user-frame);
   font-family: var(--t-font);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 600;
   user-select: none;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--t-tui-user-frame) 35%, transparent);
 }
 
-html.theme-clara-tui app-message-box .composer-input-wrap .form-control {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row {
+  background-color: var(--t-composer-input-bg);
+  padding: 0.12rem 0.2rem;
+  min-height: 2rem;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap {
+  background-color: transparent;
+  padding: 0;
+  min-height: unset;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .form-control {
   border: none;
   font-family: var(--t-font);
-  background-color: var(--t-input-bg);
+  background-color: transparent;
   box-shadow: none;
+  padding-left: 0.1rem;
 }
 
-html.theme-clara-tui app-message-box .composer-input-wrap .form-control:focus {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .form-control::placeholder {
+  color: color-mix(in srgb, var(--t-text-muted) 88%, var(--t-secondary) 12%);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-input-wrap .form-control:focus {
   border: none;
   box-shadow: none;
+  background-color: transparent;
+  outline: 1px solid color-mix(in srgb, var(--t-secondary) 70%, transparent);
+  outline-offset: -1px;
 }
 
-html.theme-clara-tui app-message-box .input-group .btn-voice,
-html.theme-clara-tui app-message-box .input-group .composer-mode-select,
-html.theme-clara-tui app-message-box .input-group .form-control,
-html.theme-clara-tui app-message-box .input-group .btn,
-html.theme-clara-tui app-message-box .input-group .btn-abort {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row {
+  gap: 0.25rem 0.45rem;
+  padding: 0 0.05rem;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .composer-mode-select,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .form-control,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-abort {
   border: none;
   padding: 0.1rem 0.25rem;
 }
 
-html.theme-clara-tui app-message-box .input-group .composer-mode-select {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .composer-mode-select {
   padding: 0.1rem 0.85rem 0.1rem 0.2rem;
 }
 
-html.theme-clara-tui app-message-box .input-group .btn-voice:hover,
-html.theme-clara-tui app-message-box .input-group .composer-mode-select:hover,
-html.theme-clara-tui app-message-box .input-group .btn:hover {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice:hover,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice:hover,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .composer-mode-select:hover,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn:hover {
   border: none;
   background-color: var(--t-hover-bg);
 }
 
-html.theme-clara-tui app-message-box .input-group .btn-voice--active {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice--active,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice--active {
   border: none;
   box-shadow: none;
+  background-color: color-mix(in srgb, var(--t-tui-user-frame) 20%, transparent);
+  color: var(--t-tui-user-frame);
 }
 
-html.theme-clara-tui app-message-box .composer-mode-select {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice--active:hover,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice--active:hover {
+  border: none;
+  background-color: color-mix(in srgb, var(--t-tui-user-frame) 28%, transparent);
+  color: color-mix(in srgb, var(--t-tui-user-frame) 70%, white);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-voice--active .voice-mic-icon,
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-options-row .btn-voice--active .voice-mic-icon {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--t-tui-user-frame) 55%, transparent));
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-mode-select {
   color-scheme: dark;
 }
 
-html.theme-clara-tui app-message-box .composer-mode-select option {
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-mode-select option {
   background-color: var(--t-input-bg);
   color: var(--t-input-fg);
 }
 
-html.theme-clara-tui .chat-active-stack__status {
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__status {
   border: none;
+  padding: 0;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-status-cluster .context-capacity {
+  gap: 0.35rem;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-status-cluster .context-capacity__circle-button {
+  width: 1.85rem;
+  height: 1.85rem;
 }
 
 /* ASCII pseudo-elements provide frame lines; strip all other CSS borders in chat + composer. */
-html.theme-clara-tui app-chat-box *,
-html.theme-clara-tui app-chat-box *::before,
-html.theme-clara-tui app-chat-box *::after,
-html.theme-clara-tui .chat-active-stack__composer,
-html.theme-clara-tui .chat-active-stack__composer *,
-html.theme-clara-tui .chat-active-stack__composer *::before,
-html.theme-clara-tui .chat-active-stack__composer *::after,
-html.theme-clara-tui .chat-active-stack__status,
-html.theme-clara-tui .chat-active-stack__status * {
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box *,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box *::before,
+html:is(.theme-clara-tui, .theme-mae-tui) app-chat-box *::after,
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer,
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer *,
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer *::before,
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__composer *::after,
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__status,
+html:is(.theme-clara-tui, .theme-mae-tui) .chat-active-stack__status * {
   border: none !important;
   box-shadow: none !important;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-send {
+  border: 1px dashed color-mix(in srgb, var(--t-secondary) 60%, transparent) !important;
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui) app-message-box .composer-entry-row .btn-send:hover:not(:disabled) {
+  border-color: var(--t-secondary) !important;
 }
 
 @media (max-width: 1100px) {

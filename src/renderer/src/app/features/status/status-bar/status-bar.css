@@ -6,17 +6,25 @@
 .status-bar {
   display: flex;
   position: relative;
-  align-items: flex-end;
+  align-items: center;
   gap: 0.45rem;
   width: 100%;
   min-width: 0;
-  padding: 0.2rem 0.35rem;
+  padding: 0.1rem 0.35rem;
   border-top: none;
+  min-height: 1.35rem;
 }
 
-.status-bar app-context-capacity {
-  flex: 1;
+.status-bar__compression-notice {
+  margin: 0;
+  flex: 1 1 auto;
   min-width: 0;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: var(--t-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-bar__workspace-file {

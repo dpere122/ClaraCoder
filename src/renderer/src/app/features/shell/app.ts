@@ -21,6 +21,8 @@ import type {
 import {
   DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
+  composerApplyMode,
+  composerModeForBackend,
   primaryAssistantTextFromParts,
   appendAndMergeReadToolPreviewChunk,
   findReadToolTrailTargetIndex,
@@ -135,14 +137,9 @@ export class App implements OnInit, OnDestroy {
   /** Errors / hints from talk capture (shown in composer status row). */
   protected readonly talkModeDetailStatus = model('');
   protected readonly talkEnabled = model(false);
-  /**
-   * Editor mode: when true, the backend binds edit/write tools (`apply_mode`). When false, read/search only.
-   * Auto apply is only available in the toolbar when this is on.
-   */
-  protected readonly editorMode = model(true);
   /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
   protected readonly autoApplyMode = model(false);
-  /** Composer run mode: agent (ReAct) or plan (plan-and-execute). */
+  /** Composer run mode: agent (ReAct), ask (read-only), or plan (plan-and-execute). */
   protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
   protected readonly streamingParts = signal<StreamPart[]>([]);
   protected readonly streamingPlanner = signal<PlannerProgress | null>(null);
@@ -449,14 +446,15 @@ export class App implements OnInit, OnDestroy {
 
     effect(() => {
       const convId = this.activeConversationId();
-      const effectiveAutoApply = this.editorMode() && this.autoApplyMode();
+      const mode = this.composerMode();
+      const effectiveAutoApply = composerApplyMode(mode) && this.autoApplyMode();
       if (convId) {
         void this.electron.syncAutoApplyMode(convId, effectiveAutoApply);
       }
     });
 
     effect(() => {
-      if (!this.editorMode()) {
+      if (this.composerMode() === 'ask') {
         this.autoApplyMode.set(false);
       }
     });
@@ -1013,14 +1011,15 @@ export class App implements OnInit, OnDestroy {
       this.clearChatContextFiles();
       this.pushMessage('user', normalized, undefined, undefined, undefined, undefined, structuredContent);
       const workspaceId = this.activeConversation?.workspaceId ?? this.currentWorkspaceId();
+      const mode = this.composerMode();
       this.electron.sendMessage(
         convId,
         normalized,
-        this.editorMode(),
-        this.editorMode() && this.autoApplyMode(),
+        composerApplyMode(mode),
+        composerApplyMode(mode) && this.autoApplyMode(),
         structuredContentForBackendRequest(structuredContent),
         workspaceId,
-        this.composerMode(),
+        composerModeForBackend(mode),
       );
       this.autoSave();
     } catch (err) {

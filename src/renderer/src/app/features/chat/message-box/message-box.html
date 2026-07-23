@@ -4,52 +4,78 @@
     <span class="talk-status-text">{{ talkStatus() || talkDetail() }}</span>
   </div>
 }
-<div class="input-group" (mousedown)="onComposerMouseDown($event)">
-  <button
-    type="button"
-    class="btn btn-voice"
-    [class.btn-voice--active]="voiceActive()"
-    [attr.aria-pressed]="voiceActive()"
-    (click)="onVoiceButtonClick()"
-    title="Voice: microphone input and spoken assistant replies"
-    aria-label="Toggle voice: microphone and spoken replies"
-  >
-    <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
-  </button>
-  <div class="composer-mode-wrap">
-    <select
-      class="composer-mode-select"
-      [ngModel]="composerMode()"
-      (ngModelChange)="composerMode.set($event)"
-      title="Run mode: Agent executes directly; Plan drafts steps first."
-      aria-label="Composer run mode"
+<div class="composer-stack" (mousedown)="onComposerMouseDown($event)">
+  <div class="composer-entry-row">
+    <div class="composer-input-wrap">
+      <span class="composer-prompt" aria-hidden="true">&gt;</span>
+      <input
+        #messageInput
+        type="text"
+        class="form-control"
+        [ngModel]="userInput()"
+        (ngModelChange)="userInput.set($event)"
+        (keydown.enter)="send()"
+        [disabled]="contextBlocked()"
+        [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
+      />
+    </div>
+    @if (loading()) {
+      <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">
+        <lucide-icon name="square" [size]="16" class="stop-icon"></lucide-icon>
+      </button>
+    } @else {
+      <button class="btn btn-send" type="button" (click)="send()" [disabled]="contextBlocked()">
+        SEND >>
+      </button>
+    }
+  </div>
+  <div class="composer-options-row">
+    <button
+      type="button"
+      class="btn btn-voice"
+      [class.btn-voice--active]="voiceActive()"
+      [attr.aria-pressed]="voiceActive()"
+      (click)="onVoiceButtonClick()"
+      title="Voice: microphone input and spoken assistant replies"
+      aria-label="Toggle voice: microphone and spoken replies"
     >
-      @for (mode of composerModes; track mode) {
-        <option [value]="mode">{{ composerModeLabels[mode] }}</option>
-      }
-    </select>
-    <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
-  </div>
-  <div class="composer-input-wrap">
-    <span class="composer-prompt" aria-hidden="true">&gt;</span>
-    <input
-      #messageInput
-      type="text"
-      class="form-control"
-      [ngModel]="userInput()"
-      (ngModelChange)="userInput.set($event)"
-      (keydown.enter)="send()"
-      [disabled]="contextBlocked()"
-      [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
-    />
-  </div>
-  @if (loading()) {
-    <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">
-      <lucide-icon name="square" [size]="16" class="stop-icon"></lucide-icon>
+      <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
     </button>
-  } @else {
-    <button class="btn" type="button" (click)="send()" [disabled]="contextBlocked()">
-      SEND >>
-    </button>
-  }
+    <div class="composer-mode-wrap">
+      <select
+        class="composer-mode-select"
+        [ngModel]="composerMode()"
+        (ngModelChange)="composerMode.set($event)"
+        title="Run mode: Agent executes directly; Ask is read-only; Plan drafts steps first."
+        aria-label="Composer run mode"
+      >
+        @for (mode of composerModes; track mode) {
+          <option [value]="mode">{{ composerModeLabels[mode] }}</option>
+        }
+      </select>
+      <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
+    </div>
+    @if (composerMode() !== 'ask') {
+      <label class="composer-auto-run">
+        <input
+          type="checkbox"
+          class="composer-auto-run-checkbox"
+          [ngModel]="autoApplyMode()"
+          (ngModelChange)="autoApplyMode.set($event)"
+          title="Run tool calls and apply edits automatically without side-by-side review in chat"
+        />
+        <span class="composer-auto-run-label">Auto Run</span>
+      </label>
+    }
+    <div class="composer-status-cluster">
+      <app-context-capacity
+        [compact]="true"
+        [appConfig]="appConfig()"
+        [usedTokens]="usedTokens()"
+        [maxTokens]="maxTokens()"
+        [remainingTokens]="remainingTokens()"
+        [usedPercentage]="usedPercentage()"
+      />
+    </div>
+  </div>
 </div>

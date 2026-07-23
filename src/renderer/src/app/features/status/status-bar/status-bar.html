@@ -1,14 +1,7 @@
 <div class="status-bar">
-  <app-context-capacity
-    [appConfig]="appConfig()"
-    [usedTokens]="usedTokens()"
-    [maxTokens]="maxTokens()"
-    [remainingTokens]="remainingTokens()"
-    [usedPercentage]="usedPercentage()"
-    [compressionNotice]="compressionNotice()"
-    [(editorMode)]="editorMode"
-    [(autoApplyMode)]="autoApplyMode"
-  />
+  @if (compressionNotice()) {
+    <p class="status-bar__compression-notice">{{ compressionNotice() }}</p>
+  }
   @if (workspaceFileChange.visible()) {
     <span
       class="status-bar__workspace-file"

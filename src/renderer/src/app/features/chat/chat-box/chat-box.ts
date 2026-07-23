@@ -22,6 +22,7 @@ import {
   Injector,
   input,
   OnDestroy,
+  DestroyRef,
   output,
   untracked,
   ElementRef,
@@ -44,6 +45,11 @@ import {
   DEFAULT_AUXILIARY_STREAM_PANEL_TITLE,
   PERSISTED_AUXILIARY_STREAM_PANEL_TITLE,
 } from './auxiliary-stream-panel/auxiliary-stream-panel';
+import {
+  type AuxiliaryPanelMode,
+  auxiliaryPanelContentVisible,
+  toggleAuxiliaryPanelMode,
+} from './auxiliary-stream-panel/auxiliary-stream-panel-modes';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { HitlTrailPanelComponent } from './hitl-trail-panel/hitl-trail-panel';
 import { RunButtonDirective } from './run-button.directive';
@@ -186,6 +192,9 @@ export class ChatBox implements OnDestroy {
   private chatDestroyed = false;
   private convScrollTimeout: ReturnType<typeof setTimeout> | null = null;
   private chatScrollResizeObserver: ResizeObserver | null = null;
+  /** Per-turn response-details expand state (Clara frame chevron + auxiliary panel). */
+  private readonly responseDetailsModes = signal<Record<string, AuxiliaryPanelMode>>({});
+  readonly liveResponseDetailsKey = 'live';
 
   /** Bridges `send-response` DOM events from nested HITL / run-button UI to `sendResponse` output. */
   private readonly onSendResponseDom: EventListener = ((event: Event) => {
@@ -215,6 +224,8 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
+  /** True when Clara TUI / Mae TUI ASCII frame chrome is active on `<html>`. */
+  readonly tuiFrameChrome = signal(false);
 
   // --- Outputs (HITL completion + composer send) ---
 
@@ -453,6 +464,10 @@ export class ChatBox implements OnDestroy {
     return latestPrimaryStreamSegmentText(this.streamingParts()).trim().length > 0;
   });
 
+  readonly hasLiveResponseDetails = computed(
+    () => this.showLiveAuxiliaryPanel() || this.liveHitlArtifacts().length > 0,
+  );
+
   /** Short status word beside the think/tool spinner in the live processing row. */
   readonly processingBubbleLabel = computed(() => {
     if (!this.loading()) {
@@ -464,7 +479,21 @@ export class ChatBox implements OnDestroy {
     return 'thinking';
   });
 
-  constructor(private el: ElementRef<HTMLElement>) {
+  constructor(
+    private el: ElementRef<HTMLElement>,
+    private destroyRef: DestroyRef,
+  ) {
+    afterNextRender(() => {
+      const syncTuiFrameChrome = (): void => {
+        const root = document.documentElement.classList;
+        this.tuiFrameChrome.set(root.contains('theme-clara-tui') || root.contains('theme-mae-tui'));
+      };
+      syncTuiFrameChrome();
+      const themeObserver = new MutationObserver(syncTuiFrameChrome);
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+      this.destroyRef.onDestroy(() => themeObserver.disconnect());
+    });
+
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
     afterNextRender(
       () => {
@@ -825,5 +854,40 @@ export class ChatBox implements OnDestroy {
   /** Persisted auxiliary panels use a fixed title (live stream uses brief-derived title). */
   auxiliaryPanelTitleForTurn(_row: ChatDisplayRow): string {
     return PERSISTED_AUXILIARY_STREAM_PANEL_TITLE;
+  }
+
+  persistedResponseDetailsKey(index: number): string {
+    return `row-${index}`;
+  }
+
+  hasResponseDetailsForRow(row: ChatDisplayRow): boolean {
+    if (row.kind !== 'assistant-turn') {
+      return false;
+    }
+    return (
+      persistedAuxiliaryStreamTimeline(row.assistant).length > 0 ||
+      this.hitlArtifactsForTurn(row).length > 0
+    );
+  }
+
+  responseDetailsMode(key: string): AuxiliaryPanelMode {
+    return this.responseDetailsModes()[key] ?? 'collapsed';
+  }
+
+  onResponseDetailsModeChange(key: string, mode: AuxiliaryPanelMode): void {
+    this.responseDetailsModes.update((modes) => ({ ...modes, [key]: mode }));
+  }
+
+  toggleResponseDetails(key: string, live: boolean, planPanelVisible: boolean): void {
+    const next = toggleAuxiliaryPanelMode(this.responseDetailsMode(key), live, planPanelVisible);
+    this.onResponseDetailsModeChange(key, next);
+  }
+
+  responseDetailsExpanded(key: string): boolean {
+    return auxiliaryPanelContentVisible(this.responseDetailsMode(key));
+  }
+
+  responseDetailsChevron(key: string): string {
+    return this.responseDetailsExpanded(key) ? '▼' : '▶';
   }
 }

@@ -1,23 +1,13 @@
-import { Component, inject, input, model } from '@angular/core';
-import type { AppConfig } from '@shared/index';
+import { Component, inject, input } from '@angular/core';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
-import { ContextCapacityComponent } from '../context-capacity/context-capacity';
 
 @Component({
   selector: 'app-status-bar',
-  imports: [ContextCapacityComponent],
+  imports: [],
   templateUrl: './status-bar.html',
   styleUrl: './status-bar.css',
 })
 export class StatusBarComponent {
   protected readonly workspaceFileChange = inject(WorkspaceFileChangeStatusService);
-  /** Active app config — drives the llama.cpp model/embeddings status dots. */
-  readonly appConfig = input<AppConfig | null>(null);
-  readonly usedTokens = input(0);
-  readonly maxTokens = input(128_000);
-  readonly remainingTokens = input(128_000);
-  readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
-  readonly editorMode = model(true);
-  readonly autoApplyMode = model(false);
 }

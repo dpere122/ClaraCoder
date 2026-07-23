@@ -1,49 +1,17 @@
 <div
   class="context-capacity"
+  [class.context-capacity--compact]="compact()"
   [class.context-capacity--healthy]="progressClass() === 'context-capacity--healthy'"
   [class.context-capacity--warn]="progressClass() === 'context-capacity--warn'"
   [class.context-capacity--danger]="progressClass() === 'context-capacity--danger'"
 >
-  <div class="context-capacity__details">
-    <div class="context-capacity__title-row">
-      <span class="context-capacity__label">Context</span>
-      <div class="context-capacity__editor-tools">
-        <app-editor-mode [(editorMode)]="editorMode" />
-        @if (editorMode()) {
-          <label class="context-capacity__auto-apply-label">Auto apply</label>
-          <button
-            type="button"
-            class="context-capacity__auto-apply-toggle"
-            [class.context-capacity__auto-apply-toggle--on]="autoApplyMode()"
-            (click)="toggleAutoApply()"
-            [attr.aria-pressed]="autoApplyMode()"
-            title="Accept proposed edits immediately without side-by-side review in chat"
-          >
-            <span class="context-capacity__auto-apply-track">
-              <span class="context-capacity__auto-apply-thumb"></span>
-            </span>
-          </button>
-        }
-      </div>
-    </div>
-    <div class="context-capacity__metrics">
-      <span>{{ formatCompact(usedTokens()) }} / {{ formatCompact(maxTokens()) }} tokens</span>
-      <span>{{ formatCompact(remainingTokens()) }} left</span>
-    </div>
-    @if (compressionNotice()) {
-      <p class="context-capacity__compression-notice">{{ compressionNotice() }}</p>
-    }
-  </div>
-
-  <app-llama-status-indicator [appConfig]="appConfig()" />
-
   <button
     type="button"
     class="context-capacity__circle-button"
-    [attr.aria-label]="tooltip()"
-    [attr.title]="percentageLabel()"
+    [attr.aria-label]="metricsTooltip()"
+    [attr.title]="metricsTooltip()"
   >
-    <span class="context-capacity__tooltip" role="tooltip">{{ percentageLabel() }}</span>
+    <span class="context-capacity__tooltip" role="tooltip">{{ metricsTooltip() }}</span>
     <svg class="context-capacity__circle" viewBox="0 0 40 40" aria-hidden="true">
       <circle class="context-capacity__track" cx="20" cy="20" r="16"></circle>
       <circle
@@ -57,4 +25,10 @@
     </svg>
     <span class="context-capacity__circle-label">{{ usedPercentage() }}</span>
   </button>
+
+  <app-llama-status-indicator [appConfig]="appConfig()" />
+
+  @if (compressionNotice() && !compact()) {
+    <p class="context-capacity__compression-notice">{{ compressionNotice() }}</p>
+  }
 </div>

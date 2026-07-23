@@ -59,20 +59,20 @@
   flex-direction: column;
   gap: 0;
   padding: 0.25rem 0.35rem;
+  overflow: visible;
 }
 
 .chat-active-stack__composer-input {
   display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
 }
 
 .chat-active-stack__composer-input app-message-box {
-  flex: 1 1 12rem;
+  flex: 1 1 auto;
   min-width: 0;
+  width: 100%;
 }
 
 .chat-active-stack__status {

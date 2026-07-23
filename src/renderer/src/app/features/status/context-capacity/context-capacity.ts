@@ -1,11 +1,10 @@
-import { Component, computed, input, model } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import type { AppConfig } from '@shared/index';
-import { EditorMode } from '../../layout/editor-mode/editor-mode';
 import { LlamaStatusIndicator } from '../llama-status-indicator/llama-status-indicator';
 
 @Component({
   selector: 'app-context-capacity',
-  imports: [EditorMode, LlamaStatusIndicator],
+  imports: [LlamaStatusIndicator],
   templateUrl: './context-capacity.html',
   styleUrl: './context-capacity.css',
 })
@@ -17,8 +16,8 @@ export class ContextCapacityComponent {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
-  readonly editorMode = model(true);
-  readonly autoApplyMode = model(false);
+  /** Inline composer row — hides compression notice and uses tighter spacing. */
+  readonly compact = input(false);
 
   private static readonly circleRadius = 16;
   private static readonly circleCircumference = 2 * Math.PI * ContextCapacityComponent.circleRadius;
@@ -26,7 +25,6 @@ export class ContextCapacityComponent {
     notation: 'compact',
     maximumFractionDigits: 1,
   });
-  private static readonly fullNumber = new Intl.NumberFormat('en');
 
   protected readonly progressClass = computed(() => {
     const usedPercentage = this.usedPercentage();
@@ -44,19 +42,11 @@ export class ContextCapacityComponent {
 
   protected readonly percentageLabel = computed(() => `${this.usedPercentage()}% used`);
 
-  protected readonly tooltip = computed(() => (
-    `${this.percentageLabel()} of ${this.formatFull(this.maxTokens())} tokens`
+  protected readonly metricsTooltip = computed(() => (
+    `${this.formatCompact(this.usedTokens())} / ${this.formatCompact(this.maxTokens())} tokens · ${this.formatCompact(this.remainingTokens())} left · ${this.percentageLabel()}`
   ));
 
   protected formatCompact(value: number): string {
     return ContextCapacityComponent.compactNumber.format(Math.max(0, value));
-  }
-
-  protected formatFull(value: number): string {
-    return ContextCapacityComponent.fullNumber.format(Math.max(0, value));
-  }
-
-  toggleAutoApply(): void {
-    this.autoApplyMode.set(!this.autoApplyMode());
   }
 }

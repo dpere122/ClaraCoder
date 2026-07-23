@@ -3,133 +3,49 @@
   width: 100%;
 }
 
+:host:has(.context-capacity--compact) {
+  width: auto;
+  overflow: visible;
+}
+
 .context-capacity {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 0.9rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
   width: 100%;
   min-width: 0;
 }
 
-.context-capacity__details {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.18rem;
-}
-
 .context-capacity app-llama-status-indicator {
   flex: 0 0 auto;
-  align-self: flex-end;
-  padding-bottom: 0.12rem;
+  margin-left: auto;
 }
 
-.context-capacity__title-row,
-.context-capacity__metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.85rem;
+.context-capacity--compact {
+  width: auto;
+  flex: 0 0 auto;
+  gap: 0.35rem;
+}
+
+.context-capacity--compact app-llama-status-indicator {
+  margin-left: 0;
+}
+
+.context-capacity--compact .context-capacity__tooltip {
+  left: auto;
+  right: 0;
 }
 
 .context-capacity__compression-notice {
   margin: 0;
-  font-size: 0.72rem;
-  line-height: 1.3;
+  font-size: 0.68rem;
+  line-height: 1.2;
   color: var(--text-muted, #8b949e);
-}
-
-.context-capacity__title-row {
-  align-items: center;
-}
-
-.context-capacity__editor-tools {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.55rem;
-  margin-left: 0.15rem;
-}
-
-/* Auto-apply switch: scoped names + resets so Bootstrap `button` / `.active` rules do not flatten the pill. */
-.context-capacity__auto-apply-label {
-  color: var(--t-secondary);
-  font-size: 0.75rem;
-  user-select: none;
-}
-
-.context-capacity__auto-apply-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  line-height: 0;
-  cursor: pointer;
-  outline: none;
-  box-shadow: none;
-  appearance: none;
-  vertical-align: middle;
-}
-
-.context-capacity__auto-apply-toggle:focus-visible .context-capacity__auto-apply-track {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--t-primary) 45%, transparent);
-}
-
-.context-capacity__auto-apply-track {
-  display: block;
-  width: 2rem;
-  height: 1.1rem;
-  border-radius: 0.55rem;
-  background-color: var(--t-border);
-  transition: background-color 0.2s;
-  position: relative;
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-
-.context-capacity__auto-apply-toggle--on .context-capacity__auto-apply-track {
-  background-color: var(--t-primary);
-}
-
-.context-capacity__auto-apply-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: calc(1.1rem - 4px);
-  height: calc(1.1rem - 4px);
-  border-radius: 50%;
-  background-color: var(--t-bg);
-  transition: transform 0.2s;
-  box-sizing: border-box;
-}
-
-.context-capacity__auto-apply-toggle--on .context-capacity__auto-apply-thumb {
-  transform: translateX(calc(2rem - 1.1rem));
-}
-
-.context-capacity__auto-apply-toggle:hover .context-capacity__auto-apply-track {
-  box-shadow: 0 0 4px var(--t-glow);
-}
-
-.context-capacity__label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--t-text-muted);
-}
-
-.context-capacity__metrics {
-  font-size: 0.82rem;
-  color: var(--t-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12rem;
 }
 
 .context-capacity__circle-button {
@@ -138,14 +54,15 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 2.4rem;
-  height: 2.4rem;
+  width: 2rem;
+  height: 2rem;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: inherit;
   cursor: default;
+  overflow: visible;
 }
 
 .context-capacity__circle {
@@ -173,15 +90,15 @@
 
 .context-capacity__circle-label {
   position: absolute;
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   font-weight: 700;
   color: var(--t-primary);
 }
 
 .context-capacity__tooltip {
   position: absolute;
-  right: 0;
-  bottom: calc(100% + 0.45rem);
+  left: 0;
+  bottom: calc(100% + 0.35rem);
   padding: 0.28rem 0.5rem;
   border: 1px solid var(--t-border);
   border-radius: 0.45rem;
@@ -194,6 +111,7 @@
   transform: translateY(0.2rem);
   transition: opacity 0.15s ease, transform 0.15s ease;
   box-shadow: 0 0.55rem 1.4rem rgba(0, 0, 0, 0.28);
+  z-index: 2;
 }
 
 .context-capacity__circle-button:hover .context-capacity__tooltip,

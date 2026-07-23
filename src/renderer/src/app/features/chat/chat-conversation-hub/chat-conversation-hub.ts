@@ -111,7 +111,6 @@ export class ChatConversationHubComponent {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly compressionNotice = input('');
-  readonly editorMode = model(true);
   readonly autoApplyMode = model(false);
 
   protected toggleExpanded(): void {

@@ -4,13 +4,16 @@ import {
   COMPOSER_RUN_MODES,
   COMPOSER_RUN_MODE_LABELS,
   DEFAULT_COMPOSER_RUN_MODE,
+  type AppConfig,
   type ComposerRunMode,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 
+import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
+
 @Component({
   selector: 'app-message-box',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, ContextCapacityComponent],
   templateUrl: './message-box.html',
   styleUrl: './message-box.css'
 })
@@ -21,7 +24,7 @@ import { LucideAngularModule } from 'lucide-angular';
  * via {@link messageSent}, {@link abortRequested}, and {@link voiceToggle}.
  */
 export class MessageBox {
-  /** Two-way run mode for the next turn (Agent vs Plan). */
+  /** Two-way run mode for the next turn (Agent, Ask, or Plan). */
   readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
   /** Select options bound in the template. */
   readonly composerModes = COMPOSER_RUN_MODES;
@@ -42,6 +45,14 @@ export class MessageBox {
   readonly contextBlocked = input(false);
   /** Staged reference-bar file count; allows send with empty text when > 0. */
   readonly attachmentCount = input(0);
+  /** When true (Agent/Plan), tool calls and edits run automatically. Hidden in Ask mode. */
+  readonly autoApplyMode = model(false);
+  /** Active app config — drives model/embeddings status beside the context meter. */
+  readonly appConfig = input<AppConfig | null>(null);
+  readonly usedTokens = input(0);
+  readonly maxTokens = input(128_000);
+  readonly remainingTokens = input(128_000);
+  readonly usedPercentage = input(0);
   /** Trimmed composer text (may be empty when attachments are present). */
   readonly messageSent = output<string>();
   /** User clicked Stop while {@link loading} is true. */

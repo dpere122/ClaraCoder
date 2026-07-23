@@ -16,17 +16,33 @@
       >
         @if (slot.row.kind === 'user') {
           <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--user" aria-hidden="true">
-            <span class="tui-frame-bar__corner">┌</span>
-            <span class="tui-frame-bar__label">─ USER ─</span>
+            <span class="tui-frame-bar__corner">╔</span>
+            <span class="tui-frame-bar__label">═ USER ═</span>
             <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">┐</span>
+            <span class="tui-frame-bar__corner">╗</span>
           </div>
         } @else {
-          <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara" aria-hidden="true">
-            <span class="tui-frame-bar__corner">┌</span>
-            <span class="tui-frame-bar__label">─ CLARA ─</span>
-            <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">┐</span>
+          <div
+            class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara"
+            [class.tui-frame-bar--has-details]="hasResponseDetailsForRow(slot.row)"
+          >
+            <span class="tui-frame-bar__corner" aria-hidden="true">╔</span>
+            @if (hasResponseDetailsForRow(slot.row)) {
+              <button
+                type="button"
+                class="tui-frame-bar__label-group"
+                (click)="toggleResponseDetails(persistedResponseDetailsKey(slot.index), false, !!planPanelForTurn(slot.row))"
+                [attr.aria-expanded]="responseDetailsExpanded(persistedResponseDetailsKey(slot.index))"
+                [attr.aria-label]="responseDetailsExpanded(persistedResponseDetailsKey(slot.index)) ? 'Collapse response details' : 'Expand response details'"
+              >
+                <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA</span>
+                <span class="tui-frame-bar__chevron-icon" aria-hidden="true">{{ responseDetailsChevron(persistedResponseDetailsKey(slot.index)) }}</span>
+              </button>
+            } @else {
+              <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
+            }
+            <span class="tui-frame-bar__fill" aria-hidden="true"></span>
+            <span class="tui-frame-bar__corner" aria-hidden="true">╗</span>
           </div>
         }
         <div class="tui-frame-bar__body">
@@ -58,6 +74,9 @@
                 [live]="false"
                 [planPanelVisible]="!!planPanelForTurn(row)"
                 [title]="auxiliaryPanelTitleForTurn(row)"
+                [hideHeaderToggle]="tuiFrameChrome()"
+                [mode]="responseDetailsMode(persistedResponseDetailsKey(slot.index))"
+                (modeChange)="onResponseDetailsModeChange(persistedResponseDetailsKey(slot.index), $event)"
               >
                 @if (turnArtifacts.length > 0) {
                   <app-hitl-trail-panel
@@ -115,15 +134,15 @@
         </div>
         @if (slot.row.kind === 'user') {
           <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user" aria-hidden="true">
-            <span class="tui-frame-bar__corner">└</span>
+            <span class="tui-frame-bar__corner">╚</span>
             <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">┘</span>
+            <span class="tui-frame-bar__corner">╝</span>
           </div>
         } @else {
           <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">
-            <span class="tui-frame-bar__corner">└</span>
+            <span class="tui-frame-bar__corner">╚</span>
             <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">┘</span>
+            <span class="tui-frame-bar__corner">╝</span>
           </div>
         }
       </div>
@@ -132,16 +151,18 @@
   } @empty {
     <div class="empty-state-wrap">
       <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--input" aria-hidden="true">
-        <span class="tui-frame-bar__corner">┌</span>
-        <span class="tui-frame-bar__label">─ AWAITING INPUT ─</span>
+        <span class="tui-frame-bar__corner">╔</span>
+        <span class="tui-frame-bar__label">═ AWAITING INPUT ═</span>
         <span class="tui-frame-bar__fill"></span>
-        <span class="tui-frame-bar__corner">┐</span>
+        <span class="tui-frame-bar__corner">╗</span>
       </div>
-      <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
+      <div class="tui-frame-bar__body">
+        <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
+      </div>
       <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--input" aria-hidden="true">
-        <span class="tui-frame-bar__corner">└</span>
+        <span class="tui-frame-bar__corner">╚</span>
         <span class="tui-frame-bar__fill"></span>
-        <span class="tui-frame-bar__corner">┘</span>
+        <span class="tui-frame-bar__corner">╝</span>
       </div>
     </div>
   }
@@ -152,11 +173,27 @@
         class="msg-bubble assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
-        <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara" aria-hidden="true">
-          <span class="tui-frame-bar__corner">┌</span>
-          <span class="tui-frame-bar__label">─ CLARA ─</span>
-          <span class="tui-frame-bar__fill"></span>
-          <span class="tui-frame-bar__corner">┐</span>
+        <div
+          class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara"
+          [class.tui-frame-bar--has-details]="hasLiveResponseDetails()"
+        >
+          <span class="tui-frame-bar__corner" aria-hidden="true">╔</span>
+          @if (hasLiveResponseDetails()) {
+            <button
+              type="button"
+              class="tui-frame-bar__label-group"
+              (click)="toggleResponseDetails(liveResponseDetailsKey, true, !!livePlanPanel())"
+              [attr.aria-expanded]="responseDetailsExpanded(liveResponseDetailsKey)"
+              [attr.aria-label]="responseDetailsExpanded(liveResponseDetailsKey) ? 'Collapse response details' : 'Expand response details'"
+            >
+              <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA</span>
+              <span class="tui-frame-bar__chevron-icon" aria-hidden="true">{{ responseDetailsChevron(liveResponseDetailsKey) }}</span>
+            </button>
+          } @else {
+            <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
+          }
+          <span class="tui-frame-bar__fill" aria-hidden="true"></span>
+          <span class="tui-frame-bar__corner" aria-hidden="true">╗</span>
         </div>
         <div class="tui-frame-bar__body">
         @if (showLiveAuxiliaryPanel() || liveHitlArtifacts().length > 0) {
@@ -166,6 +203,9 @@
               [live]="true"
               [planPanelVisible]="!!livePlanPanel()"
               [title]="liveAuxiliaryPanelTitle()"
+              [hideHeaderToggle]="tuiFrameChrome()"
+              [mode]="responseDetailsMode(liveResponseDetailsKey)"
+              (modeChange)="onResponseDetailsModeChange(liveResponseDetailsKey, $event)"
             >
               @if (liveHitlArtifacts().length > 0) {
                 <app-hitl-trail-panel
@@ -224,9 +264,9 @@
         }
         </div>
         <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">
-          <span class="tui-frame-bar__corner">└</span>
+          <span class="tui-frame-bar__corner">╚</span>
           <span class="tui-frame-bar__fill"></span>
-          <span class="tui-frame-bar__corner">┘</span>
+          <span class="tui-frame-bar__corner">╝</span>
         </div>
       </div>
     </div>

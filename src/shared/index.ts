@@ -3,11 +3,13 @@
  * No Node or Electron imports — safe to import from any compilation unit.
  */
 export type { Workspace } from './types/workspace';
-export type { ComposerRunMode } from './types/composer-mode';
+export type { ComposerBackendMode, ComposerRunMode } from './types/composer-mode';
 export {
   COMPOSER_RUN_MODES,
   COMPOSER_RUN_MODE_LABELS,
   DEFAULT_COMPOSER_RUN_MODE,
+  composerApplyMode,
+  composerModeForBackend,
 } from './types/composer-mode';
 export { looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel } from './llama-model-download';
 export type {

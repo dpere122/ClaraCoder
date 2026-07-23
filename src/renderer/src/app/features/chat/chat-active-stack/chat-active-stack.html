@@ -63,6 +63,12 @@
       />
       <app-message-box
         [(composerMode)]="composerMode"
+        [(autoApplyMode)]="autoApplyMode"
+        [appConfig]="appConfig()"
+        [usedTokens]="usedTokens()"
+        [maxTokens]="maxTokens()"
+        [remainingTokens]="remainingTokens()"
+        [usedPercentage]="usedPercentage()"
         [voiceActive]="voiceActive()"
         (voiceToggle)="voiceToggle.emit()"
         [talkStatus]="talkStatus()"
@@ -84,14 +90,7 @@
 
   <section class="chat-active-stack__status">
     <app-status-bar
-      [appConfig]="appConfig()"
-      [usedTokens]="usedTokens()"
-      [maxTokens]="maxTokens()"
-      [remainingTokens]="remainingTokens()"
-      [usedPercentage]="usedPercentage()"
       [compressionNotice]="compressionNotice()"
-      [(editorMode)]="editorMode"
-      [(autoApplyMode)]="autoApplyMode"
     />
   </section>
 </div>

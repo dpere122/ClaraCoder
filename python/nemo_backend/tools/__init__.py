@@ -15,6 +15,6 @@ Modules
 ``python_env`` — workspace venv bootstrap
 ``process`` — ``search_netstat_ports``, ``kill_process``
 ``review_tools`` — staging inspect/format/transfer/reject/overlay
-``project_review_tools`` — workspace pytest/smoke verification
+``project_review_tools`` — workspace pytest verification
 ``dependency_tools`` — named tool-list aggregators for registry merges
 """

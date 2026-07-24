@@ -214,6 +214,14 @@
           type='button'
           class='workspace-context-menu-item'
           role='menuitem'
+          (mousedown)='onContextMenuItemMousedown($event); onContextMenuOpenInFileExplorer()'
+        >
+          Open in File Explorer
+        </button>
+        <button
+          type='button'
+          class='workspace-context-menu-item'
+          role='menuitem'
           (mousedown)='onContextMenuItemMousedown($event); onContextMenuRename()'
         >
           Rename…

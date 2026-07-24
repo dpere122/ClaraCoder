@@ -286,7 +286,7 @@ def _format_port_report(
 
 
 @tool(SEARCH_NETSTAT_PORTS_NAME, description=describe('List listening TCP/UDP sockets on the host (`netstat` / `ss`).',
-        when='diagnosing port conflicts (e.g. EADDRINUSE) before smoke tests or dev servers.',
+        when='diagnosing port conflicts (e.g. EADDRINUSE) before starting app/dev servers via `run_command`.',
         not_='killing processes (use `kill_process` after identifying a PID).',
         shape='read-only; optional filter by port or local address substring; returns PIDs for `kill_process`.',))
 async def search_netstat_ports_tool(

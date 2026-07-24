@@ -167,7 +167,8 @@ export class App implements OnInit, OnDestroy {
   >();
   /**
    * Last measured prompt token count per conversation (from API usage metadata).
-   * Persists across conversation switches until a newer measurement replaces it.
+   * Cleared when switching to a conversation so the meter uses transcript estimate
+   * until the next token_usage or context_compressed event for that conversation.
    */
   protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
   protected readonly activeMeasuredPromptTokens = computed(() => {
@@ -536,6 +537,12 @@ export class App implements OnInit, OnDestroy {
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
       if (inputTokens > 0) {
         this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
+      }
+    });
+
+    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, tokensAfter }) => {
+      if (tokensAfter > 0) {
+        this.setMeasuredPromptTokensForConversation(conversationId, tokensAfter);
       }
     });
 
@@ -2184,6 +2191,7 @@ export class App implements OnInit, OnDestroy {
     const conv = await this.electron.loadConversation(id, workspaceId, { skipPythonResync: skipPython });
     this.activeConversation = conv;
     this.activeConversationId.set(conv.id);
+    this.removeContextMetricsForConversation(conv.id);
     this.messages.set(conv.messages);
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);

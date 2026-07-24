@@ -66,6 +66,11 @@ export function getWorkspaceSemanticIndexDir(): string {
   return path.join(getAppDataDir(), 'workspace-semantic-index');
 }
 
+/** Eclipse JDT LS download cache (Python ``NEMO_JAVA_LSP_CACHE_DIR``). */
+export function getJavaLspCacheDir(): string {
+  return path.join(getAppDataDir(), 'java-lsp');
+}
+
 /**
  * FastAPI entry script: dev (next to repo `python/`) vs packaged (`extraResources/python/`).
  */

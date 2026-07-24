@@ -798,6 +798,18 @@ export class WorkspaceComponent implements OnDestroy {
     this.addToChatContext.emit({ absolutePath: node.path, isDirectory: node.isDirectory });
   }
 
+  async onContextMenuOpenInFileExplorer(): Promise<void> {
+    const node = this.contextMenuNode();
+    this.closeContextMenu();
+    if (!node) {
+      return;
+    }
+    const res = await this.electron.showWorkspacePathInFileManager(node.path);
+    if (!res.ok) {
+      window.alert(res.error ?? 'Failed to open in file explorer.');
+    }
+  }
+
   onTreeNodeDragStart(event: DragEvent, node: FlatNode): void {
     if (this.isTreeNodeInlineEditing(node) || !event.dataTransfer) {
       event.preventDefault();

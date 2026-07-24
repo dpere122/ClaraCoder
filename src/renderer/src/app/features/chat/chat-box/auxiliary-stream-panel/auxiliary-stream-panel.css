@@ -8,6 +8,8 @@
  * visually distinct from the final response prose below it.
  */
 app-auxiliary-stream-panel .stream-trail-panel.auxiliary-stream-panel {
+  --aux-stream-peek-height: 10rem;
+  --aux-stream-full-height: min(50vh, 28rem);
   background: color-mix(in srgb, var(--t-surface-2, var(--t-bg)) 45%, transparent);
   border: 1px solid color-mix(in srgb, var(--t-border-subtle) 60%, transparent);
   border-radius: 0.4rem;
@@ -15,10 +17,23 @@ app-auxiliary-stream-panel .stream-trail-panel.auxiliary-stream-panel {
 }
 
 /** Expanded mode: capped height with a single outer scroll (overrides shared --full). */
-app-auxiliary-stream-panel .stream-trail-panel__viewport--full {
-  max-height: min(50vh, 28rem);
+app-auxiliary-stream-panel > .stream-trail-panel.auxiliary-stream-panel > .stream-trail-panel__viewport--full {
+  max-height: var(--aux-stream-full-height);
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/**
+ * Live stream: reserve the full viewport height immediately so the panel does not
+ * grow line-by-line as reasoning/tools arrive (peek + expanded both use fixed height).
+ * Direct-child selector avoids styling nested HITL trail viewports when edit review expands.
+ */
+app-auxiliary-stream-panel > .stream-trail-panel.auxiliary-stream-panel.stream-trail-panel--live > .stream-trail-panel__viewport--peek {
+  height: var(--aux-stream-peek-height);
+}
+
+app-auxiliary-stream-panel > .stream-trail-panel.auxiliary-stream-panel.stream-trail-panel--live > .stream-trail-panel__viewport--full {
+  height: var(--aux-stream-full-height);
 }
 
 app-auxiliary-stream-panel .auxiliary-stream-panel__reasoning {

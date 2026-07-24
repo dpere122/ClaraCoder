@@ -3,6 +3,7 @@ import { persistedAuxiliaryStreamTimeline } from '@shared/index';
 import {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideInstantScrollOnStreamingUpdate,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   isPendingHitlArtifact,
@@ -336,6 +337,83 @@ describe('isScrollWorthyAppendMessage', () => {
         reviewStatus: 'pending',
       }),
     ).toBe(true);
+  });
+});
+
+describe('decideInstantScrollOnStreamingUpdate', () => {
+  const empty = { prevPrimaryKey: '', prevAuxKey: '', prevAuxPanelVisible: false };
+
+  it('scrolls immediately when primary reply grows', () => {
+    expect(
+      decideInstantScrollOnStreamingUpdate(
+        { primaryKey: '12:hello world', auxKey: '', auxPanelVisible: false },
+        empty,
+      ),
+    ).toEqual({
+      scrollNow: true,
+      scrollAfterLayout: false,
+      next: { prevPrimaryKey: '12:hello world', prevAuxKey: '', prevAuxPanelVisible: false },
+    });
+  });
+
+  it('scrolls after layout when the live details panel first appears', () => {
+    expect(
+      decideInstantScrollOnStreamingUpdate(
+        { primaryKey: '', auxKey: '', auxPanelVisible: true },
+        empty,
+      ),
+    ).toEqual({
+      scrollNow: false,
+      scrollAfterLayout: true,
+      next: { prevPrimaryKey: '', prevAuxKey: '', prevAuxPanelVisible: true },
+    });
+  });
+
+  it('scrolls after layout when reasoning stream starts', () => {
+    expect(
+      decideInstantScrollOnStreamingUpdate(
+        {
+          primaryKey: '',
+          auxKey: 'reasoning:Model reasoning:42',
+          auxPanelVisible: true,
+        },
+        { prevPrimaryKey: '', prevAuxKey: '', prevAuxPanelVisible: true },
+      ),
+    ).toEqual({
+      scrollNow: false,
+      scrollAfterLayout: true,
+      next: {
+        prevPrimaryKey: '',
+        prevAuxKey: 'reasoning:Model reasoning:42',
+        prevAuxPanelVisible: true,
+      },
+    });
+  });
+
+  it('ignores ongoing auxiliary-only growth after the stream has started', () => {
+    const prev = {
+      prevPrimaryKey: '',
+      prevAuxKey: 'reasoning:Model reasoning:42',
+      prevAuxPanelVisible: true,
+    };
+    expect(
+      decideInstantScrollOnStreamingUpdate(
+        {
+          primaryKey: '',
+          auxKey: 'reasoning:Model reasoning:128',
+          auxPanelVisible: true,
+        },
+        prev,
+      ),
+    ).toEqual({
+      scrollNow: false,
+      scrollAfterLayout: false,
+      next: {
+        prevPrimaryKey: '',
+        prevAuxKey: 'reasoning:Model reasoning:128',
+        prevAuxPanelVisible: true,
+      },
+    });
   });
 });
 

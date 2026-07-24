@@ -13,6 +13,7 @@ export const LSP_EXTENSION_TO_SERVER: Readonly<Record<string, string>> = {
   '.mjs': 'typescript',
   '.cjs': 'typescript',
   '.gd': 'gdscript',
+  '.java': 'java',
 };
 
 /** Monaco ``languageId`` values that receive workspace LSP providers. */
@@ -21,12 +22,18 @@ export const LSP_MONACO_LANGUAGE_IDS: readonly string[] = [
   'typescript',
   'javascript',
   'gdscript',
+  'java',
 ];
 
 /**
  * Server ids used for ``/lsp/semantic-tokens-legend`` prefetch (order matches backend registration).
  */
-export const LSP_SEMANTIC_LEGEND_SERVER_IDS: readonly string[] = ['python', 'typescript', 'gdscript'];
+export const LSP_SEMANTIC_LEGEND_SERVER_IDS: readonly string[] = [
+  'python',
+  'typescript',
+  'gdscript',
+  'java',
+];
 
 /**
  * Subset prefetched on editor mount (empty — legends load when the first matching file opens).
@@ -60,6 +67,9 @@ export function lspServerIdForMonacoLanguageId(monacoLanguageId: string): string
   }
   if (id === 'gdscript') {
     return 'gdscript';
+  }
+  if (id === 'java') {
+    return 'java';
   }
   return null;
 }

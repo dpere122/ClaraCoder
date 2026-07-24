@@ -1,31 +1,13 @@
 export type AuxiliaryPanelMode = 'collapsed' | 'preview' | 'expanded';
 
-/** True when the panel should use live peek/expand cycling (tool stream still updating). */
-export function auxiliaryPanelStreamingPeek(live: boolean, planPanelVisible = false): boolean {
-  return live && !planPanelVisible;
+/** True when the panel should use live peek/expand cycling (stream still updating). */
+export function auxiliaryPanelStreamingPeek(live: boolean): boolean {
+  return live;
 }
 
 /** Default mode when the panel mounts (live → preview, persisted → collapsed). */
-export function initialAuxiliaryPanelMode(live: boolean, planPanelVisible = false): AuxiliaryPanelMode {
-  if (planPanelVisible) {
-    return 'collapsed';
-  }
+export function initialAuxiliaryPanelMode(live: boolean): AuxiliaryPanelMode {
   return live ? 'preview' : 'collapsed';
-}
-
-/** When the plan checklist appears, tuck the tool stream away unless already fully expanded. */
-export function transitionAuxiliaryPanelModeOnPlanVisibleChange(
-  mode: AuxiliaryPanelMode,
-  wasPlanVisible: boolean,
-  isPlanVisible: boolean,
-): AuxiliaryPanelMode {
-  if (wasPlanVisible === isPlanVisible) {
-    return mode;
-  }
-  if (isPlanVisible) {
-    return mode === 'expanded' ? 'expanded' : 'collapsed';
-  }
-  return mode === 'collapsed' ? 'preview' : mode;
 }
 
 /** Apply live-phase transitions when `live` changes after mount. */
@@ -56,12 +38,8 @@ export function resolveAuxiliaryPanelModeForLive(
 }
 
 /** Header toggle: preview ↔ expanded while streaming; collapsed ↔ expanded otherwise. */
-export function toggleAuxiliaryPanelMode(
-  mode: AuxiliaryPanelMode,
-  live: boolean,
-  planPanelVisible = false,
-): AuxiliaryPanelMode {
-  if (auxiliaryPanelStreamingPeek(live, planPanelVisible)) {
+export function toggleAuxiliaryPanelMode(mode: AuxiliaryPanelMode, live: boolean): AuxiliaryPanelMode {
+  if (auxiliaryPanelStreamingPeek(live)) {
     return mode === 'expanded' ? 'preview' : 'expanded';
   }
   return mode === 'expanded' ? 'collapsed' : 'expanded';

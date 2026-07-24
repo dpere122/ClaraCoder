@@ -643,7 +643,7 @@ async def write_frozen_python_requirements_file_tool(output_file: str = 'require
 
 @tool(BOOTSTRAP_PYTHON_TESTING_DEPENDENCIES_NAME, description=describe(
     'Install workspace requirements, testing dependencies, and Python LSP helpers into the current workspace `.venv`.',
-    when='preparing env for pytest, smoke tests, or LSP before project review.',
+    when='preparing env for pytest, runtime checks via `run_command`, or LSP before project review.',
     not_='Node/npm setup.',
     shape='installs `requirements.txt`/`requirements-dev.txt` when present plus `jedi-language-server` and testing deps.',
 ))

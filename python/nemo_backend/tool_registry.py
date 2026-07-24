@@ -4,12 +4,12 @@
 ``batch_delete_workspace_entries`` (any path, with HITL when auto-apply is off); staged create/update tools
 (``stage_create_file``, ``stage_workspace_file_overwrite``, ``stage_line_range_edit``, optional ``stage_snippet_edit``);
 Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``),
-TypeScript/JavaScript LSP staging mutators (``lsp_create_typescript_file``, etc.), and GDScript LSP staging mutators
-(``lsp_create_gdscript_file``, etc.);
+TypeScript/JavaScript LSP staging mutators (``lsp_create_typescript_file``, etc.), GDScript LSP staging mutators
+(``lsp_create_gdscript_file``, etc.), and Java LSP staging mutators (``lsp_create_java_file``, etc.);
 plus staging review/transfer tools. When Editor is on, the outer tool list also
 includes Python and Node dependency tool surfaces (merged by name with the existing
 ``python_dependency_tools`` / LSP read tools), ``discover_npm_projects`` / ``search_npm_packages`` for Node discovery and registry lookup, plus **local Angular CLI** (``angular_cli_tool``)
-and **workspace pytest/smoke** verification tools.
+and **workspace pytest** verification tools.
 
 When Editor and Auto-apply are both on, staging tools are replaced by direct workspace mutators
 (``apply_workspace_full_file``, ``replace_workspace_line_range``, optional ``replace_workspace_snippet``).
@@ -17,7 +17,7 @@ When Editor and Auto-apply are both on, staging tools are replaced by direct wor
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
 ``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
 the user confirms in chat (or returns for re-review) unless auto-apply is on.
-Workspace **execute** tools (venv bootstrap, pytest/smoke, staging overlay commands, and generic
+Workspace **execute** tools (venv bootstrap, pytest, staging overlay commands, and generic
 ``run_command`` background jobs with ``wait_for_command`` / ``kill_background_command`` /
 ``list_background_commands``) use the same accept-command pause when auto-apply is off
 (see :mod:`nemo_backend.deferred_tool_hitl`).
@@ -58,14 +58,17 @@ from nemo_backend.tools.python_deps import (
 )
 from nemo_backend.tools.lsp_tools import (
     LSP_CREATE_GDSCRIPT_FILE_NAME,
+    LSP_CREATE_JAVA_FILE_NAME,
     LSP_CREATE_PYTHON_FILE_NAME,
     LSP_CREATE_TYPESCRIPT_FILE_NAME,
     LSP_DELETE_GDSCRIPT_FILE_NAME,
+    LSP_DELETE_JAVA_FILE_NAME,
     LSP_DELETE_PYTHON_FILE_NAME,
     LSP_DELETE_TYPESCRIPT_FILE_NAME,
     LSP_MUTATION_TOOLS,
     LSP_READ_TOOLS,
     LSP_UPDATE_GDSCRIPT_FILE_NAME,
+    LSP_UPDATE_JAVA_FILE_NAME,
     LSP_UPDATE_PYTHON_FILE_NAME,
     LSP_UPDATE_TYPESCRIPT_FILE_NAME,
 )
@@ -118,6 +121,8 @@ _LSP_CREATE_UPDATE_NAMES = frozenset(
         LSP_UPDATE_TYPESCRIPT_FILE_NAME,
         LSP_CREATE_GDSCRIPT_FILE_NAME,
         LSP_UPDATE_GDSCRIPT_FILE_NAME,
+        LSP_CREATE_JAVA_FILE_NAME,
+        LSP_UPDATE_JAVA_FILE_NAME,
     }
 )
 
@@ -126,6 +131,7 @@ _LSP_DELETE_NAMES = frozenset(
         LSP_DELETE_PYTHON_FILE_NAME,
         LSP_DELETE_TYPESCRIPT_FILE_NAME,
         LSP_DELETE_GDSCRIPT_FILE_NAME,
+        LSP_DELETE_JAVA_FILE_NAME,
     }
 )
 
@@ -243,11 +249,7 @@ def worker_tools_and_map(
             tools.append(command_tool)
             mapping[command_tool.name] = command_tool
         from nemo_backend.tools.dependency_tools import dependency_specialist_tools, node_dependency_specialist_tools
-        from nemo_backend.tools.project_review_tools import (
-            run_workspace_node_smoke_test,
-            run_workspace_python_smoke_test,
-            run_workspace_pytest_tests,
-        )
+        from nemo_backend.tools.project_review_tools import run_workspace_pytest_tests
         from nemo_backend.tools.review_tools import staging_review_tools
 
         tools, mapping = merge_tools_replace_by_name(
@@ -259,11 +261,7 @@ def worker_tools_and_map(
                 ('staging_review', staging_review_tools(direct=direct)[0]),
                 (
                     'outer_workspace_verification',
-                    [
-                        run_workspace_pytest_tests,
-                        run_workspace_python_smoke_test,
-                        run_workspace_node_smoke_test,
-                    ],
+                    [run_workspace_pytest_tests],
                 ),
             ],
         )
@@ -355,11 +353,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
     ),
     (
         'Verification',
-        (
-            'run_workspace_pytest_tests',
-            'run_workspace_python_smoke_test',
-            'run_workspace_node_smoke_test',
-        ),
+        ('run_workspace_pytest_tests',),
     ),
     (
         'Process',

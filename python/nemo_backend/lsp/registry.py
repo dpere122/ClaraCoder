@@ -58,5 +58,7 @@ def display_label_for_server(server_id: str | None) -> str:
         return 'TypeScript'
     if s == 'gdscript':
         return 'GDScript'
+    if s == 'java':
+        return 'Java'
     return server_id.strip().title() or 'LSP'
 

@@ -23,6 +23,7 @@ from nemo_backend.agent_langgraph import stream_single_agent_langgraph
 from nemo_backend.plan_execute import stream_plan_execute_langgraph, PLAN_EXECUTE_APPLY_MODE
 from nemo_backend.agent_loop import AgentLoopOutcome, DEFAULT_AGENT_LOOP_POLICY, LangGraphWorkerOutcome
 from nemo_backend.checkpointing import delete_outer_thread
+from nemo_backend.context_compression import maybe_compact_outer_checkpoint
 from nemo_backend.agent_streaming import model_chunk_sse_line, sse_line, status_event
 from nemo_backend.config import MAX_TOOL_STATUS_LINE
 from nemo_backend.llm import build_llm
@@ -101,6 +102,15 @@ async def stream_agent_reply(
                 logger.info('Stream aborted for session %s', session_id)
                 break
             yield line
+
+        if (
+            graph_outcome.state == AgentLoopOutcome.COMPLETED
+            and mode != 'plan'
+            and session.active_langgraph_agent_streams == 0
+        ):
+            compact_stats = await maybe_compact_outer_checkpoint(session_id, apply_mode, session)
+            if compact_stats is not None and compact_stats.changed:
+                yield sse_line(compact_stats.to_sse_payload())
 
         if graph_outcome.state != AgentLoopOutcome.COMPLETED:
             thread_kind = 'plan' if mode == 'plan' else 'single'

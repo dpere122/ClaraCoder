@@ -9,6 +9,7 @@ export interface LspDashboardStatus {
   workspaceRoot?: string;
   realWorkspaceRoot?: string;
   typescriptProjectRoot?: string | null;
+  javaProjectRoot?: string | null;
   activeLspScope?: string;
   cachedDiagnostics?: number;
   diagnosticsCacheNote?: string;

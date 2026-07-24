@@ -272,6 +272,10 @@ describe('parseAgentStreamPayload', () => {
             confirmLabel: 'Run plan',
             cancelLabel: 'Cancel',
             steps: ['Step one'],
+            filesToChange: [
+              { path: 'src/new.ts', operation: 'create', rationale: 'add module' },
+              'src/legacy.ts — old string',
+            ],
           },
         }),
       ),
@@ -285,6 +289,10 @@ describe('parseAgentStreamPayload', () => {
         confirmLabel: 'Run plan',
         cancelLabel: 'Cancel',
         steps: ['Step one'],
+        filesToChange: [
+          { path: 'src/new.ts', operation: 'create', rationale: 'add module' },
+          { path: 'src/legacy.ts', operation: 'modify', rationale: 'old string' },
+        ],
       },
     });
   });

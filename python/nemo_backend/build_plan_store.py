@@ -8,9 +8,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from nemo_backend.domain import SessionState
 
@@ -22,8 +22,15 @@ STEP_ID_COMMENT_RE = re.compile(r'<!--\s*step-id:\s*(\S+)\s*-->')
 CHECKBOX_LINE_RE = re.compile(r'^- \[( |x|X)\] (.*)$')
 BUILD_PLAN_TITLE_RE = re.compile(r'^#\s*Build\s+Plan:\s*(.+)$', re.IGNORECASE)
 SECTION_HEADER_RE = re.compile(r'^##\s+(.+)$')
+FILE_CHANGE_OP_RE = re.compile(
+    r'^\[(create|modify|delete)\]\s+(.+)$',
+    re.IGNORECASE,
+)
 
 BUILD_PLAN_DRAFT_STUB = '# Build Plan\n\n_Generating plan…_\n'
+
+FileOperation = Literal['create', 'modify', 'delete']
+_FILE_OPERATIONS: frozenset[str] = frozenset({'create', 'modify', 'delete'})
 
 
 class OpenQuestion(BaseModel):
@@ -37,6 +44,20 @@ class OpenQuestion(BaseModel):
     )
 
 
+class FileChangeEntry(BaseModel):
+    """One planned file create, modify, or delete with rationale."""
+
+    path: str = Field(description='Workspace-relative path.')
+    operation: FileOperation = Field(
+        default='modify',
+        description='Whether the plan creates, modifies, or deletes this path.',
+    )
+    rationale: str = Field(
+        default='',
+        description='Brief reason for the file operation.',
+    )
+
+
 class ActionStep(BaseModel):
     """One enriched, verifiable milestone in a build plan."""
 
@@ -44,7 +65,7 @@ class ActionStep(BaseModel):
     goal: str = Field(description='The milestone outcome in one line (renders on the checkbox).')
     files_touched: list[str] = Field(
         default_factory=list,
-        description='Workspace-relative paths this step modifies.',
+        description='Workspace-relative paths this step creates, modifies, or deletes.',
     )
     approach: str = Field(default='', description='Brief description of how to implement the step.')
     acceptance_criteria: list[str] = Field(
@@ -66,9 +87,12 @@ class BuildPlanModel(BaseModel):
     current_implementation: str = Field(
         description='How the codebase currently handles this area (facts from discovery).',
     )
-    files_to_change: list[str] = Field(
+    files_to_change: list[FileChangeEntry] = Field(
         default_factory=list,
-        description='Workspace-relative paths with brief rationale, e.g. "src/foo.ts — add handler".',
+        description=(
+            'Files the plan will create, modify, or delete. '
+            'Each entry has path, operation (create|modify|delete), and rationale.'
+        ),
     )
     assumptions: list[str] = Field(
         default_factory=list,
@@ -87,6 +111,20 @@ class BuildPlanModel(BaseModel):
         default_factory=list,
         description='Ordered, verifiable milestone steps the executor should accomplish.',
     )
+
+    @field_validator('files_to_change', mode='before')
+    @classmethod
+    def _coerce_files_to_change(cls, value: Any) -> list[FileChangeEntry]:
+        if not value:
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        out: list[FileChangeEntry] = []
+        for item in value:
+            entry = coerce_file_change_entry(item)
+            if entry is not None:
+                out.append(entry)
+        return out
 
 
 @dataclass
@@ -203,11 +241,11 @@ def render_build_plan_md(doc: Any) -> str:
         '## Current Implementation',
         doc.current_implementation.strip(),
         '',
-        '## Files to Change',
+        '## File Changes',
     ]
-    file_rows = [str(item).strip() for item in (doc.files_to_change or []) if str(item).strip()]
-    if file_rows:
-        lines.extend(f'- {row}' for row in file_rows)
+    file_entries = _coerce_file_change_entries(doc.files_to_change or [])
+    if file_entries:
+        lines.extend(f'- {_format_file_change_bullet(entry)}' for entry in file_entries)
     else:
         lines.append('- (none specified)')
 
@@ -271,6 +309,81 @@ def _parse_bullet_list(lines: list[str]) -> list[str]:
             if text and text != '(none specified)':
                 rows.append(text)
     return rows
+
+
+def _split_path_rationale(text: str) -> tuple[str, str]:
+    """Split ``path — rationale`` (em/en dash) into path and rationale."""
+    for sep in ('—', '–'):
+        if sep in text:
+            left, right = text.split(sep, 1)
+            return left.strip(), right.strip()
+    return text.strip(), ''
+
+
+def _normalize_file_operation(value: object) -> FileOperation:
+    op = str(value or '').strip().lower()
+    if op in _FILE_OPERATIONS:
+        return op  # type: ignore[return-value]
+    return 'modify'
+
+
+def coerce_file_change_entry(raw: object) -> FileChangeEntry | None:
+    """Normalize a FileChangeEntry, dict, or legacy ``path — rationale`` string."""
+    if isinstance(raw, FileChangeEntry):
+        path = raw.path.strip()
+        if not path:
+            return None
+        return FileChangeEntry(
+            path=path,
+            operation=_normalize_file_operation(raw.operation),
+            rationale=str(raw.rationale or '').strip(),
+        )
+    if isinstance(raw, dict):
+        path = str(raw.get('path') or '').strip()
+        if not path:
+            return None
+        return FileChangeEntry(
+            path=path,
+            operation=_normalize_file_operation(raw.get('operation')),
+            rationale=str(raw.get('rationale') or '').strip(),
+        )
+    text = str(raw or '').strip()
+    if not text or text == '(none specified)':
+        return None
+    tagged = FILE_CHANGE_OP_RE.match(text)
+    if tagged:
+        operation = _normalize_file_operation(tagged.group(1))
+        path, rationale = _split_path_rationale(tagged.group(2).strip())
+        if not path:
+            return None
+        return FileChangeEntry(path=path, operation=operation, rationale=rationale)
+    path, rationale = _split_path_rationale(text)
+    if not path:
+        return None
+    return FileChangeEntry(path=path, operation='modify', rationale=rationale)
+
+
+def _coerce_file_change_entries(raw_items: list[Any]) -> list[FileChangeEntry]:
+    out: list[FileChangeEntry] = []
+    for item in raw_items:
+        entry = coerce_file_change_entry(item)
+        if entry is not None:
+            out.append(entry)
+    return out
+
+
+def _format_file_change_bullet(entry: FileChangeEntry) -> str:
+    path = entry.path.strip()
+    rationale = entry.rationale.strip()
+    op = _normalize_file_operation(entry.operation)
+    if rationale:
+        return f'[{op}] {path} — {rationale}'
+    return f'[{op}] {path}'
+
+
+def _parse_file_change_entries(lines: list[str]) -> list[FileChangeEntry]:
+    """Parse ``## File Changes`` / legacy ``## Files to Change`` bullets."""
+    return _coerce_file_change_entries(_parse_bullet_list(lines))
 
 
 QUESTION_ID_COMMENT_RE = re.compile(r'<!--\s*q-id:\s*(\S+)\s*-->')
@@ -407,11 +520,12 @@ def parse_build_plan_md(md_text: str) -> BuildPlanModel:
             )
         )
 
+    file_section_lines = sections.get('file changes') or sections.get('files to change') or []
     return BuildPlanModel(
         title=title or 'Build plan',
         task=_parse_section_body(sections.get('task', [])),
         current_implementation=_parse_section_body(sections.get('current implementation', [])),
-        files_to_change=_parse_bullet_list(sections.get('files to change', [])),
+        files_to_change=_parse_file_change_entries(file_section_lines),
         assumptions=_parse_bullet_list(sections.get('assumptions', [])),
         open_questions=_parse_open_questions(sections.get('open questions', [])),
         rollback_notes=_parse_section_body(sections.get('rollback notes', [])),
@@ -822,10 +936,13 @@ __all__ = [
     'ActionStep',
     'BuildPlanModel',
     'BuildPlanRecord',
+    'FileChangeEntry',
+    'FileOperation',
     'MAX_BUILD_PLANS',
     'OpenQuestion',
     'attach_active_plan',
     'cancel_build_plan',
+    'coerce_file_change_entry',
     'complete_build_plan',
     'create_build_plan',
     'create_build_plan_draft',

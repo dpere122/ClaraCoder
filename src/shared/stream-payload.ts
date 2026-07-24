@@ -6,6 +6,7 @@ import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
 import type { LlmStatusPayload, PlannerProgress } from './types/llm';
 import type { PlanConfirmPayload } from './types/plan-confirm';
+import { normalizePlanConfirmFilesToChange } from './types/plan-confirm';
 import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
 
 export type ParsedAgentStreamPayload =
@@ -25,7 +26,7 @@ export type ParsedAgentStreamPayload =
       streamTag?: string;
       label?: string;
       exitCode?: number | null;
-      /** Full or tail replay when live chunks were empty or incomplete (pytest/smoke). */
+      /** Full or tail replay when live chunks were empty or incomplete (pytest/overlay). */
       outputExcerpt?: string;
       /** When set, drives the terminal badge instead of raw exit code (watch-mode smoke tests). */
       outcome?: 'passed' | 'failed';
@@ -162,9 +163,13 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'plan_confirm' && parsed.planConfirm && typeof parsed.planConfirm === 'object') {
+      const rawConfirm = parsed.planConfirm as PlanConfirmPayload & { filesToChange?: unknown };
       return {
         type: 'plan_confirm',
-        planConfirm: parsed.planConfirm as PlanConfirmPayload,
+        planConfirm: {
+          ...rawConfirm,
+          filesToChange: normalizePlanConfirmFilesToChange(rawConfirm.filesToChange),
+        },
       };
     }
 

@@ -9,6 +9,7 @@
 :root {
   --t-bg: #191c17;
   --t-bg-surface: #22261f;
+  --t-surface: var(--t-bg-surface);
   --t-bg-deep: #121410;
   --t-panel: #1e221b;
   --t-primary: #a8b89a;
@@ -81,6 +82,7 @@ lucide-icon svg {
 .theme-classical {
   --t-bg: #f5f0e8;
   --t-bg-surface: #ebe5d9;
+  --t-surface: var(--t-bg-surface);
   --t-bg-deep: #e0d8c8;
   --t-panel: #f3ede4;
   --t-primary: #2c1810;
@@ -148,6 +150,7 @@ lucide-icon svg {
 .theme-dark-classical {
   --t-bg: #1b1613;
   --t-bg-surface: #261f1a;
+  --t-surface: var(--t-bg-surface);
   --t-bg-deep: #140f0c;
   --t-panel: #221c17;
   --t-primary: #f3e6d0;
@@ -220,6 +223,7 @@ html.theme-classical .interactive-output .terminal-shell {
 .theme-woodland {
   --t-bg: #191c17;
   --t-bg-surface: #22261f;
+  --t-surface: var(--t-bg-surface);
   --t-bg-deep: #121410;
   --t-panel: #1e221b;
   --t-primary: #a8b89a;
@@ -287,6 +291,7 @@ html.theme-classical .interactive-output .terminal-shell {
 .theme-clara-tui {
   --t-bg: #2b2938;
   --t-bg-surface: #3f3d56;
+  --t-surface: var(--t-bg-surface);
   --t-bg-deep: #252334;
   --t-panel: #353348;
   --t-primary: #f8f9fa;
@@ -355,6 +360,7 @@ html.theme-classical .interactive-output .terminal-shell {
 .theme-mae-tui {
   --t-bg: #0a0a0a;
   --t-bg-surface: #111111;
+  --t-surface: var(--t-bg-surface);
   --t-bg-deep: #050505;
   --t-panel: #0e0e0e;
   --t-primary: #d8d8d8;

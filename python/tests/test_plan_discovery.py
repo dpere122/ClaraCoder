@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from nemo_backend.build_plan_store import ActionStep, BuildPlanModel, render_build_plan_md
+from nemo_backend.build_plan_store import ActionStep, BuildPlanModel, FileChangeEntry, render_build_plan_md
 from nemo_backend.domain import SessionState
 from nemo_backend.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
@@ -35,7 +35,7 @@ def _sample_plan() -> BuildPlanModel:
         title='Plan',
         task='Build feature',
         current_implementation='None',
-        files_to_change=['src/a.ts — edit'],
+        files_to_change=[FileChangeEntry(path='src/a.ts', operation='modify', rationale='edit')],
         action_steps=[ActionStep(id='step-1', goal='Do work')],
     )
 

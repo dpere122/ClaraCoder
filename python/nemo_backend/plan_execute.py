@@ -40,6 +40,7 @@ from nemo_backend.build_plan_store import (
     ActionStep,
     BuildPlanModel,
     BuildPlanRecord,
+    FileChangeEntry,
     OpenQuestion,
     cancel_build_plan,
     complete_build_plan,
@@ -80,7 +81,13 @@ PLAN_MARKDOWN_TEMPLATE_EXAMPLE = render_build_plan_md(
         title='Short title',
         task='User goal in plain language.',
         current_implementation='Relevant existing behavior from discovery.',
-        files_to_change=['src/example.ts — brief rationale'],
+        files_to_change=[
+            FileChangeEntry(
+                path='src/example.ts',
+                operation='modify',
+                rationale='brief rationale',
+            )
+        ],
         assumptions=['Assumption the planner made, stated explicitly.'],
         open_questions=[
             {
@@ -108,16 +115,19 @@ PLAN_MARKDOWN_TEMPLATE_EXAMPLE = render_build_plan_md(
 
 PLAN_AUTHORING_GUIDELINES = (
     'Plan authoring guidelines (apply to every build plan):\n'
-    '- Grounding: every files_to_change entry must be justified by a concrete discovery finding '
-    '(a path, symbol, or pattern you observed). If you cannot ground an entry, do not invent it — '
-    'surface the gap as an open_question instead.\n'
+    '- Grounding: every modify/delete files_to_change entry must be justified by a concrete discovery '
+    'finding (a path, symbol, or pattern you observed). Create entries may use new paths, but the '
+    'parent directory or related existing code must still be grounded in discovery. If you cannot '
+    'ground an entry, do not invent it — surface the gap as an open_question instead.\n'
+    '- File operations: include creates, modifies, and deletes in files_to_change. Set operation to '
+    'create, modify, or delete for each entry; do not omit deletes or new files.\n'
     '- Granularity: use coarse-grained milestones — roughly one major outcome per action step. '
     'Do not bundle unrelated changes in one step, and do not add superfluous steps.\n'
     '- Verifiability: every action step must have checkable acceptance_criteria and a verification '
     'command or check (e.g. `pytest tests/x`, `npm run build`, a smoke request). A step is done only '
     'when its acceptance criteria are met.\n'
-    '- File mapping: list the files each step modifies in that step\'s files_touched. Keep files_to_change '
-    'as the plan-level summary with rationale.\n'
+    '- File mapping: list the files each step creates, modifies, or deletes in that step\'s '
+    'files_touched. Keep files_to_change as the plan-level summary with operation and rationale.\n'
     '- No discovery as action steps: discovery already ran. Do not add steps whose primary purpose is '
     'read-only exploration (search, inspect, read files, semantic lookup, "understand the codebase").\n'
     '- Risks: call out per-step risks (shared code, migrations, dep changes, breaking changes). At the '
@@ -230,10 +240,11 @@ def _resolved_answers_preamble(resolved_answers: str) -> str:
 
 
 def _grounding_gap_questions(plan_model: BuildPlanModel, discovery_summary: str) -> list[OpenQuestion]:
-    """Surface open questions for files_to_change entries not grounded by discovery.
+    """Surface open questions for modify/delete files_to_change entries not grounded by discovery.
 
     Lightweight LLM-free heuristic: an entry is grounded when its path (or basename) appears in the
-    discovery summary. Ungrounded entries become a yes/no open question so the user can confirm the
+    discovery summary. Create entries are skipped (new paths will not appear in discovery).
+    Ungrounded modify/delete entries become a yes/no open question so the user can confirm the
     planner should proceed despite the gap.
     """
     summary = (discovery_summary or '').strip()
@@ -242,11 +253,9 @@ def _grounding_gap_questions(plan_model: BuildPlanModel, discovery_summary: str)
     gaps: list[OpenQuestion] = []
     summary_lower = summary.lower()
     for entry in plan_model.files_to_change or []:
-        raw = str(entry).strip()
-        if not raw:
-            continue
-        path = raw.split('—', 1)[0].strip().split('–', 1)[0].strip()
-        if not path:
+        path = str(getattr(entry, 'path', '') or '').strip()
+        operation = str(getattr(entry, 'operation', 'modify') or 'modify').strip().lower()
+        if not path or operation == 'create':
             continue
         basename = path.rsplit('/', 1)[-1].rsplit('\\', 1)[-1].strip().lower()
         path_lower = path.lower()
@@ -254,13 +263,20 @@ def _grounding_gap_questions(plan_model: BuildPlanModel, discovery_summary: str)
             continue
         if basename and basename in summary_lower:
             continue
+        if operation == 'delete':
+            prompt = (
+                f'Discovery did not confirm the path "{path}". Should I proceed assuming it exists '
+                f'and is safe to delete?'
+            )
+        else:
+            prompt = (
+                f'Discovery did not confirm the path "{path}". Should I proceed assuming it exists '
+                f'and is the right place to make this change?'
+            )
         gaps.append(
             OpenQuestion(
                 id=f'q-ground-{len(gaps) + 1}',
-                prompt=(
-                    f'Discovery did not confirm the path "{path}". Should I proceed assuming it exists '
-                    f'and is the right place to make this change?'
-                ),
+                prompt=prompt,
                 options=['Proceed with the assumption', 'Cancel and let me clarify'],
             )
         )
@@ -356,7 +372,7 @@ def _planner_chain(planner_context: str, *, discovery_summary: str = '', resolve
                 '- title: short document title\n'
                 '- task: user goal in plain language\n'
                 '- current_implementation: relevant existing behavior from discovery\n'
-                '- files_to_change: list of "path — rationale" lines\n'
+                '- files_to_change: list of objects (path, operation create|modify|delete, rationale)\n'
                 '- assumptions: explicit assumptions the planner made\n'
                 '- open_questions: list of objects (id, prompt, options list) — only questions that block '
                 'the plan and only the user can answer; empty if you have enough context\n'

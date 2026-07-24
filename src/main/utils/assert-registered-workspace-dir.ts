@@ -8,18 +8,17 @@ function rejectNullBytes(p: string): void {
   }
 }
 
-/**
- * Ensures `dirPath` is an existing directory under a workspace from app config.
- * Prevents arbitrary filesystem enumeration via IPC.
- */
-export async function assertRegisteredWorkspaceDirectory(dirPath: string): Promise<string> {
-  if (typeof dirPath !== 'string' || !dirPath.trim()) {
-    throw new Error('Invalid directory path');
+async function assertRegisteredWorkspacePath(
+  absolutePath: string,
+  options?: { requireDirectory?: boolean },
+): Promise<string> {
+  if (typeof absolutePath !== 'string' || !absolutePath.trim()) {
+    throw new Error('Invalid path');
   }
-  rejectNullBytes(dirPath);
-  const resolved = await resolveExistingOrResolvedPath(dirPath.trim());
+  rejectNullBytes(absolutePath);
+  const resolved = await resolveExistingOrResolvedPath(absolutePath.trim());
   const stat = await fs.stat(resolved);
-  if (!stat.isDirectory()) {
+  if (options?.requireDirectory && !stat.isDirectory()) {
     throw new Error('Not a directory');
   }
   const config = await loadConfig();
@@ -34,5 +33,18 @@ export async function assertRegisteredWorkspaceDirectory(dirPath: string): Promi
       return resolved;
     }
   }
-  throw new Error('Directory is outside registered workspaces');
+  throw new Error('Path is outside registered workspaces');
+}
+
+/**
+ * Ensures `dirPath` is an existing directory under a workspace from app config.
+ * Prevents arbitrary filesystem enumeration via IPC.
+ */
+export async function assertRegisteredWorkspaceDirectory(dirPath: string): Promise<string> {
+  return assertRegisteredWorkspacePath(dirPath, { requireDirectory: true });
+}
+
+/** Ensures `absolutePath` is an existing file or directory under a registered workspace. */
+export async function assertRegisteredWorkspaceEntry(absolutePath: string): Promise<string> {
+  return assertRegisteredWorkspacePath(absolutePath);
 }

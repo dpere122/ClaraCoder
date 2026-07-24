@@ -48,6 +48,7 @@ import {
 import {
   type AuxiliaryPanelMode,
   auxiliaryPanelContentVisible,
+  initialAuxiliaryPanelMode,
   toggleAuxiliaryPanelMode,
 } from './auxiliary-stream-panel/auxiliary-stream-panel-modes';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
@@ -64,6 +65,7 @@ import {
 import {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideInstantScrollOnStreamingUpdate,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   hashChatToolPhaseKey,
@@ -87,6 +89,7 @@ import {
 export {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideInstantScrollOnStreamingUpdate,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   hitlArtifactsExcludingPlanConfirm,
@@ -186,6 +189,7 @@ export class ChatBox implements OnDestroy {
   /** Fingerprint tails for streaming scroll dedupe (primary vs auxiliary growth). */
   private prevStreamPrimaryKey = '';
   private prevStreamAuxKey = '';
+  private prevAuxPanelVisible = false;
   private wasProcessingToolsActive = false;
   /** Stable synonym pick for the “tool building” processing label. */
   private readonly toolPhaseSynonymIndex = signal(0);
@@ -578,7 +582,7 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    // During streaming: instant follow when primary `final_text` grows; ignore aux-only growth.
+    // During streaming: follow primary reply growth; scroll when live reasoning/tools panel opens.
     effect(() => {
       const loading = this.loading();
       const _parts = this.streamingParts();
@@ -594,19 +598,38 @@ export class ChatBox implements OnDestroy {
           .map((p) => `${String(p.streamTag ?? '')}:${String(p.label ?? '')}:${p.text.length}`)
           .join('\u001f');
 
-        const primaryChanged = primaryKey !== this.prevStreamPrimaryKey;
-        const auxChanged = auxKey !== this.prevStreamAuxKey;
-        if (primaryChanged) {
-          this.prevStreamPrimaryKey = primaryKey;
-        }
-        if (auxChanged) {
-          this.prevStreamAuxKey = auxKey;
-        }
-        if (!primaryChanged && auxChanged) {
+        const decision = decideInstantScrollOnStreamingUpdate(
+          {
+            primaryKey,
+            auxKey,
+            auxPanelVisible: this.showLiveAuxiliaryPanel(),
+          },
+          {
+            prevPrimaryKey: this.prevStreamPrimaryKey,
+            prevAuxKey: this.prevStreamAuxKey,
+            prevAuxPanelVisible: this.prevAuxPanelVisible,
+          },
+        );
+        this.prevStreamPrimaryKey = decision.next.prevPrimaryKey;
+        this.prevStreamAuxKey = decision.next.prevAuxKey;
+        this.prevAuxPanelVisible = decision.next.prevAuxPanelVisible;
+
+        if (!this.pinToBottom) {
           return;
         }
-        if (primaryChanged && this.pinToBottom) {
+        if (decision.scrollNow) {
           this.scrollToBottom('instant');
+        }
+        if (decision.scrollAfterLayout) {
+          afterNextRender(
+            () => {
+              if (this.chatDestroyed) {
+                return;
+              }
+              this.scrollToBottom('instant');
+            },
+            { injector: this.inj },
+          );
         }
       });
     });
@@ -618,6 +641,7 @@ export class ChatBox implements OnDestroy {
         if (loading && !this.prevLoadingForCompletionScroll) {
           this.prevStreamPrimaryKey = '';
           this.prevStreamAuxKey = '';
+          this.prevAuxPanelVisible = false;
         }
         if (this.prevLoadingForCompletionScroll && !loading) {
           afterNextRender(
@@ -877,15 +901,22 @@ export class ChatBox implements OnDestroy {
   }
 
   responseDetailsMode(key: string): AuxiliaryPanelMode {
-    return this.responseDetailsModes()[key] ?? 'collapsed';
+    const stored = this.responseDetailsModes()[key];
+    if (stored !== undefined) {
+      return stored;
+    }
+    if (key === this.liveResponseDetailsKey && this.hasLiveResponseDetails()) {
+      return initialAuxiliaryPanelMode(true);
+    }
+    return 'collapsed';
   }
 
   onResponseDetailsModeChange(key: string, mode: AuxiliaryPanelMode): void {
     this.responseDetailsModes.update((modes) => ({ ...modes, [key]: mode }));
   }
 
-  toggleResponseDetails(key: string, live: boolean, planPanelVisible: boolean): void {
-    const next = toggleAuxiliaryPanelMode(this.responseDetailsMode(key), live, planPanelVisible);
+  toggleResponseDetails(key: string, live: boolean): void {
+    const next = toggleAuxiliaryPanelMode(this.responseDetailsMode(key), live);
     this.onResponseDetailsModeChange(key, next);
   }
 

@@ -297,6 +297,7 @@ declare global {
     readDirectory: (dirPath: string) => Promise<FileEntry[]>;
     readDirectoryRecursive: (dirPath: string) => Promise<string>;
     workspacePathIsDirectory: (absolutePath: string) => Promise<boolean>;
+    showWorkspacePathInFileManager?: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     modelManagerPickCustomDir: () => Promise<string | null>;
     modelManagerListCustomModels: (payload: { customDir: string }) => Promise<ModelManagerListModelsResult>;
     modelManagerDetectCaches: () => Promise<ModelManagerDetectCachesResult>;

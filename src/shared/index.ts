@@ -227,7 +227,16 @@ export {
   lspServerIdForMonacoLanguageId,
 } from './lsp-file-policy';
 export type { AcceptCommandPayload } from './types/accept-command';
-export type { PlanConfirmPayload, PlanConfirmResolvedQuestion } from './types/plan-confirm';
+export type {
+  PlanConfirmFileChange,
+  PlanConfirmPayload,
+  PlanConfirmResolvedQuestion,
+  PlanFileOperation,
+} from './types/plan-confirm';
+export {
+  normalizePlanConfirmFileChange,
+  normalizePlanConfirmFilesToChange,
+} from './types/plan-confirm';
 export type {
   AgentQuestionPayload,
   QuestionAnswer,

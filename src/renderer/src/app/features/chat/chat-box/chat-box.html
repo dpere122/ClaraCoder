@@ -31,7 +31,7 @@
               <button
                 type="button"
                 class="tui-frame-bar__label-group"
-                (click)="toggleResponseDetails(persistedResponseDetailsKey(slot.index), false, !!planPanelForTurn(slot.row))"
+                (click)="toggleResponseDetails(persistedResponseDetailsKey(slot.index), false)"
                 [attr.aria-expanded]="responseDetailsExpanded(persistedResponseDetailsKey(slot.index))"
                 [attr.aria-label]="responseDetailsExpanded(persistedResponseDetailsKey(slot.index)) ? 'Collapse response details' : 'Expand response details'"
               >
@@ -182,7 +182,7 @@
             <button
               type="button"
               class="tui-frame-bar__label-group"
-              (click)="toggleResponseDetails(liveResponseDetailsKey, true, !!livePlanPanel())"
+              (click)="toggleResponseDetails(liveResponseDetailsKey, true)"
               [attr.aria-expanded]="responseDetailsExpanded(liveResponseDetailsKey)"
               [attr.aria-label]="responseDetailsExpanded(liveResponseDetailsKey) ? 'Collapse response details' : 'Expand response details'"
             >

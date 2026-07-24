@@ -749,6 +749,7 @@ def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> 
     session.lsp_active_scope = desired_scope
     session.lsp_workspace_root = ''
     session.typescript_lsp_resolved_root = ''
+    session.java_lsp_resolved_root = ''
     session.lsp_diagnostics.clear()
     if desired_scope == 'workspace':
         clear_lsp_staging_overlay(session)
@@ -867,6 +868,7 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
         'workspaceRoot': reported_root,
         'realWorkspaceRoot': real_ws,
         'typescriptProjectRoot': session.typescript_lsp_resolved_root or None,
+        'javaProjectRoot': session.java_lsp_resolved_root or None,
         'activeLspScope': active_scope,
         'cachedDiagnostics': diag_count,
         'diagnosticsCacheNote': 'Session-scoped cache only; clears when LSP scope changes (workspace vs staging).',

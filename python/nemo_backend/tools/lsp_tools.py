@@ -13,6 +13,7 @@ from nemo_backend.tools.delete import delete_workspace_entry
 from nemo_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
 from nemo_backend.lsp.file_policy import (
     get_gdscript_lsp_policy,
+    get_java_lsp_policy,
     get_python_lsp_policy,
     get_typescript_lsp_policy,
     lsp_server_for_path,
@@ -51,6 +52,9 @@ LSP_DELETE_TYPESCRIPT_FILE_NAME = 'lsp_delete_typescript_file'
 LSP_CREATE_GDSCRIPT_FILE_NAME = 'lsp_create_gdscript_file'
 LSP_UPDATE_GDSCRIPT_FILE_NAME = 'lsp_update_gdscript_file'
 LSP_DELETE_GDSCRIPT_FILE_NAME = 'lsp_delete_gdscript_file'
+LSP_CREATE_JAVA_FILE_NAME = 'lsp_create_java_file'
+LSP_UPDATE_JAVA_FILE_NAME = 'lsp_update_java_file'
+LSP_DELETE_JAVA_FILE_NAME = 'lsp_delete_java_file'
 
 __all__ = [
     'LSP_GET_DIAGNOSTICS_NAME',
@@ -67,6 +71,9 @@ __all__ = [
     'LSP_CREATE_GDSCRIPT_FILE_NAME',
     'LSP_UPDATE_GDSCRIPT_FILE_NAME',
     'LSP_DELETE_GDSCRIPT_FILE_NAME',
+    'LSP_CREATE_JAVA_FILE_NAME',
+    'LSP_UPDATE_JAVA_FILE_NAME',
+    'LSP_DELETE_JAVA_FILE_NAME',
     'LSP_READ_TOOLS',
     'LSP_MUTATION_TOOLS',
     'LSP_REVIEW_TOOLS',
@@ -101,12 +108,20 @@ def _require_gdscript_path(relative_path: str) -> str:
     return rel
 
 
+def _require_java_path(relative_path: str) -> str:
+    rel = normalize_relative_posix_path(relative_path)
+    if get_java_lsp_policy(rel) is None:
+        raise ValueError(f'Java LSP mutation tools only support `.java` files. Got `{rel}`.')
+    return rel
+
+
 def _require_lsp_read_path(relative_path: str) -> tuple[str, LspServerKind]:
     rel = normalize_relative_posix_path(relative_path)
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(
-            f'LSP read tools only support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, and `.gd`. Got `{rel}`.'
+            f'LSP read tools only support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, and `.java`. '
+            f'Got `{rel}`.'
         )
     return rel, server
 
@@ -340,7 +355,7 @@ def _session_lsp_scope_label(session_id: str | None) -> str:
         when='checking errors after edits or auditing workspace health.',
         not_='mutating files (use LSP mutators or staging tools).',
         shape=(
-            '`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`; empty path = all cached. '
+            '`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, `.java`; empty path = all cached. '
             '`refresh_active_document=true` re-syncs first: workspace scope reads on-disk file; '
             'staging scope uses materialized overlay (pending drafts on disk in a mirror tree) so '
             'cross-file resolution matches staged peers.'
@@ -348,8 +363,8 @@ def _session_lsp_scope_label(session_id: str | None) -> str:
         verify=(
             'after `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` '
             'on a staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with '
-            '`refresh_active_document=true` on that path (LSP applies to Python and TS/JS) to verify '
-            'indentation-related diagnostics are gone where the server supports it.'
+            '`refresh_active_document=true` on that path (LSP applies to Python, TS/JS, GDScript, and Java) '
+            'to verify indentation-related diagnostics are gone where the server supports it.'
         ),))
 def lsp_get_diagnostics(
     relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
@@ -695,6 +710,69 @@ def lsp_delete_gdscript_file(relative_path: Annotated[str, 'workspace-relative P
     return delete_workspace_entry.invoke({'relative_path': relative_path})
 
 
+@tool(LSP_CREATE_JAVA_FILE_NAME, description=describe('Create or whole-file rewrite a `.java` file via staging and code review (like `stage_create_file`).',
+        when='new Java file or full rewrite.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.java` only; nested dirs OK; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
+def lsp_create_java_file(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    new_content: str,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    newline: str = '',
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
+) -> str:
+
+    return _lsp_create_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_java_path,
+        language_label='Java',
+    )
+
+
+@tool(LSP_UPDATE_JAVA_FILE_NAME, description=describe('Overwrite an existing `.java` file (or pending staged draft) with full updated text via staging and code review (like `stage_workspace_file_overwrite`).',
+        when='whole-file Java rewrite when file already exists.',
+        not_='partial edits (use staged line-range tools).',
+        shape=f'.java` only; full `new_content`; {ENCODING_NEWLINE}; {STAGE_LAND}.',
+        verify=VERIFY_LSP,))
+def lsp_update_java_file(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    new_content: str,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    newline: str = '',
+    land_in_workspace: Annotated[bool, 'false while iterating; true on final call to land in one step'] = False,
+) -> str:
+
+    return _lsp_update_file_impl(
+        relative_path,
+        new_content,
+        encoding,
+        newline,
+        land_in_workspace,
+        path_guard=_require_java_path,
+        language_label='Java',
+    )
+
+
+@tool(LSP_DELETE_JAVA_FILE_NAME, description=describe(
+    'Remove a `.java` file from the workspace; clears LSP state for that document.',
+    when='file should be deleted entirely.',
+    not_='partial content removal (use update or line-range tools).',
+    shape=f'.java` only; `relative_path` {RELATIVE_PATH}.',
+))
+def lsp_delete_java_file(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
+
+    try:
+        _require_java_path(relative_path)
+    except ValueError as exc:
+        return _format_lsp_mutation_path_error(exc, relative_path=relative_path)
+    return delete_workspace_entry.invoke({'relative_path': relative_path})
+
+
 LSP_READ_TOOLS: list[Any] = [
     lsp_get_diagnostics,
     lsp_hover,
@@ -713,6 +791,9 @@ LSP_MUTATION_TOOLS: list[Any] = [
     lsp_create_gdscript_file,
     lsp_update_gdscript_file,
     lsp_delete_gdscript_file,
+    lsp_create_java_file,
+    lsp_update_java_file,
+    lsp_delete_java_file,
 ]
 
 # The code-review specialist only needs staged diagnostics visibility.

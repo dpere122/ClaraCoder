@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from nemo_backend.build_plan_store import ActionStep, BuildPlanModel, OpenQuestion, render_build_plan_md
+from nemo_backend.build_plan_store import (
+    ActionStep,
+    BuildPlanModel,
+    FileChangeEntry,
+    OpenQuestion,
+    render_build_plan_md,
+)
 from nemo_backend.domain import SessionState
 from nemo_backend.plan_confirm import (
     execute_pending_plan_confirm_decision,
@@ -41,7 +47,9 @@ def _sample_plan() -> BuildPlanModel:
         title='Feature plan',
         task='Build the feature',
         current_implementation='Legacy handler in place',
-        files_to_change=['src/app.ts — update handler'],
+        files_to_change=[
+            FileChangeEntry(path='src/app.ts', operation='modify', rationale='update handler'),
+        ],
         action_steps=[
             ActionStep(id='step-1', goal='Implement change'),
             ActionStep(id='step-2', goal='Run tests'),
@@ -165,7 +173,7 @@ def test_build_discovery_preamble_includes_findings() -> None:
 
 
 def test_grounding_gap_questions_flags_ungrounded_paths() -> None:
-    plan = _sample_plan()  # files_to_change=['src/app.ts — update handler']
+    plan = _sample_plan()  # files_to_change modify src/app.ts
     gaps = _grounding_gap_questions(plan, 'Discovery looked at src/other.ts and tests/foo.py')
     assert len(gaps) == 1
     assert 'src/app.ts' in gaps[0].prompt
@@ -180,6 +188,40 @@ def test_grounding_gap_questions_empty_when_grounded() -> None:
 def test_grounding_gap_questions_no_summary_returns_empty() -> None:
     plan = _sample_plan()
     assert _grounding_gap_questions(plan, '') == []
+
+
+def test_grounding_gap_questions_skips_create_entries() -> None:
+    plan = BuildPlanModel(
+        title='Create plan',
+        task='Add file',
+        current_implementation='None',
+        files_to_change=[
+            FileChangeEntry(path='src/brand-new.ts', operation='create', rationale='new module'),
+            FileChangeEntry(path='src/missing.ts', operation='delete', rationale='remove dead code'),
+        ],
+        action_steps=[ActionStep(id='step-1', goal='Do work')],
+    )
+    gaps = _grounding_gap_questions(plan, 'Discovery looked at src/other.ts only')
+    assert len(gaps) == 1
+    assert 'src/missing.ts' in gaps[0].prompt
+    assert 'safe to delete' in gaps[0].prompt
+
+
+def test_plan_confirm_sse_payload_includes_structured_files_to_change() -> None:
+    session = SessionState()
+    pending = stage_plan_confirm_request(
+        session,
+        steps=['A'],
+        files_to_change=[
+            FileChangeEntry(path='src/new.ts', operation='create', rationale='add module'),
+            'src/legacy.ts — old string style',
+        ],
+    )
+    payload = plan_confirm_sse_payload(pending)
+    assert payload['filesToChange'] == [
+        {'path': 'src/new.ts', 'operation': 'create', 'rationale': 'add module'},
+        {'path': 'src/legacy.ts', 'operation': 'modify', 'rationale': 'old string style'},
+    ]
 
 
 @patch('nemo_backend.plan_execute.build_llm')
@@ -199,6 +241,7 @@ def test_planner_chain_prompt_requires_build_plan_sections(mock_llm: MagicMock) 
     system = chain.first.format_messages(messages=[])[0].content
     assert 'action_steps' in system.lower()
     assert 'current_implementation' in system.lower()
+    assert 'create|modify|delete' in system.lower() or 'operation create|modify|delete' in system
 
 
 def test_plan_confirm_sse_payload_includes_build_plan_path() -> None:
@@ -352,7 +395,9 @@ def _sample_plan_with_open_questions_md() -> str:
             title='Feature plan',
             task='Build the feature',
             current_implementation='Legacy handler in place',
-            files_to_change=['src/app.ts — update handler'],
+            files_to_change=[
+                FileChangeEntry(path='src/app.ts', operation='modify', rationale='update handler'),
+            ],
             open_questions=[
                 OpenQuestion(id='q-1', prompt='Use REST or gRPC?', options=['REST', 'gRPC']),
             ],
@@ -397,7 +442,9 @@ async def test_stream_plan_execute_asks_open_questions_then_refines(
         title='Feature plan',
         task='Build the feature',
         current_implementation='Legacy handler in place',
-        files_to_change=['src/app.ts — update handler'],
+        files_to_change=[
+            FileChangeEntry(path='src/app.ts', operation='modify', rationale='update handler'),
+        ],
         action_steps=[ActionStep(id='step-1', goal='Implement REST handler')],
     )
     mock_pause.return_value = None

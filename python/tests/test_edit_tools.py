@@ -32,11 +32,14 @@ _LSP_CREATE_UPDATE_NAMES = {
     'lsp_update_typescript_file',
     'lsp_create_gdscript_file',
     'lsp_update_gdscript_file',
+    'lsp_create_java_file',
+    'lsp_update_java_file',
 }
 _LSP_MUTATION_NAMES = _LSP_CREATE_UPDATE_NAMES | {
     'lsp_delete_python_file',
     'lsp_delete_typescript_file',
     'lsp_delete_gdscript_file',
+    'lsp_delete_java_file',
 }
 
 
@@ -141,8 +144,6 @@ def test_outer_agent_tools_staging_mode() -> None:
 
     outer_verify_names = {
         'run_workspace_pytest_tests',
-        'run_workspace_python_smoke_test',
-        'run_workspace_node_smoke_test',
     }
     background_command_names = {
         'run_command',

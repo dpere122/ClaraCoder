@@ -6,6 +6,7 @@ import { PYTHON_PORT, PYTHON_URL } from '../constants';
 import { pythonControlFetch } from './http-client';
 import {
   getCheckpointDbPath,
+  getJavaLspCacheDir,
   getLogsDir,
   getPythonExecutable,
   getPythonServerScriptPath,
@@ -52,9 +53,11 @@ export function startPythonServer(): void {
   const stagingDir = getWorkspaceStagingDir();
   const checkpointDb = getCheckpointDbPath();
   const workspaceSemanticIndexDir = getWorkspaceSemanticIndexDir();
+  const javaLspCacheDir = getJavaLspCacheDir();
   mkdirSync(logDir, { recursive: true });
   mkdirSync(stagingDir, { recursive: true });
   mkdirSync(workspaceSemanticIndexDir, { recursive: true });
+  mkdirSync(javaLspCacheDir, { recursive: true });
   mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
   mainState.pythonProcess = spawn(pythonCmd, ['-u', scriptPath], {
@@ -66,6 +69,7 @@ export function startPythonServer(): void {
       NEMO_STAGING_DIR: stagingDir,
       NEMO_CHECKPOINT_DB: checkpointDb,
       NEMO_WORKSPACE_INDEX_DIR: workspaceSemanticIndexDir,
+      NEMO_JAVA_LSP_CACHE_DIR: javaLspCacheDir,
     },
   });
 

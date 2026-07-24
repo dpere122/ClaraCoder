@@ -1,6 +1,6 @@
 """Per-language-server LSP lifecycle hooks (pluggable backends).
 
-Each integrated LSP (Python, TypeScript/JavaScript, GDScript, …) implements
+Each integrated LSP (Python, TypeScript/JavaScript, GDScript, Java, …) implements
 :class:`LspServerPlugin`. :class:`~nemo_backend.lsp.manager.SessionWorkspaceLspManager`
 delegates start/sync/shutdown semantics to the active plugin without branching on
 server ids in the manager itself.

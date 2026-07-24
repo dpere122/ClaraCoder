@@ -17,6 +17,7 @@ __all__ = [
     'get_python_lsp_policy',
     'get_typescript_lsp_policy',
     'get_gdscript_lsp_policy',
+    'get_java_lsp_policy',
     'lsp_server_for_path',
     'is_lsp_managed_path',
     'is_prettier_managed_path',
@@ -107,6 +108,14 @@ LANGUAGE_POLICIES: dict[str, LspFilePolicy] = {
         use_lsp=True,
         requires_review=True,
     ),
+    '.java': LspFilePolicy(
+        extension='.java',
+        language_id='java',
+        language_label='Java',
+        lsp_server='java',
+        use_lsp=True,
+        requires_review=True,
+    ),
 }
 
 # Extensions that require nested code review but are not served by an integrated LSP yet.
@@ -114,7 +123,6 @@ LEGACY_CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset(
     {
         '.go',
         '.rs',
-        '.java',
         '.cs',
         '.rb',
         '.php',
@@ -202,6 +210,15 @@ def get_gdscript_lsp_policy(relative_path: str) -> LspFilePolicy | None:
     return None
 
 
+def get_java_lsp_policy(relative_path: str) -> LspFilePolicy | None:
+    """Return the LSP policy when the path is managed by the Java language server."""
+
+    policy = get_lsp_file_policy(relative_path)
+    if policy is not None and policy.lsp_server == 'java':
+        return policy
+    return None
+
+
 def lsp_server_for_path(relative_path: str) -> str | None:
     """Return registered ``lsp_server`` id for paths with an integrated LSP, else ``None``."""
 
@@ -252,6 +269,11 @@ def suggest_edit_tool_for_path(relative_path: str) -> str:
             return (
                 'Use `lsp_create_gdscript_file`, `lsp_update_gdscript_file`, or `lsp_delete_gdscript_file` '
                 'for `.gd` paths.'
+            )
+        if policy.lsp_server == 'java':
+            return (
+                'Use `lsp_create_java_file`, `lsp_update_java_file`, or `lsp_delete_java_file` '
+                'for `.java` paths.'
             )
     if requires_code_review(rel):
         return (

@@ -538,7 +538,7 @@ async def npm_install_project_tool(
 
 @tool(RUN_NPM_SCRIPT_NAME, description=describe('Run a package.json script.',
         when='running build, test, lint, or other declared npm scripts.',
-        not_='long-lived dev servers without timeout (prefer smoke-test tools for bounded runs).',
+        not_='long-lived dev servers (prefer `run_command` so they use the background-command framework).',
         shape='`npm run <name>`, `pnpm run`, or `yarn run` by lockfile detection; HITL confirm when auto-apply off.',))
 async def run_npm_script_tool(
     script_name: str,

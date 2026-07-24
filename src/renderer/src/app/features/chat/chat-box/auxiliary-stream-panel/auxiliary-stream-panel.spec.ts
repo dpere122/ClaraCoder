@@ -7,7 +7,6 @@ import {
   resolveAuxiliaryPanelModeForLive,
   toggleAuxiliaryPanelMode,
   transitionAuxiliaryPanelModeOnLiveChange,
-  transitionAuxiliaryPanelModeOnPlanVisibleChange,
 } from './auxiliary-stream-panel-modes';
 
 describe('initialAuxiliaryPanelMode', () => {
@@ -18,15 +17,12 @@ describe('initialAuxiliaryPanelMode', () => {
   it('starts collapsed when persisted', () => {
     expect(initialAuxiliaryPanelMode(false)).toBe('collapsed');
   });
-
-  it('starts collapsed when live but plan panel is visible', () => {
-    expect(initialAuxiliaryPanelMode(true, true)).toBe('collapsed');
-  });
 });
 
 describe('auxiliaryPanelStreamingPeek', () => {
-  it('is false when plan panel is visible during streaming', () => {
-    expect(auxiliaryPanelStreamingPeek(true, true)).toBe(false);
+  it('is true while the stream is live', () => {
+    expect(auxiliaryPanelStreamingPeek(true)).toBe(true);
+    expect(auxiliaryPanelStreamingPeek(false)).toBe(false);
   });
 });
 
@@ -39,25 +35,6 @@ describe('toggleAuxiliaryPanelMode', () => {
   it('cycles collapsed and expanded when done', () => {
     expect(toggleAuxiliaryPanelMode('collapsed', false)).toBe('expanded');
     expect(toggleAuxiliaryPanelMode('expanded', false)).toBe('collapsed');
-  });
-
-  it('cycles collapsed and expanded when live but plan panel is visible', () => {
-    expect(toggleAuxiliaryPanelMode('collapsed', true, true)).toBe('expanded');
-    expect(toggleAuxiliaryPanelMode('expanded', true, true)).toBe('collapsed');
-  });
-});
-
-describe('transitionAuxiliaryPanelModeOnPlanVisibleChange', () => {
-  it('collapses preview when plan panel appears', () => {
-    expect(transitionAuxiliaryPanelModeOnPlanVisibleChange('preview', false, true)).toBe('collapsed');
-  });
-
-  it('preserves expanded when plan panel appears', () => {
-    expect(transitionAuxiliaryPanelModeOnPlanVisibleChange('expanded', false, true)).toBe('expanded');
-  });
-
-  it('restores preview when plan panel hides while collapsed', () => {
-    expect(transitionAuxiliaryPanelModeOnPlanVisibleChange('collapsed', true, false)).toBe('preview');
   });
 });
 

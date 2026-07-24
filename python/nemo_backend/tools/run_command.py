@@ -339,12 +339,16 @@ def _find_session_job(session_id: str, command_id: str) -> tuple[CommandJob | No
 
 @tool(RUN_COMMAND_NAME, description=describe(
     'Run a shell command in the workspace as a managed background job.',
-    when='builds, tests, git, scripts, dev servers — anything without a dedicated tool.',
+    when=(
+        'builds, tests, git, scripts, app/runtime smoke checks, and long-lived dev servers '
+        '(npm/pnpm/yarn start/dev/serve/preview, python entrypoints) — anything without a dedicated tool.'
+    ),
     not_='interactive commands (stdin is closed); killing host processes by PID (use `kill_process`).',
     shape=(
         'requires user confirmation unless auto-apply is on; waits `wait_seconds` '
         f'(default {NEMO_RUN_COMMAND_DEFAULT_WAIT_SEC}s, 0 = return immediately, max {NEMO_RUN_COMMAND_MAX_WAIT_SEC}s); '
         'if still running, returns a command id for `wait_for_command` / `kill_background_command`; '
+        'prefer this over one-shot runners for servers so the process stays in the background framework; '
         'stdout+stderr merged; `cwd` is workspace-relative.'
     ),))
 async def run_command_tool(

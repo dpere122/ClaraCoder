@@ -1035,6 +1035,13 @@ export class ElectronService {
     return this.api?.workspacePathIsDirectory(absolutePath) ?? Promise.resolve(false);
   }
 
+  showWorkspacePathInFileManager(absolutePath: string): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.showWorkspacePathInFileManager?.(absolutePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   modelManagerPickCustomDir(): Promise<string | null> {
     return this.api?.modelManagerPickCustomDir() ?? Promise.resolve(null);
   }

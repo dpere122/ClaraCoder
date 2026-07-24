@@ -1,23 +1,102 @@
+app-agent-question .agent-question-card {
+  overflow: hidden;
+  background:
+    linear-gradient(to right, color-mix(in srgb, var(--t-secondary) 30%, transparent) 3px, transparent 3px),
+    color-mix(in srgb, var(--t-secondary) 6%, var(--t-bg-surface));
+}
+
+app-agent-question .agent-question-card--collapsed {
+  padding: 0.55rem 0.75rem;
+}
+
+app-agent-question .agent-question-collapsed-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+app-agent-question .agent-question-collapsed-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+app-agent-question .agent-question-title {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--t-secondary);
+}
+
+app-agent-question .agent-question-summary {
+  font-size: 0.74rem;
+  color: var(--t-text-muted);
+}
+
+app-agent-question .agent-question-badge {
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+}
+
+app-agent-question .agent-question-badge--complete {
+  color: var(--t-process-c);
+  background: color-mix(in srgb, var(--t-process-c) 12%, transparent);
+}
+
+app-agent-question .agent-question-badge--cancelled {
+  color: var(--t-text-muted);
+  background: color-mix(in srgb, var(--t-text-muted) 10%, transparent);
+}
+
+app-agent-question .agent-question-toolbar {
+  padding: 0.65rem 0.75rem;
+  background: color-mix(in srgb, var(--t-secondary) 10%, var(--t-bg-surface));
+}
+
+app-agent-question .agent-question-message {
+  margin: 0 0 0.45rem;
+  font-size: 0.74rem;
+  color: var(--t-text-muted);
+}
+
 app-agent-question .agent-question-list {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  margin-top: 0;
 }
 
 app-agent-question .agent-question-item {
-  padding: 0.4rem 0.5rem;
-  border-radius: 0.375rem;
-  background: rgba(13, 110, 253, 0.04);
+  padding: 0.45rem 0.55rem;
+  background: color-mix(in srgb, var(--t-secondary) 6%, var(--t-bg-surface));
+}
+
+app-agent-question .agent-question-prompt {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--t-fg);
 }
 
 app-agent-question .agent-question-options {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  margin-top: 0.35rem;
   padding-left: 0.25rem;
 }
 
 app-agent-question .agent-question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+  color: var(--t-fg);
   cursor: pointer;
 }
 
@@ -26,4 +105,79 @@ app-agent-question .agent-question-other {
   flex-direction: column;
   width: 100%;
   max-width: 28rem;
+}
+
+app-agent-question .agent-question-other-input {
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.74rem;
+  font-family: inherit;
+  color: var(--t-input-fg, var(--t-fg));
+  background: color-mix(in srgb, var(--t-input-bg, var(--t-bg)) 88%, var(--t-secondary) 12%);
+}
+
+app-agent-question .agent-question-other-input:disabled {
+  opacity: 0.55;
+}
+
+app-agent-question .agent-question-other-input:focus {
+  outline: none;
+  background: var(--t-composer-input-focus-bg, color-mix(in srgb, var(--t-input-bg, var(--t-bg)) 75%, var(--t-secondary) 25%));
+}
+
+app-agent-question .agent-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--t-secondary) 12%, transparent) 1px,
+    transparent 1px
+  );
+}
+
+app-agent-question .agent-question-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.75rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    opacity 0.15s ease;
+}
+
+app-agent-question .agent-question-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+app-agent-question .agent-question-btn--primary {
+  color: var(--t-primary);
+  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
+  border-color: color-mix(in srgb, var(--t-primary) 55%, transparent);
+}
+
+app-agent-question .agent-question-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--t-primary) 28%, var(--t-bg-surface));
+}
+
+app-agent-question .agent-question-btn--secondary {
+  color: var(--t-text-muted);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--t-text-muted) 30%, transparent);
+}
+
+app-agent-question .agent-question-btn--secondary:hover:not(:disabled) {
+  background: var(--t-hover-bg);
+  color: var(--t-fg);
 }

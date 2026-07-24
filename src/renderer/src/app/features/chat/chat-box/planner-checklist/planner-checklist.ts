@@ -14,7 +14,15 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { DiffReviewStatus, PlanConfirmPayload, AgentQuestionPayload, PlannerProgress, PlannerStep } from '@shared/index';
+import type {
+  DiffReviewStatus,
+  PlanConfirmFileChange,
+  PlanConfirmPayload,
+  AgentQuestionPayload,
+  PlannerProgress,
+  PlannerStep,
+} from '@shared/index';
+import { normalizePlanConfirmFilesToChange } from '@shared/index';
 import { planPanelCompleteCount } from '../chat-box-display';
 import { ElectronService } from '../../../../core/electron.service';
 import { AgentQuestionComponent } from '../../../diff/agent-question/agent-question';
@@ -77,6 +85,10 @@ export class PlannerChecklistComponent implements OnDestroy {
   readonly phaseLabel = computed(() => phaseDisplayLabel(this.planner().phase));
   readonly completeCount = computed(() => planPanelCompleteCount(this.planner()));
   readonly totalSteps = computed(() => this.planner().steps.length);
+  /** Structured file ops; tolerates legacy string entries on persisted plan_confirm artifacts. */
+  readonly planFileChanges = computed((): PlanConfirmFileChange[] =>
+    normalizePlanConfirmFilesToChange(this.planConfirm()?.filesToChange),
+  );
   readonly progressPct = computed(() => {
     const total = this.totalSteps();
     if (total <= 0) return 0;
@@ -108,6 +120,28 @@ export class PlannerChecklistComponent implements OnDestroy {
       this.planConfirmReviewStatus() === 'pending' &&
       (this.planner().phase === 'planning' || this.planner().planReady === true),
   );
+
+  readonly frameLabel = computed(() => frameDisplayLabel(this.planner().phase, this.showApprovalActions()));
+
+  /** Continuous rail progress: completed steps + half-credit for the active step. */
+  readonly railPct = computed(() => {
+    const steps = this.planner().steps;
+    const total = steps.length;
+    if (total <= 0) return 0;
+    let filled = 0;
+    for (const step of steps) {
+      if (step.state === 'complete') {
+        filled += 1;
+      } else if (
+        step.state === 'running' ||
+        (this.planner().activeStepId === step.id &&
+          (this.planner().phase === 'executing' || this.planner().phase === 'discovery'))
+      ) {
+        filled += 0.55;
+      }
+    }
+    return Math.min(100, Math.round((filled / total) * 100));
+  });
 
   readonly approvalResolved = computed(
     () => this.planConfirm() != null && this.planConfirmReviewStatus() !== 'pending',
@@ -277,5 +311,23 @@ function phaseDisplayLabel(phase: PlannerProgress['phase']): string {
       return 'Discovering';
     default:
       return phase;
+  }
+}
+
+function frameDisplayLabel(phase: PlannerProgress['phase'], awaitingApproval: boolean): string {
+  if (awaitingApproval) return 'PLAN · REVIEW';
+  switch (phase) {
+    case 'discovery':
+      return 'PLAN · DISCOVER';
+    case 'planning':
+      return 'PLAN · REVIEW';
+    case 'executing':
+      return 'PLAN · RUN';
+    case 'complete':
+      return 'PLAN · DONE';
+    case 'error':
+      return 'PLAN · FAIL';
+    default:
+      return 'PLAN';
   }
 }

@@ -142,6 +142,8 @@ class SessionState:
     lsp_workspace_root: str = ''
     # Auto-detected TypeScript/Node project root used for typescript-language-server cwd (nested ``package.json``).
     typescript_lsp_resolved_root: str = ''
+    # Auto-detected Java project root used for Eclipse JDT LS cwd (Maven/Gradle markers).
+    java_lsp_resolved_root: str = ''
     # One-shot npm project rows from workspace attach (``discover_workspace_npm_projects``); not refreshed on status polls.
     npm_project_hints: list[dict[str, Any]] | None = None
     # Monotonic timestamp (``time.time()``) when ``npm_project_hints`` was last populated.

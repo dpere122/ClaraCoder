@@ -63,8 +63,6 @@ _MILESTONE_TOOL_NAMES = frozenset(
     {
         'transfer_staged_file_to_workspace',
         'run_workspace_pytest_tests',
-        'run_workspace_python_smoke_test',
-        'run_workspace_node_smoke_test',
         'run_staging_overlay_command',
     }
 )
@@ -149,8 +147,6 @@ def should_attach_success_note(tool_name: str, text: str) -> bool:
         return False
     if name in (
         'run_workspace_pytest_tests',
-        'run_workspace_python_smoke_test',
-        'run_workspace_node_smoke_test',
         'run_staging_overlay_command',
     ):
         return not _pytest_body_suggests_failure(text)

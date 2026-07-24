@@ -218,6 +218,48 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
   );
 }
 
+/** Tracks streaming scroll dedupe for primary vs auxiliary (reasoning/tools) growth. */
+export interface StreamingScrollState {
+  prevPrimaryKey: string;
+  prevAuxKey: string;
+  prevAuxPanelVisible: boolean;
+}
+
+export interface StreamingScrollInput {
+  primaryKey: string;
+  auxKey: string;
+  auxPanelVisible: boolean;
+}
+
+export interface StreamingScrollDecision {
+  /** Primary reply grew — scroll immediately. */
+  scrollNow: boolean;
+  /** Live details panel appeared or reasoning/tools stream started — scroll after layout. */
+  scrollAfterLayout: boolean;
+  next: StreamingScrollState;
+}
+
+/** Whether a pinned chat should follow an in-flight stream update. */
+export function decideInstantScrollOnStreamingUpdate(
+  input: StreamingScrollInput,
+  prev: StreamingScrollState,
+): StreamingScrollDecision {
+  const primaryChanged = input.primaryKey !== prev.prevPrimaryKey;
+  const auxChanged = input.auxKey !== prev.prevAuxKey;
+  const auxPanelBecameVisible = input.auxPanelVisible && !prev.prevAuxPanelVisible;
+  const auxStarted = auxChanged && prev.prevAuxKey === '' && input.auxKey !== '';
+
+  return {
+    scrollNow: primaryChanged,
+    scrollAfterLayout: auxPanelBecameVisible || auxStarted,
+    next: {
+      prevPrimaryKey: primaryChanged ? input.primaryKey : prev.prevPrimaryKey,
+      prevAuxKey: auxChanged ? input.auxKey : prev.prevAuxKey,
+      prevAuxPanelVisible: input.auxPanelVisible,
+    },
+  };
+}
+
 /** Review / confirmation cards (HITL): always scroll into view, including while a reply is still streaming. */
 export function isHitlActivationMessage(m: ChatMessage): boolean {
   return (

@@ -22,12 +22,14 @@ from nemo_backend.tools.lsp_tools import (
     lsp_find_definition,
     lsp_find_references,
     lsp_create_gdscript_file,
+    lsp_create_java_file,
     lsp_create_python_file,
     lsp_create_typescript_file,
     lsp_get_diagnostics,
     lsp_get_document_symbols,
     lsp_hover,
     lsp_update_gdscript_file,
+    lsp_update_java_file,
     lsp_update_python_file,
     lsp_update_typescript_file,
 )
@@ -404,6 +406,7 @@ def test_suggest_edit_tool_for_path() -> None:
     assert 'stage_create_file' in suggest_edit_tool_for_path('src/app.component.html')
     assert 'stage_create_file' in suggest_edit_tool_for_path('config.json')
     assert 'lsp_create_gdscript_file' in suggest_edit_tool_for_path('game/Main.gd')
+    assert 'lsp_create_java_file' in suggest_edit_tool_for_path('src/App.java')
 
 
 def test_lsp_read_tools_suggest_edit_tool_on_html() -> None:
@@ -497,6 +500,57 @@ def test_gdscript_path_guard_rejects_typescript_extension() -> None:
 
     assert result.startswith('Tool error:')
     assert 'GDScript LSP mutation tools' in result
+    assert 'lsp_create_typescript_file' in result
+
+
+def test_lsp_create_java_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
+    captured: dict[str, object] = {}
+
+    def _fake_stage_create(payload: dict[str, object]) -> str:
+        captured['payload'] = payload
+        return (
+            'Staged `src/App.java` for code review. The workspace file on disk is **unchanged** until '
+            '`transfer_staged_file_to_workspace` succeeds. Java LSP diagnostics: 0 issue(s).'
+        )
+
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+
+    result = lsp_create_java_file.invoke(
+        {'relative_path': 'src/App.java', 'new_content': 'public class App {}\n'}
+    )
+
+    assert result.startswith('Java LSP staging path selected for `src/App.java`.')
+    assert 'Staged `src/App.java` for code review' in result
+    assert captured['payload'] == {
+        'relative_path': 'src/App.java',
+        'new_content': 'public class App {}\n',
+        'encoding': '',
+        'newline': '',
+        'land_in_workspace': False,
+    }
+    assert lsp_env.session.lsp_active_scope == 'staging'
+
+
+def test_lsp_update_java_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
+    lsp_env.session.auto_apply_mode = False
+    monkeypatch.setattr(
+        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
+        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
+    )
+
+    result = lsp_update_java_file.invoke(
+        {'relative_path': 'src/App.java', 'new_content': 'public class App { }\n'}
+    )
+
+    assert result == 'Tool error: staged overwrite failed for src/App.java'
+
+
+def test_java_path_guard_rejects_typescript_extension() -> None:
+    result = lsp_create_java_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
+
+    assert result.startswith('Tool error:')
+    assert 'Java LSP mutation tools' in result
     assert 'lsp_create_typescript_file' in result
 
 

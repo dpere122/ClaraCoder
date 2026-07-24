@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal, ViewEncapsulation } from '@angular/core';
 import type { DiffReviewStatus, AgentQuestionPayload, QuestionAnswer } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 
@@ -15,6 +15,7 @@ interface QuestionSelection {
   imports: [CommonModule],
   templateUrl: './agent-question.html',
   styleUrl: './agent-question.css',
+  encapsulation: ViewEncapsulation.None,
 })
 export class AgentQuestionComponent {
   private readonly electron = inject(ElectronService);

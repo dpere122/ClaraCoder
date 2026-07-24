@@ -384,6 +384,7 @@ def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None
     assert servers.get('python', {}).get('initialized') is False
     assert servers.get('typescript', {}).get('initialized') is False
     assert servers.get('gdscript', {}).get('initialized') is False
+    assert servers.get('java', {}).get('initialized') is False
 
 
 def test_get_lsp_dashboard_status_uses_cached_ts_root_only(lsp_http_env, tmp_path) -> None:

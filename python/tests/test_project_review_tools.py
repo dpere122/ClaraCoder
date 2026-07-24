@@ -7,7 +7,6 @@ import pytest
 
 from nemo_backend.tools.project_review_tools import (
     maybe_bootstrap_python_workspace_env_for_project_review,
-    run_workspace_python_smoke_test,
     run_workspace_pytest_tests,
 )
 from nemo_backend.python_env import (
@@ -454,70 +453,4 @@ async def test_run_workspace_pytest_tests_aborts_process_when_session_cancelled(
         await abort_task
 
     assert result == 'Aborted by user.'
-    assert fake_proc.terminated is True
-
-
-@pytest.mark.asyncio
-async def test_run_workspace_python_smoke_test_uses_workspace_entrypoint_and_reports_steady_state(
-    python_workspace_without_tests, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project_root, session = python_workspace_without_tests
-    python_executable = workspace_python_executable(project_root)
-    python_executable.parent.mkdir(parents=True, exist_ok=True)
-    python_executable.write_text('', encoding='utf-8')
-
-    async def _fake_ensure_session(session_arg, *, allow_workspace_root_fallback: bool, bootstrap_dependencies: bool = False, emit_chunk=None):
-        assert session_arg is session
-        assert allow_workspace_root_fallback is False
-        assert bootstrap_dependencies is True
-        session_arg.python_workspace_root = str(project_root)
-        session_arg.python_workspace_root_label = 'python/'
-        session_arg.python_workspace_venv_path = str(project_root / '.venv')
-        session_arg.python_workspace_python_executable = str(python_executable)
-        session_arg.python_workspace_bin_path = str(python_executable.parent)
-        return PythonWorkspaceEnvResult(
-            ok=True,
-            project_root=project_root,
-            project_root_label='python/',
-            venv_path=project_root / '.venv',
-            python_executable=python_executable,
-            summary='ready',
-        )
-
-    class _SmokeProc:
-        def __init__(self) -> None:
-            self.stdout = _FakeAsyncStreamReader(b'')
-            self.stderr = _FakeAsyncStreamReader(b'')
-            self.returncode: int | None = None
-            self.terminated = False
-
-        async def wait(self) -> int:
-            await asyncio.sleep(10)
-            self.returncode = self.returncode if self.returncode is not None else 0
-            return self.returncode
-
-        def terminate(self) -> None:
-            self.terminated = True
-            self.returncode = -15
-
-        def kill(self) -> None:
-            self.returncode = -9
-
-    fake_proc = _SmokeProc()
-
-    async def _fake_create_subprocess_exec(*args, **kwargs):
-        assert args == (str(python_executable), 'todo_app.py')
-        assert kwargs['cwd'] == str(project_root)
-        return fake_proc
-
-    monkeypatch.setattr(
-        'nemo_backend.tools.project_review_tools.ensure_session_python_workspace_env',
-        _fake_ensure_session,
-    )
-    monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
-
-    result = await run_workspace_python_smoke_test.ainvoke({})
-
-    assert 'Workspace Python smoke-test summary' in result
-    assert 'startup reached steady state' in result
     assert fake_proc.terminated is True

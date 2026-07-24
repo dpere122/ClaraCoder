@@ -7,6 +7,7 @@ import pytest
 from nemo_backend.build_plan_store import (
     ActionStep,
     BuildPlanModel,
+    FileChangeEntry,
     OpenQuestion,
     cancel_build_plan,
     create_build_plan,
@@ -26,7 +27,9 @@ def _sample_doc(**overrides: object) -> BuildPlanModel:
         'title': 'Test plan',
         'task': 'Add feature',
         'current_implementation': 'Nothing yet',
-        'files_to_change': ['src/a.ts — wire handler'],
+        'files_to_change': [
+            FileChangeEntry(path='src/a.ts', operation='modify', rationale='wire handler'),
+        ],
         'action_steps': [
             ActionStep(id='step-1', goal='Implement handler'),
             ActionStep(id='step-2', goal='Add tests'),
@@ -70,9 +73,42 @@ def test_render_build_plan_md_includes_sections_and_step_ids() -> None:
     md = render_build_plan_md(_sample_doc())
     assert '# Build Plan: Test plan' in md
     assert '## Task' in md
+    assert '## File Changes' in md
+    assert '- [modify] src/a.ts — wire handler' in md
     assert '## Action Steps' in md
     assert '<!-- step-id: step-1 -->' in md
     assert '- [ ] Implement handler' in md
+
+
+def test_file_changes_round_trip_create_modify_delete() -> None:
+    doc = _sample_doc(
+        files_to_change=[
+            FileChangeEntry(path='src/new.ts', operation='create', rationale='add module'),
+            FileChangeEntry(path='src/a.ts', operation='modify', rationale='wire handler'),
+            FileChangeEntry(path='src/old.ts', operation='delete', rationale='remove unused'),
+        ]
+    )
+    parsed = parse_build_plan_md(render_build_plan_md(doc))
+    assert [(e.operation, e.path, e.rationale) for e in parsed.files_to_change] == [
+        ('create', 'src/new.ts', 'add module'),
+        ('modify', 'src/a.ts', 'wire handler'),
+        ('delete', 'src/old.ts', 'remove unused'),
+    ]
+
+
+def test_parse_legacy_files_to_change_section_defaults_to_modify() -> None:
+    md = (
+        '# Build Plan: Legacy\n\n## Task\nDo\n\n## Current Implementation\nNone\n\n'
+        '## Files to Change\n'
+        '- src/a.ts — wire handler\n'
+        '- [delete] src/old.ts — remove unused\n\n'
+        '## Action Steps\n<!-- step-id: step-1 -->\n- [ ] Implement\n'
+    )
+    parsed = parse_build_plan_md(md)
+    assert [(e.operation, e.path, e.rationale) for e in parsed.files_to_change] == [
+        ('modify', 'src/a.ts', 'wire handler'),
+        ('delete', 'src/old.ts', 'remove unused'),
+    ]
 
 
 def test_parse_action_steps_reads_checkbox_state() -> None:
@@ -136,7 +172,9 @@ def test_enriched_schema_round_trips_through_markdown() -> None:
         title='Enriched',
         task='Do the thing',
         current_implementation='Partial',
-        files_to_change=['src/a.ts — wire it'],
+        files_to_change=[
+            FileChangeEntry(path='src/a.ts', operation='modify', rationale='wire it'),
+        ],
         assumptions=['Module X is stable'],
         open_questions=[OpenQuestion(id='q-1', prompt='Use REST or gRPC?', options=['REST', 'gRPC'])],
         rollback_notes='Revert src/a.ts and drop the table.',

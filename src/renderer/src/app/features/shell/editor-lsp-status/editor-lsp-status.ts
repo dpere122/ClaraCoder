@@ -202,12 +202,13 @@ function truncate(s: string, max: number): string {
   return `${t.slice(0, Math.max(0, max - 1))}…`;
 }
 
-const DASHBOARD_SERVER_ORDER = ['python', 'typescript', 'gdscript'] as const;
+const DASHBOARD_SERVER_ORDER = ['python', 'typescript', 'gdscript', 'java'] as const;
 
 const SERVER_SHORT: Record<string, string> = {
   python: 'Py',
   typescript: 'TS',
   gdscript: 'GD',
+  java: 'Jv',
 };
 
 function serverDisplayName(kind: string): string {
@@ -219,6 +220,9 @@ function serverDisplayName(kind: string): string {
   }
   if (kind === 'typescript') {
     return 'TS/JS';
+  }
+  if (kind === 'java') {
+    return 'Java';
   }
   return kind;
 }

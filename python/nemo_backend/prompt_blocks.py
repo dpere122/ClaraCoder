@@ -73,7 +73,8 @@ def edit_semantics_block(direct: bool) -> str:
     lsp_map = (
         '`.py` → `lsp_create_python_file` / `lsp_update_python_file` / `lsp_delete_python_file`; '
         '`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` → `lsp_create_typescript_file` / `lsp_update_typescript_file` / `lsp_delete_typescript_file`; '
-        '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file`'
+        '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file`; '
+        '`.java` → `lsp_create_java_file` / `lsp_update_java_file` / `lsp_delete_java_file`'
     )
     if direct:
         return (

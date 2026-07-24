@@ -1,4 +1,4 @@
-import { dialog, ipcMain } from 'electron';
+import { dialog, ipcMain, shell } from 'electron';
 import { promises as fs } from 'fs';
 import path = require('path');
 import { assertTrustedAppRenderer, assertTrustedMainRenderer } from '../assert-trusted-renderer';
@@ -8,7 +8,10 @@ import {
   WORKSPACE_CONTEXT_MAX_DEPTH,
   WORKSPACE_CONTEXT_MAX_ENTRIES,
 } from '../../constants';
-import { assertRegisteredWorkspaceDirectory } from '../../utils/assert-registered-workspace-dir';
+import {
+  assertRegisteredWorkspaceDirectory,
+  assertRegisteredWorkspaceEntry,
+} from '../../utils/assert-registered-workspace-dir';
 import { buildWorkspaceTree } from '../../workspace/context-tree';
 import { loadWorkspaceIgnoreRules } from '../../workspace/ignore-rules';
 
@@ -82,6 +85,30 @@ export function registerFsIpc(): void {
       return true;
     } catch {
       return false;
+    }
+  });
+
+  ipcMain.handle('show-workspace-path-in-file-manager', async (event, absolutePath: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Forbidden' };
+    }
+    try {
+      const safePath = await assertRegisteredWorkspaceEntry(absolutePath);
+      const stat = await fs.stat(safePath);
+      if (stat.isDirectory()) {
+        const err = await shell.openPath(safePath);
+        if (err) {
+          return { ok: false as const, error: err };
+        }
+        return { ok: true as const };
+      }
+      shell.showItemInFolder(safePath);
+      return { ok: true as const };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false as const, error: msg };
     }
   });
 }

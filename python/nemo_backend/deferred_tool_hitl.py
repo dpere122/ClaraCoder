@@ -20,8 +20,6 @@ DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
         'run_staging_overlay_command',
         'run_command',
         'run_workspace_pytest_tests',
-        'run_workspace_python_smoke_test',
-        'run_workspace_node_smoke_test',
     }
 )
 
@@ -54,31 +52,6 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
             'Run `pytest` in the workspace virtual environment.',
             'python -m pytest tests -v',
             [],
-        )
-    if tool_name == 'run_workspace_python_smoke_test':
-        rel = str(tool_input.get('relative_path') or '').strip()
-        cmd = f'python {rel}' if rel else 'python <entrypoint>'
-        details = [f'Entry script: `{rel}`'] if rel else []
-        return (
-            'Run workspace Python smoke test',
-            'Run a short-lived Python entry script in the workspace environment.',
-            cmd,
-            details,
-        )
-    if tool_name == 'run_workspace_node_smoke_test':
-        rel = str(tool_input.get('relative_project_dir') or '').strip()
-        script = str(tool_input.get('script_name') or '').strip()
-        details: list[str] = []
-        if rel:
-            details.append(f'Project dir: `{rel}`')
-        if script:
-            details.append(f'Script: `{script}`')
-        cmd = 'npm run ' + (script or '<smoke|dev|start|serve|preview>')
-        return (
-            'Run workspace Node smoke test',
-            'Run an npm/pnpm/yarn script in the selected Node project.',
-            cmd,
-            details,
         )
     if tool_name == 'run_command':
         command = str(tool_input.get('command') or '').strip()
@@ -199,12 +172,4 @@ def _resolve_deferred_tool(tool_name: str) -> Any | None:
         from nemo_backend.tools.project_review_tools import run_workspace_pytest_tests
 
         return run_workspace_pytest_tests
-    if tool_name == 'run_workspace_python_smoke_test':
-        from nemo_backend.tools.project_review_tools import run_workspace_python_smoke_test
-
-        return run_workspace_python_smoke_test
-    if tool_name == 'run_workspace_node_smoke_test':
-        from nemo_backend.tools.project_review_tools import run_workspace_node_smoke_test
-
-        return run_workspace_node_smoke_test
     return None

@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
@@ -36,16 +36,17 @@ export async function ensurePythonServer(): Promise<void> {
     console.log(`[Python] Reusing existing server on ${PYTHON_URL}`);
     return;
   }
-  startPythonServer();
-  await waitForPython();
+  const proc = startPythonServer();
+  await waitForPython(proc);
 }
 
 /**
  * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
+ * Returns the child process (existing or newly spawned) so callers can detect early exit.
  */
-export function startPythonServer(): void {
+export function startPythonServer(): ChildProcess {
   if (mainState.pythonProcess) {
-    return;
+    return mainState.pythonProcess;
   }
   const pythonCmd = getPythonExecutable();
   const scriptPath = getPythonServerScriptPath();
@@ -94,22 +95,39 @@ export function startPythonServer(): void {
       });
     }
   });
+
+  return mainState.pythonProcess;
 }
 
 /** Poll `/health` until the FastAPI (or similar) stack is accepting requests. */
 export async function waitForPython(
+  proc: ChildProcess | null = mainState.pythonProcess,
   /** Cold Python imports + FastAPI lifespan can exceed 15s on slower machines. */
   retries = 120,
   intervalMs = 500,
 ): Promise<void> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await pythonControlFetch('/health');
-      if (res.ok) return;
-    } catch {
-      // server not up yet
+  // Hold the ChildProcess reference — close handler clears mainState.pythonProcess.
+  let exitedCode: number | null = proc?.exitCode ?? null;
+  const onClose = (code: number | null): void => {
+    exitedCode = code ?? 1;
+  };
+  proc?.once('close', onClose);
+
+  try {
+    for (let i = 0; i < retries; i++) {
+      if (exitedCode !== null) {
+        throw new Error(`Python server exited early with code ${exitedCode}`);
+      }
+      try {
+        const res = await pythonControlFetch('/health');
+        if (res.ok) return;
+      } catch {
+        // server not up yet
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
-    await new Promise((r) => setTimeout(r, intervalMs));
+    throw new Error('Python server failed to start');
+  } finally {
+    proc?.off('close', onClose);
   }
-  throw new Error('Python server failed to start');
 }

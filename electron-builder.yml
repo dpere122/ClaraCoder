@@ -58,6 +58,12 @@ mac:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 linux:
+  # .deb installs without FUSE. AppImage needs libfuse.so.2 (Debian/Ubuntu: libfuse2t64).
   target:
+    - deb
     - AppImage
   category: Development
+  # Required by fpm for .deb (package.json author is empty).
+  maintainer: Clara Coder <dev@nemo.wrapper>
+  syncDesktopName: true
+  artifactName: ${productName}-${version}-Linux-${arch}.${ext}

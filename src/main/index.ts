@@ -57,13 +57,17 @@ registerAllIpc();
 app
   .whenReady()
   .then(async () => {
+    // Show UI immediately — packaged Linux launches used to sit dark for up to ~60s
+    // while waitForPython polled a sidecar that had already crashed (missing venv deps).
+    registerNemoTtsStreamProtocol();
+    registerNemoAssetProtocol();
+    createMainWindow();
+
     try {
       await ensurePythonServer();
     } catch (err) {
-      console.error('[Main] Python sidecar unavailable — UI will still open:', err);
+      console.error('[Main] Python sidecar unavailable — UI already open:', err);
     }
-    registerNemoTtsStreamProtocol();
-    registerNemoAssetProtocol();
     const config = await loadConfig();
     try {
       await syncPythonLogLevel(config.healthMonitor.logLevel);
@@ -73,7 +77,6 @@ app
     } catch (err) {
       console.error('[Main] Python sync at startup failed:', err);
     }
-    createMainWindow();
   })
   .catch((err) => {
     console.error(err);

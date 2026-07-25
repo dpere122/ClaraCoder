@@ -130,6 +130,8 @@ npm run pack:dir
 
 Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
 
+On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` on Debian/Ubuntu. The AppImage needs FUSE 2 (`libfuse.so.2`); on Debian 13 / Ubuntu 24.04+ install `libfuse2t64` first, or run with `APPIMAGE_EXTRACT_AND_RUN=1`.
+
 ---
 
 
@@ -141,7 +143,7 @@ Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the fo
 | --------------------------- | ------------------------------------------------------ |
 | `npm run dev`               | Development (UI + Electron + Python backend)           |
 | `npm run build`             | Compile main process + Angular for production          |
-| `npm run pack`              | Build installer (`.exe`, `.dmg`, etc.)                 |
+| `npm run pack`              | Build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
 | `npm run setup:python`      | Reinstall Python deps + GPU PyTorch + Kokoro (NVIDIA)  |
 | `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
 | `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |

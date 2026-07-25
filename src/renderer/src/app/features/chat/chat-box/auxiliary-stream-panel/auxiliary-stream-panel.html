@@ -1,6 +1,7 @@
 <div
   class="stream-trail-panel auxiliary-stream-panel"
   [class.stream-trail-panel--live]="live()"
+  [class.stream-trail-panel--overflow-ready]="!pendingOverflowReveal()"
   [class.stream-trail-panel--collapsed]="mode() === 'collapsed'"
   [class.stream-trail-panel--preview]="mode() === 'preview'"
   [class.stream-trail-panel--expanded]="mode() === 'expanded'"
@@ -40,7 +41,4 @@
       }
     </div>
   }
-  <!-- Trailing file-change entries (HITL trail) projected into the consolidated details stream.
-       Rendered outside the collapsible viewport so pending reviews stay reachable. -->
-  <ng-content />
 </div>

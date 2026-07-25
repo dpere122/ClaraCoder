@@ -8,6 +8,7 @@ import {
 import type { StreamPart } from '@shared/index';
 import {
   delegatedStreamPartMeta,
+  isHitlTrailStreamTag,
   isReadToolPreviewStreamTag,
   isShellStyleToolStreamTag,
   isToolTrailStatusStreamTag,
@@ -25,7 +26,7 @@ import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/del
 import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 
-export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated';
+export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
 
 @Component({
   selector: 'app-aux-stream-tool-part',
@@ -45,6 +46,9 @@ export class AuxStreamToolPartComponent {
 
   readonly kind = computed((): AuxStreamToolPartKind => {
     const tag = this.part().streamTag;
+    if (isHitlTrailStreamTag(tag)) {
+      return 'hitl';
+    }
     if (isToolTrailStatusStreamTag(tag)) {
       return 'status';
     }
@@ -54,10 +58,17 @@ export class AuxStreamToolPartComponent {
     return 'delegated';
   });
 
+  readonly hitlPending = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'running');
+  readonly hitlComplete = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'complete');
+  readonly hitlCancelled = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'error');
+
   readonly pillName = computed(() => this.part().label || 'Tool');
   readonly pillMeta = computed(() => {
     const part = this.part();
     const k = this.kind();
+    if (k === 'hitl') {
+      return '';
+    }
     if (k === 'status') {
       return toolStatusStreamPartMeta(part);
     }
@@ -69,6 +80,9 @@ export class AuxStreamToolPartComponent {
 
   readonly pillState = computed(() => {
     const part = this.part();
+    if (this.kind() === 'hitl') {
+      return 'neutral' as const;
+    }
     if (this.kind() === 'status') {
       return toolStatusStreamPartPillState(part);
     }
@@ -78,7 +92,13 @@ export class AuxStreamToolPartComponent {
     return part.runComplete === false && this.live() ? ('running' as const) : ('neutral' as const);
   });
 
-  readonly expandable = computed(() => streamPartIsExpandable(this.part(), this.kind()));
+  readonly expandable = computed(() => {
+    const k = this.kind();
+    if (k === 'hitl') {
+      return false;
+    }
+    return streamPartIsExpandable(this.part(), k);
+  });
 
   readonly showShellPreview = computed(
     () =>

@@ -224,6 +224,13 @@ export interface WorkspaceToolsConfig {
    * Default false. Direct `read_workspace_file` by path already works when filters are on.
    */
   exposeAllWorkspaceFiles?: boolean;
+  /**
+   * When true, bind `web_search` (SearXNG) and `fetch_url` agent tools.
+   * Default false. Requires a reachable SearXNG base URL for search.
+   */
+  allowWebAccess?: boolean;
+  /** Base URL of a SearXNG instance (e.g. `http://127.0.0.1:8080`). Empty until configured. */
+  searxngBaseUrl?: string;
 }
 
 /** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */

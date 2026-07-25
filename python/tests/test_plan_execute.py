@@ -167,6 +167,48 @@ async def test_stream_planner_md_retries_when_model_emits_tool_call(tmp_path: Pa
     assert any('"type": "build_plan_chunk"' in line for line in lines)
 
 
+@pytest.mark.asyncio(loop_scope='function')
+async def test_stream_planner_md_emits_reasoning_chunks(tmp_path: Path) -> None:
+    """Reasoning-model sidecar text should stream into the chat auxiliary trail."""
+    from langchain_core.messages import AIMessageChunk
+
+    from nemo_backend.build_plan_store import create_build_plan_draft
+    from nemo_backend.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(
+                content='',
+                additional_kwargs={'reasoning_content': 'Considering discovery facts.\n'},
+            )
+            yield AIMessageChunk(content=plan_md)
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-reason', session=session)
+    md_out: list[str] = ['']
+
+    with patch('nemo_backend.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        lines = await _collect_lines(
+            _stream_planner_md(
+                'Build feature',
+                session=session,
+                apply_mode=True,
+                discovery_summary='discovery found src/app.ts',
+                record=record,
+                md_out=md_out,
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert any(
+        '"type": "chunk"' in line and '"stream_tag": "reasoning"' in line and 'Considering discovery' in line
+        for line in lines
+    )
+    assert any('"type": "build_plan_chunk"' in line for line in lines)
+
+
 def test_build_discovery_preamble_includes_findings() -> None:
     preamble = _build_discovery_preamble('Auth is in middleware/auth.py')
     assert 'Auth is in middleware/auth.py' in preamble

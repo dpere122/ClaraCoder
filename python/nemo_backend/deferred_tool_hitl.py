@@ -20,6 +20,8 @@ DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
         'run_staging_overlay_command',
         'run_command',
         'run_workspace_pytest_tests',
+        'web_search',
+        'fetch_url',
     }
 )
 
@@ -78,6 +80,27 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
             'Run staging overlay command',
             'Execute a command in the staging overlay (workspace + pending drafts) or workspace when in direct mode.',
             rendered,
+            details,
+        )
+    if tool_name == 'web_search':
+        query = str(tool_input.get('query') or '').strip()
+        limit = tool_input.get('limit')
+        details = [f'Query: `{query}`'] if query else []
+        if limit is not None:
+            details.append(f'Limit: `{limit}`')
+        return (
+            'Web search (SearXNG)',
+            'Search the web via your configured SearXNG instance.',
+            query or '(empty query)',
+            details,
+        )
+    if tool_name == 'fetch_url':
+        url = str(tool_input.get('url') or '').strip()
+        details = [f'URL: `{url}`'] if url else []
+        return (
+            'Fetch URL',
+            'Download a public http(s) page and return truncated text.',
+            url or '(empty url)',
             details,
         )
     return (
@@ -172,4 +195,12 @@ def _resolve_deferred_tool(tool_name: str) -> Any | None:
         from nemo_backend.tools.project_review_tools import run_workspace_pytest_tests
 
         return run_workspace_pytest_tests
+    if tool_name == 'web_search':
+        from nemo_backend.tools.web_search import web_search_tool
+
+        return web_search_tool
+    if tool_name == 'fetch_url':
+        from nemo_backend.tools.fetch_url import fetch_url_tool
+
+        return fetch_url_tool
     return None

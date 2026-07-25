@@ -10,7 +10,7 @@
  * **Presentation split**
  * - Primary reply prose: streams from the latest `agent` segment; backend `final_text` wins at end.
  * - Tool / reasoning / planner multiplex: auxiliary stream panel.
- * - HITL artifacts (diff, delete, plan confirm, …): bubble up through `*Finished` outputs after user action.
+ * - HITL change rows: merged into the auxiliary stream; interactive reviews live in the composer dock.
  *
  * Display helpers and types are re-exported below for parent components and tests.
  */
@@ -35,6 +35,7 @@ import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { StreamPart, PlannerProgress } from '@shared/index';
 import {
   joinPrimaryAssistantStreamText,
+  mergeHitlTrailIntoAuxiliaryTimeline,
   multiplexAuxiliaryStreamTimeline,
   persistedAuxiliaryStreamTimeline,
   primaryStreamPartsForDisplay,
@@ -52,7 +53,6 @@ import {
   toggleAuxiliaryPanelMode,
 } from './auxiliary-stream-panel/auxiliary-stream-panel-modes';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
-import { HitlTrailPanelComponent } from './hitl-trail-panel/hitl-trail-panel';
 import { RunButtonDirective } from './run-button.directive';
 import {
   CHAT_MIN_FALLBACK_ROW,
@@ -96,7 +96,9 @@ export {
   isHitlActivationMessage,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  pendingHitlArtifactsForDock,
   planPanelContext,
+  resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   liveTurnPresentationSettled,
   turnHasPlanPanel,
@@ -133,7 +135,6 @@ const INLINE_SPINNER = {
     RunButtonDirective,
     NgxSpinnerComponent,
     AuxiliaryStreamPanelComponent,
-    HitlTrailPanelComponent,
     PlannerChecklistComponent,
   ],
   templateUrl: './chat-box.html',
@@ -152,9 +153,6 @@ const INLINE_SPINNER = {
 export class ChatBox implements OnDestroy {
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
-
-  /** Template: ordered persisted reasoning + delegated streams. */
-  readonly persistedAuxiliaryStreamTimeline = persistedAuxiliaryStreamTimeline;
 
   /** Template helpers: attachments rendered above a user bubble's text. */
   readonly userImageUrls = userMessageImageUrls;
@@ -190,6 +188,10 @@ export class ChatBox implements OnDestroy {
   private prevStreamPrimaryKey = '';
   private prevStreamAuxKey = '';
   private prevAuxPanelVisible = false;
+  /** True once the live aux panel has taken layout height (overflow reveal). */
+  private readonly liveAuxPanelRevealed = signal(false);
+  /** Tracks live plan checklist mount so discovery/planning chrome can autoscroll. */
+  private prevLivePlanPanelVisible = false;
   private wasProcessingToolsActive = false;
   /** Stable synonym pick for the “tool building” processing label. */
   private readonly toolPhaseSynonymIndex = signal(0);
@@ -366,7 +368,20 @@ export class ChatBox implements OnDestroy {
   );
 
   /** Ordered reasoning + delegated tool segments for the live auxiliary panel. */
-  readonly liveAuxiliaryTimeline = computed(() => multiplexAuxiliaryStreamTimeline(this.streamingParts()));
+  readonly liveAuxiliaryTimeline = computed(() =>
+    mergeHitlTrailIntoAuxiliaryTimeline(
+      multiplexAuxiliaryStreamTimeline(this.streamingParts()),
+      this.liveHitlArtifacts(),
+    ),
+  );
+
+  /** Persisted turn timeline with HITL change rows embedded (no nested Changes panel). */
+  auxiliaryTimelineForTurn(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): StreamPart[] {
+    return mergeHitlTrailIntoAuxiliaryTimeline(
+      persistedAuxiliaryStreamTimeline(row.assistant),
+      hitlArtifactsExcludingPlanConfirm(row.artifacts),
+    );
+  }
 
   /** True once plan UI or final primary text makes the live turn look “settled” (hides tool-live chrome). */
   readonly liveTurnPresentationSettled = computed(() =>
@@ -416,7 +431,7 @@ export class ChatBox implements OnDestroy {
     return planPanelContext(this.streamingPlanner(), this.liveTurn()?.artifacts ?? []);
   });
 
-  /** HITL cards for the live turn (plan confirm excluded — rendered inside plan panel). */
+  /** Trail HITL artifacts for the live turn (plan/question excluded — composer dock + plan progress). */
   readonly liveHitlArtifacts = computed(() => {
     const turn = this.liveTurn();
     if (!turn) return [];
@@ -454,19 +469,11 @@ export class ChatBox implements OnDestroy {
     return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
   });
 
-  /** Show the auxiliary panel when there is tool/reasoning content or a brief-only status line. */
-  readonly showLiveAuxiliaryPanel = computed(() => {
-    if (this.liveAuxiliaryTimeline().length > 0) {
-      return true;
-    }
-    if (this.livePlanPanel()) {
-      return false;
-    }
-    if (this.primaryStreamLiveText().trim().length > 0) {
-      return false;
-    }
-    return latestPrimaryStreamSegmentText(this.streamingParts()).trim().length > 0;
-  });
+  /**
+   * Mount the live auxiliary panel only when there is tool/reasoning/HITL trail content.
+   * The panel itself stays visually hidden until its viewport becomes scrollable.
+   */
+  readonly showLiveAuxiliaryPanel = computed(() => this.liveAuxiliaryTimeline().length > 0);
 
   readonly hasLiveResponseDetails = computed(
     () => this.showLiveAuxiliaryPanel() || this.liveHitlArtifacts().length > 0,
@@ -582,10 +589,11 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    // During streaming: follow primary reply growth; scroll when live reasoning/tools panel opens.
+    // During streaming: follow primary reply growth; scroll when live details panel reveals.
     effect(() => {
       const loading = this.loading();
       const _parts = this.streamingParts();
+      const auxPanelVisible = this.liveAuxPanelRevealed();
       untracked(() => {
         if (!loading) {
           return;
@@ -602,7 +610,7 @@ export class ChatBox implements OnDestroy {
           {
             primaryKey,
             auxKey,
-            auxPanelVisible: this.showLiveAuxiliaryPanel(),
+            auxPanelVisible,
           },
           {
             prevPrimaryKey: this.prevStreamPrimaryKey,
@@ -634,11 +642,39 @@ export class ChatBox implements OnDestroy {
       });
     });
 
+    // Plan mode: autoscroll when the live plan checklist first takes layout height.
+    effect(() => {
+      const loading = this.loading();
+      const planVisible = !!this.livePlanPanel();
+      untracked(() => {
+        if (!loading) {
+          this.prevLivePlanPanelVisible = false;
+          return;
+        }
+        const becameVisible = planVisible && !this.prevLivePlanPanelVisible;
+        this.prevLivePlanPanelVisible = planVisible;
+        if (!becameVisible || !this.pinToBottom) {
+          return;
+        }
+        afterNextRender(
+          () => {
+            if (this.chatDestroyed || !this.pinToBottom) {
+              return;
+            }
+            this.scrollToBottom('instant');
+          },
+          { injector: this.inj },
+        );
+      });
+    });
+
     // One smooth scroll when a turn finishes loading (stream → persisted).
     effect(() => {
       const loading = this.loading();
       untracked(() => {
         if (loading && !this.prevLoadingForCompletionScroll) {
+          this.liveAuxPanelRevealed.set(false);
+          this.prevLivePlanPanelVisible = false;
           this.prevStreamPrimaryKey = '';
           this.prevStreamAuxKey = '';
           this.prevAuxPanelVisible = false;
@@ -894,10 +930,7 @@ export class ChatBox implements OnDestroy {
     if (row.kind !== 'assistant-turn') {
       return false;
     }
-    return (
-      persistedAuxiliaryStreamTimeline(row.assistant).length > 0 ||
-      this.hitlArtifactsForTurn(row).length > 0
-    );
+    return this.auxiliaryTimelineForTurn(row).length > 0;
   }
 
   responseDetailsMode(key: string): AuxiliaryPanelMode {
@@ -913,6 +946,11 @@ export class ChatBox implements OnDestroy {
 
   onResponseDetailsModeChange(key: string, mode: AuxiliaryPanelMode): void {
     this.responseDetailsModes.update((modes) => ({ ...modes, [key]: mode }));
+  }
+
+  /** Live aux panel took layout height — drive streaming autoscroll after reveal. */
+  onLiveAuxiliaryPanelRevealed(): void {
+    this.liveAuxPanelRevealed.set(true);
   }
 
   toggleResponseDetails(key: string, live: boolean): void {

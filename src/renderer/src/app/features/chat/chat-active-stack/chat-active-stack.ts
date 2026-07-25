@@ -2,14 +2,16 @@ import { Component, computed, input, model, output, signal } from '@angular/core
 import type {
   AppConfig,
   ComposerRunMode,
+  HitlTrailArtifact,
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize } from '@shared/index';
-import { ChatBox, type ChatMessage } from '../chat-box/chat-box';
+import { ChatBox, pendingHitlArtifactsForDock, type ChatMessage } from '../chat-box/chat-box';
 import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
+import { HitlComposerDockComponent } from '../hitl-composer-dock/hitl-composer-dock';
 import { MessageBox } from '../message-box/message-box';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
 export type ChatLayoutMode = 'sidebar' | 'expanded';
@@ -17,7 +19,7 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
 @Component({
   selector: 'app-chat-active-stack',
-  imports: [ChatBox, ChatContextBar, MessageBox, TalkMode],
+  imports: [ChatBox, ChatContextBar, HitlComposerDockComponent, MessageBox, TalkMode],
   templateUrl: './chat-active-stack.html',
   styleUrl: './chat-active-stack.css',
   host: {
@@ -119,6 +121,11 @@ export class ChatActiveStackComponent {
 
   protected readonly resolvedContainerSize = computed(() =>
     normalizeChatContainerSize(this.appConfig()?.chatContainerSize),
+  );
+
+  /** Pending HITL reviews for the slide-up composer dock (all roles including plan/question). */
+  readonly pendingHitlDockArtifacts = computed((): HitlTrailArtifact[] =>
+    pendingHitlArtifactsForDock(this.messages()) as HitlTrailArtifact[],
   );
 
   protected readonly dragActive = signal(false);

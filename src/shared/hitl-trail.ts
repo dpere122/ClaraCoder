@@ -1,5 +1,6 @@
 import { diffLineChangeCounts, formatDiffLineChangeSummary } from './diff-stats';
-import type { DiffReviewStatus } from './types/conversation';
+import { hitlTrailStreamTag, isHitlTrailStreamTag } from './stream-parts';
+import type { DiffReviewStatus, StreamPart } from './types/conversation';
 import type { PlanConfirmPayload } from './types/plan-confirm';
 import type { AgentQuestionPayload } from './types/agent-question';
 import type { AcceptCommandPayload } from './types/accept-command';
@@ -255,4 +256,56 @@ export function hitlTrailRowKindText(item: HitlTrailItem): string {
     parts.push(hitlTrailStatusLabel(item.reviewStatus));
   }
   return parts.join(' ');
+}
+
+/** Map trail items to synthetic auxiliary stream parts (display-time only). */
+export function hitlTrailItemsToStreamParts(items: readonly HitlTrailItem[]): StreamPart[] {
+  return items.map((item) => ({
+    streamTag: hitlTrailStreamTag(item.id),
+    label: item.label,
+    text: hitlTrailRowKindText(item),
+    toolChainState: item.pending
+      ? 'running'
+      : item.reviewStatus === 'cancelled'
+        ? 'error'
+        : 'complete',
+  }));
+}
+
+/**
+ * Merge HITL change rows into the auxiliary timeline in wall-clock order (like tools).
+ * Existing `hitl-trail:*` parts keep their positions and refresh in place; newly appeared
+ * items append at the end. Skips plan_confirm / agent_question (not trail rows).
+ */
+export function mergeHitlTrailIntoAuxiliaryTimeline(
+  parts: readonly StreamPart[],
+  artifacts: readonly HitlTrailArtifact[],
+): StreamPart[] {
+  const trailArtifacts = artifacts.filter(
+    (a) => a.role !== 'plan_confirm' && a.role !== 'agent_question',
+  );
+  const desired = hitlTrailItemsToStreamParts(hitlTrailItemsFromArtifacts(trailArtifacts));
+  if (desired.length === 0) {
+    return parts.filter((p) => !isHitlTrailStreamTag(p.streamTag));
+  }
+  const desiredByTag = new Map(desired.map((p) => [p.streamTag, p]));
+  const next: StreamPart[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    if (!isHitlTrailStreamTag(part.streamTag)) {
+      next.push(part);
+      continue;
+    }
+    const updated = desiredByTag.get(part.streamTag);
+    if (updated) {
+      next.push(updated);
+      seen.add(part.streamTag);
+    }
+  }
+  for (const part of desired) {
+    if (!seen.has(part.streamTag)) {
+      next.push(part);
+    }
+  }
+  return next;
 }

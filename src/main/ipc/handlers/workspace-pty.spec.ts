@@ -19,6 +19,7 @@ vi.mock('node-pty', () => ({
 vi.mock('../../state', () => ({
   mainState: {
     mainWindow: {
+      isDestroyed: () => false,
       webContents: {
         send: vi.fn(),
       },
@@ -30,10 +31,19 @@ vi.mock('../../utils/workspace-pty-cwd', () => ({
   validateWorkspacePtyCwd: vi.fn(),
 }));
 
+vi.mock('../assert-trusted-renderer', () => ({
+  assertTrustedMainRenderer: vi.fn(),
+}));
+
+vi.mock('../../workspace/emit-files-changed', () => ({
+  notifyWorkspaceTreeRefresh: vi.fn(),
+}));
+
 import { ipcMain } from 'electron';
 import * as pty from 'node-pty';
 import { mainState } from '../../state';
 import { validateWorkspacePtyCwd } from '../../utils/workspace-pty-cwd';
+import { notifyWorkspaceTreeRefresh } from '../../workspace/emit-files-changed';
 import { registerWorkspacePtyIpc, killAllWorkspacePtySessions } from './workspace-pty';
 
 describe('workspace-pty', () => {
@@ -45,6 +55,9 @@ describe('workspace-pty', () => {
     (ipcMain.handle as Mock).mockImplementation((channel: string, handler: (...args: unknown[]) => Promise<unknown>) => {
       handlers.set(channel, handler);
     });
+    if (mainState.mainWindow) {
+      mainState.mainWindow.isDestroyed = () => false;
+    }
   });
 
   afterEach(() => {
@@ -115,7 +128,7 @@ describe('workspace-pty', () => {
       const result = await handler({}, '/workspace', '/workspace/subdir', 80, 24);
 
       expect(result).toMatchObject({ success: true });
-      expect((result as { sessionId: string }).sessionId).toMatch(/^pty-\d+-/);
+      expect((result as { sessionId: string }).sessionId).toMatch(/^pty-[0-9a-f-]+$/i);
       expect(pty.spawn).toHaveBeenCalled();
     });
 
@@ -274,6 +287,65 @@ describe('workspace-pty', () => {
         'workspace-pty-exit',
         { sessionId: result.sessionId, exitCode: 0, signal: null }
       );
+      expect(notifyWorkspaceTreeRefresh).toHaveBeenCalled();
+    });
+
+    it('skips renderer exit IPC when kill-all disposes the session (app quit)', async () => {
+      let exitCallback: ((exit: { exitCode: number; signal?: number }) => void) | null = null;
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn(),
+        onExit: vi.fn((cb: (exit: { exitCode: number; signal?: number }) => void) => {
+          exitCallback = cb;
+        }),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(() => {
+          exitCallback?.({ exitCode: 0, signal: undefined });
+        }),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/cwd' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+
+      const handler = handlers.get('workspace-pty-spawn')!;
+      await handler({}, '/workspace', '/workspace', 80, 24);
+
+      (mainState.mainWindow?.webContents.send as Mock).mockClear();
+      (notifyWorkspaceTreeRefresh as Mock).mockClear();
+
+      killAllWorkspacePtySessions();
+
+      expect(mockPty.kill).toHaveBeenCalled();
+      expect(mainState.mainWindow?.webContents.send).not.toHaveBeenCalledWith(
+        'workspace-pty-exit',
+        expect.anything(),
+      );
+      expect(notifyWorkspaceTreeRefresh).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when sending after the main window is destroyed', async () => {
+      let dataCallback: ((data: string) => void) | null = null;
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn((cb: (data: string) => void) => {
+          dataCallback = cb;
+        }),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/cwd' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+
+      const handler = handlers.get('workspace-pty-spawn')!;
+      await handler({}, '/workspace', '/workspace', 80, 24);
+
+      mainState.mainWindow!.isDestroyed = () => true;
+      expect(() => dataCallback!('chunk')).not.toThrow();
+      expect(mainState.mainWindow?.webContents.send).not.toHaveBeenCalled();
     });
 
     it('returns error when spawn throws', async () => {

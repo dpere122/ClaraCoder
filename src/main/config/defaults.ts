@@ -172,6 +172,8 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     allowStagingOverlayCommands: false,
     commandLineExplainStep: false,
     exposeAllWorkspaceFiles: false,
+    allowWebAccess: false,
+    searxngBaseUrl: '',
   };
 }
 

@@ -25,13 +25,11 @@
             } @else if (tab.id === 'modelManager') {
               {{ modelManagerCustomModels().length }} local models
             } @else if (tab.id === 'general') {
-              UI {{ uiFontSizeRem() | number: '1.1-1' }} rem
+              {{ themes.find((t) => t.id === themeId())?.label ?? themeId() }}
             } @else if (tab.id === 'tools') {
               {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
             } @else if (tab.id === 'audio') {
               {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
-            } @else if (tab.id === 'appearance') {
-              Theme defaults
             } @else if (tab.id === 'monaco') {
               {{ monacoEditorThemeLabel(monacoWorkspaceEditor().theme) }} · {{ monacoWorkspaceEditor().fontSize }}px
             } @else {
@@ -96,6 +94,20 @@
             }
           </nav>
           <div class='settings-sub-content'>
+            @if (activeSubTabId('general') === 'themes') {
+              <div class='form-section'>
+                <div class='form-grid'>
+                  <label class='field'>
+                    <span>Theme</span>
+                    <select [ngModel]='themeId()' (ngModelChange)='onThemeChange($event)'>
+                      @for (theme of themes; track theme.id) {
+                        <option [value]='theme.id'>{{ theme.label }}</option>
+                      }
+                    </select>
+                  </label>
+                </div>
+              </div>
+            }
             @if (activeSubTabId('general') === 'chat') {
               <div class='form-section'>
                 <div class='form-grid'>
@@ -1171,6 +1183,30 @@
                       each <code>run_command</code> approval request, shown on the confirmation card.
                     </p>
                   </div>
+                  <div class='field field--hint'>
+                    <label class='toggle-row'>
+                      <input
+                        type='checkbox'
+                        [ngModel]='allowWebAccess()'
+                        (ngModelChange)='onAllowWebAccessChange($event)'
+                      />
+                      <span>Allow web access</span>
+                    </label>
+                    <p class='settings-field-hint'>
+                      When on, the agent may use <code>web_search</code> (via SearXNG) and <code>fetch_url</code>. When
+                      Auto-apply is off, each call asks for confirmation. SearXNG is not bundled — run your own instance.
+                    </p>
+                  </div>
+                  <label class='field'>
+                    <span>SearXNG base URL</span>
+                    <input
+                      type='text'
+                      [ngModel]='searxngBaseUrl()'
+                      (ngModelChange)='onSearxngBaseUrlChange($event)'
+                      placeholder='http://127.0.0.1:8080'
+                      autocomplete='off'
+                    />
+                  </label>
                 </div>
                 <div class='callout'>
                   <p>
@@ -1978,43 +2014,6 @@
                       (ngModelChange)='onTtsSpeechSpeedInput($event)'
                       title='Kokoro speech speed multiplier'
                     />
-                  </label>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
-      </div>
-    }
-
-    @if (selectedSettingsTab() === 'appearance') {
-      <div class='settings-pane settings-pane--sectioned'>
-        <div class='settings-sub-layout'>
-          <nav class='settings-sub-nav' aria-label='Appearance setting categories'>
-            <p class='settings-sub-nav__label'>Categories</p>
-            @for (sub of subTabsFor('appearance'); track sub.id) {
-              <button
-                type='button'
-                class='tab-button tab-button--sub'
-                [class.is-active]='activeSubTabId("appearance") === sub.id'
-                (click)='selectSettingsSubTab("appearance", sub.id)'
-              >
-                <span>{{ sub.label }}</span>
-                <small>{{ settingsSubTabSummary("appearance", sub.id) }}</small>
-              </button>
-            }
-          </nav>
-          <div class='settings-sub-content'>
-            @if (activeSubTabId('appearance') === 'themes') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Theme</span>
-                    <select [ngModel]='themeId()' (ngModelChange)='onThemeChange($event)'>
-                      @for (theme of themes; track theme.id) {
-                        <option [value]='theme.id'>{{ theme.label }}</option>
-                      }
-                    </select>
                   </label>
                 </div>
               </div>

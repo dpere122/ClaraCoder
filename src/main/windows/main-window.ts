@@ -70,6 +70,11 @@ export function createMainWindow(): void {
   win.on('maximize', broadcastMaximized);
   win.on('unmaximize', broadcastMaximized);
   win.webContents.on('did-finish-load', broadcastMaximized);
+  win.on('closed', () => {
+    if (mainState.mainWindow === win) {
+      mainState.mainWindow = null;
+    }
+  });
 
   if (DEV_SERVER_URL) {
     win.loadURL(DEV_SERVER_URL);

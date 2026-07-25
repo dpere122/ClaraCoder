@@ -31,6 +31,7 @@ from nemo_backend.schemas import (
     PythonInterpreterSelectRequest,
     SessionAutoApplyRequest,
     WorkspaceContextRequest,
+    WorkspaceSystemPromptRequest,
 )
 from nemo_backend.tools.node_discovery import discover_workspace_npm_projects
 from nemo_backend import state
@@ -102,6 +103,14 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
     return {'ok': True}
 
 
+@router.post('/workspace-system-prompt')
+async def set_workspace_system_prompt(request: WorkspaceSystemPromptRequest) -> dict[str, bool]:
+    """Set or clear the managed workspace system-prompt text for a session (no tree rebuild)."""
+    sess = state.get_session(request.session_id)
+    sess.workspace_system_prompt = (request.workspace_system_prompt or '').strip()
+    return {'ok': True}
+
+
 @router.post('/workspace-context')
 async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, bool]:
     """Attach or update workspace path and renderer-provided tree for a session."""
@@ -126,6 +135,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     sess.workspace_path = request.workspace_path
     sess.workspace_context = request.workspace_context
     sess.workspace_id = (request.workspace_id or '').strip()
+    sess.workspace_system_prompt = (request.workspace_system_prompt or '').strip()
 
     ch = request.workspace_file_changes
     if ch and ch.paths:
@@ -143,6 +153,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
 
     if not new_path:
         sess.semantic_index_pending.clear()
+        sess.workspace_system_prompt = ''
         clear_session_python_workspace_env(sess)
         sess.npm_project_hints = None
         sess.npm_discovery_at = None

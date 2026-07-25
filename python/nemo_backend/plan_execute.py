@@ -26,11 +26,13 @@ from nemo_backend.agent_question import (
 )
 from nemo_backend.agent_streaming import (
     agent_question_event,
+    aimessage_chunk_reasoning_delta,
     aimessage_chunk_sse_delta,
     build_plan_chunk_event,
     build_plan_open_event,
     build_plan_stream_end_event,
     is_meaningful_stream_delta,
+    model_chunk_sse_line,
     planner_progress_event,
     plan_confirm_event,
     sse_line,
@@ -63,7 +65,7 @@ from nemo_backend.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_freeform_discovery_prompt,
 )
-from nemo_backend.stream_tags import PLANNER_STREAM_TAG
+from nemo_backend.stream_tags import PLANNER_STREAM_TAG, REASONING_AUXILIARY_STREAM_TAG
 from nemo_backend.tool_registry import format_tools_catalog, plan_execute_tools_and_map
 from nemo_backend.tools.workspace import truncate_text
 
@@ -510,6 +512,11 @@ async def _stream_planner_md(
                 return
             if not isinstance(chunk, AIMessageChunk):
                 continue
+            # Mirror langgraph_sse: main deltas draft the build plan; reasoning goes to the
+            # chat auxiliary trail (overflow reveal / autoscroll) like agent mode.
+            reason_delta = aimessage_chunk_reasoning_delta(chunk)
+            if is_meaningful_stream_delta(reason_delta):
+                yield model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG)
             delta = aimessage_chunk_sse_delta(chunk)
             if not is_meaningful_stream_delta(delta):
                 continue

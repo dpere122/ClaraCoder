@@ -20,7 +20,9 @@ export function canAcceptChatContextDrop(event: DragEvent): boolean {
     return false;
   }
   const types = Array.from(dt.types ?? []);
-  if (types.includes(WORKSPACE_TREE_DRAG_MIME) || types.includes('text/plain')) {
+  // Only the workspace-tree mime — not bare text/plain, which also appears when
+  // the user drags selected text and must not trigger the file-link drop UI.
+  if (types.includes(WORKSPACE_TREE_DRAG_MIME)) {
     return true;
   }
   if (types.includes('Files')) {

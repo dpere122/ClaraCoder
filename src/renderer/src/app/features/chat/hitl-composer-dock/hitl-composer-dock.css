@@ -1,0 +1,48 @@
+app-hitl-composer-dock {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  /* Keep review toolbars visible above the INPUT; Monaco scrolls inside this budget. */
+  --hitl-monaco-height: min(36vh, calc(100dvh - 18rem));
+}
+
+app-hitl-composer-dock .hitl-composer-dock {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+
+app-hitl-composer-dock .hitl-composer-dock--open {
+  grid-template-rows: 1fr;
+}
+
+app-hitl-composer-dock .hitl-composer-dock__panel {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s ease;
+}
+
+app-hitl-composer-dock .hitl-composer-dock--open .hitl-composer-dock__panel {
+  /* No dock-level scroll — HITL toolbars stay pinned; Monaco/viewports scroll inside cards. */
+  overflow: visible;
+  max-height: none;
+  opacity: 1;
+  transform: translateY(0);
+  padding: 0.35rem 0 0.45rem;
+  margin-bottom: 0.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
+}
+
+app-hitl-composer-dock .hitl-composer-dock__card + .hitl-composer-dock__card {
+  margin-top: 0.65rem;
+}
+
+app-hitl-composer-dock .hitl-composer-dock__card--staged-batch,
+app-hitl-composer-dock .hitl-composer-dock__card--diff {
+  width: 100%;
+  max-width: 100%;
+}

@@ -7,7 +7,7 @@ import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { DiffRow, FileDiffPayload, HitlTrailArtifact, StagedTransferBatchPayload } from '@shared/index';
 import { lucideAppProviders } from '../../../lucide-setup';
-import { HitlTrailPanelComponent } from '../../chat/chat-box/hitl-trail-panel/hitl-trail-panel';
+import { HitlComposerDockComponent } from '../../chat/hitl-composer-dock/hitl-composer-dock';
 import { DiffApplyComponent } from './diff-apply';
 
 function makeMonacoMock() {
@@ -151,10 +151,14 @@ describe('diff-apply zoneless first paint', () => {
     expect(rows.length).toBeGreaterThan(0);
   });
 
-  it('renders batch card + Monaco when artifact arrives after mount (live panel)', async () => {
-    const fixture = TestBed.createComponent(HitlTrailPanelComponent);
+  it('renders batch card + Monaco when artifact arrives after mount (composer dock)', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [HitlComposerDockComponent],
+      providers: [provideNoopAnimations(), ...lucideAppProviders],
+    });
+    const fixture = TestBed.createComponent(HitlComposerDockComponent);
     fixture.componentRef.setInput('artifacts', [] as HitlTrailArtifact[]);
-    fixture.componentRef.setInput('live', true);
     fixture.autoDetectChanges();
     await fixture.whenStable();
 

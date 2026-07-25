@@ -138,46 +138,4 @@ app-agent-question .agent-question-actions {
   );
 }
 
-app-agent-question .agent-question-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 1.75rem;
-  font-size: 0.76rem;
-  font-weight: 500;
-  font-family: inherit;
-  padding: 0.3rem 0.75rem;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    color 0.12s ease,
-    opacity 0.15s ease;
-}
-
-app-agent-question .agent-question-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-app-agent-question .agent-question-btn--primary {
-  color: var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
-  border-color: color-mix(in srgb, var(--t-primary) 55%, transparent);
-}
-
-app-agent-question .agent-question-btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--t-primary) 28%, var(--t-bg-surface));
-}
-
-app-agent-question .agent-question-btn--secondary {
-  color: var(--t-text-muted);
-  background: transparent;
-  border-color: color-mix(in srgb, var(--t-text-muted) 30%, transparent);
-}
-
-app-agent-question .agent-question-btn--secondary:hover:not(:disabled) {
-  background: var(--t-hover-bg);
-  color: var(--t-fg);
-}
+/* Actions use shared .hitl-btn styles (hitl-btn-shared.css). */

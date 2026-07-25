@@ -24,6 +24,7 @@ export class ChatConversationHubComponent {
   readonly activeConversationId = input<string | null>(null);
   readonly activeFileRelativePath = input<string | null>(null);
   readonly pendingIds = input<Set<string>>(new Set());
+  readonly hasWorkspace = input(false);
 
   readonly newConversation = output<void>();
   readonly selectConversation = output<string>();

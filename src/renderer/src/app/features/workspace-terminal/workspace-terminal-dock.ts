@@ -24,6 +24,8 @@ import type {
 } from '@shared/index';
 import { findLlmModelLocation, resolveActiveLlmConnection, isRunCommandStreamTag } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
+import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
+import { activeTerminalClosePrompt } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { buildXtermThemeFromCssVars, invalidateTerminalPaletteCache } from './xterm-theme-from-css';
 import { EditorProblemsComponent } from '../workspace/editor-problems/editor-problems';
 
@@ -85,6 +87,7 @@ interface XtermInstance {
 })
 export class WorkspaceTerminalDockComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
+  private readonly themedConfirm = inject(ThemedConfirmDialogService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly xterms = new Map<string, XtermInstance>();
   /** PTY session id → shell tab id (avoids scanning every chunk). */
@@ -409,6 +412,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     this.endPanelDrag();
     this.teardownResizeTracking();
     this.spawningTabs.clear();
+    void this.notifyAllAgentCommandTabsClosed();
     const sessionIds = this.collectActiveSessionIds();
     for (const sid of sessionIds) {
       void this.electron.workspacePtyKill(sid);
@@ -503,11 +507,22 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     if (this.isAgentCommandTabId(tabId)) {
+      const agentTab = this.agentCommandTabs().find((t) => t.id === tabId);
+      if (agentTab?.status === 'running') {
+        const choice = await this.themedConfirm.open(activeTerminalClosePrompt(agentTab.title));
+        if (choice !== 'confirm') {
+          return;
+        }
+      }
       await this.closeAgentCommandTab(tabId);
       return;
     }
     const tab = this.ptyTabs().find((t) => t.id === tabId);
     if (tab?.sessionId) {
+      const choice = await this.themedConfirm.open(activeTerminalClosePrompt(tab.title));
+      if (choice !== 'confirm') {
+        return;
+      }
       await this.electron.workspacePtyKill(tab.sessionId);
     }
     this.disposeXterm(tabId);
@@ -641,6 +656,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     this.teardownResizeTracking();
+    await this.notifyAllAgentCommandTabsClosed();
     await this.electron.workspacePtyKillAll();
     if (this.destroyed) {
       return;
@@ -650,12 +666,27 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         this.disposeXterm(id);
       }
     }
+    this.agentCommandBacklogByTab.clear();
+    this.agentCommandTabs.set([]);
     this.ptyTabs.set([]);
     const firstLlamaTabId = this.llamaTabs()[0]?.id ?? null;
     this.activeTabId.set(firstLlamaTabId);
     if (this.expanded() && this.hasWorkspace()) {
       this.addTab();
     }
+  }
+
+  /** Kill Python background run_command jobs when their UI tabs are torn down without closeTab. */
+  private async notifyAllAgentCommandTabsClosed(): Promise<void> {
+    const tabs = this.agentCommandTabs();
+    if (tabs.length === 0) {
+      return;
+    }
+    await Promise.all(
+      tabs.map((tab) =>
+        this.electron.notifyBackgroundCommandTerminalClosed(tab.conversationId, tab.commandId),
+      ),
+    );
   }
 
   private async ensureActiveTabSession(): Promise<void> {

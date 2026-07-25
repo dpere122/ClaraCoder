@@ -1,9 +1,8 @@
 /**
- * Shared chrome + row typography for auxiliary (reasoning/tools) and HITL trail panels.
+ * Shared chrome + row typography for the auxiliary (reasoning/tools/changes) panel.
  */
 
-app-auxiliary-stream-panel .stream-trail-panel,
-app-hitl-trail-panel .stream-trail-panel {
+app-auxiliary-stream-panel .stream-trail-panel {
   margin-top: 0.35rem;
   margin-bottom: 0.15rem;
   max-width: 100%;
@@ -13,8 +12,13 @@ app-hitl-trail-panel .stream-trail-panel {
   padding: 0;
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__toggle,
-app-hitl-trail-panel .stream-trail-panel__toggle {
+/** After the final reply, collapsed details leave no chrome (expand via Clara frame chevron). */
+app-auxiliary-stream-panel .stream-trail-panel--collapsed,
+app-auxiliary-stream-panel:has(> .stream-trail-panel--collapsed) {
+  display: none;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__toggle {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -33,19 +37,16 @@ app-hitl-trail-panel .stream-trail-panel__toggle {
   opacity: 0.82;
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__toggle:hover,
-app-hitl-trail-panel .stream-trail-panel__toggle:hover {
+app-auxiliary-stream-panel .stream-trail-panel__toggle:hover {
   opacity: 1;
 }
 
-app-auxiliary-stream-panel .stream-trail-panel--collapsed .stream-trail-panel__toggle,
-app-hitl-trail-panel .stream-trail-panel--collapsed .stream-trail-panel__toggle {
+app-auxiliary-stream-panel .stream-trail-panel--collapsed .stream-trail-panel__toggle {
   padding-bottom: 0;
   border-bottom: none;
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__title,
-app-hitl-trail-panel .stream-trail-panel__title {
+app-auxiliary-stream-panel .stream-trail-panel__title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -64,22 +65,50 @@ app-auxiliary-stream-panel .stream-trail-panel__title--custom {
   color: color-mix(in srgb, var(--t-secondary) 92%, transparent);
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__chevron,
-app-hitl-trail-panel .stream-trail-panel__chevron {
+app-auxiliary-stream-panel .stream-trail-panel__chevron {
   flex-shrink: 0;
   font-size: 0.55rem;
   color: var(--chat-details-header-fg, var(--t-text-muted));
   opacity: 0.65;
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__viewport,
-app-hitl-trail-panel .stream-trail-panel__viewport {
+app-auxiliary-stream-panel .stream-trail-panel__viewport {
   margin-top: 0.25rem;
   padding-left: 0.15rem;
+  /* Auto-hide scrollbar until hover/focus (beats global/TUI scrollbar rules). */
+  scrollbar-width: none;
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__viewport--peek,
-app-hitl-trail-panel .stream-trail-panel__viewport--peek {
+html app-auxiliary-stream-panel .stream-trail-panel__viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__viewport:hover,
+app-auxiliary-stream-panel .stream-trail-panel__viewport:focus-within {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--t-border) 85%, transparent) transparent;
+}
+
+html app-auxiliary-stream-panel .stream-trail-panel__viewport:hover::-webkit-scrollbar,
+html app-auxiliary-stream-panel .stream-trail-panel__viewport:focus-within::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html app-auxiliary-stream-panel .stream-trail-panel__viewport:hover::-webkit-scrollbar-thumb,
+html app-auxiliary-stream-panel .stream-trail-panel__viewport:focus-within::-webkit-scrollbar-thumb {
+  background: var(--t-border);
+  border-radius: 3px;
+}
+
+html app-auxiliary-stream-panel .stream-trail-panel__viewport:hover::-webkit-scrollbar-track,
+html app-auxiliary-stream-panel .stream-trail-panel__viewport:focus-within::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+app-auxiliary-stream-panel .stream-trail-panel__viewport--peek {
   max-height: 10rem;
   overflow-x: hidden;
   overflow-y: auto;
@@ -87,8 +116,7 @@ app-hitl-trail-panel .stream-trail-panel__viewport--peek {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 8%, rgba(0, 0, 0, 0.35) 22%, black 38%);
 }
 
-app-auxiliary-stream-panel .stream-trail-panel__viewport--full,
-app-hitl-trail-panel .stream-trail-panel__viewport--full {
+app-auxiliary-stream-panel .stream-trail-panel__viewport--full {
   max-height: none;
   overflow-x: hidden;
   overflow-y: visible;
@@ -96,10 +124,9 @@ app-hitl-trail-panel .stream-trail-panel__viewport--full {
   -webkit-mask-image: none;
 }
 
-/** Log-style rows: meta · name (tools, HITL list, chain trail). */
+/** Log-style rows: meta · name (tools, HITL changes, chain trail). */
 app-chat-box .stream-trail-row,
-app-auxiliary-stream-panel .stream-trail-row,
-app-hitl-trail-panel .stream-trail-row {
+app-auxiliary-stream-panel .stream-trail-row {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -111,13 +138,12 @@ app-hitl-trail-panel .stream-trail-row {
 }
 
 app-chat-box .stream-trail-row + .stream-trail-row,
-app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
+app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row {
   border-top: 1px solid color-mix(in srgb, var(--t-border-subtle) 35%, transparent);
 }
 
 app-chat-box .stream-trail-row__meta,
-app-auxiliary-stream-panel .stream-trail-row__meta,
-app-hitl-trail-panel .stream-trail-row__meta {
+app-auxiliary-stream-panel .stream-trail-row__meta {
   font-size: inherit;
   font-weight: inherit;
   letter-spacing: inherit;
@@ -126,15 +152,13 @@ app-hitl-trail-panel .stream-trail-row__meta {
 }
 
 app-chat-box .stream-trail-row__sep,
-app-auxiliary-stream-panel .stream-trail-row__sep,
-app-hitl-trail-panel .stream-trail-row__sep {
+app-auxiliary-stream-panel .stream-trail-row__sep {
   margin: 0 0.3em;
   opacity: 0.5;
 }
 
 app-chat-box .stream-trail-row__name,
-app-auxiliary-stream-panel .stream-trail-row__name,
-app-hitl-trail-panel .stream-trail-row__name {
+app-auxiliary-stream-panel .stream-trail-row__name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -144,40 +168,18 @@ app-hitl-trail-panel .stream-trail-row__name {
   opacity: 0.92;
 }
 
-app-hitl-trail-panel .stream-trail-row--pending .stream-trail-row__meta {
+app-auxiliary-stream-panel .stream-trail-row--pending .stream-trail-row__meta {
   font-style: italic;
 }
 
-app-hitl-trail-panel .stream-trail-row--complete .stream-trail-row__meta {
+app-auxiliary-stream-panel .stream-trail-row--complete .stream-trail-row__meta {
   color: color-mix(in srgb, var(--bs-success, #198754) 78%, var(--t-secondary));
 }
 
-app-hitl-trail-panel .stream-trail-row--cancelled .stream-trail-row__meta {
+app-auxiliary-stream-panel .stream-trail-row--cancelled .stream-trail-row__meta {
   opacity: 0.72;
 }
 
 app-auxiliary-stream-panel .stream-trail-row--running .stream-trail-row__name {
   opacity: 1;
-}
-
-/**
- * Consolidated details stream: the HITL changes trail is projected into the
- * auxiliary panel as trailing entries after the reasoning/tools stream.
- * Its sub-header joins the stream color group (only the outer
- * "Response details" toggle keeps the header accent color).
- */
-app-auxiliary-stream-panel app-hitl-trail-panel .stream-trail-panel {
-  margin-top: 0.35rem;
-  margin-bottom: 0;
-  padding-left: 0.55rem;
-  border-left: 2px solid color-mix(in srgb, var(--chat-details-header-fg, var(--t-border-subtle)) 35%, transparent);
-}
-
-app-auxiliary-stream-panel app-hitl-trail-panel .stream-trail-panel__title {
-  font-size: 0.66rem;
-  color: var(--chat-details-stream-fg, var(--t-text-muted));
-}
-
-app-auxiliary-stream-panel app-hitl-trail-panel .stream-trail-panel__chevron {
-  color: var(--chat-details-stream-fg, var(--t-text-muted));
 }

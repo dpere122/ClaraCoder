@@ -170,12 +170,88 @@
           <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
         }
       }
+      <label class='workspace-interpreter-label' id='workspace-system-prompt-label'>System prompt</label>
+      <div class='workspace-system-prompt-row'>
+        <button
+          type='button'
+          class='workspace-interpreter-select workspace-system-prompt-pick'
+          [disabled]='systemPromptBusy()'
+          [attr.aria-labelledby]="'workspace-system-prompt-label'"
+          (click)='onPickSystemPrompt()'
+        >
+          {{ systemPromptSourceName() || 'Choose file…' }}
+        </button>
+        <button
+          type='button'
+          class='workspace-system-prompt-clear'
+          [disabled]='systemPromptBusy()'
+          aria-label='Edit system prompt'
+          (click)='onOpenSystemPromptEditor()'
+        >
+          Edit
+        </button>
+        @if (systemPromptHasFile()) {
+          <button
+            type='button'
+            class='workspace-system-prompt-clear'
+            [disabled]='systemPromptBusy()'
+            aria-label='Clear system prompt'
+            (click)='onClearSystemPrompt()'
+          >
+            Clear
+          </button>
+        }
+      </div>
+      @if (systemPromptError()) {
+        <p class='workspace-interpreter-error'>{{ systemPromptError() }}</p>
+      }
     </div>
   }
 
-  <div class='workspace-theme-footer'>
-    <app-theme-selector />
-  </div>
+  @if (systemPromptEditorOpen()) {
+    <div class='workspace-system-prompt-editor-backdrop' role='presentation' (click)='onCancelSystemPromptEditor()'>
+      <div
+        class='workspace-system-prompt-editor'
+        role='dialog'
+        aria-modal='true'
+        aria-labelledby='workspace-system-prompt-editor-title'
+        (click)='$event.stopPropagation()'
+      >
+        <h2 class='workspace-system-prompt-editor-title' id='workspace-system-prompt-editor-title'>
+          Edit system prompt
+        </h2>
+        <textarea
+          class='workspace-system-prompt-editor-textarea'
+          [value]='systemPromptEditorDraft()'
+          (input)='onSystemPromptEditorInput($event)'
+          [disabled]='systemPromptEditorSaving()'
+          rows='16'
+          spellcheck='false'
+        ></textarea>
+        @if (systemPromptEditorError()) {
+          <p class='workspace-interpreter-error'>{{ systemPromptEditorError() }}</p>
+        }
+        <div class='workspace-system-prompt-editor-actions'>
+          <button
+            type='button'
+            class='workspace-system-prompt-clear'
+            [disabled]='systemPromptEditorSaving()'
+            (click)='onCancelSystemPromptEditor()'
+          >
+            Cancel
+          </button>
+          <button
+            type='button'
+            class='workspace-system-prompt-save'
+            [disabled]='systemPromptEditorSaving()'
+            (click)='onSaveSystemPromptEditor()'
+          >
+            {{ systemPromptEditorSaving() ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
 
   @if (contextMenuVisible()) {
     <div

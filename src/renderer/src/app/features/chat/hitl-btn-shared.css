@@ -1,0 +1,170 @@
+/* Shared HITL action buttons — bevel style from plan-panel Run plan control. */
+
+.hitl-btn {
+  --hitl-btn: var(--t-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 1.7rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease,
+    opacity 0.15s ease;
+}
+
+.hitl-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hitl-btn--primary,
+.hitl-btn--success,
+.hitl-btn--danger {
+  color: var(--t-bg);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hitl-btn) 88%, white 12%) 0%,
+    var(--hitl-btn) 45%,
+    color-mix(in srgb, var(--hitl-btn) 72%, black 28%) 100%
+  );
+  border-style: solid;
+  border-width: 1px;
+  border-top-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-light, #fff));
+  border-left-color: color-mix(in srgb, var(--hitl-btn) 40%, var(--t-edge-light, #fff));
+  border-right-color: color-mix(in srgb, var(--hitl-btn) 40%, var(--t-edge-darkest, #000));
+  border-bottom-color: color-mix(in srgb, var(--hitl-btn) 50%, var(--t-edge-darkest, #000));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 30%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, black 24%, transparent),
+    0 2px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 58%, transparent),
+    0 4px 12px color-mix(in srgb, var(--hitl-btn) 38%, transparent);
+  text-shadow: 0 1px 0 color-mix(in srgb, black 35%, transparent);
+}
+
+.hitl-btn--primary {
+  --hitl-btn: var(--hitl-btn-accent, var(--t-secondary));
+}
+
+.hitl-btn--success {
+  --hitl-btn: var(--t-process-c);
+}
+
+.hitl-btn--danger {
+  --hitl-btn: var(--t-log-level-error);
+}
+
+.hitl-btn--primary:hover:not(:disabled),
+.hitl-btn--success:hover:not(:disabled),
+.hitl-btn--danger:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hitl-btn) 92%, white 16%) 0%,
+    color-mix(in srgb, var(--hitl-btn) 90%, white 6%) 45%,
+    color-mix(in srgb, var(--hitl-btn) 68%, black 22%) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 36%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, black 18%, transparent),
+    0 3px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 58%, transparent),
+    0 7px 16px color-mix(in srgb, var(--hitl-btn) 45%, transparent);
+  transform: translateY(-1px);
+}
+
+.hitl-btn--primary:active:not(:disabled),
+.hitl-btn--success:active:not(:disabled),
+.hitl-btn--danger:active:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hitl-btn) 65%, black 22%) 0%,
+    color-mix(in srgb, var(--hitl-btn) 78%, black 12%) 100%
+  );
+  border-top-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-darkest, #000));
+  border-left-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-darkest, #000));
+  border-right-color: color-mix(in srgb, var(--hitl-btn) 35%, var(--t-edge-light, #fff));
+  border-bottom-color: color-mix(in srgb, var(--hitl-btn) 30%, var(--t-edge-light, #fff));
+  box-shadow:
+    inset 0 2px 5px color-mix(in srgb, black 38%, transparent),
+    inset 0 1px 0 color-mix(in srgb, black 22%, transparent),
+    0 0 0 transparent;
+  transform: translateY(2px);
+  text-shadow: none;
+}
+
+.hitl-btn--primary:disabled,
+.hitl-btn--success:disabled,
+.hitl-btn--danger:disabled {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 12%, transparent),
+    0 1px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 30%, transparent);
+  transform: none;
+}
+
+.hitl-btn--secondary,
+.hitl-btn--outline {
+  color: var(--t-text-muted);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--t-text-muted) 30%, transparent);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.hitl-btn--secondary:hover:not(:disabled),
+.hitl-btn--outline:hover:not(:disabled) {
+  background: var(--t-hover-bg);
+  color: var(--t-fg);
+}
+
+.hitl-btn--secondary.active:not(:disabled),
+.hitl-btn--outline.active:not(:disabled) {
+  color: var(--t-fg);
+  background: color-mix(in srgb, var(--t-secondary) 14%, var(--t-bg-surface));
+  border-color: color-mix(in srgb, var(--t-secondary) 45%, transparent);
+}
+
+.hitl-btn--accent {
+  color: var(--t-secondary);
+  background: color-mix(in srgb, var(--t-secondary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--t-secondary) 45%, transparent);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.hitl-btn--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--t-secondary) 22%, transparent);
+  color: var(--t-fg);
+}
+
+.hitl-btn--danger-outline {
+  color: var(--t-log-level-error);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--t-log-level-error) 40%, transparent);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.hitl-btn--danger-outline:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--t-log-level-error) 12%, transparent);
+  color: var(--t-log-level-error);
+}
+
+.hitl-btn-spinner-host {
+  position: relative;
+  width: 0.9rem;
+  height: 0.9rem;
+  flex-shrink: 0;
+}

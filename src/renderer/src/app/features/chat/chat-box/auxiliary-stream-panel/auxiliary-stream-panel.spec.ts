@@ -3,6 +3,7 @@ import {
   auxiliaryPanelContentVisible,
   auxiliaryPanelShouldAutoScrollPreview,
   auxiliaryPanelStreamingPeek,
+  auxiliaryPanelViewportIsScrollable,
   initialAuxiliaryPanelMode,
   resolveAuxiliaryPanelModeForLive,
   toggleAuxiliaryPanelMode,
@@ -85,5 +86,13 @@ describe('auxiliaryPanelShouldAutoScrollPreview', () => {
     expect(auxiliaryPanelShouldAutoScrollPreview('preview')).toBe(true);
     expect(auxiliaryPanelShouldAutoScrollPreview('collapsed')).toBe(false);
     expect(auxiliaryPanelShouldAutoScrollPreview('expanded')).toBe(false);
+  });
+});
+
+describe('auxiliaryPanelViewportIsScrollable', () => {
+  it('is true only when content overflows the viewport', () => {
+    expect(auxiliaryPanelViewportIsScrollable(160, 160)).toBe(false);
+    expect(auxiliaryPanelViewportIsScrollable(161, 160)).toBe(false);
+    expect(auxiliaryPanelViewportIsScrollable(162, 160)).toBe(true);
   });
 });

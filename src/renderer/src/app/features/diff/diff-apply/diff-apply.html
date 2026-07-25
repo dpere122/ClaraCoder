@@ -51,7 +51,7 @@
           @if (!embeddedInHitlExpand()) {
             <button
               type="button"
-              class="btn btn-sm btn-outline-secondary"
+              class="hitl-btn hitl-btn--secondary"
               [class.active]="filterOpen()"
               (click)="toggleFilter()"
               [attr.aria-expanded]="filterOpen()"
@@ -74,7 +74,7 @@
           @if (isStagedTransferHitl()) {
             <button
               type="button"
-              class="btn btn-sm btn-success"
+              class="hitl-btn hitl-btn--success"
               [disabled]="applying()"
               (click)="approveStagedTransferHitl()"
               title="Write staged content to workspace"
@@ -83,7 +83,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-sm btn-outline-primary"
+              class="hitl-btn hitl-btn--accent"
               [disabled]="applying()"
               (click)="returnStagedTransferForReReview()"
               title="Return to review with notes"
@@ -92,7 +92,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-sm btn-outline-secondary"
+              class="hitl-btn hitl-btn--secondary"
               [class.active]="feedbackOpen()"
               (click)="feedbackOpen.set(!feedbackOpen())"
               [attr.aria-expanded]="feedbackOpen()"
@@ -102,7 +102,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-sm btn-outline-danger"
+              class="hitl-btn hitl-btn--danger-outline"
               [disabled]="applying()"
               (click)="cancelProposal()"
               title="Dismiss without approving — same as return for re-review with a default note"
@@ -113,7 +113,7 @@
             @if (incrementalOk() && changeHunkOrder().length > 0) {
               <button
                 type="button"
-                class="btn btn-sm btn-success"
+                class="hitl-btn hitl-btn--success"
                 [disabled]="applying()"
                 (click)="acceptCurrentChange()"
                 title="Write this change to disk, then move to the next (Ctrl+Enter)"
@@ -122,7 +122,7 @@
               </button>
               <button
                 type="button"
-                class="btn btn-sm btn-outline-secondary"
+                class="hitl-btn hitl-btn--secondary"
                 [disabled]="applying()"
                 (click)="skipCurrentChange()"
                 title="Leave this change out of the file and move to the next"
@@ -132,7 +132,7 @@
             }
             <button
               type="button"
-              class="btn btn-sm btn-outline-primary"
+              class="hitl-btn hitl-btn--accent"
               [disabled]="applying()"
               (click)="applyAllAtOnce()"
               title="Apply full proposed file"
@@ -141,7 +141,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-sm btn-outline-danger"
+              class="hitl-btn hitl-btn--danger-outline"
               [disabled]="applying()"
               (click)="cancelProposal()"
               title="Discard this proposal and tell the assistant to continue"
@@ -152,7 +152,7 @@
           @if (!hideExpandButton()) {
             <button
               type="button"
-              class="btn btn-sm btn-outline-secondary"
+              class="hitl-btn hitl-btn--secondary"
               [disabled]="applying()"
               (click)="toggleDiffExpanded()"
               [attr.title]="diffExpanded() ? 'Return diff to inline view (Esc)' : 'Expand diff to full window'"
@@ -198,7 +198,7 @@
               >
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary diff-hunk-toggle"
+                  class="hitl-btn hitl-btn--secondary diff-hunk-toggle"
                   (click)="toggleHunk(item.hunkIndex)"
                 >
                   <lucide-icon
@@ -211,7 +211,7 @@
                 @if (hunkAccepted(item.hunkIndex)) {
                   <span class="badge text-bg-success diff-accepted-badge">Accepted</span>
                 }
-                <button type="button" class="btn btn-sm btn-link py-0" (click)="copyHunk(item.hunkIndex)">Copy</button>
+                <button type="button" class="hitl-btn hitl-btn--secondary" (click)="copyHunk(item.hunkIndex)">Copy</button>
               </div>
             } @else {
               <div
@@ -249,7 +249,7 @@
               >
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary diff-hunk-toggle"
+                  class="hitl-btn hitl-btn--secondary diff-hunk-toggle"
                   (click)="toggleHunk(item.hunkIndex)"
                 >
                   <lucide-icon
@@ -262,7 +262,7 @@
                 @if (hunkAccepted(item.hunkIndex)) {
                   <span class="badge text-bg-success diff-accepted-badge">Accepted</span>
                 }
-                <button type="button" class="btn btn-sm btn-link py-0" (click)="copyHunk(item.hunkIndex)">Copy</button>
+                <button type="button" class="hitl-btn hitl-btn--secondary" (click)="copyHunk(item.hunkIndex)">Copy</button>
               </div>
             } @else {
               <div

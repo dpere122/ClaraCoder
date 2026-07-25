@@ -91,17 +91,33 @@ function pickShell(): { file: string; args: string[] } {
   return candidates[candidates.length - 1];
 }
 
+/** Sessions torn down by kill-all — skip renderer IPC (window may already be destroyed). */
+const disposingSessionIds = new Set<string>();
+
+function sendToMainRenderer(channel: string, payload: unknown): void {
+  const win = mainState.mainWindow;
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  try {
+    win.webContents.send(channel, payload);
+  } catch {
+    /* window tearing down */
+  }
+}
+
 function sendData(sessionId: string, data: string): void {
-  mainState.mainWindow?.webContents.send('workspace-pty-data', { sessionId, data });
+  sendToMainRenderer('workspace-pty-data', { sessionId, data });
 }
 
 function sendExit(sessionId: string, exitCode: number, signal: number | null): void {
-  mainState.mainWindow?.webContents.send('workspace-pty-exit', { sessionId, exitCode, signal });
+  sendToMainRenderer('workspace-pty-exit', { sessionId, exitCode, signal });
 }
 
 /** Kill every workspace PTY (app quit or workspace switch). */
 export function killAllWorkspacePtySessions(): void {
   for (const [sessionId] of sessions) {
+    disposingSessionIds.add(sessionId);
     clearPtyWorkspaceTreeRefresh(sessionId);
   }
   for (const [, term] of sessions) {
@@ -160,8 +176,12 @@ export function registerWorkspacePtyIpc(): void {
           schedulePtyWorkspaceTreeRefresh(sessionId, wr.trim());
         });
         term.onExit(({ exitCode, signal }) => {
+          const quiet = disposingSessionIds.delete(sessionId);
           sessions.delete(sessionId);
           clearPtyWorkspaceTreeRefresh(sessionId);
+          if (quiet) {
+            return;
+          }
           sendExit(sessionId, exitCode, signal ?? null);
           void notifyWorkspaceTreeRefresh(wr.trim());
         });

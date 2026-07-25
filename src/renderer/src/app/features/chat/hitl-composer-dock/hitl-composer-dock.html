@@ -1,0 +1,85 @@
+<div
+  class="hitl-composer-dock"
+  [class.hitl-composer-dock--open]="open()"
+  [attr.aria-hidden]="open() ? null : 'true'"
+>
+  <div class="hitl-composer-dock__panel" role="region" aria-label="Pending reviews">
+    @for (artifact of pendingArtifacts(); track artifactTrackKey(artifact)) {
+      @if (artifact.role === 'diff') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--diff">
+          <app-diff-apply
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            [embeddedInHitlExpand]="true"
+            (diffReviewFinished)="diffReviewFinished.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'delete_confirm') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--delete">
+          <app-delete-confirm
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'accept_command') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--accept">
+          <app-accept-command
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'copy_confirm') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--copy">
+          <app-copy-confirm
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            (copyReviewFinished)="copyReviewFinished.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'staged_transfer_batch') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--staged-batch">
+          <app-staged-transfer-batch-review
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            [fileResolutions]="artifact.fileResolutions ?? {}"
+            [preferFullscreen]="true"
+            (batchReviewFinished)="stagedTransferBatchFinished.emit($event)"
+            (batchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'plan_confirm') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--plan">
+          <app-plan-confirm
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            (planConfirmFinished)="planConfirmFinished.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'agent_question') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--question">
+          <app-agent-question
+            [conversationId]="conversationId()"
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+          />
+        </div>
+      }
+    }
+  </div>
+</div>

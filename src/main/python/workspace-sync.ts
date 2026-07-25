@@ -7,6 +7,7 @@ import type {
 import { flattenLlmProvidersToConnections } from '../../shared';
 import { PYTHON_URL } from './server';
 import { getHostOsInfo } from '../utils/host-os';
+import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
 
 function hasUrlScheme(s: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
@@ -195,6 +196,8 @@ export async function syncRuntimeConfigToPython(
           allowStagingOverlayCommands: config.workspaceTools.allowStagingOverlayCommands ?? false,
           commandLineExplainStep: config.workspaceTools.commandLineExplainStep ?? false,
           exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
+          allowWebAccess: config.workspaceTools.allowWebAccess ?? false,
+          searxngBaseUrl: (config.workspaceTools.searxngBaseUrl ?? '').trim(),
         },
         contextCompression: {
           enabled: config.contextCompression.enabled,
@@ -250,10 +253,40 @@ export async function syncWorkspaceContextToPython(
   if (extras?.skipEnvBootstrap) {
     body.skip_env_bootstrap = true;
   }
+  const workspaceId = (extras?.workspaceId ?? '').trim();
+  if (workspaceId && (workspacePath || '').trim()) {
+    body.workspace_system_prompt = await readWorkspaceSystemPromptText(workspaceId);
+  } else {
+    body.workspace_system_prompt = '';
+  }
   await fetch(`${PYTHON_URL}/workspace-context`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Push only the managed workspace system-prompt text into a Python session.
+ * Used after pick/edit/clear so injection does not depend on the file watcher tree.
+ */
+export async function syncWorkspaceSystemPromptToPython(
+  sessionId: string,
+  workspaceId: string,
+): Promise<void> {
+  const sid = (sessionId || '').trim();
+  if (!sid) {
+    return;
+  }
+  const wid = (workspaceId || '').trim();
+  const text = wid ? await readWorkspaceSystemPromptText(wid) : '';
+  await fetch(`${PYTHON_URL}/workspace-system-prompt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sid,
+      workspace_system_prompt: text,
+    }),
   });
 }
 

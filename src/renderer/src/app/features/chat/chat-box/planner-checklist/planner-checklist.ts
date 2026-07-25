@@ -66,6 +66,11 @@ export class PlannerChecklistComponent implements OnDestroy {
   readonly agentQuestion = input<AgentQuestionPayload | null>(null);
   readonly agentQuestionReviewStatus = input<DiffReviewStatus>('pending');
   readonly agentQuestionReviewSummary = input<string | undefined>(undefined);
+  /**
+   * When true, pending plan-confirm / agent-question actions render in the composer dock
+   * instead of inside this progress panel.
+   */
+  readonly hitlActionsInComposerDock = input(false);
 
   readonly planConfirmFinished = output<{
     requestId: string;
@@ -116,9 +121,17 @@ export class PlannerChecklistComponent implements OnDestroy {
 
   readonly showApprovalActions = computed(
     () =>
+      !this.hitlActionsInComposerDock() &&
       this.planConfirm() != null &&
       this.planConfirmReviewStatus() === 'pending' &&
       (this.planner().phase === 'planning' || this.planner().planReady === true),
+  );
+
+  readonly showAgentQuestion = computed(
+    () =>
+      !this.hitlActionsInComposerDock() &&
+      this.agentQuestion() != null &&
+      this.agentQuestionReviewStatus() === 'pending',
   );
 
   readonly frameLabel = computed(() => frameDisplayLabel(this.planner().phase, this.showApprovalActions()));

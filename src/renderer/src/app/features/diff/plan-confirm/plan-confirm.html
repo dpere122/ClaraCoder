@@ -30,10 +30,10 @@
         </ol>
       }
       <div class="d-flex flex-wrap gap-2 mt-2">
-        <button type="button" class="btn btn-sm btn-primary" [disabled]="busy()" (click)="onConfirm()">
+        <button type="button" class="hitl-btn hitl-btn--primary" [disabled]="busy()" (click)="onConfirm()">
           {{ payload().confirmLabel }}
         </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" [disabled]="busy()" (click)="onCancel()">
+        <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="onCancel()">
           {{ payload().cancelLabel || 'Cancel' }}
         </button>
       </div>

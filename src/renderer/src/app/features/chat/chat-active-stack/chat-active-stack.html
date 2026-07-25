@@ -24,12 +24,6 @@
     [streamingPlanner]="streamingPlanner()"
     [fontSize]="fontSize()"
     (sendResponse)="sendResponse.emit($event)"
-    (diffReviewFinished)="diffReviewFinished.emit($event)"
-    (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-    (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-    (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-    (copyReviewFinished)="copyReviewFinished.emit($event)"
-    (deleteReviewFinished)="deleteReviewFinished.emit($event)"
     (planConfirmFinished)="planConfirmFinished.emit($event)"
     (agentQuestionFinished)="agentQuestionFinished.emit($event)"
   />
@@ -48,6 +42,18 @@
       (removeFile)="removeChatContextFile.emit($event)"
       (togglePinFile)="togglePinChatContextFile.emit($event)"
       (pathsDropped)="chatContextPathsDropped.emit($event)"
+    />
+    <app-hitl-composer-dock
+      [artifacts]="pendingHitlDockArtifacts()"
+      [conversationId]="conversationId()"
+      (diffReviewFinished)="diffReviewFinished.emit($event)"
+      (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+      (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+      (copyReviewFinished)="copyReviewFinished.emit($event)"
+      (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+      (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
+      (planConfirmFinished)="planConfirmFinished.emit($event)"
+      (agentQuestionFinished)="agentQuestionFinished.emit($event)"
     />
     <div class="chat-active-stack__composer-input">
       <app-talk-mode

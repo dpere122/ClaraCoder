@@ -65,9 +65,8 @@
         } @else {
           @let row = slot.row;
 
-          @let auxPersisted = persistedAuxiliaryStreamTimeline(row.assistant);
-          @let turnArtifacts = hitlArtifactsForTurn(row);
-          @if (auxPersisted.length > 0 || turnArtifacts.length > 0) {
+          @let auxPersisted = auxiliaryTimelineForTurn(row);
+          @if (auxPersisted.length > 0) {
             <div aria-live="polite">
               <app-auxiliary-stream-panel
                 [parts]="auxPersisted"
@@ -77,22 +76,7 @@
                 [hideHeaderToggle]="tuiFrameChrome()"
                 [mode]="responseDetailsMode(persistedResponseDetailsKey(slot.index))"
                 (modeChange)="onResponseDetailsModeChange(persistedResponseDetailsKey(slot.index), $event)"
-              >
-                @if (turnArtifacts.length > 0) {
-                  <app-hitl-trail-panel
-                    [artifacts]="turnArtifacts"
-                    [live]="false"
-                    [chatLayout]="layout()"
-                    [conversationId]="conversationId()"
-                    (diffReviewFinished)="diffReviewFinished.emit($event)"
-                    (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-                    (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-                    (copyReviewFinished)="copyReviewFinished.emit($event)"
-                    (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-                    (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-                  />
-                }
-              </app-auxiliary-stream-panel>
+              />
             </div>
           }
 
@@ -107,6 +91,7 @@
               [agentQuestionReviewSummary]="planCtx.agentQuestionReviewSummary"
               [conversationId]="conversationId()"
               [live]="false"
+              [hitlActionsInComposerDock]="true"
               (planConfirmFinished)="planConfirmFinished.emit($event)"
               (agentQuestionFinished)="agentQuestionFinished.emit($event)"
             />
@@ -206,22 +191,8 @@
               [hideHeaderToggle]="tuiFrameChrome()"
               [mode]="responseDetailsMode(liveResponseDetailsKey)"
               (modeChange)="onResponseDetailsModeChange(liveResponseDetailsKey, $event)"
-            >
-              @if (liveHitlArtifacts().length > 0) {
-                <app-hitl-trail-panel
-                  [artifacts]="liveHitlArtifacts()"
-                  [live]="true"
-                  [chatLayout]="layout()"
-                  [conversationId]="conversationId()"
-                  (diffReviewFinished)="diffReviewFinished.emit($event)"
-                  (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-                  (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-                  (copyReviewFinished)="copyReviewFinished.emit($event)"
-                  (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-                  (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-                />
-              }
-            </app-auxiliary-stream-panel>
+              (overflowRevealed)="onLiveAuxiliaryPanelRevealed()"
+            />
           </div>
         }
         @if (livePlanPanel(); as planCtx) {
@@ -235,6 +206,7 @@
             [agentQuestionReviewSummary]="planCtx.agentQuestionReviewSummary"
             [conversationId]="conversationId()"
             [live]="true"
+            [hitlActionsInComposerDock]="true"
             (planConfirmFinished)="planConfirmFinished.emit($event)"
             (agentQuestionFinished)="agentQuestionFinished.emit($event)"
           />

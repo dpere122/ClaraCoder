@@ -62,6 +62,8 @@ class SessionState:
     workspace_id: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
+    # Optional per-workspace system prompt text (Electron app-data managed copy).
+    workspace_system_prompt: str = ''
     # Batched file watcher paths for incremental semantic index updates ``(path, kind)``.
     semantic_index_pending: list[tuple[str, str]] = field(default_factory=list)
     # Resolved Python project root inside the active workspace, or empty when none is attached.
@@ -257,6 +259,10 @@ class RuntimeToolsConfig:
     command_line_explain_step: bool = False
     #: When True, list/search/tree/semantic indexing include all workspace paths (no built-in or ``.gitignore`` skips).
     expose_all_workspace_files: bool = False
+    #: When True, bind ``web_search`` / ``fetch_url`` agent tools (Settings → Tools).
+    allow_web_access: bool = False
+    #: SearXNG instance base URL for ``web_search`` (e.g. ``http://127.0.0.1:8080``).
+    searxng_base_url: str = ''
 
 
 @dataclass

@@ -37,7 +37,7 @@
         <span class="badge text-bg-info">Staged → workspace</span>
         <button
           type="button"
-          class="btn btn-sm btn-success"
+          class="hitl-btn hitl-btn--success"
           [disabled]="applying()"
           (click)="onApproveStagedTransfer()"
         >
@@ -45,13 +45,13 @@
         </button>
         <button
           type="button"
-          class="btn btn-sm btn-outline-primary"
+          class="hitl-btn hitl-btn--accent"
           [disabled]="applying()"
           (click)="onReturnStagedForReReview()"
         >
           Return for re-review
         </button>
-        <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="applying()" (click)="onCancelProposal()">
+        <button type="button" class="hitl-btn hitl-btn--danger-outline" [disabled]="applying()" (click)="onCancelProposal()">
           Cancel
         </button>
         <div class="w-100"></div>
@@ -68,17 +68,17 @@
         ></textarea>
       } @else {
         @if (incrementalOk() && changeHunkOrder().length > 0) {
-          <button type="button" class="btn btn-sm btn-success" [disabled]="applying()" (click)="onAcceptCurrentChange()">
+          <button type="button" class="hitl-btn hitl-btn--success" [disabled]="applying()" (click)="onAcceptCurrentChange()">
             Accept
           </button>
-          <button type="button" class="btn btn-sm btn-outline-secondary" [disabled]="applying()" (click)="onSkipCurrentChange()">
+          <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="applying()" (click)="onSkipCurrentChange()">
             Skip
           </button>
         }
-        <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="applying()" (click)="onApplyAllAtOnce()">
+        <button type="button" class="hitl-btn hitl-btn--accent" [disabled]="applying()" (click)="onApplyAllAtOnce()">
           Accept entire diff once
         </button>
-        <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="applying()" (click)="onCancelProposal()">
+        <button type="button" class="hitl-btn hitl-btn--danger-outline" [disabled]="applying()" (click)="onCancelProposal()">
           Cancel
         </button>
       }

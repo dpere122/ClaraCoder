@@ -25,7 +25,7 @@ describe('chat-box-virtual', () => {
     expect(sumHeights([10, 20, 30], 1, 3)).toBe(50);
   });
 
-  it('estimateChatRowHeight adds collapsed auxiliary panel header for persisted timeline', () => {
+  it('estimateChatRowHeight ignores collapsed auxiliary panel for persisted timeline', () => {
     const base = estimateChatRowHeight(
       {
         kind: 'assistant-turn',
@@ -47,6 +47,6 @@ describe('chat-box-virtual', () => {
       },
       0.9,
     );
-    expect(withTimeline).toBeGreaterThan(base);
+    expect(withTimeline).toBe(base);
   });
 });

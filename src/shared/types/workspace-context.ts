@@ -54,3 +54,14 @@ export interface PythonInterpreterListItem {
   pythonExecutable: string;
   venvPath: string;
 }
+
+/** Status of the single managed workspace system-prompt copy under app data. */
+export interface WorkspaceSystemPromptStatus {
+  hasFile: boolean;
+  sourceName: string;
+}
+
+/** Result of pick/clear IPC for the workspace system prompt. */
+export type WorkspaceSystemPromptMutationResult =
+  | ({ ok: true } & WorkspaceSystemPromptStatus)
+  | ({ ok: false; error: string } & WorkspaceSystemPromptStatus);

@@ -52,3 +52,11 @@ export function auxiliaryPanelContentVisible(mode: AuxiliaryPanelMode): boolean 
 export function auxiliaryPanelShouldAutoScrollPreview(mode: AuxiliaryPanelMode): boolean {
   return mode === 'preview';
 }
+
+/** True when the peek/full viewport has overflow (scrollbar would engage). */
+export function auxiliaryPanelViewportIsScrollable(
+  scrollHeight: number,
+  clientHeight: number,
+): boolean {
+  return scrollHeight > clientHeight + 1;
+}

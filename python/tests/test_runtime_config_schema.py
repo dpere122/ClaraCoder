@@ -49,3 +49,24 @@ def test_allow_staging_overlay_accepts_snake_case_string() -> None:
     assert r.tools is not None
     assert r.tools.allowStagingOverlayCommands is True
     assert r.tools.exposeAllWorkspaceFiles is True
+
+
+def test_allow_web_access_and_searxng_base_url() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'model': 'whisper-1', 'apiKey': ''},
+        'tools': {
+            'editToolsStrict': False,
+            'maxFileReadLines': 400,
+            'maxSearchResults': 40,
+            'defaultWorkspaceEncoding': 'utf-8',
+            'defaultWorkspaceNewline': 'lf',
+            'allow_web_access': 'true',
+            'searxng_base_url': '  http://127.0.0.1:8080/  ',
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.allowWebAccess is True
+    assert r.tools.searxngBaseUrl == 'http://127.0.0.1:8080'

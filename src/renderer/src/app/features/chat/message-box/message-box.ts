@@ -143,11 +143,16 @@ export class MessageBox {
   }
 
   /**
-   * Multiline keyboard routing: Enter inserts a newline; Shift+Enter sends.
+   * Multiline keyboard routing: Escape blurs; Enter inserts a newline; Shift+Enter sends.
    *
    * @param event - Native keydown from the textarea.
    */
   onComposerKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.messageInputEl()?.nativeElement.blur();
+      return;
+    }
     if (event.key !== 'Enter' || !event.shiftKey) {
       return;
     }

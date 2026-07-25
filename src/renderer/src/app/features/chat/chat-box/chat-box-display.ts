@@ -228,6 +228,7 @@ export interface StreamingScrollState {
 export interface StreamingScrollInput {
   primaryKey: string;
   auxKey: string;
+  /** True only after the live details panel has revealed and taken layout height. */
   auxPanelVisible: boolean;
 }
 
@@ -239,7 +240,11 @@ export interface StreamingScrollDecision {
   next: StreamingScrollState;
 }
 
-/** Whether a pinned chat should follow an in-flight stream update. */
+/**
+ * Whether a pinned chat should follow an in-flight stream update.
+ * `auxPanelVisible` should flip true only when the live details panel takes layout
+ * height (overflow reveal), not when trail parts first mount while still pending.
+ */
 export function decideInstantScrollOnStreamingUpdate(
   input: StreamingScrollInput,
   prev: StreamingScrollState,
@@ -247,11 +252,10 @@ export function decideInstantScrollOnStreamingUpdate(
   const primaryChanged = input.primaryKey !== prev.prevPrimaryKey;
   const auxChanged = input.auxKey !== prev.prevAuxKey;
   const auxPanelBecameVisible = input.auxPanelVisible && !prev.prevAuxPanelVisible;
-  const auxStarted = auxChanged && prev.prevAuxKey === '' && input.auxKey !== '';
 
   return {
     scrollNow: primaryChanged,
-    scrollAfterLayout: auxPanelBecameVisible || auxStarted,
+    scrollAfterLayout: auxPanelBecameVisible,
     next: {
       prevPrimaryKey: primaryChanged ? input.primaryKey : prev.prevPrimaryKey,
       prevAuxKey: auxChanged ? input.auxKey : prev.prevAuxKey,
@@ -280,6 +284,28 @@ export function isPendingHitlArtifact(m: ArtifactMessage): boolean {
 
 export function turnHasPendingHitlArtifacts(artifacts: readonly ArtifactMessage[]): boolean {
   return artifacts.some(isPendingHitlArtifact);
+}
+
+/**
+ * Pending HITL artifacts for the composer dock: latest assistant-turn that still has
+ * unresolved reviews (includes plan_confirm / agent_question).
+ */
+export function pendingHitlArtifactsForDock(messages: readonly ChatMessage[]): ArtifactMessage[] {
+  const rows = buildChatDisplayRows([...messages]);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row?.kind !== 'assistant-turn') {
+      continue;
+    }
+    const pending = row.artifacts.filter(isPendingHitlArtifact);
+    if (pending.length > 0) {
+      return pending;
+    }
+    if (row.assistant || row.artifacts.length > 0) {
+      return [];
+    }
+  }
+  return [];
 }
 
 /** In-flight assistant turn for the live bubble (no final ``assistant`` message yet). */

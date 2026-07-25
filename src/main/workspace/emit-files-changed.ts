@@ -28,7 +28,15 @@ async function resolveWorkspaceForDiskRoot(
 
 /** Push a payload to the renderer sidebar file tree (never blocked on LLM context rebuild). */
 export function pushWorkspaceFilesChangedToRenderer(payload: WorkspaceFilesChangedPayload): void {
-  mainState.mainWindow?.webContents.send('workspace-files-changed', payload);
+  const win = mainState.mainWindow;
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  try {
+    win.webContents.send('workspace-files-changed', payload);
+  } catch {
+    /* window tearing down */
+  }
 }
 
 /** Ask the renderer to resync the visible file tree from disk (e.g. after terminal build output). */

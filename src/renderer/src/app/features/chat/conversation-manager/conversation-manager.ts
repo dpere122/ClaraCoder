@@ -44,6 +44,8 @@ export class ConversationManager implements OnDestroy {
   readonly activeId = input<string | null>(null);
   readonly pendingIds = input<Set<string>>(new Set());
   readonly activeFileRelativePath = input<string | null>(null);
+  /** When false (default no-workspace bucket), hide the language server footer. */
+  readonly hasWorkspace = input(false);
 
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();

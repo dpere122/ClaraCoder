@@ -9,6 +9,7 @@ import {
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
   liveTurnPresentationSettled,
+  pendingHitlArtifactsForDock,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   latestPrimaryStreamSegmentText,
@@ -17,6 +18,7 @@ import {
   type ChatMessage,
   type ToolChainGroup,
 } from './chat-box-display';
+import { mergeHitlTrailIntoAuxiliaryTimeline } from '@shared/index';
 
 describe('buildChatDisplayRows', () => {
   it('groups chain rows and diff cards into the same assistant turn', () => {
@@ -231,6 +233,98 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].assistant?.auxiliaryStreamTimeline).toEqual(auxiliaryStreamTimeline);
     expect(persistedAuxiliaryStreamTimeline(rows[1].assistant)).toEqual(auxiliaryStreamTimeline);
   });
+
+  it('embeds HITL change rows into the persisted auxiliary timeline', () => {
+    const auxiliaryStreamTimeline: StreamPart[] = [
+      { streamTag: 'reasoning', label: 'Model reasoning', text: 'think' },
+    ];
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Edit' },
+      {
+        role: 'diff',
+        payload: {
+          version: 1,
+          relativePath: 'src/app.ts',
+          language: 'typescript',
+          rows: [],
+          fullNewContent: '',
+          truncated: false,
+        },
+        reviewStatus: 'complete',
+      },
+      { role: 'assistant', text: 'Done.', auxiliaryStreamTimeline },
+    ];
+    const rows = buildChatDisplayRows(messages);
+    expect(rows[1]?.kind).toBe('assistant-turn');
+    if (rows[1]?.kind !== 'assistant-turn') return;
+    const merged = mergeHitlTrailIntoAuxiliaryTimeline(
+      persistedAuxiliaryStreamTimeline(rows[1].assistant),
+      rows[1].artifacts,
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged[1]?.label).toBe('app.ts');
+  });
+});
+
+describe('pendingHitlArtifactsForDock', () => {
+  it('returns pending artifacts from the latest assistant turn', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Edit' },
+      {
+        role: 'diff',
+        payload: {
+          version: 1,
+          relativePath: 'a.ts',
+          language: 'typescript',
+          rows: [],
+          fullNewContent: '',
+          truncated: false,
+        },
+        reviewStatus: 'pending',
+      },
+      {
+        role: 'plan_confirm',
+        payload: {
+          version: 1,
+          requestId: 'p1',
+          title: 'Plan',
+          message: '',
+          confirmLabel: 'Go',
+          cancelLabel: 'Cancel',
+          steps: ['one'],
+          filesToChange: [],
+          currentImplementation: '',
+          risks: [],
+          definitionOfDone: [],
+          resolvedQuestions: [],
+        },
+        reviewStatus: 'pending',
+      },
+    ];
+    const pending = pendingHitlArtifactsForDock(messages);
+    expect(pending).toHaveLength(2);
+    expect(pending.map((a) => a.role)).toEqual(['diff', 'plan_confirm']);
+  });
+
+  it('returns empty when the latest turn has no pending reviews', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', text: 'Q' },
+      {
+        role: 'diff',
+        payload: {
+          version: 1,
+          relativePath: 'a.ts',
+          language: 'typescript',
+          rows: [],
+          fullNewContent: '',
+          truncated: false,
+        },
+        reviewStatus: 'complete',
+      },
+      { role: 'assistant', text: 'Done.' },
+    ];
+    expect(pendingHitlArtifactsForDock(messages)).toEqual([]);
+  });
 });
 
 describe('TOOL_BUILDING_SYNONYMS', () => {
@@ -356,7 +450,7 @@ describe('decideInstantScrollOnStreamingUpdate', () => {
     });
   });
 
-  it('scrolls after layout when the live details panel first appears', () => {
+  it('scrolls after layout when the live details panel first reveals', () => {
     expect(
       decideInstantScrollOnStreamingUpdate(
         { primaryKey: '', auxKey: '', auxPanelVisible: true },
@@ -369,28 +463,28 @@ describe('decideInstantScrollOnStreamingUpdate', () => {
     });
   });
 
-  it('scrolls after layout when reasoning stream starts', () => {
+  it('does not scroll when auxiliary content starts before the panel reveals', () => {
     expect(
       decideInstantScrollOnStreamingUpdate(
         {
           primaryKey: '',
           auxKey: 'reasoning:Model reasoning:42',
-          auxPanelVisible: true,
+          auxPanelVisible: false,
         },
-        { prevPrimaryKey: '', prevAuxKey: '', prevAuxPanelVisible: true },
+        empty,
       ),
     ).toEqual({
       scrollNow: false,
-      scrollAfterLayout: true,
+      scrollAfterLayout: false,
       next: {
         prevPrimaryKey: '',
         prevAuxKey: 'reasoning:Model reasoning:42',
-        prevAuxPanelVisible: true,
+        prevAuxPanelVisible: false,
       },
     });
   });
 
-  it('ignores ongoing auxiliary-only growth after the stream has started', () => {
+  it('ignores ongoing auxiliary-only growth after the panel has revealed', () => {
     const prev = {
       prevPrimaryKey: '',
       prevAuxKey: 'reasoning:Model reasoning:42',

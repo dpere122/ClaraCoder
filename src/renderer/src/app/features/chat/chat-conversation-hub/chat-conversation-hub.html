@@ -44,6 +44,7 @@
       [activeId]="activeConversationId()"
       [activeFileRelativePath]="activeFileRelativePath()"
       [pendingIds]="pendingIds()"
+      [hasWorkspace]="hasWorkspace()"
       (selectConversation)="onSelectFromList($event)"
       (deleteConversation)="deleteConversation.emit($event)"
       (renameConversation)="renameConversation.emit($event)"

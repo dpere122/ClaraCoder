@@ -32,6 +32,11 @@ export function getWorkspaceConversationsDir(workspaceId: string): string {
   return path.join(getWorkspaceDir(workspaceId), 'conversations');
 }
 
+/** Single managed workspace system-prompt copy under app data (not the project tree). */
+export function getWorkspaceSystemPromptPath(workspaceId: string): string {
+  return path.join(getWorkspaceDir(workspaceId), 'system-prompt.md');
+}
+
 export function getGeneralConversationsDir(): string {
   return path.join(getAppDataDir(), 'conversations');
 }

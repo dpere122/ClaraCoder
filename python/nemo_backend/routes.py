@@ -91,6 +91,8 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             allow_staging_overlay_commands=request.tools.allowStagingOverlayCommands,
             command_line_explain_step=request.tools.commandLineExplainStep,
             expose_all_workspace_files=request.tools.exposeAllWorkspaceFiles,
+            allow_web_access=request.tools.allowWebAccess,
+            searxng_base_url=(request.tools.searxngBaseUrl or '').strip().rstrip('/'),
         )
     else:
         tools_cfg = prev_tools

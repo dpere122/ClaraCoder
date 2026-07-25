@@ -413,6 +413,13 @@ def _workspace_hint(session: SessionState, *, include_staging: bool = False) -> 
     )
 
 
+def _workspace_system_prompt_block(session: SessionState) -> str:
+    text = (session.workspace_system_prompt or '').strip()
+    if not text:
+        return ''
+    return f'Workspace system prompt:\n{text}'
+
+
 def _connection_line(session: SessionState) -> str:
     connection = get_active_connection()
     return (
@@ -436,11 +443,24 @@ def _os_hint_line() -> str:
     )
 
 
+def _web_access_operational_bullet() -> str:
+    """One-line guidance when Settings → Allow web access is on."""
+    from nemo_backend.state import runtime_config
+
+    if not getattr(runtime_config.tools, 'allow_web_access', False):
+        return ''
+    return (
+        '- **Web:** `web_search` (configured SearXNG) and `fetch_url` are bound. '
+        'When Auto-apply is off, each call asks for confirmation before leaving the machine.\n'
+    )
+
+
 def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> str:
     """Outer Clara: reads/search; direct copy; staging and specialist tools when Editor is on."""
     from nemo_backend.state import direct_workspace_edits_active
 
     direct = direct_workspace_edits_active(session, apply_mode=apply_mode)
+    web_bullet = _web_access_operational_bullet()
     base = (
         'Operational guidance:\n'
         '- For codebase questions, inspect the workspace before making claims.\n'
@@ -478,6 +498,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
     if not apply_mode:
         return (
             base
+            + web_bullet
             + '- **Backend (authoritative):** Editor mode is **OFF** for this turn; workspace mutation and staging '
             'tools are not bound. Ignore any stale prior assistant text that claims Editor is on or lists write tools.\n'
             '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
@@ -486,6 +507,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
     if direct:
         return (
             base
+            + web_bullet
             + '- **Backend (authoritative):** Editor mode is **ON** and Auto-apply is **ON**; **direct workspace writes** '
             'are bound (no staging or transfer tools).\n'
             + f'- {edit_semantics_block(direct=True)}\n'
@@ -505,6 +527,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         )
     return (
         base
+        + web_bullet
         + '- **Backend (authoritative):** Editor mode is **ON**; staging and mutation tools below are bound.\n'
         + '- You have read/search tools, `copy_workspace_files`, `delete_workspace_entry` and `batch_delete_workspace_entries`, '
         '**staged** create/update tools (`stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, '
@@ -552,11 +575,12 @@ def build_system_prompt(
 ) -> str:
     """Assemble Clara's system prompt: role, tools policy, connection, OS, workspace."""
     workspace_hint = _workspace_hint(session)
+    workspace_system = _workspace_system_prompt_block(session)
     operational = _outer_agent_operational_block(session, apply_mode)
     formatting_early = (
         f'{source_code_formatting_guidance()}\n\n' if (session.workspace_path or '').strip() else ''
     )
-    return (
+    body = (
         'You are Clara, a coding assistant. '
         'Use the available tools whenever a request depends on inspecting or searching the workspace. '
         'Prefer quoting exact file paths, line numbers, commands, and concrete next steps. '
@@ -567,5 +591,7 @@ def build_system_prompt(
         f'{operational}'
         f'{formatting_early}'
         f'{workspace_hint}'
-        f'{_model_prompt_suffix(session, apply_mode)}'
     )
+    if workspace_system:
+        body = f'{body}\n\n{workspace_system}'
+    return f'{body}{_model_prompt_suffix(session, apply_mode)}'

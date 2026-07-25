@@ -67,6 +67,8 @@ function stubElectronApi(): StubRefs {
       defaultWorkspaceNewline: 'lf',
       allowStagingOverlayCommands: false,
       exposeAllWorkspaceFiles: false,
+      allowWebAccess: false,
+      searxngBaseUrl: '',
     },
     contextCompression: {
       enabled: true,
@@ -156,6 +158,23 @@ function stubElectronApi(): StubRefs {
       activeInterpreterId: null as string | null,
     }),
     applyWorkspacePythonInterpreter: async () => ({ ok: true as const }),
+    getWorkspaceSystemPromptStatus: async () => ({ hasFile: false, sourceName: '' }),
+    pickWorkspaceSystemPrompt: async () => ({
+      ok: true as const,
+      hasFile: false,
+      sourceName: '',
+    }),
+    getWorkspaceSystemPromptText: async () => ({ ok: true as const, text: '' }),
+    saveWorkspaceSystemPromptText: async () => ({
+      ok: true as const,
+      hasFile: true,
+      sourceName: 'system-prompt.md',
+    }),
+    clearWorkspaceSystemPrompt: async () => ({
+      ok: true as const,
+      hasFile: false,
+      sourceName: '',
+    }),
     syncAutoApplyMode: async () => ({ ok: true }),
     startTtsStream: async () => ({ ok: true }),
     registerTtsStreamUrl: async () => ({ url: '' }),

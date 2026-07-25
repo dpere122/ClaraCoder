@@ -1379,14 +1379,12 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
   display: none;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel__toggle,
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-panel__toggle {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel__toggle {
   border: none;
   padding: 0 0 0.05rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row,
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-row + .stream-trail-row {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row {
   border: none;
 }
 
@@ -1398,18 +1396,10 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
   background-color: color-mix(in srgb, var(--t-tui-clara-frame) 6%, transparent);
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel,
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-panel {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel {
   margin-top: 0.05rem;
   margin-bottom: 0.05rem;
-}
-
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-auxiliary-stream-panel .stream-trail-panel {
   background-color: color-mix(in srgb, var(--t-secondary) 4%, transparent);
-}
-
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-hitl-trail-panel .stream-trail-panel {
-  background-color: color-mix(in srgb, var(--t-tui-clara-frame) 5%, transparent);
 }
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-context-bar .chat-context-bar {

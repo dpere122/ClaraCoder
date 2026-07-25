@@ -135,6 +135,7 @@ export {
   isReasoningAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
+  isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
   joinAllStreamPartTexts,
   joinPrimaryAssistantStreamText,
@@ -166,8 +167,10 @@ export {
   shellDelegatedStreamPartsForDisplay,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   streamPlainOneLine,
+  hitlTrailStreamTag,
   toolTrailStatusIdFromStreamTag,
   toolTrailStatusStreamTag,
+  HITL_TRAIL_STREAM_PREFIX,
   TOOL_TRAIL_STATUS_STREAM_PREFIX,
 } from './stream-parts';
 export type { PersistedAssistantStreamFields } from './stream-parts';
@@ -209,10 +212,12 @@ export { diffLineChangeCounts, formatDiffLineChangeSummary } from './diff-stats'
 export type { DiffLineChangeCounts } from './diff-stats';
 export {
   hitlTrailItemsFromArtifacts,
+  hitlTrailItemsToStreamParts,
   hitlTrailKindLabel,
   hitlTrailPanelTitle,
   hitlTrailRowKindText,
   hitlTrailStatusLabel,
+  mergeHitlTrailIntoAuxiliaryTimeline,
 } from './hitl-trail';
 export type { HitlTrailArtifact, HitlTrailItem, HitlTrailKind } from './hitl-trail';
 export type { LspDashboardServerEntry, LspDashboardStatus } from './types/lsp-dashboard';
@@ -258,6 +263,8 @@ export type {
   WorkspaceContextSyncExtras,
   WorkspaceFileChangesForSync,
   PythonInterpreterListItem,
+  WorkspaceSystemPromptStatus,
+  WorkspaceSystemPromptMutationResult,
 } from './types/workspace-context';
 export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';
 export type {

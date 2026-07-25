@@ -42,7 +42,7 @@
     }
   </div>
 
-  @if (electron.isElectron) {
+  @if (electron.isElectron && hasWorkspace()) {
     <div class="conv-lsp-footer">
       <app-editor-lsp-status
         [conversationId]="activeId()"

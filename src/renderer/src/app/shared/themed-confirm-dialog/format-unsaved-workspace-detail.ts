@@ -77,6 +77,18 @@ export function activeBuildPlanClosePrompt(relativePath: string): ThemedConfirmO
   };
 }
 
+/** Copy when closing a live user PTY or running agent run_command terminal tab. */
+export function activeTerminalClosePrompt(tabTitle: string): ThemedConfirmOpenOptions {
+  return {
+    title: 'Close terminal?',
+    message: 'Closing this terminal will stop the running process.',
+    detail: `Terminal:\n${tabTitle}`,
+    cancelText: 'Keep open',
+    confirmText: 'Close and stop',
+    variant: 'warning',
+  };
+}
+
 /** Copy when context usage is at or above the near-limit threshold before sending a message. */
 export function contextCapacityNearLimitPrompt(args: {
   usedTokens: number;

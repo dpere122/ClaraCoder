@@ -19,7 +19,6 @@ import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialo
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { Subscription } from 'rxjs';
-import { ThemeSelector } from '../../layout/theme-selector/theme-selector';
 import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
 import { WorkspaceOutlineDockComponent } from '../workspace-outline-dock/workspace-outline-dock';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
@@ -63,7 +62,7 @@ import {
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, ThemeSelector, WorkspaceOutlineDockComponent],
+  imports: [LucideAngularModule, WorkspaceOutlineDockComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -159,6 +158,19 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly pythonInterpreterLoading = signal(false);
   protected readonly pythonInterpreterError = signal('');
   private pythonInterpreterLoadRequestId = 0;
+
+  /** Managed app-data system prompt (single copy per workspace). */
+  protected readonly systemPromptHasFile = signal(false);
+  protected readonly systemPromptSourceName = signal('');
+  protected readonly systemPromptBusy = signal(false);
+  protected readonly systemPromptError = signal('');
+  private systemPromptStatusRequestId = 0;
+
+  /** Simple in-app editor for the managed system-prompt file. */
+  protected readonly systemPromptEditorOpen = signal(false);
+  protected readonly systemPromptEditorDraft = signal('');
+  protected readonly systemPromptEditorSaving = signal(false);
+  protected readonly systemPromptEditorError = signal('');
 
   /** From ``GET /lsp/status`` — whether the Jedi subprocess for this session is running. */
   protected readonly lspPythonServerRunning = signal(false);
@@ -268,6 +280,21 @@ export class WorkspaceComponent implements OnDestroy {
         return;
       }
       void this.loadPythonInterpreters(sid, wid, wss);
+    });
+
+    effect(() => {
+      const wid = this.currentWorkspaceId();
+      const wss = this.workspaces();
+      if (!this.electron.isElectron || !wid) {
+        untracked(() => {
+          this.systemPromptHasFile.set(false);
+          this.systemPromptSourceName.set('');
+          this.systemPromptError.set('');
+        });
+        return;
+      }
+      // Prefer live config field when present; still confirm managed file exists via IPC.
+      void this.refreshSystemPromptStatus(wid, wss);
     });
 
     effect(() => {
@@ -398,6 +425,142 @@ export class WorkspaceComponent implements OnDestroy {
       select.value = prev;
     } finally {
       this.pythonInterpreterLoading.set(false);
+    }
+  }
+
+  protected async onPickSystemPrompt(): Promise<void> {
+    const wid = this.currentWorkspaceId();
+    if (!wid || this.systemPromptBusy()) {
+      return;
+    }
+    this.systemPromptBusy.set(true);
+    this.systemPromptError.set('');
+    try {
+      const res = await this.electron.pickWorkspaceSystemPrompt(wid, this.activeConversationId());
+      this.systemPromptHasFile.set(res.hasFile);
+      this.systemPromptSourceName.set(res.sourceName || '');
+      if (!res.ok) {
+        this.systemPromptError.set(res.error);
+      }
+    } catch (e) {
+      this.systemPromptError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.systemPromptBusy.set(false);
+    }
+  }
+
+  protected async onClearSystemPrompt(): Promise<void> {
+    const wid = this.currentWorkspaceId();
+    if (!wid || this.systemPromptBusy()) {
+      return;
+    }
+    this.systemPromptBusy.set(true);
+    this.systemPromptError.set('');
+    try {
+      const res = await this.electron.clearWorkspaceSystemPrompt(wid, this.activeConversationId());
+      this.systemPromptHasFile.set(res.hasFile);
+      this.systemPromptSourceName.set(res.sourceName || '');
+      if (!res.ok) {
+        this.systemPromptError.set(res.error);
+      }
+    } catch (e) {
+      this.systemPromptError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.systemPromptBusy.set(false);
+    }
+  }
+
+  protected async onOpenSystemPromptEditor(): Promise<void> {
+    const wid = this.currentWorkspaceId();
+    if (!wid || this.systemPromptBusy() || this.systemPromptEditorOpen()) {
+      return;
+    }
+    this.systemPromptBusy.set(true);
+    this.systemPromptError.set('');
+    this.systemPromptEditorError.set('');
+    try {
+      const res = await this.electron.getWorkspaceSystemPromptText(wid);
+      if (!res.ok) {
+        this.systemPromptError.set(res.error);
+        return;
+      }
+      this.systemPromptEditorDraft.set(res.text);
+      this.systemPromptEditorOpen.set(true);
+    } catch (e) {
+      this.systemPromptError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.systemPromptBusy.set(false);
+    }
+  }
+
+  protected onSystemPromptEditorInput(event: Event): void {
+    const el = event.target as HTMLTextAreaElement;
+    this.systemPromptEditorDraft.set(el.value);
+  }
+
+  protected onCancelSystemPromptEditor(): void {
+    if (this.systemPromptEditorSaving()) {
+      return;
+    }
+    this.systemPromptEditorOpen.set(false);
+    this.systemPromptEditorDraft.set('');
+    this.systemPromptEditorError.set('');
+  }
+
+  protected async onSaveSystemPromptEditor(): Promise<void> {
+    const wid = this.currentWorkspaceId();
+    if (!wid || this.systemPromptEditorSaving()) {
+      return;
+    }
+    this.systemPromptEditorSaving.set(true);
+    this.systemPromptEditorError.set('');
+    try {
+      const res = await this.electron.saveWorkspaceSystemPromptText({
+        workspaceId: wid,
+        text: this.systemPromptEditorDraft(),
+        sessionId: this.activeConversationId(),
+      });
+      if (!res.ok) {
+        this.systemPromptEditorError.set(res.error);
+        return;
+      }
+      this.systemPromptHasFile.set(res.hasFile);
+      this.systemPromptSourceName.set(res.sourceName || 'system-prompt.md');
+      this.systemPromptEditorOpen.set(false);
+      this.systemPromptEditorDraft.set('');
+    } catch (e) {
+      this.systemPromptEditorError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.systemPromptEditorSaving.set(false);
+    }
+  }
+
+  private async refreshSystemPromptStatus(workspaceId: string, workspaces: Workspace[]): Promise<void> {
+    const req = ++this.systemPromptStatusRequestId;
+    this.systemPromptError.set('');
+    try {
+      const res = await this.electron.getWorkspaceSystemPromptStatus(workspaceId);
+      if (req !== this.systemPromptStatusRequestId) {
+        return;
+      }
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      const fromConfig = (ws?.systemPromptSourceName ?? '').trim();
+      this.systemPromptHasFile.set(res.hasFile);
+      this.systemPromptSourceName.set(res.hasFile ? res.sourceName || fromConfig || 'system-prompt.md' : '');
+    } catch (e) {
+      if (req !== this.systemPromptStatusRequestId) {
+        return;
+      }
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      const fromConfig = (ws?.systemPromptSourceName ?? '').trim();
+      if (fromConfig) {
+        this.systemPromptHasFile.set(true);
+        this.systemPromptSourceName.set(fromConfig);
+      } else {
+        this.systemPromptHasFile.set(false);
+        this.systemPromptSourceName.set('');
+      }
+      this.systemPromptError.set(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -536,6 +699,10 @@ export class WorkspaceComponent implements OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscapeCloseContextMenu(): void {
+    if (this.systemPromptEditorOpen()) {
+      this.onCancelSystemPromptEditor();
+      return;
+    }
     if (this.pendingCreate()) {
       this.cancelPendingCreate();
       return;

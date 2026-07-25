@@ -203,6 +203,14 @@ def worker_tools_and_map(
     mapping[search_netstat_ports_tool.name] = search_netstat_ports_tool
     for tool_ in LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
+    if getattr(runtime_config.tools, 'allow_web_access', False):
+        from nemo_backend.tools.fetch_url import fetch_url_tool
+        from nemo_backend.tools.web_search import web_search_tool
+
+        tools.append(web_search_tool)
+        mapping[web_search_tool.name] = web_search_tool
+        tools.append(fetch_url_tool)
+        mapping[fetch_url_tool.name] = fetch_url_tool
     if apply_mode:
         sess = session or SessionState()
         direct = direct_workspace_edits_active(sess, apply_mode=apply_mode)
@@ -354,6 +362,13 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
     (
         'Verification',
         ('run_workspace_pytest_tests',),
+    ),
+    (
+        'Web',
+        (
+            'web_search',
+            'fetch_url',
+        ),
     ),
     (
         'Process',

@@ -897,6 +897,26 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.exposeAllWorkspaceFiles = false;
       migrated = true;
     }
+    const allowWebRaw = (wt as unknown as { allowWebAccess?: unknown }).allowWebAccess;
+    if (typeof allowWebRaw === 'string') {
+      const s = allowWebRaw.trim().toLowerCase();
+      wt.allowWebAccess = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof allowWebRaw !== 'boolean') {
+      wt.allowWebAccess = false;
+      migrated = true;
+    }
+    const searxngRaw = (wt as unknown as { searxngBaseUrl?: unknown }).searxngBaseUrl;
+    if (typeof searxngRaw !== 'string') {
+      wt.searxngBaseUrl = '';
+      migrated = true;
+    } else {
+      const trimmed = searxngRaw.trim();
+      if (trimmed !== searxngRaw) {
+        wt.searxngBaseUrl = trimmed;
+        migrated = true;
+      }
+    }
   }
 
   const ccRaw = (newConfig as AppConfig & { contextCompression?: ContextCompressionConfig }).contextCompression;

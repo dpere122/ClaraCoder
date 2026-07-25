@@ -1,4 +1,4 @@
-@if (planner().steps.length > 0 || planner().phase === 'discovery' || agentQuestion()) {
+@if (planner().steps.length > 0 || planner().phase === 'discovery' || showAgentQuestion()) {
   <div
     class="plan-panel"
     [class.plan-panel--live]="live()"
@@ -53,7 +53,7 @@
           <p class="plan-panel__message">{{ approvalMessage() }}</p>
         }
 
-        @if (agentQuestion() && agentQuestionReviewStatus() === 'pending') {
+        @if (showAgentQuestion()) {
           <div class="plan-panel__agent-question">
             <app-agent-question
               [payload]="agentQuestion()!"
@@ -69,12 +69,12 @@
           <div class="plan-panel__actions">
             <button
               type="button"
-              class="plan-panel__btn plan-panel__btn--primary"
+              class="hitl-btn hitl-btn--primary"
               [disabled]="busy()"
               (click)="onConfirm()"
             >
               @if (busy()) {
-                <span class="plan-panel__btn-spinner-host" aria-hidden="true">
+                <span class="hitl-btn-spinner-host" aria-hidden="true">
                   <ngx-spinner
                     [name]="approveSpinnerName"
                     type="ball-scale-multiple"
@@ -89,7 +89,7 @@
             </button>
             <button
               type="button"
-              class="plan-panel__btn plan-panel__btn--secondary"
+              class="hitl-btn hitl-btn--secondary"
               [disabled]="busy()"
               (click)="onCancel()"
             >

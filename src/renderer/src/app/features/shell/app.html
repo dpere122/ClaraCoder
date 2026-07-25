@@ -277,6 +277,7 @@
         [activeConversationId]='activeConversationId()'
         [activeFileRelativePath]='activeFileRelativePath()'
         [pendingIds]='pendingIds()'
+        [hasWorkspace]='!!currentWorkspaceId()'
         (newConversation)='onNewConversation()'
         (selectConversation)='onSelectConversation($event)'
         (deleteConversation)='onDeleteConversation($event)'

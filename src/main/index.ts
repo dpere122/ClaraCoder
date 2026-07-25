@@ -93,11 +93,15 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-  stopAllManagedLlamaServers();
-  killAllWorkspacePtySessions();
-  clearWorkspaceWatcher();
-  if (mainState.pythonProcess) {
-    mainState.pythonProcess.kill();
-    mainState.pythonProcess = null;
+  try {
+    stopAllManagedLlamaServers();
+    killAllWorkspacePtySessions();
+    clearWorkspaceWatcher();
+    if (mainState.pythonProcess) {
+      mainState.pythonProcess.kill();
+      mainState.pythonProcess = null;
+    }
+  } catch (err) {
+    console.error('[Main] will-quit cleanup failed:', err);
   }
 });

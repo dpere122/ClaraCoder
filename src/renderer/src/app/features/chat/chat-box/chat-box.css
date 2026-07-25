@@ -499,7 +499,8 @@ app-chat-box .processing-bubble {
   margin-top: 0.15rem;
 }
 
-app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel)) .processing-bubble {
+/* Treat overflow-pending aux panel as absent so it does not add a separator gap. */
+app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel:not(.aux-stream-panel--pending-overflow))) .processing-bubble {
   border-top: none;
   margin-top: 0;
   padding-top: 0;

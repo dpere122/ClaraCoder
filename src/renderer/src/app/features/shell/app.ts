@@ -11,6 +11,7 @@ import type {
   Conversation,
   ConversationMeta,
   FileDiffPayload,
+  HitlTrailArtifact,
   LlmStatus,
   StreamPart,
   StagedTransferBatchPayload,
@@ -24,6 +25,7 @@ import {
   DEFAULT_KOKORO_TTS_VOICE,
   composerApplyMode,
   composerModeForBackend,
+  mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
   appendAndMergeReadToolPreviewChunk,
   findReadToolTrailTargetIndex,
@@ -37,7 +39,12 @@ import {
 } from '@shared/index';
 import { ChatActiveStackComponent } from '../chat/chat-active-stack/chat-active-stack';
 import { ChatConversationHubComponent, type ChatHubView } from '../chat/chat-conversation-hub/chat-conversation-hub';
-import { type ChatMessage } from '../chat/chat-box/chat-box';
+import {
+  buildChatDisplayRows,
+  hitlArtifactsExcludingPlanConfirm,
+  resolveLiveAssistantTurn,
+  type ChatMessage,
+} from '../chat/chat-box/chat-box';
 import {
   type ChatContextFile,
   chatContextFileFromEditorSelection,
@@ -421,7 +428,7 @@ export class App implements OnInit, OnDestroy {
   );
 
   // Layout
-  protected readonly workspaceWidth = signal(220);
+  protected readonly workspaceWidth = signal(280);
   protected readonly sidebarWidth = signal(0);
 
   private static readonly MIN_WORKSPACE = 140;
@@ -534,6 +541,20 @@ export class App implements OnInit, OnDestroy {
       untracked(() => this.pendingDiffReview.clearAllSessions());
     });
 
+    /**
+     * Pin HITL change rows into the live multiplex timeline at first appearance (wall-clock),
+     * then refresh status in place — same interleaving model as tool-trail rows.
+     */
+    effect(() => {
+      const convId = this.activeConversationId();
+      const messages = this.messages();
+      const pending = convId ? this.pendingIds().has(convId) : false;
+      if (!convId || !pending) {
+        return;
+      }
+      untracked(() => this.syncLiveHitlTrailIntoStreamParts(messages));
+    });
+
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
       if (inputTokens > 0) {
         this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
@@ -631,6 +652,7 @@ export class App implements OnInit, OnDestroy {
       const artifact = { role: 'diff', payload: diff, reviewStatus: 'pending' as const } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
+        this.mergeHitlTrailIntoBackgroundStream(conversationId, artifact);
         return;
       }
       this.messages.update((prev) => [...prev, artifact]);
@@ -651,6 +673,7 @@ export class App implements OnInit, OnDestroy {
       } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
+        this.mergeHitlTrailIntoBackgroundStream(conversationId, artifact);
         return;
       }
       this.messages.update((prev) => [...prev, artifact]);
@@ -665,6 +688,7 @@ export class App implements OnInit, OnDestroy {
       const artifact = { role: 'accept_command', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
+        this.mergeHitlTrailIntoBackgroundStream(conversationId, artifact);
         return;
       }
       this.messages.update((prev) => [...prev, artifact]);
@@ -679,6 +703,7 @@ export class App implements OnInit, OnDestroy {
       const artifact = { role: 'copy_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
+        this.mergeHitlTrailIntoBackgroundStream(conversationId, artifact);
         return;
       }
       this.messages.update((prev) => [...prev, artifact]);
@@ -696,6 +721,7 @@ export class App implements OnInit, OnDestroy {
       const artifact = { role: 'delete_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       if (conversationId !== this.activeConversationId()) {
         void this.persistArtifactToConversation(conversationId, artifact);
+        this.mergeHitlTrailIntoBackgroundStream(conversationId, artifact);
         return;
       }
       this.messages.update((prev) => [...prev, artifact]);
@@ -1386,6 +1412,31 @@ export class App implements OnInit, OnDestroy {
       this.pendingSave = true;
       this.autoSave();
     }
+  }
+
+  /** Embed live-turn HITL rows into `streamingParts` so later reasoning/tools trail after them. */
+  private syncLiveHitlTrailIntoStreamParts(messages: readonly ChatMessage[]): void {
+    const live = resolveLiveAssistantTurn(buildChatDisplayRows([...messages]));
+    if (!live) {
+      return;
+    }
+    const artifacts = hitlArtifactsExcludingPlanConfirm(live.artifacts) as HitlTrailArtifact[];
+    this.streamingParts.update((prev) => mergeHitlTrailIntoAuxiliaryTimeline(prev, artifacts));
+  }
+
+  /** Background streams: pin HITL rows at arrival so they persist into the saved auxiliary timeline. */
+  private mergeHitlTrailIntoBackgroundStream(
+    conversationId: string,
+    artifact: HitlTrailArtifact,
+  ): void {
+    const prev = this.backgroundStreamParts.get(conversationId);
+    if (!prev) {
+      return;
+    }
+    this.backgroundStreamParts.set(
+      conversationId,
+      mergeHitlTrailIntoAuxiliaryTimeline(prev, [artifact]),
+    );
   }
 
   async onSelectConversation(id: string): Promise<void> {

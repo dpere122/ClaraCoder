@@ -81,7 +81,7 @@ import { applyAppFontOverrides } from '../../shell/app-theme';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import { LucideAngularModule } from 'lucide-angular';
 
-type SettingsTab = 'general' | 'appearance' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
+type SettingsTab = 'general' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
 
 type SettingsSubTabEntry = {
   id: string;
@@ -159,7 +159,7 @@ export class Settings implements OnInit, OnDestroy {
     {
       id: 'general',
       label: 'General',
-      description: 'Chat font size and other global preferences.',
+      description: 'UI theme, chat font size, and other global preferences.',
     },
     {
       id: 'models',
@@ -184,7 +184,6 @@ export class Settings implements OnInit, OnDestroy {
       description: 'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
     },
     { id: 'audio', label: 'Audio', description: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.' },
-    { id: 'appearance', label: 'Appearance', description: 'App-wide theme.' },
     { id: 'workspaces', label: 'Workspaces', description: 'Attached folders and active project.' },
   ];
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
@@ -208,6 +207,11 @@ export class Settings implements OnInit, OnDestroy {
   );
   protected readonly settingsSubTabCatalog: Partial<Record<SettingsTab, SettingsSubTabEntry[]>> = {
     general: [
+      {
+        id: 'themes',
+        label: 'Theme',
+        description: 'App-wide UI theme.',
+      },
       {
         id: 'chat',
         label: 'Chat appearance',
@@ -300,13 +304,6 @@ export class Settings implements OnInit, OnDestroy {
         description: 'Local Kokoro voice and speech speed for spoken assistant replies.',
       },
     ],
-    appearance: [
-      {
-        id: 'themes',
-        label: 'Theme',
-        description: 'App-wide UI theme.',
-      },
-    ],
   };
   protected readonly selectedSubTabs = signal<Partial<Record<SettingsTab, string>>>({});
   protected readonly workspaces = signal<Workspace[]>([]);
@@ -342,6 +339,8 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly allowStagingOverlayCommands = signal(false);
   protected readonly commandLineExplainStep = signal(false);
   protected readonly exposeAllWorkspaceFiles = signal(false);
+  protected readonly allowWebAccess = signal(false);
+  protected readonly searxngBaseUrl = signal('');
   protected readonly contextCompressionEnabled = signal(true);
   protected readonly contextCompressionTriggerRatio = signal(0.7);
   protected readonly contextCompressionTargetRatio = signal(0.55);
@@ -521,6 +520,10 @@ export class Settings implements OnInit, OnDestroy {
   protected settingsSubTabSummary(tab: SettingsTab, id: string): string {
     switch (tab) {
       case 'general':
+        if (id === 'themes') {
+          const theme = this.themes.find((t) => t.id === this.themeId());
+          return theme?.label.split(/\s+/)[0] ?? this.themeId();
+        }
         if (id === 'chat') {
           const sizeLabel =
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
@@ -567,12 +570,6 @@ export class Settings implements OnInit, OnDestroy {
         }
         break;
       }
-      case 'appearance':
-        if (id === 'themes') {
-          const theme = this.themes.find((t) => t.id === this.themeId());
-          return theme?.label.split(/\s+/)[0] ?? this.themeId();
-        }
-        break;
       default:
         break;
     }
@@ -637,6 +634,7 @@ export class Settings implements OnInit, OnDestroy {
 
   protected onThemeChange(themeId: string): void {
     this.themeId.set(themeId);
+    this.applyTheme(themeId);
     this.markSettingsDirty();
   }
 
@@ -1605,6 +1603,12 @@ export class Settings implements OnInit, OnDestroy {
     if (changes.exposeAllWorkspaceFiles !== undefined) {
       this.exposeAllWorkspaceFiles.set(!!changes.exposeAllWorkspaceFiles);
     }
+    if (changes.allowWebAccess !== undefined) {
+      this.allowWebAccess.set(!!changes.allowWebAccess);
+    }
+    if (changes.searxngBaseUrl !== undefined) {
+      this.searxngBaseUrl.set((changes.searxngBaseUrl || '').trim());
+    }
     this.markSettingsDirty();
   }
 
@@ -1657,6 +1661,16 @@ export class Settings implements OnInit, OnDestroy {
 
   protected onExposeAllWorkspaceFilesChange(enabled: boolean): void {
     this.exposeAllWorkspaceFiles.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  protected onAllowWebAccessChange(enabled: boolean): void {
+    this.allowWebAccess.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  protected onSearxngBaseUrlChange(value: string): void {
+    this.searxngBaseUrl.set((value || '').trim());
     this.markSettingsDirty();
   }
 
@@ -1943,6 +1957,8 @@ export class Settings implements OnInit, OnDestroy {
         allowStagingOverlayCommands: this.allowStagingOverlayCommands(),
         commandLineExplainStep: this.commandLineExplainStep(),
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
+        allowWebAccess: this.allowWebAccess(),
+        searxngBaseUrl: this.searxngBaseUrl(),
       },
       contextCompression: {
         enabled: this.contextCompressionEnabled(),
@@ -2089,6 +2105,8 @@ export class Settings implements OnInit, OnDestroy {
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
     this.commandLineExplainStep.set(!!(wt.commandLineExplainStep ?? false));
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
+    this.allowWebAccess.set(!!(wt.allowWebAccess ?? false));
+    this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
 
     const cc = config.contextCompression ?? getDefaultContextCompression();
     this.contextCompressionEnabled.set(!!cc.enabled);

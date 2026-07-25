@@ -205,6 +205,20 @@ class WorkspaceContextRequest(BaseModel):
         default=False,
         validation_alias=AliasChoices('skip_env_bootstrap', 'skipEnvBootstrap'),
     )
+    workspace_system_prompt: str = Field(
+        default='',
+        validation_alias=AliasChoices('workspace_system_prompt', 'workspaceSystemPrompt'),
+    )
+
+
+class WorkspaceSystemPromptRequest(BaseModel):
+    """Update only the managed workspace system-prompt text for a session."""
+
+    session_id: str
+    workspace_system_prompt: str = Field(
+        default='',
+        validation_alias=AliasChoices('workspace_system_prompt', 'workspaceSystemPrompt'),
+    )
 
 
 class PythonInterpreterSelectRequest(BaseModel):
@@ -337,6 +351,16 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('exposeAllWorkspaceFiles', 'expose_all_workspace_files'),
     )
 
+    allowWebAccess: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('allowWebAccess', 'allow_web_access'),
+    )
+
+    searxngBaseUrl: str = Field(
+        default='',
+        validation_alias=AliasChoices('searxngBaseUrl', 'searxng_base_url'),
+    )
+
     @field_validator('allowStagingOverlayCommands', mode='before')
     @classmethod
     def _normalize_allow_overlay(cls, v: Any) -> Any:
@@ -351,6 +375,18 @@ class RuntimeToolsRequest(BaseModel):
     @classmethod
     def _normalize_expose_all(cls, v: Any) -> Any:
         return _coerce_boolish(v)
+
+    @field_validator('allowWebAccess', mode='before')
+    @classmethod
+    def _normalize_allow_web(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+    @field_validator('searxngBaseUrl', mode='before')
+    @classmethod
+    def _normalize_searxng_base_url(cls, v: Any) -> Any:
+        if v is None:
+            return ''
+        return str(v).strip().rstrip('/')
 
 
 class RuntimeContextCompressionRequest(BaseModel):

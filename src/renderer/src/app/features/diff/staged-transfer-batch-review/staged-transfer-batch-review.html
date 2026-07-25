@@ -41,7 +41,7 @@
           <code class="small mb-0">{{ currentFile()?.relativePath }}</code>
           <button
             type="button"
-            class="btn btn-sm btn-outline-secondary ms-auto"
+            class="hitl-btn hitl-btn--secondary ms-auto"
             [disabled]="applying()"
             (click)="toggleBatchExpanded()"
             [attr.title]="batchExpanded() ? 'Return batch to inline view (Esc)' : 'Expand batch to full window'"
@@ -51,13 +51,13 @@
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
           @if (payload().files.length > 1) {
-            <button type="button" class="btn btn-sm btn-outline-secondary" [disabled]="currentFileIndex() === 0" (click)="goPrev()">
+            <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="currentFileIndex() === 0" (click)="goPrev()">
               <lucide-icon name="chevron-left" [size]="14" />
               Prev
             </button>
             <button
               type="button"
-              class="btn btn-sm btn-outline-secondary"
+              class="hitl-btn hitl-btn--secondary"
               [disabled]="currentFileIndex() >= payload().files.length - 1"
               (click)="goNext()"
             >
@@ -68,9 +68,9 @@
               @for (file of payload().files; track file.relativePath; let i = $index) {
                 <button
                   type="button"
-                  class="btn btn-sm"
-                  [class.btn-primary]="i === currentFileIndex()"
-                  [class.btn-outline-secondary]="i !== currentFileIndex()"
+                  class="hitl-btn"
+                  [class.hitl-btn--primary]="i === currentFileIndex()"
+                  [class.hitl-btn--secondary]="i !== currentFileIndex()"
                   (click)="selectFile(i)"
                   [title]="file.relativePath"
                 >
@@ -87,12 +87,12 @@
           }
           @if (currentFileResolved() === 'pending') {
             <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-              <button type="button" class="btn btn-sm btn-success" [disabled]="applying()" (click)="approveCurrentFile()">
+              <button type="button" class="hitl-btn hitl-btn--success" [disabled]="applying()" (click)="approveCurrentFile()">
                 Approve file
               </button>
               <button
                 type="button"
-                class="btn btn-sm btn-outline-primary"
+                class="hitl-btn hitl-btn--accent"
                 [disabled]="applying()"
                 (click)="returnCurrentForReReview()"
               >
@@ -100,7 +100,7 @@
               </button>
               <button
                 type="button"
-                class="btn btn-sm btn-outline-secondary"
+                class="hitl-btn hitl-btn--secondary"
                 [class.active]="feedbackOpen()"
                 (click)="feedbackOpen.set(!feedbackOpen())"
                 [attr.aria-expanded]="feedbackOpen()"

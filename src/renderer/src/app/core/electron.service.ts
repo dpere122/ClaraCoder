@@ -48,6 +48,8 @@ import type {
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
+  WorkspaceSystemPromptMutationResult,
+  WorkspaceSystemPromptStatus,
 } from '@shared/index';
 import { getDefaultContextCompression } from '@shared/index';
 
@@ -72,6 +74,8 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     defaultWorkspaceNewline: 'lf',
     allowStagingOverlayCommands: false,
     exposeAllWorkspaceFiles: false,
+    allowWebAccess: false,
+    searxngBaseUrl: '',
   },
   contextCompression: getDefaultContextCompression(),
   healthMonitor: {
@@ -1146,6 +1150,53 @@ export class ElectronService {
     return (
       this.api?.applyWorkspacePythonInterpreter?.(payload) ??
       Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  getWorkspaceSystemPromptStatus(workspaceId: string): Promise<WorkspaceSystemPromptStatus> {
+    return (
+      this.api?.getWorkspaceSystemPromptStatus?.(workspaceId) ??
+      Promise.resolve({ hasFile: false, sourceName: '' })
+    );
+  }
+
+  pickWorkspaceSystemPrompt(
+    workspaceId: string,
+    sessionId?: string | null,
+  ): Promise<WorkspaceSystemPromptMutationResult> {
+    return (
+      this.api?.pickWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
+      Promise.resolve({ ok: false, error: 'API not available', hasFile: false, sourceName: '' })
+    );
+  }
+
+  getWorkspaceSystemPromptText(
+    workspaceId: string,
+  ): Promise<{ ok: true; text: string } | { ok: false; error: string; text: string }> {
+    return (
+      this.api?.getWorkspaceSystemPromptText?.(workspaceId) ??
+      Promise.resolve({ ok: false, error: 'API not available', text: '' })
+    );
+  }
+
+  saveWorkspaceSystemPromptText(payload: {
+    workspaceId: string;
+    text: string;
+    sessionId?: string | null;
+  }): Promise<WorkspaceSystemPromptMutationResult> {
+    return (
+      this.api?.saveWorkspaceSystemPromptText?.(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available', hasFile: false, sourceName: '' })
+    );
+  }
+
+  clearWorkspaceSystemPrompt(
+    workspaceId: string,
+    sessionId?: string | null,
+  ): Promise<WorkspaceSystemPromptMutationResult> {
+    return (
+      this.api?.clearWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
+      Promise.resolve({ ok: false, error: 'API not available', hasFile: false, sourceName: '' })
     );
   }
 

@@ -11,4 +11,9 @@ export interface Workspace {
   createdAt: string;
   /** Stable id from Python discovery (`app-backend`, `.venv`, …); drives Jedi/LSP analysis env. */
   pythonInterpreterId?: string;
+  /**
+   * Basename of the file last copied into the managed app-data system prompt
+   * (`workspaces/{id}/system-prompt.md`). Display only; content lives in app data.
+   */
+  systemPromptSourceName?: string;
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { diffLineChangeCounts, formatDiffLineChangeSummary } from '../../shared/diff-stats';
-import { hitlTrailItemsFromArtifacts, hitlTrailPanelTitle, hitlTrailRowKindText } from '../../shared/hitl-trail';
+import {
+  hitlTrailItemsFromArtifacts,
+  hitlTrailPanelTitle,
+  hitlTrailRowKindText,
+  mergeHitlTrailIntoAuxiliaryTimeline,
+} from '../../shared/hitl-trail';
+import { HITL_TRAIL_STREAM_PREFIX, isHitlTrailStreamTag } from '../../shared/stream-parts';
 import type { DiffRow } from '../../shared/types/diff';
 
 describe('diffLineChangeCounts', () => {
@@ -83,5 +89,164 @@ describe('hitlTrailPanelTitle', () => {
       },
     ]);
     expect(hitlTrailPanelTitle(items, true)).toBe('1 pending');
+  });
+});
+
+describe('mergeHitlTrailIntoAuxiliaryTimeline', () => {
+  it('appends hitl-trail parts after existing stream parts', () => {
+    const merged = mergeHitlTrailIntoAuxiliaryTimeline(
+      [{ streamTag: 'reasoning', label: 'Model reasoning', text: 'thinking' }],
+      [
+        {
+          role: 'diff',
+          payload: {
+            version: 1,
+            relativePath: 'src/a.ts',
+            language: 'typescript',
+            rows: [{ kind: 'add', leftLine: null, rightLine: 1, leftText: '', rightText: 'x', hunkIndex: 0 }],
+            fullNewContent: 'x',
+            truncated: false,
+          },
+        },
+      ],
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged[0]?.streamTag).toBe('reasoning');
+    expect(isHitlTrailStreamTag(merged[1]!.streamTag)).toBe(true);
+    expect(merged[1]!.streamTag.startsWith(HITL_TRAIL_STREAM_PREFIX)).toBe(true);
+    expect(merged[1]!.label).toBe('a.ts');
+    expect(merged[1]!.text).toBe('edit +1');
+    expect(merged[1]!.toolChainState).toBe('running');
+  });
+
+  it('skips plan_confirm and agent_question artifacts', () => {
+    const merged = mergeHitlTrailIntoAuxiliaryTimeline([], [
+      {
+        role: 'plan_confirm',
+        payload: {
+          version: 1,
+          requestId: 'p1',
+          title: 'Plan',
+          message: '',
+          confirmLabel: 'Go',
+          cancelLabel: 'Cancel',
+          steps: [],
+          filesToChange: [],
+          currentImplementation: '',
+          risks: [],
+          definitionOfDone: [],
+          resolvedQuestions: [],
+        },
+      },
+      {
+        role: 'agent_question',
+        payload: {
+          version: 1,
+          requestId: 'q1',
+          title: 'Q',
+          message: '',
+          submitLabel: 'Submit',
+          cancelLabel: 'Cancel',
+          questions: [],
+        },
+      },
+    ]);
+    expect(merged).toEqual([]);
+  });
+
+  it('updates hitl-trail status in place without moving the row', () => {
+    const first = mergeHitlTrailIntoAuxiliaryTimeline(
+      [{ streamTag: 'reasoning', label: 'r', text: 'x' }],
+      [
+        {
+          role: 'diff',
+          payload: {
+            version: 1,
+            relativePath: 'a.ts',
+            language: 'typescript',
+            rows: [],
+            fullNewContent: '',
+            truncated: false,
+          },
+        },
+      ],
+    );
+    const withLaterReasoning = [
+      ...first,
+      { streamTag: 'reasoning', label: 'r', text: 'more' },
+      { streamTag: 'tool-trail:t1', label: 'read_workspace_file', text: 'Reading…' },
+    ];
+    const second = mergeHitlTrailIntoAuxiliaryTimeline(withLaterReasoning, [
+      {
+        role: 'diff',
+        payload: {
+          version: 1,
+          relativePath: 'a.ts',
+          language: 'typescript',
+          rows: [],
+          fullNewContent: '',
+          truncated: false,
+        },
+        reviewStatus: 'complete',
+      },
+    ]);
+    expect(second.map((p) => p.streamTag)).toEqual([
+      'reasoning',
+      first[1]!.streamTag,
+      'reasoning',
+      'tool-trail:t1',
+    ]);
+    expect(second[1]?.toolChainState).toBe('complete');
+    expect(second[1]?.text).toContain('ok');
+  });
+
+  it('keeps approved hitl rows interleaved when more stream parts arrive', () => {
+    const afterHitl = mergeHitlTrailIntoAuxiliaryTimeline(
+      [
+        { streamTag: 'reasoning', label: 'r', text: 'before' },
+        { streamTag: 'tool-trail:t0', label: 'search_workspace', text: 'Searching…' },
+      ],
+      [
+        {
+          role: 'diff',
+          payload: {
+            version: 1,
+            relativePath: 'src/a.ts',
+            language: 'typescript',
+            rows: [],
+            fullNewContent: '',
+            truncated: false,
+          },
+          reviewStatus: 'complete',
+        },
+      ],
+    );
+    const continued = mergeHitlTrailIntoAuxiliaryTimeline(
+      [
+        ...afterHitl,
+        { streamTag: 'reasoning', label: 'r', text: 'after approval' },
+      ],
+      [
+        {
+          role: 'diff',
+          payload: {
+            version: 1,
+            relativePath: 'src/a.ts',
+            language: 'typescript',
+            rows: [],
+            fullNewContent: '',
+            truncated: false,
+          },
+          reviewStatus: 'complete',
+        },
+      ],
+    );
+    expect(continued.map((p) => p.streamTag)).toEqual([
+      'reasoning',
+      'tool-trail:t0',
+      afterHitl[2]!.streamTag,
+      'reasoning',
+    ]);
+    expect(continued[2]?.label).toBe('a.ts');
   });
 });

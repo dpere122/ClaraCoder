@@ -23,6 +23,19 @@ def test_plan_under_budget() -> None:
     assert_under_budget('plan', cap=TOOL_BUDGET_CAP, session=SessionState())
 
 
+def test_read_only_under_budget_with_web_access(monkeypatch) -> None:
+    from nemo_backend.domain import RuntimeToolsConfig
+    from nemo_backend.state import runtime_config
+
+    monkeypatch.setattr(
+        runtime_config,
+        'tools',
+        RuntimeToolsConfig(allow_web_access=True, searxng_base_url='http://127.0.0.1:8080'),
+    )
+    assert_under_budget('read_only', cap=TOOL_BUDGET_CAP, session=SessionState())
+    assert_under_budget('editor', cap=TOOL_BUDGET_CAP, session=SessionState())
+
+
 def test_tool_budget_measures_known_tools() -> None:
     result = measure_mode('read_only', session=SessionState())
     assert result['total'] > 0

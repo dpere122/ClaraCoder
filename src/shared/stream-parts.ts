@@ -155,6 +155,9 @@ export function normalizeStreamPart(part: StreamPart): StreamPart | null {
 /** Prefix for synthetic stream tags that mirror `LlmStatus` rows with `source: tool` into the auxiliary timeline. */
 export const TOOL_TRAIL_STATUS_STREAM_PREFIX = 'tool-trail:';
 
+/** Prefix for display-time HITL change rows merged into the auxiliary timeline. */
+export const HITL_TRAIL_STREAM_PREFIX = 'hitl-trail:';
+
 /** Stable multiplex tag for one tool status row (interleaved with reasoning / tool output). */
 export function toolTrailStatusStreamTag(statusId: string): string {
   return `${TOOL_TRAIL_STATUS_STREAM_PREFIX}${encodeURIComponent(statusId)}`;
@@ -162,6 +165,15 @@ export function toolTrailStatusStreamTag(statusId: string): string {
 
 export function isToolTrailStatusStreamTag(streamTag: string): boolean {
   return streamTag.trim().startsWith(TOOL_TRAIL_STATUS_STREAM_PREFIX);
+}
+
+/** Stable multiplex tag for one HITL change row in the auxiliary timeline. */
+export function hitlTrailStreamTag(itemId: string): string {
+  return `${HITL_TRAIL_STREAM_PREFIX}${encodeURIComponent(itemId)}`;
+}
+
+export function isHitlTrailStreamTag(streamTag: string): boolean {
+  return streamTag.trim().startsWith(HITL_TRAIL_STREAM_PREFIX);
 }
 
 /** Decode the backend status `id` embedded in a `tool-trail:*` multiplex tag. */

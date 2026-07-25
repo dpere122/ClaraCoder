@@ -185,10 +185,10 @@
           type='button'
           class='workspace-system-prompt-clear'
           [disabled]='systemPromptBusy()'
-          aria-label='Edit system prompt'
+          [attr.aria-label]='systemPromptHasFile() ? "Edit system prompt" : "Add system prompt"'
           (click)='onOpenSystemPromptEditor()'
         >
-          Edit
+          {{ systemPromptHasFile() ? 'Edit' : 'Add' }}
         </button>
         @if (systemPromptHasFile()) {
           <button
@@ -218,7 +218,7 @@
         (click)='$event.stopPropagation()'
       >
         <h2 class='workspace-system-prompt-editor-title' id='workspace-system-prompt-editor-title'>
-          Edit system prompt
+          {{ systemPromptHasFile() ? 'Edit system prompt' : 'Add system prompt' }}
         </h2>
         <textarea
           class='workspace-system-prompt-editor-textarea'
@@ -246,7 +246,7 @@
             [disabled]='systemPromptEditorSaving()'
             (click)='onSaveSystemPromptEditor()'
           >
-            {{ systemPromptEditorSaving() ? 'Saving…' : 'Save' }}
+            {{ systemPromptEditorSaving() ? 'Saving…' : systemPromptHasFile() ? 'Save' : 'Create' }}
           </button>
         </div>
       </div>

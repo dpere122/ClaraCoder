@@ -34,10 +34,25 @@ From the repository root:
 git clone <repo-url> ClaraCoder
 cd ClaraCoder
 npm install
-npm install --prefix src/renderer
 ```
 
 Root `npm install` runs `postinstall`, which rebuilds native Electron modules (`node-pty`, `better-sqlite3`) for the pinned Electron version.
+
+The Angular UI lives in `src/renderer/` as its own npm package (separate `package.json` from the Electron main process). You must install its dependencies too — `npm run dev` and `npm run build` will not work without this step.
+
+From the repo root:
+
+```bash
+npm install --prefix src/renderer
+```
+
+Or from inside the renderer folder:
+
+```bash
+cd src/renderer
+npm install
+cd ../..
+```
 
 ### 2. Create the Python virtual environment
 

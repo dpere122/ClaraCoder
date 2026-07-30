@@ -97,13 +97,14 @@ def indentation_followup_guidance(
         if rel.endswith('.py'):
             lines.append(
                 '- Call `format_staging_file_black` for this path, then `lsp_get_diagnostics` with '
-                '`refresh_active_document=true` on the same path to verify the staged draft.'
+                '`refresh_active_document=true` and `scope=staging` on the same path to verify the staged draft.'
             )
         elif is_prettier_managed_path(rel):
             lines.append(
                 '- Call `format_staging_file_prettier` for this path, then `lsp_get_diagnostics` with '
-                '`refresh_active_document=true` when the TypeScript/JavaScript server applies (`.ts`, `.tsx`, '
-                '`.js`, `.jsx`, `.mjs`, `.cjs`); for `.html`/`.htm`/`.css`, use `read_staged_edit` to verify the draft.'
+                '`refresh_active_document=true` and `scope=staging` when the TypeScript/JavaScript server applies '
+                '(`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`); for `.html`/`.htm`/`.css`, use `read_staged_edit` '
+                'to verify the draft.'
             )
         else:
             lines.append(

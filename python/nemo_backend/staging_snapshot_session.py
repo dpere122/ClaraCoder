@@ -21,7 +21,7 @@ def prepare_new_staging_snapshot_session(session: SessionState, session_id: str)
     session.pending_delete_request = None
     session.pending_copy_request = None
     session.pending_accept_command_request = None
-    session.lsp_diagnostics.clear()
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
     session.lsp_workspace_root = ''
     session.typescript_lsp_resolved_root = ''
     session.lsp_active_scope = 'workspace'
@@ -41,7 +41,7 @@ def cleanup_staging_snapshot_session(session: SessionState, session_id: str) -> 
     edit_staging.clear_session_staging_dir(session_id)
     session.active_staging_snapshot_id = ''
     session.active_staging_snapshot_root = ''
-    session.lsp_diagnostics.clear()
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
     session.lsp_workspace_root = ''
     session.typescript_lsp_resolved_root = ''
     session.lsp_active_scope = 'workspace'

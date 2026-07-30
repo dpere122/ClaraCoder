@@ -42,6 +42,7 @@ async def stream_agent_reply(
     auto_apply_mode: bool = False,
     resume_checkpoint_id: str | None = None,
     composer_mode: str = 'agent',
+    speech_enabled: bool = False,
 ) -> AsyncIterator[str]:
     """Run the tool-capable agent and yield SSE lines until [DONE]."""
     session = get_session(session_id)
@@ -52,6 +53,7 @@ async def stream_agent_reply(
     session.auto_apply_mode = auto_apply_mode
     session.last_stream_apply_mode = apply_mode
     session.last_stream_auto_apply_mode = auto_apply_mode
+    session.last_stream_speech_enabled = bool(speech_enabled)
 
     token = current_session_id.set(session_id)
 

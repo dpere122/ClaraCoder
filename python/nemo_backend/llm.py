@@ -47,7 +47,7 @@ _REASONING_API_VALUES = frozenset({'none', 'minimal', 'low', 'medium', 'high', '
 # Idle (inter-token) read timeout so a stalled stream surfaces as an error instead of an infinite
 # silent hang. httpx ``read`` governs the max wait between received chunks, so this does NOT cap the
 # total generation time of a legitimately long response. Override with ``NEMO_LLM_IDLE_TIMEOUT_SEC``.
-_DEFAULT_LLM_IDLE_TIMEOUT_SEC = 120.0
+_DEFAULT_LLM_IDLE_TIMEOUT_SEC = 900.0
 
 
 def llm_idle_timeout_sec() -> float:

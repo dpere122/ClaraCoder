@@ -178,6 +178,7 @@ declare global {
       structuredContent?: ChatStructuredContentPart[],
       workspaceId?: string | null,
       composerMode?: 'agent' | 'plan',
+      speechEnabled?: boolean,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -290,8 +291,19 @@ declare global {
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
     maybeAutoTitleConversation: (id: string) => Promise<MaybeAutoTitleResult>;
     newConversation: (workspaceId: string | null) => Promise<Conversation>;
-    startTtsStream: (text: string, voice: string, speed: number, seq: number) => Promise<{ ok: boolean }>;
-    registerTtsStreamUrl: (text: string, voice: string, speed: number) => Promise<{ url: string }>;
+    startTtsStream: (
+      text: string,
+      voice: string,
+      speed: number,
+      seq: number,
+      instructions?: string,
+    ) => Promise<{ ok: boolean }>;
+    registerTtsStreamUrl: (
+      text: string,
+      voice: string,
+      speed: number,
+      instructions?: string,
+    ) => Promise<{ url: string }>;
     abortTtsStream: () => Promise<{ ok: boolean }>;
     onTtsStreamPacket: (callback: (packet: TtsStreamPacket) => void) => void;
     transcribe: (audio: ArrayBuffer) => Promise<string>;

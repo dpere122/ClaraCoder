@@ -124,3 +124,17 @@ def routing_handoff_contract() -> str:
         - **Quality bar:** Do not edit until **Existence** is accurate; use targeted `list_workspace_directory` / `read_workspace_file` / LSP checks first.
         """
     ).strip()
+
+
+def speech_tts_mood_block() -> str:
+    """When speech/TTS is on: model must emit a strip-able mood tag for the voice pipeline."""
+    return dedent(
+        """
+        **Spoken reply (TTS is on):** The user's client will read your reply aloud.
+        - Start the user-facing reply with exactly one mood line the UI strips before speech:
+          `[[tts_mood: short natural-language mood and tone]]`
+          Example: `[[tts_mood: calm, helpful, slightly upbeat]]`
+        - Keep the mood phrase short (a few adjectives or a brief speaking style). Do not put the mood only inside the spoken prose.
+        - After the tag, write normally. Prefer concise spoken-friendly sentences; avoid dumping large code blocks when a short summary suffices.
+        """
+    ).strip()

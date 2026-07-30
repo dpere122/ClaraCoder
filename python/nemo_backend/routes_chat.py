@@ -31,6 +31,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         request.auto_apply_mode,
         ck,
         request.composer_mode,
+        request.speech_enabled,
     )
     return StreamingResponse(generator, media_type='text/event-stream')
 

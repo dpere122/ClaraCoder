@@ -41,6 +41,7 @@ export function registerChatIpc(): void {
       structuredContent?: unknown,
       workspaceId?: string | null,
       composerMode = 'agent',
+      speechEnabled = false,
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
@@ -55,6 +56,7 @@ export function registerChatIpc(): void {
         apply_mode: applyMode,
         auto_apply_mode: autoApplyMode,
         composer_mode: composerMode,
+        speech_enabled: !!speechEnabled,
       };
       if (Array.isArray(structuredContent) && structuredContent.length > 0) {
         const ok = structuredContent.every((p) => p !== null && typeof p === 'object' && !Array.isArray(p));

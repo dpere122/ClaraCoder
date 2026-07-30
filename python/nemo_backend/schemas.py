@@ -35,6 +35,11 @@ class ChatRequest(BaseModel):
         default='agent',
         validation_alias=AliasChoices('composer_mode', 'composerMode'),
     )
+    #: When True, assistant replies are spoken aloud; inject TTS mood-tag guidance into the system prompt.
+    speech_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('speech_enabled', 'speechEnabled'),
+    )
 
     @field_validator('structured_content')
     @classmethod

@@ -116,6 +116,7 @@ export const chatApi = {
     structuredContent?: Record<string, unknown>[],
     workspaceId?: string | null,
     composerMode?: 'agent' | 'plan',
+    speechEnabled?: boolean,
   ) =>
     ipcRenderer.send(
       'message',
@@ -126,6 +127,7 @@ export const chatApi = {
       structuredContent,
       workspaceId ?? null,
       composerMode ?? 'agent',
+      speechEnabled ?? false,
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>
@@ -175,10 +177,10 @@ export const chatApi = {
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
   backgroundCommandTerminalClosed: (conversationId: string, commandId: string) =>
     ipcRenderer.invoke('background-command-terminal-closed', conversationId, commandId),
-  startTtsStream: (text: string, voice: string, speed: number, seq: number) =>
-    ipcRenderer.invoke('tts-stream-start', { text, voice, speed, seq }),
-  registerTtsStreamUrl: (text: string, voice: string, speed: number) =>
-    ipcRenderer.invoke('tts-stream-register', { text, voice, speed }),
+  startTtsStream: (text: string, voice: string, speed: number, seq: number, instructions?: string) =>
+    ipcRenderer.invoke('tts-stream-start', { text, voice, speed, seq, instructions }),
+  registerTtsStreamUrl: (text: string, voice: string, speed: number, instructions?: string) =>
+    ipcRenderer.invoke('tts-stream-register', { text, voice, speed, instructions }),
   abortTtsStream: () => ipcRenderer.invoke('tts-stream-abort'),
   onTtsStreamPacket: (callback: (packet: TtsStreamPacket) => void) => {
     ipcRenderer.on('tts-stream-packet', (_event, packet) => callback(packet));

@@ -32,6 +32,7 @@ __all__ = [
     'PythonLspManager',
     'SessionWorkspaceLspManager',
     'activate_session_lsp_scope',
+    'diagnostics_cache_for_scope',
     'get_session_lsp_manager',
     'get_lsp_dashboard_status',
     'shutdown_session_lsp',
@@ -45,7 +46,8 @@ __all__ = [
 ]
 
 _MANAGERS_LOCK = threading.RLock()
-_SESSION_MANAGERS: dict[tuple[str, str], SessionWorkspaceLspManager] = {}
+# Keyed by (session_id, server_id, scope) so workspace + staging managers can coexist.
+_SESSION_MANAGERS: dict[tuple[str, str, str], SessionWorkspaceLspManager] = {}
 _VALID_LSP_SCOPES = frozenset({'workspace', 'staging'})
 
 
@@ -54,6 +56,27 @@ def _normalize_lsp_scope(scope: str | None) -> str:
     if value not in _VALID_LSP_SCOPES:
         raise ValueError(f'Unsupported LSP scope: {scope!r}')
     return value
+
+
+def diagnostics_cache_for_scope(session: SessionState, scope: str | None = None) -> dict[str, list[dict[str, object]]]:
+    """Return the mutable diagnostics cache for one LSP scope (creates the bucket if missing)."""
+
+    desired = _normalize_lsp_scope(scope or getattr(session, 'lsp_active_scope', None))
+    caches = session.lsp_diagnostics_by_scope
+    bucket = caches.get(desired)
+    if bucket is None:
+        bucket = {}
+        caches[desired] = bucket
+    return bucket
+
+
+def clear_diagnostics_caches(session: SessionState, *, scope: str | None = None) -> None:
+    """Clear one scope cache, or both when ``scope`` is omitted."""
+
+    if scope is None:
+        session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
+        return
+    diagnostics_cache_for_scope(session, scope).clear()
 
 
 def _should_retry_lsp_bootstrap(exc: Exception) -> bool:
@@ -252,7 +275,6 @@ class SessionWorkspaceLspManager:
                 lsp_cwd=lsp_cwd,
             )
             self.session.lsp_workspace_root = str(self.workspace_root)
-            self.session.lsp_active_scope = self.scope
             logger.info(
                 '%s LSP session ready session=%s scope=%s workspace=%s lsp_cwd=%s',
                 self.server_kind,
@@ -261,6 +283,9 @@ class SessionWorkspaceLspManager:
                 self.workspace_root,
                 lsp_cwd,
             )
+
+    def _diag_cache(self) -> dict[str, list[dict[str, object]]]:
+        return diagnostics_cache_for_scope(self.session, self.scope)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -271,8 +296,9 @@ class SessionWorkspaceLspManager:
             self._doc_versions.clear()
             self._diag_generation.clear()
             self._last_synced_digest.clear()
+            cache = self._diag_cache()
             for rel in tracked:
-                self.session.lsp_diagnostics.pop(rel, None)
+                cache.pop(rel, None)
         if client is not None:
             try:
                 client.shutdown()
@@ -285,7 +311,7 @@ class SessionWorkspaceLspManager:
                     exc,
                 )
         self._plugin.after_shutdown(self.session, self._plugin_state)
-        my_key = (self.session_id, self.server_kind)
+        my_key = (self.session_id, self.server_kind, self.scope)
         with _MANAGERS_LOCK:
             any_remaining = any(
                 k != my_key and k[0] == self.session_id for k in _SESSION_MANAGERS
@@ -321,8 +347,9 @@ class SessionWorkspaceLspManager:
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
         with self._lock:
+            cache = self._diag_cache()
             if rel in self._doc_versions and self._last_synced_digest.get(rel) == digest:
-                return list(self.session.lsp_diagnostics.get(rel, []))
+                return list(cache.get(rel, []))
             prev_generation = self._diag_generation.get(rel, 0)
             version = self._doc_versions.get(rel, 0) + 1
             self._doc_versions[rel] = version
@@ -366,7 +393,7 @@ class SessionWorkspaceLspManager:
             self._last_synced_digest[rel] = digest
             if wait_for_diagnostics:
                 self._wait_for_diagnostics(rel, prev_generation)
-            return list(self.session.lsp_diagnostics.get(rel, []))
+            return list(cache.get(rel, []))
 
     def sync_workspace_document(
         self,
@@ -386,15 +413,16 @@ class SessionWorkspaceLspManager:
         if self._policy(rel) is None:
             return
         with self._lock:
+            cache = self._diag_cache()
             client = self._client
             if client is None or rel not in self._doc_versions:
-                self.session.lsp_diagnostics.pop(rel, None)
+                cache.pop(rel, None)
                 return
             target = normalize_relative_path(self.workspace_root, rel)
             client.notify('textDocument/didClose', {'textDocument': {'uri': _path_to_uri(target)}})
             self._doc_versions.pop(rel, None)
             self._last_synced_digest.pop(rel, None)
-            self.session.lsp_diagnostics.pop(rel, None)
+            cache.pop(rel, None)
             self._diag_generation.pop(rel, None)
             logger.info(
                 '%s LSP didClose session=%s scope=%s path=%s',
@@ -407,11 +435,12 @@ class SessionWorkspaceLspManager:
     def get_diagnostics(self, relative_path: str = '') -> list[dict[str, Any]]:
         rel = normalize_relative_posix_path(relative_path)
         with self._lock:
+            cache = self._diag_cache()
             if rel:
-                return list(self.session.lsp_diagnostics.get(rel, []))
+                return list(cache.get(rel, []))
             all_items: list[dict[str, Any]] = []
-            for path in sorted(self.session.lsp_diagnostics):
-                all_items.extend(self.session.lsp_diagnostics[path])
+            for path in sorted(cache):
+                all_items.extend(cache[path])
             return all_items
 
     def hover(self, relative_path: str, line: int, character: int) -> dict[str, Any]:
@@ -683,7 +712,7 @@ class SessionWorkspaceLspManager:
             return
         normalized = normalize_lsp_diagnostics(rel, params.get('diagnostics') if isinstance(params, dict) else [])
         with self._lock:
-            self.session.lsp_diagnostics[rel] = normalized
+            self._diag_cache()[rel] = normalized
             self._diag_generation[rel] = self._diag_generation.get(rel, 0) + 1
             self._diag_cond.notify_all()
         # High churn for TS/JS (publishDiagnostics on many internal passes); keep health / INFO logs usable.
@@ -737,22 +766,10 @@ def _effective_lsp_workspace_root(session: SessionState, scope: str, *, session_
 
 
 def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> None:
-    from nemo_backend.staging_test_overlay import clear_lsp_staging_overlay
+    """Set the session's default LSP scope without tearing down the other scope's managers."""
 
-    sid, session, _workspace_root = _resolve_session_and_root(session_id)
-    desired_scope = _normalize_lsp_scope(scope)
-    with _MANAGERS_LOCK:
-        keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == sid]
-        managers = [_SESSION_MANAGERS.pop(k) for k in keys]
-    for mgr in managers:
-        mgr.shutdown()
-    session.lsp_active_scope = desired_scope
-    session.lsp_workspace_root = ''
-    session.typescript_lsp_resolved_root = ''
-    session.java_lsp_resolved_root = ''
-    session.lsp_diagnostics.clear()
-    if desired_scope == 'workspace':
-        clear_lsp_staging_overlay(session)
+    _sid, session, _workspace_root = _resolve_session_and_root(session_id)
+    session.lsp_active_scope = _normalize_lsp_scope(scope)
 
 
 def get_session_lsp_manager(
@@ -761,18 +778,17 @@ def get_session_lsp_manager(
     client_factory: Any | None = None,
     scope: str | None = None,
     server: str = 'python',
+    set_active: bool = True,
 ) -> SessionWorkspaceLspManager:
     sid, session, _real_ws = _resolve_session_and_root(session_id)
     server_id = (server or '').strip()
     get_lsp_server_plugin(server_id)  # validate early
     desired_scope = _normalize_lsp_scope(scope or session.lsp_active_scope)
     effective_root = _effective_lsp_workspace_root(session, desired_scope, session_id=sid)
-    key = (sid, server_id)
+    key = (sid, server_id, desired_scope)
     with _MANAGERS_LOCK:
         manager = _SESSION_MANAGERS.get(key)
-        if manager is not None and (
-            manager.workspace_root != effective_root or manager.scope != desired_scope
-        ):
+        if manager is not None and manager.workspace_root != effective_root:
             manager.shutdown()
             _SESSION_MANAGERS.pop(key, None)
             manager = None
@@ -786,20 +802,24 @@ def get_session_lsp_manager(
                 client_factory=client_factory,
             )
             _SESSION_MANAGERS[key] = manager
-        session.lsp_active_scope = desired_scope
+        # Explicit scope selection updates the session default unless the caller opts out
+        # (e.g. read-only diagnostics against the non-default scope).
+        if set_active and scope is not None:
+            session.lsp_active_scope = desired_scope
         return manager
 
 
 def shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
-    """Stop the language-server manager for one server id on this session."""
+    """Stop language-server managers for one server id on this session (all scopes)."""
 
     sid = (session_id or '').strip()
     if not sid:
         return
-    key = (sid, (server_id or '').strip())
+    srv = (server_id or '').strip()
     with _MANAGERS_LOCK:
-        manager = _SESSION_MANAGERS.pop(key, None)
-    if manager is not None:
+        keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == sid and k[1] == srv]
+        managers = [_SESSION_MANAGERS.pop(k) for k in keys]
+    for manager in managers:
         manager.shutdown()
 
 
@@ -819,6 +839,7 @@ def shutdown_session_lsp(session_id: str) -> None:
         mgr.shutdown()
     try:
         session = get_session(session_id)
+        clear_diagnostics_caches(session)
         clear_lsp_staging_overlay(session)
     except Exception as exc:
         logger.warning('clear LSP staging overlay failed session=%s err=%s', session_id, exc)
@@ -837,7 +858,9 @@ def shutdown_all_lsp_managers() -> None:
         if sid not in cleared_sessions:
             cleared_sessions.add(sid)
             try:
-                clear_lsp_staging_overlay(get_session(sid))
+                session = get_session(sid)
+                clear_diagnostics_caches(session)
+                clear_lsp_staging_overlay(session)
             except Exception as exc:
                 logger.warning('clear LSP staging overlay failed session=%s err=%s', sid, exc)
 
@@ -849,9 +872,16 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
     with _MANAGERS_LOCK:
         servers_payload: dict[str, dict[str, bool]] = {}
         for srv_id in iter_registered_lsp_server_ids():
-            mgr = _SESSION_MANAGERS.get((sid, srv_id))
-            servers_payload[srv_id] = {'initialized': mgr is not None and mgr.is_client_running()}
-    diag_count = sum(len(v) for v in session.lsp_diagnostics.values())
+            running = any(
+                k[0] == sid and k[1] == srv_id and mgr.is_client_running()
+                for k, mgr in _SESSION_MANAGERS.items()
+            )
+            servers_payload[srv_id] = {'initialized': running}
+    diag_count = sum(
+        len(rows)
+        for cache in session.lsp_diagnostics_by_scope.values()
+        for rows in cache.values()
+    )
     active_scope = session.lsp_active_scope or 'workspace'
     real_ws = str(workspace_root)
     overlay_raw = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
@@ -871,7 +901,10 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
         'javaProjectRoot': session.java_lsp_resolved_root or None,
         'activeLspScope': active_scope,
         'cachedDiagnostics': diag_count,
-        'diagnosticsCacheNote': 'Session-scoped cache only; clears when LSP scope changes (workspace vs staging).',
+        'diagnosticsCacheNote': (
+            'Per-scope cache (workspace and staging managers can run together); '
+            'clears when that scope\'s manager shuts down or the session LSP is reset.'
+        ),
         'pythonEnvironmentPath': py_env_path,
         'pythonInterpreterPath': py_interp,
         'nodeModulesPresent': node_modules_present,
@@ -883,13 +916,13 @@ def list_session_diagnostics(
     session_id: str, relative_path: str = '', *, scope: str | None = None
 ) -> list[dict[str, Any]]:
     sid, session, _ = _resolve_session_and_root(session_id)
-    _normalize_lsp_scope(scope or session.lsp_active_scope)
+    cache = diagnostics_cache_for_scope(session, scope or session.lsp_active_scope)
     rel = normalize_relative_posix_path(relative_path)
     if rel:
-        return list(session.lsp_diagnostics.get(rel, []))
+        return list(cache.get(rel, []))
     all_items: list[dict[str, Any]] = []
-    for path in sorted(session.lsp_diagnostics):
-        all_items.extend(session.lsp_diagnostics[path])
+    for path in sorted(cache):
+        all_items.extend(cache[path])
     return all_items
 
 

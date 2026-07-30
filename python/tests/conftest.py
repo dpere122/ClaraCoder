@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from nemo_backend.domain import RuntimeToolsConfig
+from nemo_backend.lsp.manager import shutdown_session_lsp
 from nemo_backend.state import current_session_id, get_session, runtime_config
 
 
@@ -28,6 +29,8 @@ def staging_env():
 
     session_id = 'test-staging-session'
     token = current_session_id.set(session_id)
+    # Drop any LSP managers/overlays left by prior tests that reuse this session id.
+    shutdown_session_lsp(session_id)
     session = get_session(session_id)
     session.workspace_path = str(workspace.resolve())
     session.pending_edit_stagings.clear()
@@ -38,6 +41,10 @@ def staging_env():
     session.planning_nested_events_q = None
     session.lsp_staging_overlay_root = ''
     session.lsp_staging_overlay_parent = ''
+    session.active_staging_snapshot_id = ''
+    session.active_staging_snapshot_root = ''
+    session.lsp_active_scope = 'workspace'
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
 
     runtime_config.tools = RuntimeToolsConfig(
         edit_tools_strict=False,
@@ -52,9 +59,11 @@ def staging_env():
     env.staging_root = staging_root  # type: ignore[attr-defined]
     env.workspace = workspace  # type: ignore[attr-defined]
     env.session = session  # type: ignore[attr-defined]
+    env.session_id = session_id  # type: ignore[attr-defined]
 
     yield env
 
+    shutdown_session_lsp(session_id)
     current_session_id.reset(token)
     if saved_staging is None:
         os.environ.pop('NEMO_STAGING_DIR', None)

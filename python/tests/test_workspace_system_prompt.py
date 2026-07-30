@@ -52,6 +52,32 @@ def test_build_system_prompt_omits_empty_workspace_system_prompt(mock_conn: Magi
     assert 'Workspace system prompt:' not in prompt
 
 
+@patch('nemo_backend.messages.get_active_connection')
+def test_build_system_prompt_includes_tts_mood_when_speech_enabled(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _conn()
+    session = SessionState(
+        workspace_path='/tmp/project',
+        workspace_context='.\n  src/',
+        last_stream_speech_enabled=True,
+    )
+    prompt = build_system_prompt(session, apply_mode=False)
+    assert '[[tts_mood:' in prompt
+    assert 'TTS is on' in prompt
+
+
+@patch('nemo_backend.messages.get_active_connection')
+def test_build_system_prompt_omits_tts_mood_when_speech_disabled(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _conn()
+    session = SessionState(
+        workspace_path='/tmp/project',
+        workspace_context='.\n  src/',
+        last_stream_speech_enabled=False,
+    )
+    prompt = build_system_prompt(session, apply_mode=False)
+    assert '[[tts_mood:' not in prompt
+    assert 'TTS is on' not in prompt
+
+
 def test_workspace_system_prompt_route_updates_session_without_tree() -> None:
     from nemo_backend import state
     from nemo_backend.main import app

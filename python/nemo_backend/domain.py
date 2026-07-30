@@ -154,11 +154,15 @@ class SessionState:
     lsp_staging_overlay_root: str = ''
     # Parent of the overlay workspace folder for ``shutil.rmtree`` teardown.
     lsp_staging_overlay_parent: str = ''
-    # Cached normalized diagnostics keyed by workspace-relative path.
-    lsp_diagnostics: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    # Cached normalized diagnostics keyed by LSP scope (`workspace` / `staging`) then path.
+    lsp_diagnostics_by_scope: dict[str, dict[str, list[dict[str, object]]]] = field(
+        default_factory=lambda: {'workspace': {}, 'staging': {}}
+    )
     # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`nemo_backend.agent`).
     last_stream_apply_mode: bool | None = None
     last_stream_auto_apply_mode: bool | None = None
+    #: Last ``POST /chat/stream`` speech/TTS flag (drives mood-tag prompt guidance).
+    last_stream_speech_enabled: bool = False
 
 
 @dataclass

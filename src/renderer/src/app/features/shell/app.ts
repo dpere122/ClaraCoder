@@ -23,6 +23,8 @@ import type {
 import {
   DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
+  DEFAULT_OPENAI_TTS_VOICE,
+  DEFAULT_TTS_PROVIDER,
   composerApplyMode,
   composerModeForBackend,
   mergeHitlTrailIntoAuxiliaryTimeline,
@@ -113,6 +115,29 @@ function parentRelativePath(relativePath: string): string {
   const norm = normalizePathSlashes(relativePath);
   const slash = norm.lastIndexOf('/');
   return slash >= 0 ? norm.slice(0, slash) : '';
+}
+
+/**
+ * Choose text for end-of-turn TTS flush. Prefer streamed primary when ``final_text`` diverges
+ * early; use final when it extends or largely shares a prefix with the stream.
+ */
+export function pickTtsFlushText(streamedPrimary: string, finalText: string): string {
+  const a = streamedPrimary.trim();
+  const b = finalText.trim();
+  if (!b) return streamedPrimary;
+  if (!a) return finalText;
+  if (b.startsWith(a) || a.startsWith(b)) {
+    return b.length >= a.length ? finalText : streamedPrimary;
+  }
+  let lcp = 0;
+  const limit = Math.min(a.length, b.length);
+  while (lcp < limit && a[lcp] === b[lcp]) {
+    lcp++;
+  }
+  if (lcp < a.length * 0.5) {
+    return streamedPrimary;
+  }
+  return b.length >= a.length ? finalText : streamedPrimary;
 }
 
 @Component({
@@ -474,7 +499,7 @@ export class App implements OnInit, OnDestroy {
       });
 
     effect(() => {
-      if (!this.speechEnabled()) this.tts.invalidateSpeechPipeline();
+      if (!this.speechEnabled()) void this.tts.invalidateSpeechPipeline();
     });
 
     effect(() => {
@@ -574,7 +599,12 @@ export class App implements OnInit, OnDestroy {
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9;
       this.fontSize.set(nextFs);
       const at = config.audioTranscription;
-      this.selectedVoice.set(at?.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
+      const ttsProvider = at?.ttsProvider ?? DEFAULT_TTS_PROVIDER;
+      this.tts.setTtsChunkProfile(ttsProvider);
+      this.tts.setTtsDefaultInstructions(at?.ttsDefaultInstructions?.trim() || '');
+      const defaultVoice =
+        ttsProvider === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
+      this.selectedVoice.set(at?.ttsVoice?.trim() || defaultVoice);
       const sp = at?.ttsSpeechSpeed;
       this.ttsSpeechSpeed.set(
         typeof sp === 'number' && !Number.isNaN(sp)
@@ -875,8 +905,10 @@ export class App implements OnInit, OnDestroy {
             planner ?? undefined,
           );
           if (this.speechEnabled()) {
+            // Prefer streamed primary unless final_text shares a long prefix (or is a pure suffix).
+            // Length-only "longer wins" caused divergent final rewrites to re-queue spoken lines.
             const streamedPrimary = primaryAssistantTextFromParts(parts);
-            const ttsText = streamedPrimary.trim() ? streamedPrimary : turn.text;
+            const ttsText = pickTtsFlushText(streamedPrimary, turn.text);
             if (ttsText.trim()) {
               void this.tts.flushStreamingAssistantText(ttsText, this.selectedVoice(), this.ttsSpeechSpeed());
             }
@@ -932,7 +964,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.tts.invalidateSpeechPipeline();
+    void this.tts.invalidateSpeechPipeline();
     window.removeEventListener('resize', this.boundOnWindowResize);
     this.flushSidebarWidthPersist();
     this.onResizeEnd();
@@ -1069,7 +1101,7 @@ export class App implements OnInit, OnDestroy {
     this.addPending(convId);
     this.toolPhaseEngaged.set(false);
     if (this.speechEnabled()) {
-      this.tts.beginAssistantSpeechTurn();
+      await this.tts.beginAssistantSpeechTurn();
     }
     this.streamingParts.set([]);
     this.streamingPlanner.set(null);
@@ -1088,6 +1120,7 @@ export class App implements OnInit, OnDestroy {
         structuredContentForBackendRequest(structuredContent),
         workspaceId,
         composerModeForBackend(mode),
+        this.speechEnabled(),
       );
       this.autoSave();
     } catch (err) {

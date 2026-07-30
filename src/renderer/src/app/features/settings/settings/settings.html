@@ -1991,18 +1991,74 @@
               <div class='form-section'>
                 <div class='form-grid'>
                   <label class='field'>
-                    <span>TTS voice</span>
+                    <span>TTS provider</span>
                     <select
-                      [ngModel]='ttsVoice()'
-                      (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
-                      class='settings-voice-device-select'
-                      title='Assistant TTS voice (Kokoro)'
+                      [ngModel]='ttsProvider()'
+                      (ngModelChange)='updateAudioSettings({ ttsProvider: $event })'
+                      title='Assistant TTS backend'
                     >
-                      @for (v of ttsVoiceChoices; track v.id) {
-                        <option [value]='v.id'>{{ v.label }}</option>
-                      }
+                      <option value='kokoro'>Kokoro (local)</option>
+                      <option value='openai-compatible'>OpenAI-compatible (remote)</option>
                     </select>
                   </label>
+
+                  @if (ttsProvider() === 'openai-compatible') {
+                    <label class='field'>
+                      <span>TTS base URL</span>
+                      <input
+                        type='url'
+                        [ngModel]='ttsBaseUrl()'
+                        (ngModelChange)='updateAudioSettings({ ttsBaseUrl: $event })'
+                        placeholder='http://127.0.0.1:8083'
+                        title='Host only — do not include /v1/audio/speech (added automatically)'
+                      />
+                    </label>
+                    <label class='field'>
+                      <span>TTS API key (optional)</span>
+                      <input
+                        type='password'
+                        [ngModel]='ttsApiKey()'
+                        (ngModelChange)='updateAudioSettings({ ttsApiKey: $event })'
+                        autocomplete='off'
+                        title='Bearer token for remote TTS, if required'
+                      />
+                    </label>
+                    <label class='field'>
+                      <span>Default mood / instructions (optional)</span>
+                      <input
+                        type='text'
+                        [ngModel]='ttsDefaultInstructions()'
+                        (ngModelChange)='updateAudioSettings({ ttsDefaultInstructions: $event })'
+                        placeholder='calm, helpful, slightly upbeat'
+                        title='Fallback speaking style when the model omits [[tts_mood: ...]]'
+                      />
+                    </label>
+                    <label class='field'>
+                      <span>Voice</span>
+                      <input
+                        type='text'
+                        [ngModel]='ttsVoice()'
+                        (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
+                        placeholder='Ryan'
+                        title='Remote speaker name (e.g. Ryan, Vivian, Serena)'
+                      />
+                    </label>
+                  } @else {
+                    <label class='field'>
+                      <span>TTS voice</span>
+                      <select
+                        [ngModel]='ttsVoice()'
+                        (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
+                        class='settings-voice-device-select'
+                        title='Assistant TTS voice (Kokoro)'
+                      >
+                        @for (v of ttsVoiceChoices; track v.id) {
+                          <option [value]='v.id'>{{ v.label }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+
                   <label class='field'>
                     <span>Speech speed ({{ ttsSpeechSpeed() | number: '1.2-2' }}×)</span>
                     <input
@@ -2012,7 +2068,7 @@
                       [step]='ttsSpeechSpeedStep'
                       [ngModel]='ttsSpeechSpeed()'
                       (ngModelChange)='onTtsSpeechSpeedInput($event)'
-                      title='Kokoro speech speed multiplier'
+                      title='Speech speed multiplier'
                     />
                   </label>
                 </div>

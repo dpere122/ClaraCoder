@@ -15,6 +15,8 @@ import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_KOKORO_TTS_VOICE,
+  DEFAULT_OPENAI_TTS_BASE_URL,
+  DEFAULT_TTS_PROVIDER,
   defaultLlamaCppManaged,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
@@ -159,6 +161,10 @@ export function getDefaultAudioTranscription(): AudioTranscriptionConfig {
     talkSilenceThresholdSeconds: 2,
     ttsVoice: DEFAULT_KOKORO_TTS_VOICE,
     ttsSpeechSpeed: TTS_SPEECH_SPEED_DEFAULT,
+    ttsProvider: DEFAULT_TTS_PROVIDER,
+    ttsBaseUrl: DEFAULT_OPENAI_TTS_BASE_URL,
+    ttsApiKey: '',
+    ttsDefaultInstructions: '',
   };
 }
 

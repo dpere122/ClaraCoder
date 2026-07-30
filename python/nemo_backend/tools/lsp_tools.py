@@ -23,6 +23,7 @@ from nemo_backend.lsp.file_policy import (
 from nemo_backend.lsp.manager import (
     LspServerKind,
     activate_session_lsp_scope,
+    diagnostics_cache_for_scope,
     get_session_lsp_manager,
 )
 from nemo_backend.lsp.registry import display_label_for_server
@@ -330,17 +331,21 @@ def _lsp_update_file_impl(
 
 
 def _sync_active_document_for_diagnostics(
-    relative_path: str, *, encoding: str, server: LspServerKind
+    relative_path: str,
+    *,
+    encoding: str,
+    server: LspServerKind,
+    scope: str,
 ) -> tuple[list[dict[str, Any]], str]:
     sid = (current_session_id.get() or '').strip()
-    manager = get_session_lsp_manager(server=server)
-    if getattr(manager, 'scope', 'workspace') == 'staging' and sid:
+    manager = get_session_lsp_manager(server=server, scope=scope, set_active=False)
+    if scope == 'staging' and sid:
         session = get_session(sid)
         from nemo_backend.staging_test_overlay import ensure_lsp_staging_overlay
 
         ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=sid)
     rows = manager.sync_workspace_document(relative_path, encoding=encoding)
-    analyzed = 'overlay_workspace' if getattr(manager, 'scope', 'workspace') == 'staging' else 'workspace_file'
+    analyzed = 'overlay_workspace' if scope == 'staging' else 'workspace_file'
     return rows, analyzed
 
 
@@ -351,74 +356,77 @@ def _session_lsp_scope_label(session_id: str | None) -> str:
     return str(get_session(sid).lsp_active_scope or 'workspace')
 
 
-@tool(LSP_GET_DIAGNOSTICS_NAME, description=describe('Return cached LSP diagnostics for one file, or all cached diagnostics when no path is given.',
-        when='checking errors after edits or auditing workspace health.',
-        not_='mutating files (use LSP mutators or staging tools).',
-        shape=(
-            '`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, `.java`; empty path = all cached. '
-            '`refresh_active_document=true` re-syncs first: workspace scope reads on-disk file; '
-            'staging scope uses materialized overlay (pending drafts on disk in a mirror tree) so '
-            'cross-file resolution matches staged peers.'
-        ),
-        verify=(
-            'after `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` '
-            'on a staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with '
-            '`refresh_active_document=true` on that path (LSP applies to Python, TS/JS, GDScript, and Java) '
-            'to verify indentation-related diagnostics are gone where the server supports it.'
-        ),))
-def lsp_get_diagnostics(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
-    refresh_active_document: bool = False,
-    encoding: Annotated[str, 'empty = Settings default'] = '',
+def _resolve_diagnostics_scopes(requested: str, session_id: str | None) -> list[str]:
+    value = (requested or '').strip().lower()
+    if not value:
+        return [_session_lsp_scope_label(session_id)]
+    if value == 'both':
+        return ['staging', 'workspace']
+    if value in ('workspace', 'staging'):
+        return [value]
+    raise ValueError(
+        f'Unsupported LSP diagnostics scope: {requested!r}. Use `workspace`, `staging`, `both`, or omit for the session default.'
+    )
+
+
+def _diagnostics_for_scope(
+    *,
+    relative_path: str,
+    server: LspServerKind,
+    scope: str,
+    encoding: str,
+    refresh_active_document: bool,
 ) -> str:
-
-    enc = validate_workspace_encoding((encoding or '').strip() or 'utf-8')
-    rel = normalize_relative_posix_path(relative_path)
-    try:
-        if rel:
-            rel2, server = _require_lsp_read_path(rel)
-            sid_tool = (current_session_id.get() or '').strip()
-            scope_label = _session_lsp_scope_label(sid_tool)
-            manager = get_session_lsp_manager(server=server)
-            cached_items = manager.get_diagnostics(rel2)
-            analyzed_source = 'cached'
-            if refresh_active_document or not cached_items:
-                try:
-                    _, analyzed_source = _sync_active_document_for_diagnostics(rel2, encoding=enc, server=server)
-                except Exception as exc:
-                    if cached_items:
-                        return (
-                            format_diagnostics_summary(
-                                rel2,
-                                cached_items,
-                                lsp_scope=scope_label,
-                                analyzed_source='cached',
-                                server_kind=server,
-                            )
-                            + f'\n\nNote: {_lsp_server_label(server)} LSP refresh failed ({exc}).'
-                        )
-                    raise
-            final_items = manager.get_diagnostics(rel2)
-            return format_diagnostics_summary(
-                rel2,
-                final_items,
-                lsp_scope=scope_label,
-                analyzed_source=analyzed_source,
-                server_kind=server,
+    manager = get_session_lsp_manager(server=server, scope=scope, set_active=False)
+    cached_items = manager.get_diagnostics(relative_path)
+    analyzed_source = 'cached'
+    if refresh_active_document or not cached_items:
+        try:
+            _, analyzed_source = _sync_active_document_for_diagnostics(
+                relative_path,
+                encoding=encoding,
+                server=server,
+                scope=scope,
             )
+        except Exception as exc:
+            if cached_items:
+                return (
+                    format_diagnostics_summary(
+                        relative_path,
+                        cached_items,
+                        lsp_scope=scope,
+                        analyzed_source='cached',
+                        server_kind=server,
+                    )
+                    + f'\n\nNote: {_lsp_server_label(server)} LSP refresh failed ({exc}).'
+                )
+            raise
+    final_items = manager.get_diagnostics(relative_path)
+    return format_diagnostics_summary(
+        relative_path,
+        final_items,
+        lsp_scope=scope,
+        analyzed_source=analyzed_source,
+        server_kind=server,
+    )
 
-        sid = (current_session_id.get() or '').strip()
-        if not sid:
-            return 'No cached LSP diagnostics are available.'
-        session = get_session(sid)
-        scope_label = _session_lsp_scope_label(sid)
+
+def _aggregate_cached_diagnostics(session_id: str, scopes: list[str]) -> str:
+    session = get_session(session_id)
+    blocks: list[str] = []
+    for scope in scopes:
+        cache = diagnostics_cache_for_scope(session, scope)
         all_rows: list[dict[str, Any]] = []
-        for path in sorted(session.lsp_diagnostics):
-            all_rows.extend(session.lsp_diagnostics[path])
+        for path in sorted(cache):
+            all_rows.extend(cache[path])
         if not all_rows:
-            return 'No cached LSP diagnostics are available.'
+            blocks.append(
+                f'{diagnostics_session_aggregate_preamble(scope)}\n'
+                f'No cached LSP diagnostics for scope={scope}.'
+            )
+            continue
         lines = [
-            diagnostics_session_aggregate_preamble(scope_label),
+            diagnostics_session_aggregate_preamble(scope),
             f'Cached LSP diagnostics ({len(all_rows)} issue(s)):',
         ]
         for item in all_rows[:100]:
@@ -427,7 +435,57 @@ def lsp_get_diagnostics(
             )
         if len(all_rows) > 100:
             lines.append(f'... {len(all_rows) - 100} more diagnostic(s) omitted.')
-        return '\n'.join(lines)
+        blocks.append('\n'.join(lines))
+    if len(blocks) == 1 and blocks[0].endswith(f'No cached LSP diagnostics for scope={scopes[0]}.'):
+        return 'No cached LSP diagnostics are available.'
+    return '\n\n'.join(blocks)
+
+
+@tool(LSP_GET_DIAGNOSTICS_NAME, description=describe('Return cached LSP diagnostics for one file, or all cached diagnostics when no path is given.',
+        when='checking errors after edits or auditing workspace health.',
+        not_='mutating files (use LSP mutators or staging tools).',
+        shape=(
+            '`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, `.java`; empty path = all cached. '
+            '`scope` is `workspace`, `staging`, `both`, or empty (session default). Available for both scopes '
+            'regardless of auto-apply mode. `refresh_active_document=true` re-syncs first: workspace scope '
+            'reads on-disk file; staging scope uses materialized overlay (pending drafts on disk in a mirror '
+            'tree) so cross-file resolution matches staged peers.'
+        ),
+        verify=(
+            'after `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` '
+            'on a staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with '
+            '`refresh_active_document=true` and `scope=staging` on that path (LSP applies to Python, TS/JS, '
+            'GDScript, and Java) to verify indentation-related diagnostics are gone where the server supports it.'
+        ),))
+def lsp_get_diagnostics(
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
+    refresh_active_document: bool = False,
+    encoding: Annotated[str, 'empty = Settings default'] = '',
+    scope: Annotated[str, '`workspace` | `staging` | `both` | empty = session default'] = '',
+) -> str:
+
+    enc = validate_workspace_encoding((encoding or '').strip() or 'utf-8')
+    rel = normalize_relative_posix_path(relative_path)
+    try:
+        sid_tool = (current_session_id.get() or '').strip()
+        scopes = _resolve_diagnostics_scopes(scope, sid_tool)
+        if rel:
+            rel2, server = _require_lsp_read_path(rel)
+            parts = [
+                _diagnostics_for_scope(
+                    relative_path=rel2,
+                    server=server,
+                    scope=scope_label,
+                    encoding=enc,
+                    refresh_active_document=refresh_active_document,
+                )
+                for scope_label in scopes
+            ]
+            return '\n\n'.join(parts)
+
+        if not sid_tool:
+            return 'No cached LSP diagnostics are available.'
+        return _aggregate_cached_diagnostics(sid_tool, scopes)
     except Exception as exc:
         srv = lsp_server_for_path(rel) if rel else None
         return _format_lsp_tool_error('diagnostics lookup', exc, relative_path=rel, server=srv)

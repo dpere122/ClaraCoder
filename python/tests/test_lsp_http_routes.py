@@ -124,7 +124,7 @@ def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     session.workspace_path = str(workspace.resolve())
     session.worker_apply_mode = True
     session.auto_apply_mode = True
-    session.lsp_diagnostics.clear()
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
     session.lsp_active_scope = 'workspace'
     session.lsp_workspace_root = ''
 

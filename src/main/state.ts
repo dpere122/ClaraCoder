@@ -28,7 +28,7 @@ export const mainState = {
   /** Relative paths with unsaved edits in the main window workspace Monaco editor (main window only). */
   monacoWorkspaceUnsavedPaths: [] as string[],
   /** One-shot TTS payloads for `nemo-tts://` stream URLs (WAV from local Kokoro). */
-  ttsStreamTokens: new Map<string, { text: string; voice: string; speed: number }>(),
+  ttsStreamTokens: new Map<string, { text: string; voice: string; speed: number; instructions?: string }>(),
   /**
    * Active TTS fetch abort handles (`ipc:<seq>` from renderer, `proto:<token>` from `nemo-tts://`).
    * Multiple IPC streams may run concurrently so the next chunk can prefetch while the current plays.

@@ -17,6 +17,9 @@ import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
+  DEFAULT_OPENAI_TTS_BASE_URL,
+  DEFAULT_OPENAI_TTS_VOICE,
+  DEFAULT_TTS_PROVIDER,
   findLlmModelLocation,
   inferContextWindowTokens,
   isLegacyLlamaCppManagedShape,
@@ -768,6 +771,22 @@ export function migrateConfig(config: AppConfig): AppConfig {
       migrated = true;
     }
     const atRecord = audio as AudioTranscriptionConfig & { ttsVoiceId?: string };
+    if (atRecord.ttsProvider !== 'kokoro' && atRecord.ttsProvider !== 'openai-compatible') {
+      atRecord.ttsProvider = DEFAULT_TTS_PROVIDER;
+      migrated = true;
+    }
+    if (typeof atRecord.ttsBaseUrl !== 'string') {
+      atRecord.ttsBaseUrl = DEFAULT_OPENAI_TTS_BASE_URL;
+      migrated = true;
+    }
+    if (typeof atRecord.ttsApiKey !== 'string') {
+      atRecord.ttsApiKey = '';
+      migrated = true;
+    }
+    if (typeof atRecord.ttsDefaultInstructions !== 'string') {
+      atRecord.ttsDefaultInstructions = '';
+      migrated = true;
+    }
     if (atRecord.ttsVoice === undefined && typeof atRecord.ttsVoiceId === 'string') {
       const legacy = atRecord.ttsVoiceId.trim();
       const isEdgeOrEmpty =
@@ -776,9 +795,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
       delete atRecord.ttsVoiceId;
       migrated = true;
     }
+    const ttsProvider = atRecord.ttsProvider ?? DEFAULT_TTS_PROVIDER;
+    const defaultTtsVoice =
+      ttsProvider === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
     const tv = atRecord.ttsVoice;
     if (typeof tv !== 'string' || !tv.trim()) {
-      atRecord.ttsVoice = DEFAULT_KOKORO_TTS_VOICE;
+      atRecord.ttsVoice = defaultTtsVoice;
       migrated = true;
     }
     const tsp = atRecord.ttsSpeechSpeed;

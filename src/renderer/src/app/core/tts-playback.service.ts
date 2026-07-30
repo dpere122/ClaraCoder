@@ -8,20 +8,35 @@ import { ElectronService } from './electron.service';
 
 @Injectable({ providedIn: 'root' })
 export class TtsPlaybackService {
+  /** Local Kokoro: larger chunks (fast synthesis). */
+  private static readonly LOCAL_CHUNK = {
+    target: 1200,
+    hardMax: 2200,
+    flushMin: 120,
+    flushMax: 900,
+  };
+
   /**
-   * Preferred max characters per Kokoro request. Smaller chunks improve time-to-first-audio; the
-   * next chunk prefetches while the current WAV plays ({@link collectTtsWav} pipelining).
+   * Remote Qwen / OpenAI-compatible: buffer the full turn, then one TTS request on flush.
+   * Chunk limits are effectively unbounded so {@link splitTextForTts} / speakText stay one-shot.
+   * Mid-stream sentence flushes are disabled via {@link bufferUntilFlush}.
    */
-  private static readonly TTS_CHUNK_TARGET = 1200;
+  private static readonly REMOTE_ONE_SHOT_CHUNK = {
+    target: Number.MAX_SAFE_INTEGER,
+    hardMax: Number.MAX_SAFE_INTEGER,
+    flushMin: Number.MAX_SAFE_INTEGER,
+    flushMax: Number.MAX_SAFE_INTEGER,
+  };
 
-  /** Never exceed this many characters in one `/tts` body (e.g. huge unpunctuated spans). */
-  private static readonly TTS_CHUNK_HARD_MAX = 2200;
-
-  /** Prefer flushing streaming speech after at least this many characters (unless forced below). */
-  private static readonly STREAM_FLUSH_MIN = 120;
-
-  /** Force a boundary flush near this length when no sentence break appears yet. */
-  private static readonly STREAM_FLUSH_MAX = 900;
+  private chunkTarget = TtsPlaybackService.LOCAL_CHUNK.target;
+  private chunkHardMax = TtsPlaybackService.LOCAL_CHUNK.hardMax;
+  private streamFlushMin = TtsPlaybackService.LOCAL_CHUNK.flushMin;
+  private streamFlushMax = TtsPlaybackService.LOCAL_CHUNK.flushMax;
+  /**
+   * When true (openai-compatible): accumulate cleaned text while the LLM streams; synthesize
+   * only on {@link flushStreamingAssistantText} as a single request for max GPU decode speed.
+   */
+  private bufferUntilFlush = false;
 
   /** Shown on the latest assistant bubble while the first chunk is in flight. */
   readonly ttsLoading = signal(false);
@@ -56,20 +71,55 @@ export class TtsPlaybackService {
 
   /** Prefix length of {@link stripForTts} output already emitted into the segment queue for this turn. */
   private streamingCommittedCleanLen = 0;
+  /**
+   * Exclusive end offset in clean text already dequeued for synthesis (spoken or in-flight).
+   * Prevents divergent ``final_text`` from re-queuing already-spoken lines.
+   */
+  private streamingSpokenCleanLen = 0;
   /** Last raw primary text length fed for this turn (detect true turn resets vs strip shrink). */
   private streamingRawLen = 0;
   /** Previous full {@link stripForTts} snapshot — used to realign when stripping shortens text. */
   private streamingCleanSnapshot = '';
-  private readonly streamingSegmentQueue: string[] = [];
+  /**
+   * Queued utterances with the exclusive end offset in {@link streamingCleanSnapshot} /
+   * current clean text at enqueue time. Offsets let strip-shrink drop fence-body segments without
+   * discarding unplayed prefix sentences still waiting in the queue.
+   */
+  private readonly streamingSegmentQueue: { text: string; cleanEnd: number }[] = [];
   private streamingPipelineBusy = false;
   private streamingQueueSignal: (() => void) | null = null;
   /** True from {@link beginAssistantSpeechTurn} until {@link flushStreamingAssistantText} queues the tail. */
   private streamingSpeechTurnOpen = false;
+  /** Settings fallback for OpenAI-compatible TTS ``instructions`` when the model omits a mood tag. */
+  private ttsDefaultInstructions = '';
+  /** Mood/tone from ``[[tts_mood: ...]]`` for the current speech turn (overrides default). */
+  private streamingTurnInstructions = '';
 
   constructor(
     private readonly electron: ElectronService,
     private readonly zone: NgZone,
   ) {}
+
+  /**
+   * Kokoro: large incremental chunks (overlap LLM stream with synthesis).
+   * OpenAI-compatible: buffer until the turn ends, then one TTS shot.
+   */
+  setTtsChunkProfile(provider: 'kokoro' | 'openai-compatible'): void {
+    const profile =
+      provider === 'openai-compatible'
+        ? TtsPlaybackService.REMOTE_ONE_SHOT_CHUNK
+        : TtsPlaybackService.LOCAL_CHUNK;
+    this.chunkTarget = profile.target;
+    this.chunkHardMax = profile.hardMax;
+    this.streamFlushMin = profile.flushMin;
+    this.streamFlushMax = profile.flushMax;
+    this.bufferUntilFlush = provider === 'openai-compatible';
+  }
+
+  /** Baseline Qwen/OpenAI-compatible ``instructions`` when the model does not emit a mood tag. */
+  setTtsDefaultInstructions(instructions: string): void {
+    this.ttsDefaultInstructions = (instructions || '').trim();
+  }
 
   getCurrentAudio(): HTMLAudioElement | null {
     return this.currentAudio;
@@ -86,16 +136,19 @@ export class TtsPlaybackService {
   }
 
   /** Bump generation, stop playback, clear TTS loading UI (e.g. speech toggled off). */
-  invalidateSpeechPipeline(): void {
+  async invalidateSpeechPipeline(): Promise<void> {
     this.speechGen++;
-    void this.electron.abortTtsStream();
+    // Await abort so a late abort cannot cancel the next ``tts-stream-start``.
+    await this.electron.abortTtsStream();
     this.stopSpeech();
     this.streamingCommittedCleanLen = 0;
+    this.streamingSpokenCleanLen = 0;
     this.streamingRawLen = 0;
     this.streamingCleanSnapshot = '';
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
     this.streamingSpeechTurnOpen = false;
+    this.streamingTurnInstructions = '';
     this.notifyStreamingQueueChanged();
     this.zone.run(() => this.ttsLoading.set(false));
   }
@@ -104,14 +157,34 @@ export class TtsPlaybackService {
    * Begin a new assistant turn while speech is enabled — stops prior audio and resets streaming buffers.
    * Call when the user sends a message so main-channel TTS does not overlap the previous reply.
    */
-  beginAssistantSpeechTurn(): void {
-    this.invalidateSpeechPipeline();
+  async beginAssistantSpeechTurn(): Promise<void> {
+    await this.invalidateSpeechPipeline();
     this.streamingSpeechTurnOpen = true;
+  }
+
+  private resolveTtsInstructions(): string {
+    return this.streamingTurnInstructions || this.ttsDefaultInstructions;
+  }
+
+  /** Pull ``[[tts_mood: ...]]`` tags (latest wins) and remove them from spoken text. */
+  private absorbMoodTags(text: string): string {
+    let latest: string | null = null;
+    // Fresh regex each call — global ``lastIndex`` on a shared RegExp is unsafe across feeds.
+    const re = /\[\[tts_mood:\s*([^\]]+)\]\]/gi;
+    const without = text.replace(re, (_full, mood: string) => {
+      const trimmed = String(mood || '').trim();
+      if (trimmed) latest = trimmed;
+      return '';
+    });
+    if (latest) {
+      this.streamingTurnInstructions = latest;
+    }
+    return without;
   }
 
   /** Same normalization as full-turn {@link speakText} so incremental synthesis matches batch playback. */
   private stripForTts(text: string): string {
-    return text
+    return this.absorbMoodTags(text)
       .replace(/<details class="llm-reasoning"[\s\S]*?<\/details>/gi, '')
       .replace(/<details class="llm-(?:moe|reasoning)-panel[^"]*"[\s\S]*?<\/details>/gi, '')
       .replace(/```[\s\S]*?```/g, '')
@@ -121,30 +194,59 @@ export class TtsPlaybackService {
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
       .replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, '')
       .replace(/\n{2,}/g, '\n')
+      .replace(/[ \t]{2,}/g, ' ')
       .trim();
   }
 
+  private static longestCommonPrefixLen(a: string, b: string): number {
+    let lcp = 0;
+    const limit = Math.min(a.length, b.length);
+    while (lcp < limit && a[lcp] === b[lcp]) {
+      lcp++;
+    }
+    return lcp;
+  }
+
   /**
-   * Feed cumulative sanitized primary-assistant text while the model streams; queues speech at sentence/word boundaries.
+   * Feed cumulative sanitized primary-assistant text while the model streams.
+   * Kokoro: queues speech at sentence/word boundaries.
+   * OpenAI-compatible ({@link bufferUntilFlush}): only updates the buffer; synthesis waits for flush.
    */
   feedStreamingAssistantText(sanitizedFullPrimary: string, voice: string, speed: number): void {
     const raw = sanitizedFullPrimary;
     if (!raw) return;
     if (raw.length < this.streamingRawLen) {
       this.streamingCommittedCleanLen = 0;
+      this.streamingSpokenCleanLen = 0;
       this.streamingRawLen = 0;
       this.streamingCleanSnapshot = '';
       this.streamingSegmentQueue.length = 0;
+      this.streamingTurnInstructions = '';
     }
     this.streamingRawLen = raw.length;
 
     const clean = this.stripForTts(raw);
     if (!clean) return;
-    this.realignStreamingCommitAfterStripShrink(clean);
-    const tail = clean.slice(this.streamingCommittedCleanLen);
+
+    if (this.realignStreamingCommitAfterStripShrink(clean) === 'divergent') {
+      // Spoken prefix no longer matches incoming text — keep the streamed snapshot; wait for flush.
+      if (!this.bufferUntilFlush) {
+        void this.ensureStreamingPipeline(voice, speed);
+      }
+      return;
+    }
+
+    // One-shot remote TTS: keep the cleaned snapshot (and mood tags) warm; do not HTTP yet.
+    if (this.bufferUntilFlush) {
+      this.streamingCleanSnapshot = clean;
+      return;
+    }
+
+    const base = Math.max(this.streamingCommittedCleanLen, this.streamingSpokenCleanLen);
+    const tail = clean.slice(base);
     const { segments, keep } = this.extractStreamingSegments(tail);
     for (const s of segments) {
-      this.streamingSegmentQueue.push(s);
+      this.streamingSegmentQueue.push({ text: s.text, cleanEnd: base + s.end });
     }
     if (segments.length > 0) {
       this.notifyStreamingQueueChanged();
@@ -158,32 +260,62 @@ export class TtsPlaybackService {
    * {@link stripForTts} is not monotonic while markdown/code fences stream in (a completed fence
    * removes text that was already counted). Realign to the longest common prefix instead of
    * resetting to zero, which would re-queue and replay from the beginning.
+   *
+   * Important: strip output can grow overall while still diverging in the middle (fence closes and
+   * more prose arrives in the same chunk). Length-only checks miss that case and leave
+   * `streamingCommittedCleanLen` pointing into the wrong suffix, skipping the start of new prose.
+   *
+   * Keep queued segments that end within the preserved prefix; drop only segments that came from
+   * removed content (e.g. an open fence body). Clearing the entire queue used to skip unplayed
+   * sentences before the fence when playback lagged the stream.
+   *
+   * When LCP falls below the spoken watermark (divergent ``final_text`` rewrite), return
+   * ``divergent`` so callers do not re-queue already-spoken lines from the rewrite.
    */
-  private realignStreamingCommitAfterStripShrink(clean: string): void {
-    if (clean.length >= this.streamingCommittedCleanLen) {
-      return;
-    }
+  private realignStreamingCommitAfterStripShrink(clean: string): 'ok' | 'divergent' {
     const prev = this.streamingCleanSnapshot;
-    let lcp = 0;
-    const limit = Math.min(prev.length, clean.length);
-    while (lcp < limit && prev[lcp] === clean[lcp]) {
-      lcp++;
+    if (!prev || clean.startsWith(prev)) {
+      return 'ok';
     }
-    this.streamingCommittedCleanLen = lcp;
+    const lcp = TtsPlaybackService.longestCommonPrefixLen(prev, clean);
+    if (lcp < this.streamingSpokenCleanLen) {
+      return 'divergent';
+    }
+    const kept = this.streamingSegmentQueue.filter((s) => s.cleanEnd <= lcp);
     this.streamingSegmentQueue.length = 0;
+    this.streamingSegmentQueue.push(...kept);
+    this.streamingCommittedCleanLen = Math.min(this.streamingCommittedCleanLen, lcp);
+    // Do not re-queue text that was already dequeued for synthesis and is still in the prefix.
+    this.streamingCommittedCleanLen = Math.max(this.streamingCommittedCleanLen, this.streamingSpokenCleanLen);
+    return 'ok';
   }
 
   /**
    * Speak any tail left buffered when the SSE stream completes (also covers enabling speech only after streaming).
+   * With {@link bufferUntilFlush}, the entire remaining clean text becomes one TTS request.
    */
   async flushStreamingAssistantText(sanitizedFullPrimary: string, voice: string, speed: number): Promise<void> {
     const clean = this.stripForTts(sanitizedFullPrimary);
-    this.realignStreamingCommitAfterStripShrink(clean);
-    const tail = clean.slice(this.streamingCommittedCleanLen);
-    if (tail.trim()) {
-      for (const s of this.splitTextForTts(tail.trim())) {
-        this.streamingSegmentQueue.push(s);
+
+    if (this.realignStreamingCommitAfterStripShrink(clean) === 'divergent') {
+      // Ignore rewrite for TTS; speak only the remaining uncommitted tail of the streamed snapshot.
+      const prev = this.streamingCleanSnapshot;
+      const base = Math.max(this.streamingCommittedCleanLen, this.streamingSpokenCleanLen);
+      const tail = prev.slice(base);
+      if (tail.trim()) {
+        this.enqueueUtterancePieces(tail.trim(), prev.length);
+        this.notifyStreamingQueueChanged();
       }
+      this.streamingCommittedCleanLen = prev.length;
+      this.streamingSpeechTurnOpen = false;
+      this.notifyStreamingQueueChanged();
+      await this.ensureStreamingPipeline(voice, speed);
+      return;
+    }
+    const base = Math.max(this.streamingCommittedCleanLen, this.streamingSpokenCleanLen);
+    const tail = clean.slice(base);
+    if (tail.trim()) {
+      this.enqueueUtterancePieces(tail.trim(), clean.length);
       this.notifyStreamingQueueChanged();
     }
     this.streamingCommittedCleanLen = clean.length;
@@ -192,6 +324,17 @@ export class TtsPlaybackService {
     this.streamingSpeechTurnOpen = false;
     this.notifyStreamingQueueChanged();
     await this.ensureStreamingPipeline(voice, speed);
+  }
+
+  /** Queue one piece (one-shot) or sentence-split pieces (Kokoro overlap). */
+  private enqueueUtterancePieces(text: string, cleanEnd: number): void {
+    if (this.bufferUntilFlush) {
+      this.streamingSegmentQueue.push({ text, cleanEnd });
+      return;
+    }
+    for (const s of this.splitTextForTts(text)) {
+      this.streamingSegmentQueue.push({ text: s, cleanEnd });
+    }
   }
 
   private notifyStreamingQueueChanged(): void {
@@ -215,7 +358,9 @@ export class TtsPlaybackService {
 
     const immediate = take();
     if (immediate) return Promise.resolve(immediate);
-    if (!this.streamingSpeechTurnOpen) return Promise.resolve(null);
+    // Turn already flushed: re-check the queue once — flush may have enqueued the tail between
+    // the empty take above and this closed-turn check (otherwise the final sentences are dropped).
+    if (!this.streamingSpeechTurnOpen) return Promise.resolve(take());
 
     return new Promise((resolve) => {
       let settled = false;
@@ -254,8 +399,8 @@ export class TtsPlaybackService {
 
   private takeFlushablePrefix(tail: string): { flush: string; keep: string } {
     if (!tail) return { flush: '', keep: '' };
-    const min = TtsPlaybackService.STREAM_FLUSH_MIN;
-    const max = TtsPlaybackService.STREAM_FLUSH_MAX;
+    const min = this.streamFlushMin;
+    const max = this.streamFlushMax;
     if (tail.length < min) {
       return { flush: '', keep: tail };
     }
@@ -285,18 +430,22 @@ export class TtsPlaybackService {
     return { flush: tail.slice(0, cut), keep: tail.slice(cut) };
   }
 
-  private extractStreamingSegments(tail: string): { segments: string[]; keep: string } {
-    const segments: string[] = [];
+  private extractStreamingSegments(tail: string): { segments: { text: string; end: number }[]; keep: string } {
+    const segments: { text: string; end: number }[] = [];
     let rest = tail;
+    let offset = 0;
     while (rest.length > 0) {
       const { flush, keep } = this.takeFlushablePrefix(rest);
       if (!flush) break;
+      const flushEnd = offset + flush.length;
       const trimmed = flush.trim();
       if (trimmed) {
         for (const s of this.splitTextForTts(trimmed)) {
-          segments.push(s);
+          // Conservative end: all pieces from this flush share the flush boundary in clean text.
+          segments.push({ text: s, end: flushEnd });
         }
       }
+      offset = flushEnd;
       rest = keep;
     }
     return { segments, keep: rest };
@@ -312,7 +461,8 @@ export class TtsPlaybackService {
       while (gen === this.speechGen && this.streamingSegmentQueue.length > 0) {
         let first = this.takeNextStreamingBatch()!;
         let seq = ++this.ttsStreamSeq;
-        let nextWavPromise = this.collectTtsWav(first, voice, speed, seq, gen, () => {
+        const instructions = this.resolveTtsInstructions();
+        let nextWavPromise = this.collectTtsWav(first, voice, speed, seq, gen, instructions, () => {
           this.zone.run(() => this.ttsLoading.set(false));
         });
         while (gen === this.speechGen) {
@@ -320,7 +470,15 @@ export class TtsPlaybackService {
           let nextSeg = this.takeNextStreamingBatch();
           if (nextSeg) {
             seq = ++this.ttsStreamSeq;
-            nextWavPromise = this.collectTtsWav(nextSeg, voice, speed, seq, gen, () => {});
+            nextWavPromise = this.collectTtsWav(
+              nextSeg,
+              voice,
+              speed,
+              seq,
+              gen,
+              this.resolveTtsInstructions(),
+              () => {},
+            );
           }
           const playback = this.playAudioBufferFromUint8(wav, gen, 'audio/wav');
           if (!nextSeg) {
@@ -328,7 +486,15 @@ export class TtsPlaybackService {
             if (gen !== this.speechGen) return;
             if (nextSeg) {
               seq = ++this.ttsStreamSeq;
-              nextWavPromise = this.collectTtsWav(nextSeg, voice, speed, seq, gen, () => {});
+              nextWavPromise = this.collectTtsWav(
+                nextSeg,
+                voice,
+                speed,
+                seq,
+                gen,
+                this.resolveTtsInstructions(),
+                () => {},
+              );
             }
           }
           await playback;
@@ -349,16 +515,14 @@ export class TtsPlaybackService {
   }
 
   /**
-   * Split for TTS: always prefer multiple smaller Kokoro requests (up to {@link TTS_CHUNK_TARGET})
-   * at sentence / line / word boundaries so the first chunk returns audio sooner; merge sub-pieces
-   * that still exceed {@link TTS_CHUNK_HARD_MAX}.
+   * Split for TTS at sentence / line / word boundaries so the first chunk returns audio sooner.
    */
   private splitTextForTts(text: string): string[] {
     const trimmed = text.trim();
     if (!trimmed) return [];
 
-    const target = TtsPlaybackService.TTS_CHUNK_TARGET;
-    const hard = TtsPlaybackService.TTS_CHUNK_HARD_MAX;
+    const target = this.chunkTarget;
+    const hard = this.chunkHardMax;
     const out: string[] = [];
     let rest = trimmed;
 
@@ -384,15 +548,20 @@ export class TtsPlaybackService {
   private takeNextStreamingBatch(): string | null {
     const first = this.streamingSegmentQueue.shift();
     if (!first) return null;
-    const target = TtsPlaybackService.TTS_CHUNK_TARGET;
-    const parts = [first];
-    let len = first.length;
+
+    const target = this.chunkTarget;
+    const parts = [first.text];
+    let len = first.text.length;
+    let maxCleanEnd = first.cleanEnd;
     while (this.streamingSegmentQueue.length > 0) {
       const next = this.streamingSegmentQueue[0];
-      if (len + 1 + next.length > target) break;
-      parts.push(this.streamingSegmentQueue.shift()!);
-      len += 1 + next.length;
+      if (len + 1 + next.text.length > target) break;
+      const taken = this.streamingSegmentQueue.shift()!;
+      parts.push(taken.text);
+      len += 1 + taken.text.length;
+      maxCleanEnd = Math.max(maxCleanEnd, taken.cleanEnd);
     }
+    this.streamingSpokenCleanLen = Math.max(this.streamingSpokenCleanLen, maxCleanEnd);
     return parts.join(' ').trim() || null;
   }
 
@@ -448,24 +617,27 @@ export class TtsPlaybackService {
     // cancelled by a late `tts-stream-abort` (fire-and-forget abort raced `tts-stream-start`).
     this.speechGen++;
     this.streamingCommittedCleanLen = 0;
+    this.streamingSpokenCleanLen = 0;
     this.streamingRawLen = 0;
     this.streamingCleanSnapshot = '';
     this.streamingSegmentQueue.length = 0;
     this.streamingPipelineBusy = false;
     this.streamingSpeechTurnOpen = false;
+    this.streamingTurnInstructions = '';
     await this.electron.abortTtsStream();
     this.stopSpeech();
     this.zone.run(() => this.ttsLoading.set(false));
     const gen = this.speechGen;
     const clean = this.stripForTts(text);
     if (!clean) return;
-    const chunks = this.splitTextForTts(clean);
+    const chunks = this.bufferUntilFlush ? [clean] : this.splitTextForTts(clean);
+    const instructions = this.resolveTtsInstructions();
     this.zone.run(() => this.ttsLoading.set(true));
     try {
       const n = chunks.length;
       if (n === 0) return;
       let seq = ++this.ttsStreamSeq;
-      let nextWavPromise = this.collectTtsWav(chunks[0], voice, speed, seq, gen, () => {
+      let nextWavPromise = this.collectTtsWav(chunks[0], voice, speed, seq, gen, instructions, () => {
         this.zone.run(() => this.ttsLoading.set(false));
       });
       for (let i = 0; i < n; i++) {
@@ -473,7 +645,15 @@ export class TtsPlaybackService {
         const wav = await nextWavPromise;
         if (i + 1 < n) {
           seq = ++this.ttsStreamSeq;
-          nextWavPromise = this.collectTtsWav(chunks[i + 1], voice, speed, seq, gen, () => {});
+          nextWavPromise = this.collectTtsWav(
+            chunks[i + 1],
+            voice,
+            speed,
+            seq,
+            gen,
+            instructions,
+            () => {},
+          );
         }
         await this.playAudioBufferFromUint8(wav, gen, 'audio/wav');
       }
@@ -594,6 +774,7 @@ export class TtsPlaybackService {
     speed: number,
     seq: number,
     gen: number,
+    instructions: string,
     onFirstNetworkChunk: () => void,
   ): Promise<Uint8Array> {
     if (gen !== this.speechGen) return Promise.resolve(new Uint8Array());
@@ -610,10 +791,12 @@ export class TtsPlaybackService {
       };
 
       let sub: Subscription;
+      let genWatch: ReturnType<typeof setInterval> | undefined;
 
       const finishOk = (merged: Uint8Array): void => {
         if (completed) return;
         completed = true;
+        if (genWatch != null) clearInterval(genWatch);
         sub.unsubscribe();
         resolve(merged);
       };
@@ -621,9 +804,17 @@ export class TtsPlaybackService {
       const finishErr = (err: Error): void => {
         if (completed) return;
         completed = true;
+        if (genWatch != null) clearInterval(genWatch);
         sub.unsubscribe();
         reject(err);
       };
+
+      // Resolve immediately if generation bumps before a terminal packet arrives.
+      genWatch = setInterval(() => {
+        if (gen !== this.speechGen) {
+          finishOk(new Uint8Array());
+        }
+      }, 40);
 
       sub = this.electron.ttsStream$.subscribe({
         next: (packet) => {
@@ -644,7 +835,7 @@ export class TtsPlaybackService {
         error: (e) => finishErr(e instanceof Error ? e : new Error(String(e))),
       });
 
-      void this.electron.startTtsStreamRequest(text, voice, speed, seq);
+      void this.electron.startTtsStreamRequest(text, voice, speed, seq, instructions);
     });
   }
 
@@ -681,7 +872,7 @@ export class TtsPlaybackService {
     }
     if (event.userBargeIn && event.hadSpeech) {
       this.ttsPausedForTalk = false;
-      this.invalidateSpeechPipeline();
+      void this.invalidateSpeechPipeline();
       return;
     }
     resumePaused();

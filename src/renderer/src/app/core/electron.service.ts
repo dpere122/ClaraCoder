@@ -674,6 +674,7 @@ export class ElectronService {
     structuredContent?: readonly ChatStructuredContentPart[],
     workspaceId?: string | null,
     composerMode: 'agent' | 'plan' = 'agent',
+    speechEnabled = false,
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -683,6 +684,7 @@ export class ElectronService {
       structuredContent ? [...structuredContent] : undefined,
       workspaceId ?? null,
       composerMode,
+      speechEnabled,
     );
   }
 
@@ -1007,12 +1009,25 @@ export class ElectronService {
     return this.api?.getCurrentWorkspace() ?? Promise.resolve(null);
   }
 
-  async startTtsStreamRequest(text: string, voice: string, speed: number, seq: number): Promise<void> {
-    await (this.api?.startTtsStream(text, voice, speed, seq) ?? Promise.resolve({ ok: true }));
+  async startTtsStreamRequest(
+    text: string,
+    voice: string,
+    speed: number,
+    seq: number,
+    instructions?: string,
+  ): Promise<void> {
+    await (
+      this.api?.startTtsStream(text, voice, speed, seq, instructions) ?? Promise.resolve({ ok: true })
+    );
   }
 
-  registerTtsStreamUrl(text: string, voice: string, speed: number): Promise<{ url: string }> {
-    return this.api?.registerTtsStreamUrl(text, voice, speed) ?? Promise.resolve({ url: '' });
+  registerTtsStreamUrl(
+    text: string,
+    voice: string,
+    speed: number,
+    instructions?: string,
+  ): Promise<{ url: string }> {
+    return this.api?.registerTtsStreamUrl(text, voice, speed, instructions) ?? Promise.resolve({ url: '' });
   }
 
   abortTtsStream(): Promise<{ ok: boolean }> {

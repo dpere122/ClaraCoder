@@ -145,7 +145,7 @@ def lsp_env(tmp_path: Path):
     session.workspace_path = str(workspace.resolve())
     session.worker_apply_mode = True
     session.auto_apply_mode = True
-    session.lsp_diagnostics.clear()
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
     session.lsp_active_scope = 'workspace'
     session.lsp_workspace_root = ''
 
@@ -179,24 +179,27 @@ def test_manager_syncs_python_document_and_caches_diagnostics(lsp_env) -> None:
     assert lsp_env.session.lsp_workspace_root.endswith('ws')
 
 
-def test_lsp_scope_switch_shuts_down_staging_manager_before_workspace_review(lsp_env) -> None:
+def test_lsp_scope_managers_coexist_for_workspace_and_staging(lsp_env) -> None:
     staging_manager = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='staging')
     staging_manager.sync_document('pkg/mod.py', 'value = "TODO"\n')
 
     assert lsp_env.session.lsp_active_scope == 'staging'
     assert staging_manager._client is not None
-    assert lsp_env.session.lsp_diagnostics
+    assert lsp_env.session.lsp_diagnostics_by_scope['staging']
 
     activate_session_lsp_scope(lsp_env.session_id, scope='workspace')
 
     assert lsp_env.session.lsp_active_scope == 'workspace'
-    assert lsp_env.session.lsp_diagnostics == {}
-    assert lsp_env.session.lsp_workspace_root == ''
-    assert staging_manager._client is None
+    # Activating a scope no longer tears down the other scope's manager/cache.
+    assert lsp_env.session.lsp_diagnostics_by_scope['staging']
+    assert staging_manager._client is not None
 
-    workspace_manager = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory)
+    workspace_manager = get_session_lsp_manager(
+        lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace'
+    )
     assert workspace_manager.scope == 'workspace'
     assert workspace_manager is not staging_manager
+    assert staging_manager._client is not None
 
 
 def test_prepare_new_staging_snapshot_session_resets_lsp_and_seeds_snapshot(lsp_env) -> None:
@@ -205,7 +208,7 @@ def test_prepare_new_staging_snapshot_session_resets_lsp_and_seeds_snapshot(lsp_
     snapshot_id = prepare_new_staging_snapshot_session(lsp_env.session, lsp_env.session_id)
 
     assert snapshot_id == lsp_env.session.active_staging_snapshot_id
-    assert lsp_env.session.lsp_diagnostics == {}
+    assert lsp_env.session.lsp_diagnostics_by_scope == {'workspace': {}, 'staging': {}}
     assert lsp_env.session.lsp_workspace_root == ''
     snapshot_root = Path(lsp_env.session.active_staging_snapshot_root)
     assert snapshot_root.is_dir()
@@ -320,6 +323,46 @@ def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env)
     assert 'Staging analysis uses a mirror workspace' in diag_text
     assert staging_manager._client is not None
     assert list(staging_manager._client.docs.values()) == ['value = "done"\nprint(value)\n']
+
+
+def test_lsp_get_diagnostics_scope_param_works_regardless_of_auto_apply(monkeypatch, lsp_env) -> None:
+    """Agent can query staging and workspace diagnostics even when auto-apply keeps default scope=workspace."""
+    lsp_env.session.auto_apply_mode = True
+    activate_session_lsp_scope(lsp_env.session_id, scope='workspace')
+    lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
+        temp_path=str(lsp_env.sample),
+        old_text='value = "TODO"\nprint(value)\n',
+        merged_text='value = "done"\nprint(value)\n',
+        disk_encoding='utf-8',
+        disk_newline='lf',
+        edit_mode='full-file',
+    )
+
+    def _inject(*a, **kwargs):
+        kwargs.setdefault('client_factory', lsp_env.factory)
+        return get_session_lsp_manager(*a, **kwargs)
+
+    monkeypatch.setattr('nemo_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
+
+    workspace_text = lsp_get_diagnostics.invoke(
+        {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'workspace'}
+    )
+    staging_text = lsp_get_diagnostics.invoke(
+        {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'staging'}
+    )
+    both_text = lsp_get_diagnostics.invoke(
+        {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'both'}
+    )
+
+    assert 'scope=workspace' in workspace_text
+    assert 'analyzed=workspace_file' in workspace_text
+    assert 'Found TODO marker' in workspace_text
+    assert 'scope=staging' in staging_text
+    assert 'analyzed=overlay_workspace' in staging_text
+    assert 'No LSP diagnostics for `pkg/mod.py`.' in staging_text
+    assert 'scope=staging' in both_text and 'scope=workspace' in both_text
+    # Diagnostics queries must not flip the session default scope.
+    assert lsp_env.session.lsp_active_scope == 'workspace'
 
 
 def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
@@ -590,7 +633,7 @@ def test_workspace_context_change_clears_lsp_session(lsp_env, tmp_path: Path) ->
             )
         )
     )
-    assert lsp_env.session.lsp_diagnostics == {}
+    assert lsp_env.session.lsp_diagnostics_by_scope == {'workspace': {}, 'staging': {}}
     assert lsp_env.session.lsp_workspace_root == ''
 
 
@@ -598,7 +641,7 @@ def test_clear_session_shuts_down_lsp_state(lsp_env) -> None:
     lsp_env.manager.sync_workspace_document('pkg/mod.py')
     asyncio.run(clear_session(ClearRequest(session_id=lsp_env.session_id)))
     session = get_session(lsp_env.session_id)
-    assert session.lsp_diagnostics == {}
+    assert session.lsp_diagnostics_by_scope == {'workspace': {}, 'staging': {}}
     assert session.workspace_path == ''
 
 

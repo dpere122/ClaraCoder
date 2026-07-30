@@ -23,6 +23,7 @@ from nemo_backend.prompt_blocks import (
     python_workspace_playbook,
     routing_handoff_contract,
     source_code_formatting_guidance,
+    speech_tts_mood_block,
 )
 from nemo_backend.state import get_active_connection, runtime_config
 
@@ -594,4 +595,6 @@ def build_system_prompt(
     )
     if workspace_system:
         body = f'{body}\n\n{workspace_system}'
+    if session.last_stream_speech_enabled:
+        body = f'{body}\n\n{speech_tts_mood_block()}'
     return f'{body}{_model_prompt_suffix(session, apply_mode)}'

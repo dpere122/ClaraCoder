@@ -111,6 +111,17 @@ export type LlmConnectionConfig = LlmModelProfile &
 /** Default Kokoro voice when assistant speech is enabled (American English). */
 export const DEFAULT_KOKORO_TTS_VOICE = 'af_heart';
 
+/** Default Qwen3-TTS CustomVoice speaker when using OpenAI-compatible remote TTS. */
+export const DEFAULT_OPENAI_TTS_VOICE = 'Ryan';
+
+/** Default base URL for OpenAI-compatible assistant TTS (Qwen3-TTS API wrapper). */
+export const DEFAULT_OPENAI_TTS_BASE_URL = 'http://127.0.0.1:8083';
+
+/** Assistant TTS backend: local Kokoro (Python) or remote OpenAI-compatible speech API. */
+export type TtsProvider = 'kokoro' | 'openai-compatible';
+
+export const DEFAULT_TTS_PROVIDER: TtsProvider = 'kokoro';
+
 /** Bounds for Settings → Audio → assistant speech speed (sent to Kokoro ``speed``). */
 export const TTS_SPEECH_SPEED_MIN = 0.5;
 export const TTS_SPEECH_SPEED_MAX = 2;
@@ -168,14 +179,33 @@ export interface AudioTranscriptionConfig {
    */
   talkSilenceThresholdSeconds?: number;
   /**
-   * Kokoro voice id for assistant TTS (e.g. ``af_heart``).
-   * Client-only; sent to the local Python ``POST /tts`` endpoint.
+   * Kokoro voice id for assistant TTS (e.g. ``af_heart``), or remote speaker name (e.g. ``Ryan``).
+   * Client-only; sent to local Kokoro or remote ``POST /v1/audio/speech``.
    */
   ttsVoice?: string;
   /**
-   * Assistant TTS speed multiplier (0.5–2). Client-only; forwarded to Kokoro.
+   * Assistant TTS speed multiplier (0.5–2). Client-only; forwarded to TTS backend.
    */
   ttsSpeechSpeed?: number;
+  /**
+   * Assistant TTS backend: local Kokoro or OpenAI-compatible remote speech API.
+   * Client-only; read by Electron main when streaming TTS.
+   */
+  ttsProvider?: TtsProvider;
+  /**
+   * OpenAI-compatible TTS base URL (``/v1`` suffix optional). Used when {@link ttsProvider} is
+   * ``openai-compatible``.
+   */
+  ttsBaseUrl?: string;
+  /**
+   * Optional Bearer token for OpenAI-compatible TTS. Client-only.
+   */
+  ttsApiKey?: string;
+  /**
+   * Default OpenAI-compatible TTS ``instructions`` (mood/tone) when the model omits ``[[tts_mood: ...]]``.
+   * Client-only; ignored by Kokoro.
+   */
+  ttsDefaultInstructions?: string;
   /**
    * @deprecated Replaced by {@link AudioTranscriptionConfig.ttsVoice} (Kokoro). Migrated on load.
    */

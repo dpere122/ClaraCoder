@@ -35,6 +35,7 @@ import type {
   Workspace,
   WorkspaceToolsConfig,
   ContextCompressionConfig,
+  TtsProvider,
 } from '@shared/index';
 import {
   CAPABLE_PRESET_DEFAULTS,
@@ -44,6 +45,9 @@ import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
+  DEFAULT_OPENAI_TTS_BASE_URL,
+  DEFAULT_OPENAI_TTS_VOICE,
+  DEFAULT_TTS_PROVIDER,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
@@ -301,7 +305,7 @@ export class Settings implements OnInit, OnDestroy {
       {
         id: 'tts',
         label: 'Assistant voice',
-        description: 'Local Kokoro voice and speech speed for spoken assistant replies.',
+        description: 'Kokoro (local) or OpenAI-compatible remote TTS for spoken assistant replies.',
       },
     ],
   };
@@ -331,6 +335,10 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly monacoWorkspaceEditor = signal<MonacoWorkspaceEditorSettings>(defaultMonacoWorkspaceEditorSettings());
   protected readonly ttsVoice = signal(DEFAULT_KOKORO_TTS_VOICE);
   protected readonly ttsSpeechSpeed = signal(TTS_SPEECH_SPEED_DEFAULT);
+  protected readonly ttsProvider = signal<TtsProvider>(DEFAULT_TTS_PROVIDER);
+  protected readonly ttsBaseUrl = signal(DEFAULT_OPENAI_TTS_BASE_URL);
+  protected readonly ttsApiKey = signal('');
+  protected readonly ttsDefaultInstructions = signal('');
   protected readonly editToolsMode = signal<'standard' | 'strict'>('standard');
   protected readonly maxFileReadLines = signal(400);
   protected readonly maxSearchResults = signal(40);
@@ -566,6 +574,9 @@ export class Settings implements OnInit, OnDestroy {
           return `${this.talkSilenceThresholdSeconds()}s`;
         }
         if (id === 'tts') {
+          if (this.ttsProvider() === 'openai-compatible') {
+            return `Remote • ${this.ttsVoice()}`;
+          }
           return `${this.ttsSpeechSpeed()}×`;
         }
         break;
@@ -1472,10 +1483,33 @@ export class Settings implements OnInit, OnDestroy {
     }
     if (changes.ttsVoice !== undefined) {
       const s = typeof changes.ttsVoice === 'string' ? changes.ttsVoice.trim() : '';
-      this.ttsVoice.set(s || DEFAULT_KOKORO_TTS_VOICE);
+      const def =
+        this.ttsProvider() === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
+      this.ttsVoice.set(s || def);
     }
     if (changes.ttsSpeechSpeed !== undefined) {
       this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(changes.ttsSpeechSpeed));
+    }
+    if (changes.ttsProvider !== undefined) {
+      const next = changes.ttsProvider === 'openai-compatible' ? 'openai-compatible' : 'kokoro';
+      this.ttsProvider.set(next);
+      if (next === 'openai-compatible' && /^[ab][fm]_[a-z0-9_]+$/i.test(this.ttsVoice())) {
+        this.ttsVoice.set(DEFAULT_OPENAI_TTS_VOICE);
+      }
+      if (next === 'kokoro' && !/^[ab][fm]_[a-z0-9_]+$/i.test(this.ttsVoice())) {
+        this.ttsVoice.set(DEFAULT_KOKORO_TTS_VOICE);
+      }
+    }
+    if (changes.ttsBaseUrl !== undefined) {
+      this.ttsBaseUrl.set(typeof changes.ttsBaseUrl === 'string' ? changes.ttsBaseUrl : DEFAULT_OPENAI_TTS_BASE_URL);
+    }
+    if (changes.ttsApiKey !== undefined) {
+      this.ttsApiKey.set(typeof changes.ttsApiKey === 'string' ? changes.ttsApiKey : '');
+    }
+    if (changes.ttsDefaultInstructions !== undefined) {
+      this.ttsDefaultInstructions.set(
+        typeof changes.ttsDefaultInstructions === 'string' ? changes.ttsDefaultInstructions : '',
+      );
     }
     this.markSettingsDirty();
   }
@@ -1947,6 +1981,10 @@ export class Settings implements OnInit, OnDestroy {
         talkSilenceThresholdSeconds: this.talkSilenceThresholdSeconds(),
         ttsVoice: this.ttsVoice(),
         ttsSpeechSpeed: this.ttsSpeechSpeed(),
+        ttsProvider: this.ttsProvider(),
+        ttsBaseUrl: this.ttsBaseUrl(),
+        ttsApiKey: this.ttsApiKey(),
+        ttsDefaultInstructions: this.ttsDefaultInstructions(),
       },
       workspaceTools: {
         editToolsMode: this.editToolsMode(),
@@ -2026,7 +2064,13 @@ export class Settings implements OnInit, OnDestroy {
       this.themeId.set(config.themeId || DEFAULT_THEME_ID);
       this.applyTheme(config.themeId || DEFAULT_THEME_ID);
       const at = config.audioTranscription;
-      this.ttsVoice.set(at?.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
+      this.ttsProvider.set(at?.ttsProvider === 'openai-compatible' ? 'openai-compatible' : DEFAULT_TTS_PROVIDER);
+      this.ttsBaseUrl.set(at?.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
+      this.ttsApiKey.set(at?.ttsApiKey ?? '');
+      this.ttsDefaultInstructions.set(at?.ttsDefaultInstructions ?? '');
+      const defaultVoice =
+        this.ttsProvider() === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
+      this.ttsVoice.set(at?.ttsVoice?.trim() || defaultVoice);
       this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(at?.ttsSpeechSpeed));
       const cfs = config.chatFontSizeRem;
       this.chatFontSizeRem.set(
@@ -2072,7 +2116,13 @@ export class Settings implements OnInit, OnDestroy {
           )
         : 2,
     );
-    this.ttsVoice.set(at.ttsVoice?.trim() || DEFAULT_KOKORO_TTS_VOICE);
+    this.ttsProvider.set(at.ttsProvider === 'openai-compatible' ? 'openai-compatible' : DEFAULT_TTS_PROVIDER);
+    this.ttsBaseUrl.set(at.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
+    this.ttsApiKey.set(at.ttsApiKey ?? '');
+    this.ttsDefaultInstructions.set(at.ttsDefaultInstructions ?? '');
+    const defaultVoice =
+      this.ttsProvider() === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
+    this.ttsVoice.set(at.ttsVoice?.trim() || defaultVoice);
     this.ttsSpeechSpeed.set(clampTtsSpeechSpeed(at.ttsSpeechSpeed));
 
     const cfs = config.chatFontSizeRem;

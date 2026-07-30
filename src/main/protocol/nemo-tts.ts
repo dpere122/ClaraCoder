@@ -2,10 +2,12 @@ import { protocol } from 'electron';
 import { PassThrough } from 'stream';
 import { randomUUID } from 'crypto';
 import { abortAllTtsStreamControllers, mainState } from '../state';
-import { PYTHON_URL } from '../python/server';
+import { loadConfig } from '../config/load-save';
+import { streamTtsResponseToPassThrough } from '../tts/stream-response-to-packets';
+import { fetchTtsResponse } from '../tts/tts-fetch';
 
 /**
- * Registers `registerStreamProtocol('nemo-tts')` to stream WAV from Python `/tts` into `<audio>`.
+ * Registers `registerStreamProtocol('nemo-tts')` to stream WAV from the configured TTS backend.
  */
 export function registerNemoTtsStreamProtocol(): void {
   protocol.registerStreamProtocol('nemo-tts', (request, callback) => {
@@ -46,30 +48,19 @@ export function registerNemoTtsStreamProtocol(): void {
     });
 
     void (async () => {
-      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
       try {
-        const res = await fetch(`${PYTHON_URL}/tts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: entry.text, voice: entry.voice, speed: entry.speed }),
+        const config = await loadConfig();
+        const res = await fetchTtsResponse(
+          config.audioTranscription,
+          {
+            text: entry.text,
+            voice: entry.voice,
+            speed: entry.speed,
+            instructions: entry.instructions,
+          },
           signal,
-        });
-        if (!res.ok || !res.body) {
-          pass.destroy();
-          return;
-        }
-        reader = res.body.getReader();
-        while (!signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (signal.aborted) break;
-          if (!value?.byteLength) continue;
-          const buf = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-          if (!pass.write(buf)) {
-            await new Promise<void>((r) => pass.once('drain', r));
-          }
-        }
-        pass.end();
+        );
+        await streamTtsResponseToPassThrough(res, pass, signal);
       } catch {
         try {
           pass.destroy();
@@ -77,11 +68,6 @@ export function registerNemoTtsStreamProtocol(): void {
           // ignore
         }
       } finally {
-        try {
-          await reader?.cancel();
-        } catch {
-          // ignore
-        }
         if (mainState.ttsStreamControllers.get(protoKey) === ac) {
           mainState.ttsStreamControllers.delete(protoKey);
         }
@@ -91,8 +77,13 @@ export function registerNemoTtsStreamProtocol(): void {
 }
 
 /** `tts-stream-register` stores text/voice/speed under this id for the next `nemo-tts://` fetch. */
-export function registerTtsStreamToken(text: string, voice: string, speed: number): string {
+export function registerTtsStreamToken(
+  text: string,
+  voice: string,
+  speed: number,
+  instructions?: string,
+): string {
   const id = randomUUID();
-  mainState.ttsStreamTokens.set(id, { text, voice, speed });
+  mainState.ttsStreamTokens.set(id, { text, voice, speed, instructions });
   return id;
 }

@@ -1,7 +1,10 @@
 import { ipcMain } from 'electron';
 import { abortAllTtsStreamControllers, mainState } from '../../state';
+import { loadConfig } from '../../config/load-save';
 import { PYTHON_URL } from '../../python/server';
 import { registerTtsStreamToken } from '../../protocol/nemo-tts';
+import { streamTtsResponseToIpcPackets } from '../../tts/stream-response-to-packets';
+import { fetchTtsResponse } from '../../tts/tts-fetch';
 
 function ipcAudioPayloadToBuffer(payload: unknown): Buffer {
   if (Buffer.isBuffer(payload)) {
@@ -62,72 +65,55 @@ export function registerAudioTtsIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.handle('tts-stream-start', async (event, payload: { text: string; voice: string; speed: number; seq: number }) => {
-    const { text, voice, speed, seq } = payload;
-    const key = `ipc:${seq}`;
-    const ac = new AbortController();
-    mainState.ttsStreamControllers.set(key, ac);
-    const signal = ac.signal;
-    const wc = event.sender;
+  ipcMain.handle(
+    'tts-stream-start',
+    async (
+      event,
+      payload: { text: string; voice: string; speed: number; seq: number; instructions?: string },
+    ) => {
+      const { text, voice, speed, seq, instructions } = payload;
+      const key = `ipc:${seq}`;
+      const ac = new AbortController();
+      mainState.ttsStreamControllers.set(key, ac);
+      const signal = ac.signal;
+      const wc = event.sender;
 
-    void (async () => {
-      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-      try {
-        const res = await fetch(`${PYTHON_URL}/tts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice, speed }),
-          signal,
-        });
-        if (!res.ok) {
-          const detail = await res.text().catch(() => '');
-          wc.send('tts-stream-packet', {
-            kind: 'error',
-            seq,
-            message: `TTS HTTP ${res.status}: ${detail.slice(0, 240)}`,
-          });
-          return;
-        }
-        if (!res.body) {
-          wc.send('tts-stream-packet', { kind: 'error', seq, message: 'TTS: empty response body' });
-          return;
-        }
-        reader = res.body.getReader();
-        while (!signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (signal.aborted) break;
-          if (!value?.byteLength) continue;
-          wc.send('tts-stream-packet', {
-            kind: 'chunk',
-            seq,
-            data: Buffer.from(value.buffer, value.byteOffset, value.byteLength),
-          });
-        }
-        if (!signal.aborted) {
-          wc.send('tts-stream-packet', { kind: 'end', seq });
-        }
-      } catch (e: unknown) {
-        if (signal.aborted) return;
-        const message = e instanceof Error ? e.message : String(e);
-        wc.send('tts-stream-packet', { kind: 'error', seq, message });
-      } finally {
+      void (async () => {
         try {
-          await reader?.cancel();
-        } catch {
-          // ignore
+          const config = await loadConfig();
+          const res = await fetchTtsResponse(
+            config.audioTranscription,
+            { text, voice, speed, instructions },
+            signal,
+          );
+          await streamTtsResponseToIpcPackets(res, wc, seq, signal);
+        } catch (e: unknown) {
+          if (signal.aborted) {
+            try {
+              wc.send('tts-stream-packet', { kind: 'end', seq });
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          const message = e instanceof Error ? e.message : String(e);
+          wc.send('tts-stream-packet', { kind: 'error', seq, message });
+        } finally {
+          if (mainState.ttsStreamControllers.get(key) === ac) {
+            mainState.ttsStreamControllers.delete(key);
+          }
         }
-        if (mainState.ttsStreamControllers.get(key) === ac) {
-          mainState.ttsStreamControllers.delete(key);
-        }
-      }
-    })();
+      })();
 
-    return { ok: true };
-  });
+      return { ok: true };
+    },
+  );
 
-  ipcMain.handle('tts-stream-register', (_event, payload: { text: string; voice: string; speed: number }) => {
-    const id = registerTtsStreamToken(payload.text, payload.voice, payload.speed);
-    return { url: `nemo-tts://electron/stream/${id}` };
-  });
+  ipcMain.handle(
+    'tts-stream-register',
+    (_event, payload: { text: string; voice: string; speed: number; instructions?: string }) => {
+      const id = registerTtsStreamToken(payload.text, payload.voice, payload.speed, payload.instructions);
+      return { url: `nemo-tts://electron/stream/${id}` };
+    },
+  );
 }

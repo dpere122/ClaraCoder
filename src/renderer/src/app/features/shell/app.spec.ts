@@ -179,7 +179,7 @@ function stubElectronApi(): StubRefs {
     startTtsStream: async () => ({ ok: true }),
     registerTtsStreamUrl: async () => ({ url: '' }),
     onTtsStreamPacket: noop,
-    abortTtsStream: noop,
+    abortTtsStream: async () => ({ ok: true }),
     popupFileMenu: async () => {},
     popupHelpMenu: async () => {},
     windowMinimize: noop,

@@ -27,6 +27,28 @@ export async function isPythonHealthy(): Promise<boolean> {
   }
 }
 
+/** Shared wait so concurrent startup IPC (workspace sync, history load, …) polls once. */
+let pythonReadyWait: Promise<void> | null = null;
+
+/**
+ * Block until `/health` succeeds. Used by early UI→Python syncs that race the sidecar boot
+ * (main window opens before `ensurePythonServer` finishes).
+ */
+export async function ensurePythonReady(
+  retries = 120,
+  intervalMs = 500,
+): Promise<void> {
+  if (await isPythonHealthy()) {
+    return;
+  }
+  if (!pythonReadyWait) {
+    pythonReadyWait = waitForPython(mainState.pythonProcess, retries, intervalMs).finally(() => {
+      pythonReadyWait = null;
+    });
+  }
+  await pythonReadyWait;
+}
+
 /**
  * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
  * Skips spawn when another healthy instance is already listening (common after electronmon restarts).

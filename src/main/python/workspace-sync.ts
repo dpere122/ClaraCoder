@@ -5,7 +5,8 @@ import type {
   WorkspaceContextSyncExtras,
 } from '../../shared';
 import { flattenLlmProvidersToConnections } from '../../shared';
-import { PYTHON_URL } from './server';
+import { ensurePythonReady, PYTHON_URL } from './server';
+import { pythonControlFetch } from './http-client';
 import { getHostOsInfo } from '../utils/host-os';
 import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
 
@@ -259,11 +260,19 @@ export async function syncWorkspaceContextToPython(
   } else {
     body.workspace_system_prompt = '';
   }
-  await fetch(`${PYTHON_URL}/workspace-context`, {
+  // Window opens before the sidecar finishes booting; wait instead of failing the IPC.
+  await ensurePythonReady();
+  const res = await pythonControlFetch('/workspace-context', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `workspace-context failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+    );
+  }
 }
 
 /**

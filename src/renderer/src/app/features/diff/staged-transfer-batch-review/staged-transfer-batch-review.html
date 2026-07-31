@@ -38,7 +38,7 @@
         <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
           <span class="badge text-bg-info">Staged batch</span>
           <span class="small fw-medium text-secondary">File {{ fileProgressLabel() }}</span>
-          <code class="small mb-0">{{ currentFile()?.relativePath }}</code>
+          <code class="small mb-0">{{ currentFile().relativePath }}</code>
           <button
             type="button"
             class="hitl-btn hitl-btn--secondary ms-auto"
@@ -75,7 +75,7 @@
                   [title]="file.relativePath"
                 >
                   {{ i + 1 }}
-                  @if ((mergedResolutions()[file.relativePath] ?? 'pending') !== 'pending') {
+                  @if (isFileResolved(file.relativePath)) {
                     <span class="ms-1 small">✓</span>
                   }
                 </button>

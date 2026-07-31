@@ -1,8 +1,8 @@
 """Local Kokoro-82M text-to-speech (replaces Edge TTS).
 
 Requires optional runtime deps: ``kokoro``, ``soundfile``, ``torch`` (see ``requirements.txt``).
-English voices should use ``lang_code`` ``a`` (American) or ``b`` (British) per upstream docs;
-we pick the pipeline from the voice id prefix.
+Voice ``lang_code`` is chosen from the voice id prefix per upstream docs:
+``a`` American, ``b`` British, ``e`` Spanish.
 """
 
 from __future__ import annotations
@@ -35,10 +35,15 @@ def _audio_to_float_numpy(audio: object) -> np.ndarray:
 
 
 def lang_code_for_voice(voice: str) -> str:
-    """Return Kokoro ``lang_code`` for the given voice id (``a`` = American, ``b`` = British)."""
+    """Return Kokoro ``lang_code`` for the given voice id.
+
+    ``a`` = American English, ``b`` = British English, ``e`` = Spanish.
+    """
     v = (voice or '').strip().lower()
     if v.startswith(('bf_', 'bm_')):
         return 'b'
+    if v.startswith(('ef_', 'em_')):
+        return 'e'
     return 'a'
 
 

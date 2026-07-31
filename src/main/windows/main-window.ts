@@ -14,6 +14,15 @@ function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
 }
 
+/** Known-harmless Chromium / WebAudio noise we do not relay in `npm run dev`. */
+function shouldSuppressDevRendererConsole(message: string): boolean {
+  return (
+    message.includes('ScriptProcessorNode is deprecated') ||
+    message.includes("Content Security Policy directive 'frame-ancestors'") ||
+    message.includes('Frame latency is negative')
+  );
+}
+
 /** Packaged renderer entry: `dist/renderer/browser/index.html`. */
 function rendererIndexHtml(): string {
   return path.join(__dirname, '..', '..', 'renderer', 'browser', 'index.html');
@@ -67,10 +76,15 @@ export function createMainWindow(): void {
     console.error('[Main] Preload failed:', failedPreload, error);
   });
   if (DEV_SERVER_URL) {
-    win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-      if (level >= 2) {
-        console.error(`[Renderer] ${message} (${sourceId}:${line})`);
+    win.webContents.on('console-message', (event) => {
+      // Use Event params only — positional console-message args are deprecated in Electron.
+      if (event.level !== 'warning' && event.level !== 'error') {
+        return;
       }
+      if (shouldSuppressDevRendererConsole(event.message)) {
+        return;
+      }
+      console.error(`[Renderer] ${event.message} (${event.sourceId}:${event.lineNumber})`);
     });
   }
   if (DEV_SERVER_URL) {

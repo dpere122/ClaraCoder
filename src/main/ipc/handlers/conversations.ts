@@ -8,7 +8,7 @@ import type {
 } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
-import { PYTHON_URL } from '../../python/server';
+import { ensurePythonReady, PYTHON_URL } from '../../python/server';
 import { getWorkspaceConversationsDir } from '../../paths';
 import { syncConversationWorkspaceContext } from '../../workspace/watcher';
 import {
@@ -115,6 +115,7 @@ export function registerConversationsIpc(): void {
           }
         }
         try {
+          await ensurePythonReady();
           await fetch(`${PYTHON_URL}/load`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

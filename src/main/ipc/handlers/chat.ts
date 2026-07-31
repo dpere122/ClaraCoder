@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import type { LlmStatusPayload } from '../../../shared';
 import { pythonControlFetch, pythonSsePost } from '../../python/http-client';
+import { ensurePythonReady } from '../../python/server';
 import { isTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { sendParsedPayload } from './chat-stream-payload';
@@ -280,6 +281,7 @@ export function registerChatIpc(): void {
 
   ipcMain.handle('sync-auto-apply-mode', async (_event, conversationId: string, autoApplyMode: boolean) => {
     try {
+      await ensurePythonReady();
       const res = await pythonControlFetch('/session/auto-apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

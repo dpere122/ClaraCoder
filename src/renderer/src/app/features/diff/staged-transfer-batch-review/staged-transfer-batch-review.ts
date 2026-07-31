@@ -153,14 +153,23 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
   }
 
   readonly currentFileResolved = computed((): StagedTransferFileResolution => {
-    const rel = this.currentFile()?.relativePath;
-    if (!rel) return 'pending';
-    return this.mergedResolutions()[rel] ?? 'pending';
+    const rel = this.currentFile().relativePath;
+    return this.fileResolution(rel);
   });
+
+  /** Record indexing is typed as always-present; treat missing keys as pending at runtime. */
+  fileResolution(relativePath: string): StagedTransferFileResolution {
+    const value = this.mergedResolutions()[relativePath] as StagedTransferFileResolution | undefined;
+    return value ?? 'pending';
+  }
+
+  isFileResolved(relativePath: string): boolean {
+    return this.fileResolution(relativePath) !== 'pending';
+  }
 
   readonly applying = computed(() => {
     const path = this.session().applyingPath();
-    return !!path && path === this.currentFile()?.relativePath;
+    return !!path && path === this.currentFile().relativePath;
   });
 
   readonly batchComplete = computed(() => this.reviewStatus() !== 'pending');

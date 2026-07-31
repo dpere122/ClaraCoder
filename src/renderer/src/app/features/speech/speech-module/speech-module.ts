@@ -6,7 +6,7 @@ export interface VoiceOption {
   label: string;
 }
 
-/** Kokoro (local TTS) voices — American ``af_*`` / ``am_*``, British ``bf_*`` / ``bm_*``. */
+/** Kokoro (local TTS) voices — American ``af_*`` / ``am_*``, British ``bf_*`` / ``bm_*``, Spanish ``ef_*`` / ``em_*``. */
 export const VOICE_OPTIONS: VoiceOption[] = [
   { id: 'af_heart', label: 'American • Heart (default)' },
   { id: 'af_bella', label: 'American • Bella' },
@@ -19,6 +19,9 @@ export const VOICE_OPTIONS: VoiceOption[] = [
   { id: 'bf_isabella', label: 'British • Isabella' },
   { id: 'bm_george', label: 'British • George' },
   { id: 'bm_lewis', label: 'British • Lewis' },
+  { id: 'ef_dora', label: 'Spanish • Dora' },
+  { id: 'em_alex', label: 'Spanish • Alex' },
+  { id: 'em_santa', label: 'Spanish • Santa' },
 ];
 
 @Component({

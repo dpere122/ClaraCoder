@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -31,6 +33,35 @@ _PYTEST_STREAM_TAG = TOOL_PYTEST_STREAM_TAG
 _PYTEST_STREAM_LABEL = 'Workspace Pytest'
 _SUBPROCESS_READ_SIZE = 65536
 _TOOL_EXEC_COMPLETE_REPLAY_CHARS = 12_000
+# Match run_command rolling capture so verbose pytest cannot unbounded-grow RAM.
+_MAX_CAPTURE_CHARS = 2_000_000
+
+
+@dataclass
+class RollingTextBuffer:
+    """Bounded in-memory capture; drops oldest chars once past ``max_chars``."""
+
+    max_chars: int = _MAX_CAPTURE_CHARS
+    _parts: list[str] = field(default_factory=list)
+    _size: int = 0
+
+    def append(self, text: str) -> None:
+        if not text:
+            return
+        self._parts.append(text)
+        self._size += len(text)
+        while self._size > self.max_chars and self._parts:
+            overflow = self._size - self.max_chars
+            first = self._parts[0]
+            if len(first) <= overflow:
+                self._parts.pop(0)
+                self._size -= len(first)
+            else:
+                self._parts[0] = first[overflow:]
+                self._size -= overflow
+
+    def as_str(self) -> str:
+        return ''.join(self._parts)
 
 
 async def _emit_project_review_chunk(
@@ -87,16 +118,16 @@ async def _emit_project_review_tool_complete(
     await queue.put((stream_tag, {'event': 'tool_exec_complete', 'data': payload}))
 
 
-def _combined_raw_streams(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
-    stdout = ''.join(stdout_chunks)
-    stderr = ''.join(stderr_chunks)
-    if stderr:
-        return f'{stdout}\n[stderr]\n{stderr}' if stdout else f'[stderr]\n{stderr}'
-    return stdout
+def _combined_raw_streams(stdout: RollingTextBuffer, stderr: RollingTextBuffer) -> str:
+    stdout_text = stdout.as_str()
+    stderr_text = stderr.as_str()
+    if stderr_text:
+        return f'{stdout_text}\n[stderr]\n{stderr_text}' if stdout_text else f'[stderr]\n{stderr_text}'
+    return stdout_text
 
 
-def _subprocess_replay_tail(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
-    combined = _combined_raw_streams(stdout_chunks, stderr_chunks).strip()
+def _subprocess_replay_tail(stdout: RollingTextBuffer, stderr: RollingTextBuffer) -> str:
+    combined = _combined_raw_streams(stdout, stderr).strip()
     if not combined:
         return ''
     if len(combined) <= _TOOL_EXEC_COMPLETE_REPLAY_CHARS:
@@ -109,9 +140,10 @@ async def _pump_subprocess_stream(
     *,
     session_id: str,
     emit_prefix: str,
-    capture_chunks: list[str],
+    capture: RollingTextBuffer,
     stream_tag: str = _PYTEST_STREAM_TAG,
     label: str = _PYTEST_STREAM_LABEL,
+    on_text: Callable[[str], None] | None = None,
 ) -> None:
     if stream is None:
         return
@@ -120,7 +152,9 @@ async def _pump_subprocess_stream(
         if not block:
             break
         text = block.decode('utf-8', errors='replace')
-        capture_chunks.append(text)
+        capture.append(text)
+        if on_text is not None:
+            on_text(text)
         rendered = f'{emit_prefix}{text}' if emit_prefix else text
         await _emit_project_review_chunk(session_id, rendered, stream_tag=stream_tag, label=label)
 
@@ -130,15 +164,10 @@ def _build_pytest_result(
     exit_code: int | None,
     project_root_label: str,
     python_executable: str,
-    stdout_chunks: list[str],
-    stderr_chunks: list[str],
+    stdout: RollingTextBuffer,
+    stderr: RollingTextBuffer,
 ) -> str:
-    stdout = ''.join(stdout_chunks)
-    stderr = ''.join(stderr_chunks)
-    combined = stdout
-    if stderr:
-        combined = f'{combined}\n[stderr]\n{stderr}' if combined else f'[stderr]\n{stderr}'
-    combined = combined.strip()
+    combined = _combined_raw_streams(stdout, stderr).strip()
     status = 'passed' if exit_code == 0 else 'failed'
     body = (
         'Workspace pytest run summary:\n'
@@ -294,14 +323,14 @@ async def run_workspace_pytest_tests() -> str:
         )
         return f'Tool error: could not start workspace pytest ({exc}).'
 
-    stdout_chunks: list[str] = []
-    stderr_chunks: list[str] = []
+    stdout_buf = RollingTextBuffer()
+    stderr_buf = RollingTextBuffer()
     stdout_task = asyncio.create_task(
         _pump_subprocess_stream(
             proc.stdout,
             session_id=sid,
             emit_prefix='',
-            capture_chunks=stdout_chunks,
+            capture=stdout_buf,
         )
     )
     stderr_task = asyncio.create_task(
@@ -309,7 +338,7 @@ async def run_workspace_pytest_tests() -> str:
             proc.stderr,
             session_id=sid,
             emit_prefix='[stderr] ',
-            capture_chunks=stderr_chunks,
+            capture=stderr_buf,
         )
     )
     wait_task = asyncio.create_task(proc.wait())
@@ -331,7 +360,7 @@ async def run_workspace_pytest_tests() -> str:
                 await _terminate_process(proc)
                 await wait_task
                 exit_code = proc.returncode
-                replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
+                replay = _subprocess_replay_tail(stdout_buf, stderr_buf)
                 await _emit_project_review_tool_complete(
                     sid,
                     stream_tag=_PYTEST_STREAM_TAG,
@@ -343,8 +372,8 @@ async def run_workspace_pytest_tests() -> str:
                     exit_code=exit_code,
                     project_root_label=project_root_label,
                     python_executable=python_executable,
-                    stdout_chunks=stdout_chunks,
-                    stderr_chunks=stderr_chunks,
+                    stdout=stdout_buf,
+                    stderr=stderr_buf,
                 )
         else:
             done, _pending = await asyncio.wait({wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
@@ -354,7 +383,7 @@ async def run_workspace_pytest_tests() -> str:
             await _emit_project_review_chunk(sid, '\n[workspace pytest aborted by user]\n')
             await _terminate_process(proc)
             await wait_task
-            replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
+            replay = _subprocess_replay_tail(stdout_buf, stderr_buf)
             await _emit_project_review_tool_complete(
                 sid,
                 stream_tag=_PYTEST_STREAM_TAG,
@@ -375,7 +404,7 @@ async def run_workspace_pytest_tests() -> str:
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     logger.info('run_workspace_pytest_tests exit_code=%s project_root=%s', exit_code, project_root)
-    replay = _subprocess_replay_tail(stdout_chunks, stderr_chunks)
+    replay = _subprocess_replay_tail(stdout_buf, stderr_buf)
     await _emit_project_review_tool_complete(
         sid,
         stream_tag=_PYTEST_STREAM_TAG,
@@ -387,7 +416,7 @@ async def run_workspace_pytest_tests() -> str:
         exit_code=exit_code,
         project_root_label=project_root_label,
         python_executable=python_executable,
-        stdout_chunks=stdout_chunks,
-        stderr_chunks=stderr_chunks,
+        stdout=stdout_buf,
+        stderr=stderr_buf,
     )
 

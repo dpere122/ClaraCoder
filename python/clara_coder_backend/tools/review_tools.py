@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 
 from clara_coder_backend.staging import edit_staging
 from clara_coder_backend.tools.project_review_tools import (
+    RollingTextBuffer,
     _emit_project_review_chunk,
     _emit_project_review_tool_complete,
     _pump_subprocess_stream,
@@ -924,12 +925,12 @@ def format_workspace_file_prettier(
     )
 
 
-def _overlay_combined_output(stdout_chunks: list[str], stderr_chunks: list[str]) -> str:
-    stdout = ''.join(stdout_chunks)
-    stderr = ''.join(stderr_chunks)
-    if stderr:
-        return f'{stdout}\n[stderr]\n{stderr}' if stdout else f'[stderr]\n{stderr}'
-    return stdout
+def _overlay_combined_output(stdout: RollingTextBuffer, stderr: RollingTextBuffer) -> str:
+    stdout_text = stdout.as_str()
+    stderr_text = stderr.as_str()
+    if stderr_text:
+        return f'{stdout_text}\n[stderr]\n{stderr_text}' if stdout_text else f'[stderr]\n{stderr_text}'
+    return stdout_text
 
 
 @tool(RUN_STAGING_OVERLAY_COMMAND_NAME, description=describe(
@@ -1013,8 +1014,8 @@ async def run_staging_overlay_command(
         label=_OVERLAY_STREAM_LABEL,
     )
     exit_code: int | None = None
-    stdout_chunks: list[str] = []
-    stderr_chunks: list[str] = []
+    stdout_buf = RollingTextBuffer()
+    stderr_buf = RollingTextBuffer()
     watch_mode = argv_implies_watch_mode(argv)
     tracker = SmokeOutputTracker()
 
@@ -1046,7 +1047,7 @@ async def run_staging_overlay_command(
                 proc.stdout,
                 session_id=sid,
                 emit_prefix='',
-                capture_chunks=stdout_chunks,
+                capture=stdout_buf,
                 stream_tag=_OVERLAY_STREAM_TAG,
                 label=_OVERLAY_STREAM_LABEL,
                 on_text=_track_output,
@@ -1057,7 +1058,7 @@ async def run_staging_overlay_command(
                 proc.stderr,
                 session_id=sid,
                 emit_prefix='[stderr] ',
-                capture_chunks=stderr_chunks,
+                capture=stderr_buf,
                 stream_tag=_OVERLAY_STREAM_TAG,
                 label=_OVERLAY_STREAM_LABEL,
                 on_text=_track_output,
@@ -1095,7 +1096,7 @@ async def run_staging_overlay_command(
                 smoke_readiness = smoke_result.readiness_detected
                 smoke_outcome = 'passed' if smoke_result.passed else 'failed'
                 if smoke_result.stop_reason is SmokeStopReason.ABORTED:
-                    replay = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
+                    replay = _overlay_combined_output(stdout_buf, stderr_buf).strip()
                     excerpt = replay[-12_000:] if len(replay) > 12_000 else replay
                     await _emit_project_review_tool_complete(
                         sid,
@@ -1155,7 +1156,7 @@ async def run_staging_overlay_command(
                         await wait_task
                         exit_code = proc.returncode
                 if abort_task.done() and session.abort_event.is_set() and not watch_mode:
-                    replay = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
+                    replay = _overlay_combined_output(stdout_buf, stderr_buf).strip()
                     excerpt = replay[-12_000:] if len(replay) > 12_000 else replay
                     await _emit_project_review_tool_complete(
                         sid,
@@ -1175,7 +1176,7 @@ async def run_staging_overlay_command(
                     pass
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
-        combined = _overlay_combined_output(stdout_chunks, stderr_chunks).strip()
+        combined = _overlay_combined_output(stdout_buf, stderr_buf).strip()
         excerpt = combined[-12_000:] if len(combined) > 12_000 else combined
         if watch_mode:
             passed = smoke_passed

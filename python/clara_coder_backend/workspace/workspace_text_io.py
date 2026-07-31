@@ -13,6 +13,8 @@ from typing import Iterator, Literal
 
 # Chunk size for streaming reads (plain-text `read_workspace_file`); balance syscall count vs memory.
 _READ_FILE_STREAM_CHUNK = 256 * 1024
+# Cap for search fallback / match-line reread (aligned with semantic index default max file bytes).
+SEARCH_MAX_FILE_BYTES = 512_000
 
 NewlineMode = Literal['lf', 'crlf', 'preserve']
 DiskNewline = Literal['lf', 'crlf']
@@ -128,11 +130,13 @@ __all__ = [
     'DiskNewline',
     'FileLineWindowResult',
     'NewlineMode',
+    'SEARCH_MAX_FILE_BYTES',
     'decode_for_tools',
     'detect_newline_preference',
     'encode_for_disk',
     'normalize_encoding',
     'parse_newline_mode',
+    'read_file_for_search_tools',
     'read_file_for_tools',
     'read_file_line_window_for_tools',
     'resolve_newline_for_write',
@@ -242,6 +246,35 @@ def encode_for_disk(text: str, encoding: str, disk_newline: DiskNewline) -> byte
 def read_file_for_tools(path: Path, encoding: str) -> str:
     """Read file as bytes and decode for the tool pipeline (newline-normalized to ``\\n``)."""
     raw = path.read_bytes()
+    return decode_for_tools(raw, encoding)
+
+
+def read_file_for_search_tools(
+    path: Path,
+    encoding: str,
+    *,
+    max_bytes: int = SEARCH_MAX_FILE_BYTES,
+) -> str | None:
+    """Read a file for search; return ``None`` to skip empty, oversized, or binary-looking files.
+
+    Unlike :func:`read_file_for_tools`, this never loads more than ``max_bytes`` into memory.
+    """
+
+    if max_bytes <= 0:
+        return None
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if size <= 0 or size > max_bytes:
+        return None
+    try:
+        with path.open('rb') as handle:
+            raw = handle.read(max_bytes + 1)
+    except OSError:
+        return None
+    if not raw or len(raw) > max_bytes or b'\x00' in raw:
+        return None
     return decode_for_tools(raw, encoding)
 
 

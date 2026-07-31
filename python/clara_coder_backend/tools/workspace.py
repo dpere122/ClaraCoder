@@ -30,6 +30,7 @@ from clara_coder_backend.tools.tool_conventions import (
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.workspace.workspace_text_io import (
     parse_newline_mode,
+    read_file_for_search_tools,
     read_file_for_tools,
     read_file_line_window_for_tools,
     validate_workspace_encoding,
@@ -41,6 +42,7 @@ from clara_coder_backend.workspace.workspace_ignore import (
     is_node_modules_bulk_listing_path,
     iter_workspace_search_files,
     should_ignore_workspace_entry,
+    workspace_expose_all_files,
 )
 
 
@@ -347,9 +349,12 @@ def _search_workspace_python(
     skipped = 0
     for path in iter_workspace_search_files(root_resolved, ignore_rules):
         try:
-            text = read_file_for_tools(path, encoding)
+            text = read_file_for_search_tools(path, encoding)
         except OSError as exc:
             logger.debug('search skip unreadable path=%s err=%s', path, exc)
+            skipped += 1
+            continue
+        if text is None:
             skipped += 1
             continue
         for line_number, line in enumerate(text.splitlines(), start=1):
@@ -376,6 +381,7 @@ def _search_workspace_grep(
         max_matches=limit,
         encoding=encoding,
         exclude_dir_names=WORKSPACE_CONTEXT_IGNORED_NAMES,
+        include_node_modules=workspace_expose_all_files(),
     )
     if grep_matches is None:
         candidates: list[SearchCandidate] = []
@@ -410,7 +416,11 @@ def _search_workspace_grep(
         try:
             file_lines = lines_cache.get(path)
             if file_lines is None:
-                file_lines = read_file_for_tools(path, encoding).splitlines()
+                text = read_file_for_search_tools(path, encoding)
+                if text is None:
+                    skipped += 1
+                    continue
+                file_lines = text.splitlines()
                 lines_cache[path] = file_lines
         except OSError as exc:
             logger.debug('search grep reread skip unreadable path=%s err=%s', path, exc)

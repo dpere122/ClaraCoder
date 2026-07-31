@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from clara_coder_backend.tools.project_review_tools import (
+    RollingTextBuffer,
     maybe_bootstrap_python_workspace_env_for_project_review,
     run_workspace_pytest_tests,
 )
@@ -15,6 +16,25 @@ from clara_coder_backend.runtime.python_env import (
 )
 from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
 from clara_coder_backend.session.state import current_session_id, get_session, sessions
+
+
+def test_rolling_text_buffer_drops_oldest_past_cap() -> None:
+    buf = RollingTextBuffer(max_chars=10)
+    buf.append('abcdefghij')
+    assert buf.as_str() == 'abcdefghij'
+    buf.append('XYZ')
+    assert len(buf.as_str()) == 10
+    assert buf.as_str() == 'defghijXYZ'
+    buf.append('12345')
+    assert len(buf.as_str()) == 10
+    assert buf.as_str().endswith('12345')
+
+
+def test_rolling_text_buffer_ignores_empty() -> None:
+    buf = RollingTextBuffer(max_chars=5)
+    buf.append('')
+    buf.append('hi')
+    assert buf.as_str() == 'hi'
 
 
 class _FakeAsyncStreamReader:
@@ -52,7 +72,8 @@ def python_workspace(tmp_path: Path):
     session.workspace_path = str(tmp_path.resolve())
     session.worker_apply_mode = True
     session.auto_apply_mode = True
-    session.abort_event.clear()
+    # Fresh Event per test — reused sessions keep Events bound to a prior loop.
+    session.abort_event = asyncio.Event()
     session.planning_nested_events_q = asyncio.Queue()
 
     yield project_root, session
@@ -72,7 +93,7 @@ def python_workspace_without_tests(tmp_path: Path):
     session.workspace_path = str(tmp_path.resolve())
     session.worker_apply_mode = True
     session.auto_apply_mode = True
-    session.abort_event.clear()
+    session.abort_event = asyncio.Event()
     session.planning_nested_events_q = asyncio.Queue()
 
     yield project_root, session
@@ -300,7 +321,7 @@ async def test_project_review_bootstrap_skips_non_python_workspace(tmp_path: Pat
     session.workspace_path = str(tmp_path.resolve())
     session.worker_apply_mode = True
     session.auto_apply_mode = True
-    session.abort_event.clear()
+    session.abort_event = asyncio.Event()
     session.planning_nested_events_q = asyncio.Queue()
 
     try:

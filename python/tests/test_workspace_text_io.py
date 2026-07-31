@@ -6,11 +6,13 @@ from pathlib import Path
 import pytest
 
 from clara_coder_backend.workspace.workspace_text_io import (
+    SEARCH_MAX_FILE_BYTES,
     decode_for_tools,
     detect_newline_preference,
     encode_for_disk,
     normalize_encoding,
     parse_newline_mode,
+    read_file_for_search_tools,
     read_file_for_tools,
     resolve_newline_for_write,
     validate_workspace_encoding,
@@ -90,3 +92,27 @@ def test_encode_cp1252_round_trip() -> None:
 def test_encode_strict_rejects_surrogate() -> None:
     with pytest.raises(UnicodeEncodeError):
         encode_for_disk('\ud800', 'ascii', 'lf')
+
+
+def test_read_file_for_search_tools_reads_small_file(tmp_path: Path) -> None:
+    p = tmp_path / 'ok.py'
+    p.write_text('alpha\r\nbeta\n', encoding='utf-8')
+    text = read_file_for_search_tools(p, 'utf-8')
+    assert text == 'alpha\nbeta\n'
+
+
+def test_read_file_for_search_tools_skips_oversized(tmp_path: Path) -> None:
+    p = tmp_path / 'big.bin'
+    p.write_bytes(b'a' * (SEARCH_MAX_FILE_BYTES + 1))
+    assert read_file_for_search_tools(p, 'utf-8') is None
+    assert read_file_for_search_tools(p, 'utf-8', max_bytes=8) is None
+
+
+def test_read_file_for_search_tools_skips_empty_and_binary(tmp_path: Path) -> None:
+    empty = tmp_path / 'empty.txt'
+    empty.write_bytes(b'')
+    assert read_file_for_search_tools(empty, 'utf-8') is None
+
+    binary = tmp_path / 'bin.dat'
+    binary.write_bytes(b'abc\x00def')
+    assert read_file_for_search_tools(binary, 'utf-8') is None

@@ -20,15 +20,15 @@ from clara_coder_backend.app_logging import configure_logging
 from clara_coder_backend.config import env_clara
 from clara_coder_backend.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
 from clara_coder_backend.lsp.manager import shutdown_all_lsp_managers
-from clara_coder_backend.log_routes import router as log_router
-from clara_coder_backend.routes_lsp import router as lsp_router
-from clara_coder_backend.routes import router as runtime_router
-from clara_coder_backend.routes_audio import router as audio_router
-from clara_coder_backend.routes_chat import router as chat_router
-from clara_coder_backend.routes_conversation_title import router as conversation_title_router
-from clara_coder_backend.routes_build_plan import router as build_plan_router
-from clara_coder_backend.routes_checkpoint import router as checkpoint_router
-from clara_coder_backend.routes_session import router as session_router
+from clara_coder_backend.routes.audio import router as audio_router
+from clara_coder_backend.routes.build_plan import router as build_plan_router
+from clara_coder_backend.routes.chat import router as chat_router
+from clara_coder_backend.routes.checkpoint import router as checkpoint_router
+from clara_coder_backend.routes.conversation_title import router as conversation_title_router
+from clara_coder_backend.routes.log import router as log_router
+from clara_coder_backend.routes.lsp import router as lsp_router
+from clara_coder_backend.routes.runtime import router as runtime_router
+from clara_coder_backend.routes.session import router as session_router
 
 _raw_log = env_clara('CLARA_LOG_DIR', '').strip()
 configure_logging(Path(_raw_log) if _raw_log else None)

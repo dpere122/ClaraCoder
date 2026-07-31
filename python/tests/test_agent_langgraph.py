@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from clara_coder_backend.agent_langgraph import (
+from clara_coder_backend.lang_agent.graph import (
     _stream_is_genuinely_stalled,
     stream_single_agent_langgraph,
 )
-from clara_coder_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.langgraph_sse import GraphStreamState
+from clara_coder_backend.lang_agent.langgraph_sse import GraphStreamState
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
 
@@ -43,9 +43,9 @@ async def test_stream_is_genuinely_stalled_false_with_pending_delete_request() -
     assert _stream_is_genuinely_stalled(session, GraphStreamState()) is False
 
 
-@patch('clara_coder_backend.agent_langgraph.build_clara_single_outer_graph')
-@patch('clara_coder_backend.agent_langgraph.build_llm')
-@patch('clara_coder_backend.agent_langgraph.get_graph_checkpointer')
+@patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
+@patch('clara_coder_backend.lang_agent.graph.build_llm')
+@patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')
 async def test_stream_single_agent_langgraph_aborts_while_waiting_for_events(
     mock_get_cp: MagicMock,
     mock_build_llm: MagicMock,
@@ -86,9 +86,9 @@ async def test_stream_single_agent_langgraph_aborts_while_waiting_for_events(
     assert outcome.state == AgentLoopOutcome.ABORTED
 
 
-@patch('clara_coder_backend.agent_langgraph.build_clara_single_outer_graph')
-@patch('clara_coder_backend.agent_langgraph.build_llm')
-@patch('clara_coder_backend.agent_langgraph.get_graph_checkpointer')
+@patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
+@patch('clara_coder_backend.lang_agent.graph.build_llm')
+@patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')
 async def test_stream_single_agent_langgraph_allocates_nested_events_queue(
     mock_get_cp: MagicMock,
     mock_build_llm: MagicMock,
@@ -131,10 +131,10 @@ async def test_stream_single_agent_langgraph_allocates_nested_events_queue(
     assert outcome.state == AgentLoopOutcome.ABORTED
 
 
-@patch('clara_coder_backend.agent_langgraph._stream_watchdog_timeout_sec', return_value=0.05)
-@patch('clara_coder_backend.agent_langgraph.build_clara_single_outer_graph')
-@patch('clara_coder_backend.agent_langgraph.build_llm')
-@patch('clara_coder_backend.agent_langgraph.get_graph_checkpointer')
+@patch('clara_coder_backend.lang_agent.graph._stream_watchdog_timeout_sec', return_value=0.05)
+@patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
+@patch('clara_coder_backend.lang_agent.graph.build_llm')
+@patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')
 async def test_stream_watchdog_ends_stalled_stream(
     mock_get_cp: MagicMock,
     mock_build_llm: MagicMock,
@@ -174,10 +174,10 @@ async def test_stream_watchdog_ends_stalled_stream(
     assert any('error' in line for line in lines)
 
 
-@patch('clara_coder_backend.agent_langgraph._stream_watchdog_timeout_sec', return_value=0.05)
-@patch('clara_coder_backend.agent_langgraph.build_clara_single_outer_graph')
-@patch('clara_coder_backend.agent_langgraph.build_llm')
-@patch('clara_coder_backend.agent_langgraph.get_graph_checkpointer')
+@patch('clara_coder_backend.lang_agent.graph._stream_watchdog_timeout_sec', return_value=0.05)
+@patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
+@patch('clara_coder_backend.lang_agent.graph.build_llm')
+@patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')
 async def test_stream_watchdog_does_not_fire_while_tool_running(
     mock_get_cp: MagicMock,
     mock_build_llm: MagicMock,

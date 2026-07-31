@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from clara_coder_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.build_plan_store import (
     ActionStep,
     BuildPlanModel,

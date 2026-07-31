@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from clara_coder_backend import state
-from clara_coder_backend.agent import stream_agent_reply
+from clara_coder_backend.lang_agent.agent import stream_agent_reply
 from clara_coder_backend.context_compression import CompactResult
 from clara_coder_backend.domain import SessionState
 
 
 @pytest.mark.asyncio
-@patch('clara_coder_backend.agent.build_llm')
-@patch('clara_coder_backend.agent.stream_single_agent_langgraph')
+@patch('clara_coder_backend.lang_agent.agent.build_llm')
+@patch('clara_coder_backend.lang_agent.agent.stream_single_agent_langgraph')
 async def test_stream_agent_reply_does_not_persist_aborted_partial_text(
     mock_stream_single_agent_langgraph: MagicMock,
     mock_build_llm: MagicMock,
@@ -43,9 +43,9 @@ async def test_stream_agent_reply_does_not_persist_aborted_partial_text(
 
 
 @pytest.mark.asyncio
-@patch('clara_coder_backend.agent.maybe_compact_outer_checkpoint', new_callable=AsyncMock)
-@patch('clara_coder_backend.agent.build_llm')
-@patch('clara_coder_backend.agent.stream_single_agent_langgraph')
+@patch('clara_coder_backend.lang_agent.agent.maybe_compact_outer_checkpoint', new_callable=AsyncMock)
+@patch('clara_coder_backend.lang_agent.agent.build_llm')
+@patch('clara_coder_backend.lang_agent.agent.stream_single_agent_langgraph')
 async def test_stream_agent_reply_emits_context_compressed_after_compaction(
     mock_stream_single_agent_langgraph: MagicMock,
     mock_build_llm: MagicMock,
@@ -87,9 +87,9 @@ async def test_stream_agent_reply_emits_context_compressed_after_compaction(
 
 
 @pytest.mark.asyncio
-@patch('clara_coder_backend.agent.maybe_compact_outer_checkpoint', new_callable=AsyncMock)
-@patch('clara_coder_backend.agent.build_llm')
-@patch('clara_coder_backend.agent.stream_single_agent_langgraph')
+@patch('clara_coder_backend.lang_agent.agent.maybe_compact_outer_checkpoint', new_callable=AsyncMock)
+@patch('clara_coder_backend.lang_agent.agent.build_llm')
+@patch('clara_coder_backend.lang_agent.agent.stream_single_agent_langgraph')
 async def test_stream_agent_reply_skips_compaction_when_not_completed(
     mock_stream_single_agent_langgraph: MagicMock,
     mock_build_llm: MagicMock,

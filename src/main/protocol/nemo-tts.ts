@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { abortAllTtsStreamControllers, mainState } from '../state';
 import { loadConfig } from '../config/load-save';
 import { streamTtsResponseToPassThrough } from '../tts/stream-response-to-packets';
-import { fetchTtsResponse } from '../tts/tts-fetch';
+import { fetchTtsResponse } from '../tts/fetch';
 
 /**
  * Registers `registerStreamProtocol('nemo-tts')` to stream WAV from the configured TTS backend.

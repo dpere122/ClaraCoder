@@ -18,8 +18,8 @@ from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from clara_coder_backend.agent_streaming import sse_line, status_event
-from clara_coder_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.lang_agent.streaming import sse_line, status_event
+from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.accept_command import accept_command_sse_payload
 from clara_coder_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
 from clara_coder_backend.command_risk_assess import maybe_enrich_pending_command_risk
@@ -41,7 +41,7 @@ from clara_coder_backend.chat_attachment_vision import prepare_chat_attachment_v
 from clara_coder_backend.vision_tool_middleware import VisionImageInjectionMiddleware
 from clara_coder_backend.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.langgraph_sse import (
+from clara_coder_backend.lang_agent.langgraph_sse import (
     GraphStreamState,
     sse_lines_for_graph_event,
 )
@@ -270,7 +270,7 @@ def _nested_sse_lines(
     if ev.get('event') == 'planner_progress':
         data = ev.get('data')
         if isinstance(data, dict):
-            from clara_coder_backend.agent_streaming import planner_progress_event, sse_line
+            from clara_coder_backend.lang_agent.streaming import planner_progress_event, sse_line
 
             planner = data.get('planner') if isinstance(data.get('planner'), dict) else data
             return [sse_line(planner_progress_event(planner))]

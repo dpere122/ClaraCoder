@@ -122,7 +122,7 @@ class SessionState:
     pending_user_event_notes: list[str] = field(default_factory=list)
     # Live mirror of the UI toggle; POST /session/auto-apply updates this during an in-flight stream.
     auto_apply_mode: bool = False
-    #: Concurrent :func:`~clara_coder_backend.agent_langgraph._stream_langgraph_tool_agent` runs per session (nested SSE workers).
+    #: Concurrent :func:`~clara_coder_backend.lang_agent.graph._stream_langgraph_tool_agent` runs per session (nested SSE workers).
     active_langgraph_agent_streams: int = 0
     #: Subset of those started with ``apply_mode=True`` (Editor on). Drives ``worker_apply_mode`` together with the count.
     active_editor_langgraph_streams: int = 0
@@ -158,7 +158,7 @@ class SessionState:
     lsp_diagnostics_by_scope: dict[str, dict[str, list[dict[str, object]]]] = field(
         default_factory=lambda: {'workspace': {}, 'staging': {}}
     )
-    # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`clara_coder_backend.agent`).
+    # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`clara_coder_backend.lang_agent.agent`).
     last_stream_apply_mode: bool | None = None
     last_stream_auto_apply_mode: bool | None = None
     #: Last ``POST /chat/stream`` speech/TTS flag (drives mood-tag prompt guidance).

@@ -91,7 +91,7 @@ def test_chat_request_rejects_empty_structured_list_only() -> None:
         ChatRequest(session_id='s', structured_content=[])
 
 
-@patch('clara_coder_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)
+@patch('clara_coder_backend.routes.session.delete_outer_threads_for_session', new_callable=AsyncMock)
 def test_load_session_accepts_multimodal_user_content(
     _mock_delete: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,

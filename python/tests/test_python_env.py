@@ -14,7 +14,7 @@ from clara_coder_backend.python_env import (
     resolve_python_workspace_root,
     workspace_python_executable,
 )
-from clara_coder_backend.routes_session import set_workspace_context
+from clara_coder_backend.routes.session import set_workspace_context
 from clara_coder_backend.schemas import WorkspaceContextRequest
 from clara_coder_backend.state import get_session
 
@@ -264,7 +264,7 @@ def test_set_workspace_context_defers_python_env_until_bootstrap_flag(monkeypatc
             summary='ready',
         )
 
-    monkeypatch.setattr('clara_coder_backend.routes_session.ensure_session_python_workspace_env', _fake_ensure_session)
+    monkeypatch.setattr('clara_coder_backend.routes.session.ensure_session_python_workspace_env', _fake_ensure_session)
 
     asyncio.run(
         set_workspace_context(

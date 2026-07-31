@@ -17,14 +17,14 @@ from typing import Any
 from langchain_core.messages import AIMessageChunk, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from clara_coder_backend.agent_langgraph import AgentGraphConfig, _stream_langgraph_tool_agent, build_clara_single_outer_graph
-from clara_coder_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from clara_coder_backend.agent_pause import await_diff_review_note, await_question_answers
-from clara_coder_backend.agent_question import (
+from clara_coder_backend.lang_agent.graph import AgentGraphConfig, _stream_langgraph_tool_agent, build_clara_single_outer_graph
+from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.lang_agent.pause import await_diff_review_note, await_question_answers
+from clara_coder_backend.lang_agent.question import (
     agent_question_sse_payload,
     stage_question_request,
 )
-from clara_coder_backend.agent_streaming import (
+from clara_coder_backend.lang_agent.streaming import (
     agent_question_event,
     aimessage_chunk_reasoning_delta,
     aimessage_chunk_sse_delta,

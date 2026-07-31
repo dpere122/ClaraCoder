@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from clara_coder_backend.agent_langgraph import build_clara_single_outer_graph
+from clara_coder_backend.lang_agent.graph import build_clara_single_outer_graph
 from clara_coder_backend.checkpointing import outer_agent_thread_id
 from clara_coder_backend.llm import build_llm
 from clara_coder_backend.schemas import CheckpointForkRequest

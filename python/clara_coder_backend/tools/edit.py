@@ -4,7 +4,7 @@ When the session's :attr:`~clara_coder_backend.domain.SessionState.auto_apply_mo
 immediately under the workspace root and no ``pending_diff_payload`` is stored.
 
 **Future edit-capable tools:** must respect Editor mode (``apply_mode`` when binding tools), ``SessionState.auto_apply_mode``,
-and the diff / pause contract in :mod:`clara_coder_backend.agent` (see :func:`clara_coder_backend.tool_registry.hitl_diff_pause_tools`).
+and the diff / pause contract in :mod:`clara_coder_backend.lang_agent.agent` (see :func:`clara_coder_backend.tool_registry.hitl_diff_pause_tools`).
 """
 
 from __future__ import annotations

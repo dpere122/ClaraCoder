@@ -10,7 +10,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
-from clara_coder_backend.agent_langgraph import build_clara_single_outer_graph
+from clara_coder_backend.lang_agent.graph import build_clara_single_outer_graph
 from clara_coder_backend.checkpointing import outer_agent_thread_id
 from clara_coder_backend.config import (
     CLARA_CONTEXT_COMPACT_ENABLED,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.agent_streaming import iter_read_tool_stream_sse
+from clara_coder_backend.lang_agent.streaming import iter_read_tool_stream_sse
 
 
 def test_iter_read_tool_stream_sse_emits_tool_read_chunks() -> None:

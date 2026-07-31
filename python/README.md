@@ -91,18 +91,25 @@ Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run
 | `server.py`                                            | Thin entrypoint for Electron (`python server.py`).                          |
 | `clara_coder_backend/main.py`                                 | FastAPI `app` and router mounting.                                          |
 | **Routes**                                             |                                                                             |
-| `clara_coder_backend/routes.py`                               | Health check and runtime config.                                            |
-| `clara_coder_backend/routes_session.py`                       | Session lifecycle and workspace attachment.                                 |
-| `clara_coder_backend/routes_chat.py`                          | Chat streaming and agent continuation (HITL).                               |
-| `clara_coder_backend/routes_audio.py`                         | Transcription and TTS.                                                      |
-| `clara_coder_backend/log_routes.py`                           | Log tail, stream, level control, ingest.                                    |
-| `clara_coder_backend/routes_lsp.py`                           | Python LSP diagnostics/status routes.                                       |
-| **Agent**                                              |                                                                             |
-| `clara_coder_backend/agent.py`                                | SSE streaming agent entry point.                                            |
-| `clara_coder_backend/agent_langgraph.py`                      | LangGraph `create_agent` graph runner.                                      |
-| `clara_coder_backend/langgraph_sse.py`                        | LangGraph event → SSE line mapping and queue racing.                        |
-| `clara_coder_backend/agent_streaming.py`                      | Shared SSE JSON helpers (status, chunks, read-tool mirroring).              |
-| `clara_coder_backend/agent_pause.py`                          | `asyncio.Event` wait for `POST /chat/agent-continue`.                       |
+| `clara_coder_backend/routes/`                                  | FastAPI routers (package).                                                  |
+| `clara_coder_backend/routes/runtime.py`                        | Health check and runtime config.                                            |
+| `clara_coder_backend/routes/session.py`                        | Session lifecycle and workspace attachment.                                 |
+| `clara_coder_backend/routes/chat.py`                           | Chat streaming and agent continuation (HITL).                               |
+| `clara_coder_backend/routes/audio.py`                          | Transcription and TTS.                                                      |
+| `clara_coder_backend/routes/log.py`                            | Log tail, stream, level control, ingest.                                    |
+| `clara_coder_backend/routes/lsp.py`                            | LSP diagnostics/status and Monaco editor routes.                            |
+| `clara_coder_backend/routes/checkpoint.py`                     | LangGraph checkpoint history / state / fork.                                |
+| `clara_coder_backend/routes/build_plan.py`                     | Build-plan cancel.                                                          |
+| `clara_coder_backend/routes/conversation_title.py`             | Suggest conversation title.                                                 |
+| **Lang agent**                                         |                                                                             |
+| `clara_coder_backend/lang_agent/`                      | LangChain / LangGraph agent core (package).                                 |
+| `clara_coder_backend/lang_agent/agent.py`              | SSE streaming agent entry point.                                            |
+| `clara_coder_backend/lang_agent/graph.py`              | LangGraph `create_agent` graph runner.                                      |
+| `clara_coder_backend/lang_agent/langgraph_sse.py`      | LangGraph event → SSE line mapping and queue racing.                        |
+| `clara_coder_backend/lang_agent/streaming.py`          | Shared SSE JSON helpers (status, chunks, read-tool mirroring).              |
+| `clara_coder_backend/lang_agent/loop.py`               | Turn outcomes and history-commit policy.                                    |
+| `clara_coder_backend/lang_agent/pause.py`              | `asyncio.Event` wait for `POST /chat/agent-continue`.                       |
+| `clara_coder_backend/lang_agent/question.py`           | Plan-mode question HITL staging and resolution.                             |
 | **Configuration & State**                              |                                                                             |
 | `clara_coder_backend/config.py`                               | Env-backed constants and limits.                                            |
 | `clara_coder_backend/domain.py`                               | Session/runtime dataclasses.                                                |
@@ -142,8 +149,11 @@ Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run
 | `clara_coder_backend/app_logging.py`                          | Rotating file log, in-memory ring buffer, level control.                    |
 | `clara_coder_backend/llm_interaction_logging.py`              | Chat turn / connection logging (no secrets).                                |
 | `clara_coder_backend/tool_call_logging.py`                    | Structured logs for tool inputs/outputs.                                    |
-| **Audio**                                              |                                                                             |
-| `clara_coder_backend/audio.py`                                | Google Web + OpenAI STT helpers; OpenAI client for transcription.           |
+| **Audio / TTS**                                        |                                                                             |
+| `clara_coder_backend/audio.py`                         | Google Web + OpenAI STT helpers; OpenAI client for transcription.           |
+| `clara_coder_backend/tts/`                             | Text-to-speech providers (package).                                        |
+| `clara_coder_backend/tts/kokoro/`                      | Local Kokoro-82M synthesis (``POST /tts``).                                 |
+| `clara_coder_backend/tts/openai_compatible/`           | OpenAI-compatible ``/v1/audio/speech`` client helpers.                      |
 
 
 ## Environment variables

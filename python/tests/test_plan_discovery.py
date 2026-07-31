@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from clara_coder_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.build_plan_store import ActionStep, BuildPlanModel, FileChangeEntry, render_build_plan_md
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.plan_discovery import (

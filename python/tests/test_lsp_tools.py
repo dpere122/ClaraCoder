@@ -33,8 +33,8 @@ from clara_coder_backend.tools.lsp_tools import (
     lsp_update_python_file,
     lsp_update_typescript_file,
 )
-from clara_coder_backend.routes_session import clear_session, set_workspace_context
-from clara_coder_backend.routes_lsp import lsp_diagnostics
+from clara_coder_backend.routes.session import clear_session, set_workspace_context
+from clara_coder_backend.routes.lsp import lsp_diagnostics
 from clara_coder_backend.schemas import ClearRequest, WorkspaceContextRequest
 from clara_coder_backend.state import current_session_id, get_session, runtime_config
 

@@ -145,7 +145,7 @@ def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         kwargs.setdefault('client_factory', factory)
         return real_get(*args, **kwargs)
 
-    monkeypatch.setattr('clara_coder_backend.routes_lsp.get_session_lsp_manager', _inject)
+    monkeypatch.setattr('clara_coder_backend.routes.lsp.get_session_lsp_manager', _inject)
 
     from clara_coder_backend.main import app
 

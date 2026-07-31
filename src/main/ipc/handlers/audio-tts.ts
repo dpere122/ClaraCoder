@@ -4,7 +4,7 @@ import { loadConfig } from '../../config/load-save';
 import { PYTHON_URL } from '../../python/server';
 import { registerTtsStreamToken } from '../../protocol/nemo-tts';
 import { streamTtsResponseToIpcPackets } from '../../tts/stream-response-to-packets';
-import { fetchTtsResponse } from '../../tts/tts-fetch';
+import { fetchTtsResponse } from '../../tts/fetch';
 
 function ipcAudioPayloadToBuffer(payload: unknown): Buffer {
   if (Buffer.isBuffer(payload)) {

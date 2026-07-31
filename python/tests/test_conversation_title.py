@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage
 from starlette.testclient import TestClient
 
 from clara_coder_backend.conversation_title_cadence import should_refresh_auto_title
-from clara_coder_backend.routes_conversation_title import history_transcript_for_title
+from clara_coder_backend.routes.conversation_title import history_transcript_for_title
 
 
 @pytest.mark.parametrize(
@@ -59,7 +59,7 @@ def test_suggest_title_uses_mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_build_llm() -> _FakeLlm:
         return _FakeLlm()
 
-    monkeypatch.setattr('clara_coder_backend.routes_conversation_title.build_llm', _fake_build_llm)
+    monkeypatch.setattr('clara_coder_backend.routes.conversation_title.build_llm', _fake_build_llm)
 
     try:
         with TestClient(app) as client:

@@ -76,8 +76,8 @@ async def test_second_turn_uses_delta_input_no_duplicate_users(
         await shutdown_graph_checkpointing()
 
 
-@patch('clara_coder_backend.routes_checkpoint.build_clara_single_outer_graph')
-@patch('clara_coder_backend.routes_checkpoint.build_llm')
+@patch('clara_coder_backend.routes.checkpoint.build_clara_single_outer_graph')
+@patch('clara_coder_backend.routes.checkpoint.build_llm')
 def test_checkpoint_history_endpoint_returns_entries(
     mock_build_llm: MagicMock,
     mock_build_graph: MagicMock,
@@ -110,7 +110,7 @@ def test_checkpoint_history_endpoint_returns_entries(
         assert data['entries'][0]['checkpoint_id'] == 'c1'
 
 
-@patch('clara_coder_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)
+@patch('clara_coder_backend.routes.session.delete_outer_threads_for_session', new_callable=AsyncMock)
 def test_load_session_preserves_checkpoint_threads(
     mock_delete: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -123,7 +123,7 @@ def test_load_session_preserves_checkpoint_threads(
     mock_delete.assert_not_awaited()
 
 
-@patch('clara_coder_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)
+@patch('clara_coder_backend.routes.session.delete_outer_threads_for_session', new_callable=AsyncMock)
 def test_clear_session_deletes_checkpoint_threads(
     mock_delete: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

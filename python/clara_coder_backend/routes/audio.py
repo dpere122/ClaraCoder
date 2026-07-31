@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from clara_coder_backend.audio import get_openai_client, transcribe_google_web
-from clara_coder_backend.kokoro_tts import synthesize_wav_bytes, validate_voice_name
+from clara_coder_backend.tts.kokoro import synthesize_wav_bytes, validate_voice_name
 from clara_coder_backend.schemas import TtsRequest
 from clara_coder_backend import state
 

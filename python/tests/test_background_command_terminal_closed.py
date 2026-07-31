@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.langgraph_sse import sse_lines_for_graph_event, GraphStreamState
+from clara_coder_backend.lang_agent.langgraph_sse import sse_lines_for_graph_event, GraphStreamState
 from clara_coder_backend.state import current_session_id, get_session
 from clara_coder_backend.tools.run_command import (
     RUN_COMMAND_STREAM_TAG_PREFIX,

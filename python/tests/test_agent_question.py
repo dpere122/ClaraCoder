@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from clara_coder_backend.agent_question import (
+from clara_coder_backend.lang_agent.question import (
     agent_question_sse_payload,
     execute_pending_question_decision,
     stage_question_request,

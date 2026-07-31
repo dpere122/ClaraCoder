@@ -1,6 +1,6 @@
 """Map LangGraph v2 stream events to SSE JSON lines and async queue racing helpers.
 
-Extracted from :mod:`clara_coder_backend.agent_langgraph` for readability and testability.
+Extracted from :mod:`clara_coder_backend.lang_agent.graph` for readability and testability.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
-from clara_coder_backend.agent_streaming import (
+from clara_coder_backend.lang_agent.streaming import (
     aimessage_chunk_reasoning_delta,
     aimessage_chunk_sse_delta,
     is_meaningful_stream_delta,
@@ -431,7 +431,7 @@ def sse_lines_for_graph_event(
         stream_tag_out = (
             stream_tag_value if isinstance(stream_tag_value, str) and stream_tag_value.strip() else stream_tag
         )
-        from clara_coder_backend.agent_streaming import background_command_open_event
+        from clara_coder_backend.lang_agent.streaming import background_command_open_event
 
         return [
             sse_line(
@@ -482,7 +482,7 @@ def sse_lines_for_graph_event(
             ),
         ]
     if et == 'planner_progress':
-        from clara_coder_backend.agent_streaming import planner_progress_event
+        from clara_coder_backend.lang_agent.streaming import planner_progress_event
 
         planner_data = data.get('planner')
         if isinstance(planner_data, dict):

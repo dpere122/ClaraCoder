@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from clara_coder_backend.agent import stream_agent_reply
+from clara_coder_backend.lang_agent.agent import stream_agent_reply
 from clara_coder_backend.chat_input import effective_user_message_content
 from clara_coder_backend.schemas import (
     AbortRequest,
@@ -65,7 +65,7 @@ async def background_command_terminal_closed(
 @router.post('/chat/agent-question-answers')
 async def agent_question_answers(request: AgentQuestionAnswersRequest) -> dict[str, bool | str]:
     """Resolve a plan-mode question card and resume the paused planner stream."""
-    from clara_coder_backend.agent_question import execute_pending_question_decision
+    from clara_coder_backend.lang_agent.question import execute_pending_question_decision
 
     sess = state.get_session(request.session_id)
     note = execute_pending_question_decision(

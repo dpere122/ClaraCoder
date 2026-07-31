@@ -8,6 +8,31 @@ function rejectNullBytes(value: string, label: string): void {
 }
 
 /**
+ * Percent-decode + Unicode-normalize user path input so encoded / fullwidth
+ * traversal forms (e.g. `..%2F`, `．．/`) cannot bypass containment checks.
+ */
+function sanitizeRelativePathInput(relativePath: string): string {
+  let cleaned = relativePath.replace(/\\/g, '/').trim();
+  for (let i = 0; i < 8; i++) {
+    let next = cleaned;
+    try {
+      next = decodeURIComponent(next);
+    } catch {
+      // Keep current value when percent-encoding is malformed.
+    }
+    next = next.normalize('NFKC').replace(/\\/g, '/');
+    if (next.includes('\0')) {
+      throw new Error('Invalid path');
+    }
+    if (next === cleaned) {
+      break;
+    }
+    cleaned = next;
+  }
+  return cleaned || '.';
+}
+
+/**
  * True when `candidateAbs` is the workspace root or a path under it (normalized).
  * Prefer over `path.relative` alone: on Windows, drive-letter and short-name edge cases can make
  * `relative` look like an escape when paths are still inside the same folder.
@@ -55,7 +80,7 @@ function resolveRootOrResolved(workspaceRoot: string): string {
 export function resolveSafeWorkspacePath(workspaceRoot: string, relativePath: string): string {
   rejectNullBytes(relativePath, 'path');
   const root = resolveRootOrResolved(workspaceRoot);
-  const cleaned = relativePath.replace(/\\/g, '/').trim() || '.';
+  const cleaned = sanitizeRelativePathInput(relativePath);
   const joined = path.resolve(root, cleaned);
   if (!isAbsolutePathWithinWorkspaceRoot(root, joined)) {
     throw new Error('Path escapes workspace');

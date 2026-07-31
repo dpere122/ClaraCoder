@@ -402,7 +402,18 @@ def _overlay_executable_basename(argv0: str) -> str:
 
 
 def _overlay_arg_has_path_traversal(arg: str) -> bool:
-    return '..' in str(arg).replace('\\', '/').split('/')
+    """Reject relative argv entries that contain ``..`` segments.
+
+    Absolute argv[0] values (e.g. ``.../python/../.venv/bin/python`` from how the
+    interpreter was launched) are allowed — shells/OS resolve those safely and the
+    allowlist still keys off the basename.
+    """
+    s = str(arg).replace('\\', '/')
+    if not s:
+        return False
+    if s.startswith('/') or re.match(r'^[A-Za-z]:/', s):
+        return False
+    return '..' in s.split('/')
 
 
 def _overlay_is_relative_script_path(arg: str) -> bool:

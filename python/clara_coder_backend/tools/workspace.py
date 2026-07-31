@@ -366,6 +366,15 @@ def _search_workspace_python(
     return matches, skipped
 
 
+def _search_match_ignored(display_path: str, ignore_rules: list[str]) -> bool:
+    """True when a grep hit path should be hidden by the same rules as list/search walks."""
+    normalized = display_path.replace('\\', '/').strip('/')
+    if not normalized:
+        return False
+    entry_name = Path(normalized).name
+    return should_ignore_workspace_entry(entry_name, normalized, ignore_rules)
+
+
 def _search_workspace_grep(
     root_resolved: Path,
     ignore_rules: list[str],
@@ -374,11 +383,12 @@ def _search_workspace_grep(
     limit: int,
     encoding: str,
 ) -> tuple[list[str], int] | None:
-    del ignore_rules
+    # Over-fetch so post-filtering gitignore / built-in ignores can still fill ``limit``.
+    fetch_limit = max(limit, min(limit * 4, 200))
     grep_matches = run_grep_workspace_recursive(
         root_resolved,
         query,
-        max_matches=limit,
+        max_matches=fetch_limit,
         encoding=encoding,
         exclude_dir_names=WORKSPACE_CONTEXT_IGNORED_NAMES,
         include_node_modules=workspace_expose_all_files(),
@@ -386,7 +396,7 @@ def _search_workspace_grep(
     if grep_matches is None:
         candidates: list[SearchCandidate] = []
         path_by_display: dict[str, Path] = {}
-        for path in iter_workspace_search_files(root_resolved, get_workspace_ignore_rules_cached(root_resolved)):
+        for path in iter_workspace_search_files(root_resolved, ignore_rules):
             rel_path = path.relative_to(root_resolved)
             rel_command_path = str(rel_path)
             rel_display = rel_path.as_posix()
@@ -402,6 +412,9 @@ def _search_workspace_grep(
         if grep_matches is None:
             return None
     else:
+        grep_matches = [m for m in grep_matches if not _search_match_ignored(m.display_path, ignore_rules)][
+            :limit
+        ]
         path_by_display = {
             match.display_path: root_resolved / match.display_path for match in grep_matches
         }

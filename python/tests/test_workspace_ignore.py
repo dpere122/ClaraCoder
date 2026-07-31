@@ -132,6 +132,11 @@ def test_search_workspace_uses_grep_when_available(workspace_session: Path, monk
         assert query == 'needle'
         return [SearchLineMatch(display_path='keep.py', line_number=1)]
 
+    # Prefer the candidate/line-search path (recursive rg/grep is covered elsewhere).
+    monkeypatch.setattr(
+        'clara_coder_backend.tools.workspace.run_grep_workspace_recursive',
+        lambda *a, **k: None,
+    )
     monkeypatch.setattr('clara_coder_backend.tools.workspace.run_grep_line_search', _fake_run_grep_line_search)
 
     out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})

@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from nemo_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES, maybe_await_hitl_for_deferred_tool
-from nemo_backend.domain import RuntimeToolsConfig
-from nemo_backend.state import current_session_id, get_session, runtime_config
-from nemo_backend.tools.fetch_url import fetch_url_tool, html_to_text
-from nemo_backend.tools.http_guards import assert_public_http_url, normalize_http_base_url
-from nemo_backend.tools.web_search import format_searxng_search_report, search_searxng, web_search_tool
-from nemo_backend.tool_registry import worker_tools_and_map
+from clara_coder_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES, maybe_await_hitl_for_deferred_tool
+from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.tools.fetch_url import fetch_url_tool, html_to_text
+from clara_coder_backend.tools.http_guards import assert_public_http_url, normalize_http_base_url
+from clara_coder_backend.tools.web_search import format_searxng_search_report, search_searxng, web_search_tool
+from clara_coder_backend.tool_registry import worker_tools_and_map
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ def test_search_searxng_parses_results() -> None:
         def read(self):
             return json.dumps(payload).encode('utf-8')
 
-    with patch('nemo_backend.tools.web_search.urllib.request.urlopen', return_value=_Resp()):
+    with patch('clara_coder_backend.tools.web_search.urllib.request.urlopen', return_value=_Resp()):
         rows = search_searxng('q', base_url='http://127.0.0.1:8080', limit=1)
     assert len(rows) == 1
     assert rows[0]['title'] == 'A'
@@ -131,7 +131,7 @@ async def test_web_search_happy_path(enable_web) -> None:
     session.auto_apply_mode = True
     rows = [{'title': 'Docs', 'url': 'https://example.com/d', 'content': 'guide', 'engine': 'bing'}]
     try:
-        with patch('nemo_backend.tools.web_search.search_searxng', return_value=rows):
+        with patch('clara_coder_backend.tools.web_search.search_searxng', return_value=rows):
             out = await web_search_tool.ainvoke({'query': 'guide'})
     finally:
         current_session_id.reset(token)
@@ -194,8 +194,8 @@ async def test_fetch_url_happy_path(enable_web) -> None:
 
     try:
         with (
-            patch('nemo_backend.tools.fetch_url.assert_public_http_url', return_value=None),
-            patch('nemo_backend.tools.fetch_url.urllib.request.urlopen', return_value=_Resp()),
+            patch('clara_coder_backend.tools.fetch_url.assert_public_http_url', return_value=None),
+            patch('clara_coder_backend.tools.fetch_url.urllib.request.urlopen', return_value=_Resp()),
         ):
             out = await fetch_url_tool.ainvoke({'url': 'https://example.com/page'})
     finally:

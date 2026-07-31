@@ -57,4 +57,8 @@ export const appServicesApi = {
   onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => {
     ipcRenderer.on('window-maximized-changed', (_event, maximized: boolean) => callback(maximized));
   },
+  /** Main stole Ctrl/Cmd+F from Chromium; renderer should open Monaco find when appropriate. */
+  onEditorFindRequested: (callback: () => void) => {
+    ipcRenderer.on('editor-find-requested', () => callback());
+  },
 };

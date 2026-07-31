@@ -6,21 +6,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nemo_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from nemo_backend.build_plan_store import (
+from clara_coder_backend.agent_loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.build_plan_store import (
     ActionStep,
     BuildPlanModel,
     FileChangeEntry,
     OpenQuestion,
     render_build_plan_md,
 )
-from nemo_backend.domain import SessionState
-from nemo_backend.plan_confirm import (
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.plan_confirm import (
     execute_pending_plan_confirm_decision,
     plan_confirm_sse_payload,
     stage_plan_confirm_request,
 )
-from nemo_backend.plan_execute import (
+from clara_coder_backend.plan_execute import (
     PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
     _build_discovery_preamble,
@@ -32,10 +32,10 @@ from nemo_backend.plan_execute import (
     build_planner_context_block,
     stream_plan_execute_langgraph,
 )
-from nemo_backend.tool_registry import format_tools_catalog, plan_execute_tools_and_map, worker_tools_and_map
-from nemo_backend.tools.build_plan_tools import read_build_plan
-from nemo_backend.tools.workspace import read_workspace_file
-from nemo_backend.state import get_session
+from clara_coder_backend.tool_registry import format_tools_catalog, plan_execute_tools_and_map, worker_tools_and_map
+from clara_coder_backend.tools.build_plan_tools import read_build_plan
+from clara_coder_backend.tools.workspace import read_workspace_file
+from clara_coder_backend.state import get_session
 
 
 async def _collect_lines(generator: Any) -> list[str]:
@@ -129,8 +129,8 @@ async def test_stream_planner_md_retries_when_model_emits_tool_call(tmp_path: Pa
     """A tool-call-as-text first attempt should trigger one retry that yields the real plan."""
     from langchain_core.messages import AIMessageChunk
 
-    from nemo_backend.build_plan_store import create_build_plan_draft
-    from nemo_backend.plan_execute import _stream_planner_md
+    from clara_coder_backend.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan_execute import _stream_planner_md
 
     plan_md = _sample_plan_md()
     call = {'n': 0}
@@ -150,7 +150,7 @@ async def test_stream_planner_md_retries_when_model_emits_tool_call(tmp_path: Pa
     record = create_build_plan_draft(str(tmp_path), 'sess-retry', session=session)
     md_out: list[str] = ['']
 
-    with patch('nemo_backend.plan_execute._planner_markdown_chain', side_effect=_fake_chain):
+    with patch('clara_coder_backend.plan_execute._planner_markdown_chain', side_effect=_fake_chain):
         lines = await _collect_lines(
             _stream_planner_md(
                 'Build feature',
@@ -172,8 +172,8 @@ async def test_stream_planner_md_emits_reasoning_chunks(tmp_path: Path) -> None:
     """Reasoning-model sidecar text should stream into the chat auxiliary trail."""
     from langchain_core.messages import AIMessageChunk
 
-    from nemo_backend.build_plan_store import create_build_plan_draft
-    from nemo_backend.plan_execute import _stream_planner_md
+    from clara_coder_backend.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan_execute import _stream_planner_md
 
     plan_md = _sample_plan_md()
 
@@ -189,7 +189,7 @@ async def test_stream_planner_md_emits_reasoning_chunks(tmp_path: Path) -> None:
     record = create_build_plan_draft(str(tmp_path), 'sess-reason', session=session)
     md_out: list[str] = ['']
 
-    with patch('nemo_backend.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+    with patch('clara_coder_backend.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
         lines = await _collect_lines(
             _stream_planner_md(
                 'Build feature',
@@ -266,7 +266,7 @@ def test_plan_confirm_sse_payload_includes_structured_files_to_change() -> None:
     ]
 
 
-@patch('nemo_backend.plan_execute.build_llm')
+@patch('clara_coder_backend.plan_execute.build_llm')
 def test_planner_markdown_chain_prompt_requires_markdown_template(mock_llm: MagicMock) -> None:
     mock_llm.return_value = MagicMock()
     chain = _planner_markdown_chain('planner-context', discovery_summary='Auth in middleware')
@@ -276,7 +276,7 @@ def test_planner_markdown_chain_prompt_requires_markdown_template(mock_llm: Magi
     assert 'Auth in middleware' in system
 
 
-@patch('nemo_backend.plan_execute.build_llm')
+@patch('clara_coder_backend.plan_execute.build_llm')
 def test_planner_chain_prompt_requires_build_plan_sections(mock_llm: MagicMock) -> None:
     mock_llm.return_value.with_structured_output.return_value = MagicMock()
     chain = _planner_chain('planner-context', discovery_summary='')
@@ -318,9 +318,9 @@ async def _fake_stream_planner_md(*_args: Any, **kwargs: Any):
     yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
 
 
-@patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._stream_planner_md')
-@patch('nemo_backend.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     mock_pause: AsyncMock,
@@ -357,7 +357,7 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     mock_pause.side_effect = _pause_and_cancel
 
     session = SessionState(workspace_path=str(tmp_path))
-    from nemo_backend.state import sessions
+    from clara_coder_backend.state import sessions
 
     sessions['sess-plan-cancel'] = session
     outcome = LangGraphWorkerOutcome()
@@ -382,9 +382,9 @@ async def test_stream_plan_execute_aborts_when_plan_not_confirmed(
     assert exec_apply_modes == [False]
 
 
-@patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._stream_planner_md')
-@patch('nemo_backend.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan_execute.await_diff_review_note')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_single_executor_after_confirm(
     mock_pause: AsyncMock,
@@ -448,11 +448,11 @@ def _sample_plan_with_open_questions_md() -> str:
     )
 
 
-@patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._stream_planner_md')
-@patch('nemo_backend.plan_execute.await_diff_review_note')
-@patch('nemo_backend.plan_execute.await_question_answers')
-@patch('nemo_backend.plan_execute._invoke_planner')
+@patch('clara_coder_backend.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan_execute.await_question_answers')
+@patch('clara_coder_backend.plan_execute._invoke_planner')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_asks_open_questions_then_refines(
     mock_refine: AsyncMock,
@@ -514,10 +514,10 @@ async def test_stream_plan_execute_asks_open_questions_then_refines(
     assert outcome.state == AgentLoopOutcome.COMPLETED
 
 
-@patch('nemo_backend.plan_execute._stream_langgraph_tool_agent')
-@patch('nemo_backend.plan_execute._stream_planner_md')
-@patch('nemo_backend.plan_execute.await_diff_review_note')
-@patch('nemo_backend.plan_execute.await_question_answers')
+@patch('clara_coder_backend.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan_execute.await_question_answers')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_question_cancel_aborts(
     mock_question_pause: AsyncMock,
@@ -549,7 +549,7 @@ async def test_stream_plan_execute_question_cancel_aborts(
     mock_question_pause.side_effect = _cancel_questions
 
     session = SessionState(workspace_path=str(tmp_path))
-    from nemo_backend.state import sessions
+    from clara_coder_backend.state import sessions
 
     sessions['sess-plan-q-cancel'] = session
     outcome = LangGraphWorkerOutcome()

@@ -1,13 +1,13 @@
 # nemo tool authoring standard
 
-Single source of truth for how tools in `python/nemo_backend/tools/` are
+Single source of truth for how tools in `python/clara_coder_backend/tools/` are
 described, parameterized, and kept under the per-mode token budget. Follow this
 when adding or editing any tool.
 
 ## 1. Description template
 
 Every tool description uses the uniform template, built with
-`describe(...)` from `nemo_backend.tools.tool_conventions`:
+`describe(...)` from `clara_coder_backend.tools.tool_conventions`:
 
 ```
 purpose. When: … Not: … Shape: … Verify: …
@@ -25,7 +25,7 @@ so the scan pattern stays predictable for the model.
 ## 2. Compose, don't duplicate
 
 Import the shared convention constants from
-`nemo_backend.tools.tool_conventions` and compose them into `describe(...)`.
+`clara_coder_backend.tools.tool_conventions` and compose them into `describe(...)`.
 Do **not** re-state these rules in a tool docstring:
 
 | Constant            | Replaces                                                |
@@ -66,7 +66,7 @@ won't pick them up. Pass the description explicitly:
 
 ```python
 from langchain_core.tools import tool
-from nemo_backend.tools.tool_conventions import describe, RELATIVE_PATH, ONE_BASED
+from clara_coder_backend.tools.tool_conventions import describe, RELATIVE_PATH, ONE_BASED
 
 my_tool = tool(
     MY_TOOL_NAME,
@@ -84,7 +84,7 @@ my_tool = tool(
 
 Bound tool schemas (via `convert_to_openai_tool`, `cl100k_base`) must stay
 ≤ **18,000 tokens** per mode. Enforced in CI by
-`nemo_backend.tool_budget.assert_under_budget` via
+`clara_coder_backend.tool_budget.assert_under_budget` via
 `tests/test_tool_budget.py`:
 
 ```bash
@@ -104,7 +104,7 @@ information silently.
 
 ## 6. Plan-mode catalog: grouped one-line summaries
 
-`format_tools_catalog` (in `nemo_backend.tool_registry`) emits grouped
+`format_tools_catalog` (in `clara_coder_backend.tool_registry`) emits grouped
 one-line summaries bucketed by `TOOL_FAMILIES` — **not** full descriptions.
 This avoids duplicating the schema text in the planner prompt. Each line:
 
@@ -120,7 +120,7 @@ planner catalog stays organized. The catalog is currently ~7,200 chars
 
 The per-extension LSP-mutator map and the `land_in_workspace` policy live in
 **exactly one place**: `edit_semantics_block(direct=...)` in
-`nemo_backend/prompt_blocks.py`. Both `messages.py`
+`clara_coder_backend/prompt_blocks.py`. Both `messages.py`
 (`_outer_agent_operational_block`) and `model_tuning.py`
 (`tool_calling_and_edit_semantics_suffix`) import and reuse it. Never re-state
 the LSP-mutator map or staging-vs-direct policy in a tool docstring or in

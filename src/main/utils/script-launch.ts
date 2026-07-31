@@ -1,12 +1,13 @@
 import path = require('path');
 const syncFs = require('fs');
 import type { ScriptLaunchPlan } from '../../shared';
+import { envClara } from '../env-clara';
 
 /**
- * Resolves Git Bash or `NEMO_BASH_PATH` so `.sh` scripts can run on Windows.
+ * Resolves Git Bash or `CLARA_BASH_PATH` so `.sh` scripts can run on Windows.
  */
 export function getWindowsBashPath(): string | null {
-  const configured = process.env.NEMO_BASH_PATH?.trim();
+  const configured = envClara('BASH_PATH');
   const candidates = [
     configured,
     'C:\\Program Files\\Git\\bin\\bash.exe',
@@ -65,7 +66,7 @@ export async function buildScriptLaunchPlan(language: string, script: string): P
       const bashPath = getWindowsBashPath();
       if (!bashPath) {
         throw new Error(
-          'No Bash-compatible shell was found on Windows. Install Git Bash or set NEMO_BASH_PATH, or ask for a PowerShell script on Windows.',
+          'No Bash-compatible shell was found on Windows. Install Git Bash or set CLARA_BASH_PATH, or ask for a PowerShell script on Windows.',
         );
       }
       return { shellCmd: bashPath, shellArgs: [tempFile], tempFile };

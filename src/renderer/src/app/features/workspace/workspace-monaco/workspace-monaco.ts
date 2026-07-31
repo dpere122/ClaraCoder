@@ -725,6 +725,14 @@ export class WorkspaceMonacoComponent {
       void this.saveCurrent();
       return;
     }
+    // Fallback when Chromium/Electron does not intercept Find (browser preview, or
+    // focus inside this host but outside the Monaco textarea — common on Linux).
+    if (this.isPrimaryFindKey(ev)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.openFindWidget();
+      return;
+    }
     if (!this.monacoDiffActive()) {
       return;
     }
@@ -732,6 +740,39 @@ export class WorkspaceMonacoComponent {
       ev.preventDefault();
       void this.onAcceptCurrentChange();
     }
+  }
+
+  /**
+   * Opens Monaco's find widget, focusing the active code/diff editor first.
+   * Used when Ctrl/Cmd+F arrives via host keydown or main-process IPC (Wayland/Electron).
+   */
+  openFindWidget(): void {
+    if (this.mdPreviewActive()) {
+      this.previewHost().nativeElement.focus();
+      return;
+    }
+    if (this.monacoDiffActive()) {
+      const modified = this.diffEditor?.getModifiedEditor();
+      if (!modified) {
+        return;
+      }
+      modified.focus();
+      void modified.getAction('editor.action.startFindAction')?.run();
+      return;
+    }
+    const ed = this.editor;
+    if (!ed) {
+      return;
+    }
+    ed.focus();
+    void ed.getAction('editor.action.startFindAction')?.run();
+  }
+
+  private isPrimaryFindKey(ev: KeyboardEvent): boolean {
+    if (ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== 'f') {
+      return false;
+    }
+    return ev.ctrlKey || ev.metaKey;
   }
 
   protected setMdViewMode(mode: 'edit' | 'preview'): void {

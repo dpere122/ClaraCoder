@@ -1,5 +1,5 @@
 {
-  "name": "nemo-wrapper",
+  "name": "clara-coder",
   "version": "1.0.0",
   "description": "Clara Coder — Electron desktop app for AI-assisted coding",
   "main": "dist/main/index.js",
@@ -21,7 +21,7 @@
     "dev:lmstudio": "cross-env NEMO_LLM_PROVIDER=lmstudio NEMO_AUDIO_PROVIDER=openai npm run dev"
   },
   "keywords": [],
-  "author": "Clara Coder <dev@nemo.wrapper>",
+  "author": "Clara Coder <dev@clara.coder>",
   "desktopName": "clara-coder",
   "license": "ISC",
   "type": "commonjs",

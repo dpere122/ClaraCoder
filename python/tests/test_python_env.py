@@ -5,27 +5,27 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from nemo_backend.domain import SessionState
-from nemo_backend.lsp.python_server import build_python_lsp_command
-from nemo_backend.python_env import (
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.lsp.python_server import build_python_lsp_command
+from clara_coder_backend.python_env import (
     PythonWorkspaceEnvResult,
     _run_subprocess_with_output,
     ensure_session_python_workspace_env,
     resolve_python_workspace_root,
     workspace_python_executable,
 )
-from nemo_backend.routes_session import set_workspace_context
-from nemo_backend.schemas import WorkspaceContextRequest
-from nemo_backend.state import get_session
+from clara_coder_backend.routes_session import set_workspace_context
+from clara_coder_backend.schemas import WorkspaceContextRequest
+from clara_coder_backend.state import get_session
 
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_run_subprocess_with_output_times_out_and_kills(tmp_path: Path, monkeypatch) -> None:
-    import nemo_backend.python_env as pe
+    import clara_coder_backend.python_env as pe
 
-    monkeypatch.setattr(pe, 'NEMO_SUBPROCESS_TIMEOUT_SEC', 1)
+    monkeypatch.setattr(pe, 'CLARA_SUBPROCESS_TIMEOUT_SEC', 1)
 
     proc = MagicMock()
     proc.returncode = None
@@ -170,9 +170,9 @@ def test_ensure_session_python_workspace_env_applies_session_paths(monkeypatch, 
             summary='Python workspace environment summary:\n- Workspace root: `.`\n',
         )
 
-    monkeypatch.setattr('nemo_backend.python_env.ensure_python_workspace_env', _fake_ensure)
+    monkeypatch.setattr('clara_coder_backend.python_env.ensure_python_workspace_env', _fake_ensure)
     monkeypatch.setattr(
-        'nemo_backend.python_env.activate_process_workspace_python_env',
+        'clara_coder_backend.python_env.activate_process_workspace_python_env',
         lambda venv_path: activated.append(venv_path),
     )
 
@@ -218,9 +218,9 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
             },
         )()
 
-    monkeypatch.setattr('nemo_backend.python_env.ensure_python_workspace_env', _fake_ensure)
-    monkeypatch.setattr('nemo_backend.python_env.activate_process_workspace_python_env', lambda _venv_path: None)
-    monkeypatch.setattr('nemo_backend.tools.python_deps.bootstrap_session_python_dependencies', _fake_bootstrap)
+    monkeypatch.setattr('clara_coder_backend.python_env.ensure_python_workspace_env', _fake_ensure)
+    monkeypatch.setattr('clara_coder_backend.python_env.activate_process_workspace_python_env', lambda _venv_path: None)
+    monkeypatch.setattr('clara_coder_backend.tools.python_deps.bootstrap_session_python_dependencies', _fake_bootstrap)
 
     result = asyncio.run(
         ensure_session_python_workspace_env(
@@ -264,7 +264,7 @@ def test_set_workspace_context_defers_python_env_until_bootstrap_flag(monkeypatc
             summary='ready',
         )
 
-    monkeypatch.setattr('nemo_backend.routes_session.ensure_session_python_workspace_env', _fake_ensure_session)
+    monkeypatch.setattr('clara_coder_backend.routes_session.ensure_session_python_workspace_env', _fake_ensure_session)
 
     asyncio.run(
         set_workspace_context(

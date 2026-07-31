@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from nemo_backend.domain import RuntimeConnection
-from nemo_backend.parallel_tool_middleware import _parallel_tool_calls_for_agent_request
-from nemo_backend import state
+from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend.parallel_tool_middleware import _parallel_tool_calls_for_agent_request
+from clara_coder_backend import state
 
 
 @pytest.fixture

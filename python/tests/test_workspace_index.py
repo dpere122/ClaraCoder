@@ -8,26 +8,26 @@ from pathlib import Path
 import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 
-from nemo_backend.config import NEMO_LLAMA_INDEX_MAX_FILES
-from nemo_backend.domain import SessionState
-from nemo_backend.state import current_session_id
-from nemo_backend.workspace_index.fingerprint import workspace_content_fingerprint
-from nemo_backend.workspace_index.index_build import (
+from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.state import current_session_id
+from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
+from clara_coder_backend.workspace_index.index_build import (
     load_or_rebuild_index,
     load_or_rebuild_workspace_index,
     read_manifest,
 )
-from nemo_backend.workspace_index import lifecycle as lc
-from nemo_backend.workspace_index.paths import index_persist_dir, workspace_index_persist_dir
-from nemo_backend.workspace_index.incremental import (
+from clara_coder_backend.workspace_index import lifecycle as lc
+from clara_coder_backend.workspace_index.paths import index_persist_dir, workspace_index_persist_dir
+from clara_coder_backend.workspace_index.incremental import (
     flush_semantic_index_patches,
     schedule_semantic_index_background,
 )
-from nemo_backend.tools.semantic import (
+from clara_coder_backend.tools.semantic import (
     retrieve_workspace_checkpoint_semantic,
     retrieve_workspace_semantic,
 )
-from nemo_backend.workspace_index.walk import iter_index_workspace_files
+from clara_coder_backend.workspace_index.walk import iter_index_workspace_files
 
 
 class _FakeEmb(BaseEmbedding):
@@ -81,8 +81,8 @@ def test_load_or_rebuild_persist_and_manifest(tmp_path: Path) -> None:
 
 
 def test_staging_index_dir_is_session_scoped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'root'))
-    from nemo_backend.workspace_index.paths import staging_index_persist_dir
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'root'))
+    from clara_coder_backend.workspace_index.paths import staging_index_persist_dir
 
     p = staging_index_persist_dir('my-session-id')
     assert 'sessions' in p.as_posix()
@@ -90,7 +90,7 @@ def test_staging_index_dir_is_session_scoped(tmp_path: Path, monkeypatch: pytest
 
 
 def test_internal_persist_dir_not_under_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'internal-idx'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'internal-idx'))
     ws = tmp_path / 'my-workspace'
     ws.mkdir()
     pdir = workspace_index_persist_dir('workspace-card-1', ws)
@@ -100,9 +100,9 @@ def test_internal_persist_dir_not_under_workspace(tmp_path: Path, monkeypatch: p
 
 
 def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.tools import semantic as st
+    from clara_coder_backend.tools import semantic as st
 
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
     (tmp_path / 'notes.md').write_text('# Project\nUse the frobnitz handler for IO.\n', encoding='utf-8')
 
     def _fake_build(_connection: object) -> tuple[_FakeEmb, str]:
@@ -114,7 +114,7 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
     sess = SessionState()
     sess.workspace_path = str(tmp_path)
     sess.workspace_id = 'ws-card-test'
-    from nemo_backend import state as st_state
+    from clara_coder_backend import state as st_state
 
     st_state.sessions[sid] = sess
     token = current_session_id.set(sid)
@@ -132,9 +132,9 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
 
 
 def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.tools import semantic as st
+    from clara_coder_backend.tools import semantic as st
 
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
     (tmp_path / 'notes.md').write_text('# Project\nUse the frobnitz handler for IO.\n', encoding='utf-8')
 
     def _fake_build(_connection: object) -> tuple[_FakeEmb, str]:
@@ -146,7 +146,7 @@ def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monke
     sess = SessionState()
     sess.workspace_path = str(tmp_path)
     sess.workspace_id = 'ws-card-test'
-    from nemo_backend import state as st_state
+    from clara_coder_backend import state as st_state
 
     st_state.sessions[sid] = sess
     token = current_session_id.set(sid)
@@ -162,7 +162,7 @@ def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monke
 
 
 def test_incremental_workspace_patch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
     root = tmp_path / 'proj'
     root.mkdir()
     (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
@@ -192,7 +192,7 @@ def _clear_fingerprint_cache():
 def test_flush_invalidates_workspace_fingerprint_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _clear_fingerprint_cache
 ) -> None:
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
     root = tmp_path / 'proj'
     root.mkdir()
     (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
@@ -200,7 +200,7 @@ def test_flush_invalidates_workspace_fingerprint_cache(
     _, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
     assert err == ''
 
-    key = f'{root.resolve()}\0{NEMO_LLAMA_INDEX_MAX_FILES}'
+    key = f'{root.resolve()}\0{CLARA_LLAMA_INDEX_MAX_FILES}'
     lc._fingerprint_cache[key] = (time.monotonic(), 'stale-fingerprint')
 
     sess = SessionState()
@@ -211,7 +211,7 @@ def test_flush_invalidates_workspace_fingerprint_cache(
 
 
 def test_load_or_rebuild_rebuilds_when_embedding_model_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
     root = tmp_path / 'proj'
     root.mkdir()
     (root / 'x.py').write_text('v = 1\n', encoding='utf-8')
@@ -219,7 +219,7 @@ def test_load_or_rebuild_rebuilds_when_embedding_model_changes(tmp_path: Path, m
     idx, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='embed-a')
     assert err == '' and idx is not None
 
-    fp = workspace_content_fingerprint(root, max_files=NEMO_LLAMA_INDEX_MAX_FILES)
+    fp = workspace_content_fingerprint(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
     idx2, err2 = load_or_rebuild_workspace_index(
         root, 'wid', embed, fingerprint_override=fp, embedding_model_id='embed-b'
     )
@@ -230,7 +230,7 @@ def test_load_or_rebuild_rebuilds_when_embedding_model_changes(tmp_path: Path, m
 
 
 def test_flush_requeues_pending_on_workspace_load_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
     root = tmp_path / 'proj'
     root.mkdir()
     (root / 'a.py').write_text('z = 1\n', encoding='utf-8')
@@ -245,7 +245,7 @@ def test_flush_requeues_pending_on_workspace_load_failure(tmp_path: Path, monkey
         raise OSError('simulated load failure')
 
     monkeypatch.setattr(
-        'nemo_backend.workspace_index.incremental.load_or_rebuild_workspace_index',
+        'clara_coder_backend.workspace_index.incremental.load_or_rebuild_workspace_index',
         _boom,
     )
     with pytest.raises(OSError, match='simulated'):
@@ -254,7 +254,7 @@ def test_flush_requeues_pending_on_workspace_load_failure(tmp_path: Path, monkey
 
 
 def test_schedule_semantic_index_background_coalesces_ensure_corpus(monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.workspace_index import incremental as inc
+    from clara_coder_backend.workspace_index import incremental as inc
 
     calls: list[tuple[str, bool]] = []
 
@@ -276,10 +276,10 @@ def test_schedule_semantic_index_background_coalesces_ensure_corpus(monkeypatch:
 
 
 def test_run_semantic_index_background_builds_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.workspace_index import incremental as inc
-    from nemo_backend import state as st
+    from clara_coder_backend.workspace_index import incremental as inc
+    from clara_coder_backend import state as st
 
-    monkeypatch.setenv('NEMO_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
     root = tmp_path / 'proj'
     root.mkdir()
     (root / 'main.py').write_text('print("hi")\n', encoding='utf-8')
@@ -297,7 +297,7 @@ def test_run_semantic_index_background_builds_corpus(tmp_path: Path, monkeypatch
         return _FakeEmb(), ''
 
     monkeypatch.setattr(
-        'nemo_backend.workspace_index.embeddings_factory.build_embedding_model',
+        'clara_coder_backend.workspace_index.embeddings_factory.build_embedding_model',
         _fake_build,
     )
 

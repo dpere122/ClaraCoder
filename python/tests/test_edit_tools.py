@@ -2,20 +2,20 @@
 
 import pytest
 
-from nemo_backend.tools.review_tools import staging_review_tools
-from nemo_backend.tools.edit import (
+from clara_coder_backend.tools.review_tools import staging_review_tools
+from clara_coder_backend.tools.edit import (
     apply_workspace_full_file,
     edit_tools_for_strict,
     replace_workspace_line_range,
 )
-from nemo_backend.lsp.file_policy import outer_workspace_edit_guard_error
-from nemo_backend.state import current_session_id, get_session, runtime_config, sessions
-from nemo_backend.domain import RuntimeToolsConfig
-from nemo_backend.tools.node_deps import node_dependency_tools
-from nemo_backend.tools.python_deps import python_dependency_tools
-from nemo_backend.tools.python_env import ensure_python_workspace_env_tool
-from nemo_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
-from nemo_backend.tool_registry import (
+from clara_coder_backend.lsp.file_policy import outer_workspace_edit_guard_error
+from clara_coder_backend.state import current_session_id, get_session, runtime_config, sessions
+from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.tools.node_deps import node_dependency_tools
+from clara_coder_backend.tools.python_deps import python_dependency_tools
+from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
+from clara_coder_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
+from clara_coder_backend.tool_registry import (
     hitl_accept_command_pause_tools,
     hitl_copy_pause_tools,
     hitl_delete_pause_tools,
@@ -23,7 +23,7 @@ from nemo_backend.tool_registry import (
     staging_workspace_write_tools,
     worker_tools_and_map,
 )
-from nemo_backend.tools.workspace import TOOLS
+from clara_coder_backend.tools.workspace import TOOLS
 
 _LSP_CREATE_UPDATE_NAMES = {
     'lsp_create_python_file',
@@ -190,9 +190,9 @@ def test_outer_agent_tools_direct_mode() -> None:
 
 def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> None:
     """Later merge layers must re-use the same tool objects as python/node deps and LSP reads (no forked descriptions)."""
-    from nemo_backend.tools.lsp_tools import lsp_get_diagnostics
-    from nemo_backend.tools.node_deps import install_npm_packages_tool
-    from nemo_backend.tools.python_deps import install_python_packages_tool
+    from clara_coder_backend.tools.lsp_tools import lsp_get_diagnostics
+    from clara_coder_backend.tools.node_deps import install_npm_packages_tool
+    from clara_coder_backend.tools.python_deps import install_python_packages_tool
 
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
     session = get_session('merge-canonical')

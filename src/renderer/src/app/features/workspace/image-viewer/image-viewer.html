@@ -123,7 +123,13 @@
           [title]='path'
           (click)='onThumbnailClick(path)'
         >
-          <img class='image-viewer-thumb-img' [src]='assetUrlForPath(path)' [alt]='path' />
+          <img
+            class='image-viewer-thumb-img'
+            [src]='thumbAssetUrlForPath(path)'
+            [alt]='path'
+            loading='lazy'
+            decoding='async'
+          />
         </button>
       }
     </div>

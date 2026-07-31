@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
-from nemo_backend.tools.python_deps import (
+from clara_coder_backend.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
+from clara_coder_backend.tools.python_deps import (
     bootstrap_session_python_dependencies,
     freeze_python_requirements_tool,
     install_python_packages_tool,
     write_frozen_python_requirements_file_tool,
 )
-from nemo_backend.python_env import workspace_python_executable
-from nemo_backend.state import current_session_id, get_session
+from clara_coder_backend.python_env import workspace_python_executable
+from clara_coder_backend.state import current_session_id, get_session
 
 
 class _FakeProc:

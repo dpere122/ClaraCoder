@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from nemo_backend.agent_question import (
+from clara_coder_backend.agent_question import (
     agent_question_sse_payload,
     execute_pending_question_decision,
     stage_question_request,
 )
-from nemo_backend.domain import SessionState
+from clara_coder_backend.domain import SessionState
 
 
 def _questions() -> list[dict]:

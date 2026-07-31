@@ -1,6 +1,7 @@
 import {
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
   inject,
@@ -11,9 +12,12 @@ import {
   signal,
   ViewEncapsulation,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LucideAngularModule } from 'lucide-angular';
+import type { WorkspaceFilesChangedMessage } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { buildWorkspaceImageAssetUrl } from './image-viewer-asset-url';
 import {
   AUTO_PLAY_INTERVAL_OPTIONS_MS,
   galleryIndexForPath,
@@ -21,7 +25,9 @@ import {
   galleryPreviousIndex,
   parentFolderAbsolutePath,
   parentFolderRelativePath,
+  pickGalleryPathAfterRefresh,
   viewableImagesInDirectory,
+  workspaceChangeAffectsGalleryFolder,
 } from './image-viewer-gallery';
 
 const MIN_ZOOM = 0.1;
@@ -39,6 +45,7 @@ export class ImageViewerComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly workspacePath = input<string>('');
   readonly relativePath = input<string | null>(null);
@@ -60,6 +67,7 @@ export class ImageViewerComponent implements OnDestroy {
   protected readonly autoPlayIntervalMs = signal(3000);
 
   private galleryFolderKey: string | null = null;
+  private galleryLoadGeneration = 0;
   private autoPlayTimer: ReturnType<typeof setInterval> | null = null;
   private autoPlayTimerGeneration = 0;
   private readonly keydownHandler = (event: KeyboardEvent) => this.onWindowKeydown(event);
@@ -137,24 +145,25 @@ export class ImageViewerComponent implements OnDestroy {
         queueMicrotask(() => this.scrollActiveThumbnailIntoView());
       }
     });
+
+    this.electron.workspaceFilesChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((event) => this.onWorkspaceFilesChanged(event));
   }
 
   ngOnDestroy(): void {
+    this.galleryLoadGeneration += 1;
     this.stopAutoPlay();
     window.removeEventListener('keydown', this.keydownHandler);
   }
 
   protected assetUrlForPath(relativePath: string | null | undefined): string {
-    const root = this.workspacePath().trim();
-    const rel = relativePath;
-    if (!root || !rel) {
-      return '';
-    }
-    const norm = normalizePathSlashes(rel).replace(/^\/+/, '');
-    if (!norm) {
-      return '';
-    }
-    return `nemo-asset://workspace/?root=${encodeURIComponent(root)}&path=${encodeURIComponent(norm)}`;
+    return buildWorkspaceImageAssetUrl(this.workspacePath(), relativePath);
+  }
+
+  /** Downscaled static PNG for the gallery strip (avoids decoding full / animated images). */
+  protected thumbAssetUrlForPath(relativePath: string | null | undefined): string {
+    return buildWorkspaceImageAssetUrl(this.workspacePath(), relativePath, { thumb: true });
   }
 
   protected isActiveGalleryPath(path: string): boolean {
@@ -221,10 +230,34 @@ export class ImageViewerComponent implements OnDestroy {
     }
   }
 
-  private async loadGalleryForImage(workspaceRoot: string, imageRelativePath: string | null): Promise<void> {
+  private onWorkspaceFilesChanged(event: WorkspaceFilesChangedMessage): void {
+    const root = this.workspacePath().trim();
+    const rel = this.relativePath()?.trim();
+    if (!root || !rel || !this.workspaceRootsEqual(root, event.workspacePath)) {
+      return;
+    }
+    const galleryFolder = parentFolderRelativePath(rel);
+    if (!workspaceChangeAffectsGalleryFolder(galleryFolder, event.paths, event.previousPaths)) {
+      return;
+    }
+    void this.loadGalleryForImage(root, rel, { force: true });
+  }
+
+  private workspaceRootsEqual(a: string, b: string): boolean {
+    const x = normalizePathSlashes(a).replace(/\/+$/, '').toLowerCase();
+    const y = normalizePathSlashes(b).replace(/\/+$/, '').toLowerCase();
+    return x.length > 0 && x === y;
+  }
+
+  private async loadGalleryForImage(
+    workspaceRoot: string,
+    imageRelativePath: string | null,
+    options?: { force?: boolean },
+  ): Promise<void> {
     const root = workspaceRoot.trim();
     const rel = imageRelativePath?.trim();
     if (!root || !rel) {
+      this.galleryLoadGeneration += 1;
       this.galleryPaths.set([]);
       this.galleryFolderKey = null;
       this.autoPlayEnabled.set(false);
@@ -233,25 +266,52 @@ export class ImageViewerComponent implements OnDestroy {
 
     const parentRel = parentFolderRelativePath(rel);
     const folderKey = `${root}|${parentRel}`;
-    if (folderKey === this.galleryFolderKey) {
+    if (!options?.force && folderKey === this.galleryFolderKey) {
       return;
     }
 
     const previousFolderKey = this.galleryFolderKey;
+    const previousIndex = this.currentGalleryIndex();
     this.galleryFolderKey = folderKey;
     if (previousFolderKey !== null && previousFolderKey !== folderKey) {
       this.autoPlayEnabled.set(false);
     }
 
+    const generation = ++this.galleryLoadGeneration;
     this.galleryLoading.set(true);
     try {
       const parentAbs = parentFolderAbsolutePath(root, rel);
       const entries = await this.electron.readDirectory(parentAbs);
-      this.galleryPaths.set(viewableImagesInDirectory(entries, root));
+      if (generation !== this.galleryLoadGeneration) {
+        return;
+      }
+      const paths = viewableImagesInDirectory(entries, root);
+      // Prefer the path currently displayed — user may have navigated siblings during the load.
+      const currentRel = this.relativePath()?.trim() ?? rel;
+      if (parentFolderRelativePath(currentRel) !== parentRel) {
+        return;
+      }
+      this.galleryPaths.set(paths);
+
+      if (galleryIndexForPath(paths, currentRel) >= 0) {
+        return;
+      }
+      const nextPath = pickGalleryPathAfterRefresh(paths, currentRel, previousIndex);
+      if (nextPath) {
+        this.navigateToPath(nextPath);
+      } else {
+        this.autoPlayEnabled.set(false);
+      }
     } catch {
+      if (generation !== this.galleryLoadGeneration) {
+        return;
+      }
       this.galleryPaths.set([]);
+      this.autoPlayEnabled.set(false);
     } finally {
-      this.galleryLoading.set(false);
+      if (generation === this.galleryLoadGeneration) {
+        this.galleryLoading.set(false);
+      }
     }
   }
 

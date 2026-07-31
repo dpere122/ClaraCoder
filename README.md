@@ -2,7 +2,7 @@
 
 Electron desktop app with an Angular UI and a Python (FastAPI) backend for AI-assisted coding: chat, workspace tools, LSP integration, transcription, and local Kokoro TTS.
 
-For backend API details, env vars, and layout, see [python/README.md](python/README.md).
+For the dual-stack backend map (Electron IPC + FastAPI/LangGraph, tools, persistence), see [docs/backend-architecture.md](docs/backend-architecture.md). For Python API details, env vars, and layout, see [python/README.md](python/README.md).
 
 ## First-time build
 
@@ -171,8 +171,8 @@ On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` 
 
 | Variable             | Purpose                                                           |
 | -------------------- | ----------------------------------------------------------------- |
-| `NEMO_PYTHON`        | Absolute path to Python executable (skips auto `.venv` detection) |
-| `NEMO_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
+| `CLARA_PYTHON`        | Absolute path to Python executable (skips auto `.venv` detection) |
+| `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
 | `PYTHON`             | Interpreter used by `scripts/setup-python.mjs`                    |
 | `DEV_SERVER_URL`     | Set automatically by `npm run dev`                                |
 
@@ -206,11 +206,11 @@ npm run setup:python
 
 ### Backend uses the wrong Python
 
-Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Create `.venv` at the repo root or set `NEMO_PYTHON`.
+Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Create `.venv` at the repo root or set `CLARA_PYTHON`.
 
 ### Windows native modules
 
-`node-pty` may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `NEMO_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm install` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
+`node-pty` may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm install` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
 
 ### Kokoro / TTS errors at runtime
 
@@ -225,7 +225,7 @@ On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CP
 | -------------------------- | ------------------------------------------------------------ |
 | `src/main/`                | Electron main process (TypeScript)                           |
 | `src/renderer/`            | Angular UI                                                   |
-| `python/`                  | FastAPI backend (`server.py`, `nemo_backend/`)               |
+| `python/`                  | FastAPI backend (`server.py`, `clara_coder_backend/`)               |
 | `.venv/`                   | Project Python environment (gitignored; create at repo root) |
 | `scripts/setup-python.mjs` | Python + Kokoro installer used by `npm run setup:python`     |
 

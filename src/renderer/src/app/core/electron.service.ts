@@ -358,8 +358,11 @@ export class ElectronService {
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
   private readonly windowMaximizedSubject = new Subject<boolean>();
+  private readonly editorFindRequestedSubject = new Subject<void>();
   /** Emits when the main BrowserWindow is maximized or restored (frameless chrome). */
   readonly windowMaximized$ = this.windowMaximizedSubject.asObservable();
+  /** Main intercepted Ctrl/Cmd+F; open Monaco find when a file editor is active. */
+  readonly editorFindRequested$ = this.editorFindRequestedSubject.asObservable();
   readonly chunk$ = this.chunkSubject.asObservable();
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly toolExecChunk$ = this.toolExecChunkSubject.asObservable();
@@ -662,6 +665,9 @@ export class ElectronService {
     });
     this.api?.onWindowMaximizedChanged?.((maximized) => {
       this.zone.run(() => this.windowMaximizedSubject.next(maximized));
+    });
+    this.api?.onEditorFindRequested?.(() => {
+      this.zone.run(() => this.editorFindRequestedSubject.next());
     });
     this.api?.onReady();
   }

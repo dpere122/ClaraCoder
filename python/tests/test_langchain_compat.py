@@ -1,10 +1,10 @@
-"""Tests for :mod:`nemo_backend.langchain_compat` OpenAI reasoning patches."""
+"""Tests for :mod:`clara_coder_backend.langchain_compat` OpenAI reasoning patches."""
 
 from __future__ import annotations
 
 from langchain_core.messages import AIMessageChunk
 
-import nemo_backend.langchain_compat  # noqa: F401 — installs patches on import
+import clara_coder_backend.langchain_compat  # noqa: F401 — installs patches on import
 from langchain_openai.chat_models import base as lc_openai_base
 
 

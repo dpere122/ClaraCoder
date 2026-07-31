@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.lsp.typescript_server import build_typescript_lsp_command
+from clara_coder_backend.lsp.typescript_server import build_typescript_lsp_command
 
 
 def test_build_typescript_lsp_command_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_TYPESCRIPT_LSP_COMMAND', 'custom_tls_ls --stdio')
+    monkeypatch.setenv('CLARA_TYPESCRIPT_LSP_COMMAND', 'custom_tls_ls --stdio')
     cmd = build_typescript_lsp_command(tmp_path)
     assert cmd == ['custom_tls_ls', '--stdio']
 
 
 def test_build_typescript_lsp_command_prefers_local_bin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_COMMAND', raising=False)
     bin_dir = tmp_path / 'node_modules' / '.bin'
     bin_dir.mkdir(parents=True)
     (tmp_path / 'node_modules' / 'typescript').mkdir(parents=True)
@@ -34,7 +34,7 @@ def test_build_typescript_lsp_command_prefers_local_bin(tmp_path: Path, monkeypa
 
 
 def test_build_typescript_lsp_command_walks_up_for_monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_COMMAND', raising=False)
     root = tmp_path / 'repo'
     nested = root / 'packages' / 'app'
     nested.mkdir(parents=True)
@@ -54,7 +54,7 @@ def test_build_typescript_lsp_command_walks_up_for_monorepo(tmp_path: Path, monk
 
 
 def test_build_typescript_lsp_command_npx_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_COMMAND', raising=False)
     cmd = build_typescript_lsp_command(tmp_path)
     assert cmd[-1] == '--stdio'
     assert cmd[-2] == 'typescript-language-server'
@@ -69,7 +69,7 @@ def test_build_typescript_lsp_command_local_bin_without_typescript_uses_npx(
 ) -> None:
     """Local typescript-language-server without ``node_modules/typescript`` must not win over npx."""
 
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_COMMAND', raising=False)
     bin_dir = tmp_path / 'node_modules' / '.bin'
     bin_dir.mkdir(parents=True)
     if os.name == 'nt':

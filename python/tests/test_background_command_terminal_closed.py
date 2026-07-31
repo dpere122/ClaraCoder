@@ -8,16 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.langgraph_sse import sse_lines_for_graph_event, GraphStreamState
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.tools.run_command import (
+from clara_coder_backend.langgraph_sse import sse_lines_for_graph_event, GraphStreamState
+from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.tools.run_command import (
     RUN_COMMAND_STREAM_TAG_PREFIX,
     background_command_jobs,
     handle_background_command_terminal_closed,
     kill_session_background_commands,
     run_command_tool,
 )
-from nemo_backend.user_events import drain_user_event_notes
+from clara_coder_backend.user_events import drain_user_event_notes
 
 
 @pytest.fixture()

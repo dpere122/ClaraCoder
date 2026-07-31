@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nemo_backend.plan_execute import build_build_plan_executor_prompt
-from nemo_backend.plan_step_verify import StepVerifyResult, invoke_step_verifier
+from clara_coder_backend.plan_execute import build_build_plan_executor_prompt
+from clara_coder_backend.plan_step_verify import StepVerifyResult, invoke_step_verifier
 
 
 def test_build_build_plan_executor_prompt_mentions_mark_tool() -> None:
@@ -14,7 +14,7 @@ def test_build_build_plan_executor_prompt_mentions_mark_tool() -> None:
     assert 'read_build_plan' in prompt
 
 
-@patch('nemo_backend.plan_step_verify._step_verifier_chain')
+@patch('clara_coder_backend.plan_step_verify._step_verifier_chain')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_invoke_step_verifier_returns_structured_result(mock_chain_factory: AsyncMock) -> None:
     mock_chain = AsyncMock()

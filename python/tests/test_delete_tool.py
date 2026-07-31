@@ -1,12 +1,12 @@
 """Safe delete tool helpers."""
 
-from nemo_backend.tools.delete import (
+from clara_coder_backend.tools.delete import (
     _reject_reason,
     batch_delete_workspace_entries,
     delete_confirm_sse_payload,
     execute_pending_delete_decision,
 )
-from nemo_backend.state import current_session_id, get_session
+from clara_coder_backend.state import current_session_id, get_session
 
 
 def test_rejects_workspace_root() -> None:

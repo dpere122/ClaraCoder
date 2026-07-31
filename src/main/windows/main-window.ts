@@ -4,6 +4,7 @@ import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { buildMenu } from '../menu/application-menu';
 import { resolveAppIconPath } from '../utils/app-icon';
+import { isPrimaryEditorFindShortcut } from '../utils/editor-find-shortcut';
 import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
 import { attachBrowserWindowRevealFallbacks } from '../utils/reveal-browser-window';
 import { registerSelectableTextContextMenu } from '../utils/register-selectable-text-context-menu';
@@ -44,6 +45,18 @@ export function createMainWindow(): void {
   hardenBrowserWindow(win);
   registerSelectableTextContextMenu(win);
   attachBrowserWindowRevealFallbacks(win);
+  // Chromium's in-page Find (Ctrl/Cmd+F) is unreliable in frameless Electron on
+  // Linux Wayland and races Monaco's own binding. Steal the chord and let the
+  // renderer open Monaco's find widget when a file editor is active.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (!isPrimaryEditorFindShortcut(input)) {
+      return;
+    }
+    event.preventDefault();
+    if (!win.isDestroyed()) {
+      win.webContents.send('editor-find-requested');
+    }
+  });
   if (DEV_SERVER_URL) {
     win.once('ready-to-show', () => {
       win.webContents.openDevTools({ mode: 'detach' });

@@ -278,7 +278,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     if (!existsSync(tplPath)) {
       return {
         ok: false,
-        error: `Qwen optimization is enabled but the chat template was not found at ${tplPath}. Set NEMO_QWEN_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/qwen_inference_template.jinja is present (packaged builds ship it under resources).`,
+        error: `Qwen optimization is enabled but the chat template was not found at ${tplPath}. Set CLARA_QWEN_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/qwen_inference_template.jinja is present (packaged builds ship it under resources).`,
       };
     }
     chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());
@@ -289,7 +289,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     if (!existsSync(tplPath)) {
       return {
         ok: false,
-        error: `Gemma optimization is enabled but the chat template was not found at ${tplPath}. Set NEMO_GEMMA4_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/gemma4_12b_chat_template.jinja is present (packaged builds ship it under resources).`,
+        error: `Gemma optimization is enabled but the chat template was not found at ${tplPath}. Set CLARA_GEMMA4_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/gemma4_12b_chat_template.jinja is present (packaged builds ship it under resources).`,
       };
     }
     chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());

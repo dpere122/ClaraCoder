@@ -6,17 +6,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nemo_backend.accept_command import (
+from clara_coder_backend.accept_command import (
     ACCEPT_COMMAND_KIND_PROCESS_KILL,
     execute_pending_accept_command_decision,
 )
-from nemo_backend.tools.process import (
+from clara_coder_backend.tools.process import (
     kill_process_tool,
     parse_netstat_output,
     search_listening_ports,
     search_netstat_ports_tool,
 )
-from nemo_backend.state import get_session
+from clara_coder_backend.state import get_session
 
 
 def test_parse_windows_netstat_listening() -> None:
@@ -41,7 +41,7 @@ def test_parse_ss_output() -> None:
 async def test_search_netstat_ports_filters() -> None:
     fake_out = '  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       99\n'
     with patch(
-        'nemo_backend.tools.process._run_netstat',
+        'clara_coder_backend.tools.process._run_netstat',
         new=AsyncMock(return_value=(0, fake_out)),
     ):
         result = await search_netstat_ports_tool.ainvoke({'port': 8080})
@@ -51,7 +51,7 @@ async def test_search_netstat_ports_filters() -> None:
 
 @pytest.mark.asyncio
 async def test_kill_process_always_pending() -> None:
-    from nemo_backend.state import current_session_id
+    from clara_coder_backend.state import current_session_id
 
     sid = 'kill-hitl'
     token = current_session_id.set(sid)
@@ -69,7 +69,7 @@ async def test_kill_process_always_pending() -> None:
 
 @pytest.mark.asyncio
 async def test_kill_process_rejects_protected_pid() -> None:
-    from nemo_backend.state import current_session_id
+    from clara_coder_backend.state import current_session_id
 
     token = current_session_id.set('kill-protected')
     try:
@@ -81,7 +81,7 @@ async def test_kill_process_rejects_protected_pid() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_pending_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.state import current_session_id
+    from clara_coder_backend.state import current_session_id
 
     sid = 'kill-exec'
     token = current_session_id.set(sid)
@@ -93,7 +93,7 @@ async def test_execute_pending_kill(monkeypatch: pytest.MonkeyPatch) -> None:
             'action': {'kind': 'kill_process', 'pid': 9999, 'force': True, 'kill_tree': True},
         }
         mock_kill = AsyncMock(return_value='killed')
-        monkeypatch.setattr('nemo_backend.tools.process._execute_kill', mock_kill)
+        monkeypatch.setattr('clara_coder_backend.tools.process._execute_kill', mock_kill)
         result = await execute_pending_accept_command_decision(session, confirm=True, request_id='abc')
         assert result == 'killed'
         mock_kill.assert_awaited_once()

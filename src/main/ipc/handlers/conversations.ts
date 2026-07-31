@@ -27,7 +27,7 @@ function assistantMessageCount(messages: ConversationFile['messages']): number {
   return messages.filter((m) => m.role === 'assistant').length;
 }
 
-/** Keep in sync with `nemo_backend.conversation_title_cadence.should_refresh_auto_title`. */
+/** Keep in sync with `clara_coder_backend.conversation_title_cadence.should_refresh_auto_title`. */
 function shouldRunAutoTitle(assistantCount: number): boolean {
   return assistantCount === 1 || (assistantCount > 0 && assistantCount % 25 === 0);
 }

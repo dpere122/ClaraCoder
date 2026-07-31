@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
-from nemo_backend.chat_input import effective_user_message_content, validate_user_turn_not_empty
-from nemo_backend.schemas import ChatRequest
+from clara_coder_backend.chat_input import effective_user_message_content, validate_user_turn_not_empty
+from clara_coder_backend.schemas import ChatRequest
 
 
 def test_effective_plain_message_only() -> None:
@@ -91,17 +91,17 @@ def test_chat_request_rejects_empty_structured_list_only() -> None:
         ChatRequest(session_id='s', structured_content=[])
 
 
-@patch('nemo_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)
+@patch('clara_coder_backend.routes_session.delete_outer_threads_for_session', new_callable=AsyncMock)
 def test_load_session_accepts_multimodal_user_content(
     _mock_delete: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv('NEMO_CHECKPOINT_DB', str(tmp_path / 'cp_chat.sqlite'))
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp_chat.sqlite'))
     from starlette.testclient import TestClient
 
-    from nemo_backend import state
-    from nemo_backend.main import app
+    from clara_coder_backend import state
+    from clara_coder_backend.main import app
 
     blocks = [{'type': 'text', 'text': 'hi'}, {'type': 'image_url', 'image_url': {'url': 'x'}}]
     with TestClient(app) as client:

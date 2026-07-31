@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-from nemo_backend.domain import RuntimeConnection
-from nemo_backend.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
+from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
 
 
 def _gemma_connection() -> RuntimeConnection:
@@ -41,11 +41,11 @@ def _tool_end_event(*, name: str, run_id: str, output: str) -> dict[str, object]
 
 
 def test_duplicate_tool_end_is_logged_once(caplog: pytest.LogCaptureFixture) -> None:
-    nemo = logging.getLogger('nemo')
+    nemo = logging.getLogger('clara')
     prev = nemo.propagate
     nemo.propagate = True
     try:
-        caplog.set_level(logging.INFO, logger='nemo.tools.invoke')
+        caplog.set_level(logging.INFO, logger='clara.tools.invoke')
         state = GraphStreamState()
         ev = _tool_end_event(
             name='run_workspace_pytest_tests',
@@ -262,7 +262,7 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
     assert state.partial_stream_text == 'Hello world'
 
 
-@patch('nemo_backend.langgraph_sse.get_active_connection')
+@patch('clara_coder_backend.langgraph_sse.get_active_connection')
 def test_chat_model_stream_splits_gemma_channel_to_reasoning(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _gemma_connection()
     state = GraphStreamState()
@@ -386,8 +386,8 @@ def test_chat_model_end_emits_token_usage_when_usage_metadata_present() -> None:
 
 @pytest.mark.asyncio(loop_scope='function')
 async def test_hitl_sse_lines_diff_sentinel_only() -> None:
-    from nemo_backend.agent_langgraph import _hitl_sse_lines
-    from nemo_backend.domain import SessionState
+    from clara_coder_backend.agent_langgraph import _hitl_sse_lines
+    from clara_coder_backend.domain import SessionState
 
     s = SessionState()
     payload = {'version': 1, 'rows': []}
@@ -417,10 +417,10 @@ async def test_hitl_sse_lines_diff_sentinel_only() -> None:
 async def test_hitl_sse_lines_accept_command_skips_risk_enrichment_when_setting_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
-    from nemo_backend.agent_langgraph import _hitl_sse_lines
-    from nemo_backend.domain import SessionState
-    from nemo_backend.state import runtime_config
+    from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+    from clara_coder_backend.agent_langgraph import _hitl_sse_lines
+    from clara_coder_backend.domain import SessionState
+    from clara_coder_backend.state import runtime_config
 
     monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', False, raising=False)
 
@@ -440,7 +440,7 @@ async def test_hitl_sse_lines_accept_command_skips_risk_enrichment_when_setting_
         },
     }
 
-    with patch('nemo_backend.agent_langgraph.maybe_enrich_pending_command_risk') as mock_enrich:
+    with patch('clara_coder_backend.agent_langgraph.maybe_enrich_pending_command_risk') as mock_enrich:
         lines = await _hitl_sse_lines(s, ('accept_command',))
 
     assert len(lines) == 1
@@ -454,10 +454,10 @@ async def test_hitl_sse_lines_accept_command_skips_risk_enrichment_when_setting_
 async def test_hitl_sse_lines_accept_command_includes_risk_fields_when_enriched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
-    from nemo_backend.agent_langgraph import _hitl_sse_lines
-    from nemo_backend.domain import SessionState
-    from nemo_backend.state import runtime_config
+    from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+    from clara_coder_backend.agent_langgraph import _hitl_sse_lines
+    from clara_coder_backend.domain import SessionState
+    from clara_coder_backend.state import runtime_config
 
     monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', True, raising=False)
 
@@ -483,7 +483,7 @@ async def test_hitl_sse_lines_accept_command_includes_risk_fields_when_enriched(
         pending['risk_description'] = 'Deletes the build directory.'
 
     with patch(
-        'nemo_backend.agent_langgraph.maybe_enrich_pending_command_risk',
+        'clara_coder_backend.agent_langgraph.maybe_enrich_pending_command_risk',
         new=AsyncMock(side_effect=_fake_enrich),
     ) as mock_enrich:
         lines = await _hitl_sse_lines(s, ('accept_command',))

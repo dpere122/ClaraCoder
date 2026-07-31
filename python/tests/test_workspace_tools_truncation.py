@@ -1,6 +1,6 @@
 """Tests for workspace string truncation helpers."""
 
-from nemo_backend.tools.workspace import truncate_text_head_tail
+from clara_coder_backend.tools.workspace import truncate_text_head_tail
 
 
 def test_truncate_text_head_tail_keeps_start_and_end() -> None:

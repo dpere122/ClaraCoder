@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from nemo_backend.context_compression import (
+from clara_coder_backend.context_compression import (
     compact_checkpoint_messages,
     compact_tool_message_body,
     estimate_messages_tokens,
 )
-from nemo_backend.domain import RuntimeContextCompressionConfig
+from clara_coder_backend.domain import RuntimeContextCompressionConfig
 
 
 def _cfg(**overrides: object) -> RuntimeContextCompressionConfig:

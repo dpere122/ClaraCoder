@@ -71,4 +71,47 @@ export function galleryNextIndex(currentIndex: number, length: number): number {
   return currentIndex >= length - 1 ? 0 : currentIndex + 1;
 }
 
+/**
+ * Whether a workspace-files-changed payload may alter the flat gallery listing for
+ * `galleryFolderRel` (`''` = workspace root). Nested paths under other folders are ignored.
+ */
+export function workspaceChangeAffectsGalleryFolder(
+  galleryFolderRel: string,
+  paths: readonly string[],
+  previousPaths?: readonly string[],
+): boolean {
+  const folder = normalizePathSlashes(galleryFolderRel).replace(/^\/+/, '');
+  const candidates = previousPaths?.length ? [...paths, ...previousPaths] : paths;
+  for (const raw of candidates) {
+    const p = normalizePathSlashes(raw).replace(/^\/+/, '');
+    if (!p || p === '.') {
+      return true;
+    }
+    if (p === folder || parentFolderRelativePath(p) === folder) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * After a gallery refresh, keep the current image when still present; otherwise pick a
+ * nearby sibling using the pre-refresh index (clamped). Returns null when the gallery is empty.
+ */
+export function pickGalleryPathAfterRefresh(
+  paths: readonly string[],
+  currentRelativePath: string,
+  previousIndex: number,
+): string | null {
+  if (paths.length === 0) {
+    return null;
+  }
+  const currentIndex = galleryIndexForPath(paths, currentRelativePath);
+  if (currentIndex >= 0) {
+    return paths[currentIndex] ?? null;
+  }
+  const idx = Math.min(Math.max(previousIndex, 0), paths.length - 1);
+  return paths[idx] ?? null;
+}
+
 export const AUTO_PLAY_INTERVAL_OPTIONS_MS: readonly number[] = [2000, 3000, 5000, 10000] as const;

@@ -8,8 +8,8 @@ import pytest
 from langchain_core.messages import AIMessage
 from starlette.testclient import TestClient
 
-from nemo_backend.conversation_title_cadence import should_refresh_auto_title
-from nemo_backend.routes_conversation_title import history_transcript_for_title
+from clara_coder_backend.conversation_title_cadence import should_refresh_auto_title
+from clara_coder_backend.routes_conversation_title import history_transcript_for_title
 
 
 @pytest.mark.parametrize(
@@ -42,8 +42,8 @@ def test_history_transcript_for_title_skips_non_chat_roles() -> None:
 
 
 def test_suggest_title_uses_mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend import state
-    from nemo_backend.main import app
+    from clara_coder_backend import state
+    from clara_coder_backend.main import app
 
     sid = 'title-test-session'
     sess = state.get_session(sid)
@@ -59,7 +59,7 @@ def test_suggest_title_uses_mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_build_llm() -> _FakeLlm:
         return _FakeLlm()
 
-    monkeypatch.setattr('nemo_backend.routes_conversation_title.build_llm', _fake_build_llm)
+    monkeypatch.setattr('clara_coder_backend.routes_conversation_title.build_llm', _fake_build_llm)
 
     try:
         with TestClient(app) as client:

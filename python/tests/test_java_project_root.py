@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.lsp.java_project_root import is_java_project_root, resolve_java_project_root
+from clara_coder_backend.lsp.java_project_root import is_java_project_root, resolve_java_project_root
 
 
 def test_is_java_project_root_maven(tmp_path: Path) -> None:
@@ -20,7 +20,7 @@ def test_is_java_project_root_gradle(tmp_path: Path) -> None:
 
 
 def test_resolve_java_project_root_from_seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_JAVA_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_JAVA_LSP_PROJECT_ROOT', raising=False)
     root = tmp_path / 'app'
     src = root / 'src' / 'main' / 'java' / 'com' / 'example'
     src.mkdir(parents=True)
@@ -41,14 +41,14 @@ def test_resolve_java_project_root_env_override(tmp_path: Path, monkeypatch: pyt
     other = tmp_path / 'other'
     other.mkdir()
     (other / 'pom.xml').write_text('<project/>\n', encoding='utf-8')
-    monkeypatch.setenv('NEMO_JAVA_LSP_PROJECT_ROOT', 'lib')
+    monkeypatch.setenv('CLARA_JAVA_LSP_PROJECT_ROOT', 'lib')
 
     resolved = resolve_java_project_root(tmp_path, seed_relative_path='other/Main.java')
     assert resolved == nested.resolve()
 
 
 def test_resolve_java_project_root_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_JAVA_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_JAVA_LSP_PROJECT_ROOT', raising=False)
     deep = tmp_path / 'modules' / 'core'
     deep.mkdir(parents=True)
     (deep / 'settings.gradle').write_text('rootProject.name = "core"\n', encoding='utf-8')
@@ -58,6 +58,6 @@ def test_resolve_java_project_root_discovery(tmp_path: Path, monkeypatch: pytest
 
 
 def test_resolve_java_project_root_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_JAVA_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_JAVA_LSP_PROJECT_ROOT', raising=False)
     resolved = resolve_java_project_root(tmp_path, seed_relative_path=None, allow_workspace_walk=True)
     assert resolved == tmp_path.resolve()

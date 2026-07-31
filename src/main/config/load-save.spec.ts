@@ -6,7 +6,7 @@ import type { AppConfig } from '../../shared';
 import { createDefaultConfig } from './defaults';
 
 vi.mock('../paths', () => ({
-  getConfigPath: () => join(process.env.NEMO_TEST_CONFIG_DIR ?? '', 'config.json'),
+  getConfigPath: () => join(process.env.CLARA_TEST_CONFIG_DIR ?? '', 'config.json'),
 }));
 
 import { loadConfig, mergeSettingsConfigSave, updateConfig } from './load-save';
@@ -59,12 +59,12 @@ describe('updateConfig serialization', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'nemo-config-test-'));
-    process.env.NEMO_TEST_CONFIG_DIR = tempDir;
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
     writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
   });
 
   afterEach(() => {
-    delete process.env.NEMO_TEST_CONFIG_DIR;
+    delete process.env.CLARA_TEST_CONFIG_DIR;
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
     }

@@ -9,11 +9,11 @@ agent loop into a one-line-at-a-time read loop until it hit the recursion limit.
 
 from __future__ import annotations
 
-from nemo_backend.domain import EditStagingEntry
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.tools.review_tools import read_staged_edit
-from nemo_backend.tools.tool_conventions import clamp_line_window
-from nemo_backend.tools.workspace import read_workspace_file
+from clara_coder_backend.domain import EditStagingEntry
+from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.tools.review_tools import read_staged_edit
+from clara_coder_backend.tools.tool_conventions import clamp_line_window
+from clara_coder_backend.tools.workspace import read_workspace_file
 
 
 def test_clamp_line_window_normal_range_is_unchanged() -> None:

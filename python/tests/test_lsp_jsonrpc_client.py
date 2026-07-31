@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.lsp.client import JsonRpcLspClient
+from clara_coder_backend.lsp.client import JsonRpcLspClient
 
 
 class _BrokenStdin:

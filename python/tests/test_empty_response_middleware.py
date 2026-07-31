@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from nemo_backend.domain import EditStagingEntry, PendingStagedTransferHitl
-from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
-from nemo_backend.state import current_session_id, get_session
+from clara_coder_backend.domain import EditStagingEntry, PendingStagedTransferHitl
+from clara_coder_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.state import current_session_id, get_session
 
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
@@ -84,7 +84,7 @@ async def test_pseudo_tool_markup_in_text_nudges_without_api_tool_calls() -> Non
     assert result.get('empty_response_nudge_streak') == 0
 
 
-@patch('nemo_backend.empty_response_middleware.MAX_AGENT_PSEUDO_TOOL_NUDGES', 2)
+@patch('clara_coder_backend.empty_response_middleware.MAX_AGENT_PSEUDO_TOOL_NUDGES', 2)
 async def test_pseudo_tool_markup_nudge_stops_at_cap() -> None:
     middleware = EmptyResponseNudgeMiddleware()
     result = await middleware.aafter_model(

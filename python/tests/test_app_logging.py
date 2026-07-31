@@ -12,13 +12,13 @@ from pathlib import Path
 
 class TestAppLoggingHttp(unittest.TestCase):
     def setUp(self) -> None:
-        import nemo_backend.app_logging as app_logging
+        import clara_coder_backend.app_logging as app_logging
 
         app_logging._configured = False  # type: ignore[attr-defined]
         app_logging._ring.clear()  # type: ignore[attr-defined]
         self._td = tempfile.TemporaryDirectory()
-        os.environ['NEMO_LOG_DIR'] = self._td.name
-        import nemo_backend.main as main_mod
+        os.environ['CLARA_LOG_DIR'] = self._td.name
+        import clara_coder_backend.main as main_mod
 
         importlib.reload(main_mod)
         self._main = main_mod
@@ -28,28 +28,28 @@ class TestAppLoggingHttp(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.client.close()
-        from nemo_backend.app_logging import reset_logging_handlers
+        from clara_coder_backend.app_logging import reset_logging_handlers
 
         reset_logging_handlers()
         self._td.cleanup()
-        os.environ.pop('NEMO_LOG_DIR', None)
+        os.environ.pop('CLARA_LOG_DIR', None)
 
     def test_recent_after_info_log(self) -> None:
-        logging.getLogger('nemo.test').info('hello health')
+        logging.getLogger('clara.test').info('hello health')
         r = self.client.get('/logs/recent?limit=50')
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertIn('records', data)
         texts = ' '.join(x.get('message', '') for x in data['records'])
         self.assertIn('hello health', texts)
-        self.assertTrue((Path(self._td.name) / 'nemo-app.log').exists())
+        self.assertTrue((Path(self._td.name) / 'clara-app.log').exists())
 
     def test_ingest(self) -> None:
         self.client.post(
             '/logs/ingest',
             json={
                 'level': 'WARNING',
-                'logger': 'nemo.electron.test',
+                'logger': 'clara.electron.test',
                 'message': 'from electron',
                 'source': 'electron',
             },

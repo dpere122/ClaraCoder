@@ -1,5 +1,5 @@
 # Packaging: https://www.electron.build/configuration/configuration
-appId: com.nemo.wrapper
+appId: com.clara.coder
 productName: Clara Coder
 icon: build/icon.png
 
@@ -64,6 +64,6 @@ linux:
     - AppImage
   category: Development
   # Required by fpm for .deb (package.json author is empty).
-  maintainer: Clara Coder <dev@nemo.wrapper>
+  maintainer: Clara Coder <dev@clara.coder>
   syncDesktopName: true
   artifactName: ${productName}-${version}-Linux-${arch}.${ext}

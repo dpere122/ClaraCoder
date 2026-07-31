@@ -9,10 +9,10 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.types import Command
 from PIL import Image
 
-from nemo_backend.model_tuning import combined_model_prompt_suffix, is_qwen35_vision_model
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.vision_tool_middleware import VisionImageInjectionMiddleware
-from nemo_backend.tools.workspace_image import (
+from clara_coder_backend.model_tuning import combined_model_prompt_suffix, is_qwen35_vision_model
+from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.vision_tool_middleware import VisionImageInjectionMiddleware
+from clara_coder_backend.tools.workspace_image import (
     READ_WORKSPACE_IMAGE_NAME,
     load_workspace_image,
     pending_vision_image_payload,
@@ -118,7 +118,7 @@ def test_vision_middleware_injects_multimodal_human_message(workspace_session) -
 
 
 def test_qwen_vision_prompt_suffix_when_preset_and_model_match() -> None:
-    from nemo_backend.domain import RuntimeConnection
+    from clara_coder_backend.domain import RuntimeConnection
 
     conn = RuntimeConnection(
         id='q',

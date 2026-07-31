@@ -6,15 +6,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nemo_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL, execute_pending_accept_command_decision
-from nemo_backend.deferred_tool_hitl import (
+from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL, execute_pending_accept_command_decision
+from clara_coder_backend.deferred_tool_hitl import (
     DEFERRED_HITL_TOOL_NAMES,
     deferred_tool_hitl_bypass,
     maybe_await_hitl_for_deferred_tool,
 )
-from nemo_backend.tools.python_env import ENSURE_PYTHON_WORKSPACE_ENV_NAME
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.tool_registry import hitl_accept_command_pause_tools
+from clara_coder_backend.tools.python_env import ENSURE_PYTHON_WORKSPACE_ENV_NAME
+from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.tool_registry import hitl_accept_command_pause_tools
 
 
 def test_deferred_hitl_tools_in_accept_command_pause_registry() -> None:
@@ -89,7 +89,7 @@ async def test_execute_pending_deferred_tool_sets_session_context_for_hitl_confi
         return type('R', (), {'summary': 'venv ready'})()
 
     monkeypatch.setattr(
-        'nemo_backend.tools.python_env.ensure_session_python_workspace_env',
+        'clara_coder_backend.tools.python_env.ensure_session_python_workspace_env',
         _fake_ensure,
     )
 
@@ -122,7 +122,7 @@ async def test_execute_pending_deferred_tool_runs_after_confirm() -> None:
     }
     try:
         with patch(
-            'nemo_backend.deferred_tool_hitl._resolve_deferred_tool',
+            'clara_coder_backend.deferred_tool_hitl._resolve_deferred_tool',
             return_value=AsyncMock(ainvoke=AsyncMock(return_value='pytest ok')),
         ) as resolve_mock:
             note = await execute_pending_accept_command_decision(session, confirm=True, request_id='req-deferred-1')

@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from nemo_backend.domain import RuntimeToolsConfig
-from nemo_backend.lsp.manager import get_session_lsp_manager, shutdown_all_lsp_managers
-from nemo_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.lsp.manager import get_session_lsp_manager, shutdown_all_lsp_managers
+from clara_coder_backend.state import current_session_id, get_session, runtime_config
 
 
 class _FakeLspClient:
@@ -145,9 +145,9 @@ def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         kwargs.setdefault('client_factory', factory)
         return real_get(*args, **kwargs)
 
-    monkeypatch.setattr('nemo_backend.routes_lsp.get_session_lsp_manager', _inject)
+    monkeypatch.setattr('clara_coder_backend.routes_lsp.get_session_lsp_manager', _inject)
 
-    from nemo_backend.main import app
+    from clara_coder_backend.main import app
 
     yield SimpleNamespace(app=app, session_id=session_id, sample_path='pkg/mod.py', fake_clients=fake_clients)
 
@@ -339,7 +339,7 @@ def test_lsp_semantic_tokens_legend_gdscript_default_bridge_deferred_without_see
 ) -> None:
     """Default GDScript bridge is not started for legend until a ``.gd`` file has been synced (seed)."""
 
-    monkeypatch.delenv('NEMO_GDSCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_GDSCRIPT_LSP_COMMAND', raising=False)
     with TestClient(lsp_http_env.app) as client:
         r = client.get(
             f'/lsp/semantic-tokens-legend?session_id={lsp_http_env.session_id}&server=gdscript',
@@ -355,7 +355,7 @@ def test_lsp_semantic_tokens_legend_gdscript_after_disk_sync_uses_injected_clien
 ) -> None:
     """After syncing a ``.gd`` path, legend prefetch may start the injected gdscript client."""
 
-    monkeypatch.delenv('NEMO_GDSCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_GDSCRIPT_LSP_COMMAND', raising=False)
     session = get_session(lsp_http_env.session_id)
     root = Path(session.workspace_path)
     gd = root / 'game' / 'Main.gd'
@@ -377,7 +377,7 @@ def test_lsp_semantic_tokens_legend_gdscript_after_disk_sync_uses_injected_clien
 
 
 def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None:
-    from nemo_backend.lsp.manager import get_lsp_dashboard_status
+    from clara_coder_backend.lsp.manager import get_lsp_dashboard_status
 
     st = get_lsp_dashboard_status(lsp_http_env.session_id)
     servers = st.get('servers') or {}
@@ -388,8 +388,8 @@ def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None
 
 
 def test_get_lsp_dashboard_status_uses_cached_ts_root_only(lsp_http_env, tmp_path) -> None:
-    from nemo_backend.lsp.manager import get_lsp_dashboard_status
-    from nemo_backend.state import get_session
+    from clara_coder_backend.lsp.manager import get_lsp_dashboard_status
+    from clara_coder_backend.state import get_session
 
     session = get_session(lsp_http_env.session_id)
     session.typescript_lsp_resolved_root = ''

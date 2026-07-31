@@ -8,17 +8,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from nemo_backend.app_logging import configure_logging, get_recent_records, reset_logging_handlers
-from nemo_backend.domain import EditStagingEntry, RuntimeToolsConfig
-from nemo_backend.lsp.manager import (
+from clara_coder_backend.app_logging import configure_logging, get_recent_records, reset_logging_handlers
+from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.lsp.manager import (
     activate_session_lsp_scope,
     get_session_lsp_manager,
     shutdown_all_lsp_managers,
     sync_session_document,
 )
-from nemo_backend.staging_snapshot_session import prepare_new_staging_snapshot_session
-from nemo_backend.lsp.file_policy import suggest_edit_tool_for_path
-from nemo_backend.tools.lsp_tools import (
+from clara_coder_backend.staging_snapshot_session import prepare_new_staging_snapshot_session
+from clara_coder_backend.lsp.file_policy import suggest_edit_tool_for_path
+from clara_coder_backend.tools.lsp_tools import (
     lsp_find_definition,
     lsp_find_references,
     lsp_create_gdscript_file,
@@ -33,10 +33,10 @@ from nemo_backend.tools.lsp_tools import (
     lsp_update_python_file,
     lsp_update_typescript_file,
 )
-from nemo_backend.routes_session import clear_session, set_workspace_context
-from nemo_backend.routes_lsp import lsp_diagnostics
-from nemo_backend.schemas import ClearRequest, WorkspaceContextRequest
-from nemo_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.routes_session import clear_session, set_workspace_context
+from clara_coder_backend.routes_lsp import lsp_diagnostics
+from clara_coder_backend.schemas import ClearRequest, WorkspaceContextRequest
+from clara_coder_backend.state import current_session_id, get_session, runtime_config
 
 
 class _FakeLspClient:
@@ -222,7 +222,7 @@ def test_typescript_lsp_read_tools(monkeypatch, lsp_env) -> None:
         kwargs.setdefault('client_factory', lsp_env.factory)
         return get_session_lsp_manager(*a, **kwargs)
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
 
     diag_text = lsp_get_diagnostics.invoke({'relative_path': 'app.ts', 'refresh_active_document': True})
     assert 'LSP context:' in diag_text
@@ -262,7 +262,7 @@ def test_lsp_get_diagnostics_returns_tool_error_when_lsp_bootstrap_fails(monkeyp
             del relative_path, encoding
             raise RuntimeError("LSP request failed for 'initialize': LSP client closed")
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.get_session_lsp_manager', lambda *a, **k: _BrokenManager())
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', lambda *a, **k: _BrokenManager())
 
     result = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
 
@@ -291,10 +291,10 @@ def test_sync_session_document_retry_restarts_only_failed_server(monkeypatch, ls
     def _fake_shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
         shutdown_calls.append((session_id, server_id))
 
-    monkeypatch.setattr('nemo_backend.lsp.manager.get_session_lsp_manager', _fake_get_session_lsp_manager)
-    monkeypatch.setattr('nemo_backend.lsp.manager.shutdown_session_lsp_server', _fake_shutdown_session_lsp_server)
+    monkeypatch.setattr('clara_coder_backend.lsp.manager.get_session_lsp_manager', _fake_get_session_lsp_manager)
+    monkeypatch.setattr('clara_coder_backend.lsp.manager.shutdown_session_lsp_server', _fake_shutdown_session_lsp_server)
     monkeypatch.setattr(
-        'nemo_backend.lsp.manager.shutdown_session_lsp',
+        'clara_coder_backend.lsp.manager.shutdown_session_lsp',
         lambda session_id: (_ for _ in ()).throw(AssertionError(f'should not shut down all LSPs: {session_id}')),
     )
 
@@ -342,7 +342,7 @@ def test_lsp_get_diagnostics_scope_param_works_regardless_of_auto_apply(monkeypa
         kwargs.setdefault('client_factory', lsp_env.factory)
         return get_session_lsp_manager(*a, **kwargs)
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
 
     workspace_text = lsp_get_diagnostics.invoke(
         {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'workspace'}
@@ -376,7 +376,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
             '`transfer_staged_file_to_workspace` succeeds. Python LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_python_file.invoke({'relative_path': 'pkg/new_mod.py', 'new_content': 'value = 1\n'})
 
@@ -395,7 +395,7 @@ def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkey
 def test_lsp_update_python_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
+        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 
@@ -415,7 +415,7 @@ def test_lsp_create_typescript_file_selects_staging_scope_and_labels_response(mo
             '`transfer_staged_file_to_workspace` succeeds. TypeScript LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_typescript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
 
@@ -434,7 +434,7 @@ def test_lsp_create_typescript_file_selects_staging_scope_and_labels_response(mo
 def test_lsp_update_typescript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
+        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 
@@ -510,7 +510,7 @@ def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monk
             '`transfer_staged_file_to_workspace` succeeds. GDScript LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_gdscript_file.invoke({'relative_path': 'game/Main.gd', 'new_content': 'extends Node\n'})
 
@@ -529,7 +529,7 @@ def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monk
 def test_lsp_update_gdscript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
+        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 
@@ -557,7 +557,7 @@ def test_lsp_create_java_file_selects_staging_scope_and_labels_response(monkeypa
             '`transfer_staged_file_to_workspace` succeeds. Java LSP diagnostics: 0 issue(s).'
         )
 
-    monkeypatch.setattr('nemo_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
 
     result = lsp_create_java_file.invoke(
         {'relative_path': 'src/App.java', 'new_content': 'public class App {}\n'}
@@ -578,7 +578,7 @@ def test_lsp_create_java_file_selects_staging_scope_and_labels_response(monkeypa
 def test_lsp_update_java_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
     lsp_env.session.auto_apply_mode = False
     monkeypatch.setattr(
-        'nemo_backend.tools.lsp_tools.stage_workspace_file_overwrite',
+        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
         SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
     )
 
@@ -646,7 +646,7 @@ def test_clear_session_shuts_down_lsp_state(lsp_env) -> None:
 
 
 def test_post_edit_checks_footer_steers_on_indent_diagnostics() -> None:
-    from nemo_backend.lsp.diagnostics import post_edit_checks_footer
+    from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
 
     diags = [
         {
@@ -674,7 +674,7 @@ def test_post_edit_checks_footer_steers_on_indent_diagnostics() -> None:
     assert 'refresh_active_document=true' in out
 
 
-def test_python_lsp_events_flow_into_nemo_logging(lsp_env, tmp_path: Path) -> None:
+def test_python_lsp_events_flow_into_clara_logging(lsp_env, tmp_path: Path) -> None:
     log_dir = tmp_path / 'logs'
     reset_logging_handlers()
     configure_logging(log_dir)
@@ -685,5 +685,5 @@ def test_python_lsp_events_flow_into_nemo_logging(lsp_env, tmp_path: Path) -> No
         reset_logging_handlers()
     loggers = {record['logger'] for record in records}
     messages = ' '.join(record['message'] for record in records)
-    assert 'nemo.lsp.manager' in loggers
+    assert 'clara.lsp.manager' in loggers
     assert 'python LSP didOpen' in messages

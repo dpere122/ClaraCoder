@@ -3,15 +3,34 @@ import { app } from 'electron';
 import path = require('path');
 import { GEMMA4_CHAT_TEMPLATE_FILENAME } from '../shared/gemma-template';
 import { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from '../shared/qwen-template';
-import { DEV_SERVER_URL } from './constants';
+import { migrateLegacyAppDataDir } from './app-data';
+import { envClara } from './env-clara';
+
+let appDataConfigured = false;
 
 /**
- * Resolves the directory used for config.json, workspaces, and legacy conversations.
- * In dev, forces a stable folder name under appData regardless of the executable name.
+ * Migrate legacy data dirs and pin Electron ``userData`` to ``{appData}/clara-coder``.
+ * Must run once before any ``getAppDataDir()`` / config / SQLite open.
+ */
+export function configureAppDataDir(): string {
+  if (!appDataConfigured) {
+    const { target, migrated, from, method } = migrateLegacyAppDataDir(app.getPath('appData'));
+    app.setPath('userData', target);
+    appDataConfigured = true;
+    if (migrated && from) {
+      console.log(`[app-data] Migrated app data (${method}) from ${from} → ${target}`);
+    }
+  }
+  return app.getPath('userData');
+}
+
+/**
+ * Resolves the directory used for config.json, workspaces, and conversations.
+ * Always ``{appData}/clara-coder`` after {@link configureAppDataDir}.
  */
 export function getAppDataDir(): string {
-  if (DEV_SERVER_URL) {
-    return path.join(app.getPath('appData'), 'nemo-wrapper');
+  if (!appDataConfigured) {
+    return configureAppDataDir();
   }
   return app.getPath('userData');
 }
@@ -41,12 +60,12 @@ export function getGeneralConversationsDir(): string {
   return path.join(getAppDataDir(), 'conversations');
 }
 
-/** Rotating app logs (`nemo-app.log*`) — same root as config.json. */
+/** Rotating app logs (`clara-app.log*`) — same root as config.json. */
 export function getLogsDir(): string {
   return path.join(getAppDataDir(), 'logs');
 }
 
-/** Nested edit staging (Python ``NEMO_STAGING_DIR``) — same root as config.json. */
+/** Nested edit staging (Python ``CLARA_STAGING_DIR``) — same root as config.json. */
 export function getWorkspaceStagingDir(): string {
   return path.join(getAppDataDir(), 'workspace-staging');
 }
@@ -56,7 +75,7 @@ export function getEditorDetachedSnapshotsDir(): string {
   return path.join(getAppDataDir(), 'editor-snapshots');
 }
 
-/** LangGraph Sqlite checkpoints (Python ``NEMO_CHECKPOINT_DB``). */
+/** LangGraph Sqlite checkpoints (Python ``CLARA_CHECKPOINT_DB``). */
 export function getCheckpointDbPath(): string {
   return path.join(getAppDataDir(), 'langgraph-checkpoints.sqlite');
 }
@@ -66,12 +85,12 @@ export function getConversationsDbPath(): string {
   return path.join(getAppDataDir(), 'conversations.sqlite');
 }
 
-/** Workspace + staging semantic index (Python ``NEMO_WORKSPACE_INDEX_DIR``). */
+/** Workspace + staging semantic index (Python ``CLARA_WORKSPACE_INDEX_DIR``). */
 export function getWorkspaceSemanticIndexDir(): string {
   return path.join(getAppDataDir(), 'workspace-semantic-index');
 }
 
-/** Eclipse JDT LS download cache (Python ``NEMO_JAVA_LSP_CACHE_DIR``). */
+/** Eclipse JDT LS download cache (Python ``CLARA_JAVA_LSP_CACHE_DIR``). */
 export function getJavaLspCacheDir(): string {
   return path.join(getAppDataDir(), 'java-lsp');
 }
@@ -88,10 +107,10 @@ export function getPythonServerScriptPath(): string {
 
 /**
  * Path to the bundled Qwen Jinja chat template for managed ``llama-server`` (``--chat-template-file``).
- * Override with ``NEMO_QWEN_CHAT_TEMPLATE_PATH`` (absolute path recommended).
+ * Override with ``CLARA_QWEN_CHAT_TEMPLATE_PATH`` (absolute path recommended).
  */
 export function getQwenInferenceChatTemplatePath(): string {
-  const fromEnv = process.env.NEMO_QWEN_CHAT_TEMPLATE_PATH?.trim();
+  const fromEnv = envClara('QWEN_CHAT_TEMPLATE_PATH');
   if (fromEnv) {
     return path.isAbsolute(fromEnv) ? fromEnv : path.resolve(fromEnv);
   }
@@ -103,10 +122,10 @@ export function getQwenInferenceChatTemplatePath(): string {
 
 /**
  * Path to the bundled Gemma 4 Jinja chat template for managed ``llama-server`` (``--chat-template-file``).
- * Override with ``NEMO_GEMMA4_CHAT_TEMPLATE_PATH`` (absolute path recommended).
+ * Override with ``CLARA_GEMMA4_CHAT_TEMPLATE_PATH`` (absolute path recommended).
  */
 export function getGemma4ChatTemplatePath(): string {
-  const fromEnv = process.env.NEMO_GEMMA4_CHAT_TEMPLATE_PATH?.trim();
+  const fromEnv = envClara('GEMMA4_CHAT_TEMPLATE_PATH');
   if (fromEnv) {
     return path.isAbsolute(fromEnv) ? fromEnv : path.resolve(fromEnv);
   }
@@ -118,10 +137,10 @@ export function getGemma4ChatTemplatePath(): string {
 
 /**
  * Interpreter for `server.py`. In dev, uses repo `.venv` when present so launches match
- * `npm run setup:python`. Optional override: `NEMO_PYTHON` (absolute path to executable).
+ * `npm run setup:python`. Optional override: `CLARA_PYTHON` (absolute path to executable).
  */
 export function getPythonExecutable(): string {
-  const fromEnv = process.env.NEMO_PYTHON?.trim();
+  const fromEnv = envClara('PYTHON');
   if (fromEnv) return fromEnv;
 
   if (!app.isPackaged) {

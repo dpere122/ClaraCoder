@@ -66,11 +66,11 @@ export function startPythonServer(): ChildProcess {
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
-      NEMO_LOG_DIR: logDir,
-      NEMO_STAGING_DIR: stagingDir,
-      NEMO_CHECKPOINT_DB: checkpointDb,
-      NEMO_WORKSPACE_INDEX_DIR: workspaceSemanticIndexDir,
-      NEMO_JAVA_LSP_CACHE_DIR: javaLspCacheDir,
+      CLARA_LOG_DIR: logDir,
+      CLARA_STAGING_DIR: stagingDir,
+      CLARA_CHECKPOINT_DB: checkpointDb,
+      CLARA_WORKSPACE_INDEX_DIR: workspaceSemanticIndexDir,
+      CLARA_JAVA_LSP_CACHE_DIR: javaLspCacheDir,
     },
   });
 

@@ -271,6 +271,11 @@ export type {
   WorkspaceSystemPromptMutationResult,
 } from './types/workspace-context';
 export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';
+export {
+  DEFAULT_THUMB_MAX_EDGE,
+  computeThumbDimensions,
+  parseThumbMaxEdge,
+} from './nemo-asset-thumb';
 export type {
   HuggingFaceModelSearchItem,
   ModelManagerCacheLocation,

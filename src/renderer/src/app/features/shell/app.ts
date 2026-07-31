@@ -94,6 +94,7 @@ import type { EditorOutlineSymbol } from '../workspace/editor-outline/editor-out
 import { editorModelKeyForRelativePath } from '../workspace/open-editor-file-ref';
 import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
 import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-formats';
+import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
@@ -491,6 +492,10 @@ export class App implements OnInit, OnDestroy {
     this.electron.windowMaximized$
       .pipe(takeUntilDestroyed())
       .subscribe((maximized) => this.windowMaximized.set(maximized));
+
+    this.electron.editorFindRequested$
+      .pipe(takeUntilDestroyed())
+      .subscribe(() => this.onEditorFindRequested());
 
     this.electron.workspaceFilesChanged$
       .pipe(takeUntilDestroyed())
@@ -1630,6 +1635,25 @@ export class App implements OnInit, OnDestroy {
     if (!norm) {
       return;
     }
+
+    // Same-folder images share one gallery tab (swap path) instead of stacking tabs.
+    const imagePlan = planOpenWorkspaceImageTab(this.fileTabs(), norm, this.activeMainTabId());
+    if (imagePlan?.action === 'focus') {
+      this.activeMainTabId.set(imagePlan.tabId);
+      this.chatExpanded.set(false);
+      return;
+    }
+    if (imagePlan?.action === 'retarget') {
+      this.fileTabs.update((tabs) =>
+        retargetFileTabPath(tabs, imagePlan.oldRelativePath, imagePlan.newRelativePath),
+      );
+      this.activeMainTabId.set(
+        chatFileTabId({ relativePath: imagePlan.newRelativePath, outsideWorkspace: false }),
+      );
+      this.chatExpanded.set(false);
+      return;
+    }
+
     const tab = workspaceChatFileTab(norm);
     const id = chatFileTabId(tab);
     const tabs = this.fileTabs();
@@ -2044,6 +2068,15 @@ export class App implements OnInit, OnDestroy {
     if (this.fileTabContextMenuVisible()) {
       this.closeFileTabContextMenu();
     }
+  }
+
+  /** Main stole Ctrl/Cmd+F from Chromium — open Monaco find when a file editor is on stage. */
+  private onEditorFindRequested(): void {
+    const tabId = this.activeMainTabId();
+    if (!tabId?.startsWith('file:') || this.activeFileIsImage() || this.chatExpanded()) {
+      return;
+    }
+    this.workspaceMonaco?.openFindWidget();
   }
 
   protected onWorkspaceFileOpen(payload: { absolutePath: string }): void {

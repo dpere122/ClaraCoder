@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nemo_backend.domain import SessionState
+from clara_coder_backend.domain import SessionState
 
 
 def test_editor_stream_refcount_one_exit_keeps_apply_when_second_holds() -> None:

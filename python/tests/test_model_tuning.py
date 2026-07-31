@@ -3,9 +3,9 @@
 import os
 from dataclasses import replace
 
-from nemo_backend.domain import RuntimeConnection
-from nemo_backend import state
-from nemo_backend.model_tuning import (
+from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend import state
+from clara_coder_backend.model_tuning import (
     combined_model_prompt_suffix,
     connection_user_sampling_kwargs_for_llm,
     effective_parallel_tool_calls,
@@ -201,17 +201,17 @@ def test_connection_user_sampling_presence_and_repeat_penalty() -> None:
 
 
 def test_llm_optional_max_tokens_for_gemma_template() -> None:
-    prev_global = os.environ.get('NEMO_CHAT_MAX_OUTPUT_TOKENS')
-    prev_gemma = os.environ.get('NEMO_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS')
+    prev_global = os.environ.get('CLARA_CHAT_MAX_OUTPUT_TOKENS')
+    prev_gemma = os.environ.get('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS')
     try:
-        os.environ.pop('NEMO_CHAT_MAX_OUTPUT_TOKENS', None)
-        os.environ['NEMO_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS'] = '8192'
+        os.environ.pop('CLARA_CHAT_MAX_OUTPUT_TOKENS', None)
+        os.environ['CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS'] = '8192'
         c = _conn(model='local-model', optimization_preset='gemma', max_output_tokens=0)
         assert llm_optional_kwargs(c) == {'max_tokens': 8192}
     finally:
         for key, val in (
-            ('NEMO_CHAT_MAX_OUTPUT_TOKENS', prev_global),
-            ('NEMO_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS', prev_gemma),
+            ('CLARA_CHAT_MAX_OUTPUT_TOKENS', prev_global),
+            ('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS', prev_gemma),
         ):
             if val is None:
                 os.environ.pop(key, None)
@@ -238,16 +238,16 @@ def test_qwen_preset_without_qwen_model_id() -> None:
 
 
 def test_connection_max_output_tokens_override() -> None:
-    prev_global = os.environ.get('NEMO_CHAT_MAX_OUTPUT_TOKENS')
+    prev_global = os.environ.get('CLARA_CHAT_MAX_OUTPUT_TOKENS')
     try:
-        os.environ.pop('NEMO_CHAT_MAX_OUTPUT_TOKENS', None)
+        os.environ.pop('CLARA_CHAT_MAX_OUTPUT_TOKENS', None)
         c = _conn(model='gpt-4', parallel=True, optimization_preset='generic', max_output_tokens=2048)
         assert llm_optional_kwargs(c) == {'max_tokens': 2048}
     finally:
         if prev_global is None:
-            os.environ.pop('NEMO_CHAT_MAX_OUTPUT_TOKENS', None)
+            os.environ.pop('CLARA_CHAT_MAX_OUTPUT_TOKENS', None)
         else:
-            os.environ['NEMO_CHAT_MAX_OUTPUT_TOKENS'] = prev_global
+            os.environ['CLARA_CHAT_MAX_OUTPUT_TOKENS'] = prev_global
 
 
 def test_combined_suffix_includes_universal_tool_rules_for_non_qwen() -> None:
@@ -278,17 +278,17 @@ def test_qwen_system_prompt_suffix_backward_compat() -> None:
 
 
 def test_llm_optional_max_tokens_for_qwen_template() -> None:
-    prev_global = os.environ.get('NEMO_CHAT_MAX_OUTPUT_TOKENS')
-    prev_qwen = os.environ.get('NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS')
+    prev_global = os.environ.get('CLARA_CHAT_MAX_OUTPUT_TOKENS')
+    prev_qwen = os.environ.get('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS')
     try:
-        os.environ.pop('NEMO_CHAT_MAX_OUTPUT_TOKENS', None)
-        os.environ['NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS'] = '4096'
+        os.environ.pop('CLARA_CHAT_MAX_OUTPUT_TOKENS', None)
+        os.environ['CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS'] = '4096'
         c = _conn(model='gpt-4', optimization_preset='qwen', max_output_tokens=0)
         assert llm_optional_kwargs(c) == {'max_tokens': 4096}
     finally:
         for key, val in (
-            ('NEMO_CHAT_MAX_OUTPUT_TOKENS', prev_global),
-            ('NEMO_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', prev_qwen),
+            ('CLARA_CHAT_MAX_OUTPUT_TOKENS', prev_global),
+            ('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', prev_qwen),
         ):
             if val is None:
                 os.environ.pop(key, None)

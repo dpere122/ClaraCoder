@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nemo_backend.schemas import RuntimeConfigRequest
+from clara_coder_backend.schemas import RuntimeConfigRequest
 
 _CONN = {
     'id': 'x',

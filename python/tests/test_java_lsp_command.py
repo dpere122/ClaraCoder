@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.lsp import java_server
-from nemo_backend.lsp.java_server import (
+from clara_coder_backend.lsp import java_server
+from clara_coder_backend.lsp.java_server import (
     JavaLspSetupError,
     build_java_initialization_options,
     build_java_lsp_command,
@@ -16,24 +16,24 @@ from nemo_backend.lsp.java_server import (
 
 
 def test_build_java_lsp_command_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('NEMO_JAVA_LSP_COMMAND', 'custom_jdtls --stdio')
+    monkeypatch.setenv('CLARA_JAVA_LSP_COMMAND', 'custom_jdtls --stdio')
     cmd = build_java_lsp_command(tmp_path)
     assert cmd == ['custom_jdtls', '--stdio']
 
 
 def test_get_java_lsp_cache_dir_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cache = tmp_path / 'cache'
-    monkeypatch.setenv('NEMO_JAVA_LSP_CACHE_DIR', str(cache))
+    monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(cache))
     assert get_java_lsp_cache_dir() == cache.resolve()
 
 
 def test_build_java_lsp_command_uses_cached_product(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv('NEMO_JAVA_LSP_COMMAND', raising=False)
+    monkeypatch.delenv('CLARA_JAVA_LSP_COMMAND', raising=False)
     cache = tmp_path / 'java-lsp'
-    monkeypatch.setenv('NEMO_JAVA_LSP_CACHE_DIR', str(cache))
-    monkeypatch.setenv('NEMO_JAVA_LSP_VERSION', '1.60.0')
+    monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(cache))
+    monkeypatch.setenv('CLARA_JAVA_LSP_VERSION', '1.60.0')
 
     product = cache / 'jdtls' / '1.60.0'
     plugins = product / 'plugins'
@@ -69,8 +69,8 @@ def test_build_java_lsp_command_uses_cached_product(
 
 
 def test_build_java_lsp_command_missing_jdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_JAVA_LSP_COMMAND', raising=False)
-    monkeypatch.setenv('NEMO_JAVA_LSP_CACHE_DIR', str(tmp_path / 'cache'))
+    monkeypatch.delenv('CLARA_JAVA_LSP_COMMAND', raising=False)
+    monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(tmp_path / 'cache'))
     monkeypatch.delenv('JAVA_HOME', raising=False)
     monkeypatch.setattr(java_server.shutil, 'which', lambda _name: None)
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nemo_backend.tools.npm_search import (
+from clara_coder_backend.tools.npm_search import (
     format_npm_search_report,
     lookup_npm_package_latest,
     search_npm_packages_tool,
@@ -17,7 +17,7 @@ from nemo_backend.tools.npm_search import (
 
 def test_lookup_latest_returns_version() -> None:
     payload = {'name': 'left-pad', 'version': '1.3.0', 'description': 'pad strings'}
-    with patch('nemo_backend.tools.npm_search._http_get_json', return_value=payload):
+    with patch('clara_coder_backend.tools.npm_search._http_get_json', return_value=payload):
         row = lookup_npm_package_latest('left-pad')
     assert row is not None
     assert row['version'] == '1.3.0'
@@ -41,7 +41,7 @@ def test_search_enriches_with_latest_version() -> None:
             return latest_payload
         raise AssertionError(url)
 
-    with patch('nemo_backend.tools.npm_search._http_get_json', side_effect=fake_http):
+    with patch('clara_coder_backend.tools.npm_search._http_get_json', side_effect=fake_http):
         rows = search_npm_registry('lodash', limit=5)
     assert len(rows) == 1
     assert rows[0]['name'] == 'lodash'
@@ -68,7 +68,7 @@ async def test_tool_requires_query_or_names() -> None:
 @pytest.mark.asyncio
 async def test_tool_exact_lookup() -> None:
     latest = {'name': '@types/node', 'version': '22.10.1', 'description': 'types'}
-    with patch('nemo_backend.tools.npm_search.lookup_npm_package_latest', return_value=latest):
+    with patch('clara_coder_backend.tools.npm_search.lookup_npm_package_latest', return_value=latest):
         out = await search_npm_packages_tool.ainvoke({'package_names': ['@types/node']})
     assert '@types/node' in out
     assert '22.10.1' in out
@@ -76,6 +76,6 @@ async def test_tool_exact_lookup() -> None:
 
 @pytest.mark.asyncio
 async def test_tool_reports_missing_package() -> None:
-    with patch('nemo_backend.tools.npm_search.lookup_npm_package_latest', return_value=None):
+    with patch('clara_coder_backend.tools.npm_search.lookup_npm_package_latest', return_value=None):
         out = await search_npm_packages_tool.ainvoke({'package_names': ['definitely-not-a-real-pkg-xyz']})
     assert 'not found' in out

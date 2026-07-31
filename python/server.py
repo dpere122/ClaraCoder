@@ -1,13 +1,13 @@
-"""Launch script for the Nemo Python backend.
+"""Launch script for the Clara Coder Python backend.
 
 The Electron main process spawns this file so the import path includes the
-``python/`` directory and the ``nemo_backend`` package resolves correctly.
+``python/`` directory and the ``clara_coder_backend`` package resolves correctly.
 """
 
 from __future__ import annotations
 import uvicorn
 
-from nemo_backend.main import app
+from clara_coder_backend.main import app
 
 if __name__ == '__main__':
 

@@ -1,6 +1,6 @@
 """Tests for Gemma 4 ``<|channel>`` output parsing."""
 
-from nemo_backend.gemma_output import GemmaStreamSplitter, split_gemma_channels
+from clara_coder_backend.gemma_output import GemmaStreamSplitter, split_gemma_channels
 
 
 def test_split_thought_then_answer() -> None:

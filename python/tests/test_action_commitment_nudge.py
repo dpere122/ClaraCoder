@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage
 
-from nemo_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
-from nemo_backend.messages import text_ends_with_unfulfilled_action_commitment
+from clara_coder_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.messages import text_ends_with_unfulfilled_action_commitment
 
 
 @pytest.mark.parametrize(
@@ -82,7 +82,7 @@ async def test_action_commitment_nudge_does_not_fire_with_tool_calls() -> None:
 
 
 @pytest.mark.asyncio(loop_scope='function')
-@patch('nemo_backend.empty_response_middleware.MAX_AGENT_ACTION_COMMITMENT_NUDGES', 2)
+@patch('clara_coder_backend.empty_response_middleware.MAX_AGENT_ACTION_COMMITMENT_NUDGES', 2)
 async def test_action_commitment_nudge_stops_at_cap_and_lets_turn_end() -> None:
     middleware = EmptyResponseNudgeMiddleware()
     result = await middleware.aafter_model(

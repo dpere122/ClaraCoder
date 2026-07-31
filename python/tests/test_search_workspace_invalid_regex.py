@@ -6,8 +6,8 @@ Regression for: model searched ``ipcMain.on("save-content"`` (unclosed ``(``), w
 
 from __future__ import annotations
 
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.tools.workspace import search_workspace
+from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.tools.workspace import search_workspace
 
 
 def test_search_workspace_invalid_regex_returns_tool_error_not_raise(tmp_path) -> None:

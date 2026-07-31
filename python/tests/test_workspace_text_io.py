@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.workspace_text_io import (
+from clara_coder_backend.workspace_text_io import (
     decode_for_tools,
     detect_newline_preference,
     encode_for_disk,

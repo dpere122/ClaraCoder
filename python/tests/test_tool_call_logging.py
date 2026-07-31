@@ -6,21 +6,21 @@ import logging
 
 import pytest
 
-from nemo_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
+from clara_coder_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
 
 
 def test_tool_invoke_logger_name() -> None:
-    lg = logging.getLogger('nemo.tools.invoke')
-    assert lg.name == 'nemo.tools.invoke'
+    lg = logging.getLogger('clara.tools.invoke')
+    assert lg.name == 'clara.tools.invoke'
 
 
 def test_log_llm_tool_input_output_no_crash(caplog: pytest.LogCaptureFixture) -> None:
     # After other tests reload main, ``nemo`` may have propagate=False so caplog (root) must see children.
-    nemo = logging.getLogger('nemo')
+    nemo = logging.getLogger('clara')
     prev = nemo.propagate
     nemo.propagate = True
     try:
-        caplog.set_level(logging.INFO, logger='nemo.tools.invoke')
+        caplog.set_level(logging.INFO, logger='clara.tools.invoke')
         log_llm_tool_input('read_workspace_file', {'relative_path': 'a.txt'}, run_id='r1', agent_role='worker')
         log_llm_tool_output('read_workspace_file', 'hello', ok=True, run_id='r1', agent_role='worker')
         in_msg = next(r.message for r in caplog.records if 'LLM tool in' in r.message)

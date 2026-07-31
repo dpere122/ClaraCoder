@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.tools.copy import copy_confirm_sse_payload, copy_workspace_files, execute_pending_copy_decision
-from nemo_backend.state import current_session_id, get_session
+from clara_coder_backend.tools.copy import copy_confirm_sse_payload, copy_workspace_files, execute_pending_copy_decision
+from clara_coder_backend.state import current_session_id, get_session
 
 
 @pytest.fixture()

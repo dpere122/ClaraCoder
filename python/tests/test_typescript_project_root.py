@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.lsp.typescript_project_root import (
+from clara_coder_backend.lsp.typescript_project_root import (
     package_node_modules_link_rels,
     resolve_typescript_project_root,
 )
@@ -21,7 +21,7 @@ def _touch_ts_package(root: Path) -> None:
 
 
 def test_resolve_prefers_walk_up_from_seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'repo'
     app = ws / 'src' / 'renderer'
     app.mkdir(parents=True)
@@ -33,7 +33,7 @@ def test_resolve_prefers_walk_up_from_seed(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_resolve_discovers_deepest_nested_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'monorepo'
     ws.mkdir()
     shallow = ws / 'pkg-a'
@@ -52,7 +52,7 @@ def test_resolve_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     target = ws / 'nested' / 't'
     target.mkdir(parents=True)
     _touch_ts_package(target)
-    monkeypatch.setenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', str(target))
+    monkeypatch.setenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', str(target))
 
     other = ws / 'other'
     other.mkdir(parents=True)
@@ -66,14 +66,14 @@ def test_resolve_env_relative_to_workspace(tmp_path: Path, monkeypatch: pytest.M
     app = ws / 'app'
     app.mkdir(parents=True)
     _touch_ts_package(app)
-    monkeypatch.setenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', 'app')
+    monkeypatch.setenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', 'app')
 
     got = resolve_typescript_project_root(ws, seed_relative_path=None)
     assert got.resolve() == app.resolve()
 
 
 def test_resolve_skips_workspace_walk_when_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'monorepo'
     ws.mkdir()
     deep = ws / 'packages' / 'web' / 'app'
@@ -85,7 +85,7 @@ def test_resolve_skips_workspace_walk_when_disabled(tmp_path: Path, monkeypatch:
 
 
 def test_resolve_falls_back_to_workspace_when_no_packages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'empty'
     ws.mkdir()
     got = resolve_typescript_project_root(ws, seed_relative_path=None)
@@ -95,7 +95,7 @@ def test_resolve_falls_back_to_workspace_when_no_packages(tmp_path: Path, monkey
 def test_resolve_plain_js_package_with_node_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Packages without a typescript devDependency still count once node_modules is populated."""
 
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'ws'
     app = ws / 'lib'
     app.mkdir(parents=True)
@@ -112,7 +112,7 @@ def test_resolve_plain_js_package_with_node_modules(tmp_path: Path, monkeypatch:
 def test_resolve_discovers_deep_nested_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Discovery depth must exceed shallow monorepo layouts (previously capped at 6)."""
 
-    monkeypatch.delenv('NEMO_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
+    monkeypatch.delenv('CLARA_TYPESCRIPT_LSP_PROJECT_ROOT', raising=False)
     ws = tmp_path / 'ws'
     deep = ws / 'a' / 'b' / 'c' / 'd' / 'e' / 'f' / 'app'
     deep.mkdir(parents=True)

@@ -2,7 +2,7 @@
 
 from langchain_core.messages import AIMessageChunk
 
-from nemo_backend.agent_streaming import (
+from clara_coder_backend.agent_streaming import (
     aimessage_chunk_reasoning_delta,
     aimessage_chunk_sse_delta,
     status_detail_one_line,

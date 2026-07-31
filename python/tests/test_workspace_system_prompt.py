@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from starlette.testclient import TestClient
 
-from nemo_backend.domain import RuntimeConnection, SessionState
-from nemo_backend.messages import build_system_prompt
+from clara_coder_backend.domain import RuntimeConnection, SessionState
+from clara_coder_backend.messages import build_system_prompt
 
 
 def _conn() -> RuntimeConnection:
@@ -27,7 +27,7 @@ def _conn() -> RuntimeConnection:
     )
 
 
-@patch('nemo_backend.messages.get_active_connection')
+@patch('clara_coder_backend.messages.get_active_connection')
 def test_build_system_prompt_includes_workspace_system_prompt(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn()
     session = SessionState(
@@ -40,7 +40,7 @@ def test_build_system_prompt_includes_workspace_system_prompt(mock_conn: MagicMo
     assert 'Always run pytest before claiming done.' in prompt
 
 
-@patch('nemo_backend.messages.get_active_connection')
+@patch('clara_coder_backend.messages.get_active_connection')
 def test_build_system_prompt_omits_empty_workspace_system_prompt(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn()
     session = SessionState(
@@ -52,7 +52,7 @@ def test_build_system_prompt_omits_empty_workspace_system_prompt(mock_conn: Magi
     assert 'Workspace system prompt:' not in prompt
 
 
-@patch('nemo_backend.messages.get_active_connection')
+@patch('clara_coder_backend.messages.get_active_connection')
 def test_build_system_prompt_includes_tts_mood_when_speech_enabled(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn()
     session = SessionState(
@@ -65,7 +65,7 @@ def test_build_system_prompt_includes_tts_mood_when_speech_enabled(mock_conn: Ma
     assert 'TTS is on' in prompt
 
 
-@patch('nemo_backend.messages.get_active_connection')
+@patch('clara_coder_backend.messages.get_active_connection')
 def test_build_system_prompt_omits_tts_mood_when_speech_disabled(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn()
     session = SessionState(
@@ -79,8 +79,8 @@ def test_build_system_prompt_omits_tts_mood_when_speech_disabled(mock_conn: Magi
 
 
 def test_workspace_system_prompt_route_updates_session_without_tree() -> None:
-    from nemo_backend import state
-    from nemo_backend.main import app
+    from clara_coder_backend import state
+    from clara_coder_backend.main import app
 
     sid = 'sys-prompt-route-test'
     sess = state.get_session(sid)

@@ -8,14 +8,14 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from nemo_backend.chat_attachment_vision import (
+from clara_coder_backend.chat_attachment_vision import (
     ATTACHED_IMAGE_PREFIX,
     attached_image_path_from_text,
     attached_image_paths_from_text,
     prepare_chat_attachment_vision_turn,
 )
-from nemo_backend.state import current_session_id, get_session
-from nemo_backend.tools.workspace_image import vision_payload_from_data_url
+from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.tools.workspace_image import vision_payload_from_data_url
 
 
 def _png_data_url(*, color: tuple[int, int, int] = (0, 128, 255)) -> str:

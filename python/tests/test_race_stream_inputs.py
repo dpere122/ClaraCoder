@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
-from nemo_backend.agent_langgraph import _race_stream_inputs
+from clara_coder_backend.agent_langgraph import _race_stream_inputs
 
 
 def test_race_does_not_drop_item_when_multiple_queues_ready() -> None:

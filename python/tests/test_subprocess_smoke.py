@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from nemo_backend.subprocess_smoke import (
+from clara_coder_backend.subprocess_smoke import (
     SmokeOutputTracker,
     SmokeStopReason,
     argv_implies_watch_mode,

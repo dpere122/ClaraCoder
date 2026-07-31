@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
-from nemo_backend.domain import RuntimeConnection
-from nemo_backend.messages import assistant_visible_answer, reasoning_sidecar_text
+from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend.messages import assistant_visible_answer, reasoning_sidecar_text
 
 
 def _gemma_conn() -> RuntimeConnection:
@@ -25,14 +25,14 @@ def _gemma_conn() -> RuntimeConnection:
     )
 
 
-@patch('nemo_backend.messages.get_active_connection')
+@patch('clara_coder_backend.messages.get_active_connection')
 def test_assistant_visible_answer_strips_gemma_thought_channel(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _gemma_conn()
     msg = AIMessage(content="<|channel>thought\nhidden<channel|>visible")
     assert assistant_visible_answer(msg) == 'visible'
 
 
-@patch('nemo_backend.messages.get_active_connection')
+@patch('clara_coder_backend.messages.get_active_connection')
 def test_reasoning_sidecar_from_gemma_channel(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _gemma_conn()
     msg = AIMessage(content="<|channel>thought\nhidden<channel|>visible")

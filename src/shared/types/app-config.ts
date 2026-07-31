@@ -87,7 +87,7 @@ export interface LlmProviderConfig {
   apiKey: string;
   /**
    * LM Studio: model id for OpenAI-compatible ``POST /v1/embeddings`` (semantic index).
-   * When unset, Python uses ``NEMO_EMBEDDINGS_MODEL`` / defaults.
+   * When unset, Python uses ``CLARA_EMBEDDINGS_MODEL`` / defaults.
    */
   embeddingsModel?: string;
   /**

@@ -1,6 +1,6 @@
 """Stream delta filtering for SSE chunks."""
 
-from nemo_backend.agent_streaming import is_meaningful_stream_delta
+from clara_coder_backend.agent_streaming import is_meaningful_stream_delta
 
 
 def test_newline_only_chunks_preserved() -> None:

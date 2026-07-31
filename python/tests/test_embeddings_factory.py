@@ -1,4 +1,4 @@
-"""Tests for :mod:`nemo_backend.workspace_index.embeddings_factory`."""
+"""Tests for :mod:`clara_coder_backend.workspace_index.embeddings_factory`."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nemo_backend.domain import RuntimeConnection
+from clara_coder_backend.domain import RuntimeConnection
 
 
 def _llamacpp_conn(**kwargs: object) -> RuntimeConnection:
@@ -50,9 +50,9 @@ def _lmstudio_conn(**kwargs: object) -> RuntimeConnection:
 
 
 def test_build_embedding_model_skips_llamacpp_when_chat_base_uses_port_zero(monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
@@ -69,9 +69,9 @@ def test_build_embedding_model_skips_llamacpp_when_chat_base_uses_port_zero(monk
 
 
 def test_build_embedding_model_skips_llamacpp_when_embeddings_disabled(monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
@@ -85,28 +85,28 @@ def test_build_embedding_model_skips_llamacpp_when_embeddings_disabled(monkeypat
     assert not called
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
+@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_llamacpp_disabled_still_uses_nemo_embeddings_url(mock_ctor: MagicMock, monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
     mock_inst = MagicMock()
     mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
 
     emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_enabled=False))
     assert err == ''
     assert emb is mock_inst
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
+@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_respects_nemo_embeddings_base_url(mock_ctor: MagicMock, monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
     mock_inst = MagicMock()
     mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
 
     emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_model='emb-model'))
     assert err == ''
@@ -115,14 +115,14 @@ def test_build_embedding_model_respects_nemo_embeddings_base_url(mock_ctor: Magi
     assert kwargs.get('api_base') == 'http://127.0.0.1:9000/v1'
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
+@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_per_connection_embeddings_base_url_over_env(mock_ctor: MagicMock, monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
     mock_inst = MagicMock()
     mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
 
     conn = _llamacpp_conn(embeddings_base_url='http://127.0.0.1:7777')
     emb, err = ef.build_embedding_model(conn)
@@ -132,14 +132,14 @@ def test_build_embedding_model_per_connection_embeddings_base_url_over_env(mock_
     assert kwargs.get('api_base') == 'http://127.0.0.1:7777/v1'
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
+@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: MagicMock, monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
     mock_inst = MagicMock()
     mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', 'secret-emb')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', 'secret-emb')
 
     emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_model='emb-model'))
     assert err == ''
@@ -149,7 +149,7 @@ def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: Magic
 
 
 def test_make_chunk_pooling_embedding_llamacpp_allows_hf_style_model_id() -> None:
-    from nemo_backend.workspace_index.embeddings_factory import _make_chunk_pooling_embedding
+    from clara_coder_backend.workspace_index.embeddings_factory import _make_chunk_pooling_embedding
 
     conn = _llamacpp_conn()
     emb = _make_chunk_pooling_embedding(
@@ -166,17 +166,17 @@ def test_make_chunk_pooling_embedding_llamacpp_allows_hf_style_model_id() -> Non
 
 
 def test_resolve_embedding_model_id_prefers_connection_field() -> None:
-    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
 
     conn = _llamacpp_conn(embeddings_model='custom-emb-id')
     assert resolve_embedding_model_id(conn) == 'custom-emb-id'
 
 
 def test_resolve_embedding_model_id_llamacpp_falls_back_to_chat_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
-    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     conn = _llamacpp_conn(model='my-gguf', embeddings_model='', embeddings_base_url='')
     assert resolve_embedding_model_id(conn) == 'my-gguf'
 
@@ -184,11 +184,11 @@ def test_resolve_embedding_model_id_llamacpp_falls_back_to_chat_model(monkeypatc
 def test_resolve_embedding_model_id_uses_env_default_on_dedicated_embeddings_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
-    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:8081')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_MODEL', 'nomic-embed-text')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:8081')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_MODEL', 'nomic-embed-text')
     conn = _llamacpp_conn(model='my-chat-gguf', embeddings_model='')
     assert resolve_embedding_model_id(conn) == 'nomic-embed-text'
 
@@ -196,24 +196,24 @@ def test_resolve_embedding_model_id_uses_env_default_on_dedicated_embeddings_url
 def test_resolve_embedding_model_id_uses_env_default_on_per_connection_embeddings_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
-    from nemo_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_MODEL', 'nomic-embed-text')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_MODEL', 'nomic-embed-text')
     conn = _llamacpp_conn(model='my-chat-gguf', embeddings_model='', embeddings_base_url='http://127.0.0.1:8081')
     assert resolve_embedding_model_id(conn) == 'nomic-embed-text'
 
 
-@patch('nemo_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
+@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
 def test_build_embedding_model_skips_probe_within_ttl(mock_ctor: MagicMock, monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
     ef._embedding_probe_ok_mono.clear()
     mock_inst = MagicMock()
     mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_API_KEY', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
 
     conn = _llamacpp_conn(embeddings_model='emb-model')
     emb1, err1 = ef.build_embedding_model(conn)
@@ -224,7 +224,7 @@ def test_build_embedding_model_skips_probe_within_ttl(mock_ctor: MagicMock, monk
 
 
 def test_chunk_text_for_embedding_splits_long_text() -> None:
-    from nemo_backend.workspace_index.embeddings_factory import _chunk_text_for_embedding
+    from clara_coder_backend.workspace_index.embeddings_factory import _chunk_text_for_embedding
 
     long = ('word ' * 3000).strip()
     parts = _chunk_text_for_embedding(long, 64)
@@ -233,9 +233,9 @@ def test_chunk_text_for_embedding_splits_long_text() -> None:
 
 
 def test_build_embedding_model_skips_llamacpp_chat_only_without_probe(monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
@@ -250,9 +250,9 @@ def test_build_embedding_model_skips_llamacpp_chat_only_without_probe(monkeypatc
 
 
 def test_build_embedding_model_skips_lmstudio_without_embeddings_model(monkeypatch) -> None:
-    from nemo_backend.workspace_index import embeddings_factory as ef
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'NEMO_EMBEDDINGS_BASE_URL', '')
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:

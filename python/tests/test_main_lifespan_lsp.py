@@ -8,9 +8,9 @@ from starlette.testclient import TestClient
 
 
 def test_lifespan_shutdown_calls_shutdown_all_lsp_managers() -> None:
-    from nemo_backend.main import app
+    from clara_coder_backend.main import app
 
-    with patch('nemo_backend.main.shutdown_all_lsp_managers') as shutdown_lsp:
+    with patch('clara_coder_backend.main.shutdown_all_lsp_managers') as shutdown_lsp:
         with TestClient(app):
             pass
     shutdown_lsp.assert_called_once()
@@ -19,10 +19,10 @@ def test_lifespan_shutdown_calls_shutdown_all_lsp_managers() -> None:
 def test_lifespan_still_awaits_checkpoint_shutdown_when_lsp_raises() -> None:
     from unittest.mock import AsyncMock
 
-    from nemo_backend.main import app
+    from clara_coder_backend.main import app
 
-    with patch('nemo_backend.main.shutdown_all_lsp_managers', side_effect=RuntimeError('boom')):
-        with patch('nemo_backend.main.shutdown_graph_checkpointing', new_callable=AsyncMock) as ck_shutdown:
+    with patch('clara_coder_backend.main.shutdown_all_lsp_managers', side_effect=RuntimeError('boom')):
+        with patch('clara_coder_backend.main.shutdown_graph_checkpointing', new_callable=AsyncMock) as ck_shutdown:
             with TestClient(app):
                 pass
     ck_shutdown.assert_awaited_once()

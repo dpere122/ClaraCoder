@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for nemo_backend tests."""
+"""Shared pytest fixtures for clara_coder_backend tests."""
 
 from __future__ import annotations
 
@@ -8,21 +8,21 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.domain import RuntimeToolsConfig
-from nemo_backend.lsp.manager import shutdown_session_lsp
-from nemo_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.lsp.manager import shutdown_session_lsp
+from clara_coder_backend.state import current_session_id, get_session, runtime_config
 
 
 @pytest.fixture()
 def staging_env():
-    saved_staging = os.environ.get('NEMO_STAGING_DIR')
+    saved_staging = os.environ.get('CLARA_STAGING_DIR')
     saved_tools = runtime_config.tools
 
     td = tempfile.TemporaryDirectory()
     td_path = Path(td.name)
     staging_root = td_path / 'staging'
     staging_root.mkdir(parents=True)
-    os.environ['NEMO_STAGING_DIR'] = str(staging_root)
+    os.environ['CLARA_STAGING_DIR'] = str(staging_root)
 
     workspace = td_path / 'ws'
     workspace.mkdir()
@@ -66,8 +66,8 @@ def staging_env():
     shutdown_session_lsp(session_id)
     current_session_id.reset(token)
     if saved_staging is None:
-        os.environ.pop('NEMO_STAGING_DIR', None)
+        os.environ.pop('CLARA_STAGING_DIR', None)
     else:
-        os.environ['NEMO_STAGING_DIR'] = saved_staging
+        os.environ['CLARA_STAGING_DIR'] = saved_staging
     runtime_config.tools = saved_tools
     td.cleanup()

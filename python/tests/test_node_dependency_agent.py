@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.tools.node_deps import (
+from clara_coder_backend.tools.node_deps import (
     _package_json_script_gate,
     detect_package_manager,
     _resolve_project_dir,

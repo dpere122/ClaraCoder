@@ -1,5 +1,5 @@
 /**
- * Integrated workspace LSP configuration (mirrors ``nemo_backend.lsp.file_policy``).
+ * Integrated workspace LSP configuration (mirrors ``clara_coder_backend.lsp.file_policy``).
  * Single source for extension → server id and Monaco wiring.
  */
 

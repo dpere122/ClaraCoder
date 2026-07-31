@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.domain import SessionState
-from nemo_backend.lsp.jedi_init_options import (
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.lsp.jedi_init_options import (
     build_jedi_initialization_options,
     deduce_venv_root_from_interpreter,
     jedi_environment_path_for_workspace,

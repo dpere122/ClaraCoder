@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.deferred_tool_hitl import deferred_tool_hitl_bypass
-from nemo_backend.domain import EditStagingEntry
-from nemo_backend import staging_test_overlay as sto
-from nemo_backend.tools.review_tools import run_staging_overlay_command
-from nemo_backend.state import current_session_id, get_session, runtime_config
-from nemo_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.deferred_tool_hitl import deferred_tool_hitl_bypass
+from clara_coder_backend.domain import EditStagingEntry
+from clara_coder_backend import staging_test_overlay as sto
+from clara_coder_backend.tools.review_tools import run_staging_overlay_command
+from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.domain import RuntimeToolsConfig
 
 
 def test_parse_command_argv_json() -> None:

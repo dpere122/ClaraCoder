@@ -57,9 +57,9 @@ def _payload(
 
 
 def test_runtime_config_updates_imported_runtime_config_references() -> None:
-    from nemo_backend.main import app
-    from nemo_backend import state
-    from nemo_backend import messages, model_tuning
+    from clara_coder_backend.main import app
+    from clara_coder_backend import state
+    from clara_coder_backend import messages, model_tuning
 
     orig = deepcopy(state.runtime_config)
     try:

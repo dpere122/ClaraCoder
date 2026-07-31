@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.tools.review_tools import (
+from clara_coder_backend.tools.review_tools import (
     _materialize_staged_python_files,
     diff_staged_edit_against_baseline,
     finalize_staged_transfer_after_hitl,
@@ -19,8 +19,8 @@ from nemo_backend.tools.review_tools import (
     search_staged_edits,
     transfer_staged_file_to_workspace,
 )
-from nemo_backend.domain import EditStagingEntry, RuntimeToolsConfig
-from nemo_backend.edit_staging import (
+from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.edit_staging import (
     begin_staging_snapshot_session,
     copy_workspace_into_snapshot,
     discard_all_session_stagings,
@@ -30,15 +30,15 @@ from nemo_backend.edit_staging import (
     is_code_review_extension,
     resolve_prettier_cli,
 )
-from nemo_backend.tools.edit import apply_workspace_full_file
-from nemo_backend.tools.staging_edit import (
+from clara_coder_backend.tools.edit import apply_workspace_full_file
+from clara_coder_backend.tools.staging_edit import (
     stage_create_file,
     stage_line_range_edit,
     stage_snippet_edit,
     stage_workspace_file_overwrite,
 )
-from nemo_backend.search_backend import SearchLineMatch
-from nemo_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.search_backend import SearchLineMatch
+from clara_coder_backend.state import current_session_id, get_session, runtime_config
 
 
 def test_get_staging_root_uses_env(staging_env) -> None:
@@ -66,7 +66,7 @@ def test_resolve_prettier_cli_reads_package_bin(staging_env) -> None:
 
 
 def test_format_source_via_prettier_runs_cmd_shim_directly(monkeypatch, staging_env) -> None:
-    from nemo_backend import edit_staging as _es
+    from clara_coder_backend import edit_staging as _es
 
     shim = staging_env.workspace / 'node_modules' / '.bin' / 'prettier.cmd'
     monkeypatch.setattr(_es, 'resolve_prettier_cli', lambda workspace_root: shim)
@@ -98,7 +98,7 @@ def test_format_source_via_prettier_runs_cmd_shim_directly(monkeypatch, staging_
 
 
 def test_format_source_via_prettier_runs_node_for_cjs_cli(monkeypatch, staging_env) -> None:
-    from nemo_backend import edit_staging as _es
+    from clara_coder_backend import edit_staging as _es
 
     cli = staging_env.workspace / 'node_modules' / 'prettier' / 'bin' / 'prettier.cjs'
     monkeypatch.setattr(_es, 'resolve_prettier_cli', lambda workspace_root: cli)
@@ -133,7 +133,7 @@ def test_copy_workspace_into_snapshot_skips_uncopyable_files(tmp_path, monkeypat
     """Regression: one bad file under e.g. .venv must not abort staging snapshot seed."""
     from shutil import copy2 as real_copy2
 
-    from nemo_backend import edit_staging as edit_staging_mod
+    from clara_coder_backend import edit_staging as edit_staging_mod
 
     ws = tmp_path / 'ws'
     ws.mkdir()
@@ -494,14 +494,14 @@ def test_read_format_approve_reject(staging_env) -> None:
 def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) -> None:
     session = staging_env.session
 
-    from nemo_backend import edit_staging as _es
+    from clara_coder_backend import edit_staging as _es
 
     class _FakeLspMgr:
         def sync_workspace_document(self, relative_path: str, *, encoding: str = 'utf-8') -> list:
             return []
 
     monkeypatch.setattr(
-        'nemo_backend.tools.staging_edit.get_session_lsp_manager',
+        'clara_coder_backend.tools.staging_edit.get_session_lsp_manager',
         lambda *args, **kwargs: _FakeLspMgr(),
     )
 
@@ -635,7 +635,7 @@ def test_search_staged_edits_uses_grep_when_available(staging_env, monkeypatch: 
         return [SearchLineMatch(display_path='multi.py', line_number=2)]
 
     monkeypatch.setattr(
-        'nemo_backend.tools.review_tools.run_grep_line_search',
+        'clara_coder_backend.tools.review_tools.run_grep_line_search',
         _fake_run_grep_line_search,
     )
 
@@ -780,7 +780,7 @@ def test_transfer_defers_workspace_lsp_until_all_paths_transferred(staging_env, 
         return []
 
     monkeypatch.setattr(
-        'nemo_backend.tools.review_tools.sync_session_document',
+        'clara_coder_backend.tools.review_tools.sync_session_document',
         _fake_sync,
     )
 
@@ -975,29 +975,29 @@ def test_discard_all_session_stagings(staging_env) -> None:
 def test_reject_staged_workspace_edit_rolls_back_materialized_workspace_files(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
-    (ws / 'python' / 'nemo_backend').mkdir(parents=True)
-    target = ws / 'python' / 'nemo_backend' / 'main.py'
+    (ws / 'python' / 'clara_coder_backend').mkdir(parents=True)
+    target = ws / 'python' / 'clara_coder_backend' / 'main.py'
     target.write_text('VALUE = 1\n', encoding='utf-8')
     stage_workspace_file_overwrite.invoke(
         {
-            'relative_path': 'python/nemo_backend/main.py',
+            'relative_path': 'python/clara_coder_backend/main.py',
             'new_content': 'VALUE = 2\n',
             'encoding': 'utf-8',
             'newline': 'lf',
         }
     )
-    assert session.pending_edit_stagings['python/nemo_backend/main.py'].merged_text == 'VALUE = 2\n'
+    assert session.pending_edit_stagings['python/clara_coder_backend/main.py'].merged_text == 'VALUE = 2\n'
 
     ok, detail = _materialize_staged_python_files(
         session,
-        [('python/nemo_backend/main.py', session.pending_edit_stagings['python/nemo_backend/main.py'])],
+        [('python/clara_coder_backend/main.py', session.pending_edit_stagings['python/clara_coder_backend/main.py'])],
     )
     assert ok is True
     assert detail == ''
     assert target.read_text(encoding='utf-8') == 'VALUE = 2\n'
 
     out = reject_staged_workspace_edit.invoke(
-        {'relative_path': 'python/nemo_backend/main.py', 'feedback': 'fix failing test'}
+        {'relative_path': 'python/clara_coder_backend/main.py', 'feedback': 'fix failing test'}
     )
     assert 'Rejected staged edit' in out
     assert target.read_text(encoding='utf-8') == 'VALUE = 1\n'

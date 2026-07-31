@@ -1,4 +1,4 @@
-"""Tests for :mod:`nemo_backend.diff_review_middleware`."""
+"""Tests for :mod:`clara_coder_backend.diff_review_middleware`."""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import ToolMessage
 
-from nemo_backend.tools.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
-from nemo_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
-from nemo_backend.tools.staging_edit import STAGE_CREATE_FILE_NAME
-from nemo_backend.state import current_session_id, get_session
+from clara_coder_backend.tools.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
+from clara_coder_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
+from clara_coder_backend.tools.staging_edit import STAGE_CREATE_FILE_NAME
+from clara_coder_backend.state import current_session_id, get_session
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
 
 
-@patch('nemo_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
 async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_worker_apply_off(
     mock_pause: AsyncMock,
 ) -> None:
@@ -30,8 +30,8 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
     session.worker_apply_mode = False
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    from nemo_backend.domain import PendingStagedTransferHitl
-    from nemo_backend.tools.review_tools import staged_transfer_batch_sse_payload
+    from clara_coder_backend.domain import PendingStagedTransferHitl
+    from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     file_payload = {
         'version': 1,
@@ -68,7 +68,7 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
     assert item == ('staged_transfer_batch', batch_payload)
 
 
-@patch('nemo_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
 async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_pause: AsyncMock) -> None:
     """Plan mode binds direct mutators but staged transfer HITL still pauses when flagged."""
     mock_pause.return_value = ''
@@ -79,8 +79,8 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
     session.worker_apply_mode = True
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    from nemo_backend.domain import PendingStagedTransferHitl
-    from nemo_backend.tools.review_tools import staged_transfer_batch_sse_payload
+    from clara_coder_backend.domain import PendingStagedTransferHitl
+    from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     file_payload = {
         'version': 1,
@@ -117,7 +117,7 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
     assert item == ('staged_transfer_batch', batch_payload)
 
 
-@patch('nemo_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
 async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_tool(
     mock_pause: AsyncMock,
 ) -> None:
@@ -130,8 +130,8 @@ async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_t
     session.worker_apply_mode = True
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    from nemo_backend.domain import PendingStagedTransferHitl
-    from nemo_backend.tools.review_tools import staged_transfer_batch_sse_payload
+    from clara_coder_backend.domain import PendingStagedTransferHitl
+    from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     file_payload = {
         'version': 1,

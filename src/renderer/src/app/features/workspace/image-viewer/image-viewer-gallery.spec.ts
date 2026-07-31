@@ -6,7 +6,9 @@ import {
   galleryPreviousIndex,
   parentFolderAbsolutePath,
   parentFolderRelativePath,
+  pickGalleryPathAfterRefresh,
   viewableImagesInDirectory,
+  workspaceChangeAffectsGalleryFolder,
 } from './image-viewer-gallery';
 
 describe('parentFolderRelativePath', () => {
@@ -79,5 +81,56 @@ describe('gallery wrap navigation', () => {
 
   it('wraps next from last to first', () => {
     expect(galleryNextIndex(2, 3)).toBe(0);
+  });
+});
+
+describe('workspaceChangeAffectsGalleryFolder', () => {
+  it('matches sibling files in the gallery folder', () => {
+    expect(workspaceChangeAffectsGalleryFolder('photos', ['photos/b.png'])).toBe(true);
+  });
+
+  it('matches workspace-root gallery for root-level files', () => {
+    expect(workspaceChangeAffectsGalleryFolder('', ['logo.png'])).toBe(true);
+  });
+
+  it('ignores nested paths under other folders', () => {
+    expect(workspaceChangeAffectsGalleryFolder('photos', ['photos/nested/x.png'])).toBe(false);
+    expect(workspaceChangeAffectsGalleryFolder('photos', ['other/a.png'])).toBe(false);
+  });
+
+  it('treats "." as a full-tree refresh', () => {
+    expect(workspaceChangeAffectsGalleryFolder('photos', ['.'])).toBe(true);
+  });
+
+  it('matches previousPaths for renames out of the folder', () => {
+    expect(
+      workspaceChangeAffectsGalleryFolder('photos', ['elsewhere/a.png'], ['photos/a.png']),
+    ).toBe(true);
+  });
+
+  it('matches when the gallery folder path itself changes', () => {
+    expect(workspaceChangeAffectsGalleryFolder('photos', ['photos'], undefined)).toBe(true);
+  });
+});
+
+describe('pickGalleryPathAfterRefresh', () => {
+  const paths = ['photos/a.png', 'photos/b.png', 'photos/c.png'];
+
+  it('keeps the current path when still present', () => {
+    expect(pickGalleryPathAfterRefresh(paths, 'photos/b.png', 1)).toBe('photos/b.png');
+  });
+
+  it('picks a nearby sibling when the current path was removed', () => {
+    const remaining = ['photos/a.png', 'photos/c.png'];
+    expect(pickGalleryPathAfterRefresh(remaining, 'photos/b.png', 1)).toBe('photos/c.png');
+  });
+
+  it('clamps to the last sibling when the removed index was at the end', () => {
+    const remaining = ['photos/a.png', 'photos/b.png'];
+    expect(pickGalleryPathAfterRefresh(remaining, 'photos/c.png', 2)).toBe('photos/b.png');
+  });
+
+  it('returns null for an empty gallery', () => {
+    expect(pickGalleryPathAfterRefresh([], 'photos/a.png', 0)).toBeNull();
   });
 });

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_backend.workspace_index import lifecycle as lc
+from clara_coder_backend.workspace_index import lifecycle as lc
 
 
 def _fp_key(root: Path, max_files: int) -> str:
@@ -23,7 +23,7 @@ def _clear_fp_caches():
 
 def test_cached_workspace_fingerprint_prunes_ttl_expired_entries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        'nemo_backend.workspace_index.fingerprint.workspace_content_fingerprint',
+        'clara_coder_backend.workspace_index.fingerprint.workspace_content_fingerprint',
         lambda root, max_files: f'fp-{root.name}',
     )
 
@@ -43,7 +43,7 @@ def test_cached_workspace_fingerprint_prunes_ttl_expired_entries(tmp_path: Path,
 def test_cached_workspace_fingerprint_evicts_when_over_max_entries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lc, '_FINGERPRINT_CACHE_MAX_ENTRIES', 2)
     monkeypatch.setattr(
-        'nemo_backend.workspace_index.fingerprint.workspace_content_fingerprint',
+        'clara_coder_backend.workspace_index.fingerprint.workspace_content_fingerprint',
         lambda root, max_files: f'fp-{root.name}',
     )
 

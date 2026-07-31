@@ -11,6 +11,7 @@ import type {
   Workspace,
   WorkspaceToolsConfig,
 } from '../../shared';
+import { envClara } from '../env-clara';
 import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
@@ -155,7 +156,7 @@ export function getDefaultAudioTranscription(): AudioTranscriptionConfig {
   return {
     provider: 'openai',
     baseUrl: process.env.OPENAI_BASE_URL || '',
-    model: process.env.NEMO_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe',
+    model: envClara('TRANSCRIBE_MODEL') || 'gpt-4o-mini-transcribe',
     apiKey: '',
     talkInputDeviceId: 'default',
     talkSilenceThresholdSeconds: 2,

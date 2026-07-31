@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from nemo_backend.messages import assistant_visible_answer, final_assistant_text
+from clara_coder_backend.messages import assistant_visible_answer, final_assistant_text
 
 
 def test_final_assistant_text_keeps_placeholder_reasoning() -> None:

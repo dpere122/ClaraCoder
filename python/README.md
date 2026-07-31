@@ -20,64 +20,53 @@ For how this sidecar fits with Electron main (IPC, conversations SQLite, LangGra
 
 ## Setup
 
-Create a dedicated virtual environment under `python/.venv` (ignored by git), then install dependencies:
-
-**Windows (PowerShell), from the `python/` directory:**
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-```
-
-**macOS / Linux, from the `python/` directory:**
+From the **repository root** (not `python/`):
 
 ```bash
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
+npm run setup:python          # NVIDIA GPU / CUDA PyTorch
+# or: npm run setup:python:cpu
 ```
 
-For development (adds pytest, httpx, pytest-cov):
+That creates the repo-root `.venv/` if missing, then installs PyTorch, `requirements.txt`, and Kokoro (PyPI when possible; GitHub fallback otherwise). Do not use a separate `python/.venv` — the Electron app looks for `<repo>/.venv`.
+
+For backend unit tests / deptry extras:
 
 ```bash
-pip install -r requirements-dev.txt
+../.venv/bin/pip install -r requirements-dev.txt   # from python/
+# Windows: ..\.venv\Scripts\pip install -r requirements-dev.txt
 ```
 
-To use the venv's interpreter explicitly, run `.\.venv\Scripts\python` (Windows) or `./.venv/bin/python` (Unix) instead of `python`.
-
-From the repository root, run `npm run setup:python` (see root `package.json`). That installs `python/requirements.txt` plus Kokoro TTS: from PyPI on Python 3.10–3.12, or from GitHub on 3.13 until upstream publishes 3.13 wheels. The Electron app spawns the system `python` by default; point it at `.venv\Scripts\python` if you want the packaged backend to use this environment.
-
-When the final project reviewer runs Python tests for a workspace, it now bootstraps a workspace-local `.venv` automatically if one does not exist yet. That bootstrap installs both `requirements.txt` and `requirements-dev.txt` before running pytest.
+When the final project reviewer runs Python tests for a workspace, it bootstraps a **workspace-local** `.venv` automatically if needed (installs that workspace’s `requirements.txt` + `requirements-dev.txt` before pytest). That is separate from Clara’s own repo-root `.venv`.
 
 ## Run
 
-From the `python/` directory (so `clara_coder_backend` is importable), with the venv activated or using the venv's `python` directly:
+From the `python/` directory (so `clara_coder_backend` is importable), using the repo-root venv:
 
 ```bash
-python server.py
+../.venv/bin/python server.py
+# or: ../.venv/bin/uvicorn clara_coder_backend.main:app --host 127.0.0.1 --port 5123
 ```
 
-Or with uvicorn directly:
+Windows PowerShell:
 
-```bash
-uvicorn clara_coder_backend.main:app --host 127.0.0.1 --port 5123
+```powershell
+..\.venv\Scripts\python server.py
 ```
 
-With the venv active, `python` and `uvicorn` refer to the tools inside `.venv`.
-
-The desktop app expects **127.0.0.1:5123** by default.
+The desktop app expects **127.0.0.1:5123** by default and prefers `<repo>/.venv` in development.
 
 ## Tests
 
 ```bash
 cd python
-./.venv/bin/python -m pytest tests -v
+../.venv/bin/python -m pytest tests -v
 ```
 
-On Windows PowerShell, use:
+On Windows PowerShell:
 
 ```powershell
 cd python
-.\.venv\Scripts\python -m pytest tests -v
+..\.venv\Scripts\python -m pytest tests -v
 ```
 
 Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run_command` on the outer agent when you need verification. Those tools can stream subprocess output into the chat SSE timeline.
@@ -87,7 +76,7 @@ Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run
 
 | Path                                              | Role                                                                        |
 | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| `.venv/`                                          | Local virtual environment (create with `python -m venv .venv`; gitignored). |
+| `../.venv/` (repo root)                           | Project virtual environment (created by `npm run setup:python`; gitignored). |
 | `server.py`                                       | Thin entrypoint for Electron (`python server.py`).                          |
 | `clara_coder_backend/main.py`                     | FastAPI `app` and router mounting.                                          |
 | **Routes**                                        |                                                                             |

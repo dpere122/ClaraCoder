@@ -13,9 +13,9 @@ These steps get a fresh clone running in development. Allow roughly 5–15 minut
 
 | Tool                 | Notes                                                                                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The renderer pins `npm@11.9.0`; any recent npm 11.x is fine.                                                                                                        |
-| **Python 3.10–3.13** | 3.13 works out of the box. Create a venv with your system `python3` — you do **not** need a separate 3.12 install.                                                                                                             |
-| **Git**              | Required on Python 3.13+ so `setup:python` can install Kokoro/misaki from GitHub until PyPI publishes 3.13 wheels.                                                                                                             |
+| **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The repo pins `npm@11.9.0`; any recent npm 11.x is fine.                                                                                                           |
+| **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install.                                                                                        |
+| **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro.                                                                                                      |
 | **Build toolchain**  | Linux/macOS: compiler + Python headers for `node-pty` / `better-sqlite3` rebuilds (`build-essential`, `python3-venv`, etc.). Windows: Visual Studio Build Tools; see [node-pty / Spectre note](#windows-native-modules) below. |
 
 
@@ -36,62 +36,32 @@ cd ClaraCoder
 npm install
 ```
 
-Root `npm install` runs `postinstall`, which rebuilds native Electron modules (`node-pty`, `better-sqlite3`) for the pinned Electron version.
+One root `package.json` covers Electron and the Angular UI. `postinstall` rebuilds native Electron modules (`node-pty`, `better-sqlite3`) for the pinned Electron version.
 
-The Angular UI lives in `src/renderer/` as its own npm package (separate `package.json` from the Electron main process). You must install its dependencies too — `npm run dev` and `npm run build` will not work without this step.
+If you previously had a separate `src/renderer/node_modules` (or an old workspace install), clean once and reinstall:
+
+```bash
+rm -rf node_modules src/renderer/node_modules
+npm install
+```
+
+### 2. Install Python dependencies (including Kokoro TTS)
 
 From the repo root:
-
-```bash
-npm install --prefix src/renderer
-```
-
-Or from inside the renderer folder:
-
-```bash
-cd src/renderer
-npm install
-cd ../..
-```
-
-### 2. Create the Python virtual environment
-
-Use a venv at the **repo root** (`.venv/`). In dev, the app auto-detects this interpreter.
-
-**macOS / Linux**
-
-```bash
-python3 -m venv .venv
-```
-
-**Windows (PowerShell)**
-
-```powershell
-python -m venv .venv
-```
-
-On Debian/Ubuntu, if `ensurepip` is missing, install `python3-venv` (or `python3.13-venv`) first.
-
-### 3. Install Python dependencies (including Kokoro TTS)
-
-Still from the repo root:
 
 ```bash
 npm run setup:python
 ```
 
+This creates the repo-root `.venv/` if missing, then installs PyTorch, `python/requirements.txt`, and Kokoro. In dev, the app auto-detects that interpreter.
+
 Use `setup:python` when you have an NVIDIA GPU (installs CUDA PyTorch `cu129`, required for RTX 50-series / Blackwell). Use `npm run setup:python:cpu` on machines without CUDA.
 
-What this script does:
+Kokoro is installed via PyPI when possible; if PyPI cannot satisfy your Python (today: 3.13+), the script falls back to GitHub. Do **not** rely on `pip install -r python/requirements.txt` alone.
 
-1. Installs everything in `python/requirements.txt` (FastAPI, LangChain, LSP, etc.).
-2. Installs **Kokoro TTS**:
-  - **Python 3.10–3.12** — `kokoro` from PyPI (`python/requirements-kokoro-pypi.txt`).
-  - **Python 3.13+** — `misaki` and `kokoro` from GitHub plus `spacy>=3.8.14` (PyPI wheels still cap at `<3.13`).
+On Debian/Ubuntu, if venv creation fails, install `python3-venv` (or `python3.XX-venv`) first.
 
-Do **not** rely on `pip install -r python/requirements.txt` alone — Kokoro is installed only through `setup:python`.
-
-Override the interpreter if needed:
+Override the base interpreter used to create `.venv` if needed:
 
 ```bash
 PYTHON=/path/to/python3 npm run setup:python:cpu
@@ -99,7 +69,7 @@ PYTHON=/path/to/python3 npm run setup:python:cpu
 
 
 
-### 4. Run the app
+### 3. Run the app
 
 ```bash
 npm run dev
@@ -115,7 +85,7 @@ Use the **Electron window** for the full app. Do not use `npm run start` for dev
 
 Stop dev with **Ctrl+C** in the terminal running `npm run dev`.
 
-### 5. Verify the setup (optional)
+### 4. Verify the setup (optional)
 
 **Python / Kokoro**
 
@@ -130,6 +100,7 @@ Stop dev with **Ctrl+C** in the terminal running `npm run dev`.
 ```
 
 Expect `2.13.0+cu129` and your GPU name. RTX 50-series (Blackwell) needs `cu129`; if you see a CPU build (`+cpu`) or sm_120 warnings, re-run `npm run setup:python` (not `setup:python:cpu`).
+
 **Renderer tests**
 
 ```bash
@@ -159,7 +130,7 @@ On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` 
 | `npm run dev`               | Development (UI + Electron + Python backend)           |
 | `npm run build`             | Compile main process + Angular for production          |
 | `npm run pack`              | Build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
-| `npm run setup:python`      | Reinstall Python deps + GPU PyTorch + Kokoro (NVIDIA)  |
+| `npm run setup:python`      | Create `.venv` if needed; install deps + GPU PyTorch + Kokoro |
 | `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
 | `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |
 
@@ -173,7 +144,7 @@ On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` 
 | -------------------- | ----------------------------------------------------------------- |
 | `CLARA_PYTHON`        | Absolute path to Python executable (skips auto `.venv` detection) |
 | `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
-| `PYTHON`             | Interpreter used by `scripts/setup-python.mjs`                    |
+| `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet    |
 | `DEV_SERVER_URL`     | Set automatically by `npm run dev`                                |
 
 
@@ -185,7 +156,7 @@ On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` 
 
 ### `setup:python` fails on Python 3.13
 
-Ensure Git is installed and reachable. The 3.13 path clones [hexgrad/misaki](https://github.com/hexgrad/misaki) and [hexgrad/kokoro](https://github.com/hexgrad/kokoro). Re-run:
+Ensure Git is installed and reachable. On 3.13, Kokoro falls back to cloning [hexgrad/misaki](https://github.com/hexgrad/misaki) and [hexgrad/kokoro](https://github.com/hexgrad/kokoro). Re-run:
 
 ```bash
 npm run setup:python
@@ -193,20 +164,21 @@ npm run setup:python
 
 
 
-### `No Python 3.10–3.13 found`
+### `No Python 3.10–3.13 found` / venv creation fails
 
-Install Python 3.10 or newer, recreate `.venv`, and run setup again:
+Install Python 3.10+ with the venv module, then re-run:
 
 ```bash
-python3 -m venv .venv
 npm run setup:python
 ```
+
+To recreate from scratch: `rm -rf .venv && npm run setup:python`.
 
 
 
 ### Backend uses the wrong Python
 
-Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Create `.venv` at the repo root or set `CLARA_PYTHON`.
+Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Run `npm run setup:python` or set `CLARA_PYTHON`.
 
 ### Windows native modules
 
@@ -226,7 +198,7 @@ On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CP
 | `src/main/`                | Electron main process (TypeScript)                           |
 | `src/renderer/`            | Angular UI                                                   |
 | `python/`                  | FastAPI backend (`server.py`, `clara_coder_backend/`)               |
-| `.venv/`                   | Project Python environment (gitignored; create at repo root) |
-| `scripts/setup-python.mjs` | Python + Kokoro installer used by `npm run setup:python`     |
+| `.venv/`                   | Project Python environment (gitignored; created by `setup:python`) |
+| `scripts/setup-python.mjs` | Creates `.venv`, installs PyTorch + deps + Kokoro             |
 
 

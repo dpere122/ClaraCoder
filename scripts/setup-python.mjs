@@ -1,8 +1,10 @@
 /**
- * Install python/requirements.txt plus Kokoro TTS deps.
- * Python 3.10–3.12: kokoro/misaki from PyPI.
- * Python 3.13: PyPI wheels still cap at <3.13, so install misaki/kokoro from GitHub
- * with spacy>=3.8.14 preinstalled (cp313 wheels).
+ * Create repo-root `.venv` if missing, then install python/requirements.txt,
+ * PyTorch, and Kokoro TTS.
+ *
+ * Kokoro: try PyPI first; if that interpreter cannot install it (today: Python
+ * 3.13+, where PyPI still declares Requires-Python <3.13), fall back to GitHub
+ * (misaki/kokoro) with spacy>=3.8.14.
  */
 import { spawnSync, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -10,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.join(fileURLToPath(new URL('.', import.meta.url)), '..');
+const venvDir = path.join(root, '.venv');
 const req = path.join(root, 'python', 'requirements.txt');
 const reqKokoroPypi = path.join(root, 'python', 'requirements-kokoro-pypi.txt');
 
@@ -17,8 +20,8 @@ const MISAKI_GIT = 'git+https://github.com/hexgrad/misaki.git';
 const KOKORO_GIT = 'git+https://github.com/hexgrad/kokoro.git';
 
 function venvPython() {
-  const unix = path.join(root, '.venv', 'bin', 'python');
-  const win = path.join(root, '.venv', 'Scripts', 'python.exe');
+  const unix = path.join(venvDir, 'bin', 'python');
+  const win = path.join(venvDir, 'Scripts', 'python.exe');
   if (existsSync(unix)) return unix;
   if (existsSync(win)) return win;
   return null;
@@ -45,17 +48,17 @@ function versionOk(py) {
   return major === 3 && minor >= 10 && minor <= 13;
 }
 
-function needsKokoroGitInstall(py) {
-  const info = pythonVersionInfo(py);
-  return info?.major === 3 && info.minor >= 13;
+function envFlag(...names) {
+  for (const name of names) {
+    const v = process.env[name];
+    if (v === '1' || v === 'true') return true;
+  }
+  return false;
 }
 
-function findPython() {
+function findBasePython() {
   const fromEnv = process.env.PYTHON?.trim();
   if (fromEnv && versionOk(fromEnv)) return fromEnv;
-
-  const vp = venvPython();
-  if (vp && versionOk(vp)) return vp;
 
   const candidates = [
     'python3.13',
@@ -71,6 +74,54 @@ function findPython() {
   return null;
 }
 
+function createVenv(basePy) {
+  console.info(`[setup:python] Creating ${venvDir} with ${basePy}…`);
+  const r = spawnSync(basePy, ['-m', 'venv', venvDir], {
+    stdio: 'inherit',
+    cwd: root,
+  });
+  if (r.status !== 0) {
+    console.error(
+      [
+        'Failed to create .venv.',
+        'On Debian/Ubuntu install python3-venv (or python3.XX-venv), then re-run:',
+        '  npm run setup:python',
+      ].join('\n'),
+    );
+    process.exit(r.status ?? 1);
+  }
+  const py = venvPython();
+  if (!py || !versionOk(py)) {
+    console.error('Created .venv but could not find a usable python inside it.');
+    process.exit(1);
+  }
+  return py;
+}
+
+/** Prefer existing root `.venv`; otherwise create it from PYTHON / system Python. */
+function ensureVenvPython() {
+  const existing = venvPython();
+  if (existing && versionOk(existing)) {
+    console.info(`[setup:python] Using ${existing}`);
+    return existing;
+  }
+
+  const base = findBasePython();
+  if (!base) {
+    console.error(
+      [
+        'No Python 3.10–3.13 found.',
+        'Install Python 3.10+ (with venv/ensurepip), then re-run:',
+        '  npm run setup:python',
+        'Or set PYTHON=/absolute/path/to/python3',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+
+  return createVenv(base);
+}
+
 function pipWorks(py) {
   try {
     execFileSync(py, ['-m', 'pip', '--version'], { stdio: 'ignore' });
@@ -80,13 +131,19 @@ function pipWorks(py) {
   }
 }
 
-function runPip(py, args, label) {
+function runPip(py, args, label, { inherit = true } = {}) {
   if (label) console.info(`[setup:python] ${label}`);
   const r = spawnSync(py, ['-m', 'pip', 'install', ...args], {
-    stdio: 'inherit',
+    stdio: inherit ? 'inherit' : 'pipe',
     cwd: root,
+    encoding: 'utf8',
   });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  return r.status ?? 1;
+}
+
+function runPipOrExit(py, args, label) {
+  const status = runPip(py, args, label);
+  if (status !== 0) process.exit(status);
 }
 
 /** Venvs built with --without-pip or minimal Pythons may lack pip until ensurepip runs. */
@@ -109,7 +166,7 @@ function ensurePip(py) {
   console.error(
     [
       'Could not install pip into this Python (ensurepip failed or pip still missing).',
-      'Try: recreate the venv with pip — rm -rf .venv && python3 -m venv .venv',
+      'Try: rm -rf .venv && npm run setup:python',
       'On some distros you need python packages that ship ensurepip (e.g. Arch: extra/python).',
     ].join('\n'),
   );
@@ -117,8 +174,8 @@ function ensurePip(py) {
 }
 
 function installTorchCpu(py) {
-  console.info('[setup:python] NEMO_PYTORCH_CPU: installing CPU-only PyTorch first…');
-  runPip(
+  console.info('[setup:python] CPU-only PyTorch (CLARA_PYTORCH_CPU / setup:python:cpu)…');
+  runPipOrExit(
     py,
     ['torch', '--index-url', 'https://download.pytorch.org/whl/cpu'],
     null,
@@ -127,65 +184,63 @@ function installTorchCpu(py) {
 
 function installTorchCuda(py) {
   console.info('[setup:python] Installing CUDA PyTorch (cu129) for GPU Kokoro TTS…');
-  runPip(
+  runPipOrExit(
     py,
     ['torch', '--index-url', 'https://download.pytorch.org/whl/cu129'],
     null,
   );
 }
 
-/** Kokoro on Python 3.13+: PyPI misaki/kokoro still declare Requires-Python <3.13. */
+/** GitHub path when PyPI cannot install kokoro for this interpreter. */
 function installKokoroFromGit(py) {
   console.info(
-    '[setup:python] Python 3.13+: installing Kokoro stack from GitHub (PyPI wheels cap at <3.13)…',
+    '[setup:python] Installing Kokoro from GitHub (PyPI not usable for this Python)…',
   );
-  runPip(py, ['spacy>=3.8.14'], 'spacy (cp313 wheels)');
-  runPip(py, [MISAKI_GIT], 'misaki from GitHub');
-  runPip(
+  runPipOrExit(py, ['spacy>=3.8.14'], 'spacy (cp313 wheels)');
+  runPipOrExit(py, [MISAKI_GIT], 'misaki from GitHub');
+  runPipOrExit(
     py,
     ['num2words', 'phonemizer-fork', 'espeakng-loader', 'attrs'],
     'misaki[en] runtime deps',
   );
-  runPip(py, ['--no-deps', KOKORO_GIT], 'kokoro from GitHub');
-  runPip(
+  runPipOrExit(py, ['--no-deps', KOKORO_GIT], 'kokoro from GitHub');
+  runPipOrExit(
     py,
     ['huggingface-hub', 'loguru', 'numpy', 'transformers'],
     'kokoro runtime deps',
   );
 }
 
-function installKokoroFromPypi(py) {
-  runPip(py, ['-r', reqKokoroPypi], 'kokoro from PyPI');
+/**
+ * One Kokoro install path: PyPI when possible, GitHub fallback otherwise.
+ * Skips a doomed PyPI attempt on Python 3.13+ (Requires-Python <3.13 today).
+ */
+function installKokoro(py) {
+  const info = pythonVersionInfo(py);
+  const skipPypi = info?.major === 3 && info.minor >= 13;
+
+  if (!skipPypi) {
+    const status = runPip(py, ['-r', reqKokoroPypi], 'kokoro from PyPI');
+    if (status === 0) return;
+    console.info('[setup:python] PyPI Kokoro install failed; trying GitHub fallback…');
+  }
+
+  installKokoroFromGit(py);
 }
 
 function main() {
-  const py = findPython();
-  if (!py) {
-    console.error(
-      [
-        'No Python 3.10–3.13 found.',
-        'Install Python 3.10+ and create a venv, then reinstall:',
-        '  python3 -m venv .venv && . .venv/bin/activate && npm run setup:python',
-        'Or set PYTHON=/absolute/path/to/python3',
-      ].join('\n'),
-    );
-    process.exit(1);
-  }
-
+  const py = ensureVenvPython();
   if (!ensurePip(py)) process.exit(1);
 
-  const cpu =
-    process.env.NEMO_PYTORCH_CPU === '1' ||
-    process.env.NEMO_PYTORCH_CPU === 'true';
+  const cpu = envFlag('CLARA_PYTORCH_CPU', 'NEMO_PYTORCH_CPU');
 
   if (cpu) installTorchCpu(py);
   else installTorchCuda(py);
 
-  runPip(py, ['-r', req], 'core requirements');
+  runPipOrExit(py, ['-r', req], 'core requirements');
+  installKokoro(py);
 
-  if (needsKokoroGitInstall(py)) installKokoroFromGit(py);
-  else installKokoroFromPypi(py);
-
+  console.info(`[setup:python] Done. Interpreter: ${py}`);
   process.exit(0);
 }
 

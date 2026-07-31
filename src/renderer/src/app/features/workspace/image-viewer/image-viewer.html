@@ -112,26 +112,42 @@
   </div>
 
   @if (hasGallery()) {
-    <div class='image-viewer-thumbs' role='listbox' aria-label='Images in folder'>
-      @for (path of galleryPaths(); track path) {
-        <button
-          type='button'
-          class='image-viewer-thumb'
-          [class.image-viewer-thumb--active]='isActiveGalleryPath(path)'
-          role='option'
-          [attr.aria-selected]='isActiveGalleryPath(path)'
-          [title]='path'
-          (click)='onThumbnailClick(path)'
-        >
-          <img
-            class='image-viewer-thumb-img'
-            [src]='thumbAssetUrlForPath(path)'
-            [alt]='path'
-            loading='lazy'
-            decoding='async'
-          />
-        </button>
-      }
+    <div class='image-viewer-gallery'>
+      <div
+        class='image-viewer-gallery-resize-handle'
+        (mousedown)='onGalleryResizeHandleDown($event)'
+        title='Drag to resize'
+        role='separator'
+        aria-orientation='horizontal'
+        aria-label='Resize thumbnail gallery'
+      ></div>
+      <div
+        class='image-viewer-thumbs'
+        role='listbox'
+        aria-label='Images in folder'
+        [style.height.px]='galleryHeightPx()'
+        [style.--image-viewer-thumb-size]='thumbSizePx() + "px"'
+      >
+        @for (path of galleryPaths(); track path) {
+          <button
+            type='button'
+            class='image-viewer-thumb'
+            [class.image-viewer-thumb--active]='isActiveGalleryPath(path)'
+            role='option'
+            [attr.aria-selected]='isActiveGalleryPath(path)'
+            [title]='path'
+            (click)='onThumbnailClick(path)'
+          >
+            <img
+              class='image-viewer-thumb-img'
+              [src]='thumbAssetUrlForPath(path)'
+              [alt]='path'
+              loading='lazy'
+              decoding='async'
+            />
+          </button>
+        }
+      </div>
     </div>
   }
 </div>

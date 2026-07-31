@@ -172,22 +172,44 @@ app-image-viewer .image-viewer-message {
   font-size: 0.85rem;
 }
 
+app-image-viewer .image-viewer-gallery {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+  background: var(--t-bg);
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+app-image-viewer .image-viewer-gallery-resize-handle {
+  height: 4px;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+app-image-viewer .image-viewer-gallery-resize-handle:hover {
+  background: var(--t-primary);
+  opacity: 0.35;
+}
+
 app-image-viewer .image-viewer-thumbs {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.6rem;
-  border-top: 1px solid var(--t-border-subtle);
+  box-sizing: border-box;
   background: var(--t-bg);
   overflow-x: auto;
+  overflow-y: hidden;
   flex-shrink: 0;
-  min-height: 4.5rem;
+  --image-viewer-thumb-size: 3.5rem;
 }
 
 app-image-viewer .image-viewer-thumb {
   flex: 0 0 auto;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: var(--image-viewer-thumb-size);
+  height: var(--image-viewer-thumb-size);
   padding: 0;
   border: 2px solid var(--t-border);
   border-radius: 4px;

@@ -34,6 +34,15 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 16;
 const ZOOM_STEP = 1.25;
 
+/** Default / clamp range for the thumbnail gallery strip height (px). */
+const DEFAULT_GALLERY_HEIGHT_PX = 72;
+const MIN_GALLERY_HEIGHT_PX = 56;
+const MAX_GALLERY_HEIGHT_PX = 280;
+/** Vertical padding inside `.image-viewer-thumbs` (0.45rem × 2 at 16px root). */
+const GALLERY_THUMBS_PADDING_Y_PX = 14;
+const MIN_THUMB_SIZE_PX = 40;
+const MAX_THUMB_SIZE_PX = 256;
+
 @Component({
   selector: 'app-image-viewer',
   imports: [LucideAngularModule],
@@ -65,12 +74,17 @@ export class ImageViewerComponent implements OnDestroy {
   protected readonly galleryLoading = signal(false);
   protected readonly autoPlayEnabled = signal(false);
   protected readonly autoPlayIntervalMs = signal(3000);
+  protected readonly galleryHeightPx = signal(DEFAULT_GALLERY_HEIGHT_PX);
 
   private galleryFolderKey: string | null = null;
   private galleryLoadGeneration = 0;
   private autoPlayTimer: ReturnType<typeof setInterval> | null = null;
   private autoPlayTimerGeneration = 0;
+  private galleryDrag: { startY: number; startH: number } | null = null;
+  private galleryDragListenersActive = false;
   private readonly keydownHandler = (event: KeyboardEvent) => this.onWindowKeydown(event);
+  private readonly boundGalleryDragMove = (e: MouseEvent) => this.onGalleryResizeHandleMove(e);
+  private readonly boundGalleryDragUp = () => this.endGalleryDrag();
 
   protected readonly fileName = computed(() => {
     const rel = this.relativePath();
@@ -91,6 +105,23 @@ export class ImageViewerComponent implements OnDestroy {
   });
 
   protected readonly hasGallery = computed(() => this.galleryPaths().length > 1);
+
+  protected readonly thumbSizePx = computed(() => {
+    const raw = this.galleryHeightPx() - GALLERY_THUMBS_PADDING_Y_PX;
+    return Math.min(MAX_THUMB_SIZE_PX, Math.max(MIN_THUMB_SIZE_PX, raw));
+  });
+
+  /** Stepped protocol max-edge so small height drags do not thrash thumb URLs. */
+  protected readonly thumbMaxEdge = computed(() => {
+    const needed = this.thumbSizePx() * 2;
+    if (needed <= 128) {
+      return 128;
+    }
+    if (needed <= 256) {
+      return 256;
+    }
+    return 512;
+  });
 
   protected readonly currentGalleryIndex = computed(() => {
     const rel = this.relativePath();
@@ -154,6 +185,7 @@ export class ImageViewerComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.galleryLoadGeneration += 1;
     this.stopAutoPlay();
+    this.endGalleryDrag();
     window.removeEventListener('keydown', this.keydownHandler);
   }
 
@@ -163,7 +195,46 @@ export class ImageViewerComponent implements OnDestroy {
 
   /** Downscaled static PNG for the gallery strip (avoids decoding full / animated images). */
   protected thumbAssetUrlForPath(relativePath: string | null | undefined): string {
-    return buildWorkspaceImageAssetUrl(this.workspacePath(), relativePath, { thumb: true });
+    return buildWorkspaceImageAssetUrl(this.workspacePath(), relativePath, {
+      thumb: true,
+      maxEdge: this.thumbMaxEdge(),
+    });
+  }
+
+  protected onGalleryResizeHandleDown(ev: MouseEvent): void {
+    if (!this.hasGallery()) {
+      return;
+    }
+    ev.preventDefault();
+    this.endGalleryDrag();
+    this.galleryDrag = { startY: ev.clientY, startH: this.galleryHeightPx() };
+    this.galleryDragListenersActive = true;
+    window.addEventListener('mousemove', this.boundGalleryDragMove);
+    window.addEventListener('mouseup', this.boundGalleryDragUp);
+  }
+
+  private onGalleryResizeHandleMove(ev: MouseEvent): void {
+    const drag = this.galleryDrag;
+    if (!drag) {
+      return;
+    }
+    const delta = drag.startY - ev.clientY;
+    const next = Math.min(
+      MAX_GALLERY_HEIGHT_PX,
+      Math.max(MIN_GALLERY_HEIGHT_PX, drag.startH + delta),
+    );
+    this.galleryHeightPx.set(next);
+  }
+
+  private endGalleryDrag(): void {
+    if (!this.galleryDragListenersActive) {
+      this.galleryDrag = null;
+      return;
+    }
+    window.removeEventListener('mousemove', this.boundGalleryDragMove);
+    window.removeEventListener('mouseup', this.boundGalleryDragUp);
+    this.galleryDragListenersActive = false;
+    this.galleryDrag = null;
   }
 
   protected isActiveGalleryPath(path: string): boolean {

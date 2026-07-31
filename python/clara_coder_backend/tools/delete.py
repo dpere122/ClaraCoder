@@ -12,11 +12,11 @@ logger = logging.getLogger('clara.tools.delete')
 
 from langchain_core.tools import tool
 
-from clara_coder_backend import edit_staging
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.staging import edit_staging
+from clara_coder_backend.session.domain import SessionState
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path
 from clara_coder_backend.lsp.manager import close_session_document
-from clara_coder_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
+from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 

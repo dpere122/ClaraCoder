@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.wsdl.parser import clear_wsdl_cache_for_tests
 from clara_coder_backend.tools.wsdl_tools import read_wsdl_section, search_wsdl, wsdl_overview
 MINIMAL_WSDL = """<?xml version="1.0"?>

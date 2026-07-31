@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from clara_coder_backend import state
+from clara_coder_backend.session import state
 from clara_coder_backend.lang_agent.agent import stream_agent_reply
-from clara_coder_backend.context_compression import CompactResult
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.llm.context_compression import CompactResult
+from clara_coder_backend.session.domain import SessionState
 
 
 @pytest.mark.asyncio

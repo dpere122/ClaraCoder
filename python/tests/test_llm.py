@@ -1,4 +1,4 @@
-"""Tests for :func:`clara_coder_backend.llm.build_llm` wiring (reasoning_effort, Gemma sampling)."""
+"""Tests for :func:`clara_coder_backend.llm.factory.build_llm` wiring (reasoning_effort, Gemma sampling)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
-from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend.session.domain import RuntimeConnection
 
 
 def _gemma_conn(**kwargs: object) -> RuntimeConnection:
@@ -50,16 +50,16 @@ def _openai_conn() -> RuntimeConnection:
     )
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_omits_reasoning_effort_for_gemma(
     mock_get: MagicMock,
     _mock_log: MagicMock,
     mock_ctor: MagicMock,
 ) -> None:
     mock_get.return_value = _gemma_conn()
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
@@ -68,9 +68,9 @@ def test_build_llm_omits_reasoning_effort_for_gemma(
     assert kwargs.get('extra_body', {}).get('top_k') == 64
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_llamacpp_defaults_base_url(
     mock_get: MagicMock,
     _mock_log: MagicMock,
@@ -90,7 +90,7 @@ def test_build_llm_llamacpp_defaults_base_url(
         max_output_tokens=0,
         plan_retry_attempts_count=2,
     )
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
@@ -99,41 +99,41 @@ def test_build_llm_llamacpp_defaults_base_url(
     assert kwargs.get('stream_usage') is True
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_passes_reasoning_effort_for_openai(
     mock_get: MagicMock,
     _mock_log: MagicMock,
     mock_ctor: MagicMock,
 ) -> None:
     mock_get.return_value = _openai_conn()
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
     assert kwargs.get('reasoning_effort') == 'low'
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_passes_reasoning_effort_for_gemma_model_when_preset_generic(
     mock_get: MagicMock,
     _mock_log: MagicMock,
     mock_ctor: MagicMock,
 ) -> None:
     mock_get.return_value = _gemma_conn(optimization_preset='generic')
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
     assert kwargs.get('reasoning_effort') == 'high'
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_sets_idle_read_timeout_and_no_retries(
     mock_get: MagicMock,
     _mock_log: MagicMock,
@@ -143,7 +143,7 @@ def test_build_llm_sets_idle_read_timeout_and_no_retries(
     """A stalled stream must fail via httpx read timeout instead of hanging forever."""
     monkeypatch.delenv('CLARA_LLM_IDLE_TIMEOUT_SEC', raising=False)
     mock_get.return_value = _openai_conn()
-    from clara_coder_backend.llm import _DEFAULT_LLM_IDLE_TIMEOUT_SEC, build_llm
+    from clara_coder_backend.llm.factory import _DEFAULT_LLM_IDLE_TIMEOUT_SEC, build_llm
 
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
@@ -153,9 +153,9 @@ def test_build_llm_sets_idle_read_timeout_and_no_retries(
     assert kwargs.get('max_retries') == 0
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_idle_timeout_env_override(
     mock_get: MagicMock,
     _mock_log: MagicMock,
@@ -164,7 +164,7 @@ def test_build_llm_idle_timeout_env_override(
 ) -> None:
     monkeypatch.setenv('CLARA_LLM_IDLE_TIMEOUT_SEC', '45')
     mock_get.return_value = _openai_conn()
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     timeout = mock_ctor.call_args.kwargs.get('timeout')
@@ -172,9 +172,9 @@ def test_build_llm_idle_timeout_env_override(
     assert timeout.read == 45.0
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_idle_timeout_invalid_env_falls_back(
     mock_get: MagicMock,
     _mock_log: MagicMock,
@@ -183,7 +183,7 @@ def test_build_llm_idle_timeout_invalid_env_falls_back(
 ) -> None:
     monkeypatch.setenv('CLARA_LLM_IDLE_TIMEOUT_SEC', 'not-a-number')
     mock_get.return_value = _openai_conn()
-    from clara_coder_backend.llm import _DEFAULT_LLM_IDLE_TIMEOUT_SEC, build_llm
+    from clara_coder_backend.llm.factory import _DEFAULT_LLM_IDLE_TIMEOUT_SEC, build_llm
 
     build_llm()
     timeout = mock_ctor.call_args.kwargs.get('timeout')
@@ -191,9 +191,9 @@ def test_build_llm_idle_timeout_invalid_env_falls_back(
     assert timeout.read == _DEFAULT_LLM_IDLE_TIMEOUT_SEC
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_generic_merges_optional_sampling(
     mock_get: MagicMock,
     _mock_log: MagicMock,
@@ -218,7 +218,7 @@ def test_build_llm_generic_merges_optional_sampling(
         presence_penalty=0.0,
         repeat_penalty=1.0,
     )
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     kwargs = mock_ctor.call_args.kwargs
@@ -231,48 +231,48 @@ def test_build_llm_generic_merges_optional_sampling(
     assert eb.get('repeat_penalty') == 1.0
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_gemma_thinking_mode_on(
     mock_get: MagicMock,
     _mock_log: MagicMock,
     mock_ctor: MagicMock,
 ) -> None:
     mock_get.return_value = _gemma_conn(thinking_mode='on')
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     ctk = (mock_ctor.call_args.kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
     assert ctk.get('enable_thinking') is True
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_gemma_thinking_mode_off(
     mock_get: MagicMock,
     _mock_log: MagicMock,
     mock_ctor: MagicMock,
 ) -> None:
     mock_get.return_value = _gemma_conn(thinking_mode='off')
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     ctk = (mock_ctor.call_args.kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
     assert ctk.get('enable_thinking') is False
 
 
-@patch('clara_coder_backend.llm.ChatOpenAI')
-@patch('clara_coder_backend.llm.log_llm_connection_settings')
-@patch('clara_coder_backend.llm.get_active_connection')
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_gemma_thinking_mode_default_omits_kwarg(
     mock_get: MagicMock,
     _mock_log: MagicMock,
     mock_ctor: MagicMock,
 ) -> None:
     mock_get.return_value = _gemma_conn(thinking_mode='default')
-    from clara_coder_backend.llm import build_llm
+    from clara_coder_backend.llm.factory import build_llm
 
     build_llm()
     eb = mock_ctor.call_args.kwargs.get('extra_body') or {}

@@ -9,13 +9,13 @@ from clara_coder_backend.tools.edit import (
     replace_workspace_line_range,
 )
 from clara_coder_backend.lsp.file_policy import outer_workspace_edit_guard_error
-from clara_coder_backend.state import current_session_id, get_session, runtime_config, sessions
-from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions
+from clara_coder_backend.session.domain import RuntimeToolsConfig
 from clara_coder_backend.tools.node_deps import node_dependency_tools
 from clara_coder_backend.tools.python_deps import python_dependency_tools
 from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
-from clara_coder_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
-from clara_coder_backend.tool_registry import (
+from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
+from clara_coder_backend.hitl.tool_registry import (
     hitl_accept_command_pause_tools,
     hitl_copy_pause_tools,
     hitl_delete_pause_tools,

@@ -11,7 +11,7 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.tools.http_guards import assert_public_http_url
 from clara_coder_backend.tools.tool_conventions import describe
 from clara_coder_backend.tools.workspace import truncate_text_head_tail
@@ -168,7 +168,7 @@ async def fetch_url_tool(
         return 'Tool error: no active session.'
     session = get_session(sid)
 
-    from clara_coder_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+    from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
 
     pending = maybe_await_hitl_for_deferred_tool(
         session,

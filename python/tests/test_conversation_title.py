@@ -8,7 +8,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from starlette.testclient import TestClient
 
-from clara_coder_backend.conversation_title_cadence import should_refresh_auto_title
+from clara_coder_backend.chat.conversation_title_cadence import should_refresh_auto_title
 from clara_coder_backend.routes.conversation_title import history_transcript_for_title
 
 
@@ -42,7 +42,7 @@ def test_history_transcript_for_title_skips_non_chat_roles() -> None:
 
 
 def test_suggest_title_uses_mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    from clara_coder_backend import state
+    from clara_coder_backend.session import state
     from clara_coder_backend.main import app
 
     sid = 'title-test-session'

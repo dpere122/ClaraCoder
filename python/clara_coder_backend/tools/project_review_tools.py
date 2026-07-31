@@ -8,16 +8,16 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.config import CLARA_SUBPROCESS_TIMEOUT_SEC
-from clara_coder_backend.python_env import (
+from clara_coder_backend.session.config import CLARA_SUBPROCESS_TIMEOUT_SEC
+from clara_coder_backend.runtime.python_env import (
     _terminate_subprocess_tree,
     ensure_session_python_workspace_env,
     session_workspace_subprocess_env,
     with_subprocess_color_env,
 )
-from clara_coder_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
-from clara_coder_backend.state import current_session_id, get_session
-from clara_coder_backend.stream_tags import TOOL_PYTEST_STREAM_TAG
+from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.chat.stream_tags import TOOL_PYTEST_STREAM_TAG
 from clara_coder_backend.tools.workspace import (
     get_active_workspace_root,
     truncate_text_head_tail,
@@ -211,7 +211,7 @@ def _resolve_project_root_or_error() -> tuple[str | None, object | None]:
         workspace_root = get_active_workspace_root()
     except ValueError as exc:
         return f'Tool error: {exc}', None
-    from clara_coder_backend.python_env import resolve_python_workspace_root
+    from clara_coder_backend.runtime.python_env import resolve_python_workspace_root
 
     project_root, project_root_label = resolve_python_workspace_root(workspace_root)
     if project_root is None:

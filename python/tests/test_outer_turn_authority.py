@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.messages import compose_outer_turn_human_content, outer_turn_authority_preamble
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.llm.messages import compose_outer_turn_human_content, outer_turn_authority_preamble
 
 
 def test_outer_turn_authority_preamble_reflects_live_flags() -> None:

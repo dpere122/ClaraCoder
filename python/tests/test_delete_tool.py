@@ -6,7 +6,7 @@ from clara_coder_backend.tools.delete import (
     delete_confirm_sse_payload,
     execute_pending_delete_decision,
 )
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 
 
 def test_rejects_workspace_root() -> None:

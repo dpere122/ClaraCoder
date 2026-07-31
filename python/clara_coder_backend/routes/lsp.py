@@ -27,10 +27,10 @@ from clara_coder_backend.lsp.editor_monaco import (
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from clara_coder_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, list_session_diagnostics
 from clara_coder_backend.lsp.registry import lsp_server_id_is_registered
-from clara_coder_backend.python_env import ensure_session_python_workspace_env
-from clara_coder_backend.state import get_session
+from clara_coder_backend.runtime.python_env import ensure_session_python_workspace_env
+from clara_coder_backend.session.state import get_session
 from clara_coder_backend.tools.lsp_tools import _format_hover_contents
-from clara_coder_backend.workspace_text_io import validate_workspace_encoding
+from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 
 router = APIRouter()
 

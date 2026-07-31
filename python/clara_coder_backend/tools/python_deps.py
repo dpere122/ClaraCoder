@@ -9,15 +9,15 @@ from typing import Annotated, Awaitable, Callable
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY
-from clara_coder_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.python_env import (
+from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY
+from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.runtime.python_env import (
     _python_module_available,
     _run_subprocess_with_output,
     truncate_text,
 )
-from clara_coder_backend.state import current_session_id, get_session, mutation_tools_blocked_reason
+from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import describe
 
 INSTALL_PYTHON_PACKAGES_NAME = 'install_python_packages'

@@ -6,7 +6,7 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.state import runtime_config
+from clara_coder_backend.session.state import runtime_config
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.xml.format import format_search_results, format_section_detail, format_xml_overview
 from clara_coder_backend.xml.namespaces import SEARCH_SCOPES

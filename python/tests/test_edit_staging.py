@@ -19,8 +19,8 @@ from clara_coder_backend.tools.review_tools import (
     search_staged_edits,
     transfer_staged_file_to_workspace,
 )
-from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
-from clara_coder_backend.edit_staging import (
+from clara_coder_backend.session.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.staging.edit_staging import (
     begin_staging_snapshot_session,
     copy_workspace_into_snapshot,
     discard_all_session_stagings,
@@ -37,8 +37,8 @@ from clara_coder_backend.tools.staging_edit import (
     stage_snippet_edit,
     stage_workspace_file_overwrite,
 )
-from clara_coder_backend.search_backend import SearchLineMatch
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.workspace.search_backend import SearchLineMatch
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
 def test_get_staging_root_uses_env(staging_env) -> None:
@@ -66,8 +66,7 @@ def test_resolve_prettier_cli_reads_package_bin(staging_env) -> None:
 
 
 def test_format_source_via_prettier_runs_cmd_shim_directly(monkeypatch, staging_env) -> None:
-    from clara_coder_backend import edit_staging as _es
-
+    from clara_coder_backend.staging import edit_staging as _es
     shim = staging_env.workspace / 'node_modules' / '.bin' / 'prettier.cmd'
     monkeypatch.setattr(_es, 'resolve_prettier_cli', lambda workspace_root: shim)
     monkeypatch.setattr(_es, '_resolve_node_executable', lambda: 'node')
@@ -98,8 +97,7 @@ def test_format_source_via_prettier_runs_cmd_shim_directly(monkeypatch, staging_
 
 
 def test_format_source_via_prettier_runs_node_for_cjs_cli(monkeypatch, staging_env) -> None:
-    from clara_coder_backend import edit_staging as _es
-
+    from clara_coder_backend.staging import edit_staging as _es
     cli = staging_env.workspace / 'node_modules' / 'prettier' / 'bin' / 'prettier.cjs'
     monkeypatch.setattr(_es, 'resolve_prettier_cli', lambda workspace_root: cli)
     monkeypatch.setattr(_es, '_resolve_node_executable', lambda: 'node')
@@ -133,8 +131,7 @@ def test_copy_workspace_into_snapshot_skips_uncopyable_files(tmp_path, monkeypat
     """Regression: one bad file under e.g. .venv must not abort staging snapshot seed."""
     from shutil import copy2 as real_copy2
 
-    from clara_coder_backend import edit_staging as edit_staging_mod
-
+    from clara_coder_backend.staging import edit_staging as edit_staging_mod
     ws = tmp_path / 'ws'
     ws.mkdir()
     (ws / 'good.txt').write_text('ok', encoding='utf-8')
@@ -494,8 +491,7 @@ def test_read_format_approve_reject(staging_env) -> None:
 def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) -> None:
     session = staging_env.session
 
-    from clara_coder_backend import edit_staging as _es
-
+    from clara_coder_backend.staging import edit_staging as _es
     class _FakeLspMgr:
         def sync_workspace_document(self, relative_path: str, *, encoding: str = 'utf-8') -> list:
             return []

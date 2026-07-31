@@ -20,7 +20,7 @@ from clara_coder_backend.tools.node_deps import (
     _workspace_root,
     detect_package_manager,
 )
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.tool_conventions import describe
 from clara_coder_backend.tools.workspace import truncate_text_head_tail
 

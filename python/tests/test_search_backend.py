@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from clara_coder_backend.search_backend import SearchCandidate, run_grep_line_search
+from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search
 
 
 def test_run_grep_line_search_timeout_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:

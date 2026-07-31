@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
+from clara_coder_backend.hitl.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
 from clara_coder_backend.tools.angular_cli import (
     angular_cli_tool,
     resolve_local_ng_executable,
     validate_ng_args,
 )
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 
 
 class _FakeProc:

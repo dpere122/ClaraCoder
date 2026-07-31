@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from clara_coder_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES, maybe_await_hitl_for_deferred_tool
-from clara_coder_backend.domain import RuntimeToolsConfig
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES, maybe_await_hitl_for_deferred_tool
+from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.tools.fetch_url import fetch_url_tool, html_to_text
 from clara_coder_backend.tools.http_guards import assert_public_http_url, normalize_http_base_url
 from clara_coder_backend.tools.web_search import format_searxng_search_report, search_searxng, web_search_tool
-from clara_coder_backend.tool_registry import worker_tools_and_map
+from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 
 @pytest.fixture

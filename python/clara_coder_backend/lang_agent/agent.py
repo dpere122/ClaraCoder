@@ -24,16 +24,16 @@ from typing import Any
 from fastapi import HTTPException
 
 from clara_coder_backend.lang_agent.graph import stream_single_agent_langgraph
-from clara_coder_backend.plan_execute import stream_plan_execute_langgraph, PLAN_EXECUTE_APPLY_MODE
+from clara_coder_backend.plan.plan_execute import stream_plan_execute_langgraph, PLAN_EXECUTE_APPLY_MODE
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, DEFAULT_AGENT_LOOP_POLICY, LangGraphWorkerOutcome
-from clara_coder_backend.checkpointing import delete_outer_thread
-from clara_coder_backend.context_compression import maybe_compact_outer_checkpoint
+from clara_coder_backend.session.checkpointing import delete_outer_thread
+from clara_coder_backend.llm.context_compression import maybe_compact_outer_checkpoint
 from clara_coder_backend.lang_agent.streaming import model_chunk_sse_line, sse_line, status_event
-from clara_coder_backend.config import MAX_TOOL_STATUS_LINE
-from clara_coder_backend.llm import build_llm
-from clara_coder_backend.llm_interaction_logging import log_llm_user_request
-from clara_coder_backend.messages import stringify_content
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.config import MAX_TOOL_STATUS_LINE
+from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.logging.llm_interaction_logging import log_llm_user_request
+from clara_coder_backend.llm.messages import stringify_content
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('clara.agent')

@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.python_env import (
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.runtime.python_env import (
     resolve_python_workspace_root,
     workspace_python_executable,
 )

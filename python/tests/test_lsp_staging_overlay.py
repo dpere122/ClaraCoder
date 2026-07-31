@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from clara_coder_backend import staging_test_overlay as sto
-from clara_coder_backend.edit_staging import copy_workspace_mirror
+from clara_coder_backend.staging import staging_test_overlay as sto
+from clara_coder_backend.staging.edit_staging import copy_workspace_mirror
 from clara_coder_backend.lsp.manager import SessionWorkspaceLspManager, get_session_lsp_manager
-from clara_coder_backend.state import current_session_id
+from clara_coder_backend.session.state import current_session_id
 
 
 def test_copy_workspace_mirror_separate_rules_anchor(tmp_path: Path) -> None:

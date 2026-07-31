@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend.session.domain import RuntimeConnection
 
 
 def _llamacpp_conn(**kwargs: object) -> RuntimeConnection:

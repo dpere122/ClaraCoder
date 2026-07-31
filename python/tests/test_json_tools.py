@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.json.parser import clear_json_cache_for_tests
 from clara_coder_backend.tools.json_tools import json_overview, read_json_section, search_json
 

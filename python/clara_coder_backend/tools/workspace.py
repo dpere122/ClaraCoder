@@ -17,7 +17,7 @@ logger = logging.getLogger('clara.tools.workspace')
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
+from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
 from clara_coder_backend.tools.semantic import retrieve_workspace_checkpoint_semantic, retrieve_workspace_semantic
 from clara_coder_backend.tools.tool_conventions import (
     ENCODING_NEWLINE,
@@ -27,15 +27,15 @@ from clara_coder_backend.tools.tool_conventions import (
     clamp_line_window,
     describe,
 )
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
-from clara_coder_backend.workspace_text_io import (
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.workspace.workspace_text_io import (
     parse_newline_mode,
     read_file_for_tools,
     read_file_line_window_for_tools,
     validate_workspace_encoding,
     write_file_to_disk,
 )
-from clara_coder_backend.workspace_ignore import (
+from clara_coder_backend.workspace.workspace_ignore import (
     WORKSPACE_CONTEXT_IGNORED_NAMES,
     get_workspace_ignore_rules_cached,
     is_node_modules_bulk_listing_path,
@@ -219,7 +219,7 @@ def write_workspace_file(
     """Write text to ``relative_path`` using a vetted encoding and newline mode (defaults from runtime tools config).
 
     Resolves with :func:`normalize_relative_path` (no path escape). Creates parent
-    directories as needed. Must run with :data:`clara_coder_backend.state.current_session_id` set.
+    directories as needed. Must run with :data:`clara_coder_backend.session.state.current_session_id` set.
     """
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)

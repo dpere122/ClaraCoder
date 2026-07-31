@@ -8,8 +8,8 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.session.domain import SessionState
 from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from clara_coder_backend.workspace_index.index_build import (
     DOC_REF_WORKSPACE,
@@ -73,7 +73,7 @@ def schedule_semantic_index_background(session_id: str, *, ensure_corpus: bool =
 
 
 def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> None:
-    from clara_coder_backend.state import get_active_connection, get_session
+    from clara_coder_backend.session.state import get_active_connection, get_session
     from clara_coder_backend.workspace_index.embeddings_factory import (
         build_embedding_model,
         embeddings_available,

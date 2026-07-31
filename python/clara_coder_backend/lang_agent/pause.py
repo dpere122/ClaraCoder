@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from clara_coder_backend.state import get_session
+from clara_coder_backend.session.state import get_session
 
 
 async def await_diff_review_note(session_id: str) -> str:

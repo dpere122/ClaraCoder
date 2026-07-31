@@ -6,16 +6,15 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from clara_coder_backend.lang_agent.agent import stream_agent_reply
-from clara_coder_backend.chat_input import effective_user_message_content
-from clara_coder_backend.schemas import (
+from clara_coder_backend.chat.chat_input import effective_user_message_content
+from clara_coder_backend.session.schemas import (
     AbortRequest,
     AgentContinueRequest,
     AgentQuestionAnswersRequest,
     BackgroundCommandTerminalClosedRequest,
     ChatRequest,
 )
-from clara_coder_backend import state
-
+from clara_coder_backend.session import state
 router = APIRouter()
 
 
@@ -84,7 +83,7 @@ async def agent_question_answers(request: AgentQuestionAnswersRequest) -> dict[s
 @router.post('/chat/agent-continue')
 async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]:
     """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
-    from clara_coder_backend.accept_command import execute_pending_accept_command_decision
+    from clara_coder_backend.hitl.accept_command import execute_pending_accept_command_decision
     from clara_coder_backend.tools.review_tools import (
         finalize_staged_transfer_after_hitl,
         resolve_staged_transfer_batch_file,
@@ -145,7 +144,7 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
                 else:
                     note = f'{extra}\n\n{note}'.strip() if note else extra
     elif request.plan_confirm_action:
-        from clara_coder_backend.plan_confirm import execute_pending_plan_confirm_decision
+        from clara_coder_backend.plan.plan_confirm import execute_pending_plan_confirm_decision
 
         extra = execute_pending_plan_confirm_decision(
             sess,

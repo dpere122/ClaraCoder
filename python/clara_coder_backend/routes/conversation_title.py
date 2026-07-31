@@ -10,10 +10,10 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from clara_coder_backend.llm import build_llm
-from clara_coder_backend.messages import stringify_content
-from clara_coder_backend.schemas import SuggestConversationTitleRequest
-from clara_coder_backend.state import get_session
+from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.llm.messages import stringify_content
+from clara_coder_backend.session.schemas import SuggestConversationTitleRequest
+from clara_coder_backend.session.state import get_session
 from clara_coder_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('clara.title')

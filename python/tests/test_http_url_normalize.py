@@ -1,8 +1,8 @@
-"""Tests for :mod:`clara_coder_backend.http_url_normalize`."""
+"""Tests for :mod:`clara_coder_backend.runtime.http_url_normalize`."""
 
 from __future__ import annotations
 
-from clara_coder_backend.http_url_normalize import normalize_bind_all_host_url
+from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
 
 
 def test_normalize_bind_all_ipv4() -> None:

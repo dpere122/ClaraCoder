@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
-from clara_coder_backend.command_risk_assess import (
+from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+from clara_coder_backend.hitl.command_risk_assess import (
     CommandRiskAssessment,
     assess_command_risk,
     maybe_enrich_pending_command_risk,
 )
-from clara_coder_backend.state import runtime_config
+from clara_coder_backend.session.state import runtime_config
 
 
 # ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ from clara_coder_backend.state import runtime_config
 # ---------------------------------------------------------------------------
 
 
-@patch('clara_coder_backend.command_risk_assess._risk_assessment_chain')
+@patch('clara_coder_backend.hitl.command_risk_assess._risk_assessment_chain')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_assess_command_risk_returns_structured_result(mock_chain_factory: AsyncMock) -> None:
     mock_chain = AsyncMock()
@@ -39,7 +39,7 @@ async def test_assess_command_risk_returns_structured_result(mock_chain_factory:
     mock_chain.ainvoke.assert_awaited_once_with({'command': 'ls -la', 'cwd': '/workspace'})
 
 
-@patch('clara_coder_backend.command_risk_assess._risk_assessment_chain')
+@patch('clara_coder_backend.hitl.command_risk_assess._risk_assessment_chain')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_assess_command_risk_returns_none_on_exception(mock_chain_factory: AsyncMock) -> None:
     mock_chain = AsyncMock()
@@ -51,8 +51,8 @@ async def test_assess_command_risk_returns_none_on_exception(mock_chain_factory:
     assert result is None
 
 
-@patch('clara_coder_backend.command_risk_assess.CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC', 0.01)
-@patch('clara_coder_backend.command_risk_assess._risk_assessment_chain')
+@patch('clara_coder_backend.hitl.command_risk_assess.CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC', 0.01)
+@patch('clara_coder_backend.hitl.command_risk_assess._risk_assessment_chain')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_assess_command_risk_returns_none_on_timeout(mock_chain_factory: AsyncMock) -> None:
     async def _slow_ainvoke(_payload: dict) -> CommandRiskAssessment:
@@ -68,8 +68,8 @@ async def test_assess_command_risk_returns_none_on_timeout(mock_chain_factory: A
     assert result is None
 
 
-@patch('clara_coder_backend.command_risk_assess.asyncio.wait_for', side_effect=asyncio.TimeoutError)
-@patch('clara_coder_backend.command_risk_assess._risk_assessment_chain')
+@patch('clara_coder_backend.hitl.command_risk_assess.asyncio.wait_for', side_effect=asyncio.TimeoutError)
+@patch('clara_coder_backend.hitl.command_risk_assess._risk_assessment_chain')
 @pytest.mark.asyncio(loop_scope='function')
 async def test_assess_command_risk_returns_none_when_wait_for_times_out(
     mock_chain_factory: AsyncMock,
@@ -105,7 +105,7 @@ async def test_maybe_enrich_noop_when_setting_off(monkeypatch: pytest.MonkeyPatc
     pending = _deferred_run_command_pending()
     before = dict(pending)
 
-    with patch('clara_coder_backend.command_risk_assess.assess_command_risk') as mock_assess:
+    with patch('clara_coder_backend.hitl.command_risk_assess.assess_command_risk') as mock_assess:
         await maybe_enrich_pending_command_risk(pending)
 
     mock_assess.assert_not_called()
@@ -118,7 +118,7 @@ async def test_maybe_enrich_noop_when_kind_not_deferred_tool(monkeypatch: pytest
     pending = _deferred_run_command_pending(kind='python_dependency')
     before = dict(pending)
 
-    with patch('clara_coder_backend.command_risk_assess.assess_command_risk') as mock_assess:
+    with patch('clara_coder_backend.hitl.command_risk_assess.assess_command_risk') as mock_assess:
         await maybe_enrich_pending_command_risk(pending)
 
     mock_assess.assert_not_called()
@@ -132,7 +132,7 @@ async def test_maybe_enrich_noop_when_tool_name_not_run_command(monkeypatch: pyt
     pending['action']['tool_name'] = 'run_workspace_pytest_tests'
     before = dict(pending)
 
-    with patch('clara_coder_backend.command_risk_assess.assess_command_risk') as mock_assess:
+    with patch('clara_coder_backend.hitl.command_risk_assess.assess_command_risk') as mock_assess:
         await maybe_enrich_pending_command_risk(pending)
 
     mock_assess.assert_not_called()
@@ -145,7 +145,7 @@ async def test_maybe_enrich_noop_when_already_assessed(monkeypatch: pytest.Monke
     pending = _deferred_run_command_pending(risk_assessment_status='ok', risk_level='low', risk_description='x')
     before = dict(pending)
 
-    with patch('clara_coder_backend.command_risk_assess.assess_command_risk') as mock_assess:
+    with patch('clara_coder_backend.hitl.command_risk_assess.assess_command_risk') as mock_assess:
         await maybe_enrich_pending_command_risk(pending)
 
     mock_assess.assert_not_called()
@@ -158,7 +158,7 @@ async def test_maybe_enrich_sets_ok_fields_on_success(monkeypatch: pytest.Monkey
     pending = _deferred_run_command_pending()
 
     with patch(
-        'clara_coder_backend.command_risk_assess.assess_command_risk',
+        'clara_coder_backend.hitl.command_risk_assess.assess_command_risk',
         new=AsyncMock(
             return_value=CommandRiskAssessment(description='Lists files.', risk='medium'),
         ),
@@ -179,7 +179,7 @@ async def test_maybe_enrich_sets_failed_status_when_assess_returns_none(
     pending = _deferred_run_command_pending()
 
     with patch(
-        'clara_coder_backend.command_risk_assess.assess_command_risk',
+        'clara_coder_backend.hitl.command_risk_assess.assess_command_risk',
         new=AsyncMock(return_value=None),
     ):
         await maybe_enrich_pending_command_risk(pending)

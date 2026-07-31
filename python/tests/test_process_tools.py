@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from clara_coder_backend.accept_command import (
+from clara_coder_backend.hitl.accept_command import (
     ACCEPT_COMMAND_KIND_PROCESS_KILL,
     execute_pending_accept_command_decision,
 )
@@ -16,7 +16,7 @@ from clara_coder_backend.tools.process import (
     search_listening_ports,
     search_netstat_ports_tool,
 )
-from clara_coder_backend.state import get_session
+from clara_coder_backend.session.state import get_session
 
 
 def test_parse_windows_netstat_listening() -> None:
@@ -51,7 +51,7 @@ async def test_search_netstat_ports_filters() -> None:
 
 @pytest.mark.asyncio
 async def test_kill_process_always_pending() -> None:
-    from clara_coder_backend.state import current_session_id
+    from clara_coder_backend.session.state import current_session_id
 
     sid = 'kill-hitl'
     token = current_session_id.set(sid)
@@ -69,7 +69,7 @@ async def test_kill_process_always_pending() -> None:
 
 @pytest.mark.asyncio
 async def test_kill_process_rejects_protected_pid() -> None:
-    from clara_coder_backend.state import current_session_id
+    from clara_coder_backend.session.state import current_session_id
 
     token = current_session_id.set('kill-protected')
     try:
@@ -81,7 +81,7 @@ async def test_kill_process_rejects_protected_pid() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_pending_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    from clara_coder_backend.state import current_session_id
+    from clara_coder_backend.session.state import current_session_id
 
     sid = 'kill-exec'
     token = current_session_id.set(sid)

@@ -9,12 +9,12 @@ from clara_coder_backend.tools.project_review_tools import (
     maybe_bootstrap_python_workspace_env_for_project_review,
     run_workspace_pytest_tests,
 )
-from clara_coder_backend.python_env import (
+from clara_coder_backend.runtime.python_env import (
     PythonWorkspaceEnvResult,
     workspace_python_executable,
 )
 from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
-from clara_coder_backend.state import current_session_id, get_session, sessions
+from clara_coder_backend.session.state import current_session_id, get_session, sessions
 
 
 class _FakeAsyncStreamReader:

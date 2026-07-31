@@ -11,7 +11,7 @@ from clara_coder_backend.lsp.python_server import build_python_lsp_command
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
 
 if TYPE_CHECKING:
-    from clara_coder_backend.domain import SessionState
+    from clara_coder_backend.session.domain import SessionState
 
 
 @dataclass

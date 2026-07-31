@@ -7,8 +7,8 @@ Run:
 
 from __future__ import annotations
 
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.tool_budget import TOOL_BUDGET_CAP, assert_under_budget, measure_mode, measure_tools
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.hitl.tool_budget import TOOL_BUDGET_CAP, assert_under_budget, measure_mode, measure_tools
 
 
 def test_read_only_under_budget() -> None:
@@ -24,8 +24,8 @@ def test_plan_under_budget() -> None:
 
 
 def test_read_only_under_budget_with_web_access(monkeypatch) -> None:
-    from clara_coder_backend.domain import RuntimeToolsConfig
-    from clara_coder_backend.state import runtime_config
+    from clara_coder_backend.session.domain import RuntimeToolsConfig
+    from clara_coder_backend.session.state import runtime_config
 
     monkeypatch.setattr(
         runtime_config,
@@ -43,7 +43,7 @@ def test_tool_budget_measures_known_tools() -> None:
     names = [name for name, _ in result['per_tool']]
     assert 'read_workspace_file' in names
     # Sanity-check the low-level helper too: same set, same total.
-    from clara_coder_backend.tool_registry import planner_discovery_tools_and_map
+    from clara_coder_backend.hitl.tool_registry import planner_discovery_tools_and_map
 
     tools, _ = planner_discovery_tools_and_map(session=SessionState())
     direct = measure_tools(tools)

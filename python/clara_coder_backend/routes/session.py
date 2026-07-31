@@ -9,9 +9,9 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from clara_coder_backend.checkpointing import delete_outer_threads_for_session
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.staging_snapshot_session import cleanup_staging_snapshot_session
+from clara_coder_backend.session.checkpointing import delete_outer_threads_for_session
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available
 from clara_coder_backend.workspace_index.lifecycle import (
@@ -19,13 +19,13 @@ from clara_coder_backend.workspace_index.lifecycle import (
     invalidate_workspace_index_disk,
 )
 from clara_coder_backend.lsp.manager import shutdown_session_python_lsp
-from clara_coder_backend.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
-from clara_coder_backend.python_interpreter_select import (
+from clara_coder_backend.runtime.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
+from clara_coder_backend.runtime.python_interpreter_select import (
     apply_python_interpreter_entry,
     discover_workspace_python_interpreters,
     find_interpreter_entry_by_id,
 )
-from clara_coder_backend.schemas import (
+from clara_coder_backend.session.schemas import (
     ClearRequest,
     LoadRequest,
     PythonInterpreterSelectRequest,
@@ -34,8 +34,7 @@ from clara_coder_backend.schemas import (
     WorkspaceSystemPromptRequest,
 )
 from clara_coder_backend.tools.node_discovery import discover_workspace_npm_projects
-from clara_coder_backend import state
-
+from clara_coder_backend.session import state
 router = APIRouter()
 logger = logging.getLogger('clara.http.routes')
 

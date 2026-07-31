@@ -104,7 +104,7 @@ information silently.
 
 ## 6. Plan-mode catalog: grouped one-line summaries
 
-`format_tools_catalog` (in `clara_coder_backend.tool_registry`) emits grouped
+`format_tools_catalog` (in `clara_coder_backend.hitl.tool_registry`) emits grouped
 one-line summaries bucketed by `TOOL_FAMILIES` — **not** full descriptions.
 This avoids duplicating the schema text in the planner prompt. Each line:
 

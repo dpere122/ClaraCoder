@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.session.domain import RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import get_session_lsp_manager, shutdown_all_lsp_managers
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
 class _FakeLspClient:
@@ -389,7 +389,7 @@ def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None
 
 def test_get_lsp_dashboard_status_uses_cached_ts_root_only(lsp_http_env, tmp_path) -> None:
     from clara_coder_backend.lsp.manager import get_lsp_dashboard_status
-    from clara_coder_backend.state import get_session
+    from clara_coder_backend.session.state import get_session
 
     session = get_session(lsp_http_env.session_id)
     session.typescript_lsp_resolved_root = ''

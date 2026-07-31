@@ -26,17 +26,17 @@ from clara_coder_backend.lang_agent.streaming import (
     tool_exec_complete_event,
     tool_running_detail,
 )
-from clara_coder_backend.llm_interaction_logging import (
+from clara_coder_backend.logging.llm_interaction_logging import (
     log_llm_chat_request_from_event_input,
     log_llm_chat_response,
 )
-from clara_coder_backend.gemma_output import GemmaStreamSplitter, gemma_content_needs_parsing
-from clara_coder_backend.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
-from clara_coder_backend.model_tuning import gemma_output_parsing_active
-from clara_coder_backend.state import get_active_connection
-from clara_coder_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
-from clara_coder_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
-from clara_coder_backend.tool_harness_feedback_middleware import pending_harness_crystal_polarity
+from clara_coder_backend.llm.gemma_output import GemmaStreamSplitter, gemma_content_needs_parsing
+from clara_coder_backend.llm.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
+from clara_coder_backend.llm.model_tuning import gemma_output_parsing_active
+from clara_coder_backend.session.state import get_active_connection
+from clara_coder_backend.chat.stream_tags import REASONING_AUXILIARY_STREAM_TAG
+from clara_coder_backend.logging.tool_call_logging import log_llm_tool_input, log_llm_tool_output
+from clara_coder_backend.middleware.tool_harness_feedback_middleware import pending_harness_crystal_polarity
 
 
 @dataclass
@@ -60,7 +60,7 @@ def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
     """Build SSE ``token_usage`` body from LangChain :attr:`~langchain_core.messages.AIMessage.usage_metadata`.
 
     Populated when the chat model uses the OpenAI-compatible API with streaming usage enabled
-    (see :func:`clara_coder_backend.llm.build_llm`).
+    (see :func:`clara_coder_backend.llm.factory.build_llm`).
     """
     raw = getattr(msg, 'usage_metadata', None)
     if raw is None:

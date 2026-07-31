@@ -7,8 +7,8 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
-from clara_coder_backend.state import current_session_id, get_active_connection, get_session
+from clara_coder_backend.session.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.session.state import current_session_id, get_active_connection, get_session
 from clara_coder_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from clara_coder_backend.workspace_index.incremental import flush_semantic_index_patches
 from clara_coder_backend.workspace_index.index_build import load_or_rebuild_workspace_index

@@ -36,8 +36,8 @@ from clara_coder_backend.tools.tool_conventions import (
     VERIFY_LSP,
     describe,
 )
-from clara_coder_backend.state import current_session_id, direct_workspace_edits_active, get_session
-from clara_coder_backend.workspace_text_io import validate_workspace_encoding
+from clara_coder_backend.session.state import current_session_id, direct_workspace_edits_active, get_session
+from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 
 LSP_GET_DIAGNOSTICS_NAME = 'lsp_get_diagnostics'
 LSP_HOVER_NAME = 'lsp_hover'
@@ -341,7 +341,7 @@ def _sync_active_document_for_diagnostics(
     manager = get_session_lsp_manager(server=server, scope=scope, set_active=False)
     if scope == 'staging' and sid:
         session = get_session(sid)
-        from clara_coder_backend.staging_test_overlay import ensure_lsp_staging_overlay
+        from clara_coder_backend.staging.staging_test_overlay import ensure_lsp_staging_overlay
 
         ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=sid)
     rows = manager.sync_workspace_document(relative_path, encoding=encoding)

@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.build_plan_store import (
+from clara_coder_backend.plan.build_plan_store import (
     ActionStep,
     BuildPlanModel,
     FileChangeEntry,
     create_build_plan,
     parse_action_steps,
 )
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.domain import SessionState
 from clara_coder_backend.tools.build_plan_tools import mark_build_plan_steps_complete, read_build_plan
 
 
@@ -30,7 +30,7 @@ def _sample_doc() -> BuildPlanModel:
 
 
 def test_read_build_plan_returns_md(tmp_path: Path) -> None:
-    from clara_coder_backend.state import current_session_id, sessions
+    from clara_coder_backend.session.state import current_session_id, sessions
 
     session = SessionState(workspace_path=str(tmp_path))
     create_build_plan(str(tmp_path), 'sess-read', _sample_doc(), session=session)
@@ -45,7 +45,7 @@ def test_read_build_plan_returns_md(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio(loop_scope='function')
 async def test_mark_build_plan_steps_complete_emits_planner_progress(tmp_path: Path) -> None:
-    from clara_coder_backend.state import current_session_id, sessions
+    from clara_coder_backend.session.state import current_session_id, sessions
 
     session = SessionState(workspace_path=str(tmp_path))
     create_build_plan(str(tmp_path), 'sess-mark', _sample_doc(), session=session)

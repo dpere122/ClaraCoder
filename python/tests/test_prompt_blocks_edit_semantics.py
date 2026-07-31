@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.prompt_blocks import edit_semantics_block
+from clara_coder_backend.llm.prompt_blocks import edit_semantics_block
 
 
 def test_staging_edit_semantics_tells_model_to_refresh_from_staged_draft() -> None:

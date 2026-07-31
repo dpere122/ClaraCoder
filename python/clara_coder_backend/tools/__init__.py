@@ -1,6 +1,6 @@
 """LangChain agent tools for the outer Clara agent.
 
-All model-facing tools live in this package. :mod:`clara_coder_backend.tool_registry`
+All model-facing tools live in this package. :mod:`clara_coder_backend.hitl.tool_registry`
 assembles the bound tool list per session mode (read-only vs Editor, staging vs direct).
 
 Modules

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.state import current_session_id
+from clara_coder_backend.session.state import current_session_id
 from clara_coder_backend.json.namespaces import JSON_EXTENSIONS, SEARCH_SCOPES, SECTION_REF_PREFIX
 
 _MAX_PATHS = 5000

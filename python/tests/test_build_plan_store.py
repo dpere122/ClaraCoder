@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.build_plan_store import (
+from clara_coder_backend.plan.build_plan_store import (
     ActionStep,
     BuildPlanModel,
     FileChangeEntry,
@@ -19,7 +19,7 @@ from clara_coder_backend.build_plan_store import (
     parse_build_plan_md,
     render_build_plan_md,
 )
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.domain import SessionState
 
 
 def _sample_doc(**overrides: object) -> BuildPlanModel:

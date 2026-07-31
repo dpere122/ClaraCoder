@@ -3,9 +3,9 @@
 import os
 from dataclasses import replace
 
-from clara_coder_backend.domain import RuntimeConnection
-from clara_coder_backend import state
-from clara_coder_backend.model_tuning import (
+from clara_coder_backend.session.domain import RuntimeConnection
+from clara_coder_backend.session import state
+from clara_coder_backend.llm.model_tuning import (
     combined_model_prompt_suffix,
     connection_user_sampling_kwargs_for_llm,
     effective_parallel_tool_calls,

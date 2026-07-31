@@ -6,12 +6,12 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from clara_coder_backend.workspace_ignore import (
+from clara_coder_backend.workspace.workspace_ignore import (
     get_workspace_ignore_rules_cached,
     should_ignore_workspace_entry,
     workspace_expose_all_files,
 )
-from clara_coder_backend.workspace_ignore import SEARCH_SKIP_SUFFIXES
+from clara_coder_backend.workspace.workspace_ignore import SEARCH_SKIP_SUFFIXES
 
 # Same as grep search skips except PDFs are indexed semantically.
 _INDEX_SKIP_SUFFIXES: frozenset[str] = frozenset(x for x in SEARCH_SKIP_SUFFIXES if x != '.pdf')

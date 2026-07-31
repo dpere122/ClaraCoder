@@ -8,15 +8,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from clara_coder_backend.app_logging import configure_logging, get_recent_records, reset_logging_handlers
-from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.logging.app_logging import configure_logging, get_recent_records, reset_logging_handlers
+from clara_coder_backend.session.domain import EditStagingEntry, RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import (
     activate_session_lsp_scope,
     get_session_lsp_manager,
     shutdown_all_lsp_managers,
     sync_session_document,
 )
-from clara_coder_backend.staging_snapshot_session import prepare_new_staging_snapshot_session
+from clara_coder_backend.staging.staging_snapshot_session import prepare_new_staging_snapshot_session
 from clara_coder_backend.lsp.file_policy import suggest_edit_tool_for_path
 from clara_coder_backend.tools.lsp_tools import (
     lsp_find_definition,
@@ -35,8 +35,8 @@ from clara_coder_backend.tools.lsp_tools import (
 )
 from clara_coder_backend.routes.session import clear_session, set_workspace_context
 from clara_coder_backend.routes.lsp import lsp_diagnostics
-from clara_coder_backend.schemas import ClearRequest, WorkspaceContextRequest
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.session.schemas import ClearRequest, WorkspaceContextRequest
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
 class _FakeLspClient:

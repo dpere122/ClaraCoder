@@ -10,19 +10,19 @@ from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_ANGULAR_CLI
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.config import CLARA_NPM_SCRIPT_TIMEOUT_SEC
+from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_ANGULAR_CLI
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.session.config import CLARA_NPM_SCRIPT_TIMEOUT_SEC
 from clara_coder_backend.tools.node_deps import (
     _active_session_or_error,
     _require_package_json,
     _resolve_project_dir,
     _workspace_root,
 )
-from clara_coder_backend.python_env import _run_subprocess_with_output
+from clara_coder_backend.runtime.python_env import _run_subprocess_with_output
 from clara_coder_backend.tools.tool_conventions import describe
 from clara_coder_backend.tools.workspace import truncate_text_head_tail
-from clara_coder_backend.state import current_session_id
+from clara_coder_backend.session.state import current_session_id
 
 ANGULAR_CLI_TOOL_NAME = 'angular_cli_tool'
 _MAX_OUTPUT_CHARS = 80_000

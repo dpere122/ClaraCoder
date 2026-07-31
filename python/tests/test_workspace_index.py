@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 
-from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
-from clara_coder_backend.domain import SessionState
-from clara_coder_backend.state import current_session_id
+from clara_coder_backend.session.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.session.state import current_session_id
 from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from clara_coder_backend.workspace_index.index_build import (
     load_or_rebuild_index,
@@ -114,8 +114,7 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
     sess = SessionState()
     sess.workspace_path = str(tmp_path)
     sess.workspace_id = 'ws-card-test'
-    from clara_coder_backend import state as st_state
-
+    from clara_coder_backend.session import state as st_state
     st_state.sessions[sid] = sess
     token = current_session_id.set(sid)
     try:
@@ -146,8 +145,7 @@ def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monke
     sess = SessionState()
     sess.workspace_path = str(tmp_path)
     sess.workspace_id = 'ws-card-test'
-    from clara_coder_backend import state as st_state
-
+    from clara_coder_backend.session import state as st_state
     st_state.sessions[sid] = sess
     token = current_session_id.set(sid)
     try:
@@ -277,8 +275,7 @@ def test_schedule_semantic_index_background_coalesces_ensure_corpus(monkeypatch:
 
 def test_run_semantic_index_background_builds_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from clara_coder_backend.workspace_index import incremental as inc
-    from clara_coder_backend import state as st
-
+    from clara_coder_backend.session import state as st
     monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
     root = tmp_path / 'proj'
     root.mkdir()

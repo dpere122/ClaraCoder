@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from clara_coder_backend.diff_payload import build_file_diff_payload
+from clara_coder_backend.staging.diff_payload import build_file_diff_payload
 
 
 def test_builds_small_change() -> None:
@@ -26,7 +26,7 @@ def test_repeated_context_lines_middle_replace() -> None:
     assert [r['kind'] for r in payload['rows']] == ['equal', 'replace', 'equal']
 
 
-@patch('clara_coder_backend.diff_payload._verify_patch', return_value=False)
+@patch('clara_coder_backend.staging.diff_payload._verify_patch', return_value=False)
 def test_builds_when_patch_verify_fails(_mock_verify: MagicMock) -> None:
     payload, err = build_file_diff_payload('a.ts', 'x\n', 'y\n')
     assert err is None
@@ -53,7 +53,7 @@ def test_invalid_disk_newline() -> None:
     assert err is not None
 
 
-@patch('clara_coder_backend.diff_payload.DIFF_VERIFY_PATCH_MAX_BYTES', 8)
+@patch('clara_coder_backend.staging.diff_payload.DIFF_VERIFY_PATCH_MAX_BYTES', 8)
 def test_skips_verify_when_over_byte_limit() -> None:
     old = 'a' * 20
     new = 'b' * 20

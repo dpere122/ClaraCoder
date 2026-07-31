@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from clara_coder_backend.tool_call_logging import log_llm_tool_input, log_llm_tool_output
+from clara_coder_backend.logging.tool_call_logging import log_llm_tool_input, log_llm_tool_output
 
 
 def test_tool_invoke_logger_name() -> None:

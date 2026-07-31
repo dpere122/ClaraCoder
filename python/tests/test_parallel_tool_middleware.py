@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from clara_coder_backend.domain import RuntimeConnection
-from clara_coder_backend.parallel_tool_middleware import _parallel_tool_calls_for_agent_request
-from clara_coder_backend import state
-
-
+from clara_coder_backend.session.domain import RuntimeConnection
+from clara_coder_backend.middleware.parallel_tool_middleware import _parallel_tool_calls_for_agent_request
+from clara_coder_backend.session import state
 @pytest.fixture
 def hitl_session_id() -> str:
     sid = 'test-parallel-hitl-session'

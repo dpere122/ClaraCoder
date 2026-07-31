@@ -15,7 +15,7 @@ Override the whole argv with ``CLARA_GDSCRIPT_LSP_COMMAND`` on :class:`~clara_co
 
 from __future__ import annotations
 
-from clara_coder_backend.config import env_clara
+from clara_coder_backend.session.config import env_clara
 
 import os
 import socket

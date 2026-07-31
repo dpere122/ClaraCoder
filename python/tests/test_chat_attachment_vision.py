@@ -8,13 +8,13 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from clara_coder_backend.chat_attachment_vision import (
+from clara_coder_backend.chat.chat_attachment_vision import (
     ATTACHED_IMAGE_PREFIX,
     attached_image_path_from_text,
     attached_image_paths_from_text,
     prepare_chat_attachment_vision_turn,
 )
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.workspace_image import vision_payload_from_data_url
 
 

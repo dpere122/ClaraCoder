@@ -12,7 +12,7 @@ from pathlib import Path
 
 class TestAppLoggingHttp(unittest.TestCase):
     def setUp(self) -> None:
-        import clara_coder_backend.app_logging as app_logging
+        import clara_coder_backend.logging.app_logging as app_logging
 
         app_logging._configured = False  # type: ignore[attr-defined]
         app_logging._ring.clear()  # type: ignore[attr-defined]
@@ -28,7 +28,7 @@ class TestAppLoggingHttp(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.client.close()
-        from clara_coder_backend.app_logging import reset_logging_handlers
+        from clara_coder_backend.logging.app_logging import reset_logging_handlers
 
         reset_logging_handlers()
         self._td.cleanup()

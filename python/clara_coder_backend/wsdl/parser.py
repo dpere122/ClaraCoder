@@ -6,7 +6,7 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from clara_coder_backend.state import current_session_id
+from clara_coder_backend.session.state import current_session_id
 
 from clara_coder_backend.wsdl.namespaces import (
     SEARCH_SCOPES,

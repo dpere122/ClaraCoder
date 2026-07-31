@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.config import env_clara
+from clara_coder_backend.session.config import env_clara
 
 import base64
 import io
@@ -17,7 +17,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from PIL import Image, UnidentifiedImageError
 
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 

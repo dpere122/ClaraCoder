@@ -13,22 +13,22 @@ from typing import Annotated, Literal
 
 from langchain_core.tools import tool
 
-from clara_coder_backend import edit_staging
+from clara_coder_backend.staging import edit_staging
 from clara_coder_backend.tools.project_review_tools import (
     _emit_project_review_chunk,
     _emit_project_review_tool_complete,
     _pump_subprocess_stream,
     _terminate_process,
 )
-from clara_coder_backend.config import CLARA_SUBPROCESS_TIMEOUT_SEC
-from clara_coder_backend.subprocess_smoke import (
+from clara_coder_backend.session.config import CLARA_SUBPROCESS_TIMEOUT_SEC
+from clara_coder_backend.runtime.subprocess_smoke import (
     SmokeOutputTracker,
     SmokeStopReason,
     argv_implies_watch_mode,
     wait_for_smoke_completion,
 )
-from clara_coder_backend.diff_payload import build_file_diff_payload
-from clara_coder_backend.domain import PendingStagedTransferHitl, SessionState, WorkspaceTestMaterializationEntry
+from clara_coder_backend.staging.diff_payload import build_file_diff_payload
+from clara_coder_backend.session.domain import PendingStagedTransferHitl, SessionState, WorkspaceTestMaterializationEntry
 from clara_coder_backend.lsp.diagnostics import format_diagnostics_summary, indentation_followup_guidance
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from clara_coder_backend.lsp.manager import sync_session_document
@@ -41,29 +41,29 @@ from clara_coder_backend.tools.tool_conventions import (
     clamp_line_window,
     describe,
 )
-from clara_coder_backend.python_env import (
+from clara_coder_backend.runtime.python_env import (
     ensure_session_python_workspace_env,
     session_workspace_subprocess_env,
     with_subprocess_color_env,
 )
-from clara_coder_backend.search_backend import SearchCandidate, run_grep_line_search
-from clara_coder_backend.staging_test_overlay import (
+from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search
+from clara_coder_backend.staging.staging_test_overlay import (
     build_staging_test_overlay,
     parse_command_argv_json,
     remove_overlay_parent,
     resolve_overlay_cwd,
     validate_overlay_command_argv,
 )
-from clara_coder_backend.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
-from clara_coder_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
-from clara_coder_backend.state import (
+from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+from clara_coder_backend.chat.stream_tags import TOOL_OVERLAY_STREAM_TAG
+from clara_coder_backend.session.state import (
     current_session_id,
     direct_workspace_edits_active,
     get_session,
     mutation_tools_blocked_reason,
     runtime_config,
 )
-from clara_coder_backend.workspace_text_io import DiskNewline, decode_for_tools, write_file_resolved
+from clara_coder_backend.workspace.workspace_text_io import DiskNewline, decode_for_tools, write_file_resolved
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path, truncate_text, truncate_text_head_tail
 
 logger = logging.getLogger('clara.staging')

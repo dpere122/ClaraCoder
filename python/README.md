@@ -85,75 +85,45 @@ Staged code review does not run pytest; use `run_workspace_pytest_tests` or `run
 ## Layout
 
 
-| Path                                                   | Role                                                                        |
-| ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| `.venv/`                                               | Local virtual environment (create with `python -m venv .venv`; gitignored). |
-| `server.py`                                            | Thin entrypoint for Electron (`python server.py`).                          |
-| `clara_coder_backend/main.py`                                 | FastAPI `app` and router mounting.                                          |
-| **Routes**                                             |                                                                             |
-| `clara_coder_backend/routes/`                                  | FastAPI routers (package).                                                  |
-| `clara_coder_backend/routes/runtime.py`                        | Health check and runtime config.                                            |
-| `clara_coder_backend/routes/session.py`                        | Session lifecycle and workspace attachment.                                 |
-| `clara_coder_backend/routes/chat.py`                           | Chat streaming and agent continuation (HITL).                               |
-| `clara_coder_backend/routes/audio.py`                          | Transcription and TTS.                                                      |
-| `clara_coder_backend/routes/log.py`                            | Log tail, stream, level control, ingest.                                    |
-| `clara_coder_backend/routes/lsp.py`                            | LSP diagnostics/status and Monaco editor routes.                            |
-| `clara_coder_backend/routes/checkpoint.py`                     | LangGraph checkpoint history / state / fork.                                |
-| `clara_coder_backend/routes/build_plan.py`                     | Build-plan cancel.                                                          |
-| `clara_coder_backend/routes/conversation_title.py`             | Suggest conversation title.                                                 |
-| **Lang agent**                                         |                                                                             |
-| `clara_coder_backend/lang_agent/`                      | LangChain / LangGraph agent core (package).                                 |
-| `clara_coder_backend/lang_agent/agent.py`              | SSE streaming agent entry point.                                            |
-| `clara_coder_backend/lang_agent/graph.py`              | LangGraph `create_agent` graph runner.                                      |
-| `clara_coder_backend/lang_agent/langgraph_sse.py`      | LangGraph event → SSE line mapping and queue racing.                        |
-| `clara_coder_backend/lang_agent/streaming.py`          | Shared SSE JSON helpers (status, chunks, read-tool mirroring).              |
-| `clara_coder_backend/lang_agent/loop.py`               | Turn outcomes and history-commit policy.                                    |
-| `clara_coder_backend/lang_agent/pause.py`              | `asyncio.Event` wait for `POST /chat/agent-continue`.                       |
-| `clara_coder_backend/lang_agent/question.py`           | Plan-mode question HITL staging and resolution.                             |
-| **Configuration & State**                              |                                                                             |
-| `clara_coder_backend/config.py`                               | Env-backed constants and limits.                                            |
-| `clara_coder_backend/domain.py`                               | Session/runtime dataclasses.                                                |
-| `clara_coder_backend/schemas.py`                              | Pydantic request bodies.                                                    |
-| `clara_coder_backend/state.py`                                | In-memory sessions and `runtime_config`.                                    |
-| **LLM**                                                |                                                                             |
-| `clara_coder_backend/llm.py`                                  | `ChatOpenAI` factory.                                                       |
-| `clara_coder_backend/model_tuning.py`                         | Qwen-style presets, max tokens, parallel tool heuristics.                   |
-| `clara_coder_backend/messages.py`                             | History → LangChain messages, system prompt, text helpers.                  |
-| `clara_coder_backend/langchain_compat.py`                     | Patches for `reasoning_content` on some gateways.                           |
-| **Agent tools**                                        |                                                                             |
-| `clara_coder_backend/tool_registry.py`                        | Central tool registry and HITL policy.                                      |
-| `clara_coder_backend/tools/`                                  | All LangChain `@tool` implementations (see package docstring).              |
-| `clara_coder_backend/tools/workspace.py`                      | Read/search/list workspace files; assembles `TOOLS` / `TOOL_MAP`.           |
-| `clara_coder_backend/tools/edit.py`                           | Full-file, line-range, snippet edit tools with diff payloads.               |
-| `clara_coder_backend/tools/staging_edit.py`                   | Staged create/update tools for Editor mode.                                 |
-| `clara_coder_backend/tools/delete.py`                         | `delete_workspace_entry` + pending delete / confirm flow.                   |
-| `clara_coder_backend/tools/copy.py`                           | `copy_workspace_files` with HITL when auto-apply is off.                    |
-| `clara_coder_backend/tools/lsp_tools.py`                      | LSP reads, diagnostics, and language-specific CRUD tools.                   |
-| `clara_coder_backend/tools/review_tools.py`                   | Staging read/format/transfer/reject/overlay tools.                           |
-| `clara_coder_backend/tools/project_review_tools.py`           | Workspace pytest verification tools.                                        |
-| `clara_coder_backend/tools/python_deps.py`                    | Python pip/requirements install tools.                                      |
-| `clara_coder_backend/tools/node_deps.py`                      | npm/pnpm/Yarn install and script tools.                                     |
-| `clara_coder_backend/partial_workspace_edit.py`               | Merge strategies (line range, snippet, fuzzy match).                        |
-| `clara_coder_backend/diff_payload.py`                         | Side-by-side diff rows via diff-match-patch.                                |
-| `clara_coder_backend/edit_staging.py`                         | Temp staging dir, workspace mirror, code-review extensions.                 |
-| `clara_coder_backend/staging_snapshot_session.py`             | Seed/cleanup workspace mirror + staging namespace per session.              |
-| `clara_coder_backend/lsp/`                                    | LSP client, manager, diagnostics (runtime; tools in `tools/lsp_tools.py`).  |
-| `clara_coder_backend/workspace_text_io.py`                    | Encoding/newline normalization and disk I/O for tools.                      |
-| `clara_coder_backend/workspace_ignore.py`                     | `.gitignore` + built-in ignores for search/list.                            |
-| **Middleware**                                         |                                                                             |
-| `clara_coder_backend/diff_review_middleware.py`               | Pause after diff-emitting tools until user continues.                       |
-| `clara_coder_backend/delete_review_middleware.py`             | Pause after delete HITL.                                                    |
-| `clara_coder_backend/empty_response_middleware.py`            | Nudge on empty model turns.                                                 |
-| `clara_coder_backend/parallel_tool_middleware.py`             | Inject `parallel_tool_calls` from runtime connection.                       |
-| **Logging**                                            |                                                                             |
-| `clara_coder_backend/app_logging.py`                          | Rotating file log, in-memory ring buffer, level control.                    |
-| `clara_coder_backend/llm_interaction_logging.py`              | Chat turn / connection logging (no secrets).                                |
-| `clara_coder_backend/tool_call_logging.py`                    | Structured logs for tool inputs/outputs.                                    |
-| **Audio / TTS**                                        |                                                                             |
-| `clara_coder_backend/audio.py`                         | Google Web + OpenAI STT helpers; OpenAI client for transcription.           |
-| `clara_coder_backend/tts/`                             | Text-to-speech providers (package).                                        |
-| `clara_coder_backend/tts/kokoro/`                      | Local Kokoro-82M synthesis (``POST /tts``).                                 |
-| `clara_coder_backend/tts/openai_compatible/`           | OpenAI-compatible ``/v1/audio/speech`` client helpers.                      |
+| Path                                              | Role                                                                        |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| `.venv/`                                          | Local virtual environment (create with `python -m venv .venv`; gitignored). |
+| `server.py`                                       | Thin entrypoint for Electron (`python server.py`).                          |
+| `clara_coder_backend/main.py`                     | FastAPI `app` and router mounting.                                          |
+| **Routes**                                        |                                                                             |
+| `clara_coder_backend/routes/`                     | FastAPI routers (package).                                                  |
+| **Lang agent**                                    |                                                                             |
+| `clara_coder_backend/lang_agent/`                 | LangChain / LangGraph agent core (package).                                 |
+| **Session**                                       |                                                                             |
+| `clara_coder_backend/session/`                    | Config, domain types, Pydantic schemas, in-memory state, checkpointing.     |
+| **LLM**                                           |                                                                             |
+| `clara_coder_backend/llm/`                        | `build_llm` factory, messages, model tuning, compression, prompt blocks.    |
+| `clara_coder_backend/llm/factory.py`              | `ChatOpenAI` / connection factory.                                          |
+| **HITL**                                          |                                                                             |
+| `clara_coder_backend/hitl/`                       | Tool registry, deferred HITL, accept-command, risk assess, tool budget.     |
+| **Chat**                                          |                                                                             |
+| `clara_coder_backend/chat/`                       | Chat input, vision attachments, stream tags, user events, title cadence.    |
+| **Middleware**                                    |                                                                             |
+| `clara_coder_backend/middleware/`                 | Diff/delete/copy/accept review, empty-response, parallel tools, vision, …   |
+| **Plan**                                          |                                                                             |
+| `clara_coder_backend/plan/`                       | Build-plan discovery, confirm, execute, verify, store.                      |
+| **Staging**                                       |                                                                             |
+| `clara_coder_backend/staging/`                    | Editor staging, workspace mirror, partial edits, diff payloads.             |
+| **Workspace**                                     |                                                                             |
+| `clara_coder_backend/workspace/`                  | Text I/O, ignore rules, search backend.                                     |
+| `clara_coder_backend/workspace_index/`            | Embedding index build/read/incremental.                                     |
+| **Agent tools**                                   |                                                                             |
+| `clara_coder_backend/tools/`                      | All LangChain `@tool` implementations (see package docstring).              |
+| `clara_coder_backend/lsp/`                        | LSP client, manager, diagnostics (tools in `tools/lsp_tools.py`).           |
+| **Logging**                                       |                                                                             |
+| `clara_coder_backend/logging/`                    | App log, LLM interaction log, tool-call log (package, not stdlib).          |
+| **Audio / TTS**                                   |                                                                             |
+| `clara_coder_backend/audio/`                      | Speech transcription (`transcribe.py`).                                     |
+| `clara_coder_backend/tts/`                        | Text-to-speech providers (Kokoro + OpenAI-compatible).                      |
+| **Runtime**                                       |                                                                             |
+| `clara_coder_backend/runtime/`                    | Python env/interpreter select, subprocess smoke, URL normalize.             |
+| **Format helpers**                                |                                                                             |
+| `clara_coder_backend/xml/`, `json/`, `wsdl/`      | Parse/format helpers used by tools.                                         |
 
 
 ## Environment variables

@@ -1,8 +1,8 @@
 """LangGraph-based tool agent via ``langchain.agents.create_agent``.
 
 Standard Clara uses read/search plus staging and LSP tools when Editor is on. Per-connection ``parallel_tool_calls`` is applied via
-:class:`~clara_coder_backend.parallel_tool_middleware.ConnectionParallelToolCallsMiddleware`.
-Diff-review pauses use :class:`~clara_coder_backend.diff_review_middleware.DiffReviewAfterToolMiddleware`
+:class:`~clara_coder_backend.middleware.parallel_tool_middleware.ConnectionParallelToolCallsMiddleware`.
+Diff-review pauses use :class:`~clara_coder_backend.middleware.diff_review_middleware.DiffReviewAfterToolMiddleware`
 plus a multiplexed event pump so diffs emit while the graph waits on ``POST /chat/agent-continue``.
 """
 
@@ -20,40 +20,40 @@ from langchain_core.runnables import RunnableConfig
 
 from clara_coder_backend.lang_agent.streaming import sse_line, status_event
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from clara_coder_backend.accept_command import accept_command_sse_payload
-from clara_coder_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
-from clara_coder_backend.command_risk_assess import maybe_enrich_pending_command_risk
+from clara_coder_backend.hitl.accept_command import accept_command_sse_payload
+from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from clara_coder_backend.hitl.command_risk_assess import maybe_enrich_pending_command_risk
 from clara_coder_backend.tools.review_tools import rollback_test_run_materializations
-from clara_coder_backend.checkpointing import get_graph_checkpointer, outer_agent_thread_id
-from clara_coder_backend.config import MAX_AGENT_STEPS
-from clara_coder_backend.copy_review_middleware import CopyReviewAfterToolMiddleware
+from clara_coder_backend.session.checkpointing import get_graph_checkpointer, outer_agent_thread_id
+from clara_coder_backend.session.config import MAX_AGENT_STEPS
+from clara_coder_backend.middleware.copy_review_middleware import CopyReviewAfterToolMiddleware
 from clara_coder_backend.tools.copy import copy_confirm_sse_payload
 from clara_coder_backend.tools.delete import delete_confirm_sse_payload
-from clara_coder_backend.delete_review_middleware import DeleteReviewAfterToolMiddleware
-from clara_coder_backend.diff_review_middleware import DiffReviewAfterToolMiddleware
-from clara_coder_backend.empty_response_middleware import EmptyResponseNudgeMiddleware
-from clara_coder_backend.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
-from clara_coder_backend.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
-from clara_coder_backend.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
-from clara_coder_backend.user_event_injection_middleware import UserEventInjectionMiddleware
-from clara_coder_backend.user_events import drain_user_event_notes
-from clara_coder_backend.chat_attachment_vision import prepare_chat_attachment_vision_turn
-from clara_coder_backend.vision_tool_middleware import VisionImageInjectionMiddleware
-from clara_coder_backend.staging_snapshot_session import cleanup_staging_snapshot_session
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
+from clara_coder_backend.middleware.diff_review_middleware import DiffReviewAfterToolMiddleware
+from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
+from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
+from clara_coder_backend.middleware.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
+from clara_coder_backend.middleware.user_event_injection_middleware import UserEventInjectionMiddleware
+from clara_coder_backend.chat.user_events import drain_user_event_notes
+from clara_coder_backend.chat.chat_attachment_vision import prepare_chat_attachment_vision_turn
+from clara_coder_backend.middleware.vision_tool_middleware import VisionImageInjectionMiddleware
+from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
+from clara_coder_backend.session.domain import SessionState
 from clara_coder_backend.lang_agent.langgraph_sse import (
     GraphStreamState,
     sse_lines_for_graph_event,
 )
-from clara_coder_backend.llm import build_llm
-from clara_coder_backend.llm_interaction_logging import log_llm_failure
-from clara_coder_backend.messages import (
+from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
+from clara_coder_backend.llm.messages import (
     build_system_prompt,
     compose_outer_turn_human_content,
     session_to_messages,
 )
-from clara_coder_backend.state import get_session
-from clara_coder_backend.tool_registry import worker_tools_and_map
+from clara_coder_backend.session.state import get_session
+from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 logger = logging.getLogger('clara.agent.langgraph')
 
@@ -61,7 +61,7 @@ logger = logging.getLogger('clara.agent.langgraph')
 def _stream_watchdog_timeout_sec() -> float:
     """Idle-stall watchdog interval: above the model idle read timeout so the clearer model-timeout
     error normally fires first; this is the last-resort backstop against an infinite silent hang."""
-    from clara_coder_backend.llm import llm_idle_timeout_sec
+    from clara_coder_backend.llm.factory import llm_idle_timeout_sec
 
     return llm_idle_timeout_sec() + 60.0
 

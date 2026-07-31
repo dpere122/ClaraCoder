@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.search_backend import SearchLineMatch
-from clara_coder_backend.state import current_session_id, get_session
-from clara_coder_backend.domain import RuntimeToolsConfig
-from clara_coder_backend.state import runtime_config
-from clara_coder_backend.workspace_ignore import (
+from clara_coder_backend.workspace.search_backend import SearchLineMatch
+from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.session.state import runtime_config
+from clara_coder_backend.workspace.workspace_ignore import (
     get_workspace_ignore_rules_cached,
     is_log_related_file,
     is_node_modules_bulk_listing_path,
@@ -164,7 +164,7 @@ def test_iter_workspace_search_files_prunes(workspace_session: Path) -> None:
 
 
 def test_gitignore_cache_evicts_oldest_when_over_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import clara_coder_backend.workspace_ignore as wi
+    import clara_coder_backend.workspace.workspace_ignore as wi
 
     monkeypatch.setattr(wi, '_MAX_GITIGNORE_CACHE_ENTRIES', 2)
     wi._gitignore_cache.clear()

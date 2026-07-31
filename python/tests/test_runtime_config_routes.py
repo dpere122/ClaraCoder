@@ -58,9 +58,9 @@ def _payload(
 
 def test_runtime_config_updates_imported_runtime_config_references() -> None:
     from clara_coder_backend.main import app
-    from clara_coder_backend import state
-    from clara_coder_backend import messages, model_tuning
-
+    from clara_coder_backend.session import state
+    from clara_coder_backend.llm import messages
+    from clara_coder_backend.llm import model_tuning
     orig = deepcopy(state.runtime_config)
     try:
         with TestClient(app) as client:

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-from clara_coder_backend.state import current_session_id
+from clara_coder_backend.session.state import current_session_id
 from clara_coder_backend.xml.namespaces import SEARCH_SCOPES, SECTION_REF_PREFIX, WSDL_EXTENSION, XML_EXTENSIONS
 
 _MAX_NODES = 5000

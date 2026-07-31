@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.session.domain import RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import shutdown_session_lsp
-from clara_coder_backend.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
 @pytest.fixture()

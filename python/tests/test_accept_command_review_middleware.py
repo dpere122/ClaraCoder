@@ -1,4 +1,4 @@
-"""Tests for :mod:`clara_coder_backend.accept_command_review_middleware`."""
+"""Tests for :mod:`clara_coder_backend.middleware.accept_command_review_middleware`."""
 
 from __future__ import annotations
 
@@ -9,17 +9,17 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import ToolMessage
 
-from clara_coder_backend.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
 from clara_coder_backend.tools.python_deps import (
     INSTALL_PYTHON_PACKAGES_NAME,
     WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
 )
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
 
 
-@patch('clara_coder_backend.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
 async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_worker_apply_off(
     mock_pause: AsyncMock,
 ) -> None:
@@ -66,7 +66,7 @@ async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_work
     assert item == ('accept_command',)
 
 
-@patch('clara_coder_backend.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
 async def test_middleware_queues_accept_command_for_write_frozen_when_auto_apply_off(
     mock_pause: AsyncMock,
 ) -> None:

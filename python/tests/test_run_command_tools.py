@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
-from clara_coder_backend.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
-from clara_coder_backend.state import current_session_id, get_session
-from clara_coder_backend.tool_registry import hitl_accept_command_pause_tools
+from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
+from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.hitl.tool_registry import hitl_accept_command_pause_tools
 from clara_coder_backend.tools.run_command import (
     RUN_COMMAND_NAME,
     STATUS_RUNNING,

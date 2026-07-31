@@ -12,20 +12,20 @@ from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
-from clara_coder_backend import edit_staging as _edit_staging
-from clara_coder_backend.domain import EditStagingEntry, SessionState
+from clara_coder_backend.staging import edit_staging as _edit_staging
+from clara_coder_backend.session.domain import EditStagingEntry, SessionState
 from clara_coder_backend.tools.edit import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
 from clara_coder_backend.tools.tool_conventions import ENCODING_NEWLINE, ONE_BASED, RELATIVE_PATH, STAGE_LAND, describe
 from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from clara_coder_backend.lsp.manager import get_session_lsp_manager
-from clara_coder_backend.partial_workspace_edit import (
+from clara_coder_backend.staging.partial_workspace_edit import (
     line_range_edit_tool_feedback,
     merge_partial_edit,
     snippet_unique_on_text,
 )
-from clara_coder_backend.state import current_session_id, mutation_tools_blocked_reason
-from clara_coder_backend.workspace_text_io import (
+from clara_coder_backend.session.state import current_session_id, mutation_tools_blocked_reason
+from clara_coder_backend.workspace.workspace_text_io import (
     DiskNewline,
     NewlineMode,
     decode_for_tools,
@@ -69,7 +69,7 @@ def _staging_edit_preamble(
     if not session_id:
         return 'Tool error: no active session.'
 
-    from clara_coder_backend.state import get_session
+    from clara_coder_backend.session.state import get_session
 
     session = get_session(session_id)
     # Do not clobber an in-flight staged-transfer / diff HITL pause (another tool round could run next).

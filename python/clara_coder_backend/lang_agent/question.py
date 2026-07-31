@@ -1,6 +1,6 @@
 """Plan-mode HITL: ask the user a batch of clarifying questions before plan confirm.
 
-The planner surfaces ``open_questions`` (see :mod:`clara_coder_backend.build_plan_store`). This module
+The planner surfaces ``open_questions`` (see :mod:`clara_coder_backend.plan.build_plan_store`). This module
 stages them as a HITL request, shapes the SSE payload, and resolves the user's structured answers
 (or cancel). The orchestrator pauses on ``agent_pause_event`` (see
 :func:`clara_coder_backend.lang_agent.pause.await_question_answers`) between staging and resolution.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.domain import SessionState
 
 __all__ = [
     'agent_question_sse_payload',

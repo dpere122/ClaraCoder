@@ -8,13 +8,13 @@ import json
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from clara_coder_backend.app_logging import (
+from clara_coder_backend.logging.app_logging import (
     get_recent_records,
     get_records_since,
     log_ingest,
     set_clara_log_level,
 )
-from clara_coder_backend.schemas import LogIngestRequest, LogLevelRequest
+from clara_coder_backend.session.schemas import LogIngestRequest, LogLevelRequest
 
 router = APIRouter(prefix='/logs', tags=['logs'])
 

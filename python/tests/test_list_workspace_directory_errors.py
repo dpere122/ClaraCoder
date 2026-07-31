@@ -1,6 +1,6 @@
 """list_workspace_directory should return guidance instead of raising when the path is wrong."""
 
-from clara_coder_backend.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.workspace import list_workspace_directory
 
 

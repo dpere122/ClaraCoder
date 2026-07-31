@@ -16,9 +16,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from clara_coder_backend.app_logging import configure_logging
-from clara_coder_backend.config import env_clara
-from clara_coder_backend.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
+from clara_coder_backend.logging.app_logging import configure_logging
+from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.session.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
 from clara_coder_backend.lsp.manager import shutdown_all_lsp_managers
 from clara_coder_backend.routes.audio import router as audio_router
 from clara_coder_backend.routes.build_plan import router as build_plan_router

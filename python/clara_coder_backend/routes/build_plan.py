@@ -6,9 +6,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from clara_coder_backend.build_plan_store import cancel_build_plan
-from clara_coder_backend.schemas import BuildPlanCancelRequest
-from clara_coder_backend.state import get_session
+from clara_coder_backend.plan.build_plan_store import cancel_build_plan
+from clara_coder_backend.session.schemas import BuildPlanCancelRequest
+from clara_coder_backend.session.state import get_session
 
 logger = logging.getLogger('clara.http.build_plan')
 

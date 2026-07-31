@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
-from clara_coder_backend.chat_input import effective_user_message_content, validate_user_turn_not_empty
-from clara_coder_backend.schemas import ChatRequest
+from clara_coder_backend.chat.chat_input import effective_user_message_content, validate_user_turn_not_empty
+from clara_coder_backend.session.schemas import ChatRequest
 
 
 def test_effective_plain_message_only() -> None:
@@ -100,7 +100,7 @@ def test_load_session_accepts_multimodal_user_content(
     monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp_chat.sqlite'))
     from starlette.testclient import TestClient
 
-    from clara_coder_backend import state
+    from clara_coder_backend.session import state
     from clara_coder_backend.main import app
 
     blocks = [{'type': 'text', 'text': 'hi'}, {'type': 'image_url', 'image_url': {'url': 'x'}}]

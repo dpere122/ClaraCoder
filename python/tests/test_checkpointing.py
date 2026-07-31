@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 
 
 def test_outer_agent_thread_id_modes() -> None:
-    from clara_coder_backend.checkpointing import outer_agent_thread_id
+    from clara_coder_backend.session.checkpointing import outer_agent_thread_id
 
     assert outer_agent_thread_id('conv-1', 'single', apply_mode=True) == 'conv-1:single:apply'
     assert outer_agent_thread_id('conv-1', 'single', apply_mode=False) == 'conv-1:single:read'
@@ -21,7 +21,7 @@ def test_outer_agent_thread_id_modes() -> None:
 @pytest.mark.asyncio(loop_scope='function')
 async def test_delete_outer_threads_clears_stable_thread(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp.sqlite'))
-    from clara_coder_backend.checkpointing import (
+    from clara_coder_backend.session.checkpointing import (
         delete_outer_threads_for_session,
         get_graph_checkpointer,
         init_graph_checkpointing,
@@ -52,7 +52,7 @@ async def test_second_turn_uses_delta_input_no_duplicate_users(
 ) -> None:
     """Stable thread + delta-only second invoke should not replay first user message."""
     monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp2.sqlite'))
-    from clara_coder_backend.checkpointing import (
+    from clara_coder_backend.session.checkpointing import (
         get_graph_checkpointer,
         init_graph_checkpointing,
         outer_agent_thread_id,

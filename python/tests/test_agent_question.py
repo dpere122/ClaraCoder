@@ -5,7 +5,7 @@ from clara_coder_backend.lang_agent.question import (
     execute_pending_question_decision,
     stage_question_request,
 )
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.domain import SessionState
 
 
 def _questions() -> list[dict]:

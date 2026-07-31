@@ -8,10 +8,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from clara_coder_backend.lang_agent.graph import build_clara_single_outer_graph
-from clara_coder_backend.checkpointing import outer_agent_thread_id
-from clara_coder_backend.llm import build_llm
-from clara_coder_backend.schemas import CheckpointForkRequest
-from clara_coder_backend.state import get_session
+from clara_coder_backend.session.checkpointing import outer_agent_thread_id
+from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.session.schemas import CheckpointForkRequest
+from clara_coder_backend.session.state import get_session
 
 logger = logging.getLogger('clara.http.checkpoint')
 

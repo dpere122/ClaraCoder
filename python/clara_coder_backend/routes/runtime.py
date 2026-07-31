@@ -6,18 +6,17 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from clara_coder_backend.domain import (
+from clara_coder_backend.session.domain import (
     RuntimeAudioConfig,
     RuntimeConnection,
     RuntimeContextCompressionConfig,
     RuntimeHostConfig,
     RuntimeToolsConfig,
 )
-from clara_coder_backend.http_url_normalize import normalize_bind_all_host_url
-from clara_coder_backend.schemas import RuntimeConfigRequest
-from clara_coder_backend.workspace_text_io import validate_workspace_encoding
-from clara_coder_backend import state
-
+from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
+from clara_coder_backend.session.schemas import RuntimeConfigRequest
+from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
+from clara_coder_backend.session import state
 logger = logging.getLogger('clara.http.routes')
 
 router = APIRouter()

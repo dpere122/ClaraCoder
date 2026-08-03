@@ -99,6 +99,7 @@ function stubElectronApi(): StubRefs {
   (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
     onMessageChunk: noop,
     onMessageToolReadChunk: noop,
+    onMessageClearPrimaryStream: noop,
     onMessageDone: noop,
     onMessageTokenUsage: noop,
     onMessageContextCompressed: noop,

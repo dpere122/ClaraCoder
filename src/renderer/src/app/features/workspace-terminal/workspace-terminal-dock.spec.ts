@@ -9,25 +9,27 @@ import type {
   ToolExecCompleteMessage,
 } from '../../core/electron.service';
 
-const mockTerminal = {
-  write: vi.fn(),
-  writeln: vi.fn(),
-  clear: vi.fn(),
-  dispose: vi.fn(),
-  focus: vi.fn(),
-  blur: vi.fn(),
-  getSelection: vi.fn(() => ''),
-  loadAddon: vi.fn(),
-  open: vi.fn(),
-  onData: vi.fn(() => ({ dispose: vi.fn() })),
-  attachCustomKeyEventHandler: vi.fn(),
-  options: { theme: {} },
-};
-
-const mockFitAddon = {
-  fit: vi.fn(),
-  proposeDimensions: vi.fn(() => ({ cols: 80, rows: 24 })),
-};
+const { mockTerminal, mockFitAddon } = vi.hoisted(() => {
+  const mockTerminal = {
+    write: vi.fn(),
+    writeln: vi.fn(),
+    clear: vi.fn(),
+    dispose: vi.fn(),
+    focus: vi.fn(),
+    blur: vi.fn(),
+    getSelection: vi.fn(() => ''),
+    loadAddon: vi.fn(),
+    open: vi.fn(),
+    onData: vi.fn(() => ({ dispose: vi.fn() })),
+    attachCustomKeyEventHandler: vi.fn(),
+    options: { theme: {} },
+  };
+  const mockFitAddon = {
+    fit: vi.fn(),
+    proposeDimensions: vi.fn(() => ({ cols: 80, rows: 24 })),
+  };
+  return { mockTerminal, mockFitAddon };
+});
 
 vi.mock('@xterm/xterm', () => ({
   // Must be constructable: dock uses `new Terminal(...)`.

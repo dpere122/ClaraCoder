@@ -8,8 +8,6 @@ import base64
 import io
 import logging
 import mimetypes
-import os
-from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -17,7 +15,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from PIL import Image, UnidentifiedImageError
 
-from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
@@ -48,12 +46,6 @@ class VisionImagePayload:
     size_bytes: int
     data_url: str
     focus: str
-
-
-pending_vision_image_payload: ContextVar[VisionImagePayload | None] = ContextVar(
-    'pending_vision_image_payload',
-    default=None,
-)
 
 
 def _max_image_bytes() -> int:
@@ -217,19 +209,21 @@ def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, V
     return summary, payload
 
 
-@tool(READ_WORKSPACE_IMAGE_NAME, description=describe(
+@tool(
+    READ_WORKSPACE_IMAGE_NAME,
+    description=describe(
         'Load a workspace image into vision context for description, OCR, or UI/diagram analysis. '
         'Requires a vision-capable model (e.g. Qwen3.5-27B with the Qwen optimization preset).',
         when='PNG/JPEG/GIF/WebP/BMP under the workspace (screenshots, mockups, diagrams, photos).',
         not_='text files (use `read_workspace_file`); PDFs (use `read_workspace_file` text extraction).',
         shape=f'`relative_path` {RELATIVE_PATH} (e.g. `docs/architecture.png`); optional `focus` steers what to inspect.',
-    ))
+    ),
+    # Artifact survives the ToolNode thread-pool handoff (ContextVars set inside sync tools do not).
+    response_format='content_and_artifact',
+)
 def read_workspace_image(
     relative_path: Annotated[str, 'workspace-relative POSIX path'],
     focus: str = '',
-) -> str:
-
-    summary, payload = load_workspace_image(relative_path, focus=focus)
-    if payload is not None:
-        pending_vision_image_payload.set(payload)
-    return summary
+) -> tuple[str, VisionImagePayload | None]:
+    """Return ``(summary, vision_payload)``; middleware injects the image into the next model turn."""
+    return load_workspace_image(relative_path, focus=focus)

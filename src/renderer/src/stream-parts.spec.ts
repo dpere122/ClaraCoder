@@ -17,6 +17,7 @@ import {
   persistedAuxiliaryStreamTimeline,
   persistedReasoningStreams,
   primaryAssistantTextFromParts,
+  clearPrimaryStreamParts,
   primaryStreamPartsForDisplay,
   appendAndMergeReadToolPreviewChunk,
   appendReadToolPreviewChunk,
@@ -278,6 +279,20 @@ describe('primaryStreamPartsForDisplay', () => {
     ];
     expect(primaryStreamPartsForDisplay(parts, null)).toEqual([
       { streamTag: 'agent', label: 'Reply', text: 'hi' },
+    ]);
+  });
+});
+
+describe('clearPrimaryStreamParts', () => {
+  it('removes agent segments and keeps auxiliary trails', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'agent', label: '', text: 'Planning…' },
+      { streamTag: 'reasoning', label: 'R', text: 'think' },
+      { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'Reading…' },
+    ];
+    expect(clearPrimaryStreamParts(parts)).toEqual([
+      { streamTag: 'reasoning', label: 'R', text: 'think' },
+      { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'Reading…' },
     ]);
   });
 });

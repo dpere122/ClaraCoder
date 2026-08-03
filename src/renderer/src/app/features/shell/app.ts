@@ -28,6 +28,7 @@ import {
   composerApplyMode,
   composerModeForBackend,
   mergeHitlTrailIntoAuxiliaryTimeline,
+  clearPrimaryStreamParts,
   primaryAssistantTextFromParts,
   appendAndMergeReadToolPreviewChunk,
   findReadToolTrailTargetIndex,
@@ -874,6 +875,15 @@ export class App implements OnInit, OnDestroy {
       if (conversationId === this.activeConversationId()) {
         this.streamingFinalText.set(text);
       }
+    });
+
+    this.electron.clearPrimaryStream$.pipe(takeUntilDestroyed()).subscribe(({ conversationId }) => {
+      if (conversationId === this.activeConversationId()) {
+        this.streamingParts.update((prev) => clearPrimaryStreamParts(prev));
+        return;
+      }
+      const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+      this.backgroundStreamParts.set(conversationId, clearPrimaryStreamParts(prev));
     });
 
     this.electron.done$.pipe(takeUntilDestroyed()).subscribe(({ conversationId }) => {

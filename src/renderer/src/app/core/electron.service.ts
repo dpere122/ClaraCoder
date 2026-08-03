@@ -327,6 +327,7 @@ export class ElectronService {
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
   private readonly finalTextSubject = new Subject<{ conversationId: string; text: string }>();
+  private readonly clearPrimaryStreamSubject = new Subject<{ conversationId: string }>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
@@ -373,6 +374,8 @@ export class ElectronService {
   readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
   /** Final assistant text (clean, without intermediate briefs) sent by the backend at stream end. */
   readonly finalText$ = this.finalTextSubject.asObservable();
+  /** Drop live primary agent prose when a model step ends with tool calls. */
+  readonly clearPrimaryStream$ = this.clearPrimaryStreamSubject.asObservable();
   /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
@@ -554,6 +557,9 @@ export class ElectronService {
     });
     this.api?.onMessageFinalText?.((_event, conversationId, text) => {
       this.zone.run(() => this.finalTextSubject.next({ conversationId, text }));
+    });
+    this.api?.onMessageClearPrimaryStream?.((_event, conversationId) => {
+      this.zone.run(() => this.clearPrimaryStreamSubject.next({ conversationId }));
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));

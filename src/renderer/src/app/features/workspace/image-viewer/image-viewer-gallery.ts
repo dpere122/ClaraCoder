@@ -22,6 +22,23 @@ export function parentFolderAbsolutePath(workspaceRoot: string, imageRelativePat
   return `${root}/${parentRel}`;
 }
 
+/** Absolute on-disk path for a workspace-relative image, or null when inputs are empty. */
+export function absolutePathForWorkspaceRelative(
+  workspaceRoot: string,
+  relativePath: string | null | undefined,
+): string | null {
+  const root = normalizePathSlashes(workspaceRoot.trim()).replace(/\/+$/, '');
+  const rel = relativePath?.trim();
+  if (!root || !rel) {
+    return null;
+  }
+  const normRel = normalizePathSlashes(rel).replace(/^\/+/, '');
+  if (!normRel) {
+    return null;
+  }
+  return `${root}/${normRel}`;
+}
+
 /** Viewable image paths in a directory listing, sorted by filename. */
 export function viewableImagesInDirectory(
   entries: readonly FileEntry[],

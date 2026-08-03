@@ -9,6 +9,25 @@ export const WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME = 'application/x-nemo-workspa
 /** Internal workspace tree moves (files and folders). */
 export const WORKSPACE_TREE_INTERNAL_MOVE_MIME = 'application/x-nemo-workspace-internal-move';
 
+/**
+ * Populate a drag payload so chat (and other drop targets) accept a workspace path.
+ * Do not set {@link WORKSPACE_TREE_INTERNAL_MOVE_MIME} unless the source supports tree moves.
+ */
+export function populateWorkspacePathDragData(
+  dt: DataTransfer,
+  absolutePath: string,
+  options?: { isDirectory?: boolean; internalMove?: boolean },
+): void {
+  const isDirectory = options?.isDirectory === true;
+  dt.effectAllowed = isDirectory ? 'move' : 'copyMove';
+  if (options?.internalMove) {
+    dt.setData(WORKSPACE_TREE_INTERNAL_MOVE_MIME, absolutePath);
+  }
+  dt.setData(WORKSPACE_TREE_DRAG_MIME, absolutePath);
+  dt.setData(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME, isDirectory ? '1' : '0');
+  dt.setData('text/plain', absolutePath);
+}
+
 /** 1-based inclusive line/column span from the Monaco editor. */
 export interface EditorLineRange {
   startLine: number;

@@ -76,6 +76,8 @@ export const chatApi = {
   ) => ipcRenderer.on('message-harness-crystal', callback),
   onMessageFinalText: (callback: (event: unknown, conversationId: string, text: string) => void) =>
     ipcRenderer.on('message-final-text', callback),
+  onMessageClearPrimaryStream: (callback: (event: unknown, conversationId: string) => void) =>
+    ipcRenderer.on('message-clear-primary-stream', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
   onMessageAcceptCommand: (

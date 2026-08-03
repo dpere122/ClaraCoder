@@ -10,32 +10,35 @@ import { lucideAppProviders } from '../../../lucide-setup';
 import { HitlComposerDockComponent } from '../../chat/hitl-composer-dock/hitl-composer-dock';
 import { DiffApplyComponent } from './diff-apply';
 
-function makeMonacoMock() {
-  const modifiedEditor = { revealLineInCenter: vi.fn() };
-  const diffEditor = {
-    setModel: vi.fn(),
-    updateOptions: vi.fn(),
-    layout: vi.fn(),
-    getModifiedEditor: () => modifiedEditor,
-    dispose: vi.fn(),
-  };
-  const createModel = vi.fn((_text: string) => ({
-    getValue: () => _text,
-    setValue: vi.fn(),
-    isDisposed: () => false,
-    dispose: vi.fn(),
-  }));
-  return {
-    editor: {
-      createDiffEditor: vi.fn(() => diffEditor),
-      createModel,
-      setTheme: vi.fn(),
-    },
-    Uri: { parse: (u: string) => u },
-    __diffEditor: diffEditor,
-    __modifiedEditor: modifiedEditor,
-  };
-}
+const { makeMonacoMock } = vi.hoisted(() => {
+  function makeMonacoMock() {
+    const modifiedEditor = { revealLineInCenter: vi.fn() };
+    const diffEditor = {
+      setModel: vi.fn(),
+      updateOptions: vi.fn(),
+      layout: vi.fn(),
+      getModifiedEditor: () => modifiedEditor,
+      dispose: vi.fn(),
+    };
+    const createModel = vi.fn((_text: string) => ({
+      getValue: () => _text,
+      setValue: vi.fn(),
+      isDisposed: () => false,
+      dispose: vi.fn(),
+    }));
+    return {
+      editor: {
+        createDiffEditor: vi.fn(() => diffEditor),
+        createModel,
+        setTheme: vi.fn(),
+      },
+      Uri: { parse: (u: string) => u },
+      __diffEditor: diffEditor,
+      __modifiedEditor: modifiedEditor,
+    };
+  }
+  return { makeMonacoMock };
+});
 
 vi.mock('monaco-editor', () => makeMonacoMock());
 

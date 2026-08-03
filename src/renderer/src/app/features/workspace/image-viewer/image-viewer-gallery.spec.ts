@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FileEntry } from '@shared/index';
 import {
+  absolutePathForWorkspaceRelative,
   galleryIndexForPath,
   galleryNextIndex,
   galleryPreviousIndex,
@@ -32,6 +33,18 @@ describe('parentFolderAbsolutePath', () => {
 
   it('returns workspace root for root-level images', () => {
     expect(parentFolderAbsolutePath('/ws/', 'logo.png')).toBe('/ws');
+  });
+});
+
+describe('absolutePathForWorkspaceRelative', () => {
+  it('joins workspace root with the image relative path', () => {
+    expect(absolutePathForWorkspaceRelative('/ws', 'photos/a.png')).toBe('/ws/photos/a.png');
+  });
+
+  it('returns null when root or relative path is missing', () => {
+    expect(absolutePathForWorkspaceRelative('', 'a.png')).toBeNull();
+    expect(absolutePathForWorkspaceRelative('/ws', null)).toBeNull();
+    expect(absolutePathForWorkspaceRelative('/ws', '  ')).toBeNull();
   });
 });
 

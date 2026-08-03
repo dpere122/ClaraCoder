@@ -52,6 +52,7 @@ export type ParsedAgentStreamPayload =
   | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
   | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
   | { type: 'final_text'; text: string }
+  | { type: 'clear_primary_stream' }
   | {
       type: 'context_compressed';
       tokensBefore: number;
@@ -321,6 +322,10 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       if (typeof text === 'string') {
         return { type: 'final_text', text };
       }
+    }
+
+    if (parsed.type === 'clear_primary_stream') {
+      return { type: 'clear_primary_stream' };
     }
 
     if (parsed.type === 'context_compressed') {

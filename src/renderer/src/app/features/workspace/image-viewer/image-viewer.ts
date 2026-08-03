@@ -17,8 +17,10 @@ import { LucideAngularModule } from 'lucide-angular';
 import type { WorkspaceFilesChangedMessage } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { populateWorkspacePathDragData } from '../../chat/chat-context-bar/chat-context-file';
 import { buildWorkspaceImageAssetUrl } from './image-viewer-asset-url';
 import {
+  absolutePathForWorkspaceRelative,
   AUTO_PLAY_INTERVAL_OPTIONS_MS,
   galleryIndexForPath,
   galleryNextIndex,
@@ -282,6 +284,19 @@ export class ImageViewerComponent implements OnDestroy {
 
   protected onThumbnailClick(path: string): void {
     this.navigateToPath(path);
+  }
+
+  /** Drag main image or gallery thumb onto chat using the shared workspace-path mime. */
+  protected onWorkspaceImageDragStart(
+    event: DragEvent,
+    relativePath: string | null | undefined,
+  ): void {
+    const absolutePath = absolutePathForWorkspaceRelative(this.workspacePath(), relativePath);
+    if (!absolutePath || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+    populateWorkspacePathDragData(event.dataTransfer, absolutePath);
   }
 
   protected toggleAutoPlay(): void {

@@ -578,9 +578,15 @@ describe('resolvePrimaryStreamLiveText', () => {
     expect(resolvePrimaryStreamLiveText(undefined, parts, false)).toBe('Here is the answer.');
   });
 
-  it('hides pre-tool primary prose while tools are active', () => {
-    const parts = [{ streamTag: 'agent', label: '', text: 'Checking files…' }];
-    expect(resolvePrimaryStreamLiveText(undefined, parts, true)).toBe('');
+  it('keeps streaming primary while tools phase is engaged (clear_primary_stream drops stale prose)', () => {
+    const parts = [{ streamTag: 'agent', label: '', text: 'Here is the answer.' }];
+    expect(resolvePrimaryStreamLiveText(undefined, parts, true)).toBe('Here is the answer.');
+  });
+
+  it('shows empty primary when agent segments were cleared for tools', () => {
+    expect(resolvePrimaryStreamLiveText(undefined, [{ streamTag: 'reasoning', label: '', text: 'think' }], true)).toBe(
+      '',
+    );
   });
 });
 

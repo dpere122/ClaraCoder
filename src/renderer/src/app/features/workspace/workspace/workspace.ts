@@ -55,8 +55,7 @@ import {
 } from './workspace-path-utils';
 import { workspaceTreeTextHintsPython } from './workspace-python-hints';
 import {
-  WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
-  WORKSPACE_TREE_DRAG_MIME,
+  populateWorkspacePathDragData,
   WORKSPACE_TREE_INTERNAL_MOVE_MIME,
 } from '../../chat/chat-context-bar/chat-context-file';
 
@@ -982,11 +981,10 @@ export class WorkspaceComponent implements OnDestroy {
       event.preventDefault();
       return;
     }
-    event.dataTransfer.effectAllowed = node.isDirectory ? 'move' : 'copyMove';
-    event.dataTransfer.setData(WORKSPACE_TREE_INTERNAL_MOVE_MIME, node.path);
-    event.dataTransfer.setData(WORKSPACE_TREE_DRAG_MIME, node.path);
-    event.dataTransfer.setData(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME, node.isDirectory ? '1' : '0');
-    event.dataTransfer.setData('text/plain', node.path);
+    populateWorkspacePathDragData(event.dataTransfer, node.path, {
+      isDirectory: node.isDirectory,
+      internalMove: true,
+    });
   }
 
   onTreeNodeDragEnd(): void {

@@ -382,19 +382,17 @@ export function extractLatestBriefLine(text: string): string {
 
 /**
  * Live markdown zone: prefer backend `final_text`, else stream the latest primary agent segment.
- * Suppresses pre-tool brief prose in the main zone while tools are actively running.
+ * Pre-tool planning prose is removed via SSE ``clear_primary_stream`` (not blanked here), so
+ * post-tool primary can stream even while the tools phase stays engaged for the spinner.
  */
 export function resolvePrimaryStreamLiveText(
   streamingFinalText: string | undefined,
   streamingParts: readonly StreamPart[],
-  processingToolsActive: boolean,
+  _processingToolsActive = false,
 ): string {
   const final = streamingFinalText?.trim();
   if (final) {
     return final;
-  }
-  if (processingToolsActive) {
-    return '';
   }
   return latestPrimaryStreamSegmentText(streamingParts).trim();
 }

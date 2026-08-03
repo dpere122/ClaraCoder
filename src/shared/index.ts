@@ -152,6 +152,7 @@ export {
   otherDelegatedStreamPartsForDisplay,
   persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
+  clearPrimaryStreamParts,
   primaryStreamPartsForDisplay,
   appendAndMergeReadToolPreviewChunk,
   appendReadToolPreviewChunk,

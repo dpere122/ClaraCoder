@@ -5,9 +5,13 @@ import {
   chatContextFilesEqual,
   formatAttachedFileText,
   formatAttachedImageText,
+  populateWorkspacePathDragData,
   structuredContentForBackendRequest,
   formatChatContextChipLabel,
   formatLineRangeLabel,
+  WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
+  WORKSPACE_TREE_DRAG_MIME,
+  WORKSPACE_TREE_INTERNAL_MOVE_MIME,
   type ChatContextFile,
   type EditorSelectionPayload,
 } from './chat-context-file';
@@ -26,6 +30,42 @@ const selectionPayload: EditorSelectionPayload = {
   lineRange: { startLine: 12, startColumn: 1, endLine: 45, endColumn: 20 },
   selectedText: 'export class App {}',
 };
+
+describe('populateWorkspacePathDragData', () => {
+  it('sets chat-accepted workspace path mimes for a file drag', () => {
+    const data = new Map<string, string>();
+    const dt = {
+      effectAllowed: 'none' as DataTransfer['effectAllowed'],
+      setData: (type: string, value: string) => {
+        data.set(type, value);
+      },
+    } as unknown as DataTransfer;
+
+    populateWorkspacePathDragData(dt, '/ws/photos/a.png');
+
+    expect(dt.effectAllowed).toBe('copyMove');
+    expect(data.get(WORKSPACE_TREE_DRAG_MIME)).toBe('/ws/photos/a.png');
+    expect(data.get(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME)).toBe('0');
+    expect(data.get('text/plain')).toBe('/ws/photos/a.png');
+    expect(data.has(WORKSPACE_TREE_INTERNAL_MOVE_MIME)).toBe(false);
+  });
+
+  it('marks directories and optional internal tree moves', () => {
+    const data = new Map<string, string>();
+    const dt = {
+      effectAllowed: 'none' as DataTransfer['effectAllowed'],
+      setData: (type: string, value: string) => {
+        data.set(type, value);
+      },
+    } as unknown as DataTransfer;
+
+    populateWorkspacePathDragData(dt, '/ws/photos', { isDirectory: true, internalMove: true });
+
+    expect(dt.effectAllowed).toBe('move');
+    expect(data.get(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME)).toBe('1');
+    expect(data.get(WORKSPACE_TREE_INTERNAL_MOVE_MIME)).toBe('/ws/photos');
+  });
+});
 
 describe('chatContextFileKey', () => {
   it('uses relative path for whole-file attachments', () => {

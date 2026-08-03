@@ -123,6 +123,7 @@ declare global {
     onMessageFinalText?: (
       callback: (event: unknown, conversationId: string, text: string) => void,
     ) => void;
+    onMessageClearPrimaryStream?: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
     onMessageAcceptCommand?: (
       callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,

@@ -111,6 +111,9 @@ export function normalizeStreamTag(streamTag: string): string | null {
   if (!t || REMOVED_STREAM_TAGS.has(t)) {
     return null;
   }
+  if (t === LEGACY_REASONING_STREAM_TAG) {
+    return REASONING_AUXILIARY_STREAM_TAG;
+  }
   const mapped = LEGACY_SPEC_TAG_MAP[t];
   if (mapped) {
     return mapped;
@@ -319,6 +322,11 @@ export function primaryStreamPartsForDisplay(
   _processingAgentRole: LlmAgentRole | null,
 ): StreamPart[] {
   return parts.filter((p) => isPrimaryAssistantStreamTag(p.streamTag));
+}
+
+/** Drop live primary (`agent`) segments after a tool-calling step (keeps reasoning/tools). */
+export function clearPrimaryStreamParts(parts: readonly StreamPart[]): StreamPart[] {
+  return parts.filter((p) => !isPrimaryAssistantStreamTag(p.streamTag));
 }
 
 /** Non-primary multiplex segments (reasoning, tools, Clara briefs, tool-trail rows). */

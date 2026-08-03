@@ -42,6 +42,12 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses clear_primary_stream payloads', () => {
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'clear_primary_stream' }))).toEqual({
+      type: 'clear_primary_stream',
+    });
+  });
+
   it('parses tool execution chunks with optional label and stream tag', () => {
     expect(
       parseAgentStreamPayload(

@@ -13,7 +13,7 @@ from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.tools.workspace_image import (
     READ_WORKSPACE_IMAGE_NAME,
     VisionImagePayload,
-    pending_vision_image_payload,
+    load_workspace_image,
 )
 
 
@@ -45,6 +45,15 @@ def _tool_message_from_result(
     name: str,
 ) -> ToolMessage:
     if isinstance(result, ToolMessage):
+        # Drop artifact once the image is injected as a HumanMessage so checkpoints
+        # do not retain a second copy of the base64 payload.
+        if getattr(result, 'artifact', None) is not None:
+            return ToolMessage(
+                content=result.content,
+                tool_call_id=str(getattr(result, 'tool_call_id', '') or ''),
+                name=str(getattr(result, 'name', '') or '') or name,
+                status=getattr(result, 'status', 'success'),
+            )
         return result
     return ToolMessage(
         content=stringify_content(result),
@@ -53,22 +62,56 @@ def _tool_message_from_result(
     )
 
 
+def _payload_from_tool_result(result: ToolMessage | Command | object) -> VisionImagePayload | None:
+    """Read the vision payload carried on the ToolMessage artifact (survives thread handoff)."""
+    if isinstance(result, ToolMessage):
+        art = getattr(result, 'artifact', None)
+        if isinstance(art, VisionImagePayload):
+            return art
+    return None
+
+
+def _payload_from_tool_args(
+    request: ToolCallRequest,
+    result: ToolMessage | Command | object,
+) -> VisionImagePayload | None:
+    """Fallback: reload the image when the tool reported success but artifact is missing."""
+    tm = _tool_message_from_result(result, request, READ_WORKSPACE_IMAGE_NAME)
+    text = stringify_content(tm.content)
+    if 'Loaded image:' not in text:
+        return None
+    args = request.tool_call.get('args') if isinstance(request.tool_call, dict) else None
+    if not isinstance(args, dict):
+        return None
+    rel = str(args.get('relative_path') or '').strip()
+    if not rel:
+        return None
+    focus = str(args.get('focus') or '')
+    _summary, payload = load_workspace_image(rel, focus=focus)
+    return payload
+
+
 class VisionImageInjectionMiddleware(AgentMiddleware):
-    """After ``read_workspace_image``, append a multimodal HumanMessage with the loaded image."""
+    """After ``read_workspace_image``, append a multimodal HumanMessage with the loaded image.
+
+    Sync ``@tool`` functions run via ``run_in_executor``, so a ContextVar set inside the tool
+    is not visible here. The tool returns ``(summary, VisionImagePayload)`` as a ToolMessage
+    artifact; we read that (or reload from args) and inject the image into the next model turn.
+    """
 
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
-        pending_vision_image_payload.set(None)
         result = await handler(request)
         name = str(request.tool_call.get('name') or '')
         if name != READ_WORKSPACE_IMAGE_NAME:
             return result
 
-        payload = pending_vision_image_payload.get()
-        pending_vision_image_payload.set(None)
+        payload = _payload_from_tool_result(result)
+        if payload is None:
+            payload = _payload_from_tool_args(request, result)
         if payload is None:
             return result
 

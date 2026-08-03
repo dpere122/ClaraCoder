@@ -152,6 +152,11 @@ app-image-viewer .image-viewer-stage--fit {
 app-image-viewer .image-viewer-img {
   display: block;
   image-rendering: auto;
+  cursor: grab;
+}
+
+app-image-viewer .image-viewer-img:active {
+  cursor: grabbing;
 }
 
 app-image-viewer .image-viewer-img--fit {
@@ -214,8 +219,12 @@ app-image-viewer .image-viewer-thumb {
   border: 2px solid var(--t-border);
   border-radius: 4px;
   background: var(--t-bg-deep);
-  cursor: pointer;
+  cursor: grab;
   overflow: hidden;
+}
+
+app-image-viewer .image-viewer-thumb:active {
+  cursor: grabbing;
 }
 
 app-image-viewer .image-viewer-thumb:hover {

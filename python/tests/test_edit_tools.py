@@ -11,9 +11,6 @@ from clara_coder_backend.tools.edit import (
 from clara_coder_backend.lsp.file_policy import outer_workspace_edit_guard_error
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions
 from clara_coder_backend.session.domain import RuntimeToolsConfig
-from clara_coder_backend.tools.node_deps import node_dependency_tools
-from clara_coder_backend.tools.python_deps import python_dependency_tools
-from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
 from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
 from clara_coder_backend.hitl.tool_registry import (
     hitl_accept_command_pause_tools,
@@ -128,7 +125,6 @@ def test_outer_agent_tools_staging_mode() -> None:
     session = get_session('outer-staging')
     session.auto_apply_mode = False
     read_names = {t.name for t in TOOLS} | {
-        'search_netstat_ports',
         'lsp_get_diagnostics',
         'lsp_hover',
         'lsp_find_definition',
@@ -137,14 +133,8 @@ def test_outer_agent_tools_staging_mode() -> None:
     }
     edit_names = {t.name for t in staging_workspace_write_tools(False)}
     lsp_mut_names = _LSP_MUTATION_NAMES
-    dep_names = {t.name for t in python_dependency_tools()[0]}
-    node_dep_names = {t.name for t in node_dependency_tools()[0]}
-    env_names = {ensure_python_workspace_env_tool.name}
     review_names = {t.name for t in staging_review_tools(direct=False)[0]}
 
-    outer_verify_names = {
-        'run_workspace_pytest_tests',
-    }
     background_command_names = {
         'run_command',
         'wait_for_command',
@@ -155,16 +145,12 @@ def test_outer_agent_tools_staging_mode() -> None:
     tools_on, map_on = worker_tools_and_map(True, session=session)
     assert {t.name for t in tools_on} == (
         read_names
-        | {'copy_workspace_files', 'angular_cli_tool', 'kill_process'}
+        | {'copy_workspace_files'}
         | background_command_names
         | edit_names
         | lsp_mut_names
-        | dep_names
-        | node_dep_names
-        | env_names
         | {'delete_workspace_entry', 'batch_delete_workspace_entries'}
         | review_names
-        | outer_verify_names
     )
     assert map_on.keys() == {t.name for t in tools_on}
 
@@ -189,18 +175,16 @@ def test_outer_agent_tools_direct_mode() -> None:
 
 
 def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> None:
-    """Later merge layers must re-use the same tool objects as python/node deps and LSP reads (no forked descriptions)."""
+    """Later merge layers must re-use the same tool objects as LSP reads (no forked descriptions)."""
     from clara_coder_backend.tools.lsp_tools import lsp_get_diagnostics
-    from clara_coder_backend.tools.node_deps import install_npm_packages_tool
-    from clara_coder_backend.tools.python_deps import install_python_packages_tool
+    from clara_coder_backend.tools.run_command import run_command_tool
 
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
     session = get_session('merge-canonical')
     session.auto_apply_mode = False
     _tools, mapping = worker_tools_and_map(True, session=session)
     assert mapping['lsp_get_diagnostics'] is lsp_get_diagnostics
-    assert mapping['install_python_packages'] is install_python_packages_tool
-    assert mapping['install_npm_packages'] is install_npm_packages_tool
+    assert mapping['run_command'] is run_command_tool
 
 
 def test_outer_workspace_edit_guard_blocks_code_extensions() -> None:

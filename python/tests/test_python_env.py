@@ -95,6 +95,19 @@ async def test_run_subprocess_with_output_uses_isolated_session_and_devnull(tmp_
     assert captured.get('start_new_session') is True
 
 
+def _assert_backend_jedi_lsp_command(command: list[str], *, workspace_adjacent: Path | None = None) -> None:
+    """Backend interpreter (or its adjacent console script), never a workspace-local jedi."""
+    backend = Path(sys.executable)
+    if workspace_adjacent is not None:
+        assert command[0] != str(workspace_adjacent)
+    adjacent = backend.parent / ('jedi-language-server.exe' if sys.platform.startswith('win') else 'jedi-language-server')
+    if adjacent.is_file():
+        assert command == [str(adjacent)]
+    else:
+        assert command[0] == str(backend)
+        assert command[1:] == ['-u', '-c', 'from jedi_language_server.cli import cli; cli()']
+
+
 def test_build_python_lsp_command_uses_backend_interpreter(tmp_path: Path) -> None:
     """LSP subprocess always uses the Nemo backend Python so the server survives workspace removal."""
 
@@ -103,8 +116,7 @@ def test_build_python_lsp_command_uses_backend_interpreter(tmp_path: Path) -> No
 
     command = build_python_lsp_command(workspace_root)
 
-    assert command[0] == str(Path(sys.executable))
-    assert command[1:] == ['-u', '-c', 'from jedi_language_server.cli import cli; cli()']
+    _assert_backend_jedi_lsp_command(command)
 
 
 def test_build_python_lsp_command_falls_back_to_backend_when_workspace_has_no_jedi(tmp_path: Path) -> None:
@@ -116,8 +128,7 @@ def test_build_python_lsp_command_falls_back_to_backend_when_workspace_has_no_je
 
     command = build_python_lsp_command(workspace_root)
 
-    assert command[0] == str(Path(sys.executable))
-    assert command[1:] == ['-u', '-c', 'from jedi_language_server.cli import cli; cli()']
+    _assert_backend_jedi_lsp_command(command)
 
 
 def test_build_python_lsp_command_ignores_workspace_adjacent_jedi(tmp_path: Path) -> None:
@@ -137,7 +148,7 @@ def test_build_python_lsp_command_ignores_workspace_adjacent_jedi(tmp_path: Path
 
     command = build_python_lsp_command(workspace_root)
 
-    assert command[0] == str(Path(sys.executable))
+    _assert_backend_jedi_lsp_command(command, workspace_adjacent=script_path)
 
 
 def test_resolve_python_workspace_root_accepts_simple_python_workspace(tmp_path: Path) -> None:
@@ -220,7 +231,7 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
 
     monkeypatch.setattr('clara_coder_backend.runtime.python_env.ensure_python_workspace_env', _fake_ensure)
     monkeypatch.setattr('clara_coder_backend.runtime.python_env.activate_process_workspace_python_env', lambda _venv_path: None)
-    monkeypatch.setattr('clara_coder_backend.tools.python_deps.bootstrap_session_python_dependencies', _fake_bootstrap)
+    monkeypatch.setattr('clara_coder_backend.runtime.python_bootstrap.bootstrap_session_python_dependencies', _fake_bootstrap)
 
     result = asyncio.run(
         ensure_session_python_workspace_env(

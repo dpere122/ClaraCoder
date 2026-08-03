@@ -64,10 +64,6 @@ try:
 except ValueError:
     CLARA_SUBPROCESS_TIMEOUT_SEC = 900
 
-# Separate cap for ``npm run`` / ``pnpm run`` / ``yarn run`` (often starts a server). 0 = use
-# ``CLARA_SUBPROCESS_TIMEOUT_SEC`` instead. Prevents hung or long-lived script processes.
-CLARA_NPM_SCRIPT_TIMEOUT_SEC = _env_int('CLARA_NPM_SCRIPT_TIMEOUT_SEC', 300, 0, 86_400)
-
 # Default window ``run_command`` waits for a background command before returning its command id.
 CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC = _env_int('CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC', 30, 1, 3_600)
 # Upper bound for any single ``run_command`` / ``wait_for_command`` wait window.

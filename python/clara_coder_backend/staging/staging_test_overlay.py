@@ -449,7 +449,7 @@ def validate_overlay_command_argv(argv: list[str]) -> tuple[list[str] | None, st
         return (
             None,
             'Tool error: staging overlay commands may only invoke test/build/lint runners '
-            f'(got `{argv[0]}`). Prefer `run_workspace_pytest_tests` or `run_command` when those suffice.',
+            f'(got `{argv[0]}`). Prefer `run_command` when that suffices.',
         )
 
     if exe in {'python', 'python3', 'py'}:

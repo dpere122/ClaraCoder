@@ -6,18 +6,10 @@ from typing import Any
 
 from clara_coder_backend.session.domain import SessionState
 
-ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY = 'python_dependency'
-ACCEPT_COMMAND_KIND_NODE_DEPENDENCY = 'node_dependency'
-ACCEPT_COMMAND_KIND_ANGULAR_CLI = 'angular_cli'
-ACCEPT_COMMAND_KIND_PROCESS_KILL = 'process_kill'
 ACCEPT_COMMAND_KIND_DEFERRED_TOOL = 'deferred_tool'
 
 __all__ = [
-    'ACCEPT_COMMAND_KIND_ANGULAR_CLI',
     'ACCEPT_COMMAND_KIND_DEFERRED_TOOL',
-    'ACCEPT_COMMAND_KIND_NODE_DEPENDENCY',
-    'ACCEPT_COMMAND_KIND_PROCESS_KILL',
-    'ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY',
     'accept_command_sse_payload',
     'execute_pending_accept_command_decision',
 ]
@@ -67,22 +59,6 @@ async def execute_pending_accept_command_decision(
         return str(pending.get('cancel_note') or 'User cancelled the requested command.')
 
     kind = str(pending.get('kind') or '')
-    if kind == ACCEPT_COMMAND_KIND_PYTHON_DEPENDENCY:
-        from clara_coder_backend.tools.python_deps import execute_pending_python_dependency_request
-
-        return await execute_pending_python_dependency_request(session, pending)
-    if kind == ACCEPT_COMMAND_KIND_NODE_DEPENDENCY:
-        from clara_coder_backend.tools.node_deps import execute_pending_node_dependency_request
-
-        return await execute_pending_node_dependency_request(session, pending)
-    if kind == ACCEPT_COMMAND_KIND_ANGULAR_CLI:
-        from clara_coder_backend.tools.angular_cli import execute_pending_angular_cli_request
-
-        return await execute_pending_angular_cli_request(session, pending)
-    if kind == ACCEPT_COMMAND_KIND_PROCESS_KILL:
-        from clara_coder_backend.tools.process import execute_pending_process_kill_request
-
-        return await execute_pending_process_kill_request(session, pending)
     if kind == ACCEPT_COMMAND_KIND_DEFERRED_TOOL:
         from clara_coder_backend.hitl.deferred_tool_hitl import execute_pending_deferred_tool
 

@@ -292,3 +292,8 @@ def model_chunk_payload(delta: str, stream_tag: str | None = None) -> dict[str, 
 
 def model_chunk_sse_line(delta: str, stream_tag: str | None = None) -> str:
     return sse_line(model_chunk_payload(delta, stream_tag))
+
+
+def clear_primary_stream_sse_line() -> str:
+    """Tell the UI to drop live primary (``agent``) prose when a step requests tools."""
+    return sse_line({'type': 'clear_primary_stream'})

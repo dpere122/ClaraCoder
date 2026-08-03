@@ -191,7 +191,7 @@ async def test_stream_watchdog_does_not_fire_while_tool_running(
     async def _tool_then_hang(*_args: Any, **_kwargs: Any):
         yield {
             'event': 'on_tool_start',
-            'name': 'run_workspace_pytest_tests',
+            'name': 'run_command',
             'run_id': 'tool-run-1',
             'data': {'input': {}},
         }

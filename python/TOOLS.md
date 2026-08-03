@@ -54,10 +54,8 @@ on at least these params:
 - `land_in_workspace` — `Annotated[bool, STAGE_LAND]`
 - `relative_paths` — `Annotated[list[str], "list of POSIX paths"]`
 - `old_snippet` / `new_snippet` — distinguish from `new_content` aliasing
-- `pid` — `Annotated[int, "host process id from search_netstat_ports"]`
-- `port` — `Annotated[int, "host port"]`
-- `packages` — `Annotated[list[str], "package names"]`
 - `command_argv_json` — `Annotated[str, "JSON array of argv strings"]`
+- `command` — `Annotated[str, "shell command for run_command"]`
 
 ## 4. `@tool(NAME, description=describe(...))`
 

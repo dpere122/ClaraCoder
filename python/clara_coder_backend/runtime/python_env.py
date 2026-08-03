@@ -278,8 +278,7 @@ async def _run_subprocess_with_output(
             output_bytes = b''
         msg = (
             f'Command timed out after {label}s (process tree terminated). '
-            f'For long installs, raise CLARA_SUBPROCESS_TIMEOUT_SEC; for `npm run` scripts, '
-            f'raise CLARA_NPM_SCRIPT_TIMEOUT_SEC.\nCommand: {rendered_cmd}'
+            f'For long installs, raise CLARA_SUBPROCESS_TIMEOUT_SEC.\nCommand: {rendered_cmd}'
         )
         partial = output_bytes.decode('utf-8', errors='replace') if output_bytes else ''
         if partial:
@@ -518,7 +517,7 @@ async def ensure_session_python_workspace_env(
     if result.ok:
         apply_session_python_workspace_env(session, result)
         if bootstrap_dependencies:
-            from clara_coder_backend.tools.python_deps import bootstrap_session_python_dependencies
+            from clara_coder_backend.runtime.python_bootstrap import bootstrap_session_python_dependencies
 
             dep_result = await bootstrap_session_python_dependencies(session, emit_chunk=emit_chunk)
             if dep_result is not None:

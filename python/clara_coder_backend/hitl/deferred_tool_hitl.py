@@ -15,11 +15,8 @@ deferred_tool_hitl_bypass: ContextVar[bool] = ContextVar('deferred_tool_hitl_byp
 
 DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
     {
-        'ensure_python_workspace_env',
-        'bootstrap_python_testing_dependencies',
         'run_staging_overlay_command',
         'run_command',
-        'run_workspace_pytest_tests',
         'web_search',
         'fetch_url',
     }
@@ -34,27 +31,6 @@ __all__ = [
 
 
 def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str, str, list[str]]:
-    if tool_name == 'ensure_python_workspace_env':
-        return (
-            'Initialize workspace Python environment',
-            'Create or reuse the workspace `.venv`, activate it for this session, and install bootstrap dependencies.',
-            'python -m venv .venv && pip install (bootstrap)',
-            [],
-        )
-    if tool_name == 'bootstrap_python_testing_dependencies':
-        return (
-            'Bootstrap Python testing dependencies',
-            'Install workspace requirements, testing helpers, and Python LSP packages into the active `.venv`.',
-            'pip install -r requirements.txt (and testing helpers)',
-            [],
-        )
-    if tool_name == 'run_workspace_pytest_tests':
-        return (
-            'Run workspace pytest',
-            'Run `pytest` in the workspace virtual environment.',
-            'python -m pytest tests -v',
-            [],
-        )
     if tool_name == 'run_command':
         command = str(tool_input.get('command') or '').strip()
         cwd = str(tool_input.get('cwd') or '').strip()
@@ -175,14 +151,6 @@ async def execute_pending_deferred_tool(session: SessionState, pending: dict[str
 
 
 def _resolve_deferred_tool(tool_name: str) -> Any | None:
-    if tool_name == 'ensure_python_workspace_env':
-        from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
-
-        return ensure_python_workspace_env_tool
-    if tool_name == 'bootstrap_python_testing_dependencies':
-        from clara_coder_backend.tools.python_deps import bootstrap_python_testing_dependencies_tool
-
-        return bootstrap_python_testing_dependencies_tool
     if tool_name == 'run_command':
         from clara_coder_backend.tools.run_command import run_command_tool
 
@@ -191,10 +159,6 @@ def _resolve_deferred_tool(tool_name: str) -> Any | None:
         from clara_coder_backend.tools.review_tools import run_staging_overlay_command
 
         return run_staging_overlay_command
-    if tool_name == 'run_workspace_pytest_tests':
-        from clara_coder_backend.tools.project_review_tools import run_workspace_pytest_tests
-
-        return run_workspace_pytest_tests
     if tool_name == 'web_search':
         from clara_coder_backend.tools.web_search import web_search_tool
 

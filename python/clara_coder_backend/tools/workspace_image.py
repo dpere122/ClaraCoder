@@ -107,7 +107,8 @@ def vision_payload_from_data_url(
     if not mime.startswith('image/'):
         return None
     try:
-        data = base64.standard_b64decode(encoded, validate=True)
+        # ``standard_b64decode`` has no ``validate=`` on Python 3.13; ``b64decode`` does.
+        data = base64.b64decode(encoded, validate=True)
     except (ValueError, OSError):
         return None
     max_bytes = _max_image_bytes()

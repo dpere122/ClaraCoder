@@ -6,13 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.hitl.accept_command import accept_command_sse_payload, execute_pending_accept_command_decision
-from clara_coder_backend.tools.python_deps import (
-    bootstrap_session_python_dependencies,
-    freeze_python_requirements_tool,
-    install_python_packages_tool,
-    write_frozen_python_requirements_file_tool,
-)
+from clara_coder_backend.runtime.python_bootstrap import bootstrap_session_python_dependencies
 from clara_coder_backend.runtime.python_env import workspace_python_executable
 from clara_coder_backend.session.state import current_session_id, get_session
 
@@ -102,99 +96,3 @@ async def test_bootstrap_session_python_dependencies_uses_workspace_python_env(
         'install',
         'jedi-language-server>=0.46,<0.47',
     )
-
-
-@pytest.mark.asyncio
-async def test_install_python_packages_stages_generic_accept_command_when_auto_apply_off(
-    dependency_env,
-) -> None:
-    session = dependency_env.session
-
-    result = await install_python_packages_tool.ainvoke({'packages': ['pytest', 'ruff']})
-
-    assert 'Pending user confirmation' in result
-    pending = session.pending_accept_command_request
-    assert pending is not None
-    payload = accept_command_sse_payload(pending)
-    assert payload['kind'] == 'python_dependency'
-    assert payload['title'] == 'Install Python packages'
-    assert payload['confirmLabel'] == 'Install packages'
-    assert 'pytest' in payload['commandText']
-    assert 'ruff' in payload['commandText']
-    # Regression guard: non-`run_command` accept-command kinds never carry a
-    # `risk_assessment_status` key, so the payload must omit all risk fields
-    # (byte-for-byte unchanged from before the command-risk-assess feature).
-    assert 'risk_assessment_status' not in pending
-    assert 'riskAssessmentStatus' not in payload
-    assert 'riskLevel' not in payload
-    assert 'riskDescription' not in payload
-
-
-@pytest.mark.asyncio
-async def test_accept_command_confirmation_runs_staged_dependency_install(
-    dependency_env, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    session = dependency_env.session
-    python_executable = dependency_env.python_executable
-    commands: list[tuple[str, ...]] = []
-
-    async def _fake_create_subprocess_exec(*args, **kwargs):
-        commands.append(tuple(str(arg) for arg in args))
-        return _FakeProc(output=b'installed packages\n')
-
-    monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
-
-    await install_python_packages_tool.ainvoke({'packages': ['pytest', 'ruff']})
-    pending = session.pending_accept_command_request
-    assert pending is not None
-
-    result = await execute_pending_accept_command_decision(
-        session,
-        confirm=True,
-        request_id=pending['request_id'],
-    )
-
-    assert session.pending_accept_command_request is None
-    assert 'Python dependency install summary' in result
-    assert commands == [
-        (str(python_executable), '-m', 'pip', 'install', 'pytest', 'ruff'),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_freeze_python_requirements_uses_workspace_python(
-    dependency_env, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    python_executable = dependency_env.python_executable
-
-    async def _fake_create_subprocess_exec(*args, **kwargs):
-        assert args == (str(python_executable), '-m', 'pip', 'freeze')
-        return _FakeProc(output=b'pytest==9.0.2\nruff==0.12.0\n')
-
-    monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
-
-    result = await freeze_python_requirements_tool.ainvoke({})
-
-    assert 'Python dependency freeze summary' in result
-    assert 'pytest==9.0.2' in result
-
-
-@pytest.mark.asyncio
-async def test_write_frozen_python_requirements_file_writes_filtered_manifest(
-    dependency_env, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    dependency_env.session.auto_apply_mode = True
-    python_executable = dependency_env.python_executable
-    output_path = dependency_env.project_root / 'requirements.txt'
-
-    async def _fake_create_subprocess_exec(*args, **kwargs):
-        assert args == (str(python_executable), '-m', 'pip', 'freeze')
-        return _FakeProc(output=b'fastapi==0.115.0\njedi-language-server==0.46.0\n')
-
-    monkeypatch.setattr(asyncio, 'create_subprocess_exec', _fake_create_subprocess_exec)
-
-    result = await write_frozen_python_requirements_file_tool.ainvoke({'output_file': 'requirements.txt'})
-
-    assert 'Python dependency freeze file summary' in result
-    assert 'Requirements file written: `requirements.txt`' in result
-    assert output_path.read_text(encoding='utf-8') == 'fastapi==0.115.0\n'

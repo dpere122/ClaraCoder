@@ -742,7 +742,8 @@ def search_staged_edits(
             return f'Tool error: no staged edit for `{rel_filter}`.'
 
     grep_matches = _search_staged_edits_grep(entries, query=query, limit=limit)
-    if grep_matches is None:
+    # Empty list can mean parse/path remap failure — fall back to Python for tiny staging sets.
+    if not grep_matches:
         matches = _search_staged_edits_python(entries, pattern=pattern, limit=limit)
     else:
         matches = grep_matches

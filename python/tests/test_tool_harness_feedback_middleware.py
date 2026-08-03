@@ -54,13 +54,6 @@ def test_maybe_append_harness_footer_idempotent() -> None:
     assert out == base
 
 
-def test_should_attach_success_note_pytest_heuristic() -> None:
-    ok_run = '===== 3 passed in 1.2s ====='
-    assert should_attach_success_note('run_workspace_pytest_tests', ok_run)
-    bad = '===== 1 failed, 2 passed in 1s ====='
-    assert not should_attach_success_note('run_workspace_pytest_tests', bad)
-
-
 def test_should_attach_success_note_staging_overlay_heuristic() -> None:
     ok_run = 'Staging overlay command summary:\n- Result: passed\n- Exit code: 0\n'
     assert should_attach_success_note('run_staging_overlay_command', ok_run)

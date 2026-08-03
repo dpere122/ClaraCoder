@@ -129,7 +129,17 @@ def run_grep_line_search(
             break
         chunk_paths = [candidate.command_path for candidate in chunk]
         if rg_executable is not None:
-            args = [rg_executable, '-n', '-i', '--no-heading', '-0', '-e', query, *chunk_paths]
+            args = [
+                rg_executable,
+                '-n',
+                '-i',
+                '--no-heading',
+                '-0',
+                '--no-config',
+                '-e',
+                query,
+                *chunk_paths,
+            ]
             chunk_matches = _run_search_streaming(
                 args,
                 cwd=cwd,

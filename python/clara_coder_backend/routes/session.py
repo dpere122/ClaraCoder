@@ -33,7 +33,7 @@ from clara_coder_backend.session.schemas import (
     WorkspaceContextRequest,
     WorkspaceSystemPromptRequest,
 )
-from clara_coder_backend.tools.node_discovery import discover_workspace_npm_projects
+from clara_coder_backend.workspace.npm_projects import discover_workspace_npm_projects
 from clara_coder_backend.session import state
 router = APIRouter()
 logger = logging.getLogger('clara.http.routes')

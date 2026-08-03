@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from clara_coder_backend.tools.node_discovery import (
-    discover_workspace_npm_projects,
-    format_npm_discovery_report,
-)
+from clara_coder_backend.workspace.npm_projects import discover_workspace_npm_projects
 
 
 def test_discover_finds_root_and_nested_packages(tmp_path: Path) -> None:
@@ -63,21 +58,3 @@ def test_discover_skips_node_modules(tmp_path: Path) -> None:
 
     rows = discover_workspace_npm_projects(root)
     assert [row['relativeDir'] for row in rows] == ['.']
-
-
-def test_format_report_lists_relative_project_dir_hint(tmp_path: Path) -> None:
-    root = tmp_path.resolve()
-    (root / 'package.json').write_text('{"name":"demo","scripts":{"test":"vitest"}}', encoding='utf-8')
-    rows = discover_workspace_npm_projects(root)
-    text = format_npm_discovery_report(workspace_label=str(root), projects=rows)
-    assert 'relative_project_dir' in text
-    assert '`test`' in text
-    assert 'demo@' not in text or 'demo' in text
-
-
-@pytest.mark.asyncio
-async def test_discover_tool_requires_session() -> None:
-    from clara_coder_backend.tools.node_discovery import discover_npm_projects_tool
-
-    out = await discover_npm_projects_tool.ainvoke({})
-    assert 'no active session' in out

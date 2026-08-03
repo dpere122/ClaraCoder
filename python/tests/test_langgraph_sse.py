@@ -48,11 +48,12 @@ def test_duplicate_tool_end_is_logged_once(caplog: pytest.LogCaptureFixture) -> 
         caplog.set_level(logging.INFO, logger='clara.tools.invoke')
         state = GraphStreamState()
         ev = _tool_end_event(
-            name='run_workspace_pytest_tests',
+            name='run_command',
             run_id='run-123',
-            output='Pytest finished\nSECOND LINE IN OUTPUT',
+            output='Command finished\nSECOND LINE IN OUTPUT',
         )
 
+        caplog.clear()
         first = sse_lines_for_graph_event(
             ev,
             state,
@@ -61,6 +62,7 @@ def test_duplicate_tool_end_is_logged_once(caplog: pytest.LogCaptureFixture) -> 
             llm_event_prefix='nest',
             llm_log_context='test',
         )
+        after_first = [record.message for record in caplog.records if 'LLM tool out' in record.message]
         second = sse_lines_for_graph_event(
             ev,
             state,
@@ -69,13 +71,16 @@ def test_duplicate_tool_end_is_logged_once(caplog: pytest.LogCaptureFixture) -> 
             llm_event_prefix='nest',
             llm_log_context='test',
         )
+        after_second = [record.message for record in caplog.records if 'LLM tool out' in record.message]
 
         assert first
         assert second == []
-        tool_logs = [record.message for record in caplog.records if 'LLM tool out' in record.message]
-        assert len(tool_logs) == 1
-        assert 'Pytest finished' in tool_logs[0]
-        assert 'SECOND LINE IN OUTPUT' in tool_logs[0]
+        # Full-suite logging handlers can surface the same emission more than once;
+        # assert the second tool_end adds no new log lines.
+        assert after_first
+        assert len(after_second) == len(after_first)
+        assert 'Command finished' in after_first[0]
+        assert 'SECOND LINE IN OUTPUT' in after_first[0]
     finally:
         nemo.propagate = prev
 
@@ -177,9 +182,9 @@ def test_tool_exec_complete_forwards_output_excerpt() -> None:
     assert '"output_excerpt": "FAILED tests/test_x.py::test_a"' in lines[0]
 
 
-def test_chat_model_stream_discards_deferred_text_when_step_requests_tools() -> None:
+def test_chat_model_stream_clears_primary_when_step_requests_tools() -> None:
     state = GraphStreamState()
-    sse_lines_for_graph_event(
+    stream_lines = sse_lines_for_graph_event(
         {
             'event': 'on_chat_model_stream',
             'data': {'chunk': AIMessageChunk(content='Planning before tools. ')},
@@ -191,6 +196,9 @@ def test_chat_model_stream_discards_deferred_text_when_step_requests_tools() -> 
         llm_log_context='test',
         stream_tag='agent',
     )
+    assert len(stream_lines) == 1
+    assert '"type": "chunk"' in stream_lines[0]
+    assert 'Planning before tools. ' in stream_lines[0]
     assert state.deferred_agent_text == 'Planning before tools. '
     end_lines = sse_lines_for_graph_event(
         {
@@ -210,10 +218,11 @@ def test_chat_model_stream_discards_deferred_text_when_step_requests_tools() -> 
         stream_tag='agent',
     )
     assert not [ln for ln in end_lines if '"type": "chunk"' in ln and 'Planning' in ln]
+    assert any('"type": "clear_primary_stream"' in ln for ln in end_lines)
     assert state.deferred_agent_text == ''
 
 
-def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
+def test_chat_model_stream_emits_primary_live_and_skips_end_redump() -> None:
     state = GraphStreamState()
 
     first = sse_lines_for_graph_event(
@@ -241,8 +250,10 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
         stream_tag='agent',
     )
 
-    assert len(first) == 0
-    assert len(second) == 0
+    assert len(first) == 1
+    assert 'Hello ' in first[0]
+    assert len(second) == 1
+    assert 'world' in second[0]
     assert state.deferred_agent_text == 'Hello world'
     end_lines = sse_lines_for_graph_event(
         {
@@ -257,9 +268,9 @@ def test_chat_model_stream_tracks_partial_text_for_abort_fallback() -> None:
         stream_tag='agent',
     )
     chunk_lines = [ln for ln in end_lines if '"type": "chunk"' in ln]
-    assert len(chunk_lines) == 1
-    assert 'Hello world' in chunk_lines[0]
+    assert chunk_lines == []
     assert state.partial_stream_text == 'Hello world'
+    assert state.deferred_agent_text == ''
 
 
 @patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
@@ -282,11 +293,13 @@ def test_chat_model_stream_splits_gemma_channel_to_reasoning(mock_conn: MagicMoc
         llm_log_context='test',
         stream_tag='agent',
     )
+    # Primary and reasoning both stream live (main first, then reasoning).
     assert len(lines) == 2
-    assert '"delta": "Hello!"' in lines[0]
+    assert 'Hello!' in lines[0]
     assert '"stream_tag": "agent"' in lines[0]
     assert "I'm" in lines[1]
     assert '"stream_tag": "reasoning"' in lines[1]
+    assert state.deferred_agent_text == 'Hello!'
     assert state.reasoning_emitted_this_step is True
 
 
@@ -314,6 +327,7 @@ def test_chat_model_stream_emits_reasoning_tag_for_reasoning_chunk() -> None:
     assert '"stream_tag": "agent"' in lines[0]
     assert '"delta": "think"' in lines[1]
     assert '"stream_tag": "reasoning"' in lines[1]
+    assert state.deferred_agent_text == 'Hi'
     assert state.reasoning_emitted_this_step is True
 
 

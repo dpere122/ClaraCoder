@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from clara_coder_backend.lang_agent.streaming import (
     aimessage_chunk_reasoning_delta,
     aimessage_chunk_sse_delta,
+    clear_primary_stream_sse_line,
     is_meaningful_stream_delta,
     iter_read_tool_stream_sse,
     model_chunk_sse_line,
@@ -47,6 +48,8 @@ class GraphStreamState:
     seen_tool_events: set[tuple[str, str, str]] = field(default_factory=set)
     last_final_text: str = ''
     partial_stream_text: str = ''
+    #: Main agent text emitted live this LLM step (cleared from the UI when the step requests tools).
+    deferred_agent_text: str = ''
     llm_step: int = 0
     stream_chunks: int = 0
     stream_chars: int = 0
@@ -130,6 +133,7 @@ def _on_chat_model_start(
     state.llm_step += 1
     state.stream_chunks = 0
     state.stream_chars = 0
+    state.deferred_agent_text = ''
     state.reasoning_emitted_this_step = False
     state.gemma_split_for_step = False
     state.gemma_splitter = GemmaStreamSplitter()
@@ -195,10 +199,12 @@ def _on_chat_model_stream(
         state.stream_chars += len(delta)
     if emit_model_token_sse and main_ok:
         state.partial_stream_text += delta
+        state.deferred_agent_text += delta
     if not emit_model_token_sse:
         return []
     out: list[str] = []
     if main_ok:
+        # Stream primary live; tool steps clear it at ``on_chat_model_end``.
         out.append(model_chunk_sse_line(delta, stream_tag))
     if reasoning_ok:
         out.append(model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG))
@@ -227,6 +233,8 @@ def _on_chat_model_end(
         flush_main, flush_reason = state.gemma_splitter.flush()
         if emit_model_token_sse:
             if is_meaningful_stream_delta(flush_main):
+                state.partial_stream_text += flush_main
+                state.deferred_agent_text += flush_main
                 lines.append(model_chunk_sse_line(flush_main, stream_tag))
             if is_meaningful_stream_delta(flush_reason):
                 lines.append(model_chunk_sse_line(flush_reason, REASONING_AUXILIARY_STREAM_TAG))
@@ -236,6 +244,15 @@ def _on_chat_model_end(
         if side and is_meaningful_stream_delta(side):
             lines.append(model_chunk_sse_line(side, REASONING_AUXILIARY_STREAM_TAG))
             state.reasoning_emitted_this_step = True
+    has_tool_calls = bool(msg.tool_calls or [])
+    if emit_model_token_sse:
+        if has_tool_calls:
+            if state.deferred_agent_text and is_meaningful_stream_delta(state.deferred_agent_text):
+                lines.append(clear_primary_stream_sse_line())
+            state.deferred_agent_text = ''
+        else:
+            # Primary was already streamed live; do not re-dump at end.
+            state.deferred_agent_text = ''
     lines.append(
         sse_line(
             status_event(
@@ -260,7 +277,7 @@ def _on_chat_model_end(
     usage_payload = _token_usage_payload(msg)
     if usage_payload is not None:
         lines.insert(0, sse_line(usage_payload))
-    if not (msg.tool_calls or []):
+    if not has_tool_calls:
         if record_model_end_final_text:
             state.last_final_text = final_assistant_text(msg)
     return lines
@@ -401,7 +418,8 @@ def sse_lines_for_graph_event(
         label = data.get('label')
         if not isinstance(summary, str) or not summary.strip():
             return []
-        detail = summary.strip()
+        # Status row is one line; keep the first checklist item only.
+        detail = summary.strip().splitlines()[0].strip()
         lbl = label if isinstance(label, str) and label.strip() else 'Clara'
         return [
             sse_line(

@@ -6,10 +6,7 @@
 Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``),
 TypeScript/JavaScript LSP staging mutators (``lsp_create_typescript_file``, etc.), GDScript LSP staging mutators
 (``lsp_create_gdscript_file``, etc.), and Java LSP staging mutators (``lsp_create_java_file``, etc.);
-plus staging review/transfer tools. When Editor is on, the outer tool list also
-includes Python and Node dependency tool surfaces (merged by name with the existing
-``python_dependency_tools`` / LSP read tools), ``discover_npm_projects`` / ``search_npm_packages`` for Node discovery and registry lookup, plus **local Angular CLI** (``angular_cli_tool``)
-and **workspace pytest** verification tools.
+plus staging review/transfer tools.
 
 When Editor and Auto-apply are both on, staging tools are replaced by direct workspace mutators
 (``apply_workspace_full_file``, ``replace_workspace_line_range``, optional ``replace_workspace_snippet``).
@@ -17,10 +14,9 @@ When Editor and Auto-apply are both on, staging tools are replaced by direct wor
 **HITL** — diff pause for edit tools; delete/copy/accept-command pauses when auto-apply is off; **staged→workspace**
 ``transfer_staged_file_to_workspace`` builds a diff and defers the disk write until
 the user confirms in chat (or returns for re-review) unless auto-apply is on.
-Workspace **execute** tools (venv bootstrap, pytest, staging overlay commands, and generic
-``run_command`` background jobs with ``wait_for_command`` / ``kill_background_command`` /
-``list_background_commands``) use the same accept-command pause when auto-apply is off
-(see :mod:`clara_coder_backend.hitl.deferred_tool_hitl`).
+Workspace **execute** tools (staging overlay commands and generic ``run_command`` background jobs with
+``wait_for_command`` / ``kill_background_command`` / ``list_background_commands``) use the same
+accept-command pause when auto-apply is off (see :mod:`clara_coder_backend.hitl.deferred_tool_hitl`).
 """
 
 from __future__ import annotations
@@ -40,21 +36,6 @@ from clara_coder_backend.tools.review_tools import (
     FORMAT_WORKSPACE_FILE_BLACK_NAME,
     FORMAT_WORKSPACE_FILE_PRETTIER_NAME,
     TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
-)
-from clara_coder_backend.tools.python_env import ensure_python_workspace_env_tool
-from clara_coder_backend.tools.angular_cli import ANGULAR_CLI_TOOL_NAME, angular_cli_tool
-from clara_coder_backend.tools.node_deps import (
-    INSTALL_NPM_PACKAGES_NAME,
-    NPM_INSTALL_PROJECT_NAME,
-    REMOVE_NPM_PACKAGES_NAME,
-    RUN_NPM_SCRIPT_NAME,
-)
-from clara_coder_backend.tools.python_deps import (
-    INSTALL_PYTHON_PACKAGES_NAME,
-    INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
-    REMOVE_PYTHON_PACKAGES_NAME,
-    WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
-    python_dependency_tools,
 )
 from clara_coder_backend.tools.lsp_tools import (
     LSP_CREATE_GDSCRIPT_FILE_NAME,
@@ -167,22 +148,8 @@ def hitl_copy_pause_tools() -> frozenset[str]:
 
 def hitl_accept_command_pause_tools() -> frozenset[str]:
     from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
-    from clara_coder_backend.tools.process import KILL_PROCESS_NAME
 
-    return frozenset(
-        {
-            INSTALL_PYTHON_PACKAGES_NAME,
-            REMOVE_PYTHON_PACKAGES_NAME,
-            INSTALL_PYTHON_REQUIREMENTS_FILE_NAME,
-            WRITE_FROZEN_PYTHON_REQUIREMENTS_FILE_NAME,
-            INSTALL_NPM_PACKAGES_NAME,
-            REMOVE_NPM_PACKAGES_NAME,
-            NPM_INSTALL_PROJECT_NAME,
-            RUN_NPM_SCRIPT_NAME,
-            ANGULAR_CLI_TOOL_NAME,
-            KILL_PROCESS_NAME,
-        }
-    ) | DEFERRED_HITL_TOOL_NAMES
+    return frozenset(DEFERRED_HITL_TOOL_NAMES)
 
 
 def worker_tools_and_map(
@@ -196,11 +163,8 @@ def worker_tools_and_map(
     ``edit_tools_strict_override`` — when set, drives staged/direct write tools instead of runtime Settings.
   When ``session`` is provided and Editor + Auto-apply are on, binds direct workspace mutators instead of staging.
     """
-    from clara_coder_backend.tools.process import kill_process_tool, search_netstat_ports_tool
-
-    tools: list[Any] = [*TOOLS, *LSP_READ_TOOLS, search_netstat_ports_tool]
+    tools: list[Any] = [*TOOLS, *LSP_READ_TOOLS]
     mapping: dict[str, Any] = dict(TOOL_MAP)
-    mapping[search_netstat_ports_tool.name] = search_netstat_ports_tool
     for tool_ in LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
     if getattr(runtime_config.tools, 'allow_web_access', False):
@@ -216,18 +180,6 @@ def worker_tools_and_map(
         direct = direct_workspace_edits_active(sess, apply_mode=apply_mode)
         tools.append(copy_workspace_files)
         mapping[copy_workspace_files.name] = copy_workspace_files
-        tools.append(ensure_python_workspace_env_tool)
-        mapping[ensure_python_workspace_env_tool.name] = ensure_python_workspace_env_tool
-        dependency_tools, dependency_map = python_dependency_tools()
-        tools.extend(dependency_tools)
-        mapping.update(dependency_map)
-        from clara_coder_backend.tools.node_deps import node_dependency_tools
-
-        node_dep_tools, node_dep_map = node_dependency_tools()
-        tools.extend(node_dep_tools)
-        mapping.update(node_dep_map)
-        tools.append(angular_cli_tool)
-        mapping[angular_cli_tool.name] = angular_cli_tool
         edit_strict = (
             edit_tools_strict_override
             if edit_tools_strict_override is not None
@@ -249,28 +201,18 @@ def worker_tools_and_map(
         mapping[DELETE_WORKSPACE_ENTRY_NAME] = delete_workspace_entry
         tools.append(batch_delete_workspace_entries)
         mapping[BATCH_DELETE_WORKSPACE_ENTRIES_NAME] = batch_delete_workspace_entries
-        tools.append(kill_process_tool)
-        mapping[kill_process_tool.name] = kill_process_tool
         from clara_coder_backend.tools.run_command import background_command_tools
 
         for command_tool in background_command_tools():
             tools.append(command_tool)
             mapping[command_tool.name] = command_tool
-        from clara_coder_backend.tools.dependency_tools import dependency_specialist_tools, node_dependency_specialist_tools
-        from clara_coder_backend.tools.project_review_tools import run_workspace_pytest_tests
         from clara_coder_backend.tools.review_tools import staging_review_tools
 
         tools, mapping = merge_tools_replace_by_name(
             tools,
             mapping,
             [
-                ('dependency_specialist', dependency_specialist_tools()[0]),
-                ('node_dependency_specialist', node_dependency_specialist_tools()[0]),
                 ('staging_review', staging_review_tools(direct=direct)[0]),
-                (
-                    'outer_workspace_verification',
-                    [run_workspace_pytest_tests],
-                ),
             ],
         )
     return tools, mapping
@@ -341,29 +283,6 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
         ),
     ),
     (
-        'Dependencies (python/node)',
-        (
-            'ensure_python_workspace_env',
-            'install_python_packages',
-            'remove_python_packages',
-            'install_python_requirements_file',
-            'freeze_python_requirements',
-            'write_frozen_python_requirements_file',
-            'bootstrap_python_testing_dependencies',
-            'discover_npm_projects',
-            'search_npm_packages',
-            'install_npm_packages',
-            'remove_npm_packages',
-            'npm_install_project',
-            'run_npm_script',
-            'angular_cli_tool',
-        ),
-    ),
-    (
-        'Verification',
-        ('run_workspace_pytest_tests',),
-    ),
-    (
         'Web',
         (
             'web_search',
@@ -373,8 +292,6 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
     (
         'Process',
         (
-            'search_netstat_ports',
-            'kill_process',
             'run_command',
             'wait_for_command',
             'kill_background_command',

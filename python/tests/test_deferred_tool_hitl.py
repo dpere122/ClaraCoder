@@ -12,7 +12,6 @@ from clara_coder_backend.hitl.deferred_tool_hitl import (
     deferred_tool_hitl_bypass,
     maybe_await_hitl_for_deferred_tool,
 )
-from clara_coder_backend.tools.python_env import ENSURE_PYTHON_WORKSPACE_ENV_NAME
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.hitl.tool_registry import hitl_accept_command_pause_tools
 
@@ -26,20 +25,20 @@ def test_maybe_await_hitl_stages_pending_when_auto_apply_off() -> None:
     session.auto_apply_mode = False
     msg = maybe_await_hitl_for_deferred_tool(
         session,
-        tool_name=ENSURE_PYTHON_WORKSPACE_ENV_NAME,
-        tool_input={},
+        tool_name='run_command',
+        tool_input={'command': 'ls -la', 'cwd': '.'},
     )
     assert msg and 'Pending user confirmation' in msg
     pending = session.pending_accept_command_request
     assert pending is not None
     assert pending['kind'] == ACCEPT_COMMAND_KIND_DEFERRED_TOOL
-    assert pending['action']['tool_name'] == ENSURE_PYTHON_WORKSPACE_ENV_NAME
+    assert pending['action']['tool_name'] == 'run_command'
 
 
 def test_maybe_await_hitl_skips_when_auto_apply_on() -> None:
     session = get_session('deferred-hitl-auto')
     session.auto_apply_mode = True
-    assert maybe_await_hitl_for_deferred_tool(session, tool_name=ENSURE_PYTHON_WORKSPACE_ENV_NAME) is None
+    assert maybe_await_hitl_for_deferred_tool(session, tool_name='run_command') is None
     assert session.pending_accept_command_request is None
 
 
@@ -51,8 +50,8 @@ def test_maybe_await_hitl_skips_when_plan_step_bypass_active() -> None:
         assert (
             maybe_await_hitl_for_deferred_tool(
                 session,
-                tool_name='run_workspace_pytest_tests',
-                tool_input={},
+                tool_name='run_staging_overlay_command',
+                tool_input={'command_argv_json': '["npm", "test"]', 'cwd_relative': '.'},
             )
             is None
         )
@@ -71,34 +70,34 @@ async def test_execute_pending_deferred_tool_sets_session_context_for_hitl_confi
     session = get_session(session_id)
     session.workspace_path = '/tmp/workspace'
     session.pending_accept_command_request = {
-        'request_id': 'req-deferred-env',
+        'request_id': 'req-deferred-cmd',
         'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
-        'title': 'Initialize workspace Python environment',
+        'title': 'Run terminal command',
         'message': 'm',
         'confirm_label': 'Run',
         'cancel_label': 'Cancel',
-        'command_text': 'python -m venv .venv',
+        'command_text': 'ls -la',
         'details': [],
         'cancel_note': 'cancelled',
-        'action': {'tool_name': ENSURE_PYTHON_WORKSPACE_ENV_NAME, 'tool_input': {}},
+        'action': {'tool_name': 'run_command', 'tool_input': {'command': 'ls -la', 'cwd': '.'}},
     }
 
-    async def _fake_ensure(session_arg, **kwargs):
-        assert (current_session_id.get() or '').strip() == session_id
-        assert session_arg is session
-        return type('R', (), {'summary': 'venv ready'})()
+    mock_tool = AsyncMock()
+    mock_tool.ainvoke = AsyncMock(return_value='command ok')
 
-    monkeypatch.setattr(
-        'clara_coder_backend.tools.python_env.ensure_session_python_workspace_env',
-        _fake_ensure,
-    )
+    with patch(
+        'clara_coder_backend.hitl.deferred_tool_hitl._resolve_deferred_tool',
+        return_value=mock_tool,
+    ) as resolve_mock:
+        note = await execute_pending_accept_command_decision(
+            session,
+            confirm=True,
+            request_id='req-deferred-cmd',
+        )
 
-    note = await execute_pending_accept_command_decision(
-        session,
-        confirm=True,
-        request_id='req-deferred-env',
-    )
-    assert note == 'venv ready'
+    resolve_mock.assert_called_once_with('run_command')
+    mock_tool.ainvoke.assert_awaited_once_with({'command': 'ls -la', 'cwd': '.'})
+    assert note == 'command ok'
     assert session.pending_accept_command_request is None
     assert (current_session_id.get() or '').strip() == ''
 
@@ -111,23 +110,26 @@ async def test_execute_pending_deferred_tool_runs_after_confirm() -> None:
     session.pending_accept_command_request = {
         'request_id': 'req-deferred-1',
         'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
-        'title': 'Run workspace pytest',
+        'title': 'Run staging overlay command',
         'message': 'm',
         'confirm_label': 'Run',
         'cancel_label': 'Cancel',
-        'command_text': 'pytest',
+        'command_text': 'npm test',
         'details': [],
         'cancel_note': 'cancelled',
-        'action': {'tool_name': 'run_workspace_pytest_tests', 'tool_input': {}},
+        'action': {
+            'tool_name': 'run_staging_overlay_command',
+            'tool_input': {'command_argv_json': '["npm", "test"]', 'cwd_relative': '.'},
+        },
     }
     try:
         with patch(
             'clara_coder_backend.hitl.deferred_tool_hitl._resolve_deferred_tool',
-            return_value=AsyncMock(ainvoke=AsyncMock(return_value='pytest ok')),
+            return_value=AsyncMock(ainvoke=AsyncMock(return_value='overlay ok')),
         ) as resolve_mock:
             note = await execute_pending_accept_command_decision(session, confirm=True, request_id='req-deferred-1')
-        resolve_mock.assert_called_once_with('run_workspace_pytest_tests')
-        assert note == 'pytest ok'
+        resolve_mock.assert_called_once_with('run_staging_overlay_command')
+        assert note == 'overlay ok'
         assert session.pending_accept_command_request is None
     finally:
         current_session_id.reset(token)

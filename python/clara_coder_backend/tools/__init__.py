@@ -11,10 +11,7 @@ Modules
 ``json_tools``, ``xml_tools``, ``wsdl_tools`` — structured format search-and-zoom readers
 ``copy``, ``delete``, ``edit``, ``staging_edit`` — workspace mutators (staging or direct)
 ``lsp_tools`` — LSP reads, diagnostics, and language-specific CRUD
-``python_deps``, ``node_deps``, ``node_discovery``, ``npm_search``, ``angular_cli`` — dependencies
-``python_env`` — workspace venv bootstrap
-``process`` — ``search_netstat_ports``, ``kill_process``
+``run_command`` — managed background shell jobs (``wait_for_command`` / kill / list)
 ``review_tools`` — staging inspect/format/transfer/reject/overlay
-``project_review_tools`` — workspace pytest verification
-``dependency_tools`` — named tool-list aggregators for registry merges
+``project_review_tools`` — shared subprocess streaming helpers for overlay
 """

@@ -343,7 +343,7 @@ def _find_session_job(session_id: str, command_id: str) -> tuple[CommandJob | No
         'builds, tests, git, scripts, app/runtime smoke checks, and long-lived dev servers '
         '(npm/pnpm/yarn start/dev/serve/preview, python entrypoints) — anything without a dedicated tool.'
     ),
-    not_='interactive commands (stdin is closed); killing host processes by PID (use `kill_process`).',
+    not_='interactive commands (stdin is closed); use `kill_background_command` for jobs started here.',
     shape=(
         'requires user confirmation unless auto-apply is on; waits `wait_seconds` '
         f'(default {CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC}s, 0 = return immediately, max {CLARA_RUN_COMMAND_MAX_WAIT_SEC}s); '
@@ -449,7 +449,7 @@ async def wait_for_command_tool(
 @tool(KILL_BACKGROUND_COMMAND_NAME, description=describe(
     'Stop a background command started by `run_command` (terminates the whole process tree).',
     when='a command hangs, loops, or a dev server is no longer needed.',
-    not_='host processes not started by `run_command` (use `kill_process`).',
+    not_='host processes not started by `run_command` (kill those outside this tool surface).',
     shape='no confirmation needed (the command was already user-approved); returns the final output.',))
 async def kill_background_command_tool(
     command_id: Annotated[str, 'id returned by run_command'],

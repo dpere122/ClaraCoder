@@ -50,7 +50,7 @@ def python_workspace_playbook() -> str:
     return dedent(
         """
         Python workspace playbook:
-        - Treat the workspace `.venv` as canonical after `ensure_python_workspace_env` has run; avoid assuming a global interpreter.
+        - Treat the workspace `.venv` as canonical when the session has attached a workspace Python env; avoid assuming a global interpreter.
         - Inspect Python code with LSP tools first when possible: `lsp_get_document_symbols`, then `lsp_find_definition` /
           `lsp_find_references` / `lsp_hover`, then `lsp_get_diagnostics`; use `read_workspace_file` when you need literal text.
         - New files under new folders: use one create/write with the full relative path (e.g. `pkg/sub/mod.py`). Parent directories

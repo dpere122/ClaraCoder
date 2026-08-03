@@ -129,7 +129,7 @@ async def test_maybe_enrich_noop_when_kind_not_deferred_tool(monkeypatch: pytest
 async def test_maybe_enrich_noop_when_tool_name_not_run_command(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', True, raising=False)
     pending = _deferred_run_command_pending()
-    pending['action']['tool_name'] = 'run_workspace_pytest_tests'
+    pending['action']['tool_name'] = 'run_staging_overlay_command'
     before = dict(pending)
 
     with patch('clara_coder_backend.hitl.command_risk_assess.assess_command_risk') as mock_assess:

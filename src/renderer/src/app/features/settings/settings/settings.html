@@ -17,26 +17,53 @@
       <p class='settings-nav__label'>Categories</p>
 
       @for (tab of tabs; track tab.id) {
-        <button type='button' class='tab-button' [class.is-active]='selectedSettingsTab() === tab.id' (click)='selectTab(tab.id)'>
-          <span>{{ tab.label }}</span>
-          <small>
-            @if (tab.id === 'models') {
-              {{ llmProviders().length }} sources
-            } @else if (tab.id === 'modelManager') {
-              {{ modelManagerCustomModels().length }} local models
-            } @else if (tab.id === 'general') {
-              {{ themes.find((t) => t.id === themeId())?.label ?? themeId() }}
-            } @else if (tab.id === 'tools') {
-              {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
-            } @else if (tab.id === 'audio') {
-              {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
-            } @else if (tab.id === 'monaco') {
-              {{ monacoEditorThemeLabel(monacoWorkspaceEditor().theme) }} · {{ monacoWorkspaceEditor().fontSize }}px
-            } @else {
-              {{ workspaces().length }} available
-            }
-          </small>
-        </button>
+        <div
+          class='settings-nav__section'
+          [class.is-open]='selectedSettingsTab() === tab.id && subTabsFor(tab.id).length > 0'
+        >
+          <button
+            type='button'
+            class='tab-button'
+            [class.is-active]='selectedSettingsTab() === tab.id && subTabsFor(tab.id).length === 0'
+            [class.is-section-active]='selectedSettingsTab() === tab.id && subTabsFor(tab.id).length > 0'
+            (click)='selectTab(tab.id)'
+          >
+            <span>{{ tab.label }}</span>
+            <small>
+              @if (tab.id === 'models') {
+                {{ llmProviders().length }} sources
+              } @else if (tab.id === 'modelManager') {
+                {{ modelManagerCustomModels().length }} local models
+              } @else if (tab.id === 'general') {
+                {{ themes.find((t) => t.id === themeId())?.label ?? themeId() }}
+              } @else if (tab.id === 'tools') {
+                {{ editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              } @else if (tab.id === 'audio') {
+                {{ audioProvider() === 'disabled' ? 'Disabled' : audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
+              } @else if (tab.id === 'monaco') {
+                {{ monacoEditorThemeLabel(monacoWorkspaceEditor().theme) }} · {{ monacoWorkspaceEditor().fontSize }}px
+              } @else {
+                {{ workspaces().length }} available
+              }
+            </small>
+          </button>
+
+          @if (subTabsFor(tab.id).length > 0 && selectedSettingsTab() === tab.id) {
+            <div class='settings-nav__subs' role='group' [attr.aria-label]="tab.label + ' sections'">
+              @for (sub of subTabsFor(tab.id); track sub.id) {
+                <button
+                  type='button'
+                  class='tab-button tab-button--nav-sub'
+                  [class.is-active]='activeSubTabId(tab.id) === sub.id'
+                  (click)='selectSettingsSubTab(tab.id, sub.id)'
+                >
+                  <span>{{ sub.label }}</span>
+                  <small>{{ settingsSubTabSummary(tab.id, sub.id) }}</small>
+                </button>
+              }
+            </div>
+          }
+        </div>
       }
     </div>
 
@@ -78,124 +105,109 @@
 
     @if (selectedSettingsTab() === 'general') {
       <div class='settings-pane settings-pane--sectioned'>
-        <div class='settings-sub-layout'>
-          <nav class='settings-sub-nav' aria-label='General setting categories'>
-            <p class='settings-sub-nav__label'>Categories</p>
-            @for (sub of subTabsFor('general'); track sub.id) {
-              <button
-                type='button'
-                class='tab-button tab-button--sub'
-                [class.is-active]='activeSubTabId("general") === sub.id'
-                (click)='selectSettingsSubTab("general", sub.id)'
-              >
-                <span>{{ sub.label }}</span>
-                <small>{{ settingsSubTabSummary("general", sub.id) }}</small>
-              </button>
-            }
-          </nav>
-          <div class='settings-sub-content'>
-            @if (activeSubTabId('general') === 'themes') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Theme</span>
-                    <select [ngModel]='themeId()' (ngModelChange)='onThemeChange($event)'>
-                      @for (theme of themes; track theme.id) {
-                        <option [value]='theme.id'>{{ theme.label }}</option>
-                      }
-                    </select>
-                  </label>
-                </div>
-              </div>
-            }
-            @if (activeSubTabId('general') === 'chat') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <div
-                    class='field settings-general-font'
-                    title='Scales rem-based app UI text — sidebar, toolbar, dialogs, and settings. Does not change Monaco or the terminal.'
-                  >
-                    <span>App font size</span>
-                    <app-font-control
-                      [fontSize]='uiFontSizeRem()'
-                      [minSize]='uiFontSizeRemMin'
-                      [maxSize]='uiFontSizeRemMax'
-                      [step]='uiFontSizeRemStep'
-                      [defaultSize]='uiFontSizeRemDefault'
-                      (fontSizeChange)='onUiFontSizeRemChange($event)'
-                    />
-                  </div>
-                  <div
-                    class='field settings-general-font'
-                    title='Font size for message text in the chat area.'
-                  >
-                    <span>Chat font size</span>
-                    <app-font-control
-                      [fontSize]='chatFontSizeRem()'
-                      (fontSizeChange)='onChatFontSizeRemChange($event)'
-                    />
-                  </div>
-                  <label
-                    class='field'
-                    title='Content width when chat is expanded to the main panel. Sidebar chat is always full width.'
-                  >
-                    <span>Chat container size</span>
-                    <select
-                      [ngModel]='chatContainerSize()'
-                      (ngModelChange)='onChatContainerSizeChange($event)'
-                    >
-                      @for (opt of chatContainerSizeOptions; track opt.value) {
-                        <option [value]='opt.value'>{{ opt.label }}</option>
-                      }
-                    </select>
-                  </label>
-                  <label
-                    class='field'
-                    title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
-                  >
-                    <span>App font</span>
-                    <select
-                      [ngModel]='uiFontFamily()'
-                      (ngModelChange)='onUiFontFamilyChange($event)'
-                    >
-                      @for (opt of uiFontFamilyOptions; track opt.stack) {
-                        <option [value]='opt.stack'>{{ opt.label }}</option>
-                      }
-                      @if (systemFontOptions().length > 0) {
-                        <optgroup label='System fonts'>
-                          @for (opt of systemFontOptions(); track opt.stack) {
-                            <option [value]='opt.stack'>{{ opt.label }}</option>
-                          }
-                        </optgroup>
-                      }
-                    </select>
-                  </label>
-                  <label
-                    class='field'
-                    title='Code font: applies to rendered code blocks in chat and overrides the font family set on the Monaco tab (Settings → Monaco → Typography) when not left on Theme default. Includes your OS-installed fonts under "System fonts".'
-                  >
-                    <span>Code font</span>
-                    <select
-                      [ngModel]='codeFontFamily()'
-                      (ngModelChange)='onCodeFontFamilyChange($event)'
-                    >
-                      @for (opt of codeFontFamilyOptions; track opt.stack) {
-                        <option [value]='opt.stack'>{{ opt.label }}</option>
-                      }
-                      @if (systemFontOptions().length > 0) {
-                        <optgroup label='System fonts'>
-                          @for (opt of systemFontOptions(); track opt.stack) {
-                            <option [value]='opt.stack'>{{ opt.label }}</option>
-                          }
-                        </optgroup>
-                      }
-                    </select>
-                  </label>
-                </div>
-              </div>
-            }
+        
+        @if (activeSubTabId('general') === 'themes') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Theme</span>
+                <select [ngModel]='themeId()' (ngModelChange)='onThemeChange($event)'>
+                  @for (theme of themes; track theme.id) {
+                    <option [value]='theme.id'>{{ theme.label }}</option>
+                  }
+                </select>
+              </label>
+            </div>
           </div>
-        </div>
+        }
+        @if (activeSubTabId('general') === 'chat') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div
+                class='field settings-general-font'
+                title='Scales rem-based app UI text — sidebar, toolbar, dialogs, and settings. Does not change Monaco or the terminal.'
+              >
+                <span>App font size</span>
+                <app-font-control
+                  [fontSize]='uiFontSizeRem()'
+                  [minSize]='uiFontSizeRemMin'
+                  [maxSize]='uiFontSizeRemMax'
+                  [step]='uiFontSizeRemStep'
+                  [defaultSize]='uiFontSizeRemDefault'
+                  (fontSizeChange)='onUiFontSizeRemChange($event)'
+                />
+              </div>
+              <div
+                class='field settings-general-font'
+                title='Font size for message text in the chat area.'
+              >
+                <span>Chat font size</span>
+                <app-font-control
+                  [fontSize]='chatFontSizeRem()'
+                  (fontSizeChange)='onChatFontSizeRemChange($event)'
+                />
+              </div>
+              <label
+                class='field'
+                title='Content width when chat is expanded to the main panel. Sidebar chat is always full width.'
+              >
+                <span>Chat container size</span>
+                <select
+                  [ngModel]='chatContainerSize()'
+                  (ngModelChange)='onChatContainerSizeChange($event)'
+                >
+                  @for (opt of chatContainerSizeOptions; track opt.value) {
+                    <option [value]='opt.value'>{{ opt.label }}</option>
+                  }
+                </select>
+              </label>
+              <label
+                class='field'
+                title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
+              >
+                <span>App font</span>
+                <select
+                  [ngModel]='uiFontFamily()'
+                  (ngModelChange)='onUiFontFamilyChange($event)'
+                >
+                  @for (opt of uiFontFamilyOptions; track opt.stack) {
+                    <option [value]='opt.stack'>{{ opt.label }}</option>
+                  }
+                  @if (systemFontOptions().length > 0) {
+                    <optgroup label='System fonts'>
+                      @for (opt of systemFontOptions(); track opt.stack) {
+                        <option [value]='opt.stack'>{{ opt.label }}</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              </label>
+              <label
+                class='field'
+                title='Code font: applies to rendered code blocks in chat and overrides the font family set on the Monaco tab (Settings → Monaco → Typography) when not left on Theme default. Includes your OS-installed fonts under "System fonts".'
+              >
+                <span>Code font</span>
+                <select
+                  [ngModel]='codeFontFamily()'
+                  (ngModelChange)='onCodeFontFamilyChange($event)'
+                >
+                  @for (opt of codeFontFamilyOptions; track opt.stack) {
+                    <option [value]='opt.stack'>{{ opt.label }}</option>
+                  }
+                  @if (systemFontOptions().length > 0) {
+                    <optgroup label='System fonts'>
+                      @for (opt of systemFontOptions(); track opt.stack) {
+                        <option [value]='opt.stack'>{{ opt.label }}</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+          
+
       </div>
     }
 
@@ -934,296 +946,301 @@
 
     @if (selectedSettingsTab() === 'modelManager') {
       <div class='settings-pane settings-pane--model-manager'>
-        <div class='form-section'>
-          <div class='form-section__header'>
-            <h5>Custom model directory</h5>
-            <p class='settings-copy'>Local inventory root for GGUF files and <code>-hf</code> hub folders.</p>
+        @if (activeSubTabId('modelManager') === 'storage') {
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Custom model directory</h5>
+              <p class='settings-copy'>Local inventory root for GGUF files and <code>-hf</code> hub folders.</p>
+            </div>
+            <div class='model-manager-dir-row'>
+              <label class='field model-manager-dir-row__path'>
+                <span>Directory</span>
+                <input
+                  type='text'
+                  [ngModel]='modelManagerCustomDir()'
+                  (ngModelChange)='updateModelManagerConfig({ customModelsDir: $event })'
+                  placeholder='D:\AI\Models'
+                />
+              </label>
+              <div class='model-manager-actions'>
+                <button type='button' class='action-button action-button--compact action-button--primary' (click)='pickModelManagerCustomDir()'>
+                  Choose
+                </button>
+                <button
+                  type='button'
+                  class='action-button action-button--compact'
+                  [disabled]='modelManagerBusy() || modelManagerCacheLoading() || modelManagerLocalLoading() || modelManagerMigratableLoading()'
+                  (click)='refreshModelManagerData({ forceDetectCaches: true })'
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
           </div>
-          <div class='model-manager-dir-row'>
-            <label class='field model-manager-dir-row__path'>
-              <span>Directory</span>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <p class='settings-copy'>Hub folders (<code>models--…</code>) and standalone <code>.gguf</code>/<code>.ggml</code> files.</p>
+            <details class='model-manager-accordion'>
+              <summary>
+                Local models
+                @if (modelManagerLocalLoading()) {
+                  <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
+                } @else {
+                  <span class='pill'>{{ modelManagerCustomModels().length }}</span>
+                }
+              </summary>
+              <div class='model-card-list'>
+                <div
+                  class='cache-location-loading'
+                  [class.is-active]='modelManagerLocalLoading()'
+                  role='status'
+                  aria-live='polite'
+                  [attr.aria-hidden]='modelManagerLocalLoading() ? null : "true"'
+                  [attr.aria-label]='modelManagerLocalLoading() ? "Loading local models" : null'
+                >
+                  <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                    <ngx-spinner
+                      [name]='localModelsSpinnerName'
+                      [type]='cacheDetectSpinnerType'
+                      [fullScreen]='false'
+                      bdColor='rgba(0,0,0,0)'
+                      size='small'
+                      color='var(--t-primary)'
+                    ></ngx-spinner>
+                  </span>
+                  <p class='settings-copy'>Loading local models…</p>
+                </div>
+                @if (!modelManagerLocalLoading()) {
+                  @for (model of modelManagerCustomModels(); track model.absolutePath) {
+                    <article class='model-card'>
+                      <div class='model-card__main'>
+                        <div class='model-card__head'>
+                          <strong>{{ model.fileName }}</strong>
+                          <span class='pill'>{{ model.source }}</span>
+                          @if (model.entryKind === 'hubRepo') {
+                            <span class='pill'>hub</span>
+                          }
+                          <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+                        </div>
+                        <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                      </div>
+                      <div class='model-card__actions'>
+                        <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
+                        <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
+                      </div>
+                    </article>
+                  } @empty {
+                    <div class='empty-state empty-state--compact'>
+                      <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
+                    </div>
+                  }
+                }
+              </div>
+            </details>
+          </div>
+
+          <hr class='settings-divider' />
+
+          <div class='form-section'>
+            <div class='form-section__header'>
+              <h5>Cache migration</h5>
+              <p class='settings-copy'>Copy or move detected HF cache repos into your custom directory.</p>
+            </div>
+            <div class='cache-location-list' [class.cache-location-list--loading]='modelManagerCacheLoading()'>
+              <div
+                class='cache-location-loading'
+                [class.is-active]='modelManagerCacheLoading()'
+                role='status'
+                aria-live='polite'
+                [attr.aria-hidden]='modelManagerCacheLoading() ? null : "true"'
+                [attr.aria-label]='modelManagerCacheLoading() ? "Detecting cache paths" : null'
+              >
+                <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                  <ngx-spinner
+                    [name]='cacheDetectSpinnerName'
+                    [type]='cacheDetectSpinnerType'
+                    [fullScreen]='false'
+                    bdColor='rgba(0,0,0,0)'
+                    size='small'
+                    color='var(--t-primary)'
+                  ></ngx-spinner>
+                </span>
+                <p class='settings-copy'>Detecting cache paths…</p>
+              </div>
+              @if (!modelManagerCacheLoading()) {
+                @for (cache of modelManagerCacheLocations(); track cache.path) {
+                  <div class='cache-location-row'>
+                    <div class='cache-location-row__main'>
+                      <strong>{{ cache.label }}</strong>
+                      <p class='settings-copy model-card__path'>{{ cache.path }}</p>
+                    </div>
+                    <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Missing' }}</span>
+                  </div>
+                } @empty {
+                  <p class='settings-copy'>No cache paths detected.</p>
+                }
+              }
+            </div>
+            <details class='model-manager-accordion'>
+              <summary>
+                Migratable models
+                @if (modelManagerMigratableLoading()) {
+                  <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
+                } @else {
+                  <span class='pill'>{{ modelManagerCacheCandidates().length }}</span>
+                }
+              </summary>
+              <div class='model-card-list'>
+                <div
+                  class='cache-location-loading'
+                  [class.is-active]='modelManagerMigratableLoading()'
+                  role='status'
+                  aria-live='polite'
+                  [attr.aria-hidden]='modelManagerMigratableLoading() ? null : "true"'
+                  [attr.aria-label]='modelManagerMigratableLoading() ? "Loading migratable models" : null'
+                >
+                  <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                    <ngx-spinner
+                      [name]='migratableModelsSpinnerName'
+                      [type]='cacheDetectSpinnerType'
+                      [fullScreen]='false'
+                      bdColor='rgba(0,0,0,0)'
+                      size='small'
+                      color='var(--t-primary)'
+                    ></ngx-spinner>
+                  </span>
+                  <p class='settings-copy'>Loading migratable models…</p>
+                </div>
+                @if (!modelManagerMigratableLoading()) {
+                  @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
+                    <article class='model-card'>
+                      <div class='model-card__main'>
+                        <div class='model-card__head'>
+                          <strong>{{ model.fileName }}</strong>
+                          <span class='pill'>cache</span>
+                          @if (model.entryKind === 'hubRepo') {
+                            <span class='pill'>hub</span>
+                          }
+                          <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+                        </div>
+                        <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                      </div>
+                      <div class='model-card__actions'>
+                        @if (isCacheModelMigrating(model)) {
+                          <div class='model-migrate-progress' role='status'>
+                            @if (modelManagerMigrateIndeterminate()) {
+                              <progress class='model-migrate-progress__bar' max='100'></progress>
+                            } @else {
+                              <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
+                            }
+                            <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
+                          </div>
+                        } @else {
+                          <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate</button>
+                        }
+                      </div>
+                    </article>
+                  } @empty {
+                    <div class='empty-state empty-state--compact'>
+                      <p>No cache models found in detected locations.</p>
+                    </div>
+                  }
+                }
+              </div>
+            </details>
+          </div>
+        }
+
+        @if (activeSubTabId('modelManager') === 'download') {
+          <div class='form-section'>
+
+            <div class='form-section__header'>
+              <h5>Hugging Face</h5>
+              <p class='settings-copy'>Optional token + model search. Use results with <code>llama-server -hf</code>.</p>
+            </div>
+            <label class='field'>
+              <span>Token (optional)</span>
               <input
-                type='text'
-                [ngModel]='modelManagerCustomDir()'
-                (ngModelChange)='updateModelManagerConfig({ customModelsDir: $event })'
-                placeholder='D:\AI\Models'
+                type='password'
+                autocomplete='off'
+                spellcheck='false'
+                [ngModel]='modelManagerHfToken()'
+                (ngModelChange)='updateModelManagerConfig({ huggingFaceToken: $event })'
+                placeholder='hf_...'
               />
             </label>
-            <div class='model-manager-actions'>
-              <button type='button' class='action-button action-button--compact action-button--primary' (click)='pickModelManagerCustomDir()'>
-                Choose
+            <div class='model-manager-actions model-manager-actions--search'>
+              <input
+                type='text'
+                [ngModel]='modelManagerHfQuery()'
+                (ngModelChange)='onModelManagerHfQueryChange($event)'
+                (keydown.enter)='searchHuggingFaceModels(0)'
+                placeholder='Search models…'
+              />
+              <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels(0)'>
+                Search
               </button>
-              <button
-                type='button'
-                class='action-button action-button--compact'
-                [disabled]='modelManagerBusy() || modelManagerCacheLoading() || modelManagerLocalLoading() || modelManagerMigratableLoading()'
-                (click)='refreshModelManagerData({ forceDetectCaches: true })'
-              >
-                Refresh
-              </button>
             </div>
-          </div>
-        </div>
-
-        <hr class='settings-divider' />
-
-        <div class='form-section'>
-          <p class='settings-copy'>Hub folders (<code>models--…</code>) and standalone <code>.gguf</code>/<code>.ggml</code> files.</p>
-          <details class='model-manager-accordion'>
-            <summary>
-              Local models
-              @if (modelManagerLocalLoading()) {
-                <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
-              } @else {
-                <span class='pill'>{{ modelManagerCustomModels().length }}</span>
-              }
-            </summary>
             <div class='model-card-list'>
-              <div
-                class='cache-location-loading'
-                [class.is-active]='modelManagerLocalLoading()'
-                role='status'
-                aria-live='polite'
-                [attr.aria-hidden]='modelManagerLocalLoading() ? null : "true"'
-                [attr.aria-label]='modelManagerLocalLoading() ? "Loading local models" : null'
-              >
-                <span class='cache-location-loading__spinner-host' aria-hidden='true'>
-                  <ngx-spinner
-                    [name]='localModelsSpinnerName'
-                    [type]='cacheDetectSpinnerType'
-                    [fullScreen]='false'
-                    bdColor='rgba(0,0,0,0)'
-                    size='small'
-                    color='var(--t-primary)'
-                  ></ngx-spinner>
-                </span>
-                <p class='settings-copy'>Loading local models…</p>
-              </div>
-              @if (!modelManagerLocalLoading()) {
-                @for (model of modelManagerCustomModels(); track model.absolutePath) {
-                  <article class='model-card'>
-                    <div class='model-card__main'>
-                      <div class='model-card__head'>
-                        <strong>{{ model.fileName }}</strong>
-                        <span class='pill'>{{ model.source }}</span>
-                        @if (model.entryKind === 'hubRepo') {
-                          <span class='pill'>hub</span>
-                        }
-                        <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
-                      </div>
-                      <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
-                    </div>
-                    <div class='model-card__actions'>
-                      <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
-                      <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
-                    </div>
-                  </article>
-                } @empty {
-                  <div class='empty-state empty-state--compact'>
-                    <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
-                  </div>
-                }
-              }
-            </div>
-          </details>
-        </div>
-
-        <hr class='settings-divider' />
-
-        <div class='form-section'>
-          <div class='form-section__header'>
-            <h5>Cache migration</h5>
-            <p class='settings-copy'>Copy or move detected HF cache repos into your custom directory.</p>
-          </div>
-          <div class='cache-location-list' [class.cache-location-list--loading]='modelManagerCacheLoading()'>
-            <div
-              class='cache-location-loading'
-              [class.is-active]='modelManagerCacheLoading()'
-              role='status'
-              aria-live='polite'
-              [attr.aria-hidden]='modelManagerCacheLoading() ? null : "true"'
-              [attr.aria-label]='modelManagerCacheLoading() ? "Detecting cache paths" : null'
-            >
-              <span class='cache-location-loading__spinner-host' aria-hidden='true'>
-                <ngx-spinner
-                  [name]='cacheDetectSpinnerName'
-                  [type]='cacheDetectSpinnerType'
-                  [fullScreen]='false'
-                  bdColor='rgba(0,0,0,0)'
-                  size='small'
-                  color='var(--t-primary)'
-                ></ngx-spinner>
-              </span>
-              <p class='settings-copy'>Detecting cache paths…</p>
-            </div>
-            @if (!modelManagerCacheLoading()) {
-              @for (cache of modelManagerCacheLocations(); track cache.path) {
-                <div class='cache-location-row'>
-                  <div class='cache-location-row__main'>
-                    <strong>{{ cache.label }}</strong>
-                    <p class='settings-copy model-card__path'>{{ cache.path }}</p>
-                  </div>
-                  <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Missing' }}</span>
-                </div>
-              } @empty {
-                <p class='settings-copy'>No cache paths detected.</p>
-              }
-            }
-          </div>
-          <details class='model-manager-accordion'>
-            <summary>
-              Migratable models
-              @if (modelManagerMigratableLoading()) {
-                <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
-              } @else {
-                <span class='pill'>{{ modelManagerCacheCandidates().length }}</span>
-              }
-            </summary>
-            <div class='model-card-list'>
-              <div
-                class='cache-location-loading'
-                [class.is-active]='modelManagerMigratableLoading()'
-                role='status'
-                aria-live='polite'
-                [attr.aria-hidden]='modelManagerMigratableLoading() ? null : "true"'
-                [attr.aria-label]='modelManagerMigratableLoading() ? "Loading migratable models" : null'
-              >
-                <span class='cache-location-loading__spinner-host' aria-hidden='true'>
-                  <ngx-spinner
-                    [name]='migratableModelsSpinnerName'
-                    [type]='cacheDetectSpinnerType'
-                    [fullScreen]='false'
-                    bdColor='rgba(0,0,0,0)'
-                    size='small'
-                    color='var(--t-primary)'
-                  ></ngx-spinner>
-                </span>
-                <p class='settings-copy'>Loading migratable models…</p>
-              </div>
-              @if (!modelManagerMigratableLoading()) {
-                @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
-                  <article class='model-card'>
-                    <div class='model-card__main'>
-                      <div class='model-card__head'>
-                        <strong>{{ model.fileName }}</strong>
-                        <span class='pill'>cache</span>
-                        @if (model.entryKind === 'hubRepo') {
-                          <span class='pill'>hub</span>
-                        }
-                        <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
-                      </div>
-                      <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
-                    </div>
-                    <div class='model-card__actions'>
-                      @if (isCacheModelMigrating(model)) {
-                        <div class='model-migrate-progress' role='status'>
-                          @if (modelManagerMigrateIndeterminate()) {
-                            <progress class='model-migrate-progress__bar' max='100'></progress>
-                          } @else {
-                            <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
-                          }
-                          <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
-                        </div>
-                      } @else {
-                        <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate</button>
+              @for (model of modelManagerHfResults(); track model.id) {
+                <article class='model-card'>
+                  <div class='model-card__main'>
+                    <div class='model-card__head'>
+                      <strong>{{ model.id }}</strong>
+                      @if (model.gated || model.private) {
+                        <span class='pill'>restricted</span>
                       }
+                      <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
                     </div>
-                  </article>
-                } @empty {
-                  <div class='empty-state empty-state--compact'>
-                    <p>No cache models found in detected locations.</p>
+                    <p class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></p>
                   </div>
-                }
+                </article>
+              } @empty {
+                <div class='empty-state empty-state--compact'>
+                  <p>No results yet.</p>
+                </div>
               }
             </div>
-          </details>
-        </div>
-
-        <hr class='settings-divider' />
-
-        <div class='form-section'>
-          <div class='form-section__header'>
-            <h5>Hugging Face</h5>
-            <p class='settings-copy'>Optional token + model search. Use results with <code>llama-server -hf</code>.</p>
-          </div>
-          <label class='field'>
-            <span>Token (optional)</span>
-            <input
-              type='password'
-              autocomplete='off'
-              spellcheck='false'
-              [ngModel]='modelManagerHfToken()'
-              (ngModelChange)='updateModelManagerConfig({ huggingFaceToken: $event })'
-              placeholder='hf_...'
-            />
-          </label>
-          <div class='model-manager-actions model-manager-actions--search'>
-            <input
-              type='text'
-              [ngModel]='modelManagerHfQuery()'
-              (ngModelChange)='onModelManagerHfQueryChange($event)'
-              (keydown.enter)='searchHuggingFaceModels(0)'
-              placeholder='Search models…'
-            />
-            <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels(0)'>
-              Search
-            </button>
-          </div>
-          <div class='model-card-list'>
-            @for (model of modelManagerHfResults(); track model.id) {
-              <article class='model-card'>
-                <div class='model-card__main'>
-                  <div class='model-card__head'>
-                    <strong>{{ model.id }}</strong>
-                    @if (model.gated || model.private) {
-                      <span class='pill'>restricted</span>
-                    }
-                    <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
-                  </div>
-                  <p class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></p>
+            @if (modelManagerHfTotalPages() > 0) {
+              <div class='model-hf-pager' role='navigation' aria-label='Hugging Face search pages'>
+                <button
+                  type='button'
+                  class='action-button action-button--compact'
+                  [disabled]='modelManagerHfBusy() || modelManagerHfPage() <= 0'
+                  (click)='searchHuggingFaceModelsPrevPage()'
+                >
+                  Prev
+                </button>
+                <div class='model-hf-pager__pages'>
+                  @for (page of modelManagerHfPageNumbers(); track page) {
+                    <button
+                      type='button'
+                      class='model-hf-pager__page'
+                      [class.is-active]='page === modelManagerHfPage()'
+                      [disabled]='modelManagerHfBusy()'
+                      [attr.aria-current]='page === modelManagerHfPage() ? "page" : null'
+                      (click)='searchHuggingFaceModelsGotoPage(page)'
+                    >
+                      {{ page + 1 }}
+                    </button>
+                  }
                 </div>
-              </article>
-            } @empty {
-              <div class='empty-state empty-state--compact'>
-                <p>No results yet.</p>
+                <button
+                  type='button'
+                  class='action-button action-button--compact'
+                  [disabled]='modelManagerHfBusy() || modelManagerHfPage() + 1 >= modelManagerHfTotalPages()'
+                  (click)='searchHuggingFaceModelsNextPage()'
+                >
+                  Next
+                </button>
               </div>
             }
+
           </div>
-          @if (modelManagerHfTotalPages() > 0) {
-            <div class='model-hf-pager' role='navigation' aria-label='Hugging Face search pages'>
-              <button
-                type='button'
-                class='action-button action-button--compact'
-                [disabled]='modelManagerHfBusy() || modelManagerHfPage() <= 0'
-                (click)='searchHuggingFaceModelsPrevPage()'
-              >
-                Prev
-              </button>
-              <div class='model-hf-pager__pages'>
-                @for (page of modelManagerHfPageNumbers(); track page) {
-                  <button
-                    type='button'
-                    class='model-hf-pager__page'
-                    [class.is-active]='page === modelManagerHfPage()'
-                    [disabled]='modelManagerHfBusy()'
-                    [attr.aria-current]='page === modelManagerHfPage() ? "page" : null'
-                    (click)='searchHuggingFaceModelsGotoPage(page)'
-                  >
-                    {{ page + 1 }}
-                  </button>
-                }
-              </div>
-              <button
-                type='button'
-                class='action-button action-button--compact'
-                [disabled]='modelManagerHfBusy() || modelManagerHfPage() + 1 >= modelManagerHfTotalPages()'
-                (click)='searchHuggingFaceModelsNextPage()'
-              >
-                Next
-              </button>
-            </div>
-          }
-        </div>
+        }
 
         @if (modelManagerStatus()) {
           <hr class='settings-divider' />
@@ -1236,967 +1253,921 @@
 
     @if (selectedSettingsTab() === 'tools') {
       <div class='settings-pane settings-pane--sectioned'>
-        <div class='settings-sub-layout'>
-          <nav class='settings-sub-nav' aria-label='Tools setting categories'>
-            <p class='settings-sub-nav__label'>Categories</p>
-            @for (sub of subTabsFor('tools'); track sub.id) {
-              <button
-                type='button'
-                class='tab-button tab-button--sub'
-                [class.is-active]='activeSubTabId("tools") === sub.id'
-                (click)='selectSettingsSubTab("tools", sub.id)'
-              >
-                <span>{{ sub.label }}</span>
-                <small>{{ settingsSubTabSummary("tools", sub.id) }}</small>
-              </button>
-            }
-          </nav>
-          <div class='settings-sub-content'>
-            @if (activeSubTabId('tools') === 'editTools') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Mode</span>
-                    <select [ngModel]='editToolsMode()' (ngModelChange)='onEditToolsModeChange($event)'>
-                      <option value='standard'>Standard — full file, line range, snippet replace</option>
-                      <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
-                    </select>
-                  </label>
-                  <div class='field field--hint'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='allowStagingOverlayCommands()'
-                        (ngModelChange)='onAllowStagingOverlayCommandsChange($event)'
-                      />
-                      <span>Allow staging overlay commands</span>
-                    </label>
-                    <p class='settings-field-hint'>
-                      When on, nested code review may run <code>run_staging_overlay_command</code> against a temporary
-                      workspace copy with staged drafts applied (argv-only subprocess; no shell).
-                    </p>
-                  </div>
-                  <div class='field field--hint'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='exposeAllWorkspaceFiles()'
-                        (ngModelChange)='onExposeAllWorkspaceFilesChange($event)'
-                      />
-                      <span>Expose all workspace files to the agent</span>
-                    </label>
-                    <p class='settings-field-hint'>
-                      Includes most paths in tree, listing, search, and semantic index. <code>node_modules</code> is never
-                      bulk-listed. Off by default.
-                    </p>
-                  </div>
-                  <div class='field field--hint'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='commandLineExplainStep()'
-                        (ngModelChange)='onCommandLineExplainStepChange($event)'
-                      />
-                      <span>Explain terminal commands before running</span>
-                    </label>
-                    <p class='settings-field-hint'>
-                      When Auto-apply is off, asks the model for a one-line description and a low/medium/high risk rating for
-                      each <code>run_command</code> approval request, shown on the confirmation card.
-                    </p>
-                  </div>
-                  <div class='field field--hint'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='allowWebAccess()'
-                        (ngModelChange)='onAllowWebAccessChange($event)'
-                      />
-                      <span>Allow web access</span>
-                    </label>
-                    <p class='settings-field-hint'>
-                      When on, the agent may use <code>web_search</code> (via SearXNG) and <code>fetch_url</code>. When
-                      Auto-apply is off, each call asks for confirmation. SearXNG is not bundled — run your own instance.
-                    </p>
-                  </div>
-                  <label class='field'>
-                    <span>SearXNG base URL</span>
-                    <input
-                      type='text'
-                      [ngModel]='searxngBaseUrl()'
-                      (ngModelChange)='onSearxngBaseUrlChange($event)'
-                      placeholder='http://127.0.0.1:8080'
-                      autocomplete='off'
-                    />
-                  </label>
-                </div>
-                <div class='callout'>
-                  <p>
-                    Editor mode in the chat window still controls whether write tools are bound at all. This page only
-                    changes how those tools behave.
-                  </p>
-                </div>
+        
+        @if (activeSubTabId('tools') === 'editTools') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Mode</span>
+                <select [ngModel]='editToolsMode()' (ngModelChange)='onEditToolsModeChange($event)'>
+                  <option value='standard'>Standard — full file, line range, snippet replace</option>
+                  <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
+                </select>
+              </label>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='allowStagingOverlayCommands()'
+                    (ngModelChange)='onAllowStagingOverlayCommandsChange($event)'
+                  />
+                  <span>Allow staging overlay commands</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When on, nested code review may run <code>run_staging_overlay_command</code> against a temporary
+                  workspace copy with staged drafts applied (argv-only subprocess; no shell).
+                </p>
               </div>
-            }
-
-            @if (activeSubTabId('tools') === 'limits') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Max lines per read</span>
-                    <input
-                      type='number'
-                      min='50'
-                      max='2000'
-                      step='50'
-                      [ngModel]='maxFileReadLines()'
-                      (ngModelChange)='onMaxFileReadLinesChange($event)'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Max search matches</span>
-                    <input
-                      type='number'
-                      min='1'
-                      max='200'
-                      step='1'
-                      [ngModel]='maxSearchResults()'
-                      (ngModelChange)='onMaxSearchResultsChange($event)'
-                    />
-                  </label>
-                </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='exposeAllWorkspaceFiles()'
+                    (ngModelChange)='onExposeAllWorkspaceFilesChange($event)'
+                  />
+                  <span>Expose all workspace files to the agent</span>
+                </label>
+                <p class='settings-field-hint'>
+                  Includes most paths in tree, listing, search, and semantic index. <code>node_modules</code> is never
+                  bulk-listed. Off by default.
+                </p>
               </div>
-            }
-
-            @if (activeSubTabId('tools') === 'compression') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='contextCompressionEnabled()'
-                        (ngModelChange)='onContextCompressionEnabledChange($event)'
-                      />
-                      <span>Enable checkpoint context compression</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Compact when usage ≥ (ratio)</span>
-                    <input
-                      type='number'
-                      min='0.5'
-                      max='0.95'
-                      step='0.05'
-                      [ngModel]='contextCompressionTriggerRatio()'
-                      (ngModelChange)='onContextCompressionTriggerRatioChange($event)'
-                      [disabled]='!contextCompressionEnabled()'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Target ratio (reserved)</span>
-                    <input
-                      type='number'
-                      min='0.4'
-                      max='0.9'
-                      step='0.05'
-                      [ngModel]='contextCompressionTargetRatio()'
-                      (ngModelChange)='onContextCompressionTargetRatioChange($event)'
-                      [disabled]='!contextCompressionEnabled()'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Protected tail messages</span>
-                    <input
-                      type='number'
-                      min='8'
-                      max='100'
-                      step='1'
-                      [ngModel]='contextCompressionProtectTail()'
-                      (ngModelChange)='onContextCompressionProtectTailChange($event)'
-                      [disabled]='!contextCompressionEnabled()'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>System reserve (ratio)</span>
-                    <input
-                      type='number'
-                      min='0.1'
-                      max='0.5'
-                      step='0.05'
-                      [ngModel]='contextCompressionSystemReserve()'
-                      (ngModelChange)='onContextCompressionSystemReserveChange($event)'
-                      [disabled]='!contextCompressionEnabled()'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Recent tool body max chars</span>
-                    <input
-                      type='number'
-                      min='200'
-                      max='20000'
-                      step='100'
-                      [ngModel]='contextCompressionRecentToolChars()'
-                      (ngModelChange)='onContextCompressionRecentToolCharsChange($event)'
-                      [disabled]='!contextCompressionEnabled()'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Older tool body max chars</span>
-                    <input
-                      type='number'
-                      min='100'
-                      max='10000'
-                      step='50'
-                      [ngModel]='contextCompressionOldToolChars()'
-                      (ngModelChange)='onContextCompressionOldToolCharsChange($event)'
-                      [disabled]='!contextCompressionEnabled()'
-                    />
-                  </label>
-                </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='commandLineExplainStep()'
+                    (ngModelChange)='onCommandLineExplainStepChange($event)'
+                  />
+                  <span>Explain terminal commands before running</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When Auto-apply is off, asks the model for a one-line description and a low/medium/high risk rating for
+                  each <code>run_command</code> approval request, shown on the confirmation card.
+                </p>
               </div>
-            }
-
-            @if (activeSubTabId('tools') === 'encoding') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Default encoding</span>
-                    <select
-                      [ngModel]='defaultWorkspaceEncoding()'
-                      (ngModelChange)='onDefaultWorkspaceEncodingChange($event)'
-                    >
-                      <option value='utf-8'>utf-8</option>
-                      <option value='utf-8-sig'>utf-8-sig (BOM)</option>
-                      <option value='utf-16'>utf-16 (BOM + LE)</option>
-                      <option value='utf-16-le'>utf-16-le</option>
-                      <option value='utf-16-be'>utf-16-be</option>
-                      <option value='latin-1'>latin-1</option>
-                      <option value='cp1252'>cp1252 (Windows-1252)</option>
-                      <option value='ascii'>ascii</option>
-                      <option value='mac-roman'>mac-roman</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Default newline for edits</span>
-                    <select
-                      [ngModel]='defaultWorkspaceNewline()'
-                      (ngModelChange)='onDefaultWorkspaceNewlineChange($event)'
-                    >
-                      <option value='lf'>LF (Unix)</option>
-                      <option value='crlf'>CRLF (Windows)</option>
-                      <option value='preserve'>Preserve existing file</option>
-                    </select>
-                  </label>
-                </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='allowWebAccess()'
+                    (ngModelChange)='onAllowWebAccessChange($event)'
+                  />
+                  <span>Allow web access</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When on, the agent may use <code>web_search</code> (via SearXNG) and <code>fetch_url</code>. When
+                  Auto-apply is off, each call asks for confirmation. SearXNG is not bundled — run your own instance.
+                </p>
               </div>
-            }
+              <label class='field'>
+                <span>SearXNG base URL</span>
+                <input
+                  type='text'
+                  [ngModel]='searxngBaseUrl()'
+                  (ngModelChange)='onSearxngBaseUrlChange($event)'
+                  placeholder='http://127.0.0.1:8080'
+                  autocomplete='off'
+                />
+              </label>
+            </div>
+            <div class='callout'>
+              <p>
+                Editor mode in the chat window still controls whether write tools are bound at all. This page only
+                changes how those tools behave.
+              </p>
+            </div>
           </div>
-        </div>
+        }
+
+        @if (activeSubTabId('tools') === 'limits') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Max lines per read</span>
+                <input
+                  type='number'
+                  min='50'
+                  max='2000'
+                  step='50'
+                  [ngModel]='maxFileReadLines()'
+                  (ngModelChange)='onMaxFileReadLinesChange($event)'
+                />
+              </label>
+              <label class='field'>
+                <span>Max search matches</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='200'
+                  step='1'
+                  [ngModel]='maxSearchResults()'
+                  (ngModelChange)='onMaxSearchResultsChange($event)'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('tools') === 'compression') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='contextCompressionEnabled()'
+                    (ngModelChange)='onContextCompressionEnabledChange($event)'
+                  />
+                  <span>Enable checkpoint context compression</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Compact when usage ≥ (ratio)</span>
+                <input
+                  type='number'
+                  min='0.5'
+                  max='0.95'
+                  step='0.05'
+                  [ngModel]='contextCompressionTriggerRatio()'
+                  (ngModelChange)='onContextCompressionTriggerRatioChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Target ratio (reserved)</span>
+                <input
+                  type='number'
+                  min='0.4'
+                  max='0.9'
+                  step='0.05'
+                  [ngModel]='contextCompressionTargetRatio()'
+                  (ngModelChange)='onContextCompressionTargetRatioChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Protected tail messages</span>
+                <input
+                  type='number'
+                  min='8'
+                  max='100'
+                  step='1'
+                  [ngModel]='contextCompressionProtectTail()'
+                  (ngModelChange)='onContextCompressionProtectTailChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>System reserve (ratio)</span>
+                <input
+                  type='number'
+                  min='0.1'
+                  max='0.5'
+                  step='0.05'
+                  [ngModel]='contextCompressionSystemReserve()'
+                  (ngModelChange)='onContextCompressionSystemReserveChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Recent tool body max chars</span>
+                <input
+                  type='number'
+                  min='200'
+                  max='20000'
+                  step='100'
+                  [ngModel]='contextCompressionRecentToolChars()'
+                  (ngModelChange)='onContextCompressionRecentToolCharsChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Older tool body max chars</span>
+                <input
+                  type='number'
+                  min='100'
+                  max='10000'
+                  step='50'
+                  [ngModel]='contextCompressionOldToolChars()'
+                  (ngModelChange)='onContextCompressionOldToolCharsChange($event)'
+                  [disabled]='!contextCompressionEnabled()'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('tools') === 'encoding') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Default encoding</span>
+                <select
+                  [ngModel]='defaultWorkspaceEncoding()'
+                  (ngModelChange)='onDefaultWorkspaceEncodingChange($event)'
+                >
+                  <option value='utf-8'>utf-8</option>
+                  <option value='utf-8-sig'>utf-8-sig (BOM)</option>
+                  <option value='utf-16'>utf-16 (BOM + LE)</option>
+                  <option value='utf-16-le'>utf-16-le</option>
+                  <option value='utf-16-be'>utf-16-be</option>
+                  <option value='latin-1'>latin-1</option>
+                  <option value='cp1252'>cp1252 (Windows-1252)</option>
+                  <option value='ascii'>ascii</option>
+                  <option value='mac-roman'>mac-roman</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Default newline for edits</span>
+                <select
+                  [ngModel]='defaultWorkspaceNewline()'
+                  (ngModelChange)='onDefaultWorkspaceNewlineChange($event)'
+                >
+                  <option value='lf'>LF (Unix)</option>
+                  <option value='crlf'>CRLF (Windows)</option>
+                  <option value='preserve'>Preserve existing file</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+          
+
       </div>
     }
 
     @if (selectedSettingsTab() === 'monaco') {
       <div class='settings-pane settings-pane--sectioned'>
-        <div class='settings-sub-layout'>
-          <nav class='settings-sub-nav' aria-label='Editor setting categories'>
-            <p class='settings-sub-nav__label'>Categories</p>
-            @for (sub of subTabsFor('monaco'); track sub.id) {
-              <button
-                type='button'
-                class='tab-button tab-button--sub'
-                [class.is-active]='activeSubTabId("monaco") === sub.id'
-                (click)='selectSettingsSubTab("monaco", sub.id)'
-              >
-                <span>{{ sub.label }}</span>
-                <small>{{ settingsSubTabSummary("monaco", sub.id) }}</small>
-              </button>
-            }
-          </nav>
-
-          <div class='settings-sub-content'>
-            @if (activeSubTabId('monaco') === 'theme') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Theme</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().theme'
-                      (ngModelChange)='patchMonaco({ theme: $event })'
-                    >
-                      @for (opt of monacoEditorThemeSelectOptions; track opt.id) {
-                        <option [value]='opt.id'>{{ opt.label }}</option>
-                      }
-                    </select>
-                  </label>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('monaco') === 'typography') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Font size (px)</span>
-                    <input
-                      type='number'
-                      min='8'
-                      max='48'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().fontSize'
-                      (ngModelChange)='patchMonaco({ fontSize: parseMonacoFloat($event, monacoWorkspaceEditor().fontSize) })'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Line height (0 = default)</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='64'
-                      step='0.5'
-                      [ngModel]='monacoWorkspaceEditor().lineHeight'
-                      (ngModelChange)='patchMonaco({ lineHeight: parseMonacoFloat($event, monacoWorkspaceEditor().lineHeight) })'
-                    />
-                  </label>
-                  <label class='field field--full'>
-                    <span>Font family (optional)</span>
-                    <input
-                      type='text'
-                      [ngModel]='monacoWorkspaceEditor().fontFamily'
-                      (ngModelChange)='patchMonaco({ fontFamily: $event })'
-                      placeholder='App default (CSS stack)'
-                    />
-                  </label>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('monaco') === 'wrapMinimap') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Word wrap</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().wordWrap'
-                      (ngModelChange)='patchMonaco({ wordWrap: $event })'
-                    >
-                      <option value='off'>Off</option>
-                      <option value='on'>On</option>
-                      <option value='wordWrapColumn'>Wrap at column</option>
-                      <option value='bounded'>Bounded</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Wrap column</span>
-                    <input
-                      type='number'
-                      min='1'
-                      max='500'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().wordWrapColumn'
-                      (ngModelChange)='patchMonaco({ wordWrapColumn: parseMonacoInt($event, monacoWorkspaceEditor().wordWrapColumn) })'
-                    />
-                  </label>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().minimapEnabled'
-                        (ngModelChange)='patchMonaco({ minimapEnabled: $event })'
-                      />
-                      <span>Enable minimap</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Minimap max column</span>
-                    <input
-                      type='number'
-                      min='1'
-                      max='200'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().minimapMaxColumn'
-                      (ngModelChange)='patchMonaco({ minimapMaxColumn: parseMonacoInt($event, monacoWorkspaceEditor().minimapMaxColumn) })'
-                    />
-                  </label>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().minimapRenderCharacters'
-                        (ngModelChange)='patchMonaco({ minimapRenderCharacters: $event })'
-                      />
-                      <span>Minimap render characters</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Minimap slider</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().minimapShowSlider'
-                      (ngModelChange)='patchMonaco({ minimapShowSlider: $event })'
-                    >
-                      <option value='mouseover'>Show on mouseover</option>
-                      <option value='always'>Always</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('monaco') === 'display') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().scrollBeyondLastLine'
-                        (ngModelChange)='patchMonaco({ scrollBeyondLastLine: $event })'
-                      />
-                      <span>Scroll beyond last line</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().smoothScrolling'
-                        (ngModelChange)='patchMonaco({ smoothScrolling: $event })'
-                      />
-                      <span>Smooth scrolling</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Render whitespace</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().renderWhitespace'
-                      (ngModelChange)='patchMonaco({ renderWhitespace: $event })'
-                    >
-                      <option value='none'>None</option>
-                      <option value='boundary'>Boundary</option>
-                      <option value='selection'>Selection</option>
-                      <option value='trailing'>Trailing</option>
-                      <option value='all'>All</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Render line highlight</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().renderLineHighlight'
-                      (ngModelChange)='patchMonaco({ renderLineHighlight: $event })'
-                    >
-                      <option value='all'>All</option>
-                      <option value='line'>Line</option>
-                      <option value='gutter'>Gutter</option>
-                      <option value='none'>None</option>
-                    </select>
-                  </label>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().renderControlCharacters'
-                        (ngModelChange)='patchMonaco({ renderControlCharacters: $event })'
-                      />
-                      <span>Render control characters</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Line numbers</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().lineNumbers'
-                      (ngModelChange)='patchMonaco({ lineNumbers: $event })'
-                    >
-                      <option value='on'>On</option>
-                      <option value='off'>Off</option>
-                      <option value='relative'>Relative</option>
-                      <option value='interval'>Interval</option>
-                    </select>
-                  </label>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().glyphMargin'
-                        (ngModelChange)='patchMonaco({ glyphMargin: $event })'
-                      />
-                      <span>Glyph margin</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().folding'
-                        (ngModelChange)='patchMonaco({ folding: $event })'
-                      />
-                      <span>Code folding</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Padding top (px)</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='200'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().paddingTop'
-                      (ngModelChange)='patchMonaco({ paddingTop: parseMonacoInt($event, monacoWorkspaceEditor().paddingTop) })'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Padding bottom (px)</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='200'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().paddingBottom'
-                      (ngModelChange)='patchMonaco({ paddingBottom: parseMonacoInt($event, monacoWorkspaceEditor().paddingBottom) })'
-                    />
-                  </label>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('monaco') === 'guides') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().guidesIndentation'
-                        (ngModelChange)='patchMonaco({ guidesIndentation: $event })'
-                      />
-                      <span>Indentation guides</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().guidesBracketPairs'
-                        (ngModelChange)='patchMonaco({ guidesBracketPairs: $event })'
-                      />
-                      <span>Bracket pair guides</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().bracketPairColorizationEnabled'
-                        (ngModelChange)='patchMonaco({ bracketPairColorizationEnabled: $event })'
-                      />
-                      <span>Bracket pair colorization</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Tab size</span>
-                    <input
-                      type='number'
-                      min='1'
-                      max='32'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().tabSize'
-                      (ngModelChange)='patchMonaco({ tabSize: parseMonacoInt($event, monacoWorkspaceEditor().tabSize) })'
-                    />
-                  </label>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().insertSpaces'
-                        (ngModelChange)='patchMonaco({ insertSpaces: $event })'
-                      />
-                      <span>Insert spaces</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().detectIndentation'
-                        (ngModelChange)='patchMonaco({ detectIndentation: $event })'
-                      />
-                      <span>Detect indentation from content</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('monaco') === 'cursor') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Cursor blinking</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().cursorBlinking'
-                      (ngModelChange)='patchMonaco({ cursorBlinking: $event })'
-                    >
-                      <option value='blink'>Blink</option>
-                      <option value='smooth'>Smooth</option>
-                      <option value='phase'>Phase</option>
-                      <option value='expand'>Expand</option>
-                      <option value='solid'>Solid</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Cursor style</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().cursorStyle'
-                      (ngModelChange)='patchMonaco({ cursorStyle: $event })'
-                    >
-                      <option value='line'>Line</option>
-                      <option value='block'>Block</option>
-                      <option value='underline'>Underline</option>
-                      <option value='line-thin'>Line thin</option>
-                      <option value='block-outline'>Block outline</option>
-                      <option value='underline-thin'>Underline thin</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Cursor width</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='10'
-                      step='1'
-                      [ngModel]='monacoWorkspaceEditor().cursorWidth'
-                      (ngModelChange)='patchMonaco({ cursorWidth: parseMonacoInt($event, monacoWorkspaceEditor().cursorWidth) })'
-                    />
-                  </label>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('monaco') === 'editing') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().formatOnPaste'
-                        (ngModelChange)='patchMonaco({ formatOnPaste: $event })'
-                      />
-                      <span>Format on paste</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().formatOnType'
-                        (ngModelChange)='patchMonaco({ formatOnType: $event })'
-                      />
-                      <span>Format on type</span>
-                    </label>
-                  </div>
-                  <div class='field'>
-                    <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='monacoWorkspaceEditor().quickSuggestions'
-                        (ngModelChange)='patchMonaco({ quickSuggestions: $event })'
-                      />
-                      <span>Quick suggestions</span>
-                    </label>
-                  </div>
-                  <label class='field'>
-                    <span>Auto-closing brackets</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().autoClosingBrackets'
-                      (ngModelChange)='patchMonaco({ autoClosingBrackets: $event })'
-                    >
-                      <option value='always'>Always</option>
-                      <option value='languageDefined'>Language defined</option>
-                      <option value='beforeWhitespace'>Before whitespace</option>
-                      <option value='never'>Never</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Auto-closing quotes</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().autoClosingQuotes'
-                      (ngModelChange)='patchMonaco({ autoClosingQuotes: $event })'
-                    >
-                      <option value='always'>Always</option>
-                      <option value='languageDefined'>Language defined</option>
-                      <option value='beforeWhitespace'>Before whitespace</option>
-                      <option value='never'>Never</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Accept suggestion on Enter</span>
-                    <select
-                      [ngModel]='monacoWorkspaceEditor().acceptSuggestionOnEnter'
-                      (ngModelChange)='patchMonaco({ acceptSuggestionOnEnter: $event })'
-                    >
-                      <option value='on'>On</option>
-                      <option value='off'>Off</option>
-                      <option value='smart'>Smart</option>
-                    </select>
-                  </label>
-                  <label class='field field--checkbox'>
-                    <input
-                      type='checkbox'
-                      [ngModel]='monacoWorkspaceEditor().stickyScrollEnabled'
-                      (ngModelChange)='patchMonaco({ stickyScrollEnabled: $event })'
-                    />
-                    <span>Sticky scroll (scope headers)</span>
-                  </label>
-                  <label class='field field--checkbox'>
-                    <input
-                      type='checkbox'
-                      [ngModel]='monacoWorkspaceEditor().formatOnSave'
-                      (ngModelChange)='patchMonaco({ formatOnSave: $event })'
-                    />
-                    <span>Format on save (LSP languages)</span>
-                  </label>
-                  <label class='field field--checkbox'>
-                    <input
-                      type='checkbox'
-                      [ngModel]='monacoWorkspaceEditor().parameterHintsEnabled'
-                      (ngModelChange)='patchMonaco({ parameterHintsEnabled: $event })'
-                    />
-                    <span>Parameter hints (signature help)</span>
-                  </label>
-                  <label class='field field--checkbox'>
-                    <input
-                      type='checkbox'
-                      [ngModel]='monacoWorkspaceEditor().hoverEnabled'
-                      (ngModelChange)='patchMonaco({ hoverEnabled: $event })'
-                    />
-                    <span>Hover tooltips</span>
-                  </label>
-                  <label class='field'>
-                    <span>Hover delay (ms)</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='5000'
-                      [ngModel]='monacoWorkspaceEditor().hoverDelay'
-                      (ngModelChange)='patchMonaco({ hoverDelay: parseMonacoInt($event, monacoWorkspaceEditor().hoverDelay) })'
-                    />
-                  </label>
-                </div>
-              </div>
-            }
+        
+        @if (activeSubTabId('monaco') === 'theme') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Theme</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().theme'
+                  (ngModelChange)='patchMonaco({ theme: $event })'
+                >
+                  @for (opt of monacoEditorThemeSelectOptions; track opt.id) {
+                    <option [value]='opt.id'>{{ opt.label }}</option>
+                  }
+                </select>
+              </label>
+            </div>
           </div>
-        </div>
+        }
+
+        @if (activeSubTabId('monaco') === 'typography') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Font size (px)</span>
+                <input
+                  type='number'
+                  min='8'
+                  max='48'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().fontSize'
+                  (ngModelChange)='patchMonaco({ fontSize: parseMonacoFloat($event, monacoWorkspaceEditor().fontSize) })'
+                />
+              </label>
+              <label class='field'>
+                <span>Line height (0 = default)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='64'
+                  step='0.5'
+                  [ngModel]='monacoWorkspaceEditor().lineHeight'
+                  (ngModelChange)='patchMonaco({ lineHeight: parseMonacoFloat($event, monacoWorkspaceEditor().lineHeight) })'
+                />
+              </label>
+              <label class='field field--full'>
+                <span>Font family (optional)</span>
+                <input
+                  type='text'
+                  [ngModel]='monacoWorkspaceEditor().fontFamily'
+                  (ngModelChange)='patchMonaco({ fontFamily: $event })'
+                  placeholder='App default (CSS stack)'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('monaco') === 'wrapMinimap') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Word wrap</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().wordWrap'
+                  (ngModelChange)='patchMonaco({ wordWrap: $event })'
+                >
+                  <option value='off'>Off</option>
+                  <option value='on'>On</option>
+                  <option value='wordWrapColumn'>Wrap at column</option>
+                  <option value='bounded'>Bounded</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Wrap column</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='500'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().wordWrapColumn'
+                  (ngModelChange)='patchMonaco({ wordWrapColumn: parseMonacoInt($event, monacoWorkspaceEditor().wordWrapColumn) })'
+                />
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().minimapEnabled'
+                    (ngModelChange)='patchMonaco({ minimapEnabled: $event })'
+                  />
+                  <span>Enable minimap</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Minimap max column</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='200'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().minimapMaxColumn'
+                  (ngModelChange)='patchMonaco({ minimapMaxColumn: parseMonacoInt($event, monacoWorkspaceEditor().minimapMaxColumn) })'
+                />
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().minimapRenderCharacters'
+                    (ngModelChange)='patchMonaco({ minimapRenderCharacters: $event })'
+                  />
+                  <span>Minimap render characters</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Minimap slider</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().minimapShowSlider'
+                  (ngModelChange)='patchMonaco({ minimapShowSlider: $event })'
+                >
+                  <option value='mouseover'>Show on mouseover</option>
+                  <option value='always'>Always</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('monaco') === 'display') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().scrollBeyondLastLine'
+                    (ngModelChange)='patchMonaco({ scrollBeyondLastLine: $event })'
+                  />
+                  <span>Scroll beyond last line</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().smoothScrolling'
+                    (ngModelChange)='patchMonaco({ smoothScrolling: $event })'
+                  />
+                  <span>Smooth scrolling</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Render whitespace</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().renderWhitespace'
+                  (ngModelChange)='patchMonaco({ renderWhitespace: $event })'
+                >
+                  <option value='none'>None</option>
+                  <option value='boundary'>Boundary</option>
+                  <option value='selection'>Selection</option>
+                  <option value='trailing'>Trailing</option>
+                  <option value='all'>All</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Render line highlight</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().renderLineHighlight'
+                  (ngModelChange)='patchMonaco({ renderLineHighlight: $event })'
+                >
+                  <option value='all'>All</option>
+                  <option value='line'>Line</option>
+                  <option value='gutter'>Gutter</option>
+                  <option value='none'>None</option>
+                </select>
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().renderControlCharacters'
+                    (ngModelChange)='patchMonaco({ renderControlCharacters: $event })'
+                  />
+                  <span>Render control characters</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Line numbers</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().lineNumbers'
+                  (ngModelChange)='patchMonaco({ lineNumbers: $event })'
+                >
+                  <option value='on'>On</option>
+                  <option value='off'>Off</option>
+                  <option value='relative'>Relative</option>
+                  <option value='interval'>Interval</option>
+                </select>
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().glyphMargin'
+                    (ngModelChange)='patchMonaco({ glyphMargin: $event })'
+                  />
+                  <span>Glyph margin</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().folding'
+                    (ngModelChange)='patchMonaco({ folding: $event })'
+                  />
+                  <span>Code folding</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Padding top (px)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='200'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().paddingTop'
+                  (ngModelChange)='patchMonaco({ paddingTop: parseMonacoInt($event, monacoWorkspaceEditor().paddingTop) })'
+                />
+              </label>
+              <label class='field'>
+                <span>Padding bottom (px)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='200'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().paddingBottom'
+                  (ngModelChange)='patchMonaco({ paddingBottom: parseMonacoInt($event, monacoWorkspaceEditor().paddingBottom) })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('monaco') === 'guides') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().guidesIndentation'
+                    (ngModelChange)='patchMonaco({ guidesIndentation: $event })'
+                  />
+                  <span>Indentation guides</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().guidesBracketPairs'
+                    (ngModelChange)='patchMonaco({ guidesBracketPairs: $event })'
+                  />
+                  <span>Bracket pair guides</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().bracketPairColorizationEnabled'
+                    (ngModelChange)='patchMonaco({ bracketPairColorizationEnabled: $event })'
+                  />
+                  <span>Bracket pair colorization</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Tab size</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='32'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().tabSize'
+                  (ngModelChange)='patchMonaco({ tabSize: parseMonacoInt($event, monacoWorkspaceEditor().tabSize) })'
+                />
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().insertSpaces'
+                    (ngModelChange)='patchMonaco({ insertSpaces: $event })'
+                  />
+                  <span>Insert spaces</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().detectIndentation'
+                    (ngModelChange)='patchMonaco({ detectIndentation: $event })'
+                  />
+                  <span>Detect indentation from content</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('monaco') === 'cursor') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Cursor blinking</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().cursorBlinking'
+                  (ngModelChange)='patchMonaco({ cursorBlinking: $event })'
+                >
+                  <option value='blink'>Blink</option>
+                  <option value='smooth'>Smooth</option>
+                  <option value='phase'>Phase</option>
+                  <option value='expand'>Expand</option>
+                  <option value='solid'>Solid</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Cursor style</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().cursorStyle'
+                  (ngModelChange)='patchMonaco({ cursorStyle: $event })'
+                >
+                  <option value='line'>Line</option>
+                  <option value='block'>Block</option>
+                  <option value='underline'>Underline</option>
+                  <option value='line-thin'>Line thin</option>
+                  <option value='block-outline'>Block outline</option>
+                  <option value='underline-thin'>Underline thin</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Cursor width</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='10'
+                  step='1'
+                  [ngModel]='monacoWorkspaceEditor().cursorWidth'
+                  (ngModelChange)='patchMonaco({ cursorWidth: parseMonacoInt($event, monacoWorkspaceEditor().cursorWidth) })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('monaco') === 'editing') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().formatOnPaste'
+                    (ngModelChange)='patchMonaco({ formatOnPaste: $event })'
+                  />
+                  <span>Format on paste</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().formatOnType'
+                    (ngModelChange)='patchMonaco({ formatOnType: $event })'
+                  />
+                  <span>Format on type</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='monacoWorkspaceEditor().quickSuggestions'
+                    (ngModelChange)='patchMonaco({ quickSuggestions: $event })'
+                  />
+                  <span>Quick suggestions</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Auto-closing brackets</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().autoClosingBrackets'
+                  (ngModelChange)='patchMonaco({ autoClosingBrackets: $event })'
+                >
+                  <option value='always'>Always</option>
+                  <option value='languageDefined'>Language defined</option>
+                  <option value='beforeWhitespace'>Before whitespace</option>
+                  <option value='never'>Never</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Auto-closing quotes</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().autoClosingQuotes'
+                  (ngModelChange)='patchMonaco({ autoClosingQuotes: $event })'
+                >
+                  <option value='always'>Always</option>
+                  <option value='languageDefined'>Language defined</option>
+                  <option value='beforeWhitespace'>Before whitespace</option>
+                  <option value='never'>Never</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Accept suggestion on Enter</span>
+                <select
+                  [ngModel]='monacoWorkspaceEditor().acceptSuggestionOnEnter'
+                  (ngModelChange)='patchMonaco({ acceptSuggestionOnEnter: $event })'
+                >
+                  <option value='on'>On</option>
+                  <option value='off'>Off</option>
+                  <option value='smart'>Smart</option>
+                </select>
+              </label>
+              <label class='field field--checkbox'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().stickyScrollEnabled'
+                  (ngModelChange)='patchMonaco({ stickyScrollEnabled: $event })'
+                />
+                <span>Sticky scroll (scope headers)</span>
+              </label>
+              <label class='field field--checkbox'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().formatOnSave'
+                  (ngModelChange)='patchMonaco({ formatOnSave: $event })'
+                />
+                <span>Format on save (LSP languages)</span>
+              </label>
+              <label class='field field--checkbox'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().parameterHintsEnabled'
+                  (ngModelChange)='patchMonaco({ parameterHintsEnabled: $event })'
+                />
+                <span>Parameter hints (signature help)</span>
+              </label>
+              <label class='field field--checkbox'>
+                <input
+                  type='checkbox'
+                  [ngModel]='monacoWorkspaceEditor().hoverEnabled'
+                  (ngModelChange)='patchMonaco({ hoverEnabled: $event })'
+                />
+                <span>Hover tooltips</span>
+              </label>
+              <label class='field'>
+                <span>Hover delay (ms)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='5000'
+                  [ngModel]='monacoWorkspaceEditor().hoverDelay'
+                  (ngModelChange)='patchMonaco({ hoverDelay: parseMonacoInt($event, monacoWorkspaceEditor().hoverDelay) })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+          
+
       </div>
     }
 
     @if (selectedSettingsTab() === 'audio') {
       <div class='settings-pane settings-pane--sectioned'>
-        <div class='settings-sub-layout'>
-          <nav class='settings-sub-nav' aria-label='Audio setting categories'>
-            <p class='settings-sub-nav__label'>Categories</p>
-            @for (sub of subTabsFor('audio'); track sub.id) {
-              <button
-                type='button'
-                class='tab-button tab-button--sub'
-                [class.is-active]='activeSubTabId("audio") === sub.id'
-                (click)='selectSettingsSubTab("audio", sub.id)'
-              >
-                <span>{{ sub.label }}</span>
-                <small>{{ settingsSubTabSummary("audio", sub.id) }}</small>
-              </button>
+        
+        @if (activeSubTabId('audio') === 'provider') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Provider</span>
+                <select [ngModel]='audioProvider()' (ngModelChange)='onAudioProviderChange($event)'>
+                  <option value='openai'>OpenAI (API key)</option>
+                  <option value='google'>Google Web Speech (free, online)</option>
+                  <option value='disabled'>Disabled</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Model</span>
+                <input
+                  type='text'
+                  [ngModel]='audioModel()'
+                  [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='updateAudioSettings({ model: $event })'
+                />
+              </label>
+            </div>
+            @if (audioProvider() === 'google') {
+              <p class='settings-field-hint'>
+                No API key needed. Requires internet; audio is sent to Google's speech service. For offline use, run a
+                local Whisper server and point OpenAI mode at it.
+              </p>
             }
-          </nav>
-          <div class='settings-sub-content'>
-            @if (activeSubTabId('audio') === 'provider') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Provider</span>
-                    <select [ngModel]='audioProvider()' (ngModelChange)='onAudioProviderChange($event)'>
-                      <option value='openai'>OpenAI (API key)</option>
-                      <option value='google'>Google Web Speech (free, online)</option>
-                      <option value='disabled'>Disabled</option>
-                    </select>
-                  </label>
-                  <label class='field'>
-                    <span>Model</span>
-                    <input
-                      type='text'
-                      [ngModel]='audioModel()'
-                      [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
-                      (ngModelChange)='updateAudioSettings({ model: $event })'
-                    />
-                  </label>
-                </div>
-                @if (audioProvider() === 'google') {
-                  <p class='settings-field-hint'>
-                    No API key needed. Requires internet; audio is sent to Google's speech service. For offline use, run a
-                    local Whisper server and point OpenAI mode at it.
-                  </p>
+            <div class='callout'>
+              <p>
+                @if (audioProvider() === 'disabled') {
+                  Voice transcription is currently disabled. Text chat still works normally.
+                } @else {
+                  Audio transcription supports OpenAI-compatible endpoints. These settings are stored alongside your LLM connections.
                 }
-                <div class='callout'>
-                  <p>
-                    @if (audioProvider() === 'disabled') {
-                      Voice transcription is currently disabled. Text chat still works normally.
-                    } @else {
-                      Audio transcription supports OpenAI-compatible endpoints. These settings are stored alongside your LLM connections.
-                    }
-                  </p>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('audio') === 'endpoint') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Base URL</span>
-                    <input
-                      type='text'
-                      [ngModel]='audioBaseUrl()'
-                      [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
-                      (ngModelChange)='updateAudioSettings({ baseUrl: $event })'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>API Key</span>
-                    <input
-                      type='password'
-                      [ngModel]='audioApiKey()'
-                      [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
-                      (ngModelChange)='updateAudioSettings({ apiKey: $event })'
-                    />
-                  </label>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('audio') === 'capture') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>Microphone input</span>
-                    <select
-                      [ngModel]='talkInputDeviceId()'
-                      (ngModelChange)='onTalkInputDeviceIdChange($event)'
-                      title='Select microphone for talk mode'
-                      class='settings-voice-device-select'
-                    >
-                      <option value='default'>Default system microphone</option>
-                      @for (d of talkAudioInputDevices(); track d.deviceId) {
-                        <option [value]='d.deviceId'>{{ d.label }}</option>
-                      }
-                    </select>
-                  </label>
-                  @if (talkAudioInputsLoadError()) {
-                    <p class='settings-field-hint'>{{ talkAudioInputsLoadError() }}</p>
-                  }
-                  <div class='field'>
-                    <span>Silence before sending</span>
-                    <div class='settings-voice-threshold'>
-                      <button type='button' (click)='decreaseTalkSilenceThreshold()' title='Decrease silence threshold'>
-                        <lucide-icon name='minus' [size]='14' />
-                      </button>
-                      <span class='settings-voice-threshold-value' title='Silence threshold (seconds)'>
-                        {{ talkSilenceThresholdSeconds() | number: '1.1-1' }}s
-                      </span>
-                      <button type='button' (click)='increaseTalkSilenceThreshold()' title='Increase silence threshold'>
-                        <lucide-icon name='plus' [size]='14' />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            }
-
-            @if (activeSubTabId('audio') === 'tts') {
-              <div class='form-section'>
-                <div class='form-grid'>
-                  <label class='field'>
-                    <span>TTS provider</span>
-                    <select
-                      [ngModel]='ttsProvider()'
-                      (ngModelChange)='updateAudioSettings({ ttsProvider: $event })'
-                      title='Assistant TTS backend'
-                    >
-                      <option value='kokoro'>Kokoro (local)</option>
-                      <option value='openai-compatible'>OpenAI-compatible (remote)</option>
-                    </select>
-                  </label>
-
-                  @if (ttsProvider() === 'openai-compatible') {
-                    <label class='field'>
-                      <span>TTS base URL</span>
-                      <input
-                        type='url'
-                        [ngModel]='ttsBaseUrl()'
-                        (ngModelChange)='updateAudioSettings({ ttsBaseUrl: $event })'
-                        placeholder='http://127.0.0.1:8083'
-                        title='Host only — do not include /v1/audio/speech (added automatically)'
-                      />
-                    </label>
-                    <label class='field'>
-                      <span>TTS API key (optional)</span>
-                      <input
-                        type='password'
-                        [ngModel]='ttsApiKey()'
-                        (ngModelChange)='updateAudioSettings({ ttsApiKey: $event })'
-                        autocomplete='off'
-                        title='Bearer token for remote TTS, if required'
-                      />
-                    </label>
-                    <label class='field'>
-                      <span>Default mood / instructions (optional)</span>
-                      <input
-                        type='text'
-                        [ngModel]='ttsDefaultInstructions()'
-                        (ngModelChange)='updateAudioSettings({ ttsDefaultInstructions: $event })'
-                        placeholder='calm, helpful, slightly upbeat'
-                        title='Fallback speaking style when the model omits [[tts_mood: ...]]'
-                      />
-                    </label>
-                    <label class='field'>
-                      <span>Voice</span>
-                      <input
-                        type='text'
-                        [ngModel]='ttsVoice()'
-                        (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
-                        placeholder='Ryan'
-                        title='Remote speaker name (e.g. Ryan, Vivian, Serena)'
-                      />
-                    </label>
-                  } @else {
-                    <label class='field'>
-                      <span>TTS voice</span>
-                      <select
-                        [ngModel]='ttsVoice()'
-                        (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
-                        class='settings-voice-device-select'
-                        title='Assistant TTS voice (Kokoro)'
-                      >
-                        @for (v of ttsVoiceChoices; track v.id) {
-                          <option [value]='v.id'>{{ v.label }}</option>
-                        }
-                      </select>
-                    </label>
-                  }
-
-                  <label class='field'>
-                    <span>Speech speed ({{ ttsSpeechSpeed() | number: '1.2-2' }}×)</span>
-                    <input
-                      type='range'
-                      [min]='ttsSpeechSpeedMin'
-                      [max]='ttsSpeechSpeedMax'
-                      [step]='ttsSpeechSpeedStep'
-                      [ngModel]='ttsSpeechSpeed()'
-                      (ngModelChange)='onTtsSpeechSpeedInput($event)'
-                      title='Speech speed multiplier'
-                    />
-                  </label>
-                </div>
-              </div>
-            }
+              </p>
+            </div>
           </div>
-        </div>
+        }
+
+        @if (activeSubTabId('audio') === 'endpoint') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Base URL</span>
+                <input
+                  type='text'
+                  [ngModel]='audioBaseUrl()'
+                  [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='updateAudioSettings({ baseUrl: $event })'
+                />
+              </label>
+              <label class='field'>
+                <span>API Key</span>
+                <input
+                  type='password'
+                  [ngModel]='audioApiKey()'
+                  [disabled]='audioProvider() === &quot;disabled&quot; || audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='updateAudioSettings({ apiKey: $event })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('audio') === 'capture') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Microphone input</span>
+                <select
+                  [ngModel]='talkInputDeviceId()'
+                  (ngModelChange)='onTalkInputDeviceIdChange($event)'
+                  title='Select microphone for talk mode'
+                  class='settings-voice-device-select'
+                >
+                  <option value='default'>Default system microphone</option>
+                  @for (d of talkAudioInputDevices(); track d.deviceId) {
+                    <option [value]='d.deviceId'>{{ d.label }}</option>
+                  }
+                </select>
+              </label>
+              @if (talkAudioInputsLoadError()) {
+                <p class='settings-field-hint'>{{ talkAudioInputsLoadError() }}</p>
+              }
+              <div class='field'>
+                <span>Silence before sending</span>
+                <div class='settings-voice-threshold'>
+                  <button type='button' (click)='decreaseTalkSilenceThreshold()' title='Decrease silence threshold'>
+                    <lucide-icon name='minus' [size]='14' />
+                  </button>
+                  <span class='settings-voice-threshold-value' title='Silence threshold (seconds)'>
+                    {{ talkSilenceThresholdSeconds() | number: '1.1-1' }}s
+                  </span>
+                  <button type='button' (click)='increaseTalkSilenceThreshold()' title='Increase silence threshold'>
+                    <lucide-icon name='plus' [size]='14' />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (activeSubTabId('audio') === 'tts') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>TTS provider</span>
+                <select
+                  [ngModel]='ttsProvider()'
+                  (ngModelChange)='updateAudioSettings({ ttsProvider: $event })'
+                  title='Assistant TTS backend'
+                >
+                  <option value='kokoro'>Kokoro (local)</option>
+                  <option value='openai-compatible'>OpenAI-compatible (remote)</option>
+                </select>
+              </label>
+
+              @if (ttsProvider() === 'openai-compatible') {
+                <label class='field'>
+                  <span>TTS base URL</span>
+                  <input
+                    type='url'
+                    [ngModel]='ttsBaseUrl()'
+                    (ngModelChange)='updateAudioSettings({ ttsBaseUrl: $event })'
+                    placeholder='http://127.0.0.1:8083'
+                    title='Host only — do not include /v1/audio/speech (added automatically)'
+                  />
+                </label>
+                <label class='field'>
+                  <span>TTS API key (optional)</span>
+                  <input
+                    type='password'
+                    [ngModel]='ttsApiKey()'
+                    (ngModelChange)='updateAudioSettings({ ttsApiKey: $event })'
+                    autocomplete='off'
+                    title='Bearer token for remote TTS, if required'
+                  />
+                </label>
+                <label class='field'>
+                  <span>Default mood / instructions (optional)</span>
+                  <input
+                    type='text'
+                    [ngModel]='ttsDefaultInstructions()'
+                    (ngModelChange)='updateAudioSettings({ ttsDefaultInstructions: $event })'
+                    placeholder='calm, helpful, slightly upbeat'
+                    title='Fallback speaking style when the model omits [[tts_mood: ...]]'
+                  />
+                </label>
+                <label class='field'>
+                  <span>Voice</span>
+                  <input
+                    type='text'
+                    [ngModel]='ttsVoice()'
+                    (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
+                    placeholder='Ryan'
+                    title='Remote speaker name (e.g. Ryan, Vivian, Serena)'
+                  />
+                </label>
+              } @else {
+                <label class='field'>
+                  <span>TTS voice</span>
+                  <select
+                    [ngModel]='ttsVoice()'
+                    (ngModelChange)='updateAudioSettings({ ttsVoice: $event })'
+                    class='settings-voice-device-select'
+                    title='Assistant TTS voice (Kokoro)'
+                  >
+                    @for (v of ttsVoiceChoices; track v.id) {
+                      <option [value]='v.id'>{{ v.label }}</option>
+                    }
+                  </select>
+                </label>
+              }
+
+              <label class='field'>
+                <span>Speech speed ({{ ttsSpeechSpeed() | number: '1.2-2' }}×)</span>
+                <input
+                  type='range'
+                  [min]='ttsSpeechSpeedMin'
+                  [max]='ttsSpeechSpeedMax'
+                  [step]='ttsSpeechSpeedStep'
+                  [ngModel]='ttsSpeechSpeed()'
+                  (ngModelChange)='onTtsSpeechSpeedInput($event)'
+                  title='Speech speed multiplier'
+                />
+              </label>
+            </div>
+          </div>
+        }
+          
+
       </div>
     }
 
@@ -2245,17 +2216,40 @@
   </section>
 
   <footer class='settings-footer'>
+    @if (settingsDirty()) {
+      <button
+        type='button'
+        class='action-button settings-footer-btn'
+        [disabled]='settingsSaving()'
+        [attr.aria-busy]="settingsSaveAction() === 'apply'"
+        (click)='applySettings()'
+      >
+        @if (settingsSaveAction() === 'apply') {
+          <span class='settings-footer-btn__spinner-host' aria-hidden='true'>
+            <ngx-spinner
+              [name]='settingsSaveSpinnerName'
+              [type]='planProgressSpinnerType'
+              [fullScreen]='false'
+              bdColor='rgba(0,0,0,0)'
+              size='small'
+              color='var(--bs-btn-color, #fff)'
+            ></ngx-spinner>
+          </span>
+        }
+        {{ settingsSaveAction() === 'apply' ? 'Saving…' : 'Apply' }}
+      </button>
+    }
     <button
       type='button'
-      class='action-button action-button--primary settings-close-btn'
-      [disabled]='closeSaving()'
-      [attr.aria-busy]='closeSaving()'
-      (click)='closeSettings()'
+      class='action-button action-button--primary settings-footer-btn'
+      [disabled]='settingsSaving()'
+      [attr.aria-busy]="settingsSaveAction() === 'ok'"
+      (click)='okSettings()'
     >
-      @if (closeSaving()) {
-        <span class='settings-close-btn__spinner-host' aria-hidden='true'>
+      @if (settingsSaveAction() === 'ok') {
+        <span class='settings-footer-btn__spinner-host' aria-hidden='true'>
           <ngx-spinner
-            [name]='closeSpinnerName'
+            [name]='settingsSaveSpinnerName'
             [type]='planProgressSpinnerType'
             [fullScreen]='false'
             bdColor='rgba(0,0,0,0)'
@@ -2263,10 +2257,8 @@
             color='var(--bs-btn-color, #fff)'
           ></ngx-spinner>
         </span>
-      } @else {
-        <lucide-icon name='x' [size]='18' />
       }
-      {{ closeSaving() ? 'Saving…' : 'Close' }}
+      {{ settingsSaveAction() === 'ok' ? 'Saving…' : 'OK' }}
     </button>
   </footer>
   <app-themed-confirm-dialog />

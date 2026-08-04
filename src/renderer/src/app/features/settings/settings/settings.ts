@@ -160,8 +160,11 @@ export class Settings implements OnInit, OnDestroy {
 
   /** Shown in managed llama-server tips and placeholders (must match Electron substitution token). */
   protected readonly managedLlamaPortToken = '{{PORT}}';
-  protected readonly closeSaving = signal(false);
-  protected readonly closeSpinnerName = `settings-close-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly settingsDirty = signal(false);
+  /** Which footer action is currently persisting config (`null` when idle). */
+  protected readonly settingsSaveAction = signal<'apply' | 'ok' | null>(null);
+  protected readonly settingsSaving = computed(() => this.settingsSaveAction() !== null);
+  protected readonly settingsSaveSpinnerName = `settings-save-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
   protected readonly cacheDetectSpinnerName = `settings-cache-detect-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
@@ -236,6 +239,19 @@ export class Settings implements OnInit, OnDestroy {
         label: 'Chat appearance',
         description:
           'App UI scale, chat font size, expanded chat width, app-wide UI font, and code font for message text.',
+      },
+    ],
+    modelManager: [
+      {
+        id: 'storage',
+        label: 'Model Storage',
+        description:
+          'Custom model directory, local inventory, and Hugging Face cache migration into your storage root.',
+      },
+      {
+        id: 'download',
+        label: 'Model Download',
+        description: 'Optional Hugging Face token and model search for use with llama-server -hf.',
       },
     ],
     tools: [
@@ -505,16 +521,14 @@ export class Settings implements OnInit, OnDestroy {
 
   private subscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
-  /** True after any local edit; we persist only on close (or teardown) instead of debouncing every keystroke. */
-  private settingsDirty = false;
 
   constructor(
     private electron: ElectronService,
     private themedConfirm: ThemedConfirmDialogService,
   ) {
     effect(() => {
-      const saving = this.closeSaving();
-      untracked(() => this.scheduleCloseSpinnerSync(saving));
+      const saving = this.settingsSaving();
+      untracked(() => this.scheduleSaveSpinnerSync(saving));
     });
     effect(() => {
       const loading = this.modelManagerCacheLoading();
@@ -544,18 +558,19 @@ export class Settings implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
-    void this.ngxSpinner.hide(this.closeSpinnerName);
+    void this.ngxSpinner.hide(this.settingsSaveSpinnerName);
     void this.ngxSpinner.hide(this.cacheDetectSpinnerName);
     void this.ngxSpinner.hide(this.localModelsSpinnerName);
     void this.ngxSpinner.hide(this.migratableModelsSpinnerName);
     this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
-    if (this.configSnapshot && this.settingsDirty) {
+    if (this.configSnapshot && this.settingsDirty()) {
       void this.enqueuePersist();
     }
   }
 
   protected selectSettingsSubTab(tab: SettingsTab, id: string): void {
+    this.selectTab(tab);
     this.selectedSubTabs.update((prev) => ({ ...prev, [tab]: id }));
   }
 
@@ -586,6 +601,18 @@ export class Settings implements OnInit, OnDestroy {
           const sizeLabel =
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
           return `${sizeLabel} · UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
+        }
+        break;
+      case 'modelManager':
+        if (id === 'storage') {
+          return `${this.modelManagerCustomModels().length} local`;
+        }
+        if (id === 'download') {
+          const results = this.modelManagerHfResults().length;
+          if (results > 0) {
+            return `${results} results`;
+          }
+          return this.modelManagerHfToken().trim() ? 'Token set' : 'Search';
         }
         break;
       case 'tools':
@@ -651,29 +678,43 @@ export class Settings implements OnInit, OnDestroy {
     this.electron.windowToggleMaximize();
   }
 
-  protected async closeSettings(): Promise<void> {
-    if (this.closeSaving()) {
+  /** Persist dirty settings without closing the window. */
+  protected async applySettings(): Promise<void> {
+    if (this.settingsSaveAction() !== null || !this.settingsDirty()) {
       return;
     }
-    this.closeSaving.set(true);
+    this.settingsSaveAction.set('apply');
     try {
-      await this.flushPersistForClose();
+      await this.flushPersistIfDirty();
     } finally {
-      this.closeSaving.set(false);
+      this.settingsSaveAction.set(null);
+    }
+  }
+
+  /** Persist dirty settings (if any), then close the settings window. */
+  protected async okSettings(): Promise<void> {
+    if (this.settingsSaveAction() !== null) {
+      return;
+    }
+    this.settingsSaveAction.set('ok');
+    try {
+      await this.flushPersistIfDirty();
+    } finally {
+      this.settingsSaveAction.set(null);
       this.electron.closeSettingsWindow();
     }
   }
 
-  private scheduleCloseSpinnerSync(show: boolean): void {
+  private scheduleSaveSpinnerSync(show: boolean): void {
     afterNextRender(
       () => {
         if (this.destroyed) {
           return;
         }
         if (show) {
-          void this.ngxSpinner.show(this.closeSpinnerName, CLOSE_SAVE_SPINNER);
+          void this.ngxSpinner.show(this.settingsSaveSpinnerName, CLOSE_SAVE_SPINNER);
         } else {
-          void this.ngxSpinner.hide(this.closeSpinnerName);
+          void this.ngxSpinner.hide(this.settingsSaveSpinnerName);
         }
       },
       { injector: this.inj },
@@ -696,8 +737,8 @@ export class Settings implements OnInit, OnDestroy {
     );
   }
 
-  private async flushPersistForClose(): Promise<void> {
-    if (!this.configSnapshot || !this.settingsDirty) {
+  private async flushPersistIfDirty(): Promise<void> {
+    if (!this.configSnapshot || !this.settingsDirty()) {
       return;
     }
     await this.enqueuePersist();
@@ -2181,14 +2222,14 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   private markSettingsDirty(): void {
-    this.settingsDirty = true;
+    this.settingsDirty.set(true);
   }
 
   private async enqueuePersist(): Promise<void> {
     const next = this.buildConfigForPersist();
     const saved = await this.electron.saveConfig(next);
     this.configSnapshot = structuredClone(saved);
-    this.settingsDirty = false;
+    this.settingsDirty.set(false);
     this.syncFromConfig(saved, true);
   }
 
@@ -2292,7 +2333,7 @@ export class Settings implements OnInit, OnDestroy {
   }
 
   private syncFromConfig(config: AppConfig, forceFull: boolean): void {
-    const blockEditableHydration = !forceFull && this.settingsDirty;
+    const blockEditableHydration = !forceFull && this.settingsDirty();
     if (blockEditableHydration) {
       this.workspaces.set(config.workspaces);
       const currentWorkspace =

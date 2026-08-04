@@ -174,8 +174,7 @@ export class Settings implements OnInit, OnDestroy {
     {
       id: 'modelManager',
       label: 'Model Manager',
-      description:
-        'Manage local model files in one custom directory, migrate cache files, and search Hugging Face.',
+      description: 'Local models, cache migration, and Hugging Face search.',
     },
     {
       id: 'tools',

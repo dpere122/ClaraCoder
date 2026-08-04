@@ -933,15 +933,15 @@
     }
 
     @if (selectedSettingsTab() === 'modelManager') {
-      <div class='settings-pane'>
+      <div class='settings-pane settings-pane--model-manager'>
         <div class='form-section'>
           <div class='form-section__header'>
             <h5>Custom model directory</h5>
-            <p class='settings-copy'>Select one folder for your local model inventory and file operations.</p>
+            <p class='settings-copy'>Local inventory root for GGUF files and <code>-hf</code> hub folders.</p>
           </div>
-          <div class='form-grid'>
-            <label class='field field--full'>
-              <span>Directory path</span>
+          <div class='model-manager-dir-row'>
+            <label class='field model-manager-dir-row__path'>
+              <span>Directory</span>
               <input
                 type='text'
                 [ngModel]='modelManagerCustomDir()'
@@ -949,17 +949,14 @@
                 placeholder='D:\AI\Models'
               />
             </label>
-            <div class='field field--full model-manager-actions'>
-              <button type='button' class='action-button action-button--primary' (click)='pickModelManagerCustomDir()'>
-                Choose directory
+            <div class='model-manager-actions'>
+              <button type='button' class='action-button action-button--compact action-button--primary' (click)='pickModelManagerCustomDir()'>
+                Choose
               </button>
-              <button type='button' class='action-button' [disabled]='modelManagerBusy()' (click)='refreshModelManagerData()'>
+              <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='refreshModelManagerData()'>
                 Refresh
               </button>
             </div>
-            <p class='settings-copy field--full'>
-              Managed <code>llama-server -hf</code> downloads store each repo as a folder (blobs, refs, snapshots) under this path when started from the app. Loose <code>.gguf</code> / <code>.ggml</code> files at the top level are listed too. Use <code>-m</code> only when pointing at a single GGUF file.
-            </p>
           </div>
         </div>
 
@@ -968,30 +965,30 @@
         <div class='form-section'>
           <div class='form-section__header'>
             <h5>Local models</h5>
-            <p class='settings-copy'>
-              Hugging Face hub repos appear as folders (<code>models--org--name</code> or any folder containing blobs, refs, snapshots). Standalone GGUF/GGML files elsewhere under this directory are listed separately.
-            </p>
+            <p class='settings-copy'>Hub folders (<code>models--…</code>) and standalone <code>.gguf</code>/<code>.ggml</code> files.</p>
           </div>
-          <div class='model-card-grid'>
+          <div class='model-card-list'>
             @for (model of modelManagerCustomModels(); track model.absolutePath) {
               <article class='model-card'>
-                <div class='model-card__head'>
-                  <strong>{{ model.fileName }}</strong>
-                  <span class='pill'>{{ model.source }}</span>
-                  @if (model.entryKind === 'hubRepo') {
-                    <span class='pill'>hub folder</span>
-                  }
+                <div class='model-card__main'>
+                  <div class='model-card__head'>
+                    <strong>{{ model.fileName }}</strong>
+                    <span class='pill'>{{ model.source }}</span>
+                    @if (model.entryKind === 'hubRepo') {
+                      <span class='pill'>hub</span>
+                    }
+                    <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+                  </div>
+                  <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
                 </div>
-                <p class='settings-copy'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</p>
-                <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
                 <div class='model-card__actions'>
                   <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
                   <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
                 </div>
               </article>
             } @empty {
-              <div class='empty-state'>
-                <p>No hub folders or standalone GGUF/GGML models found. Add <code>.gguf</code> / <code>.ggml</code> files, or download with <code>-hf</code> so the repo appears as a folder tree.</p>
+              <div class='empty-state empty-state--compact'>
+                <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
               </div>
             }
           </div>
@@ -1001,55 +998,63 @@
 
         <div class='form-section'>
           <div class='form-section__header'>
-            <h5>Cache detection and migration</h5>
-            <p class='settings-copy'>Detect Hugging Face hub repo folders under known caches and copy or move the whole tree into your custom directory (blobs, refs, snapshots). Falls back to listing loose GGUF files only when no hub folders exist in that cache root.</p>
+            <h5>Cache migration</h5>
+            <p class='settings-copy'>Copy or move detected HF cache repos into your custom directory.</p>
           </div>
           <div class='cache-location-list'>
             @for (cache of modelManagerCacheLocations(); track cache.path) {
               <div class='cache-location-row'>
-                <div>
+                <div class='cache-location-row__main'>
                   <strong>{{ cache.label }}</strong>
-                  <p class='settings-copy'>{{ cache.path }}</p>
+                  <p class='settings-copy model-card__path'>{{ cache.path }}</p>
                 </div>
-                <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Not found' }}</span>
+                <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Missing' }}</span>
               </div>
             } @empty {
               <p class='settings-copy'>No cache paths detected.</p>
             }
           </div>
-          <div class='model-card-grid'>
-            @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
-              <article class='model-card'>
-                <div class='model-card__head'>
-                  <strong>{{ model.fileName }}</strong>
-                  <span class='pill'>cache</span>
-                  @if (model.entryKind === 'hubRepo') {
-                    <span class='pill'>hub folder</span>
-                  }
-                </div>
-                <p class='settings-copy'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</p>
-                <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
-                <div class='model-card__actions'>
-                  @if (isCacheModelMigrating(model)) {
-                    <div class='model-migrate-progress' role='status'>
-                      @if (modelManagerMigrateIndeterminate()) {
-                        <progress class='model-migrate-progress__bar' max='100'></progress>
-                      } @else {
-                        <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
+          <details class='model-migrate-accordion'>
+            <summary>
+              Migratable models
+              <span class='pill'>{{ modelManagerCacheCandidates().length }}</span>
+            </summary>
+            <div class='model-card-list'>
+              @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
+                <article class='model-card'>
+                  <div class='model-card__main'>
+                    <div class='model-card__head'>
+                      <strong>{{ model.fileName }}</strong>
+                      <span class='pill'>cache</span>
+                      @if (model.entryKind === 'hubRepo') {
+                        <span class='pill'>hub</span>
                       }
-                      <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
+                      <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
                     </div>
-                  } @else {
-                    <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate (copy/move)</button>
-                  }
+                    <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                  </div>
+                  <div class='model-card__actions'>
+                    @if (isCacheModelMigrating(model)) {
+                      <div class='model-migrate-progress' role='status'>
+                        @if (modelManagerMigrateIndeterminate()) {
+                          <progress class='model-migrate-progress__bar' max='100'></progress>
+                        } @else {
+                          <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
+                        }
+                        <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
+                      </div>
+                    } @else {
+                      <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate</button>
+                    }
+                  </div>
+                </article>
+              } @empty {
+                <div class='empty-state empty-state--compact'>
+                  <p>No cache models found in detected locations.</p>
                 </div>
-              </article>
-            } @empty {
-              <div class='empty-state'>
-                <p>No hub repo folders or GGUF files found in detected caches. Confirm the cache path matches where Hugging Face stores downloads (often a folder named <code>hub</code> containing <code>models--...</code>).</p>
-              </div>
-            }
-          </div>
+              }
+            </div>
+          </details>
         </div>
 
         <hr class='settings-divider' />
@@ -1057,48 +1062,47 @@
         <div class='form-section'>
           <div class='form-section__header'>
             <h5>Hugging Face</h5>
-            <p class='settings-copy'>Store one shared token and search Hugging Face model repositories.</p>
+            <p class='settings-copy'>Optional token + model search. Use results with <code>llama-server -hf</code>.</p>
           </div>
-          <div class='form-grid'>
-            <label class='field field--full'>
-              <span>Hugging Face token (optional)</span>
-              <input
-                type='password'
-                autocomplete='off'
-                spellcheck='false'
-                [ngModel]='modelManagerHfToken()'
-                (ngModelChange)='updateModelManagerConfig({ huggingFaceToken: $event })'
-                placeholder='hf_...'
-              />
-            </label>
-            <div class='field field--full model-manager-actions'>
-              <input
-                type='text'
-                [ngModel]='modelManagerHfQuery()'
-                (ngModelChange)='onModelManagerHfQueryChange($event)'
-                placeholder='Search Hugging Face models...'
-              />
-              <button type='button' class='action-button action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels()'>
-                @if (modelManagerHfBusy()) { Searching… } @else { Search }
-              </button>
-            </div>
+          <label class='field'>
+            <span>Token (optional)</span>
+            <input
+              type='password'
+              autocomplete='off'
+              spellcheck='false'
+              [ngModel]='modelManagerHfToken()'
+              (ngModelChange)='updateModelManagerConfig({ huggingFaceToken: $event })'
+              placeholder='hf_...'
+            />
+          </label>
+          <div class='model-manager-actions model-manager-actions--search'>
+            <input
+              type='text'
+              [ngModel]='modelManagerHfQuery()'
+              (ngModelChange)='onModelManagerHfQueryChange($event)'
+              placeholder='Search models…'
+            />
+            <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels()'>
+              Search
+            </button>
           </div>
-          <div class='hf-results-grid'>
+          <div class='model-card-list'>
             @for (model of modelManagerHfResults(); track model.id) {
               <article class='model-card'>
-                <div class='model-card__head'>
-                  <strong>{{ model.id }}</strong>
-                  @if (model.gated || model.private) {
-                    <span class='pill'>restricted</span>
-                  }
+                <div class='model-card__main'>
+                  <div class='model-card__head'>
+                    <strong>{{ model.id }}</strong>
+                    @if (model.gated || model.private) {
+                      <span class='pill'>restricted</span>
+                    }
+                    <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
+                  </div>
+                  <p class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></p>
                 </div>
-                <p class='settings-copy'>{{ model.downloads }} downloads · {{ model.likes }} likes</p>
-                <p class='settings-copy'>Updated: {{ model.lastModified || 'unknown' }}</p>
-                <p class='settings-copy model-card__path'>Use with: <code>llama-server -hf {{ model.id }}</code></p>
               </article>
             } @empty {
-              <div class='empty-state'>
-                <p>No Hugging Face results yet. Run a search above.</p>
+              <div class='empty-state empty-state--compact'>
+                <p>No results yet.</p>
               </div>
             }
           </div>

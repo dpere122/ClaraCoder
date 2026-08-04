@@ -569,6 +569,7 @@ def search_workspace(
     return summary
 
 
+from clara_coder_backend.context_packs.tool import ACTIVATE_CONTEXT_TOOLS
 from clara_coder_backend.tools.workspace_image import read_workspace_image
 from clara_coder_backend.tools.wsdl_tools import WSDL_TOOLS
 from clara_coder_backend.tools.xml_tools import XML_TOOLS
@@ -581,6 +582,7 @@ TOOLS = [
     search_workspace,
     read_workspace_file,
     read_workspace_image,
+    *ACTIVATE_CONTEXT_TOOLS,
     *WSDL_TOOLS,
     *XML_TOOLS,
     *JSON_TOOLS,

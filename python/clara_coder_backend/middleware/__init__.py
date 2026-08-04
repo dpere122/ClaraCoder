@@ -12,4 +12,5 @@ Modules
 ``user_event_injection_middleware`` — inject queued user events into the turn
 ``pseudo_tool_xml_middleware`` — recover pseudo tool calls from XML-ish text
 ``tool_harness_feedback_middleware`` — harness feedback injection
+``context_pack_activation_middleware`` — auto-activate deferred context packs on tool use
 """

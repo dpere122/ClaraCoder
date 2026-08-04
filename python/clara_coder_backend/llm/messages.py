@@ -456,6 +456,16 @@ def _web_access_operational_bullet() -> str:
     )
 
 
+def _context_packs_catalog_block() -> str:
+    """Always-on short inventory of deferred context packs (summaries only)."""
+    from clara_coder_backend.context_packs.registry import format_context_catalog
+
+    # Ensure built-in packs are registered before formatting the catalog.
+    import clara_coder_backend.context_packs  # noqa: F401
+
+    return format_context_catalog()
+
+
 def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> str:
     """Outer Clara: reads/search; direct copy; staging and specialist tools when Editor is on."""
     from clara_coder_backend.session.state import direct_workspace_edits_active
@@ -489,10 +499,9 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
             else '  3. On-disk needle → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
         )
         + '  4. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
-        + '  5. `.pdf`: `read_workspace_file` uses `start_line`/`end_line` as 1-based page numbers.\n'
-        + '  6. `.wsdl` (SOAP contracts): prefer `wsdl_overview` → `search_wsdl` → `read_wsdl_section`; avoid reading whole WSDL/XSD with `read_workspace_file` unless debugging raw XML.\n'
-        + '  7. `.xml`/`.xsd`/`.xsl`/etc.: prefer `xml_overview` → `search_xml` → `read_xml_section`; avoid whole-file reads unless debugging raw markup.\n'
-        + '  8. `.json`/`.jsonc`: prefer `json_overview` → `search_json` → `read_json_section`; avoid whole-file reads for large configs.\n'
+        + '  5. PDF / WSDL / XML / JSON workflow playbooks live in **context packs** (catalog below); they auto-load on first '
+        'related tool use, or call `activate_context`.\n'
+        + _context_packs_catalog_block()
         + '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
     )

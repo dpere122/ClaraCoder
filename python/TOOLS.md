@@ -124,3 +124,22 @@ suffixes (`tool_calling_and_edit_semantics_suffix`) must not re-embed that
 block—only API tool-channel / family-specific notes. Never re-state the
 LSP-mutator map or staging-vs-direct policy in a tool docstring or another
 prompt block — extend `edit_semantics_block` instead.
+
+## 8. Context packs (deferred workflow knowledge)
+
+Long per-family playbooks (when to use overview→search→section, PDF page
+semantics, etc.) belong in **context packs**, not always-on operational prose.
+
+- Module: `clara_coder_backend/context_packs/`
+- Register with `register_pack(ContextPack(...))` from the pack module
+- Attach `tool_prefixes` and/or `tool_names` (+ optional `path_suffixes`) so the
+  pack **auto-activates** on first matching tool use
+- Advertise a one-line `summary` in the system-prompt catalog; keep the deep
+  `body` out of the default system prompt
+- Explicit load: bound tool `activate_context(pack_id)`
+- Add the tool name to the `Context packs` bucket in `TOOL_FAMILIES` when
+  introducing related meta-tools
+
+Do **not** grow `_outer_agent_operational_block` with family playbooks—extend a
+pack instead. Tool `describe()` / `Annotated` hints stay for existence and arg
+shape; packs carry workflow knowledge.

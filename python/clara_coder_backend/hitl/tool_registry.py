@@ -252,6 +252,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'read_workspace_image',
         ),
     ),
+    ('Context packs', ('activate_context',)),
     ('Structured zoom (wsdl/xml/json)', ('wsdl_', 'xml_', 'json_')),
     ('LSP', ('lsp_',)),
     (

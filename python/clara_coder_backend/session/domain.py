@@ -163,6 +163,8 @@ class SessionState:
     last_stream_auto_apply_mode: bool | None = None
     #: Last ``POST /chat/stream`` speech/TTS flag (drives mood-tag prompt guidance).
     last_stream_speech_enabled: bool = False
+    #: Context pack ids activated this session (inject-once playbooks).
+    activated_context_packs: set[str] = field(default_factory=set)
 
 
 @dataclass

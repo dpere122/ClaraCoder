@@ -753,19 +753,33 @@ export class WorkspaceMonacoComponent {
     }
     if (this.monacoDiffActive()) {
       const modified = this.diffEditor?.getModifiedEditor();
-      if (!modified) {
+      if (!modified?.getModel()) {
         return;
       }
       modified.focus();
-      void modified.getAction('editor.action.startFindAction')?.run();
+      // Defer so a concurrent setModel (tab sync) cannot race FindWidget construction.
+      // Monaco registers Find as `actions.find` (not `editor.action.startFindAction`).
+      queueMicrotask(() => this.runEditorFindAction(modified));
       return;
     }
     const ed = this.editor;
-    if (!ed) {
+    if (!ed?.getModel()) {
       return;
     }
     ed.focus();
-    void ed.getAction('editor.action.startFindAction')?.run();
+    // Defer so a concurrent setModel (tab sync) cannot race FindWidget construction.
+    queueMicrotask(() => this.runEditorFindAction(ed));
+  }
+
+  /** Monaco's StartFindAction id is `actions.find` (see FIND_IDS.StartFindAction). */
+  private runEditorFindAction(ed: Monaco.editor.ICodeEditor): void {
+    const action = ed.getAction('actions.find');
+    if (action) {
+      void action.run();
+      return;
+    }
+    // Fallback if the contribution action map is unavailable.
+    ed.trigger('clara', 'actions.find', null);
   }
 
   private isPrimaryFindKey(ev: KeyboardEvent): boolean {
@@ -1328,6 +1342,8 @@ export class WorkspaceMonacoComponent {
 
   private async bootstrapEditor(): Promise<void> {
     const monacoApi = await import('monaco-editor');
+    const { ensureMonacoFindWidgetSafe } = await import('../../../../monaco-find-safety');
+    await ensureMonacoFindWidgetSafe();
     this.monaco = monacoApi;
     // Monaco's in-worker TS/JS service has no workspace fs/tsconfig; semantic rules
     // clash with the real project. TS/JS IntelliSense and checks come from the LSP bridge.
@@ -1949,7 +1965,11 @@ export class WorkspaceMonacoComponent {
       this.detachedBanner.set('');
     }
     this.loadError.set('');
-    ed.setModel(model);
+    // Avoid redundant setModel — each model swap notifies FindController and can
+    // race Monaco's FindWidget constructor (searchScope toggle not yet created).
+    if (ed.getModel() !== model) {
+      ed.setModel(model);
+    }
     ed.updateOptions({
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });

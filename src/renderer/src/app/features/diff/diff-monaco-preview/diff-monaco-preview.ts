@@ -21,7 +21,11 @@ import {
 let monacoLoadPromise: Promise<typeof import('monaco-editor')> | null = null;
 
 function loadMonaco(): Promise<typeof import('monaco-editor')> {
-  monacoLoadPromise ??= import('monaco-editor');
+  monacoLoadPromise ??= import('monaco-editor').then(async (monacoApi) => {
+    const { ensureMonacoFindWidgetSafe } = await import('../../../../monaco-find-safety');
+    await ensureMonacoFindWidgetSafe();
+    return monacoApi;
+  });
   return monacoLoadPromise;
 }
 

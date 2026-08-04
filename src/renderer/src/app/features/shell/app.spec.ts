@@ -86,6 +86,7 @@ function stubElectronApi(): StubRefs {
     modelManager: {
       customModelsDir: 'C:\\models',
       huggingFaceToken: '',
+      detectedCaches: [],
     },
   };
   const convMeta = {

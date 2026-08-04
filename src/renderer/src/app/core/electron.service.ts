@@ -85,6 +85,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
   modelManager: {
     customModelsDir: '',
     huggingFaceToken: '',
+    detectedCaches: [],
   },
   chatSidebarWidthPercent: 0.75,
 };

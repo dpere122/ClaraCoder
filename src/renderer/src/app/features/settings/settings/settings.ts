@@ -94,6 +94,7 @@ type SettingsSubTabEntry = {
 };
 
 const PLAN_PROGRESS_SPINNER_TYPE = 'line-spin-fade' as const;
+const CACHE_DETECT_SPINNER_TYPE = 'ball-pulse-sync' as const;
 
 const CLOSE_SAVE_SPINNER = {
   fullScreen: false as const,
@@ -101,6 +102,14 @@ const CLOSE_SAVE_SPINNER = {
   size: 'small' as const,
   color: 'var(--bs-btn-color, #fff)',
   type: PLAN_PROGRESS_SPINNER_TYPE,
+};
+
+const CACHE_DETECT_SPINNER = {
+  fullScreen: false as const,
+  bdColor: 'rgba(0,0,0,0)',
+  size: 'small' as const,
+  color: 'var(--t-primary)',
+  type: CACHE_DETECT_SPINNER_TYPE,
 };
 
 const TALK_SILENCE_THRESHOLD_MIN = 0.5;
@@ -154,6 +163,13 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly closeSaving = signal(false);
   protected readonly closeSpinnerName = `settings-close-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
+  protected readonly cacheDetectSpinnerName = `settings-cache-detect-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly migratableModelsSpinnerName = `settings-migratable-models-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
+  protected readonly modelManagerCacheLoading = signal(false);
+  protected readonly modelManagerLocalLoading = signal(false);
+  protected readonly modelManagerMigratableLoading = signal(false);
   /**
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
@@ -500,6 +516,18 @@ export class Settings implements OnInit, OnDestroy {
       const saving = this.closeSaving();
       untracked(() => this.scheduleCloseSpinnerSync(saving));
     });
+    effect(() => {
+      const loading = this.modelManagerCacheLoading();
+      untracked(() => this.scheduleNamedSpinnerSync(this.cacheDetectSpinnerName, loading));
+    });
+    effect(() => {
+      const loading = this.modelManagerLocalLoading();
+      untracked(() => this.scheduleNamedSpinnerSync(this.localModelsSpinnerName, loading));
+    });
+    effect(() => {
+      const loading = this.modelManagerMigratableLoading();
+      untracked(() => this.scheduleNamedSpinnerSync(this.migratableModelsSpinnerName, loading));
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -517,6 +545,9 @@ export class Settings implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     void this.ngxSpinner.hide(this.closeSpinnerName);
+    void this.ngxSpinner.hide(this.cacheDetectSpinnerName);
+    void this.ngxSpinner.hide(this.localModelsSpinnerName);
+    void this.ngxSpinner.hide(this.migratableModelsSpinnerName);
     this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty) {
@@ -643,6 +674,22 @@ export class Settings implements OnInit, OnDestroy {
           void this.ngxSpinner.show(this.closeSpinnerName, CLOSE_SAVE_SPINNER);
         } else {
           void this.ngxSpinner.hide(this.closeSpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
+  }
+
+  private scheduleNamedSpinnerSync(name: string, show: boolean): void {
+    afterNextRender(
+      () => {
+        if (this.destroyed) {
+          return;
+        }
+        if (show) {
+          void this.ngxSpinner.show(name, CACHE_DETECT_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(name);
         }
       },
       { injector: this.inj },
@@ -1227,12 +1274,21 @@ export class Settings implements OnInit, OnDestroy {
     return new Date(modifiedMs).toLocaleString();
   }
 
-  protected updateModelManagerConfig(changes: Partial<{ customModelsDir: string; huggingFaceToken: string }>): void {
+  protected updateModelManagerConfig(
+    changes: Partial<{
+      customModelsDir: string;
+      huggingFaceToken: string;
+      detectedCaches: ModelManagerCacheLocation[];
+    }>,
+  ): void {
     if (changes.customModelsDir !== undefined) {
       this.modelManagerCustomDir.set(changes.customModelsDir);
     }
     if (changes.huggingFaceToken !== undefined) {
       this.modelManagerHfToken.set(changes.huggingFaceToken);
+    }
+    if (changes.detectedCaches !== undefined) {
+      this.modelManagerCacheLocations.set(changes.detectedCaches);
     }
     this.markSettingsDirty();
   }
@@ -1247,13 +1303,36 @@ export class Settings implements OnInit, OnDestroy {
     this.modelManagerStatus.set('Custom model directory updated.');
   }
 
-  protected async refreshModelManagerData(options?: { clearStatus?: boolean }): Promise<void> {
+  protected async refreshModelManagerData(options?: {
+    clearStatus?: boolean;
+    /** When true, re-run filesystem cache-root detection and persist results. */
+    forceDetectCaches?: boolean;
+  }): Promise<void> {
     if (options?.clearStatus !== false) {
       this.modelManagerStatus.set('');
     }
-    await this.refreshCustomModelCards();
-    await this.refreshDetectedCaches();
-    await this.refreshCacheCandidates();
+    const needDetect =
+      options?.forceDetectCaches === true || this.modelManagerCacheLocations().length === 0;
+
+    const refreshCacheSide = async (): Promise<void> => {
+      if (needDetect) {
+        // Show cache spinner before detect IPC so the host can mount/paint.
+        this.modelManagerCacheLoading.set(true);
+        const cacheLoadStartedAt = Date.now();
+        try {
+          await this.refreshDetectedCaches({ persist: true });
+        } finally {
+          const elapsed = Date.now() - cacheLoadStartedAt;
+          if (elapsed < 350) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
+          }
+          this.modelManagerCacheLoading.set(false);
+        }
+      }
+      await this.refreshCacheCandidates();
+    };
+
+    await Promise.all([this.refreshCustomModelCards(), refreshCacheSide()]);
   }
 
   protected async refreshCustomModelCards(): Promise<void> {
@@ -1262,7 +1341,8 @@ export class Settings implements OnInit, OnDestroy {
       this.modelManagerCustomModels.set([]);
       return;
     }
-    this.modelManagerBusy.set(true);
+    this.modelManagerLocalLoading.set(true);
+    const startedAt = Date.now();
     try {
       const res = await this.electron.modelManagerListCustomModels({ customDir: dir });
       if (res.ok) {
@@ -1277,18 +1357,30 @@ export class Settings implements OnInit, OnDestroy {
         this.modelManagerStatus.set(res.error);
       }
     } finally {
-      this.modelManagerBusy.set(false);
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 350) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
+      }
+      this.modelManagerLocalLoading.set(false);
     }
   }
 
-  protected async refreshDetectedCaches(): Promise<void> {
+  protected async refreshDetectedCaches(options?: { persist?: boolean }): Promise<void> {
     const res = await this.electron.modelManagerDetectCaches();
     if (!res.ok) {
       this.modelManagerStatus.set(res.error);
-      this.modelManagerCacheLocations.set([]);
+      if (options?.persist) {
+        this.updateModelManagerConfig({ detectedCaches: [] });
+      } else {
+        this.modelManagerCacheLocations.set([]);
+      }
       return;
     }
-    this.modelManagerCacheLocations.set(res.caches);
+    if (options?.persist) {
+      this.updateModelManagerConfig({ detectedCaches: res.caches });
+    } else {
+      this.modelManagerCacheLocations.set(res.caches);
+    }
   }
 
   protected async refreshCacheCandidates(): Promise<void> {
@@ -1299,13 +1391,23 @@ export class Settings implements OnInit, OnDestroy {
       this.modelManagerCacheCandidates.set([]);
       return;
     }
-    const res = await this.electron.modelManagerListCacheCandidates({ cachePaths: existingCaches });
-    if (!res.ok) {
-      this.modelManagerStatus.set(res.error);
-      this.modelManagerCacheCandidates.set([]);
-      return;
+    this.modelManagerMigratableLoading.set(true);
+    const startedAt = Date.now();
+    try {
+      const res = await this.electron.modelManagerListCacheCandidates({ cachePaths: existingCaches });
+      if (!res.ok) {
+        this.modelManagerStatus.set(res.error);
+        this.modelManagerCacheCandidates.set([]);
+        return;
+      }
+      this.modelManagerCacheCandidates.set(res.models);
+    } finally {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 350) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
+      }
+      this.modelManagerMigratableLoading.set(false);
     }
-    this.modelManagerCacheCandidates.set(res.models);
   }
 
   protected isCacheModelMigrating(model: ModelManagerFileEntry): boolean {
@@ -2149,6 +2251,7 @@ export class Settings implements OnInit, OnDestroy {
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
         huggingFaceToken: this.modelManagerHfToken(),
+        detectedCaches: this.modelManagerCacheLocations().map((cache) => ({ ...cache })),
       },
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
@@ -2229,6 +2332,11 @@ export class Settings implements OnInit, OnDestroy {
       );
       this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
       this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
+      this.modelManagerCacheLocations.set(
+        Array.isArray(config.modelManager.detectedCaches)
+          ? config.modelManager.detectedCaches.map((cache) => ({ ...cache }))
+          : [],
+      );
       return;
     }
 
@@ -2308,6 +2416,11 @@ export class Settings implements OnInit, OnDestroy {
 
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
     this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
+    this.modelManagerCacheLocations.set(
+      Array.isArray(config.modelManager.detectedCaches)
+        ? config.modelManager.detectedCaches.map((cache) => ({ ...cache }))
+        : [],
+    );
 
     const currentSelected = this.selectedModelId();
     const selectedStillValid =

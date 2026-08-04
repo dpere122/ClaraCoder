@@ -953,7 +953,12 @@
               <button type='button' class='action-button action-button--compact action-button--primary' (click)='pickModelManagerCustomDir()'>
                 Choose
               </button>
-              <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='refreshModelManagerData()'>
+              <button
+                type='button'
+                class='action-button action-button--compact'
+                [disabled]='modelManagerBusy() || modelManagerCacheLoading() || modelManagerLocalLoading() || modelManagerMigratableLoading()'
+                (click)='refreshModelManagerData({ forceDetectCaches: true })'
+              >
                 Refresh
               </button>
             </div>
@@ -967,31 +972,57 @@
           <details class='model-manager-accordion'>
             <summary>
               Local models
-              <span class='pill'>{{ modelManagerCustomModels().length }}</span>
+              @if (modelManagerLocalLoading()) {
+                <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
+              } @else {
+                <span class='pill'>{{ modelManagerCustomModels().length }}</span>
+              }
             </summary>
             <div class='model-card-list'>
-              @for (model of modelManagerCustomModels(); track model.absolutePath) {
-                <article class='model-card'>
-                  <div class='model-card__main'>
-                    <div class='model-card__head'>
-                      <strong>{{ model.fileName }}</strong>
-                      <span class='pill'>{{ model.source }}</span>
-                      @if (model.entryKind === 'hubRepo') {
-                        <span class='pill'>hub</span>
-                      }
-                      <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+              <div
+                class='cache-location-loading'
+                [class.is-active]='modelManagerLocalLoading()'
+                role='status'
+                aria-live='polite'
+                [attr.aria-hidden]='modelManagerLocalLoading() ? null : "true"'
+                [attr.aria-label]='modelManagerLocalLoading() ? "Loading local models" : null'
+              >
+                <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                  <ngx-spinner
+                    [name]='localModelsSpinnerName'
+                    [type]='cacheDetectSpinnerType'
+                    [fullScreen]='false'
+                    bdColor='rgba(0,0,0,0)'
+                    size='small'
+                    color='var(--t-primary)'
+                  ></ngx-spinner>
+                </span>
+                <p class='settings-copy'>Loading local models…</p>
+              </div>
+              @if (!modelManagerLocalLoading()) {
+                @for (model of modelManagerCustomModels(); track model.absolutePath) {
+                  <article class='model-card'>
+                    <div class='model-card__main'>
+                      <div class='model-card__head'>
+                        <strong>{{ model.fileName }}</strong>
+                        <span class='pill'>{{ model.source }}</span>
+                        @if (model.entryKind === 'hubRepo') {
+                          <span class='pill'>hub</span>
+                        }
+                        <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+                      </div>
+                      <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
                     </div>
-                    <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                    <div class='model-card__actions'>
+                      <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
+                      <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
+                    </div>
+                  </article>
+                } @empty {
+                  <div class='empty-state empty-state--compact'>
+                    <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
                   </div>
-                  <div class='model-card__actions'>
-                    <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
-                    <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
-                  </div>
-                </article>
-              } @empty {
-                <div class='empty-state empty-state--compact'>
-                  <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
-                </div>
+                }
               }
             </div>
           </details>
@@ -1004,57 +1035,105 @@
             <h5>Cache migration</h5>
             <p class='settings-copy'>Copy or move detected HF cache repos into your custom directory.</p>
           </div>
-          <div class='cache-location-list'>
-            @for (cache of modelManagerCacheLocations(); track cache.path) {
-              <div class='cache-location-row'>
-                <div class='cache-location-row__main'>
-                  <strong>{{ cache.label }}</strong>
-                  <p class='settings-copy model-card__path'>{{ cache.path }}</p>
+          <div class='cache-location-list' [class.cache-location-list--loading]='modelManagerCacheLoading()'>
+            <div
+              class='cache-location-loading'
+              [class.is-active]='modelManagerCacheLoading()'
+              role='status'
+              aria-live='polite'
+              [attr.aria-hidden]='modelManagerCacheLoading() ? null : "true"'
+              [attr.aria-label]='modelManagerCacheLoading() ? "Detecting cache paths" : null'
+            >
+              <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                <ngx-spinner
+                  [name]='cacheDetectSpinnerName'
+                  [type]='cacheDetectSpinnerType'
+                  [fullScreen]='false'
+                  bdColor='rgba(0,0,0,0)'
+                  size='small'
+                  color='var(--t-primary)'
+                ></ngx-spinner>
+              </span>
+              <p class='settings-copy'>Detecting cache paths…</p>
+            </div>
+            @if (!modelManagerCacheLoading()) {
+              @for (cache of modelManagerCacheLocations(); track cache.path) {
+                <div class='cache-location-row'>
+                  <div class='cache-location-row__main'>
+                    <strong>{{ cache.label }}</strong>
+                    <p class='settings-copy model-card__path'>{{ cache.path }}</p>
+                  </div>
+                  <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Missing' }}</span>
                 </div>
-                <span class='pill' [class.pill--success]='cache.exists'>{{ cache.exists ? 'Detected' : 'Missing' }}</span>
-              </div>
-            } @empty {
-              <p class='settings-copy'>No cache paths detected.</p>
+              } @empty {
+                <p class='settings-copy'>No cache paths detected.</p>
+              }
             }
           </div>
           <details class='model-manager-accordion'>
             <summary>
               Migratable models
-              <span class='pill'>{{ modelManagerCacheCandidates().length }}</span>
+              @if (modelManagerMigratableLoading()) {
+                <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
+              } @else {
+                <span class='pill'>{{ modelManagerCacheCandidates().length }}</span>
+              }
             </summary>
             <div class='model-card-list'>
-              @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
-                <article class='model-card'>
-                  <div class='model-card__main'>
-                    <div class='model-card__head'>
-                      <strong>{{ model.fileName }}</strong>
-                      <span class='pill'>cache</span>
-                      @if (model.entryKind === 'hubRepo') {
-                        <span class='pill'>hub</span>
-                      }
-                      <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
-                    </div>
-                    <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
-                  </div>
-                  <div class='model-card__actions'>
-                    @if (isCacheModelMigrating(model)) {
-                      <div class='model-migrate-progress' role='status'>
-                        @if (modelManagerMigrateIndeterminate()) {
-                          <progress class='model-migrate-progress__bar' max='100'></progress>
-                        } @else {
-                          <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
+              <div
+                class='cache-location-loading'
+                [class.is-active]='modelManagerMigratableLoading()'
+                role='status'
+                aria-live='polite'
+                [attr.aria-hidden]='modelManagerMigratableLoading() ? null : "true"'
+                [attr.aria-label]='modelManagerMigratableLoading() ? "Loading migratable models" : null'
+              >
+                <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                  <ngx-spinner
+                    [name]='migratableModelsSpinnerName'
+                    [type]='cacheDetectSpinnerType'
+                    [fullScreen]='false'
+                    bdColor='rgba(0,0,0,0)'
+                    size='small'
+                    color='var(--t-primary)'
+                  ></ngx-spinner>
+                </span>
+                <p class='settings-copy'>Loading migratable models…</p>
+              </div>
+              @if (!modelManagerMigratableLoading()) {
+                @for (model of modelManagerCacheCandidates(); track model.absolutePath) {
+                  <article class='model-card'>
+                    <div class='model-card__main'>
+                      <div class='model-card__head'>
+                        <strong>{{ model.fileName }}</strong>
+                        <span class='pill'>cache</span>
+                        @if (model.entryKind === 'hubRepo') {
+                          <span class='pill'>hub</span>
                         }
-                        <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
+                        <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
                       </div>
-                    } @else {
-                      <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate</button>
-                    }
+                      <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                    </div>
+                    <div class='model-card__actions'>
+                      @if (isCacheModelMigrating(model)) {
+                        <div class='model-migrate-progress' role='status'>
+                          @if (modelManagerMigrateIndeterminate()) {
+                            <progress class='model-migrate-progress__bar' max='100'></progress>
+                          } @else {
+                            <progress class='model-migrate-progress__bar' max='100' [value]='modelManagerMigratePercent()'></progress>
+                          }
+                          <span class='settings-copy model-migrate-progress__label'>{{ modelManagerMigratePhaseLabel() }}</span>
+                        </div>
+                      } @else {
+                        <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='migrateCacheModel(model)'>Migrate</button>
+                      }
+                    </div>
+                  </article>
+                } @empty {
+                  <div class='empty-state empty-state--compact'>
+                    <p>No cache models found in detected locations.</p>
                   </div>
-                </article>
-              } @empty {
-                <div class='empty-state empty-state--compact'>
-                  <p>No cache models found in detected locations.</p>
-                </div>
+                }
               }
             </div>
           </details>

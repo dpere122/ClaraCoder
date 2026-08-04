@@ -95,6 +95,9 @@ async function syncWatchedWorkspaceTree(
                 watcherState.exposeAllWorkspaceFiles,
               )
             : { paths: [] as string[], kinds: [] as WorkspaceChangeKind[] };
+        const cfg = await loadConfig();
+        const wsRec = cfg.workspaces.find((w) => w.id === watcherState.workspaceId);
+        const pyId = (wsRec?.pythonInterpreterId ?? '').trim();
         await syncWorkspaceContextToPython(
           mainState.activeConversationId,
           watcherState.workspacePath,
@@ -108,6 +111,7 @@ async function syncWatchedWorkspaceTree(
                 contextChanges.paths.length > 0 || contextChanges.kinds.length > 0
                   ? { paths: contextChanges.paths, kinds: contextChanges.kinds }
                   : undefined,
+              ...(pyId ? { pythonInterpreterId: pyId } : {}),
             },
           ),
         );
@@ -431,11 +435,14 @@ export async function syncConversationWorkspaceContext(conv: ConversationFile): 
           ? aw.lastTree ||
             (await buildWatchedContextSnapshot(workspace.path, stagingPath, aw.exposeAllWorkspaceFiles))
           : await buildWatchedContextSnapshot(workspace.path, stagingPath, exposeAll);
+      const pyId = (workspace.pythonInterpreterId ?? '').trim();
       await syncWorkspaceContextToPython(
         conv.id,
         workspace.path,
         tree,
-        workspaceContextSyncExtras(conv.id, workspace.id, workspace.path),
+        workspaceContextSyncExtras(conv.id, workspace.id, workspace.path, {
+          ...(pyId ? { pythonInterpreterId: pyId } : {}),
+        }),
       );
       return;
     }

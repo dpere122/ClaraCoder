@@ -1859,6 +1859,45 @@ export class ElectronService {
     this.api?.closeHealthWindow();
   }
 
+  depsList(): Promise<{
+    ok: boolean;
+    dependencies: import('@shared/index').DependencyInfo[];
+    error?: string;
+    warning?: string;
+  }> {
+    return (
+      this.api?.depsList() ?? Promise.resolve({ ok: false, dependencies: [], error: 'No Electron API' })
+    );
+  }
+
+  depsInstall(depId: import('@shared/index').DependencyId) {
+    return this.api?.depsInstall(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  depsReinstall(depId: import('@shared/index').DependencyId) {
+    return this.api?.depsReinstall(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  depsDelete(depId: import('@shared/index').DependencyId) {
+    return this.api?.depsDelete(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  openDependenciesWindow(): void {
+    this.api?.openDependenciesWindow();
+  }
+
+  closeDependenciesWindow(): void {
+    this.api?.closeDependenciesWindow();
+  }
+
+  onDepsProgress(callback: (data: import('@shared/index').DependencyProgressEvent) => void): () => void {
+    const handler = (_event: unknown, data: import('@shared/index').DependencyProgressEvent) => {
+      this.zone.run(() => callback(data));
+    };
+    this.api?.onDepsProgress?.(handler);
+    return () => this.api?.offDepsProgress?.(handler);
+  }
+
   popupFileMenu(x: number, y: number): Promise<void> {
     return this.api?.popupFileMenu(x, y) ?? Promise.resolve();
   }

@@ -4,6 +4,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { existsSync, promises as fs } from 'fs';
 import * as net from 'net';
+import path = require('path');
 
 import type {
   AppConfig,
@@ -25,7 +26,13 @@ import {
 import { loadConfigSync } from './config/load-save';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
-import { getGemma4ChatTemplatePath, getQwenInferenceChatTemplatePath } from './paths';
+import {
+  getGemma4ChatTemplatePath,
+  getManagedLlamaServerPath,
+  getQwenInferenceChatTemplatePath,
+  getRuntimeBinDir,
+} from './paths';
+import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 
 type StreamKind = 'chat' | 'embed';
@@ -182,6 +189,12 @@ function modelManagerForManagedLlamaSpawn(config: AppConfig): AppConfig['modelMa
 
 function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  // Prefer managed runtime/bin when the shell resolves a bare ``llama-server``.
+  const runtimeBin = getRuntimeBinDir();
+  const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
+  const prevPath = env[pathKey] || env.PATH || '';
+  env[pathKey] = prevPath ? `${runtimeBin}${path.delimiter}${prevPath}` : runtimeBin;
+  env.PATH = env[pathKey];
   const mm = modelManagerForManagedLlamaSpawn(config);
   const customDir = mm.customModelsDir.trim();
   if (customDir) {
@@ -268,9 +281,17 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     return { ok: false, error: 'Missing llamaCppManaged profile.' };
   }
 
-  let chatCmd = (managed.chatRunCommand || '').trim();
+  const managedLlamaBin = getManagedLlamaServerPath();
+  let chatCmd = rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin);
   if (!chatCmd) {
     return { ok: false, error: 'chatRunCommand is empty.' };
+  }
+  if (/^(["']?)llama-server(?:\.exe)?\1(\s|$)/i.test(chatCmd) && !managedLlamaBin) {
+    return {
+      ok: false,
+      error:
+        'llama-server is not installed. Open File → Dependencies and download “llama-server”, or set a full path in the run command.',
+    };
   }
 
   if (loc.model.optimizationPreset === 'qwen') {
@@ -297,7 +318,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
 
   const chatPort = await pickPort();
   let embedPort: number | undefined;
-  const embedCmd = (managed.embeddingRunCommand || '').trim();
+  const embedCmd = rewriteManagedLlamaCommand((managed.embeddingRunCommand || '').trim(), managedLlamaBin);
   if (embedCmd) {
     embedPort = await pickPort();
     if (embedPort === chatPort) {

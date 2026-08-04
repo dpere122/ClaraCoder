@@ -12,7 +12,6 @@ import shutil
 import shlex
 import subprocess
 import sys
-import tempfile
 import tarfile
 import time
 import urllib.error
@@ -28,6 +27,7 @@ __all__ = [
     'build_java_lsp_command',
     'ensure_jdtls_product_dir',
     'get_java_lsp_cache_dir',
+    'get_jdtls_product_dir_if_ready',
     'resolve_java_executable',
 ]
 
@@ -43,12 +43,15 @@ class JavaLspSetupError(RuntimeError):
 
 
 def get_java_lsp_cache_dir() -> Path:
-    """Return the JDT LS cache root (``CLARA_JAVA_LSP_CACHE_DIR`` or a temp fallback)."""
+    """Return the JDT LS cache root (``CLARA_JAVA_LSP_CACHE_DIR`` or runtime/java-lsp)."""
 
     raw = env_clara('CLARA_JAVA_LSP_CACHE_DIR', '').strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return (Path(tempfile.gettempdir()) / 'nemo-java-lsp').resolve()
+    # Same fallback as deps framework — never the old ``nemo-java-lsp`` temp dir.
+    from clara_coder_backend.runtime.deps.paths import get_runtime_java_lsp_dir
+
+    return get_runtime_java_lsp_dir()
 
 
 def resolve_java_executable() -> Path:
@@ -358,11 +361,28 @@ def build_java_initialization_options() -> dict:
     }
 
 
+def get_jdtls_product_dir_if_ready() -> Path | None:
+    """Return a cached JDT LS product when already installed; do not download."""
+
+    cache = get_java_lsp_cache_dir()
+    version = resolve_jdtls_milestone()
+    product_dir = cache / 'jdtls' / version
+    ready_marker = product_dir / '.nemo-ready'
+    if ready_marker.is_file() and _product_looks_valid(product_dir):
+        return product_dir
+    jdtls_root = cache / 'jdtls'
+    if jdtls_root.is_dir():
+        for child in sorted(jdtls_root.iterdir(), reverse=True):
+            if (child / '.nemo-ready').is_file() and _product_looks_valid(child):
+                return child
+    return None
+
+
 def build_java_lsp_command(project_root: Path) -> list[str]:
     """Return argv to run Eclipse JDT LS over stdio for ``project_root``.
 
-    ``CLARA_JAVA_LSP_COMMAND`` may override the default (skips download). When unset,
-    Nemo ensures a cached JDT LS product and launches it with the host JDK.
+    ``CLARA_JAVA_LSP_COMMAND`` may override the default. When unset, uses a JDT LS
+    product already installed via File → Dependencies (does not auto-download).
     """
 
     root = Path(project_root).resolve()
@@ -373,7 +393,12 @@ def build_java_lsp_command(project_root: Path) -> list[str]:
         return cmd
 
     java_bin = resolve_java_executable()
-    product_dir = ensure_jdtls_product_dir()
+    product_dir = get_jdtls_product_dir_if_ready()
+    if product_dir is None:
+        raise JavaLspSetupError(
+            'Java LSP (JDT LS) is not installed. Open File → Dependencies and download '
+            '“Java LSP (JDT LS)”, then retry.'
+        )
     launcher = _find_equinox_launcher(product_dir)
     if launcher is None:
         raise JavaLspSetupError(f'No Equinox launcher jar under {product_dir / "plugins"}')

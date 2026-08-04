@@ -4,6 +4,7 @@ import { mainState } from '../state';
 import { getRecentConversations } from './recent-conversations';
 import { createSettingsWindow } from '../windows/settings-window';
 import { createHealthWindow } from '../windows/health-window';
+import { createDependenciesWindow } from '../windows/dependencies-window';
 
 function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions[] {
   const recentConversations = getRecentConversations(5);
@@ -38,6 +39,10 @@ function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions[] {
       label: 'Settings',
       accelerator: 'CmdOrCtrl+,',
       click: () => createSettingsWindow(),
+    },
+    {
+      label: 'Dependencies',
+      click: () => createDependenciesWindow(),
     },
     {
       label: 'Health window',

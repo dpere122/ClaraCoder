@@ -110,13 +110,25 @@ npm test
 **Production-style build**
 
 ```bash
-npm run build
 npm run pack:dir
 ```
 
-Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
+`pack` / `pack:dir` run `bundle:python` first (downloads a portable CPython into `runtime-bundle/python/`), then compile and invoke electron-builder. Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
 
 On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` on Debian/Ubuntu. The AppImage needs FUSE 2 (`libfuse.so.2`); on Debian 13 / Ubuntu 24.04+ install `libfuse2t64` first, or run with `APPIMAGE_EXTRACT_AND_RUN=1`.
+
+**Dependencies window**
+
+After install (or in dev), open **File → Dependencies** to download optional runtime pieces into app data (`runtime/`):
+
+| Dependency | Purpose |
+| ---------- | ------- |
+| Python runtime | App-managed venv + core backend packages |
+| llama-server | Managed local llama.cpp binary (no system install required) |
+| Java LSP (JDT LS) | Eclipse JDT Language Server for Java |
+| Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
+
+Heavy pieces are on-demand; the packaged app ships a minimal portable Python plus the backend sources.
 
 ---
 
@@ -129,7 +141,8 @@ On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` 
 | --------------------------- | ------------------------------------------------------ |
 | `npm run dev`               | Development (UI + Electron + Python backend)           |
 | `npm run build`             | Compile main process + Angular for production          |
-| `npm run pack`              | Build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
+| `npm run pack`              | Bundle portable Python + build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
+| `npm run bundle:python`     | Fetch portable CPython into `runtime-bundle/python/`   |
 | `npm run setup:python`      | Create `.venv` if needed; install deps + GPU PyTorch + Kokoro |
 | `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
 | `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |

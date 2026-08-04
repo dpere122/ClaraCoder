@@ -27,6 +27,12 @@ def test_get_java_lsp_cache_dir_from_env(tmp_path: Path, monkeypatch: pytest.Mon
     assert get_java_lsp_cache_dir() == cache.resolve()
 
 
+def test_get_java_lsp_cache_dir_defaults_to_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('CLARA_JAVA_LSP_CACHE_DIR', raising=False)
+    monkeypatch.setenv('CLARA_RUNTIME_DIR', str(tmp_path / 'runtime'))
+    assert get_java_lsp_cache_dir() == (tmp_path / 'runtime' / 'java-lsp').resolve()
+
+
 def test_build_java_lsp_command_uses_cached_product(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -71,10 +77,34 @@ def test_build_java_lsp_command_uses_cached_product(
 def test_build_java_lsp_command_missing_jdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv('CLARA_JAVA_LSP_COMMAND', raising=False)
     monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(tmp_path / 'cache'))
+    monkeypatch.setenv('CLARA_JAVA_LSP_VERSION', '1.60.0')
     monkeypatch.delenv('JAVA_HOME', raising=False)
     monkeypatch.setattr(java_server.shutil, 'which', lambda _name: None)
 
+    # Product present so the failure is the JDK check, not "not installed".
+    product = tmp_path / 'cache' / 'jdtls' / '1.60.0'
+    plugins = product / 'plugins'
+    config = product / 'config_linux'
+    plugins.mkdir(parents=True)
+    config.mkdir(parents=True)
+    (plugins / 'org.eclipse.equinox.launcher_1.6.900.v20240613-2000.jar').write_bytes(b'jar')
+    (product / '.nemo-ready').write_text('1.60.0\n', encoding='utf-8')
+    monkeypatch.setattr(java_server, '_platform_config_dirname', lambda: 'config_linux')
+
     with pytest.raises(JavaLspSetupError, match='JDK 21'):
+        build_java_lsp_command(tmp_path)
+
+
+def test_build_java_lsp_command_missing_product(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('CLARA_JAVA_LSP_COMMAND', raising=False)
+    monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(tmp_path / 'cache'))
+    fake_java = tmp_path / 'jdk' / 'bin' / 'java'
+    fake_java.parent.mkdir(parents=True)
+    fake_java.write_text('#!/bin/sh\n', encoding='utf-8')
+    fake_java.chmod(0o755)
+    monkeypatch.setattr(java_server, 'resolve_java_executable', lambda: fake_java.resolve())
+
+    with pytest.raises(JavaLspSetupError, match='Dependencies'):
         build_java_lsp_command(tmp_path)
 
 

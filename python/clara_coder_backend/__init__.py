@@ -12,4 +12,8 @@ from __future__ import annotations
 __version__ = '0.1.0'
 
 # Side effect: reasoning_content compatibility for LangChain OpenAI chat models.
-import clara_coder_backend.llm.langchain_compat  # noqa: F401
+# Optional during bootstrap with bare portable Python (deps CLI before venv exists).
+try:
+    import clara_coder_backend.llm.langchain_compat  # noqa: F401
+except ImportError:
+    pass

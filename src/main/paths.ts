@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, renameSync, cpSync, rmSync, readdirSync } from 'fs';
 import { app } from 'electron';
 import path = require('path');
 import { GEMMA4_CHAT_TEMPLATE_FILENAME } from '../shared/gemma-template';
@@ -90,9 +90,87 @@ export function getWorkspaceSemanticIndexDir(): string {
   return path.join(getAppDataDir(), 'workspace-semantic-index');
 }
 
-/** Eclipse JDT LS download cache (Python ``CLARA_JAVA_LSP_CACHE_DIR``). */
+/** Root for managed runtime dependencies (Python ``CLARA_RUNTIME_DIR``). */
+export function getRuntimeDir(): string {
+  return path.join(getAppDataDir(), 'runtime');
+}
+
+/** App-managed Python venv under the runtime dir. */
+export function getRuntimePythonDir(): string {
+  return path.join(getRuntimeDir(), 'python-venv');
+}
+
+/** Downloaded binaries (e.g. llama-server) under the runtime dir. */
+export function getRuntimeBinDir(): string {
+  return path.join(getRuntimeDir(), 'bin');
+}
+
+/** True when a JDT LS product ready-marker exists under ``cacheRoot/jdtls/``. */
+function javaLspCacheHasReadyProduct(cacheRoot: string): boolean {
+  const jdtls = path.join(cacheRoot, 'jdtls');
+  if (!existsSync(jdtls)) return false;
+  try {
+    for (const name of readdirSync(jdtls)) {
+      if (existsSync(path.join(jdtls, name, '.nemo-ready'))) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/**
+ * Canonical Eclipse JDT LS cache: ``{appData}/runtime/java-lsp``.
+ * One-time migrate from legacy ``{appData}/java-lsp`` when that tree has a ready product.
+ */
 export function getJavaLspCacheDir(): string {
-  return path.join(getAppDataDir(), 'java-lsp');
+  const runtimeJava = path.join(getRuntimeDir(), 'java-lsp');
+  const legacy = path.join(getAppDataDir(), 'java-lsp');
+  if (!javaLspCacheHasReadyProduct(runtimeJava) && javaLspCacheHasReadyProduct(legacy)) {
+    try {
+      mkdirSync(getRuntimeDir(), { recursive: true });
+      if (existsSync(runtimeJava)) {
+        rmSync(runtimeJava, { recursive: true, force: true });
+      }
+      try {
+        renameSync(legacy, runtimeJava);
+      } catch {
+        cpSync(legacy, runtimeJava, { recursive: true });
+        rmSync(legacy, { recursive: true, force: true });
+      }
+      console.log(`[app-data] Migrated Java LSP cache ${legacy} → ${runtimeJava}`);
+    } catch (err) {
+      console.warn('[app-data] Java LSP cache migrate failed:', err);
+      if (javaLspCacheHasReadyProduct(legacy)) return legacy;
+    }
+  }
+  return runtimeJava;
+}
+
+/** Portable CPython shipped with the packaged app (`extraResources/runtime-python`). */
+export function getBundledPythonExecutable(): string | null {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime-python')
+    : path.join(__dirname, '..', '..', 'runtime-bundle', 'python');
+  const unix = path.join(base, 'bin', 'python3');
+  const win = path.join(base, 'python.exe');
+  if (existsSync(unix)) return unix;
+  if (existsSync(win)) return win;
+  // python-build-standalone layout: install/bin/python3
+  const unixInstall = path.join(base, 'install', 'bin', 'python3');
+  const winInstall = path.join(base, 'install', 'python.exe');
+  if (existsSync(unixInstall)) return unixInstall;
+  if (existsSync(winInstall)) return winInstall;
+  return null;
+}
+
+function runtimeVenvPython(): string | null {
+  const root = getRuntimePythonDir();
+  const unix = path.join(root, 'bin', 'python');
+  const win = path.join(root, 'Scripts', 'python.exe');
+  if (existsSync(unix)) return unix;
+  if (existsSync(win)) return win;
+  return null;
 }
 
 /**
@@ -136,12 +214,19 @@ export function getGemma4ChatTemplatePath(): string {
 }
 
 /**
- * Interpreter for `server.py`. In dev, uses repo `.venv` when present so launches match
- * `npm run setup:python`. Optional override: `CLARA_PYTHON` (absolute path to executable).
+ * Interpreter for `server.py`.
+ * Order: ``CLARA_PYTHON`` → runtime app-data venv → bundled portable Python →
+ * (dev) repo ``.venv`` → system ``python`` / ``python3``.
  */
 export function getPythonExecutable(): string {
   const fromEnv = envClara('PYTHON');
   if (fromEnv) return fromEnv;
+
+  const runtimePy = runtimeVenvPython();
+  if (runtimePy) return runtimePy;
+
+  const bundled = getBundledPythonExecutable();
+  if (bundled) return bundled;
 
   if (!app.isPackaged) {
     const scriptPath = getPythonServerScriptPath();
@@ -153,4 +238,11 @@ export function getPythonExecutable(): string {
   }
 
   return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+/** Absolute path to managed llama-server when installed under runtime/bin. */
+export function getManagedLlamaServerPath(): string | null {
+  const name = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+  const p = path.join(getRuntimeBinDir(), name);
+  return existsSync(p) ? p : null;
 }

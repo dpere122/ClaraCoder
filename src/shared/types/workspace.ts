@@ -9,7 +9,10 @@ export interface Workspace {
   name: string;
   path: string;
   createdAt: string;
-  /** Stable id from Python discovery (`app-backend`, `.venv`, …); drives Jedi/LSP analysis env. */
+  /**
+   * Stable id from Python discovery (`runtime-venv`, `app-backend`, `dot-venv`, …);
+   * drives Jedi/LSP analysis env. Empty/unset → app default (`runtime-venv` when installed).
+   */
   pythonInterpreterId?: string;
   /**
    * Basename of the file last copied into the managed app-data system prompt

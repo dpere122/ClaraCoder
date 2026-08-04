@@ -21,6 +21,7 @@ from clara_coder_backend.workspace_index.lifecycle import (
 from clara_coder_backend.lsp.manager import shutdown_session_python_lsp
 from clara_coder_backend.runtime.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
 from clara_coder_backend.runtime.python_interpreter_select import (
+    apply_default_workspace_python_interpreter,
     apply_python_interpreter_entry,
     discover_workspace_python_interpreters,
     find_interpreter_entry_by_id,
@@ -187,6 +188,11 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
                 result.ok,
                 result.project_root_label or '(none)',
             )
+    elif not skip_env and not (sess.python_workspace_python_executable or '').strip():
+        # Default: Clara runtime venv (or app-backend) — user override via python_interpreter_id.
+        entry = apply_default_workspace_python_interpreter(sess, Path(new_path))
+        if entry is not None:
+            shutdown_session_python_lsp(request.session_id)
     return {'ok': True}
 
 

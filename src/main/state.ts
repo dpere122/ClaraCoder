@@ -20,6 +20,7 @@ export const mainState = {
   mainWindow: null as BrowserWindow | null,
   settingsWindow: null as BrowserWindow | null,
   healthWindow: null as BrowserWindow | null,
+  dependenciesWindow: null as BrowserWindow | null,
   pythonProcess: null as ChildProcess | null,
   activeConversationId: null as string | null,
   activeConversationWorkspaceId: null as string | null,

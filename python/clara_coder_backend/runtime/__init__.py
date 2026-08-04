@@ -7,4 +7,5 @@ Modules
 ``python_interpreter_select`` — choose interpreter for tools/LSP
 ``subprocess_smoke`` — short subprocess smoke checks
 ``http_url_normalize`` — normalize OpenAI-compatible base URLs
+``deps`` — managed app dependencies (Python runtime, llama-server, JDT LS, Kokoro)
 """

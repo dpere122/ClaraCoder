@@ -25,6 +25,7 @@ from clara_coder_backend.routes.build_plan import router as build_plan_router
 from clara_coder_backend.routes.chat import router as chat_router
 from clara_coder_backend.routes.checkpoint import router as checkpoint_router
 from clara_coder_backend.routes.conversation_title import router as conversation_title_router
+from clara_coder_backend.routes.deps import router as deps_router
 from clara_coder_backend.routes.log import router as log_router
 from clara_coder_backend.routes.lsp import router as lsp_router
 from clara_coder_backend.routes.runtime import router as runtime_router
@@ -49,6 +50,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title='Clara Coder LangChain Backend', lifespan=_lifespan)
 app.include_router(runtime_router)
+app.include_router(deps_router)
 app.include_router(session_router)
 app.include_router(chat_router)
 app.include_router(conversation_title_router)

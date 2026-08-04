@@ -61,7 +61,7 @@ function findArtifacts(outDir) {
   if (!fs.existsSync(outDir)) return [];
   const out = [];
   for (const ent of fs.readdirSync(outDir, { withFileTypes: true })) {
-    if (ent.isFile() && /\.(exe|msi|dmg|AppImage)$/i.test(ent.name)) {
+    if (ent.isFile() && /\.(exe|msi|dmg|AppImage|deb|zip)$/i.test(ent.name)) {
       out.push(path.join(outDir, ent.name));
     }
   }

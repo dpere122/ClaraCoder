@@ -86,6 +86,10 @@ async def tts(http_request: Request, request: TtsRequest) -> StreamingResponse:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            # Missing optional Kokoro install — point at Dependencies window.
+            logger.warning('Kokoro TTS unavailable: %s', exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
             logger.warning('Kokoro TTS failed: %s', exc)
             raise HTTPException(status_code=503, detail=f'TTS synthesis failed: {exc}') from exc

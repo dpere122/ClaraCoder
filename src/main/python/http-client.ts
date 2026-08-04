@@ -20,6 +20,12 @@ const pythonControlHttpAgent = new Agent({
   headersTimeout: 60_000,
 });
 
+/** Long installs (deps / pip) — no body timeout. */
+const pythonLongHttpAgent = new Agent({
+  bodyTimeout: 0,
+  headersTimeout: 120_000,
+});
+
 /** Undici `fetch` vs `@types/node` `fetch` typings differ; callers use standard Response fields only. */
 type WebResponse = Awaited<ReturnType<typeof undiciFetch>>;
 
@@ -27,6 +33,22 @@ export async function pythonControlFetch(urlPath: string, init?: RequestInit): P
   return undiciFetch(joinPythonUrl(urlPath), {
     ...(init ?? {}),
     dispatcher: pythonControlHttpAgent,
+  } as never);
+}
+
+/** Long-running JSON POSTs (dependency install/reinstall). */
+export async function pythonLongFetch(urlPath: string, init?: RequestInit): Promise<WebResponse> {
+  return undiciFetch(joinPythonUrl(urlPath), {
+    ...(init ?? {}),
+    dispatcher: pythonLongHttpAgent,
+  } as never);
+}
+
+/** Long-lived SSE GET (dependency progress). */
+export async function pythonSseGet(urlPath: string, init?: RequestInit): Promise<WebResponse> {
+  return undiciFetch(joinPythonUrl(urlPath), {
+    ...(init ?? {}),
+    dispatcher: pythonSseHttpAgent,
   } as never);
 }
 

@@ -247,7 +247,9 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
     assert 'deps-ready' in result.summary
 
 
-def test_set_workspace_context_defers_python_env_until_bootstrap_flag(monkeypatch, tmp_path: Path) -> None:
+def test_set_workspace_context_applies_default_then_honors_bootstrap_flag(
+    monkeypatch, tmp_path: Path
+) -> None:
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
     session_id = 'python-env-route'
@@ -284,6 +286,13 @@ def test_set_workspace_context_defers_python_env_until_bootstrap_flag(monkeypatc
             )
         )
     )
+    session = get_session(session_id)
+    assert session.workspace_path == str(workspace_root.resolve())
+    # Default attach applies app-backend / runtime without creating a workspace .venv.
+    assert (session.python_workspace_python_executable or '').strip()
+    assert session.python_interpreter_choice_id in ('runtime-venv', 'app-backend')
+    assert calls == []
+
     asyncio.run(
         set_workspace_context(
             WorkspaceContextRequest(
@@ -294,9 +303,6 @@ def test_set_workspace_context_defers_python_env_until_bootstrap_flag(monkeypatc
             )
         )
     )
-
-    session = get_session(session_id)
-    assert session.workspace_path == str(workspace_root.resolve())
     assert calls == []
 
     asyncio.run(

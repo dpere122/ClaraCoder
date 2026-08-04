@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -28,6 +29,9 @@ from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_r
 from clara_coder_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, list_session_diagnostics
 from clara_coder_backend.lsp.registry import lsp_server_id_is_registered
 from clara_coder_backend.runtime.python_env import ensure_session_python_workspace_env
+from clara_coder_backend.runtime.python_interpreter_select import (
+    apply_default_workspace_python_interpreter,
+)
 from clara_coder_backend.session.state import get_session
 from clara_coder_backend.tools.lsp_tools import _format_hover_contents
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
@@ -43,7 +47,11 @@ async def _bootstrap_python_env_if_needed(session_id: str, *, server: str | None
     sess = get_session(session_id)
     if (sess.python_workspace_python_executable or '').strip():
         return
-    if not (sess.workspace_path or '').strip():
+    wp = (sess.workspace_path or '').strip()
+    if not wp:
+        return
+    # Prefer Clara runtime / app-backend before creating a workspace-local .venv.
+    if apply_default_workspace_python_interpreter(sess, Path(wp)) is not None:
         return
     await ensure_session_python_workspace_env(
         sess,

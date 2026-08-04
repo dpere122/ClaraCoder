@@ -10,6 +10,9 @@ import {
   getLogsDir,
   getPythonExecutable,
   getPythonServerScriptPath,
+  getRuntimeBinDir,
+  getRuntimeDir,
+  getRuntimePythonDir,
   getWorkspaceSemanticIndexDir,
   getWorkspaceStagingDir,
 } from '../paths';
@@ -63,6 +66,34 @@ export async function ensurePythonServer(): Promise<void> {
 }
 
 /**
+ * Kill the managed sidecar (if any) and start a fresh process using the current
+ * ``getPythonExecutable()`` (so post-install runtime venv / Kokoro is picked up).
+ */
+export async function restartPythonServer(): Promise<void> {
+  const proc = mainState.pythonProcess;
+  if (proc && !proc.killed) {
+    console.log('[Python] Restarting sidecar to pick up runtime changes…');
+    try {
+      proc.kill();
+    } catch {
+      /* ignore */
+    }
+    mainState.pythonProcess = null;
+    // Brief pause so the port is released before re-bind.
+    await new Promise((r) => setTimeout(r, 400));
+  } else {
+    mainState.pythonProcess = null;
+  }
+  // If another orphan still holds the port, wait for it to die or reuse after kill attempt.
+  for (let i = 0; i < 20; i++) {
+    if (!(await isPythonHealthy())) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  const next = startPythonServer();
+  await waitForPython(next);
+}
+
+/**
  * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
  * Returns the child process (existing or newly spawned) so callers can detect early exit.
  */
@@ -77,12 +108,17 @@ export function startPythonServer(): ChildProcess {
   const checkpointDb = getCheckpointDbPath();
   const workspaceSemanticIndexDir = getWorkspaceSemanticIndexDir();
   const javaLspCacheDir = getJavaLspCacheDir();
+  const runtimeDir = getRuntimeDir();
   mkdirSync(logDir, { recursive: true });
   mkdirSync(stagingDir, { recursive: true });
   mkdirSync(workspaceSemanticIndexDir, { recursive: true });
   mkdirSync(javaLspCacheDir, { recursive: true });
+  mkdirSync(runtimeDir, { recursive: true });
+  mkdirSync(getRuntimeBinDir(), { recursive: true });
+  // Do not mkdir python-venv here — an empty dir can confuse install/status; deps install creates it.
   mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
+  console.log(`[Python] Spawning sidecar: ${pythonCmd}`);
   mainState.pythonProcess = spawn(pythonCmd, ['-u', scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
@@ -93,6 +129,9 @@ export function startPythonServer(): ChildProcess {
       CLARA_CHECKPOINT_DB: checkpointDb,
       CLARA_WORKSPACE_INDEX_DIR: workspaceSemanticIndexDir,
       CLARA_JAVA_LSP_CACHE_DIR: javaLspCacheDir,
+      CLARA_RUNTIME_DIR: runtimeDir,
+      CLARA_RUNTIME_PYTHON_DIR: getRuntimePythonDir(),
+      CLARA_RUNTIME_BIN_DIR: getRuntimeBinDir(),
     },
   });
 

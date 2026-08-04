@@ -3,6 +3,10 @@
  * No Node or Electron imports — safe to import from any compilation unit.
  */
 export type { Workspace } from './types/workspace';
+export {
+  APP_BACKEND_INTERPRETER_ID,
+  RUNTIME_VENV_INTERPRETER_ID,
+} from './python-interpreter-ids';
 export type { ComposerBackendMode, ComposerRunMode } from './types/composer-mode';
 export {
   COMPOSER_RUN_MODES,
@@ -289,3 +293,18 @@ export type {
   ModelManagerMigrateProgressPhase,
   ModelManagerMutationResult,
 } from './types/model-manager';
+export type {
+  DependencyActionResult,
+  DependencyId,
+  DependencyInfo,
+  DependencyProgressEvent,
+  DependencyProgressPhase,
+  DependencyState,
+} from './types/dependencies';
+export {
+  DEPENDENCY_IDS,
+  DEPENDENCY_LABELS,
+  DEPENDENCY_DESCRIPTIONS,
+  DEPENDENCY_SIZE_HINTS,
+  defaultDependencyCatalog,
+} from './types/dependencies';

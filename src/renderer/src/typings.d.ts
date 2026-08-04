@@ -720,6 +720,29 @@ declare global {
     onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) => void;
     openHealthWindow: () => void;
     closeHealthWindow: () => void;
+    depsList: () => Promise<{
+      ok: boolean;
+      dependencies: import('@shared/index').DependencyInfo[];
+      error?: string;
+      warning?: string;
+    }>;
+    depsInstall: (
+      depId: import('@shared/index').DependencyId,
+    ) => Promise<import('@shared/index').DependencyActionResult>;
+    depsReinstall: (
+      depId: import('@shared/index').DependencyId,
+    ) => Promise<import('@shared/index').DependencyActionResult>;
+    depsDelete: (
+      depId: import('@shared/index').DependencyId,
+    ) => Promise<import('@shared/index').DependencyActionResult>;
+    openDependenciesWindow: () => void;
+    closeDependenciesWindow: () => void;
+    onDepsProgress: (
+      callback: (event: unknown, data: import('@shared/index').DependencyProgressEvent) => void,
+    ) => void;
+    offDepsProgress: (
+      callback: (event: unknown, data: import('@shared/index').DependencyProgressEvent) => void,
+    ) => void;
     popupFileMenu: (x: number, y: number) => Promise<void>;
     popupHelpMenu: (x: number, y: number) => Promise<void>;
     windowMinimize: () => void;

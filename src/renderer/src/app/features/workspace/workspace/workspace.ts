@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
-import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
+import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
@@ -589,8 +589,9 @@ export class WorkspaceComponent implements OnDestroy {
         rows.some((r) => r.id === res.activeInterpreterId)
       ) {
         pick = res.activeInterpreterId;
-      } else if (rows.length > 0) {
-        pick = rows[0].id;
+      } else {
+        const runtime = rows.find((r) => r.id === RUNTIME_VENV_INTERPRETER_ID);
+        pick = runtime?.id ?? rows[0]?.id ?? '';
       }
       this.pythonInterpreterSelectedId.set(pick);
       if (!res.ok && res.error) {

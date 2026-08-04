@@ -28,6 +28,11 @@ extraResources:
     to: LLM_Templates
     filter:
       - "**/*"
+  # Portable CPython from `npm run bundle:python` (python-build-standalone).
+  - from: runtime-bundle/python
+    to: runtime-python
+    filter:
+      - "**/*"
 
 asarUnpack:
   - "**/node_modules/node-pty/**/*"

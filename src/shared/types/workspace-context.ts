@@ -40,6 +40,10 @@ export interface WorkspaceContextSyncExtras {
   workspaceId?: string;
   workspaceFileChanges?: WorkspaceFileChangesForSync;
   /** When set, applies this interpreter to the session (LSP env); persisted per workspace in config. */
+  /**
+   * Preferred interpreter discovery id (`runtime-venv`, `app-backend`, `dot-venv`, …).
+   * When omitted, the backend applies the app runtime venv default.
+   */
   pythonInterpreterId?: string;
   /** When true, run Python env bootstrap on attach (LSP warm path). */
   bootstrapPythonEnv?: boolean;

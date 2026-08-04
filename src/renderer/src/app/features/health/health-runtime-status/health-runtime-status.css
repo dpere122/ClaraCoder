@@ -1,0 +1,120 @@
+:host {
+  display: block;
+  -webkit-app-region: no-drag;
+}
+
+.runtime-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+}
+
+.runtime-status__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runtime-status__titles {
+  min-width: 0;
+}
+
+.runtime-status__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-fg);
+}
+
+.runtime-status__hint {
+  margin: 4px 0 0;
+  color: var(--t-text-muted);
+  line-height: 1.4;
+  font-size: 12px;
+}
+
+.runtime-status__hint code {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--t-primary) 75%, var(--t-fg));
+}
+
+.runtime-status__btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 70%, transparent);
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.runtime-status__btn:hover {
+  background: var(--t-hover-bg);
+}
+
+.runtime-status__btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.runtime-status__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.runtime-status__chips--stale {
+  opacity: 0.72;
+}
+
+.runtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 55%, transparent);
+  font-size: 12px;
+}
+
+.runtime-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--t-text-muted);
+  flex-shrink: 0;
+}
+
+.runtime-chip__label {
+  font-weight: 600;
+  color: var(--t-fg);
+}
+
+.runtime-chip__detail {
+  color: var(--t-text-muted);
+}
+
+.runtime-chip[data-tone='ok'] .runtime-chip__dot {
+  background: color-mix(in srgb, #3dcc7a 85%, var(--t-primary));
+}
+
+.runtime-chip[data-tone='warn'] .runtime-chip__dot {
+  background: #e0a84a;
+}
+
+.runtime-chip[data-tone='error'] .runtime-chip__dot {
+  background: #e05a5a;
+}
+
+.runtime-chip[data-tone='muted'] .runtime-chip__dot {
+  background: var(--t-text-muted);
+}

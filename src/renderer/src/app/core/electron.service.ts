@@ -18,6 +18,7 @@ import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
   HealthMonitorConfig,
+  RuntimeHealthSnapshot,
   LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -1383,6 +1384,10 @@ export class ElectronService {
 
   healthMetrics(): Promise<HealthMetricsSnapshot | null> {
     return this.api?.healthMetrics() ?? Promise.resolve(null);
+  }
+
+  healthRuntimeSnapshot(): Promise<RuntimeHealthSnapshot | null> {
+    return this.api?.healthRuntimeSnapshot?.() ?? Promise.resolve(null);
   }
 
   getLspDashboardStatus(

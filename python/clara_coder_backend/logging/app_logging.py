@@ -117,6 +117,10 @@ def configure_logging(log_dir: Path | None = None) -> Path:
     clara.addHandler(fh)
     clara.addHandler(ring)
 
+    # Mute uvicorn access by default — LSP diagnostics-generation polls ~1Hz and
+    # otherwise flood Electron's [Python] console. Raise via set_clara_log_level('DEBUG').
+    set_clara_log_level('INFO')
+
     _configured = True
     clara.info('Logging initialized (dir=%s)', log_dir)
     return log_dir

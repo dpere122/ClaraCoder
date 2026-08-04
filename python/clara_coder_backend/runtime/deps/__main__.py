@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 
 def _emit_progress(payload: dict) -> None:
@@ -16,6 +17,7 @@ def _emit_progress(payload: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from clara_coder_backend.logging.app_logging import configure_logging
     from clara_coder_backend.runtime.deps.progress import PROGRESS
     from clara_coder_backend.runtime.deps.registry import (
         DEPENDENCY_IDS,
@@ -24,6 +26,10 @@ def main(argv: list[str] | None = None) -> int:
         list_dependencies,
         reinstall_dependency,
     )
+    from clara_coder_backend.session.config import env_clara
+
+    raw_log = env_clara('CLARA_LOG_DIR', '').strip()
+    configure_logging(Path(raw_log) if raw_log else None)
 
     parser = argparse.ArgumentParser(prog='clara-deps')
     parser.add_argument('action', choices=('list', 'install', 'reinstall', 'delete', 'status'))

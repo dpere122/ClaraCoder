@@ -32,8 +32,20 @@ import {
   getQwenInferenceChatTemplatePath,
   getRuntimeBinDir,
 } from './paths';
+import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
+
+const LLAMA_LOGGER = 'clara.electron.llama';
+
+function logLlamaLifecycle(level: string, message: string): void {
+  if (level === 'WARNING' || level === 'ERROR') {
+    console.warn(`[llama] ${message}`);
+  } else {
+    console.log(`[llama] ${message}`);
+  }
+  void ingestElectronLog(level, LLAMA_LOGGER, message, 'electron');
+}
 
 type StreamKind = 'chat' | 'embed';
 
@@ -264,6 +276,21 @@ function attachLlamaStreams(
       code,
       signal: signal != null ? String(signal) : null,
     });
+    // Chat death ends the managed pair. Intentional stop deletes from ``running`` first
+    // so this path only runs on unexpected exit (or a race after stop).
+    if (which === 'chat') {
+      const st = running.get(modelId);
+      if (st && st.chatProc === proc) {
+        invalidateManagedStatusCache(modelId);
+        running.delete(modelId);
+        killProcessTree(st.embedProc);
+        sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
+        logLlamaLifecycle(
+          'WARNING',
+          `chat llama-server exited modelId=${modelId} code=${code} signal=${signal ?? ''}`,
+        );
+      }
+    }
   });
 }
 
@@ -341,6 +368,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   }
 
   sendToRenderer('llama-server-lifecycle', { phase: 'starting', modelId });
+  logLlamaLifecycle('INFO', `starting managed llama-server modelId=${modelId}`);
 
   const logBuf: StreamBuf = { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
   let embedProc: ChildProcess | undefined;
@@ -379,15 +407,13 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     if (chatWait !== 'ok') {
       killProcessTree(chatProc);
       if (chatWait === 'exited') {
-        return {
-          ok: false,
-          error: shortEarlyExitError('Chat', chatProc, logBuf, 'chat'),
-        };
+        const error = shortEarlyExitError('Chat', chatProc, logBuf, 'chat');
+        logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${error}`);
+        return { ok: false, error };
       }
-      return {
-        ok: false,
-        error: `Chat llama-server did not become healthy in time (no HTTP 200 from http://${chatHost}:${chatPort}/health). See the llama.cpp server terminal tab for output.`,
-      };
+      const error = `Chat llama-server did not become healthy in time (no HTTP 200 from http://${chatHost}:${chatPort}/health). See the llama.cpp server terminal tab for output.`;
+      logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${error}`);
+      return { ok: false, error };
     }
 
     running.set(modelId, {
@@ -447,9 +473,15 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
 
     await syncWithManagedLlamaOverrides(config);
     sendToRenderer('llama-server-lifecycle', { phase: 'running', modelId });
+    logLlamaLifecycle(
+      'INFO',
+      `running managed llama-server modelId=${modelId} chat=${chatHost}:${chatPort}` +
+        (embedPort != null ? ` embedPort=${embedPort}` : ''),
+    );
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${msg}`);
     stopManagedLlamaServers(modelId);
     return { ok: false, error: msg };
   }
@@ -536,10 +568,78 @@ export function stopManagedLlamaServers(modelId: string): void {
     return;
   }
   invalidateManagedStatusCache(modelId);
+  // Remove before kill so the chat ``exit`` handler does not double-emit lifecycle.
+  running.delete(modelId);
   sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
+  logLlamaLifecycle('INFO', `stopped managed llama-server modelId=${modelId}`);
   killProcessTree(st.embedProc);
   killProcessTree(st.chatProc);
-  running.delete(modelId);
+}
+
+/** Drop map entries whose chat process has already exited (belt-and-suspenders). */
+function pruneDeadManagedLlamaEntries(): void {
+  for (const [modelId, st] of [...running.entries()]) {
+    if (!childHasExited(st.chatProc)) {
+      continue;
+    }
+    invalidateManagedStatusCache(modelId);
+    running.delete(modelId);
+    killProcessTree(st.embedProc);
+    sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
+    logLlamaLifecycle('WARNING', `pruned dead managed llama-server modelId=${modelId}`);
+  }
+}
+
+function healthSeverity(h: ManagedServerHealthState): number {
+  switch (h) {
+    case 'error':
+      return 3;
+    case 'loading':
+      return 2;
+    case 'ok':
+      return 1;
+    case 'stopped':
+    default:
+      return 0;
+  }
+}
+
+/** Aggregate view for Health window (no modelId required). */
+export type ManagedLlamaRuntimeSummary = {
+  binaryInstalled: boolean;
+  runningCount: number;
+  health: ManagedServerHealthState;
+  modelIds: string[];
+};
+
+/** Worst chat /health among live managed servers; prunes crashed chat procs first. */
+export async function summarizeManagedLlamaRuntime(): Promise<ManagedLlamaRuntimeSummary> {
+  pruneDeadManagedLlamaEntries();
+  const binaryInstalled = !!getManagedLlamaServerPath();
+  const entries = [...running.entries()];
+  if (entries.length === 0) {
+    return { binaryInstalled, runningCount: 0, health: 'stopped', modelIds: [] };
+  }
+  const healths = await Promise.all(
+    entries.map(async ([, st]): Promise<ManagedServerHealthState> => {
+      if (childHasExited(st.chatProc)) {
+        return 'error';
+      }
+      return probeOnce(st.chatHost, st.chatPort);
+    }),
+  );
+  let worst: ManagedServerHealthState = 'ok';
+  for (const h of healths) {
+    if (healthSeverity(h) > healthSeverity(worst)) {
+      worst = h;
+    }
+  }
+  pruneDeadManagedLlamaEntries();
+  const modelIds = [...running.keys()];
+  if (modelIds.length === 0) {
+    return { binaryInstalled, runningCount: 0, health: 'stopped', modelIds };
+  }
+  return { binaryInstalled, runningCount: modelIds.length, health: worst, modelIds };
 }
 
 export function stopAllManagedLlamaServers(): void {

@@ -51,6 +51,11 @@
   line-height: 1.45;
 }
 
+.health-copy code {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--t-primary) 75%, var(--t-fg));
+}
+
 .health-close-btn {
   -webkit-app-region: no-drag;
   flex-shrink: 0;

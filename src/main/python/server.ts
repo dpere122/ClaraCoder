@@ -142,7 +142,7 @@ export function startPythonServer(): ChildProcess {
   mainState.pythonProcess.stderr?.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     console.log(`[Python] ${text}`);
-    void ingestElectronLog('INFO', 'nemo.electron.python.stderr', text, 'electron');
+    void ingestElectronLog('INFO', 'clara.electron.python.stderr', text, 'electron');
   });
 
   mainState.pythonProcess.on('close', (code) => {

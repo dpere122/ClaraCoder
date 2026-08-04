@@ -1,8 +1,13 @@
 import * as http from 'http';
 import { ipcMain, type WebContents } from 'electron';
 import * as si from 'systeminformation';
-import type { HealthLogRecord, HealthMetricsSnapshot } from '../../../shared';
+import type { HealthLogRecord, HealthMetricsSnapshot, RuntimeHealthSnapshot } from '../../../shared';
+import { defaultDependencyCatalog } from '../../../shared';
 import { PYTHON_PORT } from '../../constants';
+import { summarizeManagedLlamaRuntime } from '../../llama-server-manager';
+import { pythonControlFetch } from '../../python/http-client';
+import { isPythonHealthy } from '../../python/server';
+import { listDependencies } from '../../runtime/dependency-manager';
 
 const PYTHON_URL = `http://127.0.0.1:${PYTHON_PORT}`;
 
@@ -181,8 +186,53 @@ export async function collectHealthMetrics(): Promise<HealthMetricsSnapshot> {
   }
 }
 
+async function fetchActiveLspSessions(): Promise<number> {
+  try {
+    if (!(await isPythonHealthy())) return 0;
+    const res = await pythonControlFetch('/lsp/sessions');
+    if (!res.ok) return 0;
+    const body = (await res.json()) as { ok?: boolean; activeSessions?: number };
+    return typeof body.activeSessions === 'number' ? body.activeSessions : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function collectRuntimeHealthSnapshot(): Promise<RuntimeHealthSnapshot> {
+  const timestampMs = Date.now();
+  const [pythonHealthy, depsResult, llama, activeSessions] = await Promise.all([
+    isPythonHealthy(),
+    listDependencies().catch(() => ({
+      dependencies: defaultDependencyCatalog(),
+      error: 'list failed',
+    })),
+    summarizeManagedLlamaRuntime(),
+    fetchActiveLspSessions(),
+  ]);
+  const dependencies = depsResult.dependencies?.length
+    ? depsResult.dependencies
+    : defaultDependencyCatalog();
+  const javaDep = dependencies.find((d) => d.id === 'java-lsp');
+  return {
+    timestampMs,
+    python: { healthy: pythonHealthy },
+    dependencies,
+    llama: {
+      binaryInstalled: llama.binaryInstalled,
+      runningCount: llama.runningCount,
+      health: llama.health,
+    },
+    lsp: {
+      javaInstalled: javaDep?.state === 'installed',
+      activeSessions,
+    },
+  };
+}
+
 export function registerHealthIpc(): void {
   ipcMain.handle('health-metrics', async () => collectHealthMetrics());
+
+  ipcMain.handle('health-runtime-snapshot', async () => collectRuntimeHealthSnapshot());
 
   ipcMain.handle('health-logs-recent', async (_e, limit: number) => {
     try {

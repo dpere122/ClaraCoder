@@ -436,10 +436,22 @@ def build_workspace_python_env(
 
 
 def activate_process_workspace_python_env(venv_path: Path) -> None:
+    """Prefix process PATH with the venv bin dir (shared across sessions).
+
+    Idempotent: re-activating the same bin path is a no-op (startup often hits
+    workspace-context + LSP bootstrap concurrently for the same runtime venv).
+    """
     global _ACTIVE_PROCESS_PYTHON_BIN_PATH
 
     bin_path = str(workspace_python_bin_path(venv_path.parent))
+    venv_str = str(venv_path)
     with _PROCESS_PATH_LOCK:
+        if (
+            _ACTIVE_PROCESS_PYTHON_BIN_PATH
+            and os.path.normcase(_ACTIVE_PROCESS_PYTHON_BIN_PATH) == os.path.normcase(bin_path)
+            and os.environ.get('VIRTUAL_ENV') == venv_str
+        ):
+            return
         path_value = os.environ.get('PATH', '')
         if _ACTIVE_PROCESS_PYTHON_BIN_PATH:
             segments = [item for item in path_value.split(os.pathsep) if item]
@@ -450,7 +462,7 @@ def activate_process_workspace_python_env(venv_path: Path) -> None:
             ]
             path_value = os.pathsep.join(filtered)
         os.environ['PATH'] = _prefixed_path(path_value, bin_path)
-        os.environ['VIRTUAL_ENV'] = str(venv_path)
+        os.environ['VIRTUAL_ENV'] = venv_str
         os.environ.pop('PYTHONHOME', None)
         _ACTIVE_PROCESS_PYTHON_BIN_PATH = bin_path
     logger.info('activated workspace python PATH prefix=%s', bin_path)

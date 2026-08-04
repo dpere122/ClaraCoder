@@ -98,9 +98,11 @@ def status() -> dict:
 
 def install(*, force: bool = False) -> dict:
     tag = _pinned_tag()
+    logger.info('install llama-server tag=%s force=%s', tag, force)
     bin_dir = get_runtime_bin_dir()
     bin_path = llama_server_binary()
     if not force and bin_path.is_file() and read_ready_marker(bin_dir) == tag:
+        logger.info('llama-server already installed path=%s version=%s', bin_path, tag)
         PROGRESS.emit(DEP_ID, 'done', message='Already installed')
         return status()
 
@@ -137,6 +139,7 @@ def install(*, force: bool = False) -> dict:
         extract_archive(archive, extract_dir)
         found = _find_binary_in_tree(extract_dir)
         if not found:
+            logger.error('llama-server binary missing from archive %s', asset)
             raise RuntimeError(f'llama-server binary not found in {asset}')
         bin_dir.mkdir(parents=True, exist_ok=True)
         if bin_path.exists():
@@ -146,6 +149,7 @@ def install(*, force: bool = False) -> dict:
         write_ready_marker(bin_dir, tag)
         shutil.rmtree(extract_dir, ignore_errors=True)
 
+    logger.info('llama-server ready path=%s version=%s', bin_path, tag)
     PROGRESS.emit(DEP_ID, 'done', message='llama-server ready')
     return status()
 
@@ -153,6 +157,7 @@ def install(*, force: bool = False) -> dict:
 def delete() -> dict:
     bin_dir = get_runtime_bin_dir()
     bin_path = llama_server_binary()
+    logger.info('delete llama-server path=%s', bin_path)
     if bin_path.exists():
         bin_path.unlink(missing_ok=True)
     (bin_dir / READY_MARKER).unlink(missing_ok=True)

@@ -1,5 +1,10 @@
 import { ipcRenderer } from 'electron';
-import type { HealthLogRecord, HealthMetricsSnapshot, LspDashboardStatus } from '../../shared';
+import type {
+  HealthLogRecord,
+  HealthMetricsSnapshot,
+  LspDashboardStatus,
+  RuntimeHealthSnapshot,
+} from '../../shared';
 import type {
   LspEditorCodeActionIpc,
   LspEditorCodeLensIpc,
@@ -20,6 +25,8 @@ import type {
 /** LSP dashboard, editor features, and health metrics IPC. */
 export const lspHealthApi = {
   healthMetrics: () => ipcRenderer.invoke('health-metrics') as Promise<HealthMetricsSnapshot>,
+  healthRuntimeSnapshot: () =>
+    ipcRenderer.invoke('health-runtime-snapshot') as Promise<RuntimeHealthSnapshot>,
   getLspDashboardStatus: (sessionId: string) =>
     ipcRenderer.invoke('get-lsp-dashboard-status', sessionId) as Promise<
       { ok: true; status: LspDashboardStatus } | { ok: false; error: string }

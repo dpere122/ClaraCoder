@@ -26,7 +26,12 @@ from clara_coder_backend.lsp.editor_monaco import (
     _lsp_range_to_monaco_irange,
 )
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
-from clara_coder_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, list_session_diagnostics
+from clara_coder_backend.lsp.manager import (
+    count_active_lsp_sessions,
+    get_lsp_dashboard_status,
+    get_session_lsp_manager,
+    list_session_diagnostics,
+)
 from clara_coder_backend.lsp.registry import lsp_server_id_is_registered
 from clara_coder_backend.runtime.python_env import ensure_session_python_workspace_env
 from clara_coder_backend.runtime.python_interpreter_select import (
@@ -683,6 +688,13 @@ async def lsp_status(session_id: str) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get('/lsp/sessions')
+async def lsp_sessions() -> dict[str, object]:
+    """Lightweight count of active LSP session managers (Health aggregation)."""
+
+    return {'ok': True, **count_active_lsp_sessions()}
+
+
 def _lsp_warm_server_sync(session_id: str, server: str) -> dict[str, str]:
     srv = (server or '').strip().lower()
     if not lsp_server_id_is_registered(srv):
@@ -903,14 +915,17 @@ async def lsp_diagnostics_generation(
     relative_path: str,
     encoding: str = 'utf-8',
 ) -> dict[str, Any]:
-    """Lightweight poll endpoint for live diagnostics push (generation counter)."""
+    """Lightweight poll endpoint for live diagnostics push (generation counter).
+
+    Intentionally skips Python env bootstrap — polled ~1Hz from Electron; full
+    diagnostics / editor sync paths perform bootstrap when needed.
+    """
 
     try:
         validate_workspace_encoding(encoding)
         rel = (relative_path or '').strip().replace('\\', '/')
         if not rel:
             raise ValueError('relative_path is required.')
-        await _bootstrap_python_env_for_relative_path(session_id, rel)
         return await asyncio.to_thread(_lsp_diagnostics_generation_sync, session_id, rel)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

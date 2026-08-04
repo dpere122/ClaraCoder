@@ -14,6 +14,7 @@ import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme'
 import { ElectronService } from '../../../core/electron.service';
 import { HealthLogViewer } from '../health-log-viewer/health-log-viewer';
 import { HealthMetricsToggle } from '../health-metrics-toggle/health-metrics-toggle';
+import { HealthRuntimeStatus } from '../health-runtime-status/health-runtime-status';
 
 const MAX_POINTS = 36;
 
@@ -40,7 +41,7 @@ function cssColorToRgba(color: string, alpha: number): string {
 
 @Component({
   selector: 'app-health-monitor',
-  imports: [HealthLogViewer, HealthMetricsToggle],
+  imports: [HealthLogViewer, HealthMetricsToggle, HealthRuntimeStatus],
   templateUrl: './health-monitor.html',
   styleUrl: './health-monitor.css',
 })

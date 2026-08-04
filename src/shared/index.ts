@@ -275,7 +275,12 @@ export type {
   WorkspaceSystemPromptStatus,
   WorkspaceSystemPromptMutationResult,
 } from './types/workspace-context';
-export type { HealthLogLevel, HealthLogRecord, HealthMetricsSnapshot } from './types/health';
+export type {
+  HealthLogLevel,
+  HealthLogRecord,
+  HealthMetricsSnapshot,
+  RuntimeHealthSnapshot,
+} from './types/health';
 export {
   DEFAULT_THUMB_MAX_EDGE,
   computeThumbDimensions,

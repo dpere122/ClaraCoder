@@ -1,0 +1,23 @@
+<section class='runtime-status' aria-label='Runtime status'>
+  <div class='runtime-status__head'>
+    <div class='runtime-status__titles'>
+      <span class='runtime-status__label'>Runtime</span>
+      <p class='runtime-status__hint'>
+        Sidecar, managed dependencies, llama-server, and LSP.
+        Lifecycle logs use <code>clara.electron.deps</code> / <code>clara.runtime.deps.*</code>.
+      </p>
+    </div>
+    <button type='button' class='runtime-status__btn' (click)='openDependencies()'>
+      Open Dependencies
+    </button>
+  </div>
+  <div class='runtime-status__chips' [class.runtime-status__chips--stale]='stale()'>
+    @for (chip of chips(); track chip.key) {
+      <div class='runtime-chip' [attr.data-tone]='chip.tone'>
+        <span class='runtime-chip__dot' aria-hidden='true'></span>
+        <span class='runtime-chip__label'>{{ chip.label }}</span>
+        <span class='runtime-chip__detail'>{{ chip.detail }}</span>
+      </div>
+    }
+  </div>
+</section>

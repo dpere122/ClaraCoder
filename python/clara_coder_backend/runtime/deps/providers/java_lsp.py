@@ -78,19 +78,23 @@ def status() -> dict:
 
 def install(*, force: bool = False) -> dict:
     java_server = _java_server()
+    logger.info('install java-lsp force=%s', force)
     PROGRESS.emit(DEP_ID, 'downloading', message='Downloading Eclipse JDT LS…')
     _ensure_cache_env()
     try:
         product = java_server.ensure_jdtls_product_dir(force_download=force)
     except java_server.JavaLspSetupError as exc:
+        logger.error('java-lsp install failed: %s', exc)
         PROGRESS.emit(DEP_ID, 'error', message=str(exc))
         raise
+    logger.info('java-lsp ready path=%s', product)
     PROGRESS.emit(DEP_ID, 'done', message=f'Java LSP ready at {product}')
     return status()
 
 
 def delete() -> dict:
     cache = _ensure_cache_env()
+    logger.info('delete java-lsp cache=%s', cache)
     jdtls = cache / 'jdtls'
     if jdtls.exists():
         shutil.rmtree(jdtls, ignore_errors=True)

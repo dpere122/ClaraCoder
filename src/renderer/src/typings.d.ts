@@ -11,6 +11,7 @@ import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
   HealthMonitorConfig,
+  RuntimeHealthSnapshot,
   LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -485,6 +486,7 @@ declare global {
     ) => Promise<WorkspaceSystemPromptMutationResult>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
+    healthRuntimeSnapshot: () => Promise<RuntimeHealthSnapshot>;
     getLspDashboardStatus: (
       sessionId: string,
     ) => Promise<{ ok: true; status: LspDashboardStatus } | { ok: false; error: string }>;

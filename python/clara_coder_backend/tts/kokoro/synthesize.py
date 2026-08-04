@@ -101,4 +101,13 @@ def synthesize_wav_bytes(text: str, voice: str, speed: float) -> bytes:
     pcm = np.concatenate(chunks)
     buf = io.BytesIO()
     sf.write(buf, pcm, sample_rate, format='WAV', subtype='PCM_16')
-    return buf.getvalue()
+    wav = buf.getvalue()
+    logger.info(
+        'Kokoro synthesize ok voice=%s lang=%s speed=%s chars=%s bytes=%s',
+        voice,
+        lang,
+        speed,
+        len(text.strip()),
+        len(wav),
+    )
+    return wav

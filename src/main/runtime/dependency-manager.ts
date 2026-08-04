@@ -12,18 +12,21 @@ import type {
   DependencyProgressEvent,
 } from '../../shared';
 import { DEPENDENCY_IDS, defaultDependencyCatalog } from '../../shared';
+import { ingestElectronLog } from '../log-ingest';
 import { pythonControlFetch, pythonLongFetch, pythonSseGet } from '../python/http-client';
-import { isPythonHealthy } from '../python/server';
+import { isPythonHealthy, restartPythonServer } from '../python/server';
 import {
   getJavaLspCacheDir,
+  getLogsDir,
   getPythonExecutable,
   getPythonServerScriptPath,
   getRuntimeBinDir,
   getRuntimeDir,
   getRuntimePythonDir,
 } from '../paths';
-import { restartPythonServer } from '../python/server';
 import { mainState } from '../state';
+
+const DEPS_LOGGER = 'clara.electron.deps';
 
 function pythonPackageRoot(): string {
   return path.dirname(getPythonServerScriptPath());
@@ -44,7 +47,18 @@ function runtimeEnv(): NodeJS.ProcessEnv {
     CLARA_RUNTIME_BIN_DIR: getRuntimeBinDir(),
     // Same resolver as the sidecar (includes legacy → runtime migrate).
     CLARA_JAVA_LSP_CACHE_DIR: getJavaLspCacheDir(),
+    CLARA_LOG_DIR: getLogsDir(),
   };
+}
+
+function logDeps(level: string, message: string): void {
+  const line = `[deps] ${message}`;
+  if (level === 'WARNING' || level === 'ERROR') {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+  void ingestElectronLog(level, DEPS_LOGGER, message, 'electron');
 }
 
 /** Deps that change the interpreter / site-packages the FastAPI sidecar must reload. */
@@ -52,20 +66,25 @@ const SIDECAR_RESTART_DEPS = new Set<DependencyId>(['python-runtime', 'kokoro'])
 
 async function maybeRestartSidecar(depId: DependencyId, ok: boolean): Promise<void> {
   if (!ok || !SIDECAR_RESTART_DEPS.has(depId)) return;
+  logDeps('INFO', `Restarting Python sidecar after ${depId}…`);
   try {
     await restartPythonServer();
+    logDeps('INFO', `Python sidecar restarted after ${depId}`);
   } catch (err) {
-    console.warn(
-      '[deps] Sidecar restart after',
-      depId,
-      'failed:',
-      err instanceof Error ? err.message : err,
+    logDeps(
+      'WARNING',
+      `Sidecar restart after ${depId} failed: ${err instanceof Error ? err.message : err}`,
     );
   }
 }
 
 function broadcastProgress(payload: DependencyProgressEvent): void {
-  for (const win of [mainState.dependenciesWindow, mainState.mainWindow, mainState.settingsWindow]) {
+  for (const win of [
+    mainState.dependenciesWindow,
+    mainState.mainWindow,
+    mainState.settingsWindow,
+    mainState.healthWindow,
+  ]) {
     try {
       if (win && !win.isDestroyed()) {
         win.webContents.send('deps:progress', payload);
@@ -90,7 +109,7 @@ async function runDepsCli(
   const args = ['-m', 'clara_coder_backend.runtime.deps', action];
   if (depId) args.push(depId);
   const cwd = pythonPackageRoot();
-  console.log(`[deps] CLI ${action}${depId ? ` ${depId}` : ''} via ${py} (cwd=${cwd})`);
+  logDeps('INFO', `CLI ${action}${depId ? ` ${depId}` : ''} via ${py} (cwd=${cwd})`);
 
   return new Promise((resolve) => {
     const proc = spawn(py, args, {
@@ -126,7 +145,7 @@ async function runDepsCli(
       const last = lines[lines.length - 1];
       if (!last) {
         const err = stderr.trim() || `Dependency CLI exited ${code ?? '?'} with no output`;
-        console.warn('[deps] CLI failed:', err);
+        logDeps('WARNING', `CLI failed: ${err}`);
         resolve({ ok: false, error: err });
         return;
       }
@@ -137,7 +156,7 @@ async function runDepsCli(
       }
     });
     proc.on('error', (err) => {
-      console.warn('[deps] CLI spawn error:', err.message);
+      logDeps('WARNING', `CLI spawn error: ${err.message}`);
       resolve({ ok: false, error: err.message });
     });
   });
@@ -151,7 +170,7 @@ async function viaHttp<T extends { ok?: boolean }>(
   try {
     const res = await pythonControlFetch(pathSuffix, init);
     if (!res.ok) {
-      console.warn(`[deps] HTTP ${pathSuffix} → ${res.status}`);
+      logDeps('WARNING', `HTTP ${pathSuffix} → ${res.status}`);
       return null;
     }
     const body = (await res.json()) as T;
@@ -160,7 +179,7 @@ async function viaHttp<T extends { ok?: boolean }>(
     }
     return body;
   } catch (err) {
-    console.warn(`[deps] HTTP ${pathSuffix} failed:`, err instanceof Error ? err.message : err);
+    logDeps('WARNING', `HTTP ${pathSuffix} failed: ${err instanceof Error ? err.message : err}`);
     return null;
   }
 }
@@ -201,6 +220,69 @@ function startHttpProgressPump(signal: AbortSignal): void {
   })();
 }
 
+async function runInstallOrReinstall(
+  action: 'install' | 'reinstall',
+  depId: DependencyId,
+): Promise<DependencyActionResult> {
+  ensureRuntimeDirs();
+  const queuedMsg = action === 'reinstall' ? 'Reinstalling…' : 'Starting…';
+  broadcastProgress({ depId, phase: 'queued', message: queuedMsg });
+  logDeps('INFO', `${action} ${depId} starting`);
+  const ac = new AbortController();
+  startHttpProgressPump(ac.signal);
+  let result: DependencyActionResult;
+  try {
+    if (await isPythonHealthy()) {
+      try {
+        const res = await pythonLongFetch(`/runtime/deps/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depId }),
+        });
+        const http = (await res.json()) as DependencyActionResult;
+        if (http.ok) {
+          broadcastProgress({ depId, phase: 'done' });
+          result = http;
+        } else {
+          broadcastProgress({ depId, phase: 'error', message: http.error });
+          // Action failed in-process; still try CLI as a second path when HTTP returned ok:false
+          // only if the response looks like a transport/proxy failure — keep explicit provider errors.
+          result = http;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logDeps('WARNING', `HTTP ${action} ${depId} failed, falling back to CLI: ${msg}`);
+        const cli = await runDepsCli(action, depId);
+        result = {
+          ok: !!cli.ok,
+          error: cli.error || msg,
+          dependency: cli.dependency,
+        };
+        if (result.ok) broadcastProgress({ depId, phase: 'done' });
+        else broadcastProgress({ depId, phase: 'error', message: result.error });
+      }
+    } else {
+      const cli = await runDepsCli(action, depId);
+      result = {
+        ok: !!cli.ok,
+        error: cli.error,
+        dependency: cli.dependency,
+      };
+      if (result.ok) broadcastProgress({ depId, phase: 'done' });
+      else broadcastProgress({ depId, phase: 'error', message: result.error });
+    }
+  } finally {
+    ac.abort();
+  }
+  if (result.ok) {
+    logDeps('INFO', `${action} ${depId} succeeded`);
+  } else {
+    logDeps('ERROR', `${action} ${depId} failed: ${result.error ?? 'unknown error'}`);
+  }
+  await maybeRestartSidecar(depId, result.ok);
+  return result;
+}
+
 export async function listDependencies(): Promise<{
   dependencies: DependencyInfo[];
   error?: string;
@@ -220,96 +302,44 @@ export async function listDependencies(): Promise<{
     cli.error ||
     (http && !http.ok ? http.error : undefined) ||
     'Could not query dependency status; showing catalog defaults.';
-  console.warn('[deps] list falling back to catalog:', err);
+  logDeps('WARNING', `list falling back to catalog: ${err}`);
   return { dependencies: defaultDependencyCatalog(), error: err };
 }
 
 export async function installDependency(depId: DependencyId): Promise<DependencyActionResult> {
-  ensureRuntimeDirs();
-  broadcastProgress({ depId, phase: 'queued', message: 'Starting…' });
-  const ac = new AbortController();
-  startHttpProgressPump(ac.signal);
-  let result: DependencyActionResult;
-  try {
-    if (await isPythonHealthy()) {
-      try {
-        const res = await pythonLongFetch('/runtime/deps/install', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depId }),
-        });
-        const http = (await res.json()) as DependencyActionResult;
-        if (http.ok) broadcastProgress({ depId, phase: 'done' });
-        else broadcastProgress({ depId, phase: 'error', message: http.error });
-        result = http;
-      } catch (err) {
-        result = { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    } else {
-      const cli = await runDepsCli('install', depId);
-      result = {
-        ok: !!cli.ok,
-        error: cli.error,
-        dependency: cli.dependency,
-      };
-    }
-  } finally {
-    ac.abort();
-  }
-  await maybeRestartSidecar(depId, result.ok);
-  return result;
+  return runInstallOrReinstall('install', depId);
 }
 
 export async function reinstallDependency(depId: DependencyId): Promise<DependencyActionResult> {
-  ensureRuntimeDirs();
-  broadcastProgress({ depId, phase: 'queued', message: 'Reinstalling…' });
-  const ac = new AbortController();
-  startHttpProgressPump(ac.signal);
-  let result: DependencyActionResult;
-  try {
-    if (await isPythonHealthy()) {
-      try {
-        const res = await pythonLongFetch('/runtime/deps/reinstall', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depId }),
-        });
-        const http = (await res.json()) as DependencyActionResult;
-        if (http.ok) broadcastProgress({ depId, phase: 'done' });
-        else broadcastProgress({ depId, phase: 'error', message: http.error });
-        result = http;
-      } catch (err) {
-        result = { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    } else {
-      const cli = await runDepsCli('reinstall', depId);
-      result = {
-        ok: !!cli.ok,
-        error: cli.error,
-        dependency: cli.dependency,
-      };
-    }
-  } finally {
-    ac.abort();
-  }
-  await maybeRestartSidecar(depId, result.ok);
-  return result;
+  return runInstallOrReinstall('reinstall', depId);
 }
 
 export async function deleteDependency(depId: DependencyId): Promise<DependencyActionResult> {
   ensureRuntimeDirs();
+  logDeps('INFO', `delete ${depId} starting`);
   const http = await viaHttp<DependencyActionResult>('/runtime/deps/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ depId }),
   });
-  if (http) return http;
-  const cli = await runDepsCli('delete', depId);
-  return {
-    ok: !!cli.ok,
-    error: cli.error,
-    dependency: cli.dependency,
-  };
+  let result: DependencyActionResult;
+  if (http) {
+    result = http;
+  } else {
+    const cli = await runDepsCli('delete', depId);
+    result = {
+      ok: !!cli.ok,
+      error: cli.error,
+      dependency: cli.dependency,
+    };
+  }
+  if (result.ok) {
+    logDeps('INFO', `delete ${depId} succeeded`);
+  } else {
+    logDeps('ERROR', `delete ${depId} failed: ${result.error ?? 'unknown error'}`);
+  }
+  await maybeRestartSidecar(depId, result.ok);
+  return result;
 }
 
 export function isKnownDependencyId(id: string): id is DependencyId {

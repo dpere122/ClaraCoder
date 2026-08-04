@@ -3,10 +3,16 @@
     <div class='health-header__titles'>
       <p class='health-eyebrow'>Diagnostics</p>
       <h2>Health</h2>
-      <p class='health-copy'>Live system metrics and unified backend logs (saved under your app data → logs).</p>
+      <p class='health-copy'>
+        Runtime status, live system metrics, and unified logs (app data → logs).
+        Dependency and sidecar events appear under <code>clara.electron.deps</code> /
+        <code>clara.runtime.deps.*</code>.
+      </p>
     </div>
     <button type='button' class='health-close-btn' (click)='closeWindow()'>Close</button>
   </header>
+
+  <app-health-runtime-status />
 
   <app-health-metrics-toggle [enabled]='metricsEnabled()' (changed)='onMetricsToggle($event)' />
 

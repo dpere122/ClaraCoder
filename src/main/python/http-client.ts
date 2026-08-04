@@ -20,10 +20,10 @@ const pythonControlHttpAgent = new Agent({
   headersTimeout: 60_000,
 });
 
-/** Long installs (deps / pip) — no body timeout. */
+/** Long installs (deps / pip) — no body or headers timeout (Kokoro/pip can exceed minutes). */
 const pythonLongHttpAgent = new Agent({
   bodyTimeout: 0,
-  headersTimeout: 120_000,
+  headersTimeout: 0,
 });
 
 /** Undici `fetch` vs `@types/node` `fetch` typings differ; callers use standard Response fields only. */

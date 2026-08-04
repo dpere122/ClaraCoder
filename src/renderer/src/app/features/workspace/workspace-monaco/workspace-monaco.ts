@@ -301,6 +301,7 @@ export class WorkspaceMonacoComponent {
   private lspDiagnosticsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lspDiagnosticsUnsubscribe: (() => void) | null = null;
   private lastLspDiagnosticsGeneration = -1;
+  private lastLspDiagnosticsWatchKey = '';
   private readonly diagnosticsByModelKey = new Map<string, LspEditorDiagnostic[]>();
   private readonly activeDiagnostics = signal<readonly LspEditorDiagnostic[]>([]);
   private lspOutlineDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -415,6 +416,8 @@ export class WorkspaceMonacoComponent {
       }
       untracked(() => {
         this.setActiveDiagnostics(null, []);
+        this.lastLspDiagnosticsWatchKey = '';
+        this.lastLspDiagnosticsGeneration = -1;
         this.electron.lspDiagnosticsWatchStop();
       });
     });
@@ -542,6 +545,8 @@ export class WorkspaceMonacoComponent {
         clearTimeout(this.lspOutlineDebounceTimer);
         this.lspOutlineDebounceTimer = null;
       }
+      this.lastLspDiagnosticsWatchKey = '';
+      this.lastLspDiagnosticsGeneration = -1;
       this.electron.lspDiagnosticsWatchStop();
       this.mdPreviewContentDisposable?.dispose();
       this.mdPreviewContentDisposable = null;
@@ -1426,7 +1431,14 @@ export class WorkspaceMonacoComponent {
       onNavigateToWorkspaceFile: (p) => this.emitOutput(this.navigateWorkspaceFile, p),
       semanticLegendsByServer: this.semanticLegendsByServer,
     });
-    this.lspDiagnosticsUnsubscribe = this.electron.onLspDiagnosticsUpdated(() => {
+    this.lspDiagnosticsUnsubscribe = this.electron.onLspDiagnosticsUpdated((payload) => {
+      const rel = this.relativePath()?.trim();
+      if (!rel || normalizePathSlashes(rel) !== normalizePathSlashes(payload.relativePath)) {
+        return;
+      }
+      if (payload.generation === this.lastLspDiagnosticsGeneration) {
+        return;
+      }
       void this.refreshActiveLspDiagnostics(false);
     });
     this.editorReady.set(true);
@@ -1466,6 +1478,8 @@ export class WorkspaceMonacoComponent {
     const rel = this.relativePath()?.trim();
     if (!monacoApi || !ed || !sid || !rel || !lspServerKindForWorkspaceRelativePath(rel)) {
       this.setActiveDiagnostics(null, []);
+      this.lastLspDiagnosticsWatchKey = '';
+      this.lastLspDiagnosticsGeneration = -1;
       this.electron.lspDiagnosticsWatchStop();
       return;
     }
@@ -1473,11 +1487,18 @@ export class WorkspaceMonacoComponent {
     const modelKey = this.activeModelKey()?.trim();
     if (!model || !modelKey || model.uri.scheme !== 'clara-workspace') {
       this.setActiveDiagnostics(null, []);
+      this.lastLspDiagnosticsWatchKey = '';
+      this.lastLspDiagnosticsGeneration = -1;
       this.electron.lspDiagnosticsWatchStop();
       return;
     }
     const requestRel = normalizePathSlashes(rel);
     const requestKey = modelKey;
+    const watchKey = `${sid}\0${requestRel}`;
+    if (watchKey !== this.lastLspDiagnosticsWatchKey) {
+      this.lastLspDiagnosticsWatchKey = watchKey;
+      this.lastLspDiagnosticsGeneration = -1;
+    }
     this.electron.lspDiagnosticsWatchStart(sid, rel);
     const skipSync = !forceSync && !monacoModelNeedsLspDocumentSync(model);
     const res = await this.electron.lspEditorDiagnostics(

@@ -424,5 +424,9 @@ def build_java_lsp_command(project_root: Path) -> list[str]:
         '-data',
         str(data_dir),
     ]
-    logger.info('java LSP command project=%s command=%s', root, cmd)
+    logger.info(
+        'java LSP starting from installed product dir=%s project=%s',
+        product_dir,
+        root,
+    )
     return cmd

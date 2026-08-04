@@ -78,11 +78,13 @@ async def deps_delete(body: DepActionBody) -> dict[str, Any]:
 async def deps_progress_stream() -> StreamingResponse:
     """SSE stream of progress events for the Dependencies window."""
 
+    loop = asyncio.get_running_loop()
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
     def _on_progress(payload: dict[str, Any]) -> None:
+        # Providers emit from worker threads (asyncio.to_thread); bridge into the loop.
         try:
-            queue.put_nowait(payload)
+            loop.call_soon_threadsafe(queue.put_nowait, payload)
         except Exception:
             pass
 

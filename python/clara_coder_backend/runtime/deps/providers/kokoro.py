@@ -74,6 +74,7 @@ def status() -> dict:
 
 
 def install(*, force: bool = False) -> dict:
+    logger.info('install kokoro force=%s', force)
     # Ensure runtime venv exists first.
     rt = python_runtime_provider.status()
     if rt['state'] != 'installed':
@@ -87,6 +88,7 @@ def install(*, force: bool = False) -> dict:
     if not force and _marker_path().is_file():
         st = status()
         if st['state'] == 'installed':
+            logger.info('kokoro already installed path=%s version=%s', st.get('path'), st.get('version'))
             PROGRESS.emit(DEP_ID, 'done', message='Already installed')
             return st
 
@@ -140,6 +142,7 @@ def install(*, force: bool = False) -> dict:
         pass
 
     _marker_path().write_text('kokoro\n', encoding='utf-8')
+    logger.info('kokoro ready path=%s', py)
     PROGRESS.emit(DEP_ID, 'done', message='Kokoro TTS ready')
     return status()
 
@@ -147,6 +150,7 @@ def install(*, force: bool = False) -> dict:
 def delete() -> dict:
     py = venv_python()
     marker = _marker_path()
+    logger.info('delete kokoro path=%s', py)
     if py and py.is_file():
         PROGRESS.emit(DEP_ID, 'installing', message='Uninstalling Kokoro packages…')
         subprocess.run(

@@ -41,11 +41,17 @@ export function registerLspDiagnosticsWatchIpc(): void {
   ipcMain.on('lsp-diagnostics-watch-start', (_event, sessionId: unknown, relativePath: unknown) => {
     const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
     const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
+    // Idempotent for the active target: refresh paths call watch-start repeatedly, and
+    // resetting lastGeneration to -1 would re-emit lsp-diagnostics-updated → refresh loop.
+    if (sid && rel && sid === watchSessionId && rel === watchRelativePath && watchTimer !== null) {
+      return;
+    }
     watchSessionId = sid;
     watchRelativePath = rel;
     lastGeneration = -1;
     if (watchTimer !== null) {
       clearInterval(watchTimer);
+      watchTimer = null;
     }
     if (!sid || !rel) {
       return;

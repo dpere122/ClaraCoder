@@ -35,6 +35,7 @@ __all__ = [
     'diagnostics_cache_for_scope',
     'get_session_lsp_manager',
     'get_lsp_dashboard_status',
+    'count_active_lsp_sessions',
     'shutdown_session_lsp',
     'shutdown_session_lsp_server',
     'shutdown_session_python_lsp',
@@ -863,6 +864,23 @@ def shutdown_all_lsp_managers() -> None:
                 clear_lsp_staging_overlay(session)
             except Exception as exc:
                 logger.warning('clear LSP staging overlay failed session=%s err=%s', sid, exc)
+
+
+def count_active_lsp_sessions() -> dict[str, Any]:
+    """Count distinct sessions / managers with a live language-server client (no session id required)."""
+
+    with _MANAGERS_LOCK:
+        session_ids: set[str] = set()
+        managers_running = 0
+        for (sid, _srv, _scope), mgr in _SESSION_MANAGERS.items():
+            if mgr.is_client_running():
+                session_ids.add(sid)
+                managers_running += 1
+        return {
+            'activeSessions': len(session_ids),
+            'runningManagers': managers_running,
+            'sessionIds': sorted(session_ids),
+        }
 
 
 def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:

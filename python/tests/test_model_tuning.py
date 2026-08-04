@@ -105,15 +105,19 @@ def test_combined_suffix_gemma_sparse_expert_hint() -> None:
     assert 'Gemma sparse experts — workspace edits' in s
     assert 'Single-purpose mutations' in s
     assert 'Review synthesis' in s
-    assert 'read_staged_edit' in s
-    assert 'transfer_staged_file_to_workspace' in s
+    # Staging/draft policy lives in edit_semantics_block, not the MoE suffix.
+    assert 'read_staged_edit' not in s
+    assert '**Edit semantics' not in s
 
 
-def test_combined_suffix_generic_mentions_staging_transfer() -> None:
+def test_combined_suffix_does_not_restate_edit_semantics() -> None:
     c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic', architecture_hint='auto')
     s = combined_model_prompt_suffix(c)
-    assert 'transfer_staged_file_to_workspace' in s
-    assert 'land_in_workspace=true' in s
+    assert 'Model note (tools)' in s
+    assert 'API tool channel' in s
+    assert '**Edit semantics' not in s
+    assert '**Workspace edits:**' not in s
+    assert 'land_in_workspace=true' not in s
 
 
 def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_model() -> None:
@@ -133,9 +137,10 @@ def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_
     )
     g = gemma_sparse_expert_workspace_suffix(sparse_model)
     assert 'workspace edits' in g
-    assert 'stage_snippet_edit' in g
-    assert 'stage_line_range_edit' in g
-    assert 'when line numbers are known' in g
+    assert 'Single-purpose mutations' in g
+    assert 'Review synthesis' in g
+    assert 'stage_snippet_edit' not in g
+    assert 'stage_line_range_edit' not in g
 
     generic = _conn(
         model='google/gemma-4-26b-a4b-it',
@@ -253,7 +258,8 @@ def test_connection_max_output_tokens_override() -> None:
 def test_combined_suffix_includes_universal_tool_rules_for_non_qwen() -> None:
     c = _conn(model='gpt-4o', parallel=False, optimization_preset='generic')
     s = combined_model_prompt_suffix(c)
-    assert '**Workspace edits:**' in s
+    assert 'Model note (tools)' in s
+    assert 'API tool channel' in s
     assert 'Model note (Qwen)' not in s
     assert 'parallel tools' not in s
 
@@ -268,13 +274,15 @@ def test_combined_suffix_qwen_extra_when_qwen_preset() -> None:
     c = _conn(model='local-model', parallel=True, optimization_preset='qwen')
     s = combined_model_prompt_suffix(c)
     assert 'Model note (Qwen)' in s
-    assert '**Workspace edits:**' in s
+    assert 'Model note (tools)' in s
+    assert '**Edit semantics' not in s
 
 
 def test_qwen_system_prompt_suffix_backward_compat() -> None:
     s = qwen_system_prompt_suffix()
-    assert '**Workspace edits:**' in s
+    assert 'Model note (tools)' in s
     assert 'Model note (Qwen)' in s
+    assert '**Edit semantics' not in s
 
 
 def test_llm_optional_max_tokens_for_qwen_template() -> None:

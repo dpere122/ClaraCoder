@@ -63,10 +63,10 @@ def python_workspace_playbook() -> str:
 
 
 def edit_semantics_block(direct: bool) -> str:
-    """Shared workspace edit semantics: per-extension LSP-mutator map + landing policy.
+    """Canonical workspace edit semantics: LSP-mutator map + landing / draft policy.
 
-    Used by both ``messages._outer_agent_operational_block`` and
-    ``model_tuning.tool_calling_and_edit_semantics_suffix`` so the two stop drifting.
+    Injected once via ``messages._outer_agent_operational_block``. Do not re-embed this
+    block in model suffixes—extend this function instead.
     ``direct=True`` describes the Auto-apply on-disk path; ``direct=False`` describes the
     staging/LSP staging path with the ``land_in_workspace`` policy.
     """
@@ -109,7 +109,10 @@ def edit_semantics_block(direct: bool) -> str:
         'call to land in one step (HITL diff when auto-apply is off; stop after the tool returns when '
         'auto-apply is off). Keep `land_in_workspace=false` (default) while iterating or before review '
         'completes. For drafts already staged without landing, call `transfer_staged_file_to_workspace` with '
-        '`relative_paths` (batch when multiple files are ready).'
+        '`relative_paths` (batch when multiple files are ready). '
+        'Never ask the user to apply or approve landing for you—only the tool call counts. '
+        'Do not use legacy direct-to-disk workspace mutators '
+        '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path.'
     )
 
 

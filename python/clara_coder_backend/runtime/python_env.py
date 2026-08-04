@@ -1,4 +1,4 @@
-"""Workspace-local Python environment helpers for project review and tests."""
+"""Workspace-local Python venv create/attach helpers for sessions, LSP, and tools."""
 
 from __future__ import annotations
 

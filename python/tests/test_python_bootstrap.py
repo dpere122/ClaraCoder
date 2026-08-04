@@ -24,7 +24,7 @@ class _FakeProc:
 
 
 @pytest.fixture()
-def dependency_env():
+def bootstrap_env():
     td = tempfile.TemporaryDirectory()
     project_root = Path(td.name) / 'python'
     project_root.mkdir()
@@ -34,7 +34,7 @@ def dependency_env():
     python_executable.parent.mkdir(parents=True, exist_ok=True)
     python_executable.write_text('', encoding='utf-8')
 
-    session_id = 'test-python-dependency-session'
+    session_id = 'test-python-bootstrap-session'
     token = current_session_id.set(session_id)
     session = get_session(session_id)
     session.workspace_path = str(project_root.resolve())
@@ -63,11 +63,11 @@ def dependency_env():
 
 @pytest.mark.asyncio
 async def test_bootstrap_session_python_dependencies_uses_workspace_python_env(
-    dependency_env, monkeypatch: pytest.MonkeyPatch
+    bootstrap_env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project_root = dependency_env.project_root
-    python_executable = dependency_env.python_executable
-    session = dependency_env.session
+    project_root = bootstrap_env.project_root
+    python_executable = bootstrap_env.python_executable
+    session = bootstrap_env.session
     commands: list[tuple[str, ...]] = []
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
@@ -85,6 +85,7 @@ async def test_bootstrap_session_python_dependencies_uses_workspace_python_env(
     assert result.ok is True
     assert result.installed_requirements == ['requirements.txt', 'requirements-dev.txt']
     assert result.installed_packages == ['jedi-language-server']
+    assert 'Python workspace dependency bootstrap' in result.summary
     assert commands[0] == (str(python_executable), '-m', 'pip', 'install', '-r', 'requirements.txt')
     assert commands[1] == (str(python_executable), '-m', 'pip', 'install', '-r', 'requirements-dev.txt')
     assert commands[2][0] == str(python_executable)

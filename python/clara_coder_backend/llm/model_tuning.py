@@ -22,7 +22,6 @@ import os
 from typing import Any
 
 from clara_coder_backend.session.domain import RuntimeConnection
-from clara_coder_backend.llm.prompt_blocks import edit_semantics_block
 from clara_coder_backend.session.state import runtime_config
 
 
@@ -200,29 +199,16 @@ def tool_calling_and_edit_semantics_suffix(
     *,
     direct_workspace_edits: bool = False,
 ) -> str:
-    """Tool channel and workspace edit semantics; appended for every model."""
-    if direct_workspace_edits:
-        return (
-            '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
-            'only use the API tool channel.\n'
-            + edit_semantics_block(direct=True) + '\n'
-            'Discovery: reach for `search_workspace` first when you can name a needle (symbol, call site, error '
-            'string, config key, import)—run narrow probes before whole-file reads or guessing paths.\n'
-            'Verify with `read_workspace_file`, LSP diagnostics, and workspace test tools.\n'
-        )
+    """API tool-channel reminder only.
+
+    Edit semantics and discovery policy live once in ``edit_semantics_block`` /
+    ``messages._outer_agent_operational_block``. ``direct_workspace_edits`` is kept for
+    call-site compatibility and intentionally unused.
+    """
+    _ = direct_workspace_edits
     return (
         '\n\nModel note (tools): Never put tool arguments or <tool_call> XML in plain assistant text—'
         'only use the API tool channel.\n'
-        '**Workspace edits:** Treat the on-disk workspace as the checkpoint. '
-        + edit_semantics_block(direct=False)
-        + ' Never ask the user to apply or approve landing for you—only the tool call counts. '
-        'Do not use legacy direct-to-disk workspace mutators '
-        '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path. '
-        + 'For localized edits on existing files, prefer `stage_line_range_edit` when line numbers are known, or '
-        '`stage_snippet_edit` with unique raw context (`include_line_numbers=false`), over whole-file rewrites when '
-        'practical. Paths: use the full relative path; parent directories are created when the transfer lands.\n'
-        + 'Discovery: reach for `search_workspace` first when you can name a needle (symbol, call site, error '
-        'string, config key, import)—run narrow probes before whole-file reads or guessing paths.\n'
     )
 
 
@@ -295,7 +281,7 @@ def gemma_thinking_prompt_suffix(connection: RuntimeConnection) -> str:
 
 
 def gemma_sparse_expert_workspace_suffix(connection: RuntimeConnection) -> str:
-    """Gemma preset + sparse-expert model id: staging vs disk and small-step edit discipline."""
+    """Gemma preset + sparse-expert model id: MoE pacing only (edit semantics live elsewhere)."""
     if not gemma_optimize_profile_active(connection):
         return ''
     if not sparse_expert_variant_for_prompts(connection):
@@ -305,14 +291,6 @@ def gemma_sparse_expert_workspace_suffix(connection: RuntimeConnection) -> str:
         '- **Single-purpose mutations:** Do not bundle refactoring, new features, and bug fixes into one huge step '
         'for the same file. Prefer a **linear sequence** of small staging calls; do not assume parallel '
         'writes to the same path are safe.\n'
-        '- **Checkpoint between edits:** After **staging** code, the draft is not on disk yet—refresh anchors from '
-        '`read_staged_edit` or `diff_staged_edit_against_baseline`, not `read_workspace_file` (that still shows the '
-        'pre-transfer baseline). To land after review, pass **`land_in_workspace=true`** on the final stage/LSP call '
-        'or use `transfer_staged_file_to_workspace` for already-staged paths. After landing, treat the workspace file '
-        'as source of truth and use `read_workspace_file` or LSP with `refresh_active_document=true` before the next mutation.\n'
-        '- **Atomic patches, stable anchors:** Prefer `stage_line_range_edit` when line numbers are known from a '
-        'numbered read; use `stage_snippet_edit` only with **unique raw context** (`include_line_numbers=false`). '
-        'Re-read staged or workspace text between dependent edits—do not stack anchors from memory.\n'
         '- **Review synthesis:** When code review rejects staged work, deconstruct each issue, locate the exact '
         'region, apply minimal surgical fixes, then re-check diagnostics on touched paths.\n'
     )
@@ -329,15 +307,13 @@ def combined_model_prompt_suffix(
     session: object | None = None,
     apply_mode: bool = False,
 ) -> str:
-    """Universal tool/edit semantics, optional parallel batching, optional Qwen single-call hint, optional Gemma."""
-    direct = False
-    if session is not None and apply_mode:
-        from clara_coder_backend.session.domain import SessionState
-        from clara_coder_backend.session.state import direct_workspace_edits_active
+    """Tool-channel reminder plus optional parallel / Qwen / Gemma notes.
 
-        if isinstance(session, SessionState):
-            direct = direct_workspace_edits_active(session, apply_mode=apply_mode)
-    parts = [tool_calling_and_edit_semantics_suffix(connection, direct_workspace_edits=direct)]
+    ``session`` / ``apply_mode`` are kept for call-site compatibility; edit semantics are
+    assembled once in ``build_system_prompt`` operational guidance.
+    """
+    _ = session, apply_mode
+    parts = [tool_calling_and_edit_semantics_suffix(connection)]
     if effective_parallel_tool_calls(connection):
         parts.append(parallel_batching_prompt_suffix())
     if qwen_optimize_profile_active(connection):

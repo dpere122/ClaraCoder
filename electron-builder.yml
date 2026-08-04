@@ -67,3 +67,14 @@ linux:
   maintainer: Clara Coder <dev@clara.coder>
   syncDesktopName: true
   artifactName: ${productName}-${version}-Linux-${arch}.${ext}
+
+# Package was renamed from nemo-wrapper → clara-coder; both ship
+# /usr/share/applications/clara-coder.desktop and /opt/Clara Coder/.
+deb:
+  fpm:
+    - --replaces
+    - nemo-wrapper
+    - --conflicts
+    - nemo-wrapper
+    - --provides
+    - nemo-wrapper

@@ -118,8 +118,9 @@ planner catalog stays organized. The catalog is currently ~7,200 chars
 
 The per-extension LSP-mutator map and the `land_in_workspace` policy live in
 **exactly one place**: `edit_semantics_block(direct=...)` in
-`clara_coder_backend/prompt_blocks.py`. Both `messages.py`
-(`_outer_agent_operational_block`) and `model_tuning.py`
-(`tool_calling_and_edit_semantics_suffix`) import and reuse it. Never re-state
-the LSP-mutator map or staging-vs-direct policy in a tool docstring or in
-another prompt block — extend `edit_semantics_block` instead.
+`clara_coder_backend/llm/prompt_blocks.py`. It is injected **once** into the
+assembled system prompt via `messages._outer_agent_operational_block`. Model
+suffixes (`tool_calling_and_edit_semantics_suffix`) must not re-embed that
+block—only API tool-channel / family-specific notes. Never re-state the
+LSP-mutator map or staging-vs-direct policy in a tool docstring or another
+prompt block — extend `edit_semantics_block` instead.

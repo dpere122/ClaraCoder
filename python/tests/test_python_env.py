@@ -217,17 +217,15 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
         )
 
     async def _fake_bootstrap(session_arg, *, emit_chunk=None):
+        from clara_coder_backend.runtime.python_bootstrap import PythonBootstrapResult
+
         assert session_arg is session
-        return type(
-            '_BootstrapResult',
-            (),
-            {
-                'ok': True,
-                'summary': 'deps-ready',
-                'installed_requirements': ['requirements.txt', 'requirements-dev.txt'],
-                'installed_packages': ['jedi-language-server'],
-            },
-        )()
+        return PythonBootstrapResult(
+            ok=True,
+            summary='deps-ready',
+            installed_requirements=['requirements.txt', 'requirements-dev.txt'],
+            installed_packages=['jedi-language-server'],
+        )
 
     monkeypatch.setattr('clara_coder_backend.runtime.python_env.ensure_python_workspace_env', _fake_ensure)
     monkeypatch.setattr('clara_coder_backend.runtime.python_env.activate_process_workspace_python_env', lambda _venv_path: None)

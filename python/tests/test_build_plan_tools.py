@@ -12,8 +12,8 @@ from clara_coder_backend.plan.build_plan_store import (
     create_build_plan,
     parse_action_steps,
 )
-from clara_coder_backend.session.domain import SessionState
-from clara_coder_backend.tools.build_plan_tools import mark_build_plan_steps_complete, read_build_plan
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.plan.build_plan_tools import mark_build_plan_steps_complete, read_build_plan
 
 
 def _sample_doc() -> BuildPlanModel:

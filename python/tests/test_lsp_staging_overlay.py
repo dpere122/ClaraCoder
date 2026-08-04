@@ -9,6 +9,7 @@ import pytest
 
 from clara_coder_backend.staging import staging_test_overlay as sto
 from clara_coder_backend.staging.edit_staging import copy_workspace_mirror
+from clara_coder_backend.lsp import manager as lsp_manager
 from clara_coder_backend.lsp.manager import SessionWorkspaceLspManager, get_session_lsp_manager
 from clara_coder_backend.session.state import current_session_id
 
@@ -59,7 +60,7 @@ def test_get_session_lsp_manager_staging_uses_ensure_overlay_root(staging_env, m
     fake_root.mkdir(parents=True)
 
     monkeypatch.setattr(
-        sto,
+        lsp_manager,
         'ensure_lsp_staging_overlay',
         lambda session_arg, workspace_root, session_id=None: fake_root.resolve(),
     )

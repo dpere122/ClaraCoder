@@ -8,8 +8,8 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.session.config import CLARA_LLAMA_INDEX_MAX_FILES
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from clara_coder_backend.workspace_index.index_build import (
     DOC_REF_WORKSPACE,

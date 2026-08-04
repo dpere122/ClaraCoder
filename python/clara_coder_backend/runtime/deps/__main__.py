@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
         list_dependencies,
         reinstall_dependency,
     )
-    from clara_coder_backend.session.config import env_clara
+    from clara_coder_backend.config import env_clara
 
     raw_log = env_clara('CLARA_LOG_DIR', '').strip()
     configure_logging(Path(raw_log) if raw_log else None)

@@ -1,4 +1,8 @@
-"""LangGraph checkpoint message compaction to extend effective context window."""
+"""LangGraph checkpoint message compaction to extend effective context window.
+
+Lives under ``lang_agent`` (not ``llm``) because compaction reads/updates the outer
+agent graph checkpoint via :func:`build_clara_single_outer_graph`.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +16,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 from clara_coder_backend.lang_agent.graph import build_clara_single_outer_graph
 from clara_coder_backend.session.checkpointing import outer_agent_thread_id
-from clara_coder_backend.session.config import (
+from clara_coder_backend.config import (
     CLARA_CONTEXT_COMPACT_ENABLED,
     CLARA_CONTEXT_COMPACT_OLD_TOOL_CHARS,
     CLARA_CONTEXT_COMPACT_PROTECT_TAIL,
@@ -22,7 +26,7 @@ from clara_coder_backend.session.config import (
     CLARA_CONTEXT_COMPACT_TRIGGER_RATIO,
     CLARA_CONTEXT_WINDOW_FALLBACK,
 )
-from clara_coder_backend.session.domain import RuntimeContextCompressionConfig, SessionState
+from clara_coder_backend.domain import RuntimeContextCompressionConfig, SessionState
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.state import get_active_connection, runtime_config

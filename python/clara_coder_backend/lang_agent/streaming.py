@@ -9,7 +9,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessageChunk, BaseMessageChunk
 
-from clara_coder_backend.session.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STATUS_LINE, TEXT_CHUNK_WORDS
+from clara_coder_backend.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STATUS_LINE, TEXT_CHUNK_WORDS
 from clara_coder_backend.hitl.tool_registry import WORKSPACE_READ_TOOL_NAMES
 
 # Staged reads use the same multiplex preview lane as workspace reads in the UI.

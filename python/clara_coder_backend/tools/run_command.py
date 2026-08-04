@@ -7,7 +7,7 @@ When the command outlives the window the job stays alive and the model manages i
 and ``list_background_commands``.
 
 **HITL** — ``run_command`` rides the deferred-tool accept-command pause
-(:mod:`clara_coder_backend.hitl.deferred_tool_hitl`) when auto-apply is off; the wait/kill/list
+(:mod:`clara_coder_backend.tools.deferred_hitl`) when auto-apply is off; the wait/kill/list
 tools only operate on jobs the user already approved, so they run without a pause.
 Output is captured into a bounded rolling buffer (oldest output dropped past
 :data:`_MAX_CAPTURE_CHARS`) and each report returns only output that is new since the
@@ -25,7 +25,7 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.session.config import (
+from clara_coder_backend.config import (
     CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC,
     CLARA_RUN_COMMAND_MAX_WAIT_SEC,
 )
@@ -373,7 +373,7 @@ async def run_command_tool(
         return wait_err
     assert wait_sec is not None
 
-    from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+    from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
 
     pending = maybe_await_hitl_for_deferred_tool(
         session,
@@ -494,7 +494,7 @@ async def list_background_commands_tool() -> str:
 
 async def handle_background_command_terminal_closed(session_id: str, command_id: str) -> tuple[bool, str]:
     """Kill a background command when the user closes its terminal tab; queue an agent note."""
-    from clara_coder_backend.chat.user_events import queue_user_event_note
+    from clara_coder_backend.session.user_events import queue_user_event_note
 
     sid = (session_id or '').strip()
     cleaned = (command_id or '').strip()

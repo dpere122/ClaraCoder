@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from clara_coder_backend.logging.app_logging import configure_logging, get_recent_records, reset_logging_handlers
-from clara_coder_backend.session.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import (
     activate_session_lsp_scope,
     get_session_lsp_manager,

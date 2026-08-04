@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from clara_coder_backend.lang_agent.agent import stream_agent_reply
-from clara_coder_backend.chat.chat_input import effective_user_message_content
+from clara_coder_backend.composer import stream_agent_reply
+from clara_coder_backend.session.chat_input import effective_user_message_content
 from clara_coder_backend.session.schemas import (
     AbortRequest,
     AgentContinueRequest,

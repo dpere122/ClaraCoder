@@ -10,7 +10,7 @@ import pytest
 
 from clara_coder_backend.workspace.search_backend import SearchLineMatch
 from clara_coder_backend.session.state import current_session_id, get_session
-from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.session.state import runtime_config
 from clara_coder_backend.workspace.workspace_ignore import (
     get_workspace_ignore_rules_cached,

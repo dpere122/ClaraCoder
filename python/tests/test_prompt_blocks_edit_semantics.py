@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from clara_coder_backend.llm.messages import build_system_prompt
 from clara_coder_backend.llm.prompt_blocks import edit_semantics_block
-from clara_coder_backend.session.domain import RuntimeConnection, SessionState
+from clara_coder_backend.domain import RuntimeConnection, SessionState
 
 
 def _conn() -> RuntimeConnection:

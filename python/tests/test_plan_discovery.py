@@ -7,7 +7,7 @@ import pytest
 
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.plan.build_plan_store import ActionStep, BuildPlanModel, FileChangeEntry, render_build_plan_md
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_freeform_discovery_prompt,

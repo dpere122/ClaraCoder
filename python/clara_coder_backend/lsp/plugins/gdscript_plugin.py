@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 import logging
 import os
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
 
 if TYPE_CHECKING:
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
 
 logger = logging.getLogger('clara_coder_backend.lsp.plugins.gdscript')
 

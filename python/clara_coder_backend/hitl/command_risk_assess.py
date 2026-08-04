@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
-from clara_coder_backend.session.config import CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC
+from clara_coder_backend.config import CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC
 from clara_coder_backend.llm.factory import build_llm
 
 logger = logging.getLogger('clara.command_risk_assess')

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-from clara_coder_backend.session.domain import RuntimeConnection
+from clara_coder_backend.domain import RuntimeConnection
 from clara_coder_backend.lang_agent.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
 
 
@@ -401,7 +401,7 @@ def test_chat_model_end_emits_token_usage_when_usage_metadata_present() -> None:
 @pytest.mark.asyncio(loop_scope='function')
 async def test_hitl_sse_lines_diff_sentinel_only() -> None:
     from clara_coder_backend.lang_agent.graph import _hitl_sse_lines
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
 
     s = SessionState()
     payload = {'version': 1, 'rows': []}
@@ -433,7 +433,7 @@ async def test_hitl_sse_lines_accept_command_skips_risk_enrichment_when_setting_
 ) -> None:
     from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
     from clara_coder_backend.lang_agent.graph import _hitl_sse_lines
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
     from clara_coder_backend.session.state import runtime_config
 
     monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', False, raising=False)
@@ -470,7 +470,7 @@ async def test_hitl_sse_lines_accept_command_includes_risk_fields_when_enriched(
 ) -> None:
     from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
     from clara_coder_backend.lang_agent.graph import _hitl_sse_lines
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
     from clara_coder_backend.session.state import runtime_config
 
     monkeypatch.setattr(runtime_config.tools, 'command_line_explain_step', True, raising=False)

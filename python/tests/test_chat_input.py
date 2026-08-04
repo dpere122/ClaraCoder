@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
-from clara_coder_backend.chat.chat_input import effective_user_message_content, validate_user_turn_not_empty
+from clara_coder_backend.session.chat_input import effective_user_message_content, validate_user_turn_not_empty
 from clara_coder_backend.session.schemas import ChatRequest
 
 

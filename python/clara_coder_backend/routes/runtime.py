@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from clara_coder_backend.session.domain import (
+from clara_coder_backend.domain import (
     RuntimeAudioConfig,
     RuntimeConnection,
     RuntimeContextCompressionConfig,

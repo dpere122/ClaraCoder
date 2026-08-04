@@ -1,10 +1,10 @@
 """LangChain tools: propose workspace edits via separate full-file, line-range, and optional snippet tools.
 
-When the session's :attr:`~clara_coder_backend.session.domain.SessionState.auto_apply_mode` is true, successful proposals are written
+When the session's :attr:`~clara_coder_backend.domain.SessionState.auto_apply_mode` is true, successful proposals are written
 immediately under the workspace root and no ``pending_diff_payload`` is stored.
 
 **Future edit-capable tools:** must respect Editor mode (``apply_mode`` when binding tools), ``SessionState.auto_apply_mode``,
-and the diff / pause contract in :mod:`clara_coder_backend.lang_agent.agent` (see :func:`clara_coder_backend.hitl.tool_registry.hitl_diff_pause_tools`).
+and the diff / pause contract in :mod:`clara_coder_backend.composer` (see :func:`clara_coder_backend.hitl.tool_registry.hitl_diff_pause_tools`).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from clara_coder_backend.staging.diff_payload import build_file_diff_payload
-from clara_coder_backend.session.domain import EditStagingEntry, SessionState
+from clara_coder_backend.domain import EditStagingEntry, SessionState
 from clara_coder_backend.staging.edit_staging import format_python_source_str, format_source_via_prettier
 from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
 from clara_coder_backend.lsp.file_policy import (

@@ -7,6 +7,11 @@ import os
 import shutil
 from pathlib import Path
 
+from clara_coder_backend.runtime.deps.jdtls_product import (
+    JavaLspSetupError,
+    ensure_jdtls_product_dir,
+    get_jdtls_product_dir_if_ready,
+)
 from clara_coder_backend.runtime.deps.paths import get_runtime_dir, get_runtime_java_lsp_dir
 from clara_coder_backend.runtime.deps.progress import PROGRESS
 
@@ -25,18 +30,10 @@ def _ensure_cache_env() -> Path:
     return cache
 
 
-def _java_server():
-    # Submodule import (avoid heavy ``lsp.manager`` via package ``__init__`` side effects).
-    from clara_coder_backend.lsp import java_server as mod
-
-    return mod
-
-
 def _legacy_java_lsp_dir() -> Path | None:
     """Sibling of ``runtime/`` when Electron app-data layout is ``…/clara-coder/runtime``."""
 
     runtime = get_runtime_dir()
-    # …/clara-coder/runtime → …/clara-coder/java-lsp
     candidate = runtime.parent / 'java-lsp'
     if candidate.is_dir() and candidate.resolve() != get_runtime_java_lsp_dir().resolve():
         return candidate
@@ -45,7 +42,7 @@ def _legacy_java_lsp_dir() -> Path | None:
 
 def _product_dir() -> Path | None:
     _ensure_cache_env()
-    return _java_server().get_jdtls_product_dir_if_ready()
+    return get_jdtls_product_dir_if_ready()
 
 
 def status() -> dict:
@@ -77,13 +74,12 @@ def status() -> dict:
 
 
 def install(*, force: bool = False) -> dict:
-    java_server = _java_server()
     logger.info('install java-lsp force=%s', force)
     PROGRESS.emit(DEP_ID, 'downloading', message='Downloading Eclipse JDT LS…')
     _ensure_cache_env()
     try:
-        product = java_server.ensure_jdtls_product_dir(force_download=force)
-    except java_server.JavaLspSetupError as exc:
+        product = ensure_jdtls_product_dir(force_download=force)
+    except JavaLspSetupError as exc:
         logger.error('java-lsp install failed: %s', exc)
         PROGRESS.emit(DEP_ID, 'error', message=str(exc))
         raise

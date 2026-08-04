@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.python_server import build_python_lsp_command
 from clara_coder_backend.runtime.python_env import (
     PythonWorkspaceEnvResult,

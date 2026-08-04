@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 
 from clara_coder_backend.hitl.deferred_tool_hitl import deferred_tool_hitl_bypass
-from clara_coder_backend.session.domain import EditStagingEntry
+from clara_coder_backend.domain import EditStagingEntry
 from clara_coder_backend.staging import staging_test_overlay as sto
 from clara_coder_backend.tools.review_tools import run_staging_overlay_command
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
-from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig
 
 
 def test_parse_command_argv_json() -> None:

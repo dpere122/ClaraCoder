@@ -30,7 +30,7 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
     session.worker_apply_mode = False
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    from clara_coder_backend.session.domain import PendingStagedTransferHitl
+    from clara_coder_backend.domain import PendingStagedTransferHitl
     from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     file_payload = {
@@ -79,7 +79,7 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
     session.worker_apply_mode = True
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    from clara_coder_backend.session.domain import PendingStagedTransferHitl
+    from clara_coder_backend.domain import PendingStagedTransferHitl
     from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     file_payload = {
@@ -130,7 +130,7 @@ async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_t
     session.worker_apply_mode = True
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    from clara_coder_backend.session.domain import PendingStagedTransferHitl
+    from clara_coder_backend.domain import PendingStagedTransferHitl
     from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     file_payload = {

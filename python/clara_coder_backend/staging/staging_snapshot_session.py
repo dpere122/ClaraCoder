@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from clara_coder_backend.staging import edit_staging
-from clara_coder_backend.tools.review_tools import rollback_test_run_materializations
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.staging.materializations import rollback_test_run_materializations
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.manager import shutdown_session_lsp
 
 

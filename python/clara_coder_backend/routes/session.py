@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from clara_coder_backend.session.checkpointing import delete_outer_threads_for_session
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available

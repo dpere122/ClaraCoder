@@ -16,12 +16,8 @@ from typing import Any
 
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-from clara_coder_backend.session.domain import SessionState
-from clara_coder_backend.hitl.tool_registry import (
-    plan_execute_tools_and_map,
-    planner_discovery_tools_and_map,
-    worker_tools_and_map,
-)
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.hitl.tool_registry import planner_discovery_tools_and_map, worker_tools_and_map
 
 #: Per-mode cap on bound tool schema tokens (cl100k_base). Headroom over the
 #: measured ~10.4k baseline so richer per-tool detail is allowed, but a silent
@@ -63,10 +59,7 @@ def _mode_tool_set(mode: str, *, session: SessionState | None = None) -> list[An
     if mode == 'editor':
         tools, _ = worker_tools_and_map(True, session=sess)
         return tools
-    if mode == 'plan':
-        tools, _ = plan_execute_tools_and_map(True, session=sess)
-        return tools
-    raise ValueError(f"unknown mode {mode!r}; expected 'read_only', 'editor', or 'plan'")
+    raise ValueError(f"unknown mode {mode!r}; expected 'read_only' or 'editor'")
 
 
 def measure_mode(mode: str, *, session: SessionState | None = None) -> dict:

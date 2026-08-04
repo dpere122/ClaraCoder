@@ -22,7 +22,7 @@ from clara_coder_backend.lsp.typescript_project_root import package_node_modules
 from clara_coder_backend.workspace.workspace_text_io import DiskNewline, write_file_resolved
 
 if TYPE_CHECKING:
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
 
 logger = logging.getLogger('clara.staging_overlay')
 
@@ -555,3 +555,8 @@ def resolve_overlay_cwd(overlay_root: Path, cwd_relative: str) -> tuple[Path | N
     except ValueError:
         return None, 'Tool error: cwd_relative escapes the overlay root.'
     return cwd, ''
+
+
+from clara_coder_backend.lsp.overlay_hooks import register_lsp_staging_overlay_hooks
+
+register_lsp_staging_overlay_hooks(ensure=ensure_lsp_staging_overlay, clear=clear_lsp_staging_overlay)

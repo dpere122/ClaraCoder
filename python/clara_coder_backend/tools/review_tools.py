@@ -21,7 +21,7 @@ from clara_coder_backend.tools.project_review_tools import (
     _pump_subprocess_stream,
     _terminate_process,
 )
-from clara_coder_backend.session.config import CLARA_SUBPROCESS_TIMEOUT_SEC
+from clara_coder_backend.config import CLARA_SUBPROCESS_TIMEOUT_SEC
 from clara_coder_backend.runtime.subprocess_smoke import (
     SmokeOutputTracker,
     SmokeStopReason,
@@ -29,7 +29,7 @@ from clara_coder_backend.runtime.subprocess_smoke import (
     wait_for_smoke_completion,
 )
 from clara_coder_backend.staging.diff_payload import build_file_diff_payload
-from clara_coder_backend.session.domain import PendingStagedTransferHitl, SessionState, WorkspaceTestMaterializationEntry
+from clara_coder_backend.domain import PendingStagedTransferHitl, SessionState, WorkspaceTestMaterializationEntry
 from clara_coder_backend.lsp.diagnostics import format_diagnostics_summary, indentation_followup_guidance
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from clara_coder_backend.lsp.manager import sync_session_document
@@ -48,6 +48,10 @@ from clara_coder_backend.runtime.python_env import (
     with_subprocess_color_env,
 )
 from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search
+from clara_coder_backend.staging.materializations import (
+    restore_materialized_path,
+    rollback_test_run_materializations,
+)
 from clara_coder_backend.staging.staging_test_overlay import (
     build_staging_test_overlay,
     parse_command_argv_json,
@@ -55,8 +59,8 @@ from clara_coder_backend.staging.staging_test_overlay import (
     resolve_overlay_cwd,
     validate_overlay_command_argv,
 )
-from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
-from clara_coder_backend.chat.stream_tags import TOOL_OVERLAY_STREAM_TAG
+from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
+from clara_coder_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
 from clara_coder_backend.session.state import (
     current_session_id,
     direct_workspace_edits_active,
@@ -324,31 +328,7 @@ def _project_python_overlay_paths(
 
 
 def _restore_materialized_path(session, rel_key: str) -> None:
-    materialized = session.test_run_materializations.get(rel_key)
-    if materialized is None:
-        return
-    root = Path(session.workspace_path).resolve()
-    target = (root / rel_key).resolve()
-    if materialized.existed:
-        write_file_resolved(
-            target,
-            materialized.original_text,
-            materialized.disk_encoding,
-            'crlf' if materialized.disk_newline == 'crlf' else 'lf',
-        )
-    else:
-        target.unlink(missing_ok=True)
-    session.test_run_materializations.pop(rel_key, None)
-
-
-def rollback_test_run_materializations(session) -> None:
-    """Restore any workspace files that were materialized for test runs but not approved."""
-
-    for rel_key in list(session.test_run_materializations.keys()):
-        try:
-            _restore_materialized_path(session, rel_key)
-        except Exception as exc:
-            logger.warning('rollback_test_run_materializations failed path=%s err=%s', rel_key, exc)
+    restore_materialized_path(session, rel_key)
 
 
 def _mark_materialization_approved(session, rel_key: str) -> None:

@@ -9,7 +9,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import HumanMessage
 
 from clara_coder_backend.session.state import current_session_id, get_session
-from clara_coder_backend.chat.user_events import drain_user_event_notes
+from clara_coder_backend.session.user_events import drain_user_event_notes
 
 
 class UserEventInjectionMiddleware(AgentMiddleware):

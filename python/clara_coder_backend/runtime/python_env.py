@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from clara_coder_backend.session.config import CLARA_SUBPROCESS_TIMEOUT_SEC
-from clara_coder_backend.session.domain import SessionState
-from clara_coder_backend.tools.workspace import truncate_text
+from clara_coder_backend.config import CLARA_SUBPROCESS_TIMEOUT_SEC
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.workspace.paths import truncate_text
 
 _MAX_BOOTSTRAP_OUTPUT_CHARS = 80_000
 _PROCESS_PATH_LOCK = threading.RLock()
@@ -25,6 +25,26 @@ logger = logging.getLogger('clara.python_env')
 
 # Cap retained bytes from subprocess stdout when streaming or buffering (avoid OOM on huge CI logs).
 _MAX_SUBPROCESS_CAPTURE_BYTES = 2 * 1024 * 1024
+
+
+def deduce_venv_root_from_interpreter(python_executable: Path) -> Path | None:
+    """If ``python_executable`` lives under a ``venv`` layout, return the venv root directory."""
+
+    p = Path(python_executable).resolve()
+    if not p.is_file():
+        return None
+    name_lower = p.name.lower()
+    if not name_lower.startswith('python'):
+        return None
+    parent = p.parent
+    if sys.platform.startswith('win'):
+        if parent.name.lower() != 'scripts':
+            return None
+    else:
+        if parent.name != 'bin':
+            return None
+    root = parent.parent.resolve()
+    return root if root.is_dir() else None
 
 
 @dataclass

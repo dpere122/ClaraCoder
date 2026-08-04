@@ -9,7 +9,7 @@ agent loop into a one-line-at-a-time read loop until it hit the recursion limit.
 
 from __future__ import annotations
 
-from clara_coder_backend.session.domain import EditStagingEntry
+from clara_coder_backend.domain import EditStagingEntry
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.review_tools import read_staged_edit
 from clara_coder_backend.tools.tool_conventions import clamp_line_window

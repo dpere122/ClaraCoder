@@ -13,7 +13,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm.gemma_output import gemma_content_needs_parsing, split_gemma_channels
 from clara_coder_backend.llm.model_tuning import combined_model_prompt_suffix, gemma_output_parsing_active
 from clara_coder_backend.session.state import get_active_connection

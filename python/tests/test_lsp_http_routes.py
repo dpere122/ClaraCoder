@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import get_session_lsp_manager, shutdown_all_lsp_managers
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 

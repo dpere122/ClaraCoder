@@ -12,7 +12,7 @@ from llama_index.core import Document, StorageContext, VectorStoreIndex, load_in
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 
-from clara_coder_backend.session.config import CLARA_EMBEDDINGS_MODEL, CLARA_LLAMA_INDEX_MAX_FILE_BYTES, CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.config import CLARA_EMBEDDINGS_MODEL, CLARA_LLAMA_INDEX_MAX_FILE_BYTES, CLARA_LLAMA_INDEX_MAX_FILES
 from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from clara_coder_backend.workspace_index.index_read import read_file_for_index
 from clara_coder_backend.workspace_index.lifecycle import invalidate_fingerprint_cache_for_root

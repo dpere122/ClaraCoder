@@ -14,7 +14,7 @@ from clara_coder_backend.plan.build_plan_store import (
     OpenQuestion,
     render_build_plan_md,
 )
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.plan.plan_confirm import (
     execute_pending_plan_confirm_decision,
     plan_confirm_sse_payload,
@@ -32,8 +32,9 @@ from clara_coder_backend.plan.plan_execute import (
     build_planner_context_block,
     stream_plan_execute_langgraph,
 )
-from clara_coder_backend.hitl.tool_registry import format_tools_catalog, plan_execute_tools_and_map, worker_tools_and_map
-from clara_coder_backend.tools.build_plan_tools import read_build_plan
+from clara_coder_backend.hitl.tool_registry import format_tools_catalog, worker_tools_and_map
+from clara_coder_backend.plan.plan_tools_registry import plan_execute_tools_and_map
+from clara_coder_backend.plan.build_plan_tools import read_build_plan
 from clara_coder_backend.tools.workspace import read_workspace_file
 from clara_coder_backend.session.state import get_session
 

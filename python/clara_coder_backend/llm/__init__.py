@@ -7,8 +7,9 @@ Modules
 ``messages`` — history → LangChain messages, system prompt, text helpers
 ``langchain_compat`` — patches for ``reasoning_content`` on some gateways
 ``gemma_output`` — Gemma-specific output handling
-``context_compression`` — context window compression
 ``prompt_blocks`` — reusable system-prompt blocks
+
+Checkpoint compaction lives in :mod:`clara_coder_backend.lang_agent.context_compression`.
 """
 
 from clara_coder_backend.llm.factory import build_llm

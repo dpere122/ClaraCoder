@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 
 BUILD_PLANS_REL_DIR = '.nemo/build-plans'
 MAX_BUILD_PLANS = 5
@@ -851,7 +851,7 @@ def planner_progress_payload_from_parsed(
     phase: str = 'executing',
     plan_ready: bool = False,
 ) -> dict[str, Any]:
-    from clara_coder_backend.chat.stream_tags import PLANNER_STREAM_TAG
+    from clara_coder_backend.stream_tags import PLANNER_STREAM_TAG
 
     steps = [
         {

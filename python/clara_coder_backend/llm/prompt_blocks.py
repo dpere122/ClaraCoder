@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from textwrap import dedent
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.file_policy import PRETTIER_MANAGED_SUFFIXES
 from clara_coder_backend.session.state import runtime_config
 

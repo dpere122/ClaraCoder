@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.client import JsonRpcLspClient
 from clara_coder_backend.lsp.diagnostics import normalize_lsp_diagnostics
 from clara_coder_backend.lsp.file_policy import get_lsp_file_policy, lsp_server_for_path, normalize_relative_posix_path
@@ -22,9 +22,10 @@ from clara_coder_backend.lsp.registry import (
     iter_registered_lsp_server_ids,
 )
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin
+from clara_coder_backend.lsp.overlay_hooks import clear_lsp_staging_overlay, ensure_lsp_staging_overlay
 from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.workspace.paths import normalize_relative_path
 from clara_coder_backend.workspace.workspace_text_io import read_file_for_tools, validate_workspace_encoding
-from clara_coder_backend.tools.workspace import normalize_relative_path
 
 logger = logging.getLogger('clara.lsp.manager')
 
@@ -761,8 +762,6 @@ def _effective_lsp_workspace_root(session: SessionState, scope: str, *, session_
     desired = _normalize_lsp_scope(scope)
     if desired == 'workspace':
         return Path(session.workspace_path).resolve()
-    from clara_coder_backend.staging.staging_test_overlay import ensure_lsp_staging_overlay
-
     return ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=session_id)
 
 
@@ -831,8 +830,6 @@ def shutdown_session_python_lsp(session_id: str) -> None:
 
 
 def shutdown_session_lsp(session_id: str) -> None:
-    from clara_coder_backend.staging.staging_test_overlay import clear_lsp_staging_overlay
-
     with _MANAGERS_LOCK:
         keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == session_id]
         managers = [_SESSION_MANAGERS.pop(k) for k in keys]
@@ -847,8 +844,6 @@ def shutdown_session_lsp(session_id: str) -> None:
 
 
 def shutdown_all_lsp_managers() -> None:
-    from clara_coder_backend.staging.staging_test_overlay import clear_lsp_staging_overlay
-
     with _MANAGERS_LOCK:
         items = list(_SESSION_MANAGERS.items())
         _SESSION_MANAGERS.clear()

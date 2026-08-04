@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from clara_coder_backend.session.domain import SessionState
-
-ACCEPT_COMMAND_KIND_DEFERRED_TOOL = 'deferred_tool'
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.tools.deferred_hitl import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
 
 __all__ = [
     'ACCEPT_COMMAND_KIND_DEFERRED_TOOL',

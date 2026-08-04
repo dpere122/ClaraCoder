@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from clara_coder_backend.context_packs.registry import ContextPack, get_pack, packs_for_tool
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 
 
 def _stringify_content(content: Any) -> str:

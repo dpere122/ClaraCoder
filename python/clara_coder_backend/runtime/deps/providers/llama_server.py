@@ -23,7 +23,7 @@ from clara_coder_backend.runtime.deps.paths import (
     llama_server_binary,
 )
 from clara_coder_backend.runtime.deps.progress import PROGRESS
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 logger = logging.getLogger('clara.runtime.deps.llama_server')
 

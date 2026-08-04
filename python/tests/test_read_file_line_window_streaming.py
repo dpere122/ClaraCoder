@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.workspace.workspace_text_io import read_file_for_tools, read_file_line_window_for_tools
 from clara_coder_backend.tools.workspace import read_workspace_file

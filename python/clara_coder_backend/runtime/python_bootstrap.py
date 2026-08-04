@@ -10,8 +10,8 @@ from clara_coder_backend.runtime.python_env import (
     _python_module_available,
     _run_subprocess_with_output,
 )
-from clara_coder_backend.session.domain import SessionState
-from clara_coder_backend.tools.workspace import truncate_text
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.workspace.paths import truncate_text
 
 _JEDI_LANGUAGE_SERVER_REQUIREMENT = 'jedi-language-server>=0.46,<0.47'
 _MAX_BOOTSTRAP_OUTPUT_CHARS = 80_000

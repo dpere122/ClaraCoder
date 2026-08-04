@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from clara_coder_backend.lang_agent.pause import await_diff_review_note
+from clara_coder_backend.session.pause import await_diff_review_note
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.hitl.tool_registry import hitl_delete_pause_tools

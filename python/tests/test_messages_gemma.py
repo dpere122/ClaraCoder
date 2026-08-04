@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
-from clara_coder_backend.session.domain import RuntimeConnection
+from clara_coder_backend.domain import RuntimeConnection
 from clara_coder_backend.llm.messages import assistant_visible_answer, reasoning_sidecar_text
 
 

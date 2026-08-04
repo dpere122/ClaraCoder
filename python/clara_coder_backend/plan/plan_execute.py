@@ -3,7 +3,7 @@
 Read-only discovery (:mod:`clara_coder_backend.plan.plan_discovery`) runs before planning; the planner
 proposes a structured build plan written to ``.nemo/build-plans/``; user approves via
 :mod:`clara_coder_backend.plan.plan_confirm`; a single ReAct executor run implements the plan using
-:mod:`clara_coder_backend.tools.build_plan_tools` to mark milestones.
+:mod:`clara_coder_backend.plan.build_plan_tools` to mark milestones.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from clara_coder_backend.lang_agent.graph import AgentGraphConfig, _stream_langgraph_tool_agent, build_clara_single_outer_graph
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from clara_coder_backend.lang_agent.pause import await_diff_review_note, await_question_answers
+from clara_coder_backend.session.pause import await_diff_review_note, await_question_answers
 from clara_coder_backend.lang_agent.question import (
     agent_question_sse_payload,
     stage_question_request,
@@ -56,7 +56,7 @@ from clara_coder_backend.plan.build_plan_store import (
     write_build_plan_draft_content,
 )
 from clara_coder_backend.hitl.deferred_tool_hitl import deferred_tool_hitl_bypass
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
 from clara_coder_backend.llm.messages import build_system_prompt, stringify_content
@@ -65,8 +65,9 @@ from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_freeform_discovery_prompt,
 )
-from clara_coder_backend.chat.stream_tags import PLANNER_STREAM_TAG, REASONING_AUXILIARY_STREAM_TAG
-from clara_coder_backend.hitl.tool_registry import format_tools_catalog, plan_execute_tools_and_map
+from clara_coder_backend.stream_tags import PLANNER_STREAM_TAG, REASONING_AUXILIARY_STREAM_TAG
+from clara_coder_backend.hitl.tool_registry import format_tools_catalog
+from clara_coder_backend.plan.plan_tools_registry import plan_execute_tools_and_map
 from clara_coder_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('clara.plan_execute')

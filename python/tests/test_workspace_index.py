@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 
-from clara_coder_backend.session.config import CLARA_LLAMA_INDEX_MAX_FILES
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.session.state import current_session_id
 from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
 from clara_coder_backend.workspace_index.index_build import (

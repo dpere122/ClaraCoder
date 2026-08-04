@@ -13,7 +13,7 @@ from typing import Annotated, Any
 from langchain_core.tools import tool
 
 from clara_coder_backend.staging import edit_staging as _edit_staging
-from clara_coder_backend.session.domain import EditStagingEntry, SessionState
+from clara_coder_backend.domain import EditStagingEntry, SessionState
 from clara_coder_backend.tools.edit import _finalize_workspace_edit, _tool_encoding_param, _tool_newline_param
 from clara_coder_backend.tools.tool_conventions import ENCODING_NEWLINE, ONE_BASED, RELATIVE_PATH, STAGE_LAND, describe
 from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer

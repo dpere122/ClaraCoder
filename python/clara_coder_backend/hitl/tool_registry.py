@@ -54,11 +54,14 @@ from clara_coder_backend.tools.lsp_tools import (
     LSP_UPDATE_TYPESCRIPT_FILE_NAME,
 )
 from clara_coder_backend.tools.staging_edit import STAGING_TOOLS
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.session.state import direct_workspace_edits_active, runtime_config
-from clara_coder_backend.tools.workspace import TOOLS, TOOL_MAP
+from clara_coder_backend.context_packs.tool import ACTIVATE_CONTEXT_TOOLS
+from clara_coder_backend.tools.workspace import TOOLS, TOOL_MAP, WORKSPACE_READ_TOOL_NAMES as _BASE_READ_NAMES
 
-WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)
+WORKSPACE_READ_TOOL_NAMES: frozenset[str] = _BASE_READ_NAMES | frozenset(
+    t.name for t in ACTIVATE_CONTEXT_TOOLS
+)
 
 
 def merge_tools_replace_by_name(
@@ -163,8 +166,10 @@ def worker_tools_and_map(
     ``edit_tools_strict_override`` — when set, drives staged/direct write tools instead of runtime Settings.
   When ``session`` is provided and Editor + Auto-apply are on, binds direct workspace mutators instead of staging.
     """
-    tools: list[Any] = [*TOOLS, *LSP_READ_TOOLS]
+    tools: list[Any] = [*TOOLS, *ACTIVATE_CONTEXT_TOOLS, *LSP_READ_TOOLS]
     mapping: dict[str, Any] = dict(TOOL_MAP)
+    for tool_ in ACTIVATE_CONTEXT_TOOLS:
+        mapping[tool_.name] = tool_
     for tool_ in LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
     if getattr(runtime_config.tools, 'allow_web_access', False):
@@ -216,19 +221,6 @@ def worker_tools_and_map(
             ],
         )
     return tools, mapping
-
-
-def plan_execute_tools_and_map(
-    apply_mode: bool = True,
-    *,
-    session: SessionState | None = None,
-) -> tuple[list[Any], dict[str, Any]]:
-    """Plan execution bindings: full editor tools plus build-plan read/mark helpers."""
-    del apply_mode  # Plan execution always uses full editor-capable bindings.
-    from clara_coder_backend.tools.build_plan_tools import build_plan_tools
-
-    tools, mapping = worker_tools_and_map(True, session=session)
-    return merge_tools_replace_by_name(tools, mapping, [('build_plan', build_plan_tools())])
 
 
 def planner_discovery_tools_and_map(

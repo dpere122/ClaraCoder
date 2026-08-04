@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from clara_coder_backend.session.config import CLARA_SMOKE_READINESS_SETTLE_SEC, CLARA_SMOKE_STEADY_STATE_SEC
+from clara_coder_backend.config import CLARA_SMOKE_READINESS_SETTLE_SEC, CLARA_SMOKE_STEADY_STATE_SEC
 
 if TYPE_CHECKING:
     import asyncio.subprocess

@@ -16,12 +16,12 @@ defaults apply. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all m
 
 from __future__ import annotations
 
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 import os
 from typing import Any
 
-from clara_coder_backend.session.domain import RuntimeConnection
+from clara_coder_backend.domain import RuntimeConnection
 from clara_coder_backend.session.state import runtime_config
 
 

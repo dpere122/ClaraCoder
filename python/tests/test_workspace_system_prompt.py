@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from starlette.testclient import TestClient
 
-from clara_coder_backend.session.domain import RuntimeConnection, SessionState
+from clara_coder_backend.domain import RuntimeConnection, SessionState
 from clara_coder_backend.llm.messages import build_system_prompt
 
 

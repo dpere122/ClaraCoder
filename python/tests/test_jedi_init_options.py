@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.jedi_init_options import (
     build_jedi_initialization_options,
     deduce_venv_root_from_interpreter,

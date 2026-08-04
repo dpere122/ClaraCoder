@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 import logging
 import os

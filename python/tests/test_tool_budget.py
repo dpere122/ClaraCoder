@@ -7,8 +7,9 @@ Run:
 
 from __future__ import annotations
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.hitl.tool_budget import TOOL_BUDGET_CAP, assert_under_budget, measure_mode, measure_tools
+from clara_coder_backend.plan.tool_budget import assert_plan_under_budget
 
 
 def test_read_only_under_budget() -> None:
@@ -20,11 +21,11 @@ def test_editor_under_budget() -> None:
 
 
 def test_plan_under_budget() -> None:
-    assert_under_budget('plan', cap=TOOL_BUDGET_CAP, session=SessionState())
+    assert_plan_under_budget(cap=TOOL_BUDGET_CAP, session=SessionState())
 
 
 def test_read_only_under_budget_with_web_access(monkeypatch) -> None:
-    from clara_coder_backend.session.domain import RuntimeToolsConfig
+    from clara_coder_backend.domain import RuntimeToolsConfig
     from clara_coder_backend.session.state import runtime_config
 
     monkeypatch.setattr(

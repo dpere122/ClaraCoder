@@ -7,7 +7,7 @@ that path; intended for dev/tests without the desktop shell).
 
 from __future__ import annotations
 
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 import os
 import tempfile

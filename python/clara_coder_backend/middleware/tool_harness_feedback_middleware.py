@@ -5,24 +5,17 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable
-from contextvars import ContextVar
-from typing import Any, Literal
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from clara_coder_backend.hitl.harness_polarity import HarnessPolarity, pending_harness_crystal_polarity
 from clara_coder_backend.llm.messages import stringify_content
 
-HarnessPolarity = Literal['positive', 'negative']
-
 HARNESS_NOTE_SENTINEL = '\n---\nHarness note:'
-
-pending_harness_crystal_polarity: ContextVar[HarnessPolarity | None] = ContextVar(
-    'pending_harness_crystal_polarity',
-    default=None,
-)
 
 _FAILURE_FOOTER = (
     f'{HARNESS_NOTE_SENTINEL} '

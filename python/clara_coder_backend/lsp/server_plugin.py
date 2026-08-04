@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
 
 __all__ = [
     'LspStartParams',

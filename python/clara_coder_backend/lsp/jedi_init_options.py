@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.runtime.python_env import (
+    deduce_venv_root_from_interpreter,
     resolve_python_workspace_root,
     workspace_python_executable,
 )
@@ -17,26 +17,6 @@ __all__ = [
     'deduce_venv_root_from_interpreter',
     'jedi_environment_path_for_workspace',
 ]
-
-
-def deduce_venv_root_from_interpreter(python_executable: Path) -> Path | None:
-    """If ``python_executable`` lives under a ``venv`` layout, return the venv root directory."""
-
-    p = Path(python_executable).resolve()
-    if not p.is_file():
-        return None
-    name_lower = p.name.lower()
-    if not name_lower.startswith('python'):
-        return None
-    parent = p.parent
-    if sys.platform.startswith('win'):
-        if parent.name.lower() != 'scripts':
-            return None
-    else:
-        if parent.name != 'bin':
-            return None
-    root = parent.parent.resolve()
-    return root if root.is_dir() else None
 
 
 def jedi_environment_path_for_workspace(session: SessionState, workspace_root: Path) -> str | None:

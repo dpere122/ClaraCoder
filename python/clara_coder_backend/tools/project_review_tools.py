@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from clara_coder_backend.runtime.python_env import _terminate_subprocess_tree
 from clara_coder_backend.session.state import get_session
-from clara_coder_backend.chat.stream_tags import TOOL_PYTEST_STREAM_TAG
+from clara_coder_backend.stream_tags import TOOL_PYTEST_STREAM_TAG
 
 _DEFAULT_STREAM_TAG = TOOL_PYTEST_STREAM_TAG
 _DEFAULT_STREAM_LABEL = 'Workspace Tool'

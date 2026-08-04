@@ -11,7 +11,7 @@ from clara_coder_backend.lang_agent.graph import (
     stream_single_agent_langgraph,
 )
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lang_agent.langgraph_sse import GraphStreamState
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')

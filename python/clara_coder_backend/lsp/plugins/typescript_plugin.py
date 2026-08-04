@@ -12,7 +12,7 @@ from clara_coder_backend.lsp.typescript_project_root import resolve_typescript_p
 from clara_coder_backend.lsp.typescript_server import build_typescript_lsp_command
 
 if TYPE_CHECKING:
-    from clara_coder_backend.session.domain import SessionState
+    from clara_coder_backend.domain import SessionState
 
 logger = logging.getLogger('clara.lsp.plugins.typescript')
 

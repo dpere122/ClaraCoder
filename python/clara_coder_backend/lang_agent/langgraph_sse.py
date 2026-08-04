@@ -35,9 +35,9 @@ from clara_coder_backend.llm.gemma_output import GemmaStreamSplitter, gemma_cont
 from clara_coder_backend.llm.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
 from clara_coder_backend.llm.model_tuning import gemma_output_parsing_active
 from clara_coder_backend.session.state import get_active_connection
-from clara_coder_backend.chat.stream_tags import REASONING_AUXILIARY_STREAM_TAG
+from clara_coder_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
 from clara_coder_backend.logging.tool_call_logging import log_llm_tool_input, log_llm_tool_output
-from clara_coder_backend.middleware.tool_harness_feedback_middleware import pending_harness_crystal_polarity
+from clara_coder_backend.hitl.harness_polarity import pending_harness_crystal_polarity
 
 
 @dataclass

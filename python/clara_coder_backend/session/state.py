@@ -1,9 +1,9 @@
 """Process-wide session store and runtime configuration.
 
 The Electron app can run multiple chat sessions (by id). Each maps to a
-:class:`~clara_coder_backend.session.domain.SessionState`. LLM/audio settings live in a single
-mutable :class:`~clara_coder_backend.session.domain.RuntimeConfig` updated via POST /runtime-config
-(including :class:`~clara_coder_backend.session.domain.RuntimeToolsConfig` from Settings → Tools).
+:class:`~clara_coder_backend.domain.SessionState`. LLM/audio settings live in a single
+mutable :class:`~clara_coder_backend.domain.RuntimeConfig` updated via POST /runtime-config
+(including :class:`~clara_coder_backend.domain.RuntimeToolsConfig` from Settings → Tools).
 
 ``current_session_id`` is a :class:`contextvars.ContextVar` so concurrent
 async requests do not cross wires when workspace tools resolve the active session.
@@ -15,7 +15,7 @@ import contextvars
 
 from fastapi import HTTPException
 
-from clara_coder_backend.session.config import (
+from clara_coder_backend.config import (
     DEFAULT_LM_STUDIO_BASE_URL,
     DEFAULT_LM_STUDIO_MODEL,
     DEFAULT_OPENAI_BASE_URL,
@@ -26,7 +26,7 @@ from clara_coder_backend.session.config import (
     CLARA_EDIT_TOOLS_STRICT,
     PLAN_RETRY_ATTEMPTS_COUNT,
 )
-from clara_coder_backend.session.domain import (
+from clara_coder_backend.domain import (
     RuntimeAudioConfig,
     RuntimeConfig,
     RuntimeConnection,

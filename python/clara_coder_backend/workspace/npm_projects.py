@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.lsp.typescript_project_root import (
-    _has_nonempty_node_modules,
-    _has_typescript_tooling,
-    _package_json_declares_typescript,
+from clara_coder_backend.workspace.npm_detection import (
+    has_nonempty_node_modules,
+    has_typescript_tooling,
+    package_json_declares_typescript,
 )
 
 _MAX_PROJECTS = 64
@@ -129,13 +129,13 @@ def describe_npm_project(project_dir: Path, *, relative_dir: str) -> dict[str, A
         'private': bool(data.get('private')),
         'packageManager': detect_package_manager(project_dir),
         'lockfiles': _present_lockfiles(project_dir),
-        'nodeModulesInstalled': _has_nonempty_node_modules(project_dir),
+        'nodeModulesInstalled': has_nonempty_node_modules(project_dir),
         'scripts': script_names,
         'dependencyCounts': _dependency_counts(data),
         'workspaces': _workspaces_summary(data),
         'engines': engine_summary,
-        'typescriptDeclared': _package_json_declares_typescript(project_dir),
-        'typescriptInstalled': _has_typescript_tooling(project_dir),
+        'typescriptDeclared': package_json_declares_typescript(project_dir),
+        'typescriptInstalled': has_typescript_tooling(project_dir),
         'angularCliInstalled': resolve_local_ng_executable(project_dir) is not None,
     }
 

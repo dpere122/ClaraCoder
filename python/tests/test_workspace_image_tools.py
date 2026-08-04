@@ -207,7 +207,7 @@ def test_vision_middleware_reloads_from_args_when_artifact_missing(workspace_ses
 
 
 def test_qwen_vision_prompt_suffix_when_preset_and_model_match() -> None:
-    from clara_coder_backend.session.domain import RuntimeConnection
+    from clara_coder_backend.domain import RuntimeConnection
 
     conn = RuntimeConnection(
         id='q',

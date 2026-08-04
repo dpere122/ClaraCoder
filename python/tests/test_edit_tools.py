@@ -10,7 +10,7 @@ from clara_coder_backend.tools.edit import (
 )
 from clara_coder_backend.lsp.file_policy import outer_workspace_edit_guard_error
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions
-from clara_coder_backend.session.domain import RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
 from clara_coder_backend.hitl.tool_registry import (
     hitl_accept_command_pause_tools,
@@ -125,6 +125,7 @@ def test_outer_agent_tools_staging_mode() -> None:
     session = get_session('outer-staging')
     session.auto_apply_mode = False
     read_names = {t.name for t in TOOLS} | {
+        'activate_context',
         'lsp_get_diagnostics',
         'lsp_hover',
         'lsp_find_definition',

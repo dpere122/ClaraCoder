@@ -1,15 +1,15 @@
 """Re-nudge the model when a LangGraph agent turn returns empty text and no tool calls.
 
 ``create_agent`` graphs otherwise treat an empty ``AIMessage`` as a finished answer;
-this middleware injects a user nudge up to :data:`clara_coder_backend.session.config.MAX_AGENT_EMPTY_NUDGES` times.
-It also nudges (separate cap, :data:`clara_coder_backend.session.config.MAX_AGENT_PSEUDO_TOOL_NUDGES`) when the
+this middleware injects a user nudge up to :data:`clara_coder_backend.config.MAX_AGENT_EMPTY_NUDGES` times.
+It also nudges (separate cap, :data:`clara_coder_backend.config.MAX_AGENT_PSEUDO_TOOL_NUDGES`) when the
 model encodes tool usage as ``<tool_call>`` / ``<function=...>`` XML in assistant text or reasoning
 but the completion includes no registered ``tool_calls``—a frequent mismatch with some Qwen templates.
 
 When untransferred staged drafts exist in Editor mode, a staging-continuation nudge runs before
-prose-only completion is allowed (see :data:`clara_coder_backend.session.config.MAX_AGENT_STAGING_CONTINUATION_NUDGES`).
+prose-only completion is allowed (see :data:`clara_coder_backend.config.MAX_AGENT_STAGING_CONTINUATION_NUDGES`).
 
-It also nudges (separate cap, :data:`clara_coder_backend.session.config.MAX_AGENT_ACTION_COMMITMENT_NUDGES`) when the
+It also nudges (separate cap, :data:`clara_coder_backend.config.MAX_AGENT_ACTION_COMMITMENT_NUDGES`) when the
 model's visible text *announces* a next step ("I'll now check the file...") but ends the completion with
 no tool call at all—seen with some Gemma stacks that narrate an action and then stop short of issuing it.
 
@@ -32,7 +32,7 @@ from langgraph.typing import ContextT
 from typing_extensions import NotRequired, override
 
 from clara_coder_backend.tools.review_tools import pending_untransferred_staging_paths
-from clara_coder_backend.session.config import (
+from clara_coder_backend.config import (
     MAX_AGENT_ACTION_COMMITMENT_NUDGES,
     MAX_AGENT_EMPTY_NUDGES,
     MAX_AGENT_PSEUDO_TOOL_NUDGES,

@@ -13,6 +13,7 @@ from clara_coder_backend.lsp.java_server import (
     build_java_lsp_command,
     get_java_lsp_cache_dir,
 )
+from clara_coder_backend.runtime.deps import jdtls_product
 
 
 def test_build_java_lsp_command_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,7 +57,7 @@ def test_build_java_lsp_command_uses_cached_product(
     fake_java.chmod(0o755)
 
     monkeypatch.setattr(java_server, 'resolve_java_executable', lambda: fake_java.resolve())
-    monkeypatch.setattr(java_server, '_platform_config_dirname', lambda: 'config_linux')
+    monkeypatch.setattr(jdtls_product, '_platform_config_dirname', lambda: 'config_linux')
 
     project = tmp_path / 'proj'
     project.mkdir()
@@ -89,7 +90,7 @@ def test_build_java_lsp_command_missing_jdk(tmp_path: Path, monkeypatch: pytest.
     config.mkdir(parents=True)
     (plugins / 'org.eclipse.equinox.launcher_1.6.900.v20240613-2000.jar').write_bytes(b'jar')
     (product / '.nemo-ready').write_text('1.60.0\n', encoding='utf-8')
-    monkeypatch.setattr(java_server, '_platform_config_dirname', lambda: 'config_linux')
+    monkeypatch.setattr(jdtls_product, '_platform_config_dirname', lambda: 'config_linux')
 
     with pytest.raises(JavaLspSetupError, match='JDK 21'):
         build_java_lsp_command(tmp_path)

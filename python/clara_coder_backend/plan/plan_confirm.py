@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from clara_coder_backend.plan.build_plan_store import cancel_build_plan, coerce_file_change_entry
-from clara_coder_backend.session.domain import SessionState
+from clara_coder_backend.domain import SessionState
 
 __all__ = [
     'execute_pending_plan_confirm_decision',

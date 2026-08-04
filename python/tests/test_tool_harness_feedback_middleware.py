@@ -8,11 +8,11 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
+from clara_coder_backend.hitl.harness_polarity import pending_harness_crystal_polarity
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import (
     ToolHarnessFeedbackMiddleware,
     is_tool_result_error,
     maybe_append_harness_footer,
-    pending_harness_crystal_polarity,
     should_attach_success_note,
     trailing_identical_failure_streak,
 )

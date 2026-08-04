@@ -17,7 +17,7 @@ from clara_coder_backend.tools.run_command import (
     kill_session_background_commands,
     run_command_tool,
 )
-from clara_coder_backend.chat.user_events import drain_user_event_notes
+from clara_coder_backend.session.user_events import drain_user_event_notes
 
 
 @pytest.fixture()

@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 
 from diff_match_patch import diff_match_patch
 
-from clara_coder_backend.session.config import DIFF_VERIFY_PATCH_MAX_BYTES, MAX_DIFF_INPUT_BYTES, MAX_DIFF_OUTPUT_ROWS
+from clara_coder_backend.config import DIFF_VERIFY_PATCH_MAX_BYTES, MAX_DIFF_INPUT_BYTES, MAX_DIFF_OUTPUT_ROWS
 
 logger = logging.getLogger('clara.diff_payload')
 

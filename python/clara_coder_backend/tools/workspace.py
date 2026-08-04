@@ -36,6 +36,11 @@ from clara_coder_backend.workspace.workspace_text_io import (
     validate_workspace_encoding,
     write_file_to_disk,
 )
+from clara_coder_backend.workspace.paths import (
+    normalize_relative_path,
+    truncate_text,
+    truncate_text_head_tail,
+)
 from clara_coder_backend.workspace.workspace_ignore import (
     WORKSPACE_CONTEXT_IGNORED_NAMES,
     get_workspace_ignore_rules_cached,
@@ -156,6 +161,7 @@ def _format_read_excerpt_with_gutter(excerpt: list[str], line_start: int, line_e
 __all__ = [
     'TOOLS',
     'TOOL_MAP',
+    'WORKSPACE_READ_TOOL_NAMES',
     'list_workspace_directory',
     'read_workspace_file',
     'search_workspace',
@@ -165,38 +171,6 @@ __all__ = [
     'write_workspace_file',
     'write_workspace_file_utf8',
 ]
-
-
-def normalize_relative_path(root: Path, relative_path: str) -> Path:
-    """Resolve a user/tool-relative path under root; raise if it escapes the workspace."""
-    cleaned = relative_path.strip().replace('\\', '/') or '.'
-    candidate = (root / cleaned).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise ValueError('Requested path is outside the active workspace.') from exc
-    return candidate
-
-
-def truncate_text(value: str, limit: int) -> str:
-    """Truncate long strings with an explicit marker (used in SSE status lines)."""
-    if len(value) <= limit:
-        return value
-    return f'{value[:limit]}\n... [truncated]'
-
-
-def truncate_text_head_tail(value: str, limit: int, *, marker: str = '\n... [truncated middle] ...\n') -> str:
-    """Truncate by keeping a head and tail slice so failure lines near the end stay visible."""
-    if len(value) <= limit:
-        return value
-    marker_len = len(marker)
-    if limit <= marker_len + 16:
-        return truncate_text(value, limit)
-    budget = limit - marker_len
-    # Bias toward the tail (typical logs: banner at start, errors at end).
-    head_n = max(1, budget * 12 // 100)
-    tail_n = budget - head_n
-    return f'{value[:head_n]}{marker}{value[-tail_n:]}'
 
 
 def get_active_workspace_root() -> Path:
@@ -569,7 +543,6 @@ def search_workspace(
     return summary
 
 
-from clara_coder_backend.context_packs.tool import ACTIVATE_CONTEXT_TOOLS
 from clara_coder_backend.tools.workspace_image import read_workspace_image
 from clara_coder_backend.tools.wsdl_tools import WSDL_TOOLS
 from clara_coder_backend.tools.xml_tools import XML_TOOLS
@@ -582,9 +555,10 @@ TOOLS = [
     search_workspace,
     read_workspace_file,
     read_workspace_image,
-    *ACTIVATE_CONTEXT_TOOLS,
     *WSDL_TOOLS,
     *XML_TOOLS,
     *JSON_TOOLS,
 ]
 TOOL_MAP = {tool_.name: tool_ for tool_ in TOOLS}
+#: Base read-tool names from ``TOOLS`` (registry may union extra assembled tools).
+WORKSPACE_READ_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in TOOLS)

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from clara_coder_backend.session.domain import EditStagingEntry, PendingStagedTransferHitl
+from clara_coder_backend.domain import EditStagingEntry, PendingStagedTransferHitl
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
 from clara_coder_backend.session.state import current_session_id, get_session
 

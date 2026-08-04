@@ -1,4 +1,4 @@
-"""OpenAI-compatible embeddings from the active :class:`~clara_coder_backend.session.domain.RuntimeConnection`."""
+"""OpenAI-compatible embeddings from the active :class:`~clara_coder_backend.domain.RuntimeConnection`."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.embeddings.openai import OpenAIEmbedding
 
-from clara_coder_backend.session.config import (
+from clara_coder_backend.config import (
     DEFAULT_LLAMACPP_BASE_URL,
     DEFAULT_LM_STUDIO_BASE_URL,
     CLARA_EMBEDDINGS_API_KEY,
@@ -20,7 +20,7 @@ from clara_coder_backend.session.config import (
     CLARA_EMBEDDINGS_MAX_INPUT_TOKENS,
     CLARA_EMBEDDINGS_MODEL,
 )
-from clara_coder_backend.session.domain import RuntimeConnection
+from clara_coder_backend.domain import RuntimeConnection
 from clara_coder_backend.session.state import require_openai_api_key
 
 logger = logging.getLogger('clara.workspace_index.embeddings')
@@ -234,7 +234,7 @@ def embeddings_available(connection: RuntimeConnection) -> tuple[bool, str]:
 def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding | None, str]:
     """Construct a token-capped ``OpenAIEmbedding`` wrapper from *connection* settings, or ``(None, error_message)``.
 
-    When ``CLARA_EMBEDDINGS_BASE_URL`` is set (see :mod:`clara_coder_backend.session.config`), embeddings use that OpenAI-compatible
+    When ``CLARA_EMBEDDINGS_BASE_URL`` is set (see :mod:`clara_coder_backend.config`), embeddings use that OpenAI-compatible
     base URL instead of the chat connection's ``base_url``—so a dedicated local server (e.g. ``llama-server`` with
     ``--embedding`` on port 8081) can run alongside the main chat ``llama-server`` on port 8080.
 

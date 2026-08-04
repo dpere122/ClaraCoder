@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
-from clara_coder_backend.session.config import DEFAULT_TRANSCRIBE_MODEL
+from clara_coder_backend.config import DEFAULT_TRANSCRIBE_MODEL
 
 
 class ChatRequest(BaseModel):
@@ -53,7 +53,7 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode='after')
     def _user_turn_non_empty(self) -> 'ChatRequest':
-        from clara_coder_backend.chat.chat_input import effective_user_message_content, validate_user_turn_not_empty
+        from clara_coder_backend.session.chat_input import effective_user_message_content, validate_user_turn_not_empty
 
         eff = effective_user_message_content(self.message, self.structured_content)
         validate_user_turn_not_empty(eff)

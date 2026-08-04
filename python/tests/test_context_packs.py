@@ -19,7 +19,7 @@ from clara_coder_backend.context_packs.registry import (
 )
 from clara_coder_backend.context_packs.tool import ACTIVATE_CONTEXT_NAME, activate_context
 from clara_coder_backend.llm.messages import build_system_prompt
-from clara_coder_backend.session.domain import RuntimeConnection, SessionState
+from clara_coder_backend.domain import RuntimeConnection, SessionState
 from clara_coder_backend.session.state import current_session_id, get_session
 
 # Ensure built-ins are registered for this module.

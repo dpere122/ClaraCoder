@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.session.domain import SessionState
-from clara_coder_backend.lsp.jedi_init_options import deduce_venv_root_from_interpreter
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.runtime.python_env import deduce_venv_root_from_interpreter
 from clara_coder_backend.runtime.deps.paths import get_runtime_python_dir, venv_python
 from clara_coder_backend.runtime.python_env import (
     activate_process_workspace_python_env,

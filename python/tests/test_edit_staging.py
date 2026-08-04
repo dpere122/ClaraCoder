@@ -19,7 +19,7 @@ from clara_coder_backend.tools.review_tools import (
     search_staged_edits,
     transfer_staged_file_to_workspace,
 )
-from clara_coder_backend.session.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
 from clara_coder_backend.staging.edit_staging import (
     begin_staging_snapshot_session,
     copy_workspace_into_snapshot,

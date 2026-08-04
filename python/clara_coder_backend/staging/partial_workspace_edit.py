@@ -7,7 +7,7 @@ import logging
 import re
 from diff_match_patch import diff_match_patch
 
-from clara_coder_backend.session.config import (
+from clara_coder_backend.config import (
     SNIPPET_DMP_MATCH_THRESHOLD,
     SNIPPET_FUZZY_MIN_SIMILARITY,
     SNIPPET_FUZZY_TIE_DELTA,

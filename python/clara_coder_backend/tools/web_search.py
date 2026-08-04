@@ -166,7 +166,7 @@ async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
         return 'Tool error: no active session.'
     session = get_session(sid)
 
-    from clara_coder_backend.hitl.deferred_tool_hitl import maybe_await_hitl_for_deferred_tool
+    from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
 
     pending = maybe_await_hitl_for_deferred_tool(
         session,

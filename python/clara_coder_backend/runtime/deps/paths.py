@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 
 def get_runtime_dir() -> Path:

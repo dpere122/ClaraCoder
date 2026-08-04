@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.session.config import env_clara
+from clara_coder_backend.config import env_clara
 
 
 def test_env_clara_prefers_clara_over_nemo(monkeypatch):

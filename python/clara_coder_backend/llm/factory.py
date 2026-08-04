@@ -28,7 +28,7 @@ import httpx
 from fastapi import HTTPException
 from langchain_openai import ChatOpenAI
 
-from clara_coder_backend.session.config import env_clara, DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
+from clara_coder_backend.config import env_clara, DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_connection_settings
 from clara_coder_backend.llm.model_tuning import (
     connection_user_sampling_kwargs_for_llm,

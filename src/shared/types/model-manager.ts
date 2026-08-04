@@ -49,5 +49,13 @@ export interface HuggingFaceModelSearchItem {
 }
 
 export type ModelManagerHfSearchResult =
-  | { ok: true; models: HuggingFaceModelSearchItem[] }
+  | {
+      ok: true;
+      models: HuggingFaceModelSearchItem[];
+      hasMore: boolean;
+      skip: number;
+      limit: number;
+      totalCount: number | null;
+      totalPages: number | null;
+    }
   | { ok: false; error: string };

@@ -341,6 +341,7 @@ declare global {
       query: string;
       token?: string;
       limit?: number;
+      skip?: number;
     }) => Promise<ModelManagerHfSearchResult>;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;

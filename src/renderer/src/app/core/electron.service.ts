@@ -1132,9 +1132,15 @@ export class ElectronService {
     );
   }
 
-  modelManagerSearchHf(payload: { query: string; token?: string; limit?: number }): Promise<ModelManagerHfSearchResult> {
+  modelManagerSearchHf(payload: {
+    query: string;
+    token?: string;
+    limit?: number;
+    skip?: number;
+  }): Promise<ModelManagerHfSearchResult> {
     return (
-      this.api?.modelManagerSearchHf(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+      this.api?.modelManagerSearchHf(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
 

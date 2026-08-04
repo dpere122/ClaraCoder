@@ -1066,35 +1066,82 @@ export function registerModelManagerIpc(): void {
     'model-manager:search-hf',
     async (
       _event,
-      payload: { query: string; token?: string; limit?: number },
+      payload: { query: string; token?: string; limit?: number; skip?: number },
     ): Promise<ModelManagerHfSearchResult> => {
       try {
         const query = String(payload?.query || '').trim();
+        const limit = Math.min(50, Math.max(1, Number(payload?.limit ?? 10) || 10));
+        const skip = Math.max(0, Math.floor(Number(payload?.skip ?? 0) || 0));
         if (!query) {
-          return { ok: true, models: [] };
+          return { ok: true, models: [], hasMore: false, skip, limit, totalCount: 0, totalPages: 0 };
         }
-        const limit = Math.min(50, Math.max(1, Number(payload?.limit ?? 24)));
         const token = String(payload?.token || '').trim();
-        const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&limit=${limit}&sort=downloads&direction=-1`;
-        const headers: Record<string, string> = { Accept: 'application/json' };
+        const headers: Record<string, string> = {
+          Accept: 'application/json',
+          'User-Agent': 'ClaraCoder-ModelManager',
+        };
         if (token) {
           headers.Authorization = `Bearer ${token}`;
         }
+
+        let totalCount: number | null = null;
+        let totalPages: number | null = null;
+        // Website search endpoint exposes numTotalItems when withCount=true.
+        // Only needed on the first page; later pages reuse the renderer-held total.
+        if (skip === 0) {
+          try {
+            const countParams = new URLSearchParams({
+              search: query,
+              sort: 'downloads',
+              p: '0',
+              withCount: 'true',
+            });
+            const countResponse = await fetch(`https://huggingface.co/models-json?${countParams}`, {
+              headers,
+            });
+            if (countResponse.ok) {
+              const countJson = (await countResponse.json()) as { numTotalItems?: unknown };
+              const n = Number(countJson?.numTotalItems);
+              if (Number.isFinite(n) && n >= 0) {
+                totalCount = Math.floor(n);
+                totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / limit);
+              }
+            }
+          } catch {
+            // Fall back to link/hasMore pagination below.
+          }
+        }
+
+        const params = new URLSearchParams({
+          search: query,
+          limit: String(limit),
+          skip: String(skip),
+          sort: 'downloads',
+          direction: '-1',
+        });
+        const url = `https://huggingface.co/api/models?${params.toString()}`;
         const response = await fetch(url, { headers });
         if (!response.ok) {
           return { ok: false, error: `Hugging Face search failed (${response.status}).` };
         }
         const raw = (await response.json()) as Array<Record<string, unknown>>;
-        const models: HuggingFaceModelSearchItem[] = raw.map((m) => ({
-          id: String(m['id'] ?? ''),
-          likes: Number(m['likes'] ?? 0) || 0,
-          downloads: Number(m['downloads'] ?? 0) || 0,
-          lastModified: String(m['lastModified'] ?? ''),
-          private: Boolean(m['private']),
-          gated: Boolean(m['gated']),
-          tags: Array.isArray(m['tags']) ? m['tags'].map((t) => String(t)) : [],
-        })).filter((m) => !!m.id);
-        return { ok: true, models };
+        const models: HuggingFaceModelSearchItem[] = raw
+          .map((m) => ({
+            id: String(m['id'] ?? ''),
+            likes: Number(m['likes'] ?? 0) || 0,
+            downloads: Number(m['downloads'] ?? 0) || 0,
+            lastModified: String(m['lastModified'] ?? ''),
+            private: Boolean(m['private']),
+            gated: Boolean(m['gated']),
+            tags: Array.isArray(m['tags']) ? m['tags'].map((t) => String(t)) : [],
+          }))
+          .filter((m) => !!m.id);
+        const linkHeader = response.headers.get('link') ?? response.headers.get('Link') ?? '';
+        const hasNextLink = /rel=["']?next["']?/i.test(linkHeader);
+        const pageIndex = Math.floor(skip / limit);
+        const hasMore =
+          totalPages != null ? pageIndex + 1 < totalPages : hasNextLink || models.length >= limit;
+        return { ok: true, models, hasMore, skip, limit, totalCount, totalPages };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }

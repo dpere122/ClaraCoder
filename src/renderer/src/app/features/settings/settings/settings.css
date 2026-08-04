@@ -588,6 +588,8 @@
 
 .settings-pane--model-manager {
   gap: 0;
+  padding-right: 18px;
+  box-sizing: border-box;
 }
 
 .settings-pane--model-manager .form-section {
@@ -644,6 +646,54 @@
   background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
   border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
   border-radius: 6px;
+}
+
+.model-hf-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.model-hf-pager__pages {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.model-hf-pager__page {
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 75%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--t-bg) 55%, var(--t-bg-surface));
+  color: var(--t-fg);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.model-hf-pager__page:hover:not(:disabled):not(.is-active) {
+  border-color: color-mix(in srgb, var(--t-primary) 55%, transparent);
+  color: var(--t-primary);
+}
+
+.model-hf-pager__page.is-active {
+  border-color: color-mix(in srgb, var(--t-primary) 65%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 22%, var(--t-bg-surface));
+  color: var(--t-primary);
+  font-weight: 700;
+  cursor: default;
+}
+
+.model-hf-pager__page:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .model-card-list {
@@ -708,7 +758,7 @@
   align-self: center;
 }
 
-.model-migrate-accordion {
+.model-manager-accordion {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--t-border) 75%, transparent);
   border-radius: 6px;
@@ -716,7 +766,7 @@
   background: color-mix(in srgb, var(--t-bg) 30%, var(--t-bg-surface));
 }
 
-.model-migrate-accordion > summary {
+.model-manager-accordion > summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -729,11 +779,11 @@
   color: var(--t-primary);
 }
 
-.model-migrate-accordion > summary::-webkit-details-marker {
+.model-manager-accordion > summary::-webkit-details-marker {
   display: none;
 }
 
-.model-migrate-accordion > summary::before {
+.model-manager-accordion > summary::before {
   content: '';
   width: 0.35em;
   height: 0.35em;
@@ -744,15 +794,15 @@
   flex-shrink: 0;
 }
 
-.model-migrate-accordion[open] > summary::before {
+.model-manager-accordion[open] > summary::before {
   transform: rotate(45deg);
 }
 
-.model-migrate-accordion[open] > summary {
+.model-manager-accordion[open] > summary {
   border-bottom: 1px solid color-mix(in srgb, var(--t-border) 65%, transparent);
 }
 
-.model-migrate-accordion .model-card-list {
+.model-manager-accordion .model-card-list {
   padding: 6px;
 }
 

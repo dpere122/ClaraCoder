@@ -963,35 +963,38 @@
         <hr class='settings-divider' />
 
         <div class='form-section'>
-          <div class='form-section__header'>
-            <h5>Local models</h5>
-            <p class='settings-copy'>Hub folders (<code>models--…</code>) and standalone <code>.gguf</code>/<code>.ggml</code> files.</p>
-          </div>
-          <div class='model-card-list'>
-            @for (model of modelManagerCustomModels(); track model.absolutePath) {
-              <article class='model-card'>
-                <div class='model-card__main'>
-                  <div class='model-card__head'>
-                    <strong>{{ model.fileName }}</strong>
-                    <span class='pill'>{{ model.source }}</span>
-                    @if (model.entryKind === 'hubRepo') {
-                      <span class='pill'>hub</span>
-                    }
-                    <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+          <p class='settings-copy'>Hub folders (<code>models--…</code>) and standalone <code>.gguf</code>/<code>.ggml</code> files.</p>
+          <details class='model-manager-accordion'>
+            <summary>
+              Local models
+              <span class='pill'>{{ modelManagerCustomModels().length }}</span>
+            </summary>
+            <div class='model-card-list'>
+              @for (model of modelManagerCustomModels(); track model.absolutePath) {
+                <article class='model-card'>
+                  <div class='model-card__main'>
+                    <div class='model-card__head'>
+                      <strong>{{ model.fileName }}</strong>
+                      <span class='pill'>{{ model.source }}</span>
+                      @if (model.entryKind === 'hubRepo') {
+                        <span class='pill'>hub</span>
+                      }
+                      <span class='settings-copy model-card__meta'>{{ formatModelBytes(model.sizeBytes) }} · {{ formatModelDate(model.modifiedMs) }}</span>
+                    </div>
+                    <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
                   </div>
-                  <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
+                  <div class='model-card__actions'>
+                    <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
+                    <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
+                  </div>
+                </article>
+              } @empty {
+                <div class='empty-state empty-state--compact'>
+                  <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
                 </div>
-                <div class='model-card__actions'>
-                  <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
-                  <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
-                </div>
-              </article>
-            } @empty {
-              <div class='empty-state empty-state--compact'>
-                <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
-              </div>
-            }
-          </div>
+              }
+            </div>
+          </details>
         </div>
 
         <hr class='settings-divider' />
@@ -1014,7 +1017,7 @@
               <p class='settings-copy'>No cache paths detected.</p>
             }
           </div>
-          <details class='model-migrate-accordion'>
+          <details class='model-manager-accordion'>
             <summary>
               Migratable models
               <span class='pill'>{{ modelManagerCacheCandidates().length }}</span>
@@ -1080,9 +1083,10 @@
               type='text'
               [ngModel]='modelManagerHfQuery()'
               (ngModelChange)='onModelManagerHfQueryChange($event)'
+              (keydown.enter)='searchHuggingFaceModels(0)'
               placeholder='Search models…'
             />
-            <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels()'>
+            <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels(0)'>
               Search
             </button>
           </div>
@@ -1106,6 +1110,40 @@
               </div>
             }
           </div>
+          @if (modelManagerHfTotalPages() > 0) {
+            <div class='model-hf-pager' role='navigation' aria-label='Hugging Face search pages'>
+              <button
+                type='button'
+                class='action-button action-button--compact'
+                [disabled]='modelManagerHfBusy() || modelManagerHfPage() <= 0'
+                (click)='searchHuggingFaceModelsPrevPage()'
+              >
+                Prev
+              </button>
+              <div class='model-hf-pager__pages'>
+                @for (page of modelManagerHfPageNumbers(); track page) {
+                  <button
+                    type='button'
+                    class='model-hf-pager__page'
+                    [class.is-active]='page === modelManagerHfPage()'
+                    [disabled]='modelManagerHfBusy()'
+                    [attr.aria-current]='page === modelManagerHfPage() ? "page" : null'
+                    (click)='searchHuggingFaceModelsGotoPage(page)'
+                  >
+                    {{ page + 1 }}
+                  </button>
+                }
+              </div>
+              <button
+                type='button'
+                class='action-button action-button--compact'
+                [disabled]='modelManagerHfBusy() || modelManagerHfPage() + 1 >= modelManagerHfTotalPages()'
+                (click)='searchHuggingFaceModelsNextPage()'
+              >
+                Next
+              </button>
+            </div>
+          }
         </div>
 
         @if (modelManagerStatus()) {

@@ -33,6 +33,6 @@ export const modelManagerApi = {
   }) => ipcRenderer.invoke('model-manager:rename-model', payload),
   modelManagerDeleteModel: (payload: { customDir: string; modelPath: string }) =>
     ipcRenderer.invoke('model-manager:delete-model', payload),
-  modelManagerSearchHf: (payload: { query: string; token?: string; limit?: number }) =>
+  modelManagerSearchHf: (payload: { query: string; token?: string; limit?: number; skip?: number }) =>
     ipcRenderer.invoke('model-manager:search-hf', payload),
 };

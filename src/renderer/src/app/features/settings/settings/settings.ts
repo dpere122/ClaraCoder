@@ -362,6 +362,26 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerCacheCandidates = signal<ModelManagerFileEntry[]>([]);
   protected readonly modelManagerHfQuery = signal('');
   protected readonly modelManagerHfResults = signal<HuggingFaceModelSearchItem[]>([]);
+  protected readonly modelManagerHfPage = signal(0);
+  protected readonly modelManagerHfHasMore = signal(false);
+  protected readonly modelManagerHfTotalPages = signal(0);
+  protected readonly modelManagerHfWindowStart = signal(0);
+  protected readonly modelManagerHfPageSize = 10;
+  protected readonly modelManagerHfPageWindowSize = 10;
+  protected readonly modelManagerHfPageNumbers = computed(() => {
+    const start = this.modelManagerHfWindowStart();
+    const totalPages = this.modelManagerHfTotalPages();
+    if (totalPages <= 0) {
+      return [];
+    }
+    const lastPage = totalPages - 1;
+    const end = Math.min(start + this.modelManagerHfPageWindowSize - 1, lastPage);
+    const pages: number[] = [];
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
+    }
+    return pages;
+  });
   protected readonly modelManagerStatus = signal('');
   protected readonly modelManagerBusy = signal(false);
   protected readonly modelManagerHfBusy = signal(false);
@@ -1427,27 +1447,147 @@ export class Settings implements OnInit, OnDestroy {
     }
   }
 
-  protected async searchHuggingFaceModels(): Promise<void> {
+  protected async searchHuggingFaceModels(page = 0): Promise<void> {
     const query = this.modelManagerHfQuery().trim();
+    const nextPage = Math.max(0, Math.floor(page));
     if (!query) {
       this.modelManagerHfResults.set([]);
+      this.modelManagerHfPage.set(0);
+      this.modelManagerHfTotalPages.set(0);
+      this.modelManagerHfWindowStart.set(0);
+      this.modelManagerHfHasMore.set(false);
       return;
     }
     this.modelManagerHfBusy.set(true);
     try {
+      const limit = this.modelManagerHfPageSize;
       const res = await this.electron.modelManagerSearchHf({
         query,
         token: this.modelManagerHfToken().trim(),
-        limit: 24,
+        limit,
+        skip: nextPage * limit,
       });
       if (!res.ok) {
         this.modelManagerStatus.set(res.error);
         this.modelManagerHfResults.set([]);
+        this.modelManagerHfHasMore.set(false);
+        this.modelManagerHfTotalPages.set(0);
         return;
       }
+
+      const totalPages =
+        res.totalPages != null && res.totalPages >= 0
+          ? res.totalPages
+          : nextPage === 0
+            ? res.models.length === 0
+              ? 0
+              : Math.max(nextPage + (res.hasMore ? 2 : 1), 1)
+            : Math.max(this.modelManagerHfTotalPages(), nextPage + (res.hasMore ? 2 : 1));
+
+      if (res.models.length === 0 && nextPage > 0) {
+        const lastPage = Math.max(0, totalPages > 0 ? totalPages - 1 : nextPage - 1);
+        this.modelManagerHfTotalPages.set(Math.max(lastPage + 1, 1));
+        this.modelManagerHfHasMore.set(false);
+        this.alignHfPageWindow(lastPage);
+        if (lastPage !== this.modelManagerHfPage()) {
+          this.modelManagerHfBusy.set(false);
+          await this.searchHuggingFaceModels(lastPage);
+          return;
+        }
+        this.modelManagerHfResults.set([]);
+        this.modelManagerHfPage.set(lastPage);
+        return;
+      }
+
       this.modelManagerHfResults.set(res.models);
+      this.modelManagerHfPage.set(nextPage);
+      this.modelManagerHfTotalPages.set(totalPages);
+      this.modelManagerHfHasMore.set(res.hasMore || nextPage + 1 < totalPages);
+      if (nextPage === 0) {
+        this.modelManagerHfWindowStart.set(0);
+      }
+      this.alignHfPageWindow(nextPage);
     } finally {
       this.modelManagerHfBusy.set(false);
+    }
+  }
+
+  private alignHfPageWindow(page: number): void {
+    const windowSize = this.modelManagerHfPageWindowSize;
+    const lastPage = Math.max(0, this.modelManagerHfTotalPages() - 1);
+    let start = this.modelManagerHfWindowStart();
+    const end = start + windowSize - 1;
+    if (page > end) {
+      start += page - end;
+    } else if (page < start) {
+      start -= start - page;
+    }
+    const maxStart = Math.max(0, lastPage - windowSize + 1);
+    this.modelManagerHfWindowStart.set(Math.max(0, Math.min(start, maxStart)));
+  }
+
+  /** Center the visible page-number window around `page` (clamped to total pages). */
+  private centerHfPageWindow(page: number): void {
+    const windowSize = this.modelManagerHfPageWindowSize;
+    const lastPage = Math.max(0, this.modelManagerHfTotalPages() - 1);
+    const idealStart = page - Math.floor((windowSize - 1) / 2);
+    const maxStart = Math.max(0, lastPage - windowSize + 1);
+    this.modelManagerHfWindowStart.set(Math.max(0, Math.min(idealStart, maxStart)));
+  }
+
+  /**
+   * Recenter when navigating onto either window edge (and more pages exist beyond
+   * that edge); otherwise keep the target page visible with a minimal shift.
+   */
+  private prepareHfPageWindowForNavigation(page: number): void {
+    const lastPage = Math.max(0, this.modelManagerHfTotalPages() - 1);
+    const windowStart = this.modelManagerHfWindowStart();
+    const windowEnd = Math.min(windowStart + this.modelManagerHfPageWindowSize - 1, lastPage);
+    const atTrailingEdge = page >= windowEnd && page < lastPage;
+    const atLeadingEdge = page <= windowStart && page > 0;
+    if (atTrailingEdge || atLeadingEdge) {
+      this.centerHfPageWindow(page);
+      return;
+    }
+    this.alignHfPageWindow(page);
+  }
+
+  protected searchHuggingFaceModelsPrevPage(): void {
+    const page = this.modelManagerHfPage();
+    if (page <= 0 || this.modelManagerHfBusy()) {
+      return;
+    }
+    const prev = page - 1;
+    this.prepareHfPageWindowForNavigation(prev);
+    void this.searchHuggingFaceModels(prev);
+  }
+
+  protected searchHuggingFaceModelsNextPage(): void {
+    if (this.modelManagerHfBusy()) {
+      return;
+    }
+    const next = this.modelManagerHfPage() + 1;
+    const lastPage = Math.max(0, this.modelManagerHfTotalPages() - 1);
+    if (next > lastPage) {
+      return;
+    }
+    this.prepareHfPageWindowForNavigation(next);
+    void this.searchHuggingFaceModels(next);
+  }
+
+  protected searchHuggingFaceModelsGotoPage(page: number): void {
+    if (this.modelManagerHfBusy()) {
+      return;
+    }
+    const lastPage = Math.max(0, this.modelManagerHfTotalPages() - 1);
+    if (page < 0 || page > lastPage) {
+      return;
+    }
+
+    this.prepareHfPageWindowForNavigation(page);
+
+    if (page !== this.modelManagerHfPage()) {
+      void this.searchHuggingFaceModels(page);
     }
   }
 

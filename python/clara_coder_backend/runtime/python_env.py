@@ -489,37 +489,40 @@ def activate_process_workspace_python_env(venv_path: Path) -> None:
 
 
 def clear_session_python_workspace_env(session: SessionState) -> None:
-    session.python_workspace_root = ''
-    session.python_workspace_root_label = ''
-    session.python_workspace_venv_path = ''
-    session.python_workspace_python_executable = ''
-    session.python_workspace_bin_path = ''
-    session.python_workspace_env_summary = ''
-    session.python_interpreter_choice_id = ''
+    ws = session.workspace
+    ws.python_workspace_root = ''
+    ws.python_workspace_root_label = ''
+    ws.python_workspace_venv_path = ''
+    ws.python_workspace_python_executable = ''
+    ws.python_workspace_bin_path = ''
+    ws.python_workspace_env_summary = ''
+    ws.python_interpreter_choice_id = ''
 
 
 def apply_session_python_workspace_env(session: SessionState, result: PythonWorkspaceEnvResult) -> None:
+    ws = session.workspace
     if (
         not result.ok
         or result.project_root is None
         or result.venv_path is None
         or result.python_executable is None
     ):
-        session.python_workspace_env_summary = result.summary
+        ws.python_workspace_env_summary = result.summary
         return
-    session.python_workspace_root = str(result.project_root)
-    session.python_workspace_root_label = result.project_root_label
-    session.python_workspace_venv_path = str(result.venv_path)
-    session.python_workspace_python_executable = str(result.python_executable)
-    session.python_workspace_bin_path = str(workspace_python_bin_path(result.project_root))
-    session.python_workspace_env_summary = result.summary
+    ws.python_workspace_root = str(result.project_root)
+    ws.python_workspace_root_label = result.project_root_label
+    ws.python_workspace_venv_path = str(result.venv_path)
+    ws.python_workspace_python_executable = str(result.python_executable)
+    ws.python_workspace_bin_path = str(workspace_python_bin_path(result.project_root))
+    ws.python_workspace_env_summary = result.summary
     activate_process_workspace_python_env(result.venv_path)
 
 
 def session_workspace_subprocess_env(session: SessionState) -> dict[str, str] | None:
-    if not session.python_workspace_venv_path:
+    venv_path = session.workspace.python_workspace_venv_path
+    if not venv_path:
         return None
-    return build_workspace_python_env(Path(session.python_workspace_venv_path))
+    return build_workspace_python_env(Path(venv_path))
 
 
 async def ensure_session_python_workspace_env(
@@ -529,7 +532,7 @@ async def ensure_session_python_workspace_env(
     bootstrap_dependencies: bool = False,
     emit_chunk: Callable[[str], Awaitable[None]] | None = None,
 ) -> PythonWorkspaceEnvResult | None:
-    workspace_path = (session.workspace_path or '').strip()
+    workspace_path = (session.workspace.workspace_path or '').strip()
     if not workspace_path:
         clear_session_python_workspace_env(session)
         return None
@@ -560,10 +563,10 @@ async def ensure_session_python_workspace_env(
                     if dep_result.summary.strip()
                     else result.summary
                 )
-                session.python_workspace_env_summary = result.summary
+                session.workspace.python_workspace_env_summary = result.summary
                 if not dep_result.ok:
                     result.ok = False
     else:
         clear_session_python_workspace_env(session)
-        session.python_workspace_env_summary = result.summary
+        session.workspace.python_workspace_env_summary = result.summary
     return result

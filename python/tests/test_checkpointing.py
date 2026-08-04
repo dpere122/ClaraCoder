@@ -111,19 +111,26 @@ def test_checkpoint_history_endpoint_returns_entries(
 
 
 @patch('clara_coder_backend.routes.session.delete_outer_threads_for_session', new_callable=AsyncMock)
-def test_load_session_preserves_checkpoint_threads(
+def test_load_session_deletes_checkpoint_threads(
     mock_delete: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp4.sqlite'))
+    from clara_coder_backend.domain import SessionState
     from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+
+    state.sessions['ld'] = SessionState()
+    state.sessions['ld'].pending_diff_payload = {'path': 'x'}
 
     with TestClient(app) as client:
         r = client.post('/load', json={'session_id': 'ld', 'messages': [{'role': 'user', 'content': 'a'}]})
         assert r.status_code == 200
-    mock_delete.assert_not_awaited()
+    mock_delete.assert_awaited_once_with('ld')
+    assert state.sessions['ld'].history == [{'role': 'user', 'content': 'a'}]
+    assert state.sessions['ld'].pending_diff_payload is None
 
 
-@patch('clara_coder_backend.routes.session.delete_outer_threads_for_session', new_callable=AsyncMock)
+@patch('clara_coder_backend.session.lifecycle.delete_outer_threads_for_session', new_callable=AsyncMock)
 def test_clear_session_deletes_checkpoint_threads(
     mock_delete: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -134,3 +141,53 @@ def test_clear_session_deletes_checkpoint_threads(
         r = client.post('/clear', json={'session_id': 'cl'})
         assert r.status_code == 200
     mock_delete.assert_awaited_once()
+
+
+@patch('clara_coder_backend.session.lifecycle.delete_outer_threads_for_session', new_callable=AsyncMock)
+def test_dispose_session_pops_and_deletes_checkpoints(
+    mock_delete: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp6.sqlite'))
+    from clara_coder_backend.domain import SessionState
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+
+    state.sessions['disp'] = SessionState()
+    with TestClient(app) as client:
+        r = client.post('/dispose', json={'session_id': 'disp'})
+        assert r.status_code == 200
+    mock_delete.assert_awaited_once()
+    assert 'disp' not in state.sessions
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_load_clears_seeded_checkpoint_messages(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'cp7.sqlite'))
+    from clara_coder_backend.routes.session import load_session
+    from clara_coder_backend.session.checkpointing import (
+        get_graph_checkpointer,
+        init_graph_checkpointing,
+        outer_agent_thread_id,
+        shutdown_graph_checkpointing,
+    )
+    from clara_coder_backend.session.schemas import LoadRequest
+    from clara_coder_backend.session import state
+
+    await init_graph_checkpointing()
+    try:
+        llm = FakeListChatModel(responses=['ok'])
+        g = create_agent(llm, [], system_prompt='sys', name='t', checkpointer=get_graph_checkpointer())
+        tid = outer_agent_thread_id('s-load', 'single', apply_mode=True)
+        cfg = {'configurable': {'thread_id': tid}}
+        await g.ainvoke({'messages': [HumanMessage('hello')]}, cfg)
+        assert (await g.aget_state(cfg)).values.get('messages')
+
+        result = await load_session(
+            LoadRequest(session_id='s-load', messages=[{'role': 'user', 'content': 'from-sqlite'}]),
+        )
+        assert result == {'ok': True}
+        assert state.sessions['s-load'].history == [{'role': 'user', 'content': 'from-sqlite'}]
+        st2 = await g.aget_state(cfg)
+        assert not (st2.values and st2.values.get('messages'))
+    finally:
+        await shutdown_graph_checkpointing()

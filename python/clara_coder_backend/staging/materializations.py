@@ -17,10 +17,10 @@ __all__ = [
 
 
 def restore_materialized_path(session: SessionState, rel_key: str) -> None:
-    materialized = session.test_run_materializations.get(rel_key)
+    materialized = session.staging.test_run_materializations.get(rel_key)
     if materialized is None:
         return
-    root = Path(session.workspace_path).resolve()
+    root = Path(session.workspace.workspace_path).resolve()
     target = (root / rel_key).resolve()
     if materialized.existed:
         write_file_resolved(
@@ -31,13 +31,13 @@ def restore_materialized_path(session: SessionState, rel_key: str) -> None:
         )
     else:
         target.unlink(missing_ok=True)
-    session.test_run_materializations.pop(rel_key, None)
+    session.staging.test_run_materializations.pop(rel_key, None)
 
 
 def rollback_test_run_materializations(session: SessionState) -> None:
     """Restore any workspace files that were materialized for test runs but not approved."""
 
-    for rel_key in list(session.test_run_materializations.keys()):
+    for rel_key in list(session.staging.test_run_materializations.keys()):
         try:
             restore_materialized_path(session, rel_key)
         except Exception as exc:

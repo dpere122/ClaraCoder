@@ -53,8 +53,8 @@ def stage_plan_confirm_request(
         'message': 'Approve this build plan before the agent executes it.',
         'confirm_label': 'Run plan',
         'cancel_label': 'Cancel',
-        'build_plan_id': (build_plan_id or session.active_build_plan_id or '').strip(),
-        'build_plan_path': (build_plan_path or session.active_build_plan_path or '').strip(),
+        'build_plan_id': (build_plan_id or session.plans.active_build_plan_id or '').strip(),
+        'build_plan_path': (build_plan_path or session.plans.active_build_plan_path or '').strip(),
         'files_to_change': _normalize_files_to_change(files_to_change),
         'current_implementation': (current_implementation or '').strip(),
         'risks': [str(r).strip() for r in (risks or []) if str(r).strip()],
@@ -65,8 +65,9 @@ def stage_plan_confirm_request(
             if str(q.get('prompt') or '').strip() and str(q.get('answer') or '').strip()
         ],
     }
-    session.pending_plan_confirm_request = pending
-    session.plan_execute_aborted = False
+    hitl = session.hitl
+    hitl.pending_plan_confirm_request = pending
+    hitl.plan_execute_aborted = False
     return pending
 
 
@@ -115,18 +116,18 @@ def execute_pending_plan_confirm_decision(
 ) -> str:
     """Resolve plan approval; orchestrator reads ``plan_execute_aborted`` after pause."""
 
-    pending = session.pending_plan_confirm_request
+    pending = session.hitl.pending_plan_confirm_request
     if not pending:
         return ''
     if request_id and pending.get('request_id') != request_id:
-        session.pending_plan_confirm_request = None
+        session.hitl.pending_plan_confirm_request = None
         return 'Plan confirmation ignored (stale or mismatched request).'
-    session.pending_plan_confirm_request = None
+    session.hitl.pending_plan_confirm_request = None
     if not confirm:
-        session.plan_execute_aborted = True
-        plan_id = str(pending.get('build_plan_id') or session.active_build_plan_id or '').strip()
+        session.hitl.plan_execute_aborted = True
+        plan_id = str(pending.get('build_plan_id') or session.plans.active_build_plan_id or '').strip()
         if plan_id:
             cancel_build_plan(session, plan_id)
         return 'User cancelled the proposed plan.'
-    session.plan_execute_aborted = False
+    session.hitl.plan_execute_aborted = False
     return ''

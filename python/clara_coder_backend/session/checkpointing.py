@@ -90,6 +90,10 @@ OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe', 'plan', 'plan_exec
 async def delete_outer_threads_for_session(session_id: str, thread_kind: str | None = None) -> None:
     """Remove LangGraph checkpoints for outer threads (conversation reset or resync).
 
+    Called from ``/clear``, ``/dispose``, and ``/load`` so Electron SQLite history is the
+    source of truth for the next model turn. Checkpoint delta turns are only valid within a
+    continuous process lifetime after the last load/clear.
+
     When ``thread_kind`` is None, clears every known outer graph kind (see ``OUTER_AGENT_THREAD_KINDS``).
     Deletes current thread-id shapes (apply × orchestration) and legacy ids without ``:orch*``.
     """

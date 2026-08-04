@@ -52,12 +52,9 @@ class PendingStagedTransferHitl:
 
 
 @dataclass
-class SessionState:
-    """Per-chat-session data kept while the Electron app talks to this process."""
+class SessionWorkspaceState:
+    """Workspace attachment, semantic index batching, and Python env resolution."""
 
-    # Serialized chat turns: each item has "role" and "content" (user/assistant/system).
-    # ``content`` is usually a string; user turns may use OpenAI-style multimodal lists.
-    history: list[dict[str, Any]] = field(default_factory=list)
     # Absolute path to the folder the user opened as workspace, or empty.
     workspace_path: str = ''
     # App workspace card id (Electron ``Workspace.id``); used for internal semantic index paths.
@@ -82,20 +79,18 @@ class SessionState:
     python_workspace_env_summary: str = ''
     # Selected interpreter id from discovery (``app-backend``, ``dot-venv``, …); drives Jedi env + LSP metadata.
     python_interpreter_choice_id: str = ''
+
+
+@dataclass
+class SessionHitlState:
+    """Human-in-the-loop pause fields, pending approvals, and SSE bridging."""
+
     # Set by workspace edit tools; consumed by SSE diff event after tool success.
     pending_diff_payload: dict | None = None
     # Staged transfer awaiting human confirm (``transfer_staged_file_to_workspace`` / approve when auto_apply off).
     pending_staged_transfer_hitl: PendingStagedTransferHitl | None = None
     # Batch diff payloads for staged transfer HITL; consumed by SSE ``staged_transfer_batch``.
     pending_staged_transfer_batch_payload: dict | None = None
-    # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
-    pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
-    # Active staging snapshot namespace for temp drafts and the seeded workspace mirror.
-    active_staging_snapshot_id: str = ''
-    # Absolute path to the seeded workspace mirror root, or empty when no snapshot is active.
-    active_staging_snapshot_root: str = ''
-    # Original workspace snapshots for staged files materialized into the real workspace before reviewer test runs.
-    test_run_materializations: dict[str, WorkspaceTestMaterializationEntry] = field(default_factory=dict)
     # Set by delete_workspace_entry when auto_apply is false; cleared after confirm/cancel via agent-continue.
     pending_delete_request: dict | None = None
     # Set by copy_workspace_files when auto_apply is false; cleared after confirm/cancel via agent-continue.
@@ -108,38 +103,38 @@ class SessionState:
     plan_execute_aborted: bool = False
     # Plan-and-execute: batch of clarifying questions awaiting user answers before plan confirm.
     pending_question_request: dict | None = None
-    #: Structured answers returned by the question HITL; read by the orchestrator after pause.
+    #: Structured answers returned by the question HITL; read by the plan orchestrator after pause.
     question_answers: list | None = None
     #: Set by question HITL when the user cancels; read by the plan orchestrator after pause.
     question_aborted: bool = False
-    #: Active build plan registry id (``.nemo/build-plans``) while planning or executing.
-    active_build_plan_id: str = ''
-    #: Workspace-relative path to the active build plan Markdown file.
-    active_build_plan_path: str = ''
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
     # Note from the client, appended as HumanMessage after the pause (may be empty).
     agent_pause_note: str | None = None
     # UI/system events (e.g. user closed a run_command terminal tab) drained into HumanMessages.
     pending_user_event_notes: list[str] = field(default_factory=list)
-    # Live mirror of the UI toggle; POST /session/auto-apply updates this during an in-flight stream.
-    auto_apply_mode: bool = False
-    #: Concurrent :func:`~clara_coder_backend.lang_agent.graph._stream_langgraph_tool_agent` runs per session (nested SSE workers).
-    active_langgraph_agent_streams: int = 0
-    #: Subset of those started with ``apply_mode=True`` (Editor on). Drives ``worker_apply_mode`` together with the count.
-    active_editor_langgraph_streams: int = 0
-    # LangGraph worker: editor/apply mode for this delegated task (mirrors chat apply_mode).
-    worker_apply_mode: bool = False
     # LangGraph worker: middleware signals here so the SSE loop can emit a diff before on_tool_end.
     hitl_sse_queue: asyncio.Queue | None = None
-    # Set when the client requests an abort; the streaming generator checks this to bail out early.
-    abort_event: asyncio.Event = field(default_factory=asyncio.Event)
-    # Outer ``/chat/stream`` allocates this queue so subprocess tools (pytest, smoke, overlay, …) can emit ``tool_exec_*`` SSE.
-    planning_nested_events_q: asyncio.Queue | None = None
-    # While True, chat-model token deltas from the parent graph's ``astream_events`` queue are not sent as SSE
-    # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
-    # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.
-    suppress_parent_graph_model_token_sse: bool = False
+
+
+@dataclass
+class SessionStagingState:
+    """Nested edit staging snapshots and test-run materializations."""
+
+    # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
+    pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
+    # Active staging snapshot namespace for temp drafts and the seeded workspace mirror.
+    active_staging_snapshot_id: str = ''
+    # Absolute path to the seeded workspace mirror root, or empty when no snapshot is active.
+    active_staging_snapshot_root: str = ''
+    # Original workspace snapshots for staged files materialized into the real workspace before reviewer test runs.
+    test_run_materializations: dict[str, WorkspaceTestMaterializationEntry] = field(default_factory=dict)
+
+
+@dataclass
+class SessionLspState:
+    """LSP subprocess scope, project roots, and diagnostics caches."""
+
     # Active LSP phase: `staging` while reviewing staged drafts, `workspace` for the final real-workspace pass.
     lsp_active_scope: str = 'workspace'
     # Workspace root last associated with an LSP subprocess (empty when none have started).
@@ -160,6 +155,28 @@ class SessionState:
     lsp_diagnostics_by_scope: dict[str, dict[str, list[dict[str, object]]]] = field(
         default_factory=lambda: {'workspace': {}, 'staging': {}}
     )
+
+
+@dataclass
+class SessionStreamState:
+    """Streaming flags, nested LangGraph workers, and abort signaling."""
+
+    # Live mirror of the UI toggle; POST /session/auto-apply updates this during an in-flight stream.
+    auto_apply_mode: bool = False
+    #: Concurrent :func:`~clara_coder_backend.lang_agent.graph._stream_langgraph_tool_agent` runs per session (nested SSE workers).
+    active_langgraph_agent_streams: int = 0
+    #: Subset of those started with ``apply_mode=True`` (Editor on). Drives ``worker_apply_mode`` together with the count.
+    active_editor_langgraph_streams: int = 0
+    # LangGraph worker: editor/apply mode for this delegated task (mirrors chat apply_mode).
+    worker_apply_mode: bool = False
+    # Set when the client requests an abort; the streaming generator checks this to bail out early.
+    abort_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # Outer ``/chat/stream`` allocates this queue so subprocess tools (pytest, smoke, overlay, …) can emit ``tool_exec_*`` SSE.
+    planning_nested_events_q: asyncio.Queue | None = None
+    # While True, chat-model token deltas from the parent graph's ``astream_events`` queue are not sent as SSE
+    # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
+    # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.
+    suppress_parent_graph_model_token_sse: bool = False
     # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`clara_coder_backend.composer`).
     last_stream_apply_mode: bool | None = None
     last_stream_auto_apply_mode: bool | None = None
@@ -167,6 +184,71 @@ class SessionState:
     last_stream_speech_enabled: bool = False
     #: Context pack ids activated this session (inject-once playbooks).
     activated_context_packs: set[str] = field(default_factory=set)
+
+
+@dataclass
+class SessionPlanState:
+    """Active build plan registry pointer while planning or executing."""
+
+    #: Active build plan registry id (``.nemo/build-plans``) while planning or executing.
+    active_build_plan_id: str = ''
+    #: Workspace-relative path to the active build plan Markdown file.
+    active_build_plan_path: str = ''
+
+
+def _nest_prop(nest: str, attr: str):
+    def g(self):  # noqa: ANN001
+        return getattr(getattr(self, nest), attr)
+
+    def s(self, v):  # noqa: ANN001
+        setattr(getattr(self, nest), attr, v)
+
+    return property(g, s)
+
+
+_NEST_CLASSES: dict[str, type] = {
+    'workspace': SessionWorkspaceState,
+    'hitl': SessionHitlState,
+    'staging': SessionStagingState,
+    'lsp': SessionLspState,
+    'stream': SessionStreamState,
+    'plans': SessionPlanState,
+}
+
+_FLAT_FIELD_TO_NEST: dict[str, tuple[str, str]] = {}
+for _nest_name, _nest_cls in _NEST_CLASSES.items():
+    for _field in _nest_cls.__dataclass_fields__:
+        _FLAT_FIELD_TO_NEST[_field] = (_nest_name, _field)
+
+
+class SessionState:
+    """Per-chat-session data kept while the Electron app talks to this process."""
+
+    history: list[dict[str, Any]]
+    last_touched: float
+    workspace: SessionWorkspaceState
+    hitl: SessionHitlState
+    staging: SessionStagingState
+    lsp: SessionLspState
+    stream: SessionStreamState
+    plans: SessionPlanState
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.history = kwargs.pop('history', [])
+        self.last_touched = kwargs.pop('last_touched', 0.0)
+        for nest_name, nest_cls in _NEST_CLASSES.items():
+            provided = kwargs.pop(nest_name, None)
+            setattr(self, nest_name, provided if provided is not None else nest_cls())
+        for key, value in list(kwargs.items()):
+            if key not in _FLAT_FIELD_TO_NEST:
+                raise TypeError(f'SessionState() got an unexpected keyword argument {key!r}')
+            nest_name, attr = _FLAT_FIELD_TO_NEST[key]
+            setattr(getattr(self, nest_name), attr, value)
+            del kwargs[key]
+
+
+for _flat, (_nest_name, _attr) in _FLAT_FIELD_TO_NEST.items():
+    setattr(SessionState, _flat, _nest_prop(_nest_name, _attr))
 
 
 @dataclass

@@ -49,7 +49,13 @@ export const chatApi = {
       },
     ) => void,
   ) => ipcRenderer.on('message-background-command-open', callback),
-  onMessageDone: (callback: (event: unknown, conversationId: string) => void) => ipcRenderer.on('message-done', callback),
+  onMessageDone: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      outcome?: 'completed' | 'aborted' | 'error',
+    ) => void,
+  ) => ipcRenderer.on('message-done', callback),
   onMessageTokenUsage: (
     callback: (
       event: unknown,

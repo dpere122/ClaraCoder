@@ -9,15 +9,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from clara_coder_backend.session.checkpointing import delete_outer_threads_for_session
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available
-from clara_coder_backend.workspace_index.lifecycle import (
-    invalidate_staging_index_disk,
-    invalidate_workspace_index_disk,
-)
+from clara_coder_backend.workspace_index.lifecycle import invalidate_workspace_index_disk
 from clara_coder_backend.lsp.manager import shutdown_session_python_lsp
 from clara_coder_backend.runtime.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
 from clara_coder_backend.runtime.python_interpreter_select import (
@@ -26,6 +22,9 @@ from clara_coder_backend.runtime.python_interpreter_select import (
     discover_workspace_python_interpreters,
     find_interpreter_entry_by_id,
 )
+from clara_coder_backend.session.chat_input import effective_user_message_content
+from clara_coder_backend.session.checkpointing import delete_outer_threads_for_session
+from clara_coder_backend.session.lifecycle import clear_session_hitl_fields, teardown_session
 from clara_coder_backend.session.schemas import (
     ClearRequest,
     LoadRequest,
@@ -65,40 +64,71 @@ def _apply_npm_project_hints(sess: SessionState, workspace_root: Path) -> None:
 
 @router.post('/clear')
 async def clear_session(request: ClearRequest) -> dict[str, bool]:
-    """Drop chat history for a session id (fresh SessionState)."""
-    sid = request.session_id
-    try:
-        invalidate_staging_index_disk(sid)
-    except Exception:
-        logger.debug('invalidate staging semantic index on clear failed', exc_info=True)
-    cleanup_staging_snapshot_session(state.get_session(sid), sid)
-    from clara_coder_backend.tools.run_command import kill_session_background_commands
+    """Reset a session to a fresh SessionState and drop outer LangGraph checkpoints.
 
-    await kill_session_background_commands(sid)
-    await delete_outer_threads_for_session(sid)
+    After clear, Electron SQLite (empty or new chat) is the source of truth for the next
+    model turn — checkpoint delta history must not outlive this resync.
+    """
+    sid = request.session_id
+    await teardown_session(sid)
     state.sessions[sid] = SessionState()
     return {'ok': True}
 
 
+@router.post('/dispose')
+async def dispose_session(request: ClearRequest) -> dict[str, bool]:
+    """Teardown a session and remove it from the in-memory store (conversation deleted)."""
+    sid = request.session_id
+    await teardown_session(sid)
+    state.sessions.pop(sid, None)
+    return {'ok': True}
+
+
+def _load_message_content(item: dict[str, Any], role: str) -> str | list[dict[str, Any]] | None:
+    """Normalize one /load row into history content, or None to skip."""
+    if role == 'user':
+        structured = item.get('structured_content')
+        if structured is None:
+            structured = item.get('structuredContent')
+        message = item.get('message')
+        if message is not None or structured is not None:
+            content: str | list[dict[str, Any]] | None = effective_user_message_content(
+                str(message or ''),
+                structured if isinstance(structured, list) else None,
+            )
+        else:
+            # Legacy shape: already-normalized ``content`` (string or multimodal list).
+            content = item.get('content', '')
+    else:
+        content = item.get('content', '')
+
+    if content is None:
+        return None
+    if isinstance(content, list):
+        return content if len(content) > 0 else None
+    if isinstance(content, str):
+        return content if content.strip() else None
+    return None
+
+
 @router.post('/load')
 async def load_session(request: LoadRequest) -> dict[str, bool]:
-    """Bulk-restore messages into a session (typically after app restart)."""
+    """Bulk-restore messages into a session (typically after app restart or conversation switch).
+
+    Replaces slim history from Electron SQLite and clears outer LangGraph checkpoints so the
+    next model turn rebuilds from loaded history (SQLite is authoritative after resync).
+    Live HITL/pause fields are abandoned; workspace/LSP attachment is preserved.
+    """
     sess = state.get_session(request.session_id)
     restored: list[dict[str, Any]] = []
     for item in request.messages:
-        role = item.get('role', 'user')
-        content = item.get('content', '')
+        role = str(item.get('role', 'user'))
+        content = _load_message_content(item, role)
         if content is None:
             continue
-        if isinstance(content, list):
-            if len(content) == 0:
-                continue
-        elif isinstance(content, str):
-            if not content.strip():
-                continue
-        else:
-            continue
-        restored.append({'role': str(role), 'content': content})
+        restored.append({'role': role, 'content': content})
+    await delete_outer_threads_for_session(request.session_id)
+    clear_session_hitl_fields(sess)
     sess.history = restored
     return {'ok': True}
 

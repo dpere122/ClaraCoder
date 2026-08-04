@@ -63,8 +63,8 @@ def _normalize_lsp_scope(scope: str | None) -> str:
 def diagnostics_cache_for_scope(session: SessionState, scope: str | None = None) -> dict[str, list[dict[str, object]]]:
     """Return the mutable diagnostics cache for one LSP scope (creates the bucket if missing)."""
 
-    desired = _normalize_lsp_scope(scope or getattr(session, 'lsp_active_scope', None))
-    caches = session.lsp_diagnostics_by_scope
+    desired = _normalize_lsp_scope(scope or getattr(session.lsp, 'lsp_active_scope', None))
+    caches = session.lsp.lsp_diagnostics_by_scope
     bucket = caches.get(desired)
     if bucket is None:
         bucket = {}
@@ -76,7 +76,7 @@ def clear_diagnostics_caches(session: SessionState, *, scope: str | None = None)
     """Clear one scope cache, or both when ``scope`` is omitted."""
 
     if scope is None:
-        session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
+        session.lsp.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
         return
     diagnostics_cache_for_scope(session, scope).clear()
 
@@ -276,7 +276,7 @@ class SessionWorkspaceLspManager:
                 state=self._plugin_state,
                 lsp_cwd=lsp_cwd,
             )
-            self.session.lsp_workspace_root = str(self.workspace_root)
+            self.session.lsp.lsp_workspace_root = str(self.workspace_root)
             logger.info(
                 '%s LSP session ready session=%s scope=%s workspace=%s lsp_cwd=%s',
                 self.server_kind,
@@ -319,9 +319,9 @@ class SessionWorkspaceLspManager:
                 k != my_key and k[0] == self.session_id for k in _SESSION_MANAGERS
             )
         if not any_remaining:
-            self.session.lsp_workspace_root = ''
-            if self.session.lsp_active_scope == self.scope:
-                self.session.lsp_active_scope = 'workspace'
+            self.session.lsp.lsp_workspace_root = ''
+            if self.session.lsp.lsp_active_scope == self.scope:
+                self.session.lsp.lsp_active_scope = 'workspace'
 
     def sync_document(
         self,
@@ -761,15 +761,15 @@ def _resolve_session_and_root(session_id: str | None) -> tuple[str, SessionState
 def _effective_lsp_workspace_root(session: SessionState, scope: str, *, session_id: str) -> Path:
     desired = _normalize_lsp_scope(scope)
     if desired == 'workspace':
-        return Path(session.workspace_path).resolve()
-    return ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=session_id)
+        return Path(session.workspace.workspace_path).resolve()
+    return ensure_lsp_staging_overlay(session, Path(session.workspace.workspace_path), session_id=session_id)
 
 
 def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> None:
     """Set the session's default LSP scope without tearing down the other scope's managers."""
 
     _sid, session, _workspace_root = _resolve_session_and_root(session_id)
-    session.lsp_active_scope = _normalize_lsp_scope(scope)
+    session.lsp.lsp_active_scope = _normalize_lsp_scope(scope)
 
 
 def get_session_lsp_manager(
@@ -783,7 +783,7 @@ def get_session_lsp_manager(
     sid, session, _real_ws = _resolve_session_and_root(session_id)
     server_id = (server or '').strip()
     get_lsp_server_plugin(server_id)  # validate early
-    desired_scope = _normalize_lsp_scope(scope or session.lsp_active_scope)
+    desired_scope = _normalize_lsp_scope(scope or session.lsp.lsp_active_scope)
     effective_root = _effective_lsp_workspace_root(session, desired_scope, session_id=sid)
     key = (sid, server_id, desired_scope)
     with _MANAGERS_LOCK:
@@ -805,7 +805,7 @@ def get_session_lsp_manager(
         # Explicit scope selection updates the session default unless the caller opts out
         # (e.g. read-only diagnostics against the non-default scope).
         if set_active and scope is not None:
-            session.lsp_active_scope = desired_scope
+            session.lsp.lsp_active_scope = desired_scope
         return manager
 
 
@@ -892,26 +892,26 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
             servers_payload[srv_id] = {'initialized': running}
     diag_count = sum(
         len(rows)
-        for cache in session.lsp_diagnostics_by_scope.values()
+        for cache in session.lsp.lsp_diagnostics_by_scope.values()
         for rows in cache.values()
     )
-    active_scope = session.lsp_active_scope or 'workspace'
+    active_scope = session.lsp.lsp_active_scope or 'workspace'
     real_ws = str(workspace_root)
-    overlay_raw = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
+    overlay_raw = str(getattr(session.lsp, 'lsp_staging_overlay_root', '') or '').strip()
     reported_root = overlay_raw if active_scope == 'staging' and overlay_raw else real_ws
-    ts_root_str = (session.typescript_lsp_resolved_root or '').strip()
+    ts_root_str = (session.lsp.typescript_lsp_resolved_root or '').strip()
     node_modules_present = False
     if ts_root_str:
         node_modules_present = (Path(ts_root_str).resolve() / 'node_modules').is_dir()
     py_env_path = jedi_environment_path_for_workspace(session, workspace_root)
-    py_interp = (session.python_workspace_python_executable or '').strip() or None
+    py_interp = (session.workspace.python_workspace_python_executable or '').strip() or None
 
     return {
         'sessionId': sid,
         'workspaceRoot': reported_root,
         'realWorkspaceRoot': real_ws,
-        'typescriptProjectRoot': session.typescript_lsp_resolved_root or None,
-        'javaProjectRoot': session.java_lsp_resolved_root or None,
+        'typescriptProjectRoot': session.lsp.typescript_lsp_resolved_root or None,
+        'javaProjectRoot': session.lsp.java_lsp_resolved_root or None,
         'activeLspScope': active_scope,
         'cachedDiagnostics': diag_count,
         'diagnosticsCacheNote': (
@@ -929,7 +929,7 @@ def list_session_diagnostics(
     session_id: str, relative_path: str = '', *, scope: str | None = None
 ) -> list[dict[str, Any]]:
     sid, session, _ = _resolve_session_and_root(session_id)
-    cache = diagnostics_cache_for_scope(session, scope or session.lsp_active_scope)
+    cache = diagnostics_cache_for_scope(session, scope or session.lsp.lsp_active_scope)
     rel = normalize_relative_posix_path(relative_path)
     if rel:
         return list(cache.get(rel, []))

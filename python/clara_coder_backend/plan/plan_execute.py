@@ -909,8 +909,8 @@ async def stream_plan_execute_langgraph(
             draft_md[:800],
         )
         set_build_plan_status(session, record.id, 'cancelled')
-        session.active_build_plan_id = ''
-        session.active_build_plan_path = ''
+        session.plans.active_build_plan_id = ''
+        session.plans.active_build_plan_path = ''
         outcome.mark_completed(
             final_text=(
                 'The planner did not produce any action steps, so the plan was not run. '
@@ -985,7 +985,7 @@ async def stream_plan_execute_langgraph(
         )
     )
 
-    exec_prompt = build_build_plan_executor_prompt(session.active_build_plan_path)
+    exec_prompt = build_build_plan_executor_prompt(session.plans.active_build_plan_path)
     exec_outcome = LangGraphWorkerOutcome()
     exec_cfg = AgentGraphConfig(
         session_id=session_id,

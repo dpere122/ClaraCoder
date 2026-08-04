@@ -118,74 +118,8 @@ export interface Conversation extends ConversationMeta {
   themeId: string;
 }
 
-/** Serialized chat row in conversation JSON (includes tool/diff metadata). */
-export type ConversationFileMessage =
-  | { role: 'user'; text: string; structuredContent?: readonly ChatStructuredContentPart[] }
-  | {
-      role: 'assistant';
-      text: string;
-      planner?: PlannerProgress;
-      toolStreams?: StreamPart[];
-      /** Auxiliary model output (reasoning channel); streamTag matches the SSE auxiliary tag. */
-      reasoningStreams?: StreamPart[];
-      /** Legacy on-disk field from pre-rename builds. */
-      moeStreams?: StreamPart[];
-      /** Multiplex order for reasoning + delegated streams (non-primary tags), when available. */
-      auxiliaryStreamTimeline?: StreamPart[];
-    }
-  | {
-      role: 'chain';
-      label: string;
-      text: string;
-      state: 'running' | 'complete' | 'error';
-      source: 'agent' | 'tool';
-      statusId: string;
-      agentRole?: LlmAgentRole;
-      streamTag?: string;
-    }
-  | {
-      role: 'diff';
-      payload: FileDiffPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-    }
-  | {
-      role: 'accept_command';
-      payload: AcceptCommandPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-    }
-  | {
-      role: 'copy_confirm';
-      payload: CopyConfirmPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-    }
-  | {
-      role: 'delete_confirm';
-      payload: DeleteConfirmPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-    }
-  | {
-      role: 'plan_confirm';
-      payload: PlanConfirmPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-    }
-  | {
-      role: 'staged_transfer_batch';
-      payload: StagedTransferBatchPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-      fileResolutions?: Record<string, StagedTransferFileResolution>;
-    }
-  | {
-      role: 'agent_question';
-      payload: AgentQuestionPayload;
-      reviewStatus?: DiffReviewStatus;
-      reviewSummary?: string;
-    };
+/** On-disk / IPC chat row — same shape as the renderer conversation message. */
+export type ConversationFileMessage = ConversationMessage;
 
 /**
  * On-disk JSON shape used by the main process.

@@ -647,8 +647,8 @@ def create_build_plan(
 
     record = _entry_to_record(entry)
     if session is not None:
-        session.active_build_plan_id = record.id
-        session.active_build_plan_path = record.relative_path
+        session.plans.active_build_plan_id = record.id
+        session.plans.active_build_plan_path = record.relative_path
     return record
 
 
@@ -663,7 +663,7 @@ def get_active_plan(
     if not workspace_root:
         return None
 
-    plan_id = (session.active_build_plan_id or '').strip()
+    plan_id = (session.plans.active_build_plan_id or '').strip()
     if plan_id:
         for entry in _load_index(workspace_root):
             if str(entry.get('id') or '') == plan_id:
@@ -894,7 +894,7 @@ def delete_build_plan(workspace_root: str, plan_id: str) -> bool:
 def complete_build_plan(session: SessionState, plan_id: str | None = None) -> None:
     """Mark a registry entry ``complete`` (file remains on disk)."""
 
-    set_build_plan_status(session, plan_id or session.active_build_plan_id or '', 'complete')
+    set_build_plan_status(session, plan_id or session.plans.active_build_plan_id or '', 'complete')
 
 
 def set_build_plan_status(session: SessionState, plan_id: str, status: str) -> None:
@@ -913,8 +913,8 @@ def set_build_plan_status(session: SessionState, plan_id: str, status: str) -> N
 
 
 def attach_active_plan(session: SessionState, record: BuildPlanRecord) -> None:
-    session.active_build_plan_id = record.id
-    session.active_build_plan_path = record.relative_path
+    session.plans.active_build_plan_id = record.id
+    session.plans.active_build_plan_path = record.relative_path
 
 
 def cancel_build_plan(session: SessionState, plan_id: str) -> bool:
@@ -924,9 +924,9 @@ def cancel_build_plan(session: SessionState, plan_id: str) -> bool:
     if not pid:
         return False
     removed = delete_build_plan(session.workspace_path, pid)
-    if removed and session.active_build_plan_id == pid:
-        session.active_build_plan_id = ''
-        session.active_build_plan_path = ''
+    if removed and session.plans.active_build_plan_id == pid:
+        session.plans.active_build_plan_id = ''
+        session.plans.active_build_plan_path = ''
     return removed
 
 

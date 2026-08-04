@@ -10,5 +10,5 @@ Modules
 ``chat_input`` — session-owned turn normalization for schemas and routes
 ``checkpointing`` — LangGraph checkpoint helpers
 ``pause`` — HITL asyncio pause helpers for agent-continue / question answers
-``config`` / ``domain`` — compatibility re-exports (prefer the top-level modules)
+``lifecycle`` — teardown shared by ``/clear``, ``/dispose``, and idle eviction
 """

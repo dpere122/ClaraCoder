@@ -33,7 +33,7 @@ from clara_coder_backend.config import MAX_TOOL_STATUS_LINE
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_user_request
 from clara_coder_backend.llm.messages import stringify_content
-from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session, touch_session
 from clara_coder_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('clara.agent')
@@ -68,6 +68,7 @@ async def stream_agent_reply(
         Stored on the session for TTS-aware UI; does not change graph topology here.
     """
     session = get_session(session_id)
+    touch_session(session)
 
     # --- Turn bootstrap: clear leftover HITL / plan state from a prior stream ---
     session.agent_pause_event = None

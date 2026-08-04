@@ -161,15 +161,20 @@ class BuildPlanCancelRequest(BaseModel):
 
 
 class LoadRequest(BaseModel):
-    """Replace a session's history with the given messages (e.g. after reload)."""
+    """Replace a session's history with the given messages (e.g. after reload).
+
+    User rows may use legacy ``content`` (string or multimodal list) or chat-shaped
+    ``message`` + ``structured_content`` / ``structuredContent`` (normalized server-side).
+    Load clears outer LangGraph checkpoints so SQLite history is authoritative next turn.
+    """
 
     session_id: str
-    #: Each item should include ``role`` and ``content`` (string or OpenAI-style multimodal list for user turns).
+    #: Each item should include ``role`` and either ``content`` or ``message`` / structured fields.
     messages: list[dict[str, Any]]
 
 
 class ClearRequest(BaseModel):
-    """Reset a session to empty history (workspace fields cleared implicitly)."""
+    """Reset or dispose a session (``/clear`` keeps an empty entry; ``/dispose`` removes it)."""
 
     session_id: str
 

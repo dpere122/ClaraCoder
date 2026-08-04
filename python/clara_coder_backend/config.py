@@ -1,7 +1,6 @@
 """Process-wide env-backed constants and limits.
 
-Leaf module: no imports from ``session``, ``domain``, or feature packages. Feature
-code should import from here instead of ``clara_coder_backend.session.config``.
+Leaf module: no imports from ``session``, ``domain``, or feature packages.
 
 Environment keys prefer ``CLARA_*`` and fall back to legacy ``NEMO_*`` for one release
 (see :func:`env_clara`).

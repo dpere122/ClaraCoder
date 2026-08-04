@@ -37,7 +37,7 @@ class TypescriptLspPlugin(LspServerPlugin):
         state: Any,
     ) -> LspStartParams:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
-        cached = (session.typescript_lsp_resolved_root or '').strip()
+        cached = (session.lsp.typescript_lsp_resolved_root or '').strip()
         if cached:
             root = Path(cached).resolve()
         elif st.last_seed:
@@ -99,7 +99,7 @@ class TypescriptLspPlugin(LspServerPlugin):
         return False
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:
-        session.typescript_lsp_resolved_root = ''
+        session.lsp.typescript_lsp_resolved_root = ''
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
         st.project_root = None
 
@@ -113,5 +113,5 @@ class TypescriptLspPlugin(LspServerPlugin):
     ) -> None:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
         st.project_root = lsp_cwd
-        session.typescript_lsp_resolved_root = str(lsp_cwd)
+        session.lsp.typescript_lsp_resolved_root = str(lsp_cwd)
 

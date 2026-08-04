@@ -14,6 +14,16 @@ import {
 
 export { parseStreamPayload, sendParsedPayload } from './chat-stream-payload';
 
+export type ChatStreamOutcome = 'completed' | 'aborted' | 'error';
+
+function replyMessageDone(
+  event: Electron.IpcMainEvent,
+  conversationId: string,
+  outcome: ChatStreamOutcome,
+): void {
+  event.reply('message-done', conversationId, outcome);
+}
+
 /**
  * - `ready` — renderer finished boot (log only).
  * - `close-settings-window` — closes the modal settings BrowserWindow.
@@ -91,7 +101,7 @@ export function registerChatIpc(): void {
             if (!line.startsWith('data: ')) continue;
             const payload = line.slice(6);
             if (payload === '[DONE]') {
-              event.reply('message-done', conversationId);
+              replyMessageDone(event, conversationId, 'completed');
             } else {
               sendParsedPayload(event, conversationId, payload);
             }
@@ -101,16 +111,16 @@ export function registerChatIpc(): void {
         if (buffer.startsWith('data: ')) {
           const payload = buffer.slice(6);
           if (payload === '[DONE]') {
-            event.reply('message-done', conversationId);
+            replyMessageDone(event, conversationId, 'completed');
           } else if (payload) {
             sendParsedPayload(event, conversationId, payload);
-            event.reply('message-done', conversationId);
+            replyMessageDone(event, conversationId, 'completed');
           }
         }
       } catch (err) {
         if (abortController.signal.aborted) {
           console.log('Stream aborted for', conversationId);
-          event.reply('message-done', conversationId);
+          replyMessageDone(event, conversationId, 'aborted');
           return;
         }
         console.error('Failed to reach Python server:', err);
@@ -122,7 +132,7 @@ export function registerChatIpc(): void {
           source: 'agent',
         } as LlmStatusPayload);
         event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
-        event.reply('message-done', conversationId);
+        replyMessageDone(event, conversationId, 'error');
       } finally {
         endChatStream(conversationId);
       }

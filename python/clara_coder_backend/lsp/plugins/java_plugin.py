@@ -37,7 +37,7 @@ class JavaLspPlugin(LspServerPlugin):
         state: Any,
     ) -> LspStartParams:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
-        cached = (session.java_lsp_resolved_root or '').strip()
+        cached = (session.lsp.java_lsp_resolved_root or '').strip()
         if cached:
             root = Path(cached).resolve()
         elif st.last_seed:
@@ -99,7 +99,7 @@ class JavaLspPlugin(LspServerPlugin):
         return False
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:
-        session.java_lsp_resolved_root = ''
+        session.lsp.java_lsp_resolved_root = ''
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
         st.project_root = None
 
@@ -113,4 +113,4 @@ class JavaLspPlugin(LspServerPlugin):
     ) -> None:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
         st.project_root = lsp_cwd
-        session.java_lsp_resolved_root = str(lsp_cwd)
+        session.lsp.java_lsp_resolved_root = str(lsp_cwd)

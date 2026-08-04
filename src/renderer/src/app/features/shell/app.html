@@ -271,7 +271,8 @@
 
     <div class='sidebar' [style.width.px]='sidebarWidth()'>
       <app-chat-conversation-hub
-        [(view)]='chatHubView'
+        [view]="chatHubView()"
+        (viewChange)="chatHubView.set($event)"
         [(expanded)]='chatExpanded'
         [conversations]='conversations()'
         [activeConversationId]='activeConversationId()'

@@ -128,8 +128,12 @@ export interface BackgroundCommandOpenMessage {
   streamTag: string;
 }
 
+export type ChatStreamOutcome = 'completed' | 'aborted' | 'error';
+
 export interface DoneMessage {
   conversationId: string;
+  /** Aligns with Python history commit (COMPLETED-only); default completed when omitted. */
+  outcome: ChatStreamOutcome;
 }
 
 export interface LlmStatusMessage {
@@ -506,8 +510,10 @@ export class ElectronService {
         }),
       );
     });
-    this.api?.onMessageDone((_event, conversationId) => {
-      this.zone.run(() => this.doneSubject.next({ conversationId }));
+    this.api?.onMessageDone((_event, conversationId, outcome) => {
+      const resolved: ChatStreamOutcome =
+        outcome === 'aborted' || outcome === 'error' || outcome === 'completed' ? outcome : 'completed';
+      this.zone.run(() => this.doneSubject.next({ conversationId, outcome: resolved }));
     });
     this.api?.onMessageTokenUsage?.((_event, conversationId, usage) => {
       const u = usage && typeof usage === 'object' ? usage : {};

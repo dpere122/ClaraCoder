@@ -97,7 +97,13 @@ declare global {
         },
       ) => void,
     ) => void;
-    onMessageDone: (callback: (event: unknown, conversationId: string) => void) => void;
+    onMessageDone: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        outcome?: 'completed' | 'aborted' | 'error',
+      ) => void,
+    ) => void;
     onMessageTokenUsage?: (
       callback: (
         event: unknown,

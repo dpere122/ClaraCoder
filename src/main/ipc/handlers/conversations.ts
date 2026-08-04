@@ -1,11 +1,7 @@
 import { ipcMain } from 'electron';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
-import type {
-  ChatStructuredContentPart,
-  ConversationFile,
-  ConversationFileMessage,
-} from '../../../shared';
+import type { ConversationFile } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
 import { ensurePythonReady, PYTHON_URL } from '../../python/server';
@@ -21,8 +17,6 @@ import {
   upsertConversation,
 } from '../../conversations-db';
 
-type UserChatRow = Extract<ConversationFileMessage, { role: 'user' }>;
-
 function assistantMessageCount(messages: ConversationFile['messages']): number {
   return messages.filter((m) => m.role === 'assistant').length;
 }
@@ -30,23 +24,6 @@ function assistantMessageCount(messages: ConversationFile['messages']): number {
 /** Keep in sync with `clara_coder_backend.conversation_title_cadence.should_refresh_auto_title`. */
 function shouldRunAutoTitle(assistantCount: number): boolean {
   return assistantCount === 1 || (assistantCount > 0 && assistantCount % 25 === 0);
-}
-
-/** Map a saved user row to Python session history (plain string or OpenAI-style multimodal list). */
-function userMessageToPythonHistoryEntry(m: UserChatRow): { role: 'user'; content: string | Record<string, unknown>[] } {
-  const sc = m.structuredContent;
-  if (sc && sc.length > 0) {
-    const blocks = sc.map((b: ChatStructuredContentPart) => ({ ...b }));
-    const hasText = blocks.some(
-      (b: Record<string, unknown>) =>
-        String(b['type'] ?? '').toLowerCase() === 'text' && String((b as { text?: string }).text ?? '').trim(),
-    );
-    if (m.text.trim() && !hasText) {
-      blocks.unshift({ type: 'text', text: m.text });
-    }
-    return { role: 'user', content: blocks };
-  }
-  return { role: 'user', content: m.text };
 }
 
 function effectiveWorkspaceId(workspaceId?: string | null): string | null {
@@ -104,12 +81,16 @@ export function registerConversationsIpc(): void {
 
       if (!skipPythonResync) {
         type PyHistoryMsg =
-          | { role: 'user'; content: string | Record<string, unknown>[] }
+          | { role: 'user'; message: string; structuredContent?: readonly Record<string, unknown>[] }
           | { role: 'assistant'; content: string };
         const pyMessages: PyHistoryMsg[] = [];
         for (const m of conv.messages) {
           if (m.role === 'user') {
-            pyMessages.push(userMessageToPythonHistoryEntry(m));
+            pyMessages.push({
+              role: 'user',
+              message: m.text,
+              ...(m.structuredContent?.length ? { structuredContent: m.structuredContent } : {}),
+            });
           } else if (m.role === 'assistant') {
             pyMessages.push({ role: 'assistant', content: m.text });
           }
@@ -138,6 +119,16 @@ export function registerConversationsIpc(): void {
   });
 
   ipcMain.handle('delete-conversation', async (_event, id: string, _workspaceId?: string | null) => {
+    try {
+      await ensurePythonReady();
+      await fetch(`${PYTHON_URL}/dispose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: id }),
+      });
+    } catch (err) {
+      console.error('Failed to dispose Python session:', err);
+    }
     deleteConversationById(id);
   });
 

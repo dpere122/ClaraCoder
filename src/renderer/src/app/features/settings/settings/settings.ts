@@ -169,6 +169,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly cacheDetectSpinnerName = `settings-cache-detect-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly migratableModelsSpinnerName = `settings-migratable-models-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly hfSearchSpinnerName = `settings-hf-search-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
   protected readonly modelManagerCacheLoading = signal(false);
   protected readonly modelManagerLocalLoading = signal(false);
@@ -542,6 +543,10 @@ export class Settings implements OnInit, OnDestroy {
       const loading = this.modelManagerMigratableLoading();
       untracked(() => this.scheduleNamedSpinnerSync(this.migratableModelsSpinnerName, loading));
     });
+    effect(() => {
+      const loading = this.modelManagerHfBusy();
+      untracked(() => this.scheduleNamedSpinnerSync(this.hfSearchSpinnerName, loading));
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -562,6 +567,7 @@ export class Settings implements OnInit, OnDestroy {
     void this.ngxSpinner.hide(this.cacheDetectSpinnerName);
     void this.ngxSpinner.hide(this.localModelsSpinnerName);
     void this.ngxSpinner.hide(this.migratableModelsSpinnerName);
+    void this.ngxSpinner.hide(this.hfSearchSpinnerName);
     this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {

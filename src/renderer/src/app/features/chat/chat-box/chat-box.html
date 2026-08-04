@@ -15,11 +15,10 @@
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
       >
         @if (slot.row.kind === 'user') {
-          <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--user" aria-hidden="true">
-            <span class="tui-frame-bar__corner">╔</span>
-            <span class="tui-frame-bar__label">═ USER ═</span>
+          <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user" aria-hidden="true">
+            <span class="tui-frame-bar__corner">┌</span>
             <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">╗</span>
+            <span class="tui-frame-bar__corner">┐</span>
           </div>
         } @else {
           <div
@@ -119,9 +118,9 @@
         </div>
         @if (slot.row.kind === 'user') {
           <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user" aria-hidden="true">
-            <span class="tui-frame-bar__corner">╚</span>
+            <span class="tui-frame-bar__corner">└</span>
             <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">╝</span>
+            <span class="tui-frame-bar__corner">┘</span>
           </div>
         } @else {
           <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">

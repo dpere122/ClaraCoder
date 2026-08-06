@@ -273,6 +273,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'run_staging_overlay_command',
             'transfer_staged_file_to_workspace',
             'reject_staged_workspace_edit',
+            'discard_staged_edits',
         ),
     ),
     (

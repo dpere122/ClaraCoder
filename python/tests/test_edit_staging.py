@@ -8,7 +8,9 @@ import pytest
 
 from clara_coder_backend.tools.review_tools import (
     _materialize_staged_python_files,
+    _re_review_message,
     diff_staged_edit_against_baseline,
+    discard_staged_edits,
     finalize_staged_transfer_after_hitl,
     format_staging_file_black,
     format_staging_file_prettier,
@@ -24,6 +26,7 @@ from clara_coder_backend.staging.edit_staging import (
     begin_staging_snapshot_session,
     copy_workspace_into_snapshot,
     discard_all_session_stagings,
+    discard_session_staging,
     format_source_via_prettier,
     get_active_staging_snapshot_root,
     get_staging_root,
@@ -912,9 +915,126 @@ def test_staged_transfer_re_review_skips_disk_write(staging_env) -> None:
     transfer_staged_file_to_workspace.invoke({'relative_path': 'rerev.py'})
     msg = finalize_staged_transfer_after_hitl(session, 're_review', 'needs more tests')
     assert 're-review' in msg.lower()
+    assert 'discard_staged_edits' in msg
     assert (ws / 'rerev.py').read_text(encoding='utf-8') == 'a=1\n'
     assert session.pending_edit_stagings['rerev.py'].workspace_applied is False
     assert session.pending_staged_transfer_hitl is None
+
+
+def test_re_review_message_offers_discard() -> None:
+    msg = _re_review_message('pkg/mod.py', 'wrong approach')
+    assert 'discard_staged_edits' in msg
+    assert 'transfer_staged_file_to_workspace' in msg
+    assert 'wrong approach' in msg
+
+
+def test_discard_staged_edits_removes_entry_and_temp(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'keep.py').write_text('VALUE = 1\n', encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'keep.py',
+            'new_content': 'VALUE = 2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    temp = Path(session.pending_edit_stagings['keep.py'].temp_path)
+    assert temp.is_file()
+    out = discard_staged_edits.invoke({'relative_path': 'keep.py'})
+    assert 'Discarded staged draft' in out
+    assert 'keep.py' not in session.pending_edit_stagings
+    assert not temp.exists()
+    assert (ws / 'keep.py').read_text(encoding='utf-8') == 'VALUE = 1\n'
+
+
+def test_discard_staged_edits_multi_path(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    for name, content in (('a.py', 'a=1\n'), ('b.py', 'b=1\n')):
+        (ws / name).write_text(content, encoding='utf-8')
+        stage_workspace_file_overwrite.invoke(
+            {
+                'relative_path': name,
+                'new_content': content.replace('=', ' = '),
+                'encoding': 'utf-8',
+                'newline': 'lf',
+            }
+        )
+    out = discard_staged_edits.invoke({'relative_paths': ['a.py', 'b.py']})
+    assert 'Discarded 2 staged draft' in out
+    assert session.pending_edit_stagings == {}
+    assert (ws / 'a.py').read_text(encoding='utf-8') == 'a=1\n'
+    assert (ws / 'b.py').read_text(encoding='utf-8') == 'b=1\n'
+
+
+def test_discard_staged_edits_rolls_back_materialized_workspace_files(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    (ws / 'python' / 'clara_coder_backend').mkdir(parents=True)
+    target = ws / 'python' / 'clara_coder_backend' / 'main.py'
+    target.write_text('VALUE = 1\n', encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'python/clara_coder_backend/main.py',
+            'new_content': 'VALUE = 2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    rel = 'python/clara_coder_backend/main.py'
+    ok, detail = _materialize_staged_python_files(
+        session,
+        [(rel, session.pending_edit_stagings[rel])],
+    )
+    assert ok is True
+    assert detail == ''
+    assert target.read_text(encoding='utf-8') == 'VALUE = 2\n'
+
+    out = discard_staged_edits.invoke({'relative_path': rel})
+    assert 'Discarded staged draft' in out
+    assert rel not in session.pending_edit_stagings
+    assert target.read_text(encoding='utf-8') == 'VALUE = 1\n'
+
+
+def test_discard_staged_edits_errors_on_already_transferred(staging_env) -> None:
+    ws = staging_env.workspace
+    session = staging_env.session
+    session.auto_apply_mode = True
+    (ws / 'done.py').write_text('x=1\n', encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'done.py',
+            'new_content': 'x = 2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    transfer_staged_file_to_workspace.invoke({'relative_path': 'done.py'})
+    assert session.pending_edit_stagings['done.py'].workspace_applied is True
+    out = discard_staged_edits.invoke({'relative_path': 'done.py'})
+    assert out.startswith('Tool error:')
+    assert 'already approved' in out
+    assert 'done.py' in session.pending_edit_stagings
+
+
+def test_discard_session_staging_helper(staging_env) -> None:
+    session = staging_env.session
+    staging_env.workspace.joinpath('h.py').write_text('1\n', encoding='utf-8')
+    stage_workspace_file_overwrite.invoke(
+        {
+            'relative_path': 'h.py',
+            'new_content': '2\n',
+            'encoding': 'utf-8',
+            'newline': 'lf',
+        }
+    )
+    temp = Path(session.pending_edit_stagings['h.py'].temp_path)
+    assert discard_session_staging(session, 'h.py') is True
+    assert 'h.py' not in session.pending_edit_stagings
+    assert not temp.exists()
+    assert discard_session_staging(session, 'h.py') is False
 
 
 def test_approved_staged_entry_is_hidden_from_review_tools(staging_env) -> None:

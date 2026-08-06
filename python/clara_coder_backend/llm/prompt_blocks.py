@@ -110,6 +110,7 @@ def edit_semantics_block(direct: bool) -> str:
         'auto-apply is off). Keep `land_in_workspace=false` (default) while iterating or before review '
         'completes. For drafts already staged without landing, call `transfer_staged_file_to_workspace` with '
         '`relative_paths` (batch when multiple files are ready). '
+        'To abandon a pending draft without landing (including after user re-review), call `discard_staged_edits`. '
         'Never ask the user to apply or approve landing for you—only the tool call counts. '
         'Do not use legacy direct-to-disk workspace mutators '
         '(`apply_workspace_full_file`, `replace_workspace_*`) on agent graphs—they are not the primary path.'

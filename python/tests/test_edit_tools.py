@@ -252,6 +252,7 @@ def test_staging_review_tools_staging_mode() -> None:
         'run_staging_overlay_command',
         'transfer_staged_file_to_workspace',
         'reject_staged_workspace_edit',
+        'discard_staged_edits',
     }
     assert tool_map.keys() == names
     assert names.isdisjoint({'list_workspace_directory', 'read_workspace_file', 'search_workspace'})
@@ -268,3 +269,4 @@ def test_staging_review_tools_direct_mode() -> None:
     }
     assert tool_map.keys() == names
     assert 'transfer_staged_file_to_workspace' not in names
+    assert 'discard_staged_edits' not in names

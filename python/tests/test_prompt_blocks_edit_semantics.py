@@ -45,6 +45,7 @@ def test_staging_edit_semantics_owns_landing_and_legacy_mutator_rules() -> None:
     assert 'legacy direct-to-disk workspace mutators' in block
     assert 'land_in_workspace=true' in block
     assert 'transfer_staged_file_to_workspace' in block
+    assert 'discard_staged_edits' in block
 
 
 def test_direct_edit_semantics_has_no_staging_draft_language() -> None:

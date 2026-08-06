@@ -324,10 +324,25 @@ def unlink_staging_quiet(path: Path) -> None:
         pass
 
 
+def discard_session_staging(session: object, rel_key: str) -> bool:
+    """Remove one pending staging entry (unlink temp). Returns True if an entry existed."""
+    pending = getattr(session, 'pending_edit_stagings', None)
+    if not isinstance(pending, dict):
+        return False
+    key = (rel_key or '').strip().replace('\\', '/')
+    if not key:
+        return False
+    entry = pending.pop(key, None)
+    if entry is None:
+        return False
+    tp = getattr(entry, 'temp_path', '') or ''
+    if tp:
+        unlink_staging_quiet(Path(tp))
+    return True
+
+
 def discard_all_session_stagings(session: object) -> None:
     """Remove all pending staging entries for a session (unlink temps, clear dict)."""
-    from pathlib import Path
-
     pending = getattr(session, 'pending_edit_stagings', None)
     if not isinstance(pending, dict):
         return

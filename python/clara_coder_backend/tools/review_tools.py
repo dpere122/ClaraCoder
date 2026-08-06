@@ -1,4 +1,4 @@
-"""Staging review tools for the outer Clara agent (read/format/transfer/reject)."""
+"""Staging review tools for the outer Clara agent (read/format/transfer/reject/discard)."""
 
 from __future__ import annotations
 
@@ -74,6 +74,7 @@ from clara_coder_backend.tools.workspace import get_active_workspace_root, norma
 logger = logging.getLogger('clara.staging')
 
 REJECT_STAGED_WORKSPACE_EDIT_NAME = 'reject_staged_workspace_edit'
+DISCARD_STAGED_EDITS_NAME = 'discard_staged_edits'
 LIST_STAGED_EDITS_NAME = 'list_staged_edits'
 READ_STAGED_EDIT_NAME = 'read_staged_edit'
 SEARCH_STAGED_EDITS_NAME = 'search_staged_edits'
@@ -432,7 +433,8 @@ def _re_review_message(rel_key: str, user_note: str) -> str:
         f'**Staged transfer returned for re-review (user did not approve landing this draft in the workspace '
         f'yet).** Path: `{rel_key}`.\n\n'
         'Revise the staged draft (`diff_staged_edit_against_baseline` / `read_staged_edit`), then call '
-        '`transfer_staged_file_to_workspace` again when ready.\n\n'
+        '`transfer_staged_file_to_workspace` again when ready. '
+        'Or call `discard_staged_edits` for this path to abandon the draft without landing.\n\n'
         f'User / reviewer feedback:\n{fb}'
     )
 
@@ -1326,7 +1328,10 @@ def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str
 @tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME, description=describe(
         'Approve landing staged draft(s): writes workspace (or queues HITL diff batch when auto-apply off).',
         when='draft(s) are correct and should become the on-disk checkpoint.',
-        not_='request writer changes (use `reject_staged_workspace_edit` with feedback); reading only (use `read_staged_edit`).',
+        not_=(
+            'request writer changes (use `reject_staged_workspace_edit` with feedback); '
+            'abandon without landing (use `discard_staged_edits`); reading only (use `read_staged_edit`).'
+        ),
         shape=(
             f'`relative_paths` is a non-empty list of {RELATIVE_PATH}s (preferred for multiple files). '
             'Legacy `relative_path` accepts a single path. After approval, follow-up reads use `read_workspace_file` / LSP on disk. '
@@ -1352,7 +1357,10 @@ def transfer_staged_file_to_workspace(
 @tool(REJECT_STAGED_WORKSPACE_EDIT_NAME, description=describe(
         'Fail review: block transfer and return concrete `feedback` so the writer can revise the staged draft.',
         when='staged content is wrong, incomplete, or unsafe—needs another staging iteration.',
-        not_='pass / ship (use `transfer_staged_file_to_workspace`); generic praise without revision request.',
+        not_=(
+            'pass / ship (use `transfer_staged_file_to_workspace`); abandon without revising '
+            '(use `discard_staged_edits`); generic praise without revision request.'
+        ),
         shape=f'`relative_path` {RELATIVE_PATH} `feedback` must say what to fix.',
     ))
 def reject_staged_workspace_edit(
@@ -1369,9 +1377,78 @@ def reject_staged_workspace_edit(
     logger.info('reject_staged_workspace_edit path=%s', rel_key)
     return (
         f'Rejected staged edit for `{rel_key}`. Revise the existing staged draft in a follow-up turn '
-        f'(same path). Orphaned staging is cleaned up when the outer agent turn finishes.\n\n'
+        f'(same path), or call `discard_staged_edits` to abandon it. Orphaned staging is cleaned up '
+        f'when the outer agent turn finishes.\n\n'
         f'Reviewer feedback:\n{fb}'
     )
+
+
+@tool(DISCARD_STAGED_EDITS_NAME, description=describe(
+        'Abandon pending staged draft(s): remove temp drafts and session entries without landing on disk.',
+        when=(
+            'draft(s) should not be transferred—wrong approach, superseded, or after user re-review '
+            'when you will not revise.'
+        ),
+        not_=(
+            'request revisions while keeping the draft (use `reject_staged_workspace_edit` with feedback); '
+            'land approved work (use `transfer_staged_file_to_workspace`).'
+        ),
+        shape=(
+            f'`relative_paths` is a non-empty list of {RELATIVE_PATH}s (preferred for multiple files). '
+            'Legacy `relative_path` accepts a single path. Workspace on disk stays unchanged '
+            '(test-run materializations for discarded paths are restored).'
+        ),
+    ))
+def discard_staged_edits(
+    relative_paths: Annotated[list[str], 'workspace-relative POSIX paths'] | None = None,
+    relative_path: Annotated[str, 'workspace-relative POSIX path'] = '',
+) -> str:
+
+    paths, norm_err = _normalize_transfer_paths(relative_paths, relative_path)
+    if norm_err:
+        return norm_err
+    assert paths is not None
+    sid = current_session_id.get()
+    if not sid:
+        return 'Tool error: no active session.'
+    blocked = mutation_tools_blocked_reason(sid)
+    if blocked:
+        return blocked
+    session = get_session(sid)
+
+    discarded: list[str] = []
+    errors: list[str] = []
+    for rel_key in paths:
+        entry = session.pending_edit_stagings.get(rel_key)
+        if not entry:
+            errors.append(f'no staged edit for `{rel_key}`')
+            continue
+        if _entry_workspace_applied(entry):
+            errors.append(
+                f'staged `{rel_key}` is already approved in the workspace for this chain '
+                '(no longer pending review)'
+            )
+            continue
+        try:
+            restore_materialized_path(session, rel_key)
+        except Exception as exc:
+            logger.warning('discard_staged_edits restore materialization failed path=%s err=%s', rel_key, exc)
+        if not edit_staging.discard_session_staging(session, rel_key):
+            errors.append(f'no staged edit for `{rel_key}`')
+            continue
+        discarded.append(rel_key)
+        logger.info('discard_staged_edits path=%s', rel_key)
+
+    if errors and not discarded:
+        return 'Tool error: ' + '; '.join(errors) + '.'
+    quoted = ', '.join(f'`{p}`' for p in discarded)
+    if len(discarded) == 1:
+        body = f'Discarded staged draft for {quoted}. Workspace on disk was not changed.'
+    else:
+        body = f'Discarded {len(discarded)} staged draft(s) ({quoted}). Workspace on disk was not changed.'
+    if errors:
+        body += ' Partial failures: ' + '; '.join(errors) + '.'
+    return body
 
 
 def staging_review_tools(*, direct: bool = False) -> tuple[list[object], dict[str, object]]:
@@ -1394,6 +1471,7 @@ def staging_review_tools(*, direct: bool = False) -> tuple[list[object], dict[st
             run_staging_overlay_command,
             transfer_staged_file_to_workspace,
             reject_staged_workspace_edit,
+            discard_staged_edits,
         ]
     m = {t.name: t for t in tools}
     return tools, m

@@ -453,6 +453,40 @@ class SessionWorkspaceLspManager:
         }
         return self._require_client().request('textDocument/hover', params, timeout_s=8.0)
 
+    def hover_for_editor(
+        self,
+        relative_path: str,
+        line: int,
+        character: int,
+    ) -> tuple[dict[str, Any], bool]:
+        """Like ``hover`` but reports whether the buffer had to be synced from disk.
+
+        Returns ``(result, synced_from_disk)``. ``synced_from_disk`` is True when the document
+        was not tracked by the running client (e.g. after a TS project-root restart cleared
+        ``_doc_versions``) and ``_ensure_workspace_synced`` fell back to ``sync_workspace_document``,
+        which reads from disk — potentially diverging from the live Monaco buffer. The editor
+        uses this signal to re-send the buffer and re-request so hover reflects the editor.
+        """
+
+        rel = normalize_relative_posix_path(relative_path)
+        if self._policy(rel) is None:
+            raise ValueError(f'LSP tools do not support `{rel}` on the {self.server_kind} server.')
+        with self._lock:
+            tracked = rel in self._doc_versions
+        synced_from_disk = not tracked
+        if tracked:
+            self.ensure_started()
+        else:
+            self.sync_workspace_document(rel)
+        params = {
+            'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
+            'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
+        }
+        result = self._require_client().request('textDocument/hover', params, timeout_s=8.0)
+        if not isinstance(result, dict):
+            result = {'contents': result}
+        return result, synced_from_disk
+
     def definition(self, relative_path: str, line: int, character: int) -> Any:
         rel = self._ensure_workspace_synced(relative_path)
         params = {

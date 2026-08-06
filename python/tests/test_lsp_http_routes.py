@@ -167,7 +167,29 @@ def test_lsp_hover_http_route(lsp_http_env) -> None:
             },
         )
     assert r.status_code == 200
-    assert r.json()['markdown']
+    body = r.json()
+    assert body['markdown']
+    # No prior sync → manager fell back to disk-based sync_workspace_document.
+    assert body['synced_from_disk'] is True
+
+
+def test_lsp_hover_http_route_after_buffer_sync_reports_no_disk_fallback(lsp_http_env) -> None:
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post(
+            f'/lsp/hover?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+                'document_text': 'const x = 1\n',
+                'skip_document_sync': False,
+            },
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body['markdown']
+    # Buffer was synced explicitly → hover used the in-memory buffer, not disk.
+    assert body['synced_from_disk'] is False
 
 
 def test_lsp_definition_http_route(lsp_http_env) -> None:

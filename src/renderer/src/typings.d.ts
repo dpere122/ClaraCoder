@@ -124,9 +124,6 @@ declare global {
       ) => void,
     ) => void;
     onMessageStatus: (callback: (event: unknown, conversationId: string, status: LlmStatus) => void) => void;
-    onMessageHarnessCrystal?: (
-      callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
-    ) => void;
     onMessageFinalText?: (
       callback: (event: unknown, conversationId: string, text: string) => void,
     ) => void;
@@ -736,9 +733,11 @@ declare global {
     }>;
     depsInstall: (
       depId: import('@shared/index').DependencyId,
+      variant?: string | null,
     ) => Promise<import('@shared/index').DependencyActionResult>;
     depsReinstall: (
       depId: import('@shared/index').DependencyId,
+      variant?: string | null,
     ) => Promise<import('@shared/index').DependencyActionResult>;
     depsDelete: (
       depId: import('@shared/index').DependencyId,

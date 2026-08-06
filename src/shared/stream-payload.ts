@@ -1,3 +1,14 @@
+/**
+ * Canonical parser for the agent SSE/stream wire protocol.
+ *
+ * The backend emits one JSON object per event line. `parseAgentStreamPayload`
+ * turns each line into a typed `ParsedAgentStreamPayload` variant the UI can
+ * switch on. See `./stream-payload.md` for the full wire-protocol reference.
+ *
+ * Contract: this module never throws. Any parse/validation failure degrades
+ * to a `{ type: 'chunk', delta: payload }` text chunk so a malformed line can
+ * never kill the stream loop.
+ */
 import type { BuildPlanChunkPayload, BuildPlanOpenPayload, BuildPlanStreamEndPayload } from './types/build-plan';
 import type { AcceptCommandPayload } from './types/accept-command';
 import type { AgentQuestionPayload } from './types/agent-question';
@@ -9,6 +20,12 @@ import type { PlanConfirmPayload } from './types/plan-confirm';
 import { normalizePlanConfirmFilesToChange } from './types/plan-confirm';
 import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
 
+/**
+ * Discriminated union (discriminant: `type`) of every event the agent stream
+ * can produce. Consumers should `switch (payload.type)` and let TypeScript
+ * narrow the variant. Field names are normalized to camelCase regardless of
+ * the snake_case wire form.
+ */
 export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
   | { type: 'tool_read_chunk'; delta: string }
@@ -50,7 +67,6 @@ export type ParsedAgentStreamPayload =
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
   | { type: 'agent_question'; agentQuestion: AgentQuestionPayload }
   | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
-  | { type: 'harness_crystal'; polarity: 'positive' | 'negative' }
   | { type: 'final_text'; text: string }
   | { type: 'clear_primary_stream' }
   | {
@@ -61,6 +77,11 @@ export type ParsedAgentStreamPayload =
       toolRoundsDropped: number;
     };
 
+/**
+ * Internal `typeof JSON.parse(...)` cast. Everything is `unknown` (except
+ * `type` and a few nested objects) so each dispatch branch is forced to
+ * validate before narrowing. Mirrors the snake_case wire schema; not exported.
+ */
 type RawAgentStreamPayload = {
   type?: string;
   delta?: string;
@@ -69,7 +90,6 @@ type RawAgentStreamPayload = {
   exit_code?: unknown;
   output_excerpt?: unknown;
   outcome?: unknown;
-  polarity?: string;
   input_tokens?: unknown;
   output_tokens?: unknown;
   total_tokens?: unknown;
@@ -98,10 +118,12 @@ type RawAgentStreamPayload = {
   stagedTransferBatch?: unknown;
 };
 
+/** Returns the trimmed string if non-empty after trimming, else `undefined`. Empty/whitespace values are dropped so consumers can rely on truthy checks. */
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+/** Returns `Math.floor(value)` when it is a finite, non-negative number, else `undefined`. Used for token counts and compaction counters. */
 function optionalNonNegativeInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return undefined;
@@ -109,15 +131,26 @@ function optionalNonNegativeInt(value: unknown): number | undefined {
   return Math.floor(value);
 }
 
+/**
+ * Parse one JSON event line into a typed `ParsedAgentStreamPayload`.
+ *
+ * Branches are checked most-specific-first (e.g. `tool_exec_chunk` before the
+ * generic `chunk`) so specific events are not shadowed. Each branch validates
+ * the minimum required fields; on failure it falls through to the next branch.
+ * If no branch matches, or `JSON.parse` throws, the raw payload is returned as
+ * a plain-text `chunk` — see the module contract above.
+ */
 export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPayload {
   try {
     const parsed = JSON.parse(payload) as RawAgentStreamPayload;
     if (parsed.type === 'status' && parsed.status) {
+      // Only 'manager'/'worker' are valid agent roles; anything else is dropped to avoid surfacing stale/unknown enum values.
       const rawRole = parsed.status.agent_role;
       const agentRole = rawRole === 'manager' || rawRole === 'worker' ? rawRole : undefined;
       return {
         type: 'status',
         status: {
+          // Defaults keep old saved conversations renderable when the backend omitted these fields.
           id: parsed.status.id,
           label: parsed.status.label,
           detail: parsed.status.detail ?? '',
@@ -164,6 +197,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'plan_confirm' && parsed.planConfirm && typeof parsed.planConfirm === 'object') {
+      // Normalize legacy `filesToChange` shapes so the renderer always sees a consistent form regardless of which backend version emitted it.
       const rawConfirm = parsed.planConfirm as PlanConfirmPayload & { filesToChange?: unknown };
       return {
         type: 'plan_confirm',
@@ -189,6 +223,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'build_plan_chunk' && parsed.buildPlanChunk && typeof parsed.buildPlanChunk === 'object') {
+      // Require both fields to be strings; otherwise fall through to the plain-text chunk fallback rather than emitting a half-formed event.
       const chunk = parsed.buildPlanChunk as { relativePath?: unknown; content?: unknown };
       if (typeof chunk.relativePath === 'string' && typeof chunk.content === 'string') {
         return {
@@ -231,6 +266,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'background_command_open') {
+      // All fields are coerced to strings with safe defaults; `commandId` is required — without it the UI cannot correlate subsequent chunks, so we fall through.
       const commandId = optionalTrimmedString(parsed.command_id);
       const commandText = typeof parsed.command_text === 'string' ? parsed.command_text : '';
       const cwdLabel = typeof parsed.cwd_label === 'string' ? parsed.cwd_label : '';
@@ -258,6 +294,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'tool_exec_complete') {
+      // `exit_code` may be absent, a number, or null (process killed without an exit status) — preserve each case distinctly.
       const exitRaw = parsed.exit_code;
       let exitCode: number | null | undefined;
       if (typeof exitRaw === 'number' && Number.isFinite(exitRaw)) {
@@ -290,6 +327,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'token_usage') {
+      // `input_tokens` is required; without it the event is meaningless, so fall through to the plain-text chunk fallback.
       const inputRaw = parsed.input_tokens;
       if (typeof inputRaw === 'number' && Number.isFinite(inputRaw) && inputRaw >= 0) {
         const out: {
@@ -310,13 +348,6 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       }
     }
 
-    if (parsed.type === 'harness_crystal') {
-      const pol = parsed.polarity;
-      if (pol === 'positive' || pol === 'negative') {
-        return { type: 'harness_crystal', polarity: pol };
-      }
-    }
-
     if (parsed.type === 'final_text') {
       const text = (parsed as { text?: string }).text;
       if (typeof text === 'string') {
@@ -329,10 +360,12 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'context_compressed') {
+      // Accept both camelCase and snake_case forms for backwards compatibility with older saved conversations.
       const tokensBefore =
         optionalNonNegativeInt(parsed.tokensBefore) ?? optionalNonNegativeInt(parsed.tokens_before);
       const tokensAfter =
         optionalNonNegativeInt(parsed.tokensAfter) ?? optionalNonNegativeInt(parsed.tokens_after);
+      // These two default to 0 when absent (older emitters did not report them).
       const toolMessagesCompacted =
         optionalNonNegativeInt(parsed.toolMessagesCompacted)
         ?? optionalNonNegativeInt(parsed.tool_messages_compacted)
@@ -341,6 +374,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
         optionalNonNegativeInt(parsed.toolRoundsDropped)
         ?? optionalNonNegativeInt(parsed.tool_rounds_dropped)
         ?? 0;
+      // Both token counts are required; otherwise the event is unusable, so fall through.
       if (tokensBefore !== undefined && tokensAfter !== undefined) {
         return {
           type: 'context_compressed',
@@ -352,8 +386,9 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       }
     }
   } catch {
-    // Fall through to plain text chunks.
+    // Fall through to plain text chunks — see the module contract: never throw on bad input.
   }
 
+  // Last-resort fallback: treat the raw payload as assistant text so a malformed line renders instead of crashing the stream.
   return { type: 'chunk', delta: payload };
 }

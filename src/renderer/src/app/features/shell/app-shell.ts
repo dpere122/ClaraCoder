@@ -10,6 +10,8 @@ import { RouterOutlet } from '@angular/router';
       display: block;
       height: 100%;
       min-height: 100%;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px var(--t-border-subtle);
     }
   `,
 })

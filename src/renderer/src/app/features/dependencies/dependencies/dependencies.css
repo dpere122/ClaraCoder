@@ -238,6 +238,121 @@
   color: var(--t-text-muted);
 }
 
+.deps-variant {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deps-variant__label {
+  font-size: 12px;
+  color: var(--t-text-muted);
+}
+
+.deps-variant__select {
+  width: max-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 88%, transparent);
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.deps-variant__select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.deps-variant__hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--t-text-muted);
+  line-height: 1.4;
+}
+
+.deps-focused {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.deps-terminal {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #000 60%, var(--t-border));
+  background: #0b0e14;
+  overflow: hidden;
+}
+
+.deps-terminal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, #fff 8%, #000);
+  background: color-mix(in srgb, #fff 6%, #0b0e14);
+  color: #9aa0aa;
+  font-size: 12px;
+}
+
+.deps-terminal__title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.deps-terminal__hint {
+  color: #6b7280;
+}
+
+.deps-terminal__body {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  background: #0b0e14;
+  color: #d4d7dd;
+  font-family: var(--t-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.deps-terminal__line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1em;
+}
+
+.deps-terminal__phase {
+  color: #9ec5ff;
+  margin-right: 6px;
+}
+
+.deps-terminal__msg {
+  white-space: pre-wrap;
+}
+
+.deps-terminal__line[data-phase='error'] .deps-terminal__phase {
+  color: #ff6b6b;
+}
+
+.deps-terminal__line[data-phase='done'] .deps-terminal__phase {
+  color: #6bd08c;
+}
+
 .deps-status {
   margin: 0;
   padding: 8px 10px;

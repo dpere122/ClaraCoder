@@ -77,9 +77,6 @@ export const chatApi = {
   ) => ipcRenderer.on('message-context-compressed', callback),
   onMessageStatus: (callback: (event: unknown, conversationId: string, status: unknown) => void) =>
     ipcRenderer.on('message-status', callback),
-  onMessageHarnessCrystal: (
-    callback: (event: unknown, conversationId: string, polarity: 'positive' | 'negative') => void,
-  ) => ipcRenderer.on('message-harness-crystal', callback),
   onMessageFinalText: (callback: (event: unknown, conversationId: string, text: string) => void) =>
     ipcRenderer.on('message-final-text', callback),
   onMessageClearPrimaryStream: (callback: (event: unknown, conversationId: string) => void) =>

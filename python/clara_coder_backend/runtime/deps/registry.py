@@ -72,7 +72,7 @@ def get_dependency(dep_id: str) -> dict[str, Any]:
     return info
 
 
-def install_dependency(dep_id: str, *, force: bool = False) -> dict[str, Any]:
+def install_dependency(dep_id: str, *, force: bool = False, variant: str | None = None) -> dict[str, Any]:
     provider = _providers().get(dep_id)
     if not provider:
         raise KeyError(f'Unknown dependency: {dep_id}')
@@ -80,7 +80,12 @@ def install_dependency(dep_id: str, *, force: bool = False) -> dict[str, Any]:
     _errors.pop(dep_id, None)
     PROGRESS.emit(dep_id, 'queued', message='Starting…')
     try:
-        result = provider.install(force=force)
+        install_fn = provider.install
+        try:
+            result = install_fn(force=force, variant=variant)
+        except TypeError:
+            # Provider does not accept a variant kwarg (only llama-server does).
+            result = install_fn(force=force)
         _errors.pop(dep_id, None)
         return result
     except Exception as exc:
@@ -93,8 +98,8 @@ def install_dependency(dep_id: str, *, force: bool = False) -> dict[str, Any]:
         _updating.discard(dep_id)
 
 
-def reinstall_dependency(dep_id: str) -> dict[str, Any]:
-    return install_dependency(dep_id, force=True)
+def reinstall_dependency(dep_id: str, variant: str | None = None) -> dict[str, Any]:
+    return install_dependency(dep_id, force=True, variant=variant)
 
 
 def delete_dependency(dep_id: str) -> dict[str, Any]:

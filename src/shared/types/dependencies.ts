@@ -16,6 +16,41 @@ export type DependencyProgressPhase =
   | 'done'
   | 'error';
 
+/**
+ * Build variant for the managed llama-server dependency.
+ * - `auto`: use the host-detected default (CPU / Vulkan / CUDA prebuilt)
+ * - `cpu`: force the CPU build
+ * - `vulkan`: force the Vulkan prebuilt (Linux/Windows x64)
+ * - `cuda-12`: force the Windows CUDA 12.4 prebuilt (Windows x64)
+ * - `cuda-13`: force the Windows CUDA 13.3 prebuilt (Windows x64)
+ * - `cuda-compiled`: compile from source with `-DGGML_CUDA=ON` (Linux; needs CUDA toolkit)
+ */
+export type LlamaServerVariant =
+  | 'auto'
+  | 'cpu'
+  | 'vulkan'
+  | 'cuda-12'
+  | 'cuda-13'
+  | 'cuda-compiled';
+
+export const LLAMA_SERVER_VARIANTS: readonly LlamaServerVariant[] = [
+  'auto',
+  'cpu',
+  'vulkan',
+  'cuda-12',
+  'cuda-13',
+  'cuda-compiled',
+] as const;
+
+export const LLAMA_SERVER_VARIANT_LABELS: Record<LlamaServerVariant, string> = {
+  auto: 'Auto (detect)',
+  cpu: 'CPU',
+  vulkan: 'Vulkan (GPU)',
+  'cuda-12': 'CUDA 12.4 (Windows)',
+  'cuda-13': 'CUDA 13.3 (Windows)',
+  'cuda-compiled': 'Compile from source (CUDA)',
+};
+
 export interface DependencyInfo {
   id: DependencyId;
   label: string;
@@ -68,7 +103,7 @@ export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
 
 export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
   'python-runtime': '~150 MB (venv + core packages)',
-  'llama-server': '~40–80 MB',
+  'llama-server': '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)',
   'java-lsp': '~50–80 MB',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
 };

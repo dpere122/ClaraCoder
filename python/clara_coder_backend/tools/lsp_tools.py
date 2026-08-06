@@ -78,10 +78,6 @@ __all__ = [
     'LSP_READ_TOOLS',
     'LSP_MUTATION_TOOLS',
     'LSP_REVIEW_TOOLS',
-    # Deprecated aliases — prefer LSP_* names above.
-    'PYTHON_LSP_READ_TOOLS',
-    'PYTHON_LSP_MUTATION_TOOLS',
-    'PYTHON_LSP_REVIEW_TOOLS',
 ]
 
 
@@ -134,14 +130,16 @@ def _format_hover_contents(contents: Any) -> str:
         parts = [_format_hover_contents(item) for item in contents]
         return '\n\n'.join(part for part in parts if part)
     if isinstance(contents, dict):
+        # Legacy ``MarkedString``: ``{language, value}`` (or ``{language, text}``) → fenced code block.
+        # ``MarkupContent``: ``{kind, value}`` → return the markdown/plaintext value as-is.
+        language = str(contents.get('language') or '').strip()
         value = contents.get('value')
+        if language:
+            text = str(value if value is not None else contents.get('text') or '').strip()
+            return f'```{language}\n{text}\n```' if text else ''
         if value is not None:
             return str(value).strip()
-        language = str(contents.get('language') or '').strip()
-        text = str(contents.get('value') or contents.get('text') or '').strip()
-        if language and text:
-            return f'```{language}\n{text}\n```'
-        return text
+        return str(contents.get('text') or '').strip()
     return str(contents).strip()
 
 
@@ -858,8 +856,3 @@ LSP_MUTATION_TOOLS: list[Any] = [
 LSP_REVIEW_TOOLS: list[Any] = [
     lsp_get_diagnostics,
 ]
-
-# Deprecated aliases — prefer LSP_* names above.
-PYTHON_LSP_READ_TOOLS = LSP_READ_TOOLS
-PYTHON_LSP_MUTATION_TOOLS = LSP_MUTATION_TOOLS
-PYTHON_LSP_REVIEW_TOOLS = LSP_REVIEW_TOOLS

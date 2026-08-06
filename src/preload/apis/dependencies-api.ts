@@ -9,10 +9,10 @@ export const dependenciesApi = {
       error?: string;
       warning?: string;
     }>,
-  depsInstall: (depId: DependencyId) =>
-    ipcRenderer.invoke('deps:install', depId) as Promise<DependencyActionResult>,
-  depsReinstall: (depId: DependencyId) =>
-    ipcRenderer.invoke('deps:reinstall', depId) as Promise<DependencyActionResult>,
+  depsInstall: (depId: DependencyId, variant?: string | null) =>
+    ipcRenderer.invoke('deps:install', depId, variant ?? null) as Promise<DependencyActionResult>,
+  depsReinstall: (depId: DependencyId, variant?: string | null) =>
+    ipcRenderer.invoke('deps:reinstall', depId, variant ?? null) as Promise<DependencyActionResult>,
   depsDelete: (depId: DependencyId) =>
     ipcRenderer.invoke('deps:delete', depId) as Promise<DependencyActionResult>,
   openDependenciesWindow: () => ipcRenderer.send('open-dependencies-window'),

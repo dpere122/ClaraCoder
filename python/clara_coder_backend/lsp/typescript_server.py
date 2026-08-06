@@ -44,7 +44,7 @@ def _find_workspace_typescript_ls(workspace_root: Path, *, max_hops: int = 24) -
 def build_typescript_lsp_command(workspace_root: Path) -> list[str]:
     """Return argv to run typescript-language-server over stdio.
 
-    ``CLARA_TYPESCRIPT_LSP_COMMAND`` may override the default. When unset, Nemo prefers
+    ``CLARA_TYPESCRIPT_LSP_COMMAND`` may override the default. When unset, Clara prefers
     ``<workspace-or-ancestor>/node_modules/.bin/typescript-language-server`` (``.cmd`` on Windows)
     when that package root also has local ``typescript``/``tsc``, then falls back to
     ``npx`` / ``npx.cmd`` with ``-y -p typescript -p typescript-language-server`` so tsserver is present

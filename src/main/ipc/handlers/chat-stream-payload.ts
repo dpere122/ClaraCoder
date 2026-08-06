@@ -52,8 +52,6 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     });
   } else if (parsed.type === 'chunk') {
     event.reply('message-chunk', conversationId, parsed.delta, parsed.streamTag);
-  } else if (parsed.type === 'harness_crystal') {
-    event.reply('message-harness-crystal', conversationId, parsed.polarity);
   } else if (parsed.type === 'final_text') {
     event.reply('message-final-text', conversationId, parsed.text);
   } else if (parsed.type === 'clear_primary_stream') {

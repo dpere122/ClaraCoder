@@ -105,7 +105,6 @@ function stubElectronApi(): StubRefs {
     onMessageTokenUsage: noop,
     onMessageContextCompressed: noop,
     onMessageStatus: noop,
-    onMessageHarnessCrystal: noop,
     onConfigUpdated: noop,
     onSettingsWindowVisibilityChanged: noop,
     onActiveConversationChanged: noop,

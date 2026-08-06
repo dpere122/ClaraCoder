@@ -37,7 +37,6 @@ from clara_coder_backend.llm.model_tuning import gemma_output_parsing_active
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
 from clara_coder_backend.logging.tool_call_logging import log_llm_tool_input, log_llm_tool_output
-from clara_coder_backend.hitl.harness_polarity import pending_harness_crystal_polarity
 
 
 @dataclass
@@ -349,10 +348,6 @@ def _on_tool_end(
             stream_tag=stream_tag,
         )
     )
-    crystal_pol = pending_harness_crystal_polarity.get()
-    if crystal_pol is not None:
-        pending_harness_crystal_polarity.set(None)
-        lines.append(sse_line({'type': 'harness_crystal', 'polarity': crystal_pol}))
     return lines
 
 

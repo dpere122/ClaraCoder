@@ -25,6 +25,7 @@ router = APIRouter(prefix='/runtime/deps', tags=['deps'])
 
 class DepActionBody(BaseModel):
     depId: str = Field(..., description='Dependency id')
+    variant: str | None = Field(None, description='Optional llama-server build variant override')
 
 
 def _validate_id(dep_id: str) -> str:
@@ -48,7 +49,7 @@ async def deps_status(dep_id: str) -> dict[str, Any]:
 async def deps_install(body: DepActionBody) -> dict[str, Any]:
     dep_id = _validate_id(body.depId)
     try:
-        dep = await asyncio.to_thread(install_dependency, dep_id, force=False)
+        dep = await asyncio.to_thread(install_dependency, dep_id, force=False, variant=body.variant)
         return {'ok': True, 'dependency': dep}
     except Exception as exc:
         return {'ok': False, 'error': str(exc), 'dependency': get_dependency(dep_id)}
@@ -58,7 +59,7 @@ async def deps_install(body: DepActionBody) -> dict[str, Any]:
 async def deps_reinstall(body: DepActionBody) -> dict[str, Any]:
     dep_id = _validate_id(body.depId)
     try:
-        dep = await asyncio.to_thread(reinstall_dependency, dep_id)
+        dep = await asyncio.to_thread(reinstall_dependency, dep_id, variant=body.variant)
         return {'ok': True, 'dependency': dep}
     except Exception as exc:
         return {'ok': False, 'error': str(exc), 'dependency': get_dependency(dep_id)}

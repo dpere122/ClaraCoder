@@ -141,11 +141,6 @@ export interface LlmStatusMessage {
   status: LlmStatus;
 }
 
-export interface HarnessCrystalMessage {
-  conversationId: string;
-  polarity: 'positive' | 'negative';
-}
-
 /** OpenAI-compatible usage from the backend (LangChain ``usage_metadata`` / SDK ``usage``). */
 export interface LlmTokenUsageMessage {
   conversationId: string;
@@ -331,7 +326,6 @@ export class ElectronService {
   private readonly backgroundCommandOpenSubject = new Subject<BackgroundCommandOpenMessage>();
   private readonly doneSubject = new Subject<DoneMessage>();
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
-  private readonly harnessCrystalSubject = new Subject<HarnessCrystalMessage>();
   private readonly finalTextSubject = new Subject<{ conversationId: string; text: string }>();
   private readonly clearPrimaryStreamSubject = new Subject<{ conversationId: string }>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
@@ -377,7 +371,6 @@ export class ElectronService {
   readonly backgroundCommandOpen$ = this.backgroundCommandOpenSubject.asObservable();
   readonly done$ = this.doneSubject.asObservable();
   readonly llmStatus$ = this.llmStatusSubject.asObservable();
-  readonly harnessCrystal$ = this.harnessCrystalSubject.asObservable();
   /** Final assistant text (clean, without intermediate briefs) sent by the backend at stream end. */
   readonly finalText$ = this.finalTextSubject.asObservable();
   /** Drop live primary agent prose when a model step ends with tool calls. */
@@ -554,14 +547,6 @@ export class ElectronService {
     });
     this.api?.onMessageStatus((_event, conversationId, status) => {
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
-    });
-    this.api?.onMessageHarnessCrystal?.((_event, conversationId, polarity) => {
-      this.zone.run(() =>
-        this.harnessCrystalSubject.next({
-          conversationId,
-          polarity: polarity === 'negative' ? 'negative' : 'positive',
-        }),
-      );
     });
     this.api?.onMessageFinalText?.((_event, conversationId, text) => {
       this.zone.run(() => this.finalTextSubject.next({ conversationId, text }));
@@ -1432,7 +1417,7 @@ export class ElectronService {
     character: number,
     documentText: string,
     skipDocumentSync?: boolean,
-  ): Promise<{ ok: true; markdown: string | null; range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; markdown: string | null; range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null; syncedFromDisk?: boolean } | { ok: false; error: string }> {
     return (
       this.api?.lspEditorHover?.(sessionId, relativePath, line, character, documentText, skipDocumentSync === true) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
@@ -1881,12 +1866,18 @@ export class ElectronService {
     );
   }
 
-  depsInstall(depId: import('@shared/index').DependencyId) {
-    return this.api?.depsInstall(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  depsInstall(depId: import('@shared/index').DependencyId, variant?: string | null) {
+    return (
+      this.api?.depsInstall(depId, variant ?? null) ??
+      Promise.resolve({ ok: false, error: 'No Electron API' })
+    );
   }
 
-  depsReinstall(depId: import('@shared/index').DependencyId) {
-    return this.api?.depsReinstall(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  depsReinstall(depId: import('@shared/index').DependencyId, variant?: string | null) {
+    return (
+      this.api?.depsReinstall(depId, variant ?? null) ??
+      Promise.resolve({ ok: false, error: 'No Electron API' })
+    );
   }
 
   depsDelete(depId: import('@shared/index').DependencyId) {

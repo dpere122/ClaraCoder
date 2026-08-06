@@ -120,15 +120,15 @@ def _lsp_editor_hover_sync(
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
     if not skip_document_sync and document_text is not None:
         manager.sync_document(rel, document_text, wait_for_diagnostics=False)
-    result = manager.hover(rel, line, character)
+    result, synced_from_disk = manager.hover_for_editor(rel, line, character)
     raw_contents = result.get('contents') if isinstance(result, dict) else None
     if raw_contents is None:
-        return {'markdown': None, 'range': None}
+        return {'markdown': None, 'range': None, 'synced_from_disk': synced_from_disk}
     text = _format_hover_contents(raw_contents).strip()
     hover_range = None
     if isinstance(result, dict):
         hover_range = _lsp_range_to_monaco_irange(result.get('range'))
-    return {'markdown': text or None, 'range': hover_range}
+    return {'markdown': text or None, 'range': hover_range, 'synced_from_disk': synced_from_disk}
 
 
 def _maybe_sync_buffer(

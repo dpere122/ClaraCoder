@@ -195,7 +195,7 @@ export function registerLspStatusIpc(): void {
       character: unknown,
       documentText: unknown,
       skipDocumentSync: unknown,
-    ): Promise<{ ok: true; markdown: string | null; range?: LspEditorIRangeWire | null } | { ok: false; error: string }> => {
+    ): Promise<{ ok: true; markdown: string | null; range?: LspEditorIRangeWire | null; syncedFromDisk?: boolean } | { ok: false; error: string }> => {
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -225,12 +225,17 @@ export function registerLspStatusIpc(): void {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
         }
-        const body = (await res.json()) as { markdown?: string | null; range?: LspEditorIRangeWire | null };
+        const body = (await res.json()) as {
+          markdown?: string | null;
+          range?: LspEditorIRangeWire | null;
+          synced_from_disk?: boolean;
+        };
         const md = body.markdown;
         return {
           ok: true,
           markdown: md === undefined || md === null ? null : String(md),
           range: body.range ?? null,
+          syncedFromDisk: body.synced_from_disk === true,
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

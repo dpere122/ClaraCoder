@@ -305,11 +305,14 @@ export type {
   DependencyProgressEvent,
   DependencyProgressPhase,
   DependencyState,
+  LlamaServerVariant,
 } from './types/dependencies';
 export {
   DEPENDENCY_IDS,
   DEPENDENCY_LABELS,
   DEPENDENCY_DESCRIPTIONS,
   DEPENDENCY_SIZE_HINTS,
+  LLAMA_SERVER_VARIANTS,
+  LLAMA_SERVER_VARIANT_LABELS,
   defaultDependencyCatalog,
 } from './types/dependencies';

@@ -1,4 +1,4 @@
-"""Append harness coaching footers to tool results and signal crystal polarity for SSE."""
+"""Append harness coaching footers to tool results."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from clara_coder_backend.hitl.harness_polarity import HarnessPolarity, pending_harness_crystal_polarity
 from clara_coder_backend.llm.messages import stringify_content
 
 HARNESS_NOTE_SENTINEL = '\n---\nHarness note:'
@@ -147,46 +146,36 @@ def maybe_append_harness_footer(
     *,
     tool_name: str,
     repeat_failure_streak: int = 0,
-) -> tuple[Any, HarnessPolarity | None]:
-    """Return (new_content, polarity) when a footer was attached; polarity None if unchanged.
+) -> Any:
+    """Return content with a harness footer appended when applicable; otherwise unchanged.
 
     ``repeat_failure_streak`` is the number of consecutive *prior* calls with identical arguments to this
     same tool that already failed (0 when this is not a repeat); see :func:`trailing_identical_failure_streak`.
     """
     text = stringify_content(content).strip()
     if HARNESS_NOTE_SENTINEL in stringify_content(content):
-        return content, None
+        return content
 
     if is_tool_result_error(text):
         if repeat_failure_streak > 0:
-            merged = stringify_content(content).rstrip() + _repeated_failure_footer(
+            return stringify_content(content).rstrip() + _repeated_failure_footer(
                 tool_name, streak=repeat_failure_streak
             )
-        else:
-            merged = stringify_content(content).rstrip() + _FAILURE_FOOTER
-        return merged, 'negative'
+        return stringify_content(content).rstrip() + _FAILURE_FOOTER
 
     if should_attach_success_note(tool_name, text):
-        merged = stringify_content(content).rstrip() + _SUCCESS_FOOTER
-        return merged, 'positive'
+        return stringify_content(content).rstrip() + _SUCCESS_FOOTER
 
-    return content, None
-
-
-def _set_crystal_polarity(pol: HarnessPolarity | None) -> None:
-    if pol is None:
-        return
-    pending_harness_crystal_polarity.set(pol)
+    return content
 
 
 def _augment_tool_message(tm: ToolMessage, tool_name: str, *, repeat_failure_streak: int = 0) -> ToolMessage:
     name = tool_name or str(getattr(tm, 'name', '') or '')
-    new_content, pol = maybe_append_harness_footer(
+    new_content = maybe_append_harness_footer(
         tm.content, tool_name=name, repeat_failure_streak=repeat_failure_streak
     )
-    if pol is None:
+    if new_content is tm.content:
         return tm
-    _set_crystal_polarity(pol)
     return ToolMessage(
         content=new_content,
         tool_call_id=str(getattr(tm, 'tool_call_id', '') or ''),
@@ -218,7 +207,7 @@ def _augment_command(result: Command, tool_name: str, *, repeat_failure_streak: 
 
 
 class ToolHarnessFeedbackMiddleware(AgentMiddleware):
-    """Outermost tool wrapper: append harness footers and set crystal polarity contextvar."""
+    """Outermost tool wrapper: append harness coaching footers to tool results."""
 
     async def awrap_tool_call(
         self,

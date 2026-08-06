@@ -53,7 +53,7 @@ export const lspHealthApi = {
       character,
       documentText,
       skipDocumentSync === true,
-    ) as Promise<{ ok: true; markdown: string | null; range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null } | { ok: false; error: string }>,
+    ) as Promise<{ ok: true; markdown: string | null; range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null; syncedFromDisk?: boolean } | { ok: false; error: string }>,
   lspEditorDefinition: (
     sessionId: string,
     relativePath: string,

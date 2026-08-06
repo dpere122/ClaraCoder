@@ -34,6 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='clara-deps')
     parser.add_argument('action', choices=('list', 'install', 'reinstall', 'delete', 'status'))
     parser.add_argument('dep_id', nargs='?', default=None)
+    parser.add_argument(
+        '--variant',
+        default=None,
+        help='llama-server build variant override (cpu|cuda-12|cuda-13|vulkan|cuda-compiled)',
+    )
     args = parser.parse_args(argv)
 
     PROGRESS.subscribe(_emit_progress)
@@ -56,9 +61,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         if args.action == 'install':
-            dep = install_dependency(args.dep_id, force=False)
+            dep = install_dependency(args.dep_id, force=False, variant=args.variant)
         elif args.action == 'reinstall':
-            dep = reinstall_dependency(args.dep_id)
+            dep = reinstall_dependency(args.dep_id, variant=args.variant)
         else:
             dep = delete_dependency(args.dep_id)
         print(json.dumps({'ok': True, 'dependency': dep}))

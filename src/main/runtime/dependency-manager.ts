@@ -103,13 +103,15 @@ function bootstrapPythonCmd(): string {
 async function runDepsCli(
   action: 'list' | 'install' | 'reinstall' | 'delete' | 'status',
   depId?: DependencyId,
+  variant?: string | null,
 ): Promise<{ ok: boolean; dependencies?: DependencyInfo[]; dependency?: DependencyInfo; error?: string }> {
   ensureRuntimeDirs();
   const py = bootstrapPythonCmd();
   const args = ['-m', 'clara_coder_backend.runtime.deps', action];
   if (depId) args.push(depId);
+  if (variant && action !== 'list' && action !== 'status') args.push('--variant', variant);
   const cwd = pythonPackageRoot();
-  logDeps('INFO', `CLI ${action}${depId ? ` ${depId}` : ''} via ${py} (cwd=${cwd})`);
+  logDeps('INFO', `CLI ${action}${depId ? ` ${depId}` : ''}${variant ? ` variant=${variant}` : ''} via ${py} (cwd=${cwd})`);
 
   return new Promise((resolve) => {
     const proc = spawn(py, args, {
@@ -223,11 +225,12 @@ function startHttpProgressPump(signal: AbortSignal): void {
 async function runInstallOrReinstall(
   action: 'install' | 'reinstall',
   depId: DependencyId,
+  variant?: string | null,
 ): Promise<DependencyActionResult> {
   ensureRuntimeDirs();
   const queuedMsg = action === 'reinstall' ? 'Reinstalling…' : 'Starting…';
   broadcastProgress({ depId, phase: 'queued', message: queuedMsg });
-  logDeps('INFO', `${action} ${depId} starting`);
+  logDeps('INFO', `${action} ${depId}${variant ? ` variant=${variant}` : ''} starting`);
   const ac = new AbortController();
   startHttpProgressPump(ac.signal);
   let result: DependencyActionResult;
@@ -237,7 +240,7 @@ async function runInstallOrReinstall(
         const res = await pythonLongFetch(`/runtime/deps/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depId }),
+          body: JSON.stringify({ depId, variant: variant ?? null }),
         });
         const http = (await res.json()) as DependencyActionResult;
         if (http.ok) {
@@ -252,7 +255,7 @@ async function runInstallOrReinstall(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logDeps('WARNING', `HTTP ${action} ${depId} failed, falling back to CLI: ${msg}`);
-        const cli = await runDepsCli(action, depId);
+        const cli = await runDepsCli(action, depId, variant);
         result = {
           ok: !!cli.ok,
           error: cli.error || msg,
@@ -262,7 +265,7 @@ async function runInstallOrReinstall(
         else broadcastProgress({ depId, phase: 'error', message: result.error });
       }
     } else {
-      const cli = await runDepsCli(action, depId);
+      const cli = await runDepsCli(action, depId, variant);
       result = {
         ok: !!cli.ok,
         error: cli.error,
@@ -306,12 +309,18 @@ export async function listDependencies(): Promise<{
   return { dependencies: defaultDependencyCatalog(), error: err };
 }
 
-export async function installDependency(depId: DependencyId): Promise<DependencyActionResult> {
-  return runInstallOrReinstall('install', depId);
+export async function installDependency(
+  depId: DependencyId,
+  variant?: string | null,
+): Promise<DependencyActionResult> {
+  return runInstallOrReinstall('install', depId, variant);
 }
 
-export async function reinstallDependency(depId: DependencyId): Promise<DependencyActionResult> {
-  return runInstallOrReinstall('reinstall', depId);
+export async function reinstallDependency(
+  depId: DependencyId,
+  variant?: string | null,
+): Promise<DependencyActionResult> {
+  return runInstallOrReinstall('reinstall', depId, variant);
 }
 
 export async function deleteDependency(depId: DependencyId): Promise<DependencyActionResult> {

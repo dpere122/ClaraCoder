@@ -130,6 +130,35 @@ After install (or in dev), open **File → Dependencies** to download optional r
 
 Heavy pieces are on-demand; the packaged app ships a minimal portable Python plus the backend sources.
 
+#### llama-server GPU acceleration (auto-detected)
+
+The `llama-server` installer probes the host and picks a GPU-accelerated build when one is available, falling back to CPU otherwise:
+
+| Host | Build selected |
+| ---- | -------------- |
+| Windows x64 + NVIDIA + CUDA 13.x driver | Prebuilt CUDA 13.3 binary (+ bundled cudart DLLs) |
+| Windows x64 + NVIDIA + CUDA 12.x driver | Prebuilt CUDA 12.4 binary (+ bundled cudart DLLs) |
+| Windows x64 + NVIDIA + unknown/no CUDA driver | CPU build |
+| Linux x64 + NVIDIA | Prebuilt **Vulkan** binary (uses the Vulkan driver shipped with the NVIDIA driver; no CUDA toolkit needed) |
+| macOS / Linux arm64 / no NVIDIA | CPU build |
+
+Detection uses `nvidia-smi` plus the NVIDIA driver library (`nvcuda.dll` / `libcuda.so.1`) to read the CUDA driver-API version. The installed variant shows in the Dependencies window as the version label, e.g. `b10262 (cuda-12.4)` or `b10262 (vulkan)`.
+
+Force a specific build with `CLARA_LLAMA_SERVER_CUDA`:
+
+| Value | Result |
+| ----- | ------ |
+| `auto` (default) | Use the auto-detected build from the table above |
+| `cpu` | Always install the CPU build |
+| `cuda-12` | Force the Windows CUDA 12.4 prebuilt (Windows x64 only) |
+| `cuda-13` | Force the Windows CUDA 13.3 prebuilt (Windows x64 only) |
+| `vulkan` | Force the Vulkan prebuilt (Linux/Windows x64) |
+| `compile` | Compile from source with `-DGGML_CUDA=ON` (Linux). Requires `cmake`, `gcc`, and the NVIDIA CUDA toolkit; the installer errors with a clear message listing what's missing before attempting the build |
+
+> **Note:** ggml-org does **not** publish Linux CUDA prebuilts, so true CUDA on Linux is opt-in via `compile` and needs the CUDA toolkit. For most Linux + NVIDIA users the Vulkan default gives GPU acceleration without any extra setup.
+
+Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b10262`).
+
 ---
 
 
@@ -159,6 +188,8 @@ Heavy pieces are on-demand; the packaged app ships a minimal portable Python plu
 | `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
 | `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet    |
 | `DEV_SERVER_URL`     | Set automatically by `npm run dev`                                |
+| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b10262`) |
+| `CLARA_LLAMA_SERVER_CUDA` | Force the `llama-server` build variant: `auto` (default) \| `cpu` \| `cuda-12` \| `cuda-13` \| `vulkan` \| `compile` |
 
 
 

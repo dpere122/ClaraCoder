@@ -31,17 +31,6 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
-  it('parses harness_crystal payloads', () => {
-    expect(parseAgentStreamPayload(JSON.stringify({ type: 'harness_crystal', polarity: 'positive' }))).toEqual({
-      type: 'harness_crystal',
-      polarity: 'positive',
-    });
-    expect(parseAgentStreamPayload(JSON.stringify({ type: 'harness_crystal', polarity: 'negative' }))).toEqual({
-      type: 'harness_crystal',
-      polarity: 'negative',
-    });
-  });
-
   it('parses clear_primary_stream payloads', () => {
     expect(parseAgentStreamPayload(JSON.stringify({ type: 'clear_primary_stream' }))).toEqual({
       type: 'clear_primary_stream',

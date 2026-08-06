@@ -1,4 +1,4 @@
-"""Tests for harness footers and crystal polarity context."""
+"""Tests for harness coaching footers on tool results."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
-from clara_coder_backend.hitl.harness_polarity import pending_harness_crystal_polarity
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import (
     ToolHarnessFeedbackMiddleware,
     is_tool_result_error,
@@ -25,32 +24,28 @@ def test_is_tool_result_error() -> None:
     assert not is_tool_result_error('ok')
 
 
-def test_maybe_append_harness_footer_failure_sets_negative() -> None:
+def test_maybe_append_harness_footer_failure() -> None:
     text = 'Tool error: bad path'
-    out, pol = maybe_append_harness_footer(text, tool_name='read_workspace_file')
-    assert pol == 'negative'
+    out = maybe_append_harness_footer(text, tool_name='read_workspace_file')
     assert 'Harness note:' in out
     assert 'Recoverable tooling issue' in out
 
 
 def test_maybe_append_harness_footer_success_milestone() -> None:
     text = 'Transferred staged `foo.py` to workspace.'
-    out, pol = maybe_append_harness_footer(text, tool_name='transfer_staged_file_to_workspace')
-    assert pol == 'positive'
+    out = maybe_append_harness_footer(text, tool_name='transfer_staged_file_to_workspace')
     assert 'Solid progress' in out
 
 
 def test_maybe_append_harness_footer_skips_read_tools() -> None:
     text = 'file contents here'
-    out, pol = maybe_append_harness_footer(text, tool_name='read_workspace_file')
-    assert pol is None
+    out = maybe_append_harness_footer(text, tool_name='read_workspace_file')
     assert out == text
 
 
 def test_maybe_append_harness_footer_idempotent() -> None:
     base = 'Tool error: x\n---\nHarness note: already there'
-    out, pol = maybe_append_harness_footer(base, tool_name='t')
-    assert pol is None
+    out = maybe_append_harness_footer(base, tool_name='t')
     assert out == base
 
 
@@ -107,8 +102,7 @@ def test_trailing_identical_failure_streak_resets_after_a_success() -> None:
 
 def test_maybe_append_harness_footer_repeat_failure_names_the_staging_tool() -> None:
     text = 'Tool error: old_snippet not found in file.'
-    out, pol = maybe_append_harness_footer(text, tool_name='stage_snippet_edit', repeat_failure_streak=2)
-    assert pol == 'negative'
+    out = maybe_append_harness_footer(text, tool_name='stage_snippet_edit', repeat_failure_streak=2)
     assert 'identical arguments' in out
     assert 'read_staged_edit' in out
     assert '3 attempt(s)' in out
@@ -116,8 +110,7 @@ def test_maybe_append_harness_footer_repeat_failure_names_the_staging_tool() -> 
 
 def test_maybe_append_harness_footer_repeat_failure_generic_tool_advice() -> None:
     text = 'Tool error: something went wrong.'
-    out, pol = maybe_append_harness_footer(text, tool_name='some_other_tool', repeat_failure_streak=1)
-    assert pol == 'negative'
+    out = maybe_append_harness_footer(text, tool_name='some_other_tool', repeat_failure_streak=1)
     assert 'identical arguments' in out
     assert 'read_staged_edit' not in out
     assert 'Inspect the current state' in out
@@ -125,7 +118,6 @@ def test_maybe_append_harness_footer_repeat_failure_generic_tool_advice() -> Non
 
 @pytest.mark.asyncio
 async def test_middleware_escalates_footer_on_repeated_identical_failing_call() -> None:
-    pending_harness_crystal_polarity.set(None)
     args = {'relative_path': 'renderer.ts', 'old_snippet': 'stale text', 'new_snippet': 'new text'}
     prior_messages: list[Any] = []
     prior_messages += _failed_call('stage_snippet_edit', args, 'c1')
@@ -152,13 +144,11 @@ async def test_middleware_escalates_footer_on_repeated_identical_failing_call() 
     assert 'identical arguments' in str(out.content)
     assert 'read_staged_edit' in str(out.content)
     assert '3 attempt(s)' in str(out.content)
-    assert pending_harness_crystal_polarity.get() == 'negative'
 
 
 @pytest.mark.asyncio
 async def test_middleware_uses_generic_footer_on_first_failure_with_history() -> None:
     """A first-time failure alongside unrelated history should not trigger the repeat escalation."""
-    pending_harness_crystal_polarity.set(None)
     args = {'relative_path': 'renderer.ts', 'old_snippet': 'brand new anchor', 'new_snippet': 'new text'}
     other_args = {'relative_path': 'other.ts', 'old_snippet': 'a', 'new_snippet': 'b'}
     prior_messages = _failed_call('stage_snippet_edit', other_args, 'c1')
@@ -186,9 +176,7 @@ async def test_middleware_uses_generic_footer_on_first_failure_with_history() ->
 
 
 @pytest.mark.asyncio
-async def test_middleware_sets_contextvar_on_toolmessage() -> None:
-    pending_harness_crystal_polarity.set(None)
-
+async def test_middleware_appends_footer_on_toolmessage() -> None:
     async def handler(_req):
         return ToolMessage(content='Tool error: test', tool_call_id='c1', name='read_workspace_file')
 
@@ -204,13 +192,10 @@ async def test_middleware_sets_contextvar_on_toolmessage() -> None:
     out = await mw.awrap_tool_call(req, handler)
     assert isinstance(out, ToolMessage)
     assert 'Harness note:' in str(out.content)
-    assert pending_harness_crystal_polarity.get() == 'negative'
 
 
 @pytest.mark.asyncio
 async def test_middleware_command_first_toolmessage() -> None:
-    pending_harness_crystal_polarity.set(None)
-
     async def handler(_req):
         return Command(
             update={

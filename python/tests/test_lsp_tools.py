@@ -687,3 +687,29 @@ def test_python_lsp_events_flow_into_clara_logging(lsp_env, tmp_path: Path) -> N
     messages = ' '.join(record['message'] for record in records)
     assert 'clara.lsp.manager' in loggers
     assert 'python LSP didOpen' in messages
+
+
+def test_format_hover_contents_fences_marked_string_with_language() -> None:
+    from clara_coder_backend.tools.lsp_tools import _format_hover_contents
+
+    # Legacy MarkedString {language, value} → fenced code block (regression: previously dropped the language).
+    out = _format_hover_contents({'language': 'typescript', 'value': 'const x = 1'})
+    assert out == '```typescript\nconst x = 1\n```'
+
+    # Legacy MarkedString {language, text} variant also fences.
+    out = _format_hover_contents({'language': 'javascript', 'text': 'let y = 2'})
+    assert out == '```javascript\nlet y = 2\n```'
+
+    # MarkupContent {kind, value} → value passed through (Monaco renders markdown).
+    out = _format_hover_contents({'kind': 'markdown', 'value': '# Title\n\nbody'})
+    assert out == '# Title\n\nbody'
+
+    # Plain string stays plain.
+    assert _format_hover_contents('  hi  ') == 'hi'
+
+    # List of MarkedStrings joins with blank lines and preserves fences.
+    out = _format_hover_contents([{'language': 'typescript', 'value': 'const a = 1'}, 'doc text'])
+    assert out == '```typescript\nconst a = 1\n```\n\ndoc text'
+
+    # Empty value with language yields empty (no empty fence).
+    assert _format_hover_contents({'language': 'typescript', 'value': ''}) == ''

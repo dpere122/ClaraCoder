@@ -23,18 +23,18 @@ export function registerDependenciesIpc(): void {
     }
   });
 
-  ipcMain.handle('deps:install', async (_e, depId: string) => {
+  ipcMain.handle('deps:install', async (_e, depId: string, variant?: string | null) => {
     if (!isKnownDependencyId(depId)) {
       return { ok: false as const, error: `Unknown dependency: ${depId}` };
     }
-    return installDependency(depId as DependencyId);
+    return installDependency(depId as DependencyId, variant ?? null);
   });
 
-  ipcMain.handle('deps:reinstall', async (_e, depId: string) => {
+  ipcMain.handle('deps:reinstall', async (_e, depId: string, variant?: string | null) => {
     if (!isKnownDependencyId(depId)) {
       return { ok: false as const, error: `Unknown dependency: ${depId}` };
     }
-    return reinstallDependency(depId as DependencyId);
+    return reinstallDependency(depId as DependencyId, variant ?? null);
   });
 
   ipcMain.handle('deps:delete', async (_e, depId: string) => {

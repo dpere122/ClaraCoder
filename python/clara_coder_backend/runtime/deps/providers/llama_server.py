@@ -380,7 +380,8 @@ def _install_compiled_cuda(tag: str, *, force: bool) -> None:
     def _ready() -> bool:
         return bin_path.is_file() and read_ready_marker(bin_dir) == tag and _read_variant() == 'cuda-compiled'
 
-    with with_download_lock(lock, ready_check=_ready) as lock_ctx:
+    # Compile can take up to COMPILE_TIMEOUT_S; wait at least that long for a live holder.
+    with with_download_lock(lock, ready_check=_ready, wait_s=float(COMPILE_TIMEOUT_S + 120)) as lock_ctx:
         if not lock_ctx.held and _ready():
             return
         if force and bin_path.exists():

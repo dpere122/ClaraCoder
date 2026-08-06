@@ -52,8 +52,57 @@ def download_file(
         raise
 
 
+def _pid_is_alive(pid: int) -> bool:
+    """Return True if ``pid`` refers to a running process."""
+
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we cannot signal it — treat as alive.
+        return True
+    return True
+
+
+def _reclaim_stale_lock(lock_path: Path) -> bool:
+    """Unlink ``lock_path`` when it has no living holder. Returns True if removed.
+
+    Lock files written by this module contain the holder PID. Empty / unparseable
+    locks (left by older code or a hard kill before the PID was written) are also
+    treated as stale so a crashed install cannot block retries forever.
+    """
+
+    try:
+        text = lock_path.read_text(encoding='utf-8').strip()
+    except OSError:
+        return False
+
+    if text:
+        try:
+            pid = int(text.split()[0])
+        except ValueError:
+            pid = None
+        if pid is not None and _pid_is_alive(pid):
+            return False
+
+    try:
+        lock_path.unlink()
+        logger.info('reclaimed stale download lock at %s', lock_path)
+        return True
+    except OSError:
+        return False
+
+
 def with_download_lock(lock_path: Path, *, ready_check: Callable[[], bool], wait_s: float = 60.0):
-    """Context-manager-like lock using an exclusive file. Yields whether we hold the lock."""
+    """Exclusive file lock. Yields an object with ``.held`` True when we own it.
+
+    The lock file stores the holder PID so a crashed / killed installer cannot
+    leave a permanent block. Concurrent waiters poll until the holder finishes,
+    the ready-check succeeds, or ``wait_s`` elapses.
+    """
 
     class _Lock:
         held = False
@@ -64,15 +113,33 @@ def with_download_lock(lock_path: Path, *, ready_check: Callable[[], bool], wait
             while time.time() < deadline:
                 try:
                     fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                    os.close(fd)
+                    try:
+                        os.write(fd, f'{os.getpid()}\n'.encode('ascii'))
+                    finally:
+                        os.close(fd)
                     self.held = True
                     return self
                 except FileExistsError:
                     if ready_check():
                         return self
+                    if _reclaim_stale_lock(lock_path):
+                        continue
                     time.sleep(0.5)
             if ready_check():
                 return self
+            # Last chance: holder may have died after the wait loop started.
+            if _reclaim_stale_lock(lock_path):
+                try:
+                    fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    try:
+                        os.write(fd, f'{os.getpid()}\n'.encode('ascii'))
+                    finally:
+                        os.close(fd)
+                    self.held = True
+                    return self
+                except FileExistsError:
+                    if ready_check():
+                        return self
             raise TimeoutError(f'Timed out waiting for download lock at {lock_path}')
 
         def __exit__(self, *exc):

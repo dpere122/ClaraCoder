@@ -139,7 +139,7 @@ class SessionLspState:
     lsp_active_scope: str = 'workspace'
     # Workspace root last associated with an LSP subprocess (empty when none have started).
     lsp_workspace_root: str = ''
-    # Auto-detected TypeScript/Node project root used for typescript-language-server cwd (nested ``package.json``).
+    # Auto-detected TypeScript/Node project root used as vtsls cwd (nested ``package.json``).
     typescript_lsp_resolved_root: str = ''
     # Auto-detected Java project root used for Eclipse JDT LS cwd (Maven/Gradle markers).
     java_lsp_resolved_root: str = ''

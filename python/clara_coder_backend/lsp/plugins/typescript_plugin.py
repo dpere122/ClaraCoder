@@ -1,4 +1,4 @@
-"""TypeScript / JavaScript LSP plugin (typescript-language-server + nested project root)."""
+"""TypeScript / JavaScript LSP plugin (vtsls + nested project root)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
 from clara_coder_backend.lsp.typescript_project_root import resolve_typescript_project_root
-from clara_coder_backend.lsp.typescript_server import build_typescript_lsp_command
+from clara_coder_backend.lsp.typescript_server import resolve_typescript_lsp_spawn
 
 if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
@@ -52,10 +52,12 @@ class TypescriptLspPlugin(LspServerPlugin):
                 allow_workspace_walk=False,
             )
         st.project_root = root
+        spawn = resolve_typescript_lsp_spawn(root)
         return LspStartParams(
             lsp_cwd=root,
-            command=build_typescript_lsp_command(root),
+            command=spawn.command,
             init_options={},
+            env=spawn.env,
         )
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:

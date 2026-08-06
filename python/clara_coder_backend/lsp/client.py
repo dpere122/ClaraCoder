@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import subprocess
 import threading
@@ -29,11 +30,17 @@ class JsonRpcLspClient:
         workspace_root: Path,
         notification_handler: NotificationHandler | None = None,
         startup_timeout_s: float = 20.0,
+        env: dict[str, str] | None = None,
     ) -> None:
         self._command = list(command)
         self._workspace_root = Path(workspace_root).resolve()
         self._notification_handler = notification_handler
         self._startup_timeout_s = max(1.0, float(startup_timeout_s))
+        # When set, merged over the inherited environment for the language-server
+        # subprocess (overrides win). Used to run a bundled Node LSP (vtsls) via the
+        # Electron binary in Node mode (``ELECTRON_RUN_AS_NODE=1``) without requiring
+        # a system Node install, while keeping PATH/HOME/SystemRoot etc. intact.
+        self._env: dict[str, str] | None = dict(env) if env is not None else None
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.RLock()
         self._write_lock = threading.Lock()
@@ -50,14 +57,16 @@ class JsonRpcLspClient:
             if self._proc is not None:
                 return
             logger.info('lsp subprocess start workspace=%s command=%s', self._workspace_root, self._command)
-            self._proc = subprocess.Popen(
-                self._command,
-                cwd=str(self._workspace_root),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,
-            )
+            popen_kwargs: dict[str, Any] = {
+                'cwd': str(self._workspace_root),
+                'stdin': subprocess.PIPE,
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'bufsize': 0,
+            }
+            if self._env is not None:
+                popen_kwargs['env'] = {**os.environ, **self._env}
+            self._proc = subprocess.Popen(self._command, **popen_kwargs)
             self._reader_thread = threading.Thread(target=self._read_stdout_loop, name='nemo-lsp-stdout', daemon=True)
             self._reader_thread.start()
             self._stderr_thread = threading.Thread(target=self._read_stderr_loop, name='nemo-lsp-stderr', daemon=True)

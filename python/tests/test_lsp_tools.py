@@ -149,7 +149,7 @@ def lsp_env(tmp_path: Path):
     session.lsp_active_scope = 'workspace'
     session.lsp_workspace_root = ''
 
-    factory = lambda *, command, workspace_root, notification_handler: _FakeLspClient(
+    factory = lambda *, command, workspace_root, notification_handler, env=None: _FakeLspClient(
         command=command,
         workspace_root=workspace_root,
         notification_handler=notification_handler,

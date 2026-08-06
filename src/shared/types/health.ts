@@ -43,6 +43,7 @@ export interface RuntimeHealthSnapshot {
   };
   lsp: {
     javaInstalled: boolean;
+    vtslsInstalled: boolean;
     /** Active session managers known to Python, if available; else 0 */
     activeSessions: number;
   };

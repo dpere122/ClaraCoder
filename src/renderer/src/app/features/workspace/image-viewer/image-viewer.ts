@@ -31,6 +31,7 @@ import {
   viewableImagesInDirectory,
   workspaceChangeAffectsGalleryFolder,
 } from './image-viewer-gallery';
+import { isViewableImagePath } from './image-viewer-formats';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 16;
@@ -379,6 +380,14 @@ export class ImageViewerComponent implements OnDestroy {
       }
       this.galleryPaths.set(paths);
 
+      // Only auto-navigate to a sibling image when the active file is itself a
+      // viewable image. When a non-image file (e.g. a .ts/.md source file) is
+      // open in a folder that also contains images, the viewer is hidden but
+      // still mounted; navigating away here would hijack the active text tab
+      // and replace it with a sibling image.
+      if (!isViewableImagePath(currentRel)) {
+        return;
+      }
       if (galleryIndexForPath(paths, currentRel) >= 0) {
         return;
       }

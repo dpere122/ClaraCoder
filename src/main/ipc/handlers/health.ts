@@ -8,6 +8,7 @@ import { summarizeManagedLlamaRuntime } from '../../llama-server-manager';
 import { pythonControlFetch } from '../../python/http-client';
 import { isPythonHealthy } from '../../python/server';
 import { listDependencies } from '../../runtime/dependency-manager';
+import { getBundledVtslsEntry } from '../../paths';
 
 const PYTHON_URL = `http://127.0.0.1:${PYTHON_PORT}`;
 
@@ -224,6 +225,7 @@ export async function collectRuntimeHealthSnapshot(): Promise<RuntimeHealthSnaps
     },
     lsp: {
       javaInstalled: javaDep?.state === 'installed',
+      vtslsInstalled: !!getBundledVtslsEntry(),
       activeSessions,
     },
   };

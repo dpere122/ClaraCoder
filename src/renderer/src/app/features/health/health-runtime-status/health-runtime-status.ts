@@ -109,16 +109,21 @@ export class HealthRuntimeStatus implements OnInit, OnDestroy {
       detail: llamaDetail,
       tone: llamaTone,
     });
-    const lspDetail = snap.lsp.javaInstalled
-      ? snap.lsp.activeSessions > 0
+    const lspReady = snap.lsp.javaInstalled || snap.lsp.vtslsInstalled;
+    const readyNames: string[] = [];
+    if (snap.lsp.vtslsInstalled) readyNames.push('TS/JS');
+    if (snap.lsp.javaInstalled) readyNames.push('Java');
+    const lspDetail =
+      snap.lsp.activeSessions > 0
         ? `${snap.lsp.activeSessions} session${snap.lsp.activeSessions === 1 ? '' : 's'}`
-        : 'JDT ready'
-      : 'Java LSP missing';
+        : lspReady
+          ? `${readyNames.join(' + ')} ready`
+          : 'LSP missing';
     out.push({
       key: 'lsp',
       label: 'LSP',
       detail: lspDetail,
-      tone: snap.lsp.javaInstalled ? 'ok' : 'muted',
+      tone: lspReady ? 'ok' : 'muted',
     });
     return out;
   }

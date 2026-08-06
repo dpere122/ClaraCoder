@@ -24,11 +24,15 @@ __all__ = [
 
 @dataclass(frozen=True)
 class LspStartParams:
-    """Resolved cwd, argv, and ``initialize`` options for one LSP subprocess."""
+    """Resolved cwd, argv, ``initialize`` options, and optional subprocess env for one LSP subprocess."""
 
     lsp_cwd: Path
     command: list[str]
     init_options: dict[str, Any]
+    # When set, merged over the inherited environment for the subprocess, overrides winning
+    # (e.g. to run a bundled Node LSP via the Electron binary in Node mode with
+    # ``ELECTRON_RUN_AS_NODE=1`` while keeping PATH/HOME/SystemRoot intact).
+    env: dict[str, str] | None = None
 
 
 class LspServerPlugin(ABC):

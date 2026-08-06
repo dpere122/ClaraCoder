@@ -130,7 +130,7 @@ def lsp_http_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     fake_clients: list[_FakeLspClient] = []
 
-    def factory(*, command, workspace_root, notification_handler):
+    def factory(*, command, workspace_root, notification_handler, env=None):
         client = _FakeLspClient(
             command=command,
             workspace_root=workspace_root,

@@ -212,7 +212,8 @@ def _format_lsp_tool_error(
         'lsp client closed' in lowered
         or 'initialize' in lowered
         or 'jedi_language_server' in lowered
-        or 'typescript-language-server' in lowered
+        or 'vtsls' in lowered
+        or '@vtsls/language-server' in lowered
     ):
         message += ' The backend could not start the configured language server (check Node for TS/JS or Python env for .py).'
     elif 'only support' in lowered and rel:

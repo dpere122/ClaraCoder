@@ -33,6 +33,14 @@ extraResources:
     to: runtime-python
     filter:
       - "**/*"
+  # Bundled vtsls (TypeScript/JavaScript LSP) from `npm run bundle:vtsls`.
+  # Run via the Electron binary in Node mode (ELECTRON_RUN_AS_NODE=1); no system Node required.
+  - from: vtsls-bundle
+    to: vtsls
+    filter:
+      - "**/*"
+      - "!**/.bin/**"
+      - "!**/.package-lock.json"
 
 asarUnpack:
   - "**/node_modules/node-pty/**/*"

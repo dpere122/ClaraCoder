@@ -1522,6 +1522,10 @@ export class App implements OnInit, OnDestroy {
     if (!oldPath || normalizePathSlashes(oldPath) === newPath) {
       return;
     }
+    // Never let gallery navigation retarget a non-image (e.g. source file) tab.
+    if (!isViewableImagePath(oldPath)) {
+      return;
+    }
     this.fileTabs.update((tabs) => retargetFileTabPath(tabs, oldPath, newPath));
     this.activeMainTabId.set(chatFileTabId({ relativePath: newPath, outsideWorkspace: false }));
   }

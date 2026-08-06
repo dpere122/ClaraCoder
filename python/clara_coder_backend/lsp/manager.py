@@ -250,17 +250,20 @@ class SessionWorkspaceLspManager:
             lsp_cwd = bundle.lsp_cwd
             command = bundle.command
             init_opts = dict(bundle.init_options or {})
+            spawn_env = bundle.env
             factory = self._client_factory or (
-                lambda *, command, workspace_root, notification_handler: JsonRpcLspClient(
+                lambda *, command, workspace_root, notification_handler, env=None: JsonRpcLspClient(
                     command,
                     workspace_root=workspace_root,
                     notification_handler=notification_handler,
+                    env=env,
                 )
             )
             client = factory(
                 command=command,
                 workspace_root=lsp_cwd,
                 notification_handler=self._handle_notification,
+                env=spawn_env,
             )
             init_result = client.initialize(
                 root_uri=_path_to_uri(lsp_cwd),

@@ -159,7 +159,7 @@ def resolve_typescript_project_root(
     seed_relative_path: str | None,
     allow_workspace_walk: bool = True,
 ) -> Path:
-    """Return the directory to use as LSP cwd and ``rootUri`` for typescript-language-server.
+    """Return the directory to use as LSP cwd and ``rootUri`` for vtsls.
 
     Priority:
 

@@ -509,7 +509,7 @@
                   <div class='form-section__header'>
                     <h5>llama.cpp source</h5>
                     <p class='settings-copy'>
-                      Start and stop managed <code>llama-server</code> from the chat sidebar. Paste run commands here; refresh models after the chat server is running.
+                      Start and stop the managed <code>llama-server</code> with the button below. Paste run commands here; refresh models after the server is running.
                     </p>
                   </div>
                   <div class='form-grid'>
@@ -540,7 +540,7 @@
                     <p class='settings-copy'>
                       One shell command per process. Each command must include exactly one
                       <code>{{ managedLlamaPortToken }}</code>
-                      token; the app replaces it with a free TCP port when you Start from the chat sidebar. OpenAI base URLs
+                      token; the app replaces it with a free TCP port when you Start the server. OpenAI base URLs
                       sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code>. Use <code>--host</code> in the command if you bind elsewhere; health
                       checks use that host. For long-context stability and to avoid large checkpoint artifacts, include
                       <code>--ctx-checkpoints 0 --checkpoint-every-n-tokens -1</code>.
@@ -548,6 +548,26 @@
                   </div>
 
                   <div class='form-grid'>
+                    <div class='field field--full llamacpp-managed-actions'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [class.action-button--danger]='managedLlamaRunning()'
+                        [disabled]='managedLlamaBusy()'
+                        (click)='toggleManagedLlamaServer()'
+                      >
+                        {{ managedLlamaActionLabel() }}
+                      </button>
+                      @if (managedLlamaRunning()) {
+                        <span class='lm-studio-status lm-studio-status--ok'>Running</span>
+                      } @else if (managedLlamaBusy()) {
+                        <span class='lm-studio-status'>Starting…</span>
+                      }
+                      @if (managedLlamaStartError(); as err) {
+                        <span class='lm-studio-status lm-studio-status--err'>{{ err }}</span>
+                      }
+                    </div>
+
                     <label class='field field--full'>
                       <span>Chat llama-server command</span>
                       <textarea
@@ -928,7 +948,7 @@
                   @if (connection.provider === 'lmstudio') {
                     LM Studio works well with `http://127.0.0.1:1234/v1`, and the default key can stay `lm-studio` unless your local server expects something else.
                   } @else if (connection.provider === 'llamacpp') {
-                    The app starts <code>llama-server</code> from the commands above (sidebar <strong>Start</strong>). Use API key only if your server requires auth. Ports are chosen at Start.
+                    The app starts <code>llama-server</code> from the commands above (use the <strong>Start llama server</strong> button). Use API key only if your server requires auth. Ports are chosen at Start.
                   } @else {
                     OpenAI providers require a valid API key unless you rely on the backend environment fallback.
                   }

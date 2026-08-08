@@ -455,3 +455,51 @@ def test_version_label_includes_variant_for_cuda() -> None:
     assert ls._version_label('b10262', 'cuda-13') == 'b10262 (cuda-13.3)'
     assert ls._version_label('b10262', 'cuda-compiled') == 'b10262 (cuda-compiled)'
     assert ls._version_label('b10262', 'vulkan') == 'b10262 (vulkan)'
+
+
+# --------------------------------------------------------------------------- #
+# llama_server._copy_cocolocated_libs (shared library co-location)
+# --------------------------------------------------------------------------- #
+
+
+def test_copy_cocolocated_libs_copies_so_dll_and_dylib(tmp_path: Path) -> None:
+    """Linux .so (incl. versioned), Windows .dll, and macOS .dylib must all be co-located."""
+    src = tmp_path / 'src'
+    src.mkdir()
+    (src / 'libllama-server-impl.so').write_bytes(b'impl')
+    (src / 'libggml.so').write_bytes(b'ggml')
+    (src / 'libggml.so.1').write_bytes(b'ggml1')
+    (src / 'libggml.so.1.2.3').write_bytes(b'ggml123')
+    (src / 'cudart64.dll').write_bytes(b'cudart')
+    (src / 'libggml.dylib').write_bytes(b'dylib')
+    # Non-library files must be ignored.
+    (src / 'README.txt').write_bytes(b'ignore')
+    (src / 'llama-server').write_bytes(b'binary')
+
+    dest = tmp_path / 'bin'
+    ls._copy_cocolocated_libs(src, dest)
+
+    names = sorted(p.name for p in dest.iterdir())
+    assert names == sorted([
+        'libllama-server-impl.so',
+        'libggml.so',
+        'libggml.so.1',
+        'libggml.so.1.2.3',
+        'cudart64.dll',
+        'libggml.dylib',
+    ])
+
+
+def test_copy_cocolocated_libs_also_searches_parent_dir(tmp_path: Path) -> None:
+    """ggml-org archives nest the binary in a subdir; some libs sit one level up."""
+    root = tmp_path / 'extract'
+    nested = root / 'build'
+    nested.mkdir(parents=True)
+    (nested / 'llama-server').write_bytes(b'binary')
+    (root / 'libllama-server-impl.so').write_bytes(b'impl')
+
+    dest = tmp_path / 'bin'
+    ls._copy_cocolocated_libs(nested, dest)
+
+    assert (dest / 'libllama-server-impl.so').is_file()
+    assert (dest / 'llama-server').exists() is False  # binary not copied by this helper

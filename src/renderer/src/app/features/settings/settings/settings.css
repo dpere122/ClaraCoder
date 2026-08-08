@@ -603,7 +603,8 @@
 }
 
 .lm-studio-connect-row,
-.llamacpp-models-row {
+.llamacpp-models-row,
+.llamacpp-managed-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

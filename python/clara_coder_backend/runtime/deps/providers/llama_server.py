@@ -326,7 +326,7 @@ def _install_prebuilt(
             PROGRESS.emit(DEP_ID, 'extracting', message=f'Extracting {extra_name}…')
             extra_extract = downloads / f'llama-extract-{tag}-{variant}-cudart'
             extract_archive(extra_archive, extra_extract)
-            _copy_dlls(extra_extract, bin_dir)
+            _copy_cocolocated_libs(extra_extract, bin_dir)
             shutil.rmtree(extra_extract, ignore_errors=True)
 
         PROGRESS.emit(DEP_ID, 'extracting', message='Extracting archive…')
@@ -340,30 +340,35 @@ def _install_prebuilt(
             bin_path.unlink()
         shutil.copy2(found, bin_path)
         chmod_executable(bin_path)
-        # Co-locate any DLLs shipped alongside the binary in the CUDA archive.
-        _copy_dlls(found.parent, bin_dir)
+        # Co-locate any shared libraries shipped alongside the binary (DLLs on
+        # Windows, libllama-server-impl.so / libggml*.so on Linux, dylibs on macOS).
+        _copy_cocolocated_libs(found.parent, bin_dir)
         write_ready_marker(bin_dir, tag)
         _write_variant(variant)
         shutil.rmtree(extract_dir, ignore_errors=True)
 
 
-def _copy_dlls(src_dir: Path, dest_dir: Path) -> None:
-    """Copy ``*.dll`` files from ``src_dir`` (and one level up) into ``dest_dir``.
+def _copy_cocolocated_libs(src_dir: Path, dest_dir: Path) -> None:
+    """Copy shared libraries shipped alongside the binary into ``dest_dir``.
 
-    ggml-org CUDA archives nest the binary under a subdirectory; the CUDA runtime
-    DLLs sit next to it. ``llama-server`` loads them from its own directory.
+    ggml-org archives nest the binary under a subdirectory and place its shared
+    libraries next to it: ``*.dll`` on Windows, ``*.so*`` on Linux
+    (``libllama-server-impl.so``, ``libggml*.so``, versioned ``*.so.1.2.3``),
+    and ``*.dylib*`` on macOS. The binary's RUNPATH is ``$ORIGIN``, so these
+    must sit in the same directory as ``llama-server`` to load at runtime.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
     for candidate in (src_dir, src_dir.parent):
         if not candidate.is_dir():
             continue
-        for dll in candidate.glob('*.dll'):
-            if dll.name in seen:
-                continue
-            seen.add(dll.name)
-            shutil.copy2(dll, dest_dir / dll.name)
-            logger.info('co-located DLL %s', dll.name)
+        for pattern in ('*.dll', '*.so*', '*.dylib*'):
+            for lib in candidate.glob(pattern):
+                if lib.name in seen:
+                    continue
+                seen.add(lib.name)
+                shutil.copy2(lib, dest_dir / lib.name)
+                logger.info('co-located lib %s', lib.name)
 
 
 def _install_compiled_cuda(tag: str, *, force: bool) -> None:
@@ -534,11 +539,12 @@ def delete() -> dict:
         bin_path.unlink(missing_ok=True)
     (bin_dir / READY_MARKER).unlink(missing_ok=True)
     _variant_marker_path().unlink(missing_ok=True)
-    # Remove co-located CUDA DLLs from the bin dir.
-    for dll in bin_dir.glob('*.dll'):
-        try:
-            dll.unlink()
-        except OSError:
-            pass
+    # Remove co-located shared libraries (DLLs on Windows, .so on Linux, dylibs on macOS).
+    for pattern in ('*.dll', '*.so*', '*.dylib*'):
+        for lib in bin_dir.glob(pattern):
+            try:
+                lib.unlink()
+            except OSError:
+                pass
     PROGRESS.emit(DEP_ID, 'done', message='llama-server removed')
     return status()

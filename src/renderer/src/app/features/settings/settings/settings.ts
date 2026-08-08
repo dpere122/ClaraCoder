@@ -13,7 +13,7 @@ import {
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subscription } from 'rxjs';
+import { filter, merge, Subscription } from 'rxjs';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
@@ -21,6 +21,7 @@ import type {
   FontFamilyOption,
   HuggingFaceModelSearchItem,
   LlamaCppManaged,
+  LlamaServerStatusResult,
   LlmConnectionConfig,
   LlmModelProfile,
   LlmOptimizationPreset,
@@ -506,6 +507,23 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   protected readonly llamacppModelsListError = signal<string | null>(null);
   protected readonly llamacppModelsListInFlight = signal(false);
+  /** Managed llama-server lifecycle phase for the currently selected model. */
+  protected readonly managedLlamaPhase = signal<'idle' | 'starting' | 'downloading' | 'running'>('idle');
+  protected readonly managedLlamaStartError = signal<string | null>(null);
+  protected readonly managedLlamaBusy = computed(
+    () => this.managedLlamaPhase() === 'starting' || this.managedLlamaPhase() === 'downloading',
+  );
+  protected readonly managedLlamaRunning = computed(() => this.managedLlamaPhase() === 'running');
+  protected readonly managedLlamaActionLabel = computed(() => {
+    if (this.managedLlamaRunning()) {
+      return 'Stop llama server';
+    }
+    if (this.managedLlamaBusy()) {
+      return 'Starting…';
+    }
+    return 'Start llama server';
+  });
+  private llamaLifecycleSubscription: Subscription | null = null;
   protected readonly llamacppUrlModelsSummary = computed(() => {
     const chat = this.llamacppManagedModelIds().length;
     const emb = this.llamacppUrlEmbeddingModelIds().length;
@@ -559,6 +577,38 @@ export class Settings implements OnInit, OnDestroy {
     });
 
     void this.electron.listSystemFonts().then((fonts) => this.systemFonts.set(fonts));
+
+    this.llamaLifecycleSubscription = merge(
+      this.electron.llamaServerLifecycle$,
+      this.electron.llamaServerProcessExit$,
+    )
+      .pipe(
+        filter((e) => {
+          const id = this.selectedModel()?.id;
+          return !!id && e.modelId === id;
+        }),
+      )
+      .subscribe((e) => {
+        if ('phase' in e) {
+          if (e.phase === 'starting') {
+            this.managedLlamaPhase.set('starting');
+          } else if (e.phase === 'downloading') {
+            this.managedLlamaPhase.set('downloading');
+          } else if (e.phase === 'running') {
+            this.managedLlamaPhase.set('running');
+            this.managedLlamaStartError.set(null);
+          } else if (e.phase === 'stopped') {
+            this.managedLlamaPhase.set('idle');
+          }
+        } else {
+          // process exit while not transitioning to running -> back to idle
+          if (this.managedLlamaPhase() !== 'running') {
+            this.managedLlamaPhase.set('idle');
+          }
+        }
+      });
+
+    void this.probeManagedLlamaStatus();
   }
 
   ngOnDestroy(): void {
@@ -570,6 +620,7 @@ export class Settings implements OnInit, OnDestroy {
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
     this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
+    this.llamaLifecycleSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
       void this.enqueuePersist();
     }
@@ -825,6 +876,7 @@ export class Settings implements OnInit, OnDestroy {
       } else {
         this.llamacppUrlEmbeddingModelIds.set([]);
         void this.refreshLlamacppManagedModels();
+        void this.probeManagedLlamaStatus();
       }
     } else {
       this.llamacppManagedModelIds.set([]);
@@ -878,6 +930,84 @@ export class Settings implements OnInit, OnDestroy {
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
+    }
+  }
+
+  protected async startManagedLlamaServer(): Promise<void> {
+    const m = this.selectedModel();
+    if (!m) {
+      return;
+    }
+    if (this.managedLlamaBusy()) {
+      return;
+    }
+    if (this.managedLlamaRunning()) {
+      return;
+    }
+    this.managedLlamaPhase.set('starting');
+    this.managedLlamaStartError.set(null);
+    try {
+      const cfg = this.buildConfigForPersist();
+      const res = await this.electron.llamaServerStart({ modelId: m.id, config: cfg });
+      if (!res.ok) {
+        this.managedLlamaPhase.set('idle');
+        this.managedLlamaStartError.set(res.error);
+      }
+      // success path is driven by the 'running' lifecycle event
+    } catch (e) {
+      this.managedLlamaPhase.set('idle');
+      this.managedLlamaStartError.set(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  protected async stopManagedLlamaServer(): Promise<void> {
+    const m = this.selectedModel();
+    if (!m) {
+      return;
+    }
+    if (!this.managedLlamaRunning()) {
+      return;
+    }
+    try {
+      const cfg = this.buildConfigForPersist();
+      await this.electron.llamaServerStop({ modelId: m.id, config: cfg });
+      // 'stopped' lifecycle event resets phase to idle
+    } catch {
+      this.managedLlamaPhase.set('idle');
+    }
+  }
+
+  protected async toggleManagedLlamaServer(): Promise<void> {
+    if (this.managedLlamaRunning()) {
+      await this.stopManagedLlamaServer();
+    } else {
+      await this.startManagedLlamaServer();
+    }
+  }
+
+  private async probeManagedLlamaStatus(): Promise<void> {
+    const m = this.selectedModel();
+    const p = this.selectedProvider();
+    if (!m || !p || p.provider !== 'llamacpp' || this.isUrlOnlyLlamacpp()) {
+      this.managedLlamaPhase.set('idle');
+      return;
+    }
+    if (!this.configSnapshot) {
+      return;
+    }
+    try {
+      const cfg = this.buildConfigForPersist();
+      const res: LlamaServerStatusResult = await this.electron.llamaServerStatus({
+        modelId: m.id,
+        config: cfg,
+      });
+      if (res.ok && res.running) {
+        this.managedLlamaPhase.set('running');
+      } else {
+        this.managedLlamaPhase.set('idle');
+      }
+    } catch {
+      this.managedLlamaPhase.set('idle');
     }
   }
 

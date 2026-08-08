@@ -207,6 +207,16 @@ function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const prevPath = env[pathKey] || env.PATH || '';
   env[pathKey] = prevPath ? `${runtimeBin}${path.delimiter}${prevPath}` : runtimeBin;
   env.PATH = env[pathKey];
+  // Thin llama-server builds load libllama-server-impl from the same directory.
+  // Prepend runtime/bin so co-located libs resolve even if RUNPATH is stale
+  // (e.g. absolute build-dir path left by a source compile).
+  if (process.platform === 'linux') {
+    const prev = env.LD_LIBRARY_PATH || '';
+    env.LD_LIBRARY_PATH = prev ? `${runtimeBin}${path.delimiter}${prev}` : runtimeBin;
+  } else if (process.platform === 'darwin') {
+    const prev = env.DYLD_LIBRARY_PATH || '';
+    env.DYLD_LIBRARY_PATH = prev ? `${runtimeBin}${path.delimiter}${prev}` : runtimeBin;
+  }
   const mm = modelManagerForManagedLlamaSpawn(config);
   const customDir = mm.customModelsDir.trim();
   if (customDir) {

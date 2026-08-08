@@ -206,13 +206,38 @@ def _version_label(tag: str, variant: str) -> str:
     return f'{tag} ({display})'
 
 
+def _runtime_libs_present(bin_path: Path) -> bool:
+    """Return True when the installed binary can resolve its co-located shared libs.
+
+    Recent llama.cpp builds ship a thin ``llama-server`` that ``dlopen``s
+    ``libllama-server-impl`` from the same directory (``$ORIGIN``). A binary
+    without those libs is not runnable — treat it as not installed so
+    ``install()`` will repair instead of no-op.
+    """
+    if not bin_path.is_file():
+        return False
+    if sys.platform.startswith('win'):
+        # Windows resolves same-dir DLLs via the standard DLL search order.
+        return True
+    bin_dir = bin_path.parent
+    for name in ('libllama-server-impl.so', 'libllama-server-impl.dylib'):
+        if (bin_dir / name).is_file():
+            return True
+    # Older fat binaries may embed the server without a separate impl lib.
+    try:
+        return bin_path.stat().st_size > 1_000_000
+    except OSError:
+        return False
+
+
 def status() -> dict:
     bin_path = llama_server_binary()
     marker_dir = get_runtime_bin_dir()
     version = read_ready_marker(marker_dir)
     variant = _read_variant()
-    # Binary presence is enough for Electron spawn; marker supplies version when present.
-    if bin_path.is_file():
+    # Binary + co-located libs (when required) are enough for Electron spawn;
+    # marker supplies version when present.
+    if _runtime_libs_present(bin_path):
         label = _version_label(version or 'installed', variant or 'cpu')
         return {
             'id': DEP_ID,
@@ -285,7 +310,11 @@ def _install_prebuilt(
     lock = downloads / f'.llama-{tag}-{variant}.lock'
 
     def _ready() -> bool:
-        return bin_path.is_file() and read_ready_marker(bin_dir) == tag and _read_variant() == variant
+        return (
+            _runtime_libs_present(bin_path)
+            and read_ready_marker(bin_dir) == tag
+            and _read_variant() == variant
+        )
 
     with with_download_lock(lock, ready_check=_ready) as lock_ctx:
         if not lock_ctx.held and _ready():
@@ -371,6 +400,33 @@ def _copy_cocolocated_libs(src_dir: Path, dest_dir: Path) -> None:
                 logger.info('co-located lib %s', lib.name)
 
 
+def _ensure_origin_runpath(bin_dir: Path) -> None:
+    """Rewrite ELF RUNPATH to ``$ORIGIN`` when ``patchelf`` is available.
+
+    CMake source builds often bake an absolute build-dir RUNPATH. After we
+    co-locate libs next to ``llama-server`` and delete the build tree, that
+    absolute path is dead. Prebuilt ggml-org assets already use ``$ORIGIN``.
+    """
+    if not sys.platform.startswith('linux'):
+        return
+    patchelf = shutil.which('patchelf')
+    if not patchelf:
+        logger.info('patchelf not found; relying on CMAKE_BUILD_RPATH_USE_ORIGIN / LD_LIBRARY_PATH')
+        return
+    targets = [p for p in bin_dir.iterdir() if p.is_file() and (p.name == 'llama-server' or '.so' in p.name)]
+    for target in targets:
+        try:
+            subprocess.run(
+                [patchelf, '--set-rpath', '$ORIGIN', str(target)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            logger.info('set RUNPATH=$ORIGIN on %s', target.name)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            logger.warning('patchelf failed for %s: %s', target.name, exc)
+
+
 def _install_compiled_cuda(tag: str, *, force: bool) -> None:
     """Download the llama.cpp source for ``tag`` and build ``llama-server`` with CUDA."""
     bin_dir = get_runtime_bin_dir()
@@ -383,7 +439,11 @@ def _install_compiled_cuda(tag: str, *, force: bool) -> None:
     lock = downloads / f'.llama-{tag}-cuda-compiled.lock'
 
     def _ready() -> bool:
-        return bin_path.is_file() and read_ready_marker(bin_dir) == tag and _read_variant() == 'cuda-compiled'
+        return (
+            _runtime_libs_present(bin_path)
+            and read_ready_marker(bin_dir) == tag
+            and _read_variant() == 'cuda-compiled'
+        )
 
     # Compile can take up to COMPILE_TIMEOUT_S; wait at least that long for a live holder.
     with with_download_lock(lock, ready_check=_ready, wait_s=float(COMPILE_TIMEOUT_S + 120)) as lock_ctx:
@@ -425,11 +485,18 @@ def _install_compiled_cuda(tag: str, *, force: bool) -> None:
             env.setdefault('CUDACXX', toolchain.nvcc_path)
 
         PROGRESS.emit(DEP_ID, 'installing', message='Configuring CMake (GGML_CUDA=ON)…')
+        # Bake $ORIGIN into RUNPATH so the thin llama-server wrapper finds
+        # libllama-server-impl.so next to itself after we delete the build tree.
+        # CMAKE_BUILD_RPATH_USE_ORIGIN rewrites absolute build paths to $ORIGIN;
+        # BUILD_WITH_INSTALL_RPATH keeps that on the linked binary (no install step).
         configure_cmd = [
             cmake, '-S', str(actual_root), '-B', str(build_dir),
             '-DGGML_CUDA=ON', '-DCMAKE_BUILD_TYPE=Release',
             '-DLLAMA_CURL=OFF', '-DLLAMA_BUILD_TESTS=OFF',
             '-DLLAMA_BUILD_EXAMPLES=OFF', '-DLLAMA_BUILD_SERVER=ON',
+            '-DCMAKE_BUILD_RPATH_USE_ORIGIN=ON',
+            '-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON',
+            '-DCMAKE_INSTALL_RPATH=$ORIGIN',
         ]
         _run_compile_step(configure_cmd, phase='CMake configure', timeout=600, env=env)
 
@@ -446,6 +513,15 @@ def _install_compiled_cuda(tag: str, *, force: bool) -> None:
             bin_path.unlink()
         shutil.copy2(found, bin_path)
         chmod_executable(bin_path)
+        # Must co-locate shared libs before deleting the build tree — the binary's
+        # RUNPATH otherwise points at a removed directory (exit 127 at launch).
+        _copy_cocolocated_libs(found.parent, bin_dir)
+        _ensure_origin_runpath(bin_dir)
+        if not _runtime_libs_present(bin_path):
+            raise RuntimeError(
+                'Compiled llama-server is missing co-located shared libraries '
+                '(e.g. libllama-server-impl.so) in the runtime bin directory'
+            )
         write_ready_marker(bin_dir, tag)
         _write_variant('cuda-compiled')
         shutil.rmtree(src_root, ignore_errors=True)
@@ -504,7 +580,12 @@ def install(*, force: bool = False, variant: str | None = None) -> dict:
     bin_dir = get_runtime_bin_dir()
     bin_path = llama_server_binary()
 
-    if not force and bin_path.is_file() and read_ready_marker(bin_dir) == tag and _read_variant() == chosen:
+    if (
+        not force
+        and _runtime_libs_present(bin_path)
+        and read_ready_marker(bin_dir) == tag
+        and _read_variant() == chosen
+    ):
         logger.info('llama-server already installed path=%s variant=%s', bin_path, chosen)
         PROGRESS.emit(DEP_ID, 'done', message='Already installed')
         return status()

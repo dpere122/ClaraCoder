@@ -271,7 +271,10 @@ export interface WorkspaceToolsConfig {
 
 /** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */
 export interface ContextCompressionConfig {
-  /** When false, post-turn checkpoint compaction is skipped. */
+  /**
+   * When false, checkpoint compaction is skipped (post-turn and mid-turn before
+   * each model call).
+   */
   enabled: boolean;
   /** Start compaction when checkpoint estimate ≥ this × usable budget (0.5–0.95). */
   triggerRatio: number;

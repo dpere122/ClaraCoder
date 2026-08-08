@@ -363,6 +363,8 @@ def test_install_variant_override_skips_when_already_installed(
     monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: tmp_path)
     bin_path = tmp_path / 'llama-server'
     bin_path.write_text('#!/bin/sh\n', encoding='utf-8')  # simulate installed binary
+    # Thin wrappers also need the co-located impl lib or install() will re-run.
+    (tmp_path / 'libllama-server-impl.so').write_bytes(b'impl')
     monkeypatch.setattr(ls, 'llama_server_binary', lambda: bin_path)
     # Simulate the exact variant already installed.
     monkeypatch.setattr(ls, 'read_ready_marker', lambda _d: 'b10262')
@@ -380,6 +382,7 @@ def test_install_cuda_12_skips_when_marker_matches_key(
     monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: tmp_path)
     bin_path = tmp_path / 'llama-server'
     bin_path.write_text('#!/bin/sh\n', encoding='utf-8')
+    (tmp_path / 'libllama-server-impl.so').write_bytes(b'impl')
     monkeypatch.setattr(ls, 'llama_server_binary', lambda: bin_path)
     monkeypatch.setattr(ls, 'read_ready_marker', lambda _d: 'b10262')
     monkeypatch.setattr(ls, '_read_variant', lambda: 'cuda-12')
@@ -503,3 +506,46 @@ def test_copy_cocolocated_libs_also_searches_parent_dir(tmp_path: Path) -> None:
 
     assert (dest / 'libllama-server-impl.so').is_file()
     assert (dest / 'llama-server').exists() is False  # binary not copied by this helper
+
+
+# --------------------------------------------------------------------------- #
+# llama_server._runtime_libs_present (thin-wrapper health check)
+# --------------------------------------------------------------------------- #
+
+
+def test_runtime_libs_present_requires_impl_so_for_thin_linux_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 17 KB thin wrapper without libllama-server-impl.so is not runnable."""
+    monkeypatch.setattr(sys, 'platform', 'linux')
+    bin_path = tmp_path / 'llama-server'
+    bin_path.write_bytes(b'x' * 17_944)
+    assert ls._runtime_libs_present(bin_path) is False
+    (tmp_path / 'libllama-server-impl.so').write_bytes(b'impl')
+    assert ls._runtime_libs_present(bin_path) is True
+
+
+def test_runtime_libs_present_accepts_fat_binary_without_impl_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, 'platform', 'linux')
+    bin_path = tmp_path / 'llama-server'
+    bin_path.write_bytes(b'x' * 1_000_001)
+    assert ls._runtime_libs_present(bin_path) is True
+
+
+def test_status_reports_missing_when_thin_binary_lacks_libs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Broken cuda-compiled installs (binary only) must not report installed."""
+    monkeypatch.setattr(sys, 'platform', 'linux')
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    bin_path = bin_dir / 'llama-server'
+    bin_path.write_bytes(b'x' * 17_944)
+    (bin_dir / '.clara-ready').write_text('b10262\n', encoding='utf-8')
+    (bin_dir / '.clara-llama-variant').write_text('cuda-compiled\n', encoding='utf-8')
+    monkeypatch.setattr(ls, 'llama_server_binary', lambda: bin_path)
+    monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: bin_dir)
+    st = ls.status()
+    assert st['state'] == 'missing'

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from langgraph.graph.message import add_messages
+
 from clara_coder_backend.lang_agent.context_compression import (
+    _clone_tool_message,
     compact_checkpoint_messages,
+    compact_stale_tool_messages,
     compact_tool_message_body,
     estimate_messages_tokens,
 )
@@ -113,3 +117,35 @@ def test_no_compaction_for_non_tool_messages_only() -> None:
     assert stats.tool_messages_compacted == 0
     assert stats.tool_rounds_dropped == 0
     assert any(isinstance(m, AIMessage) and 'summary' in str(m.content) for m in compacted)
+
+
+def test_clone_tool_message_preserves_id() -> None:
+    original = ToolMessage(
+        content='File: a.py\n' + ('x' * 1000),
+        tool_call_id='c1',
+        name='read_workspace_file',
+        id='msg-42',
+    )
+    cloned = _clone_tool_message(original, '[compacted] read_workspace_file: a.py')
+    assert cloned.id == 'msg-42'
+    assert cloned.tool_call_id == 'c1'
+    merged = add_messages([original], [cloned])
+    assert len(merged) == 1
+    assert merged[0].id == 'msg-42'
+    assert str(merged[0].content).startswith('[compacted]')
+
+
+def test_compact_stale_ignores_budget_gate() -> None:
+    body = 'File: src/foo.ts\n' + ('x' * 5000)
+    messages = [
+        ToolMessage(content=body, tool_call_id='t1', name='read_workspace_file', id='m1'),
+        HumanMessage(content='follow up', id='h1'),
+    ]
+    cfg = _cfg(protect_tail_messages=0)
+    # Budget-gated path would no-op with a huge budget.
+    gated, gated_stats = compact_checkpoint_messages(messages, cfg=cfg, budget_tokens=1_000_000)
+    assert not gated_stats.changed
+    assert gated is messages
+    stale, stale_stats = compact_stale_tool_messages(messages, cfg=cfg)
+    assert stale_stats.changed
+    assert '[compacted]' in str(stale[0].content)

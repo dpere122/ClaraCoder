@@ -33,6 +33,7 @@ from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from clara_coder_backend.middleware.diff_review_middleware import DiffReviewAfterToolMiddleware
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
@@ -104,6 +105,7 @@ def build_clara_single_outer_graph(
         tools, _ = worker_tools_and_map(apply_mode, session=session)
     system_prompt = build_system_prompt(session, apply_mode)
     core_middleware: list[Any] = [
+        MidTurnContextCompactionMiddleware(),
         UserEventInjectionMiddleware(),
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
@@ -252,6 +254,11 @@ async def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
         if batch:
             session.pending_staged_transfer_batch_payload = None
             return [sse_line({'type': 'staged_transfer_batch', 'stagedTransferBatch': batch})]
+        return []
+    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'context_compressed':
+        payload = raw_hitl[1] if len(raw_hitl) > 1 and isinstance(raw_hitl[1], dict) else None
+        if payload:
+            return [sse_line(payload)]
         return []
     return []
 

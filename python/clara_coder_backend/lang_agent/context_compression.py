@@ -14,7 +14,6 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
-from clara_coder_backend.lang_agent.graph import build_clara_single_outer_graph
 from clara_coder_backend.session.checkpointing import outer_agent_thread_id
 from clara_coder_backend.config import (
     CLARA_CONTEXT_COMPACT_ENABLED,
@@ -59,7 +58,7 @@ _EXEC_TOOL_NAME_MARKERS = (
 
 @dataclass
 class CompactResult:
-    """Outcome of one post-turn checkpoint compaction pass."""
+    """Outcome of one checkpoint compaction pass (mid-turn or post-turn)."""
 
     ran: bool = False
     changed: bool = False
@@ -193,13 +192,18 @@ def _max_chars_for_index(index: int, total: int, cfg: RuntimeContextCompressionC
 
 
 def _clone_tool_message(message: ToolMessage, content: str) -> ToolMessage:
-    return ToolMessage(
-        content=content,
-        tool_call_id=str(message.tool_call_id or ''),
-        name=str(getattr(message, 'name', '') or ''),
-        additional_kwargs=dict(getattr(message, 'additional_kwargs', None) or {}),
-        response_metadata=dict(getattr(message, 'response_metadata', None) or {}),
-    )
+    """Clone a tool message with new content, preserving ``id`` for ``add_messages`` replace."""
+    msg_id = getattr(message, 'id', None)
+    kwargs: dict[str, Any] = {
+        'content': content,
+        'tool_call_id': str(message.tool_call_id or ''),
+        'name': str(getattr(message, 'name', '') or ''),
+        'additional_kwargs': dict(getattr(message, 'additional_kwargs', None) or {}),
+        'response_metadata': dict(getattr(message, 'response_metadata', None) or {}),
+    }
+    if msg_id is not None:
+        kwargs['id'] = msg_id
+    return ToolMessage(**kwargs)
 
 
 def _compact_tool_messages(
@@ -226,6 +230,64 @@ def _compact_tool_messages(
         else:
             out.append(msg)
     return out, compacted
+
+
+def compact_stale_tool_messages(
+    messages: list[BaseMessage],
+    *,
+    cfg: RuntimeContextCompressionConfig | None = None,
+) -> tuple[list[BaseMessage], CompactResult]:
+    """Age-based tool body compaction with no window-budget gate (mid-turn)."""
+    cfg = cfg or effective_compression_config()
+    result = CompactResult()
+    if not messages:
+        return messages, result
+
+    result.tokens_before = estimate_messages_tokens(messages)
+    result.ran = True
+    working, compacted_count = _compact_tool_messages(messages, cfg)
+    result.tool_messages_compacted = compacted_count
+    if compacted_count:
+        result.changed = True
+    result.tokens_after = estimate_messages_tokens(working)
+    return working, result
+
+
+def stale_tool_message_replacements(
+    messages: list[BaseMessage],
+    *,
+    cfg: RuntimeContextCompressionConfig | None = None,
+) -> tuple[list[ToolMessage], CompactResult]:
+    """Return only changed ``ToolMessage``s (same ids) for LangGraph ``add_messages`` replace.
+
+    Messages without an ``id`` are left alone so we never append duplicates.
+    """
+    cfg = cfg or effective_compression_config()
+    working, stats = compact_stale_tool_messages(messages, cfg=cfg)
+    if not stats.changed:
+        return [], stats
+
+    replacements: list[ToolMessage] = []
+    for original, updated in zip(messages, working, strict=True):
+        if not isinstance(original, ToolMessage) or not isinstance(updated, ToolMessage):
+            continue
+        if original is updated:
+            continue
+        if getattr(updated, 'id', None) is None:
+            logger.debug('skip mid-turn compact: tool message has no id (tool_call_id=%s)', original.tool_call_id)
+            continue
+        if stringify_content(original.content) == stringify_content(updated.content):
+            continue
+        replacements.append(updated)
+
+    if not replacements:
+        stats.changed = False
+        stats.tool_messages_compacted = 0
+        stats.tokens_after = stats.tokens_before
+        return [], stats
+
+    stats.tool_messages_compacted = len(replacements)
+    return replacements, stats
 
 
 def compact_checkpoint_messages(
@@ -272,6 +334,9 @@ async def maybe_compact_outer_checkpoint(
     except Exception as exc:
         logger.debug('context compression skipped (LLM bootstrap failed): %s', exc)
         return None
+
+    # Lazy import avoids a cycle with graph → mid-turn middleware → this module.
+    from clara_coder_backend.lang_agent.graph import build_clara_single_outer_graph
 
     graph = build_clara_single_outer_graph(llm, session, apply_mode)
     thread_id = outer_agent_thread_id(session_id, 'single', apply_mode=apply_mode)

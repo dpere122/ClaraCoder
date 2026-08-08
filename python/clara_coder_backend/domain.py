@@ -299,7 +299,10 @@ class RuntimeConnection:
 
 @dataclass
 class RuntimeContextCompressionConfig:
-    """LangGraph checkpoint compaction settings (Settings → Tools)."""
+    """LangGraph checkpoint compaction settings (Settings → Tools).
+
+    Applies mid-turn (before each model call) and post-turn when enabled.
+    """
 
     enabled: bool = True
     trigger_ratio: float = 0.70

@@ -10,5 +10,5 @@ Modules
 ``pause`` — compatibility re-export of :mod:`clara_coder_backend.session.pause`
 ``question`` — plan-mode question HITL staging and resolution
 ``langgraph_sse`` — LangGraph event → SSE line mapping
-``context_compression`` — post-turn checkpoint compaction
+``context_compression`` — mid-turn and post-turn checkpoint compaction
 """

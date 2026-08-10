@@ -14,7 +14,10 @@ export interface ContextCapacitySnapshot {
   maxTokens: number;
   remainingTokens: number;
   usedPercentage: number;
-  /** True when ``usedTokens`` came from the OpenAI-compatible API (LangChain usage metadata). */
+  /**
+   * True when ``usedTokens`` is anchored to API usage metadata (or a delta from it after
+   * checkpoint compaction), not a pure transcript heuristic.
+   */
   measuredFromApi: boolean;
 }
 
@@ -60,6 +63,20 @@ function estimateStreamTokens(parts: StreamPart[]): number {
   );
 }
 
+/** Heuristic transcript token estimate (messages + live stream + workspace context). */
+export function estimateTranscriptContextTokens(args: {
+  messages: ConversationMessage[];
+  streamingParts: StreamPart[];
+  workspaceContextText: string;
+}): number {
+  const messageTokens = args.messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+  const streamTokens = estimateStreamTokens(args.streamingParts);
+  const workspaceTokens = args.workspaceContextText.trim()
+    ? WORKSPACE_OVERHEAD_TOKENS + estimateTextTokens(args.workspaceContextText)
+    : 0;
+  return messageTokens + streamTokens + workspaceTokens;
+}
+
 export function buildContextCapacitySnapshot(args: {
   connection: Pick<LlmConnectionConfig, 'contextWindowTokens' | 'model' | 'provider'> | null | undefined;
   messages: ConversationMessage[];
@@ -67,22 +84,43 @@ export function buildContextCapacitySnapshot(args: {
   workspaceContextText: string;
   /** Latest prompt-side token count from the chat API (full context sent to the model on the last completion). */
   measuredPromptTokens?: number | null;
+  /**
+   * Transcript estimate captured when ``measuredPromptTokens`` was last set. Growth of the
+   * transcript above this baseline is added so the meter keeps moving after a measurement
+   * (e.g. mid-turn tool output) without treating checkpoint-only compaction estimates as absolute.
+   */
+  measuredBaselineFallbackTokens?: number | null;
 }): ContextCapacitySnapshot {
   const maxTokens = resolveContextWindowTokens(args.connection);
-  const messageTokens = args.messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
-  const streamTokens = estimateStreamTokens(args.streamingParts);
-  const workspaceTokens = args.workspaceContextText.trim()
-    ? WORKSPACE_OVERHEAD_TOKENS + estimateTextTokens(args.workspaceContextText)
-    : 0;
-  const fallbackUsed = Math.min(maxTokens, messageTokens + streamTokens + workspaceTokens);
+  const fallbackUsed = Math.min(
+    maxTokens,
+    estimateTranscriptContextTokens({
+      messages: args.messages,
+      streamingParts: args.streamingParts,
+      workspaceContextText: args.workspaceContextText,
+    }),
+  );
   const measured =
     typeof args.measuredPromptTokens === 'number' &&
     Number.isFinite(args.measuredPromptTokens) &&
     args.measuredPromptTokens > 0
-      ? Math.min(maxTokens, Math.floor(args.measuredPromptTokens))
+      ? Math.floor(args.measuredPromptTokens)
       : null;
-  const usedTokens = measured ?? fallbackUsed;
-  const measuredFromApi = measured !== null;
+  let usedTokens: number;
+  let measuredFromApi: boolean;
+  if (measured !== null) {
+    const baselineRaw = args.measuredBaselineFallbackTokens;
+    const baseline =
+      typeof baselineRaw === 'number' && Number.isFinite(baselineRaw) && baselineRaw >= 0
+        ? Math.floor(baselineRaw)
+        : fallbackUsed;
+    const growth = Math.max(0, fallbackUsed - baseline);
+    usedTokens = Math.min(maxTokens, measured + growth);
+    measuredFromApi = true;
+  } else {
+    usedTokens = fallbackUsed;
+    measuredFromApi = false;
+  }
   const remainingTokens = Math.max(0, maxTokens - usedTokens);
   const usedPercentage = maxTokens > 0 ? Math.min(100, Math.round((usedTokens / maxTokens) * 100)) : 0;
 

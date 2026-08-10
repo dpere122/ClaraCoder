@@ -42,6 +42,7 @@ import {
   CAPABLE_PRESET_DEFAULTS,
   CHAT_CONTAINER_SIZE_OPTIONS,
   CODE_FONT_FAMILY_OPTIONS,
+  CONTEXT_FIT_PRESET_LIST,
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
@@ -58,22 +59,39 @@ import {
   UI_FONT_SIZE_REM_MAX,
   UI_FONT_SIZE_REM_MIN,
   UI_FONT_SIZE_REM_STEP,
+  buildManagedLlamaChatCommand,
   clampUiFontSizeRem,
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
+  detectShellQuotingPlatform,
+  formatReadyDefaultsSummary,
   GEMMA_PRESET_DEFAULTS,
   countLlmModels,
   findLlmModelLocation,
+  hubCacheFolderToHfId,
   inferContextWindowTokens,
+  inferModelFamilyFromHint,
+  inferOptimizationPresetFromModelHint,
+  managedLlamaSourceHint,
   mergeLlmProviderModel,
   normalizeChatContainerSize,
   normalizeMonacoWorkspaceEditorSettings,
+  optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
+  parseManagedLlamaModelSelection,
   QWEN_PRESET_DEFAULTS,
+  suggestContextWindowTokens,
+  syncCheckpointFlagsInManagedChatCommand,
+  syncContextFlagInManagedChatCommand,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
+  parseManagedLlamaCheckpointSettings,
+  type ContextFitPresetId,
+  type ManagedLlamaCheckpointMode,
+  type ManagedLlamaCheckpointSettings,
+  type ManagedLlamaModelSource,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
@@ -190,7 +208,7 @@ export class Settings implements OnInit, OnDestroy {
       id: 'models',
       label: 'Models',
       description:
-        'LM Studio, remote llama-server (LAN), and local managed llama-server are built in. Add sources for more managed instances. The highlighted source is used for chat.',
+        'Pick a Model Manager GGUF or HF id on the local llama-server source, apply ready defaults, and Start. LM Studio and remote URL remain available.',
     },
     {
       id: 'modelManager',
@@ -253,7 +271,7 @@ export class Settings implements OnInit, OnDestroy {
       {
         id: 'download',
         label: 'Model Download',
-        description: 'Optional Hugging Face token and model search for use with llama-server -hf.',
+        description: 'Optional Hugging Face token and model search. Use results in Models → local llama-server.',
       },
     ],
     tools: [
@@ -516,13 +534,91 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly managedLlamaRunning = computed(() => this.managedLlamaPhase() === 'running');
   protected readonly managedLlamaActionLabel = computed(() => {
     if (this.managedLlamaRunning()) {
-      return 'Stop llama server';
+      return 'Stop';
     }
     if (this.managedLlamaBusy()) {
       return 'Starting…';
     }
-    return 'Start llama server';
+    return 'Start';
   });
+  protected readonly managedLlamaStatusLabel = computed(() => {
+    const err = this.managedLlamaStartError();
+    if (err) {
+      return err;
+    }
+    const phase = this.managedLlamaPhase();
+    if (phase === 'running') {
+      return 'Healthy';
+    }
+    if (phase === 'downloading') {
+      return 'Downloading…';
+    }
+    if (phase === 'starting') {
+      return 'Starting…';
+    }
+    return 'Not running';
+  });
+  /** Conservative / Balanced / Max context suggestion for managed local Start. */
+  protected readonly contextFitPreset = signal<ContextFitPresetId>('balanced');
+  protected readonly contextFitOptions = CONTEXT_FIT_PRESET_LIST;
+  /** Optional Hugging Face id (`org/repo` or `org/repo:quant`) for managed local without a local GGUF. */
+  protected readonly managedHfIdDraft = signal('');
+  protected readonly managedInventoryModels = computed(() => this.modelManagerCustomModels());
+  /** Select value for the managed model picker (`gguf:…` / `hub:…` / `hf:…` / empty). */
+  protected readonly managedPickerValue = computed(() => {
+    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
+    if (!sel) {
+      return '';
+    }
+    if (sel.kind === 'gguf') {
+      return `gguf:${sel.absolutePath}`;
+    }
+    const hfBase = sel.hfId.split(':')[0] ?? sel.hfId;
+    for (const m of this.modelManagerCustomModels()) {
+      if (m.entryKind === 'hubRepo') {
+        const id = hubCacheFolderToHfId(m.fileName) || hubCacheFolderToHfId(m.absolutePath);
+        if (id && (id === sel.hfId || id === hfBase)) {
+          return `hub:${m.absolutePath}`;
+        }
+      }
+    }
+    return `hf:${sel.hfId}`;
+  });
+  protected readonly managedSelectedFamilyLabel = computed(() => {
+    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
+    const hint =
+      sel?.kind === 'gguf'
+        ? sel.absolutePath
+        : sel?.kind === 'hf'
+          ? sel.hfId
+          : this.managedHfIdDraft();
+    const family = inferModelFamilyFromHint(hint);
+    if (family === 'qwen') {
+      return 'Qwen';
+    }
+    if (family === 'gemma') {
+      return 'Gemma';
+    }
+    return 'Other';
+  });
+  protected readonly readyDefaultsSummary = computed(() => {
+    const c = this.selectedResolved();
+    if (!c) {
+      return '';
+    }
+    return formatReadyDefaultsSummary({
+      preset: c.optimizationPreset,
+      contextWindowTokens: c.contextWindowTokens,
+    });
+  });
+  protected readonly selectedSourceIsActiveForChat = computed(() => {
+    const p = this.selectedProvider();
+    return !!p && this.sourceIsActive(p);
+  });
+  /** Checkpoint handling derived from the managed chat command (Advanced power-user control). */
+  protected readonly managedCheckpointSettings = computed((): ManagedLlamaCheckpointSettings =>
+    parseManagedLlamaCheckpointSettings(this.selectedLlamaCppManaged().chatRunCommand),
+  );
   private llamaLifecycleSubscription: Subscription | null = null;
   protected readonly llamacppUrlModelsSummary = computed(() => {
     const chat = this.llamacppManagedModelIds().length;
@@ -727,6 +823,8 @@ export class Settings implements OnInit, OnDestroy {
       void this.refreshTalkAudioInputs();
     } else if (tab === 'modelManager') {
       void this.refreshModelManagerData();
+    } else if (tab === 'models') {
+      void this.refreshCustomModelCards();
     }
   }
 
@@ -875,8 +973,12 @@ export class Settings implements OnInit, OnDestroy {
         void this.refreshLlamacppUrlModels();
       } else {
         this.llamacppUrlEmbeddingModelIds.set([]);
+        void this.refreshCustomModelCards();
         void this.refreshLlamacppManagedModels();
         void this.probeManagedLlamaStatus();
+        const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
+        const sel = parseManagedLlamaModelSelection(cmd);
+        this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
       }
     } else {
       this.llamacppManagedModelIds.set([]);
@@ -1408,6 +1510,19 @@ export class Settings implements OnInit, OnDestroy {
     }
     const clamped = Math.min(10_000_000, Math.max(1_024, n));
     this.updateSelectedModel({ contextWindowTokens: clamped });
+    const p = this.selectedProvider();
+    if (p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
+      const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+      if (cmd.trim()) {
+        this.patchLlamaCppManaged({
+          chatRunCommand: syncContextFlagInManagedChatCommand(
+            cmd,
+            clamped,
+            detectShellQuotingPlatform(),
+          ),
+        });
+      }
+    }
   }
 
   protected onPlanRetryAttemptsCountChange(raw: string | number): void {
@@ -1428,6 +1543,271 @@ export class Settings implements OnInit, OnDestroy {
     this.updateSelectedModel({
       llamaCppManaged: { ...base, ...patch },
     });
+  }
+
+  protected openModelManagerTab(subTab: 'storage' | 'download' = 'download'): void {
+    this.selectSettingsSubTab('modelManager', subTab);
+  }
+
+  protected activateSelectedSourceForChat(): void {
+    const p = this.selectedProvider();
+    if (!p) {
+      return;
+    }
+    this.activateSource(p.id);
+  }
+
+  protected onManagedInventoryPick(value: string): void {
+    const v = (value || '').trim();
+    if (!v) {
+      return;
+    }
+    if (v.startsWith('gguf:')) {
+      const absolutePath = v.slice('gguf:'.length);
+      const fileName = absolutePath.split(/[/\\]/).pop() || absolutePath;
+      this.applyManagedModelSource({ kind: 'gguf', absolutePath, displayName: fileName });
+      return;
+    }
+    if (v.startsWith('hub:')) {
+      const absolutePath = v.slice('hub:'.length);
+      const entry = this.modelManagerCustomModels().find((m) => m.absolutePath === absolutePath);
+      const folderName = entry?.fileName || absolutePath.split(/[/\\]/).pop() || absolutePath;
+      this.applyManagedModelSource({
+        kind: 'hubRepo',
+        absolutePath,
+        folderName,
+        displayName: folderName,
+      });
+      return;
+    }
+    if (v.startsWith('hf:')) {
+      const hfId = v.slice('hf:'.length);
+      this.managedHfIdDraft.set(hfId);
+      this.applyManagedModelSource({ kind: 'hf', hfId });
+    }
+  }
+
+  protected applyManagedHfIdDraft(): void {
+    const hfId = this.managedHfIdDraft().trim();
+    if (!hfId) {
+      return;
+    }
+    this.applyManagedModelSource({ kind: 'hf', hfId });
+  }
+
+  protected onContextFitPresetChange(fit: string): void {
+    const next: ContextFitPresetId =
+      fit === 'conservative' ? 'conservative' : fit === 'max' ? 'max' : 'balanced';
+    this.contextFitPreset.set(next);
+    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
+    const hint =
+      sel?.kind === 'gguf' ? sel.absolutePath : sel?.kind === 'hf' ? sel.hfId : this.managedHfIdDraft();
+    if (!hint.trim()) {
+      return;
+    }
+    const ctx = suggestContextWindowTokens(hint, next, 'llamacpp');
+    this.updateSelectedModel({ contextWindowTokens: ctx });
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (cmd.trim()) {
+      this.patchLlamaCppManaged({
+        chatRunCommand: syncContextFlagInManagedChatCommand(cmd, ctx, detectShellQuotingPlatform()),
+      });
+    }
+  }
+
+  protected onManagedCheckpointModeChange(modeRaw: string): void {
+    const mode: ManagedLlamaCheckpointMode =
+      modeRaw === 'server-default' ? 'server-default' : modeRaw === 'custom' ? 'custom' : 'disabled';
+    const current = this.managedCheckpointSettings();
+    const next: ManagedLlamaCheckpointSettings =
+      mode === 'disabled'
+        ? { mode: 'disabled', ctxCheckpoints: 0, checkpointEveryNTokens: -1 }
+        : mode === 'server-default'
+          ? { mode: 'server-default', ctxCheckpoints: current.ctxCheckpoints, checkpointEveryNTokens: current.checkpointEveryNTokens }
+          : {
+              mode: 'custom',
+              ctxCheckpoints: current.ctxCheckpoints || 0,
+              checkpointEveryNTokens:
+                current.checkpointEveryNTokens === 0 && current.mode !== 'custom'
+                  ? 1024
+                  : current.checkpointEveryNTokens,
+            };
+    this.applyManagedCheckpointSettings(next);
+  }
+
+  protected onManagedCtxCheckpointsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const current = this.managedCheckpointSettings();
+    this.applyManagedCheckpointSettings({
+      mode: 'custom',
+      ctxCheckpoints: Math.max(0, Math.floor(n)),
+      checkpointEveryNTokens: current.checkpointEveryNTokens,
+    });
+  }
+
+  protected onManagedCheckpointEveryNTokensChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const current = this.managedCheckpointSettings();
+    this.applyManagedCheckpointSettings({
+      mode: 'custom',
+      ctxCheckpoints: current.ctxCheckpoints,
+      checkpointEveryNTokens: Math.floor(n),
+    });
+  }
+
+  private applyManagedCheckpointSettings(settings: ManagedLlamaCheckpointSettings): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncCheckpointFlagsInManagedChatCommand(
+        cmd,
+        settings,
+        detectShellQuotingPlatform(),
+      ),
+    });
+  }
+
+  protected resetManagedToRecommended(): void {
+    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
+    if (!sel) {
+      return;
+    }
+    if (sel.kind === 'gguf') {
+      const fileName = sel.absolutePath.split(/[/\\]/).pop() || sel.absolutePath;
+      this.applyManagedModelSource({ kind: 'gguf', absolutePath: sel.absolutePath, displayName: fileName });
+      return;
+    }
+    this.managedHfIdDraft.set(sel.hfId);
+    const hub = this.modelManagerCustomModels().find((m) => {
+      if (m.entryKind !== 'hubRepo') {
+        return false;
+      }
+      const id = hubCacheFolderToHfId(m.fileName) || hubCacheFolderToHfId(m.absolutePath);
+      const base = sel.hfId.split(':')[0] ?? sel.hfId;
+      return !!id && (id === sel.hfId || id === base);
+    });
+    if (hub) {
+      this.applyManagedModelSource({
+        kind: 'hubRepo',
+        absolutePath: hub.absolutePath,
+        folderName: hub.fileName,
+        displayName: hub.fileName,
+      });
+      return;
+    }
+    this.applyManagedModelSource({ kind: 'hf', hfId: sel.hfId });
+  }
+
+  protected useCustomModelInModels(model: ModelManagerFileEntry): void {
+    this.selectTab('models');
+    const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+    if (local?.models[0]) {
+      this.selectedModelId.set(local.models[0].id);
+      this.activateSource(local.id);
+    }
+    if (model.entryKind === 'hubRepo') {
+      this.applyManagedModelSource({
+        kind: 'hubRepo',
+        absolutePath: model.absolutePath,
+        folderName: model.fileName,
+        displayName: model.fileName,
+      });
+    } else {
+      this.applyManagedModelSource({
+        kind: 'gguf',
+        absolutePath: model.absolutePath,
+        displayName: model.fileName,
+      });
+    }
+    void this.refreshCustomModelCards();
+    void this.probeManagedLlamaStatus();
+  }
+
+  protected useHfModelInModels(hfId: string): void {
+    const id = (hfId || '').trim();
+    if (!id) {
+      return;
+    }
+    this.selectTab('models');
+    const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+    if (local?.models[0]) {
+      this.selectedModelId.set(local.models[0].id);
+      this.activateSource(local.id);
+    }
+    this.managedHfIdDraft.set(id);
+    this.applyManagedModelSource({ kind: 'hf', hfId: id });
+    void this.probeManagedLlamaStatus();
+  }
+
+  private applyManagedModelSource(source: ManagedLlamaModelSource): void {
+    const ensureLocal = (): LlmModelProfile | null => {
+      const current = this.selectedModel();
+      const p = this.selectedProvider();
+      if (current && p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
+        return current;
+      }
+      const local = this.llmProviders().find((x) => isPinnedLlamaCppLocalProviderId(x.id));
+      if (!local?.models[0]) {
+        return null;
+      }
+      this.selectedModelId.set(local.models[0].id);
+      return this.selectedModel();
+    };
+    const model = ensureLocal();
+    if (!model) {
+      return;
+    }
+    const hint = managedLlamaSourceHint(source);
+    const fit = this.contextFitPreset();
+    const ctx = suggestContextWindowTokens(hint, fit, 'llamacpp');
+    const preset = inferOptimizationPresetFromModelHint(hint);
+    const chatRunCommand = buildManagedLlamaChatCommand(source, ctx, detectShellQuotingPlatform());
+    if (!chatRunCommand) {
+      return;
+    }
+    const base = model.llamaCppManaged ?? defaultLlamaCppManaged();
+    const patch = optimizationPresetDefaultsPatch(preset, model.temperature) as Partial<LlmModelProfile>;
+    this.applyLlmModelPatch(model.id, {
+      ...patch,
+      name: hint,
+      model: model.model || 'local-model',
+      contextWindowTokens: ctx,
+      llamaCppManaged: {
+        ...base,
+        chatRunCommand,
+      },
+    });
+    if (source.kind === 'hf') {
+      this.managedHfIdDraft.set(source.hfId);
+    }
+    this.markSettingsDirty();
+  }
+
+  protected managedInventoryOptionValue(model: ModelManagerFileEntry): string {
+    return model.entryKind === 'hubRepo' ? `hub:${model.absolutePath}` : `gguf:${model.absolutePath}`;
+  }
+
+  protected managedInventoryFamilyLabel(model: ModelManagerFileEntry): string {
+    const hint =
+      model.entryKind === 'hubRepo'
+        ? hubCacheFolderToHfId(model.fileName) || model.fileName
+        : model.fileName;
+    const family = inferModelFamilyFromHint(hint);
+    if (family === 'qwen') {
+      return 'Qwen';
+    }
+    if (family === 'gemma') {
+      return 'Gemma';
+    }
+    return 'Other';
   }
 
   protected formatModelBytes(sizeBytes: number): string {

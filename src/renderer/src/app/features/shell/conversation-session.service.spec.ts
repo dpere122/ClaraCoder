@@ -10,6 +10,9 @@ import { STALE_HITL_SUMMARY } from './abandon-stale-hitl';
 function mockElectron(overrides: Partial<{
   loadConversation: ElectronService['loadConversation'];
   saveConversation: ReturnType<typeof vi.fn>;
+  newConversation: ElectronService['newConversation'];
+  readConversationFromDisk: ElectronService['readConversationFromDisk'];
+  getConversations: ElectronService['getConversations'];
 }> = {}) {
   const doneSubject = new Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error' }>();
   const saveConversation = overrides.saveConversation ?? vi.fn(async () => undefined);
@@ -60,6 +63,14 @@ function mockElectron(overrides: Partial<{
           ],
           themeId: 'woodland',
         }) satisfies Conversation),
+    newConversation:
+      overrides.newConversation ??
+      (async () => ({
+        ...convMeta,
+        id: 'conv-b',
+        messages: [],
+        themeId: 'woodland',
+      }) satisfies Conversation),
     loadConfig: async () => ({
       currentWorkspaceId: 'ws-1',
       workspaces: [],
@@ -70,8 +81,10 @@ function mockElectron(overrides: Partial<{
     }),
     setLastActiveConversation: async () => ({}),
     saveConversation,
-    readConversationFromDisk: async () => ({ ...convMeta, messages: [], themeId: 'woodland' }),
-    getConversations: async () => [convMeta],
+    readConversationFromDisk:
+      overrides.readConversationFromDisk ??
+      (async () => ({ ...convMeta, messages: [], themeId: 'woodland' })),
+    getConversations: overrides.getConversations ?? (async () => [convMeta]),
     maybeAutoTitleConversation: async () => ({ ok: false as const, reason: 'not_due' as const }),
     abortMessage: async () => undefined,
   } as unknown as ElectronService;
@@ -139,5 +152,56 @@ describe('ConversationSessionService', () => {
     expect(service.streamingParts()).toEqual([]);
     expect(service.messages().some((m) => m.role === 'assistant')).toBe(false);
     expect(saveConversation).not.toHaveBeenCalled();
+  });
+
+  it('preserves reasoning stream text of a backgrounded conversation when switching to a new conversation', async () => {
+    const convAMeta: ConversationMeta = {
+      id: 'conv-a',
+      title: 'A',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workspaceId: 'ws-1',
+      customTitle: false,
+    };
+    const { service, doneSubject, saveConversation } = setup({
+      newConversation: async () => ({
+        ...convAMeta,
+        id: 'conv-b',
+        title: 'B',
+        messages: [],
+        themeId: 'woodland',
+      }),
+      readConversationFromDisk: async (id) => ({
+        ...convAMeta,
+        id,
+        messages: [],
+        themeId: 'woodland',
+      }),
+      getConversations: async () => [
+        convAMeta,
+        { ...convAMeta, id: 'conv-b', title: 'B' },
+      ],
+    });
+
+    service.activeConversationId.set('conv-a');
+    service.addPending('conv-a');
+    service.streamingParts.set([
+      { streamTag: 'reasoning', label: '', text: 'thinking hard about the request' },
+    ]);
+
+    await service.onNewConversation('ws-1');
+
+    expect(service.activeConversationId()).toBe('conv-b');
+    expect(service.streamingParts()).toEqual([]);
+
+    saveConversation.mockClear();
+    doneSubject.next({ conversationId: 'conv-a', outcome: 'completed' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(saveConversation).toHaveBeenCalled();
+    const saved = saveConversation.mock.calls.at(-1)?.[0] as Conversation;
+    const assistant = saved.messages.find((m) => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+    expect(assistant?.reasoningStreams?.some((p) => p.text.includes('thinking hard'))).toBe(true);
   });
 });

@@ -67,10 +67,19 @@ class JsonRpcLspClient:
             if self._env is not None:
                 popen_kwargs['env'] = {**os.environ, **self._env}
             self._proc = subprocess.Popen(self._command, **popen_kwargs)
+            self._closed = False
             self._reader_thread = threading.Thread(target=self._read_stdout_loop, name='nemo-lsp-stdout', daemon=True)
             self._reader_thread.start()
             self._stderr_thread = threading.Thread(target=self._read_stderr_loop, name='nemo-lsp-stderr', daemon=True)
             self._stderr_thread.start()
+
+    def is_running(self) -> bool:
+        """True while the language-server subprocess is alive and the client is open."""
+
+        with self._lock:
+            if self._closed or self._proc is None:
+                return False
+            return self._proc.poll() is None
 
     def initialize(
         self,
@@ -192,7 +201,7 @@ class JsonRpcLspClient:
 
     def _require_process(self) -> subprocess.Popen[bytes]:
         proc = self._proc
-        if proc is None:
+        if proc is None or self._closed or proc.poll() is not None:
             raise RuntimeError('LSP subprocess is not running.')
         return proc
 
@@ -246,14 +255,47 @@ class JsonRpcLspClient:
                 except ValueError:
                     logger.warning('lsp bad content-length workspace=%s value=%s', self._workspace_root, length_raw)
                     continue
-                body = proc.stdout.read(length)
-                if not body:
+                if length < 0:
+                    logger.warning('lsp negative content-length workspace=%s value=%s', self._workspace_root, length)
                     break
-                self._handle_message(json.loads(body.decode('utf-8', errors='replace')))
+                body = self._read_exact(proc.stdout, length)
+                if body is None:
+                    break
+                try:
+                    payload = json.loads(body.decode('utf-8'))
+                except json.JSONDecodeError as exc:
+                    # Exact-length framing failed or server sent invalid JSON. Abort the
+                    # stream — continuing would desync Content-Length framing.
+                    preview = body[:200].decode('utf-8', errors='replace')
+                    logger.warning(
+                        'lsp stdout JSON decode failed workspace=%s err=%s bytes=%s preview=%r',
+                        self._workspace_root,
+                        exc,
+                        len(body),
+                        preview,
+                    )
+                    break
+                self._handle_message(payload)
         except Exception as exc:
             logger.warning('lsp stdout loop failed workspace=%s err=%s', self._workspace_root, exc)
         finally:
             self.close()
+
+    @staticmethod
+    def _read_exact(stream: Any, length: int) -> bytes | None:
+        """Read exactly ``length`` bytes. Pipe ``read(n)`` may return partial chunks."""
+
+        if length == 0:
+            return b''
+        chunks: list[bytes] = []
+        remaining = length
+        while remaining > 0:
+            chunk = stream.read(remaining)
+            if not chunk:
+                return None
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b''.join(chunks)
 
     def _read_headers(self, stdout: Any) -> dict[str, str] | None:
         headers: dict[str, str] = {}

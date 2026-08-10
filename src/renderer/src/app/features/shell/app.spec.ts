@@ -9,6 +9,8 @@ type DeleteConfirmHandler = (event: unknown, conversationId: string, payload: un
 interface StubRefs {
   /** Captured `onMessageDeleteConfirm` callback so tests can simulate a backend delete-confirm event. */
   deleteConfirmHandler: DeleteConfirmHandler | null;
+  /** Captured `onMessageTokenUsage` callback so tests can simulate backend token_usage events. */
+  tokenUsageHandler: ((_event: unknown, conversationId: string, usage: unknown) => void) | null;
   saveConversation: Mock;
 }
 
@@ -17,6 +19,7 @@ function stubElectronApi(): StubRefs {
   const noop = (): void => {};
   const refs: StubRefs = {
     deleteConfirmHandler: null,
+    tokenUsageHandler: null,
     saveConversation: vi.fn(async () => noop()),
   };
   const defaultConfig = {
@@ -102,7 +105,9 @@ function stubElectronApi(): StubRefs {
     onMessageToolReadChunk: noop,
     onMessageClearPrimaryStream: noop,
     onMessageDone: noop,
-    onMessageTokenUsage: noop,
+    onMessageTokenUsage: (cb: (_event: unknown, conversationId: string, usage: unknown) => void) => {
+      refs.tokenUsageHandler = cb;
+    },
     onMessageContextCompressed: noop,
     onMessageStatus: noop,
     onConfigUpdated: noop,
@@ -244,5 +249,34 @@ describe('App', () => {
     expect(refs.saveConversation).toHaveBeenCalledTimes(1);
     const savedConv = refs.saveConversation.mock.calls[0][0] as { messages: { role: string }[] };
     expect(savedConv.messages.some((m) => m.role === 'delete_confirm')).toBe(true);
+  });
+
+  it('does not reset the context meter when a lower token_usage arrives (e.g. llama.cpp checkpoint restore)', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    expect(refs.tokenUsageHandler).toBeTruthy();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { usedTokens: number; measuredFromApi: boolean };
+      activeConversationId: () => string | null;
+    };
+    const convId = app.activeConversationId() ?? 'test-conv';
+
+    // First measurement anchors the meter to the API reading.
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 100_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(100_000);
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+
+    // A later, lower measurement (server silently truncated context via a checkpoint restore)
+    // must NOT lower the meter — only an explicit contextCompressed event may do that.
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 20_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(100_000);
+
+    // A higher measurement still raises the meter (monotonic increase).
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 120_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(120_000);
   });
 });

@@ -608,6 +608,66 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+}
+
+.model-run-hero__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.model-run-hero__selected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-run-hero__actions {
+  margin-top: 4px;
+}
+
+.model-hf-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-hf-inline input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+button.linkish {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ready-defaults {
+  border: 1px solid color-mix(in srgb, var(--t-primary) 28%, transparent);
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+  background: color-mix(in srgb, var(--t-primary) 8%, var(--t-bg-surface));
+}
+
+.ready-defaults .form-section__header {
+  margin-bottom: 8px;
+}
+
+.llamacpp-models-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 10px;
 }
 

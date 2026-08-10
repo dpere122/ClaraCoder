@@ -34,7 +34,7 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     id: 'gemma',
     label: 'Gemma (local)',
     description:
-      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, recommended sampling (temp 1 / top_p 0.95 / top_k 64), higher default max output, sparse-expert layout notes when the model id suggests a 26B A4B–style variant, managed llama-server adds --jinja and the bundled Gemma 4 Jinja template, and <|channel>thought output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
+      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, recommended sampling (temp 1 / top_p 0.95 / top_k 64), max output left automatic (0), sparse-expert layout notes when the model id suggests a 26B A4B–style variant, managed llama-server adds --jinja and the bundled Gemma 4 Jinja template, and <|channel>thought output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
     providers: ['lmstudio', 'llamacpp'],
   },
 ] as const;
@@ -59,7 +59,7 @@ export function optimizationPresetsForProvider(provider: LlmProviderConfig['prov
 /** Values applied when the user picks the Qwen template (they can edit afterward). */
 export const QWEN_PRESET_DEFAULTS = {
   parallelToolCalls: false,
-  maxOutputTokens: 8192,
+  maxOutputTokens: 0,
   temperatureCap: 0.45,
 } as const;
 
@@ -71,7 +71,7 @@ export const CAPABLE_PRESET_DEFAULTS = {
 /** Defaults applied when the user picks the Gemma (local) optimization template. */
 export const GEMMA_PRESET_DEFAULTS = {
   parallelToolCalls: false,
-  maxOutputTokens: 16_384,
+  maxOutputTokens: 0,
   temperature: 1.0,
   samplingPreset: 'gemma-recommended' as const,
   thinkingMode: 'on' as const,

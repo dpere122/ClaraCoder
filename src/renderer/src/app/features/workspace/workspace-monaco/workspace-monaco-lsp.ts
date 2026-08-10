@@ -724,25 +724,41 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (neededSync) {
             markMonacoModelLspDocumentSynced(model);
           }
-          const lenses: Monaco.languages.CodeLens[] = (res.lenses ?? []).map((l) => ({
-            range: wireRange(api, l.range),
-            command: l.command
-              ? {
-                  id: l.command.command,
-                  title: l.command.title,
-                  arguments: l.command.arguments as unknown[] | undefined,
-                }
-              : undefined,
-          }));
+          // Preserve LSP ``data`` on the Monaco lens so resolve can round-trip it.
+          // JDT LS requires ``data`` on codeLens/resolve and NPEs when it is null.
+          type LspBackedCodeLens = Monaco.languages.CodeLens & { data?: unknown };
+          const lenses: LspBackedCodeLens[] = (res.lenses ?? []).map((l) => {
+            const lens: LspBackedCodeLens = {
+              range: wireRange(api, l.range),
+            };
+            if (l.command) {
+              lens.command = {
+                id: l.command.command,
+                title: l.command.title,
+                arguments: l.command.arguments as unknown[] | undefined,
+              };
+            }
+            if (l.data !== undefined) {
+              lens.data = l.data;
+            }
+            return lens;
+          });
           return { lenses, dispose: () => {} };
         },
         resolveCodeLens: async (model, codeLens, token) => {
           if (!canRun(model)) {
             return codeLens;
           }
+          if (codeLens.command) {
+            return codeLens;
+          }
           const sid = sessionId();
           const rel = getWorkspaceRelativePathForModel(model);
           if (!sid || !rel) {
+            return codeLens;
+          }
+          const data = (codeLens as Monaco.languages.CodeLens & { data?: unknown }).data;
+          if (data === undefined || data === null) {
             return codeLens;
           }
           const res = await electron.lspEditorCodeLensResolve(sid, rel, {
@@ -752,6 +768,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               endLineNumber: codeLens.range.endLineNumber,
               endColumn: codeLens.range.endColumn,
             },
+            data,
           });
           if (lspCancelled(token) || !res.ok || !res.lens?.command) {
             return codeLens;

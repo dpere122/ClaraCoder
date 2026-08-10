@@ -1791,7 +1791,14 @@ export class ElectronService {
     documentText: string,
     skipDocumentSync?: boolean,
   ): Promise<
-    | { ok: true; lenses: Array<{ range: LspEditorIRangePayload; command?: { title: string; command: string; arguments?: unknown } }> }
+    | {
+        ok: true;
+        lenses: Array<{
+          range: LspEditorIRangePayload;
+          command?: { title: string; command: string; arguments?: unknown };
+          data?: unknown;
+        }>;
+      }
     | { ok: false; error: string }
   > {
     return (
@@ -1805,7 +1812,14 @@ export class ElectronService {
     relativePath: string,
     lens: Record<string, unknown>,
   ): Promise<
-    | { ok: true; lens: { range: LspEditorIRangePayload; command?: { title: string; command: string; arguments?: unknown } } | null }
+    | {
+        ok: true;
+        lens: {
+          range: LspEditorIRangePayload;
+          command?: { title: string; command: string; arguments?: unknown };
+          data?: unknown;
+        } | null;
+      }
     | { ok: false; error: string }
   > {
     return (

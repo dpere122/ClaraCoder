@@ -451,6 +451,52 @@ def serialize_code_lenses_payload(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def monaco_code_lens_to_lsp(lens: Any) -> dict[str, Any] | None:
+    """Convert a Monaco-wire or LSP CodeLens dict into an LSP ``codeLens/resolve`` params object."""
+
+    if not isinstance(lens, dict):
+        return None
+    rng = lens.get('range')
+    lsp_range: dict[str, Any] | None = None
+    if isinstance(rng, dict) and isinstance(rng.get('start'), dict):
+        start = rng['start']
+        end = rng.get('end') if isinstance(rng.get('end'), dict) else start
+        lsp_range = {
+            'start': {
+                'line': max(0, int(start.get('line', 0))),
+                'character': max(0, int(start.get('character', 0))),
+            },
+            'end': {
+                'line': max(0, int(end.get('line', 0))),
+                'character': max(0, int(end.get('character', 0))),
+            },
+        }
+    elif isinstance(rng, dict) and 'startLineNumber' in rng:
+        lsp_range = {
+            'start': {
+                'line': max(0, int(rng.get('startLineNumber', 1)) - 1),
+                'character': max(0, int(rng.get('startColumn', 1)) - 1),
+            },
+            'end': {
+                'line': max(0, int(rng.get('endLineNumber', 1)) - 1),
+                'character': max(0, int(rng.get('endColumn', 1)) - 1),
+            },
+        }
+    if lsp_range is None:
+        return None
+    out: dict[str, Any] = {'range': lsp_range}
+    if 'data' in lens:
+        out['data'] = lens.get('data')
+    cmd = lens.get('command')
+    if isinstance(cmd, dict) and cmd.get('command'):
+        out['command'] = {
+            'title': str(cmd.get('title') or ''),
+            'command': str(cmd.get('command')),
+            'arguments': cmd.get('arguments'),
+        }
+    return out
+
+
 def serialize_semantic_tokens_delta_payload(manager: Any, raw: Any) -> dict[str, Any]:
     leg = getattr(manager, 'semantic_tokens_legend', None)
     if isinstance(leg, dict):

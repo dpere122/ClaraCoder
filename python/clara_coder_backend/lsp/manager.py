@@ -238,8 +238,54 @@ class SessionWorkspaceLspManager:
 
         return self.should_defer_semantic_tokens_legend_without_document_seed()
 
+    def _client_process_alive(self, client: Any) -> bool:
+        check = getattr(client, 'is_running', None)
+        if callable(check):
+            try:
+                return bool(check())
+            except Exception:
+                return False
+        # Test doubles without ``is_running`` are treated as alive until cleared.
+        return True
+
+    def _forget_dead_client_locked(self) -> None:
+        """Drop a dead client object so ``ensure_started`` can spawn a fresh subprocess."""
+
+        client = self._client
+        self._client = None
+        self._semantic_tokens_legend = None
+        tracked = list(self._doc_versions.keys())
+        self._doc_versions.clear()
+        self._diag_generation.clear()
+        self._last_synced_digest.clear()
+        cache = self._diag_cache()
+        for rel in tracked:
+            cache.pop(rel, None)
+        if client is None:
+            return
+        close = getattr(client, 'close', None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:
+                logger.debug(
+                    '%s LSP dead-client close failed session=%s scope=%s err=%s',
+                    self.server_kind,
+                    self.session_id,
+                    self.scope,
+                    exc,
+                )
+        logger.warning(
+            '%s LSP subprocess died; cleared client for restart session=%s scope=%s',
+            self.server_kind,
+            self.session_id,
+            self.scope,
+        )
+
     def ensure_started(self) -> None:
         with self._lock:
+            if self._client is not None and not self._client_process_alive(self._client):
+                self._forget_dead_client_locked()
             if self._client is not None:
                 return
             bundle = self._plugin.compute_start_params(
@@ -339,7 +385,7 @@ class SessionWorkspaceLspManager:
             raise ValueError(f'LSP sync is not supported for `{rel}` on {self.server_kind} server.')
         digest = hashlib.sha256(text.encode('utf-8')).digest()
         with self._lock:
-            running = self._client is not None
+            running = self._client is not None and self._client_process_alive(self._client)
         if self._plugin.on_before_sync_document(
             session=self.session,
             workspace_root=self.workspace_root,
@@ -710,8 +756,17 @@ class SessionWorkspaceLspManager:
         return self._require_client().request('textDocument/codeLens', params, timeout_s=15.0)
 
     def code_lens_resolve(self, code_lens: dict[str, Any]) -> Any:
+        from clara_coder_backend.lsp.editor_monaco import monaco_code_lens_to_lsp
+
+        lsp_lens = monaco_code_lens_to_lsp(code_lens)
+        if lsp_lens is None:
+            raise ValueError('Invalid code lens payload for resolve.')
+        # JDT LS NPEs when ``data`` is null (CodeLensHandler.resolve). Skip the
+        # round-trip when there is nothing server-side to resolve.
+        if lsp_lens.get('data') is None:
+            return lsp_lens
         self.ensure_started()
-        return self._require_client().request('codeLens/resolve', code_lens, timeout_s=8.0)
+        return self._require_client().request('codeLens/resolve', lsp_lens, timeout_s=8.0)
 
     @property
     def semantic_tokens_legend(self) -> dict[str, list[str]] | None:
@@ -774,12 +829,20 @@ class SessionWorkspaceLspManager:
                 self._diag_cond.wait(timeout=max(0.05, min(0.2, remaining)))
 
     def _require_client(self) -> JsonRpcLspClient:
-        if self._client is None:
-            raise RuntimeError(f'{self.server_kind} LSP client is not initialized.')
-        return self._client
+        with self._lock:
+            if self._client is not None and not self._client_process_alive(self._client):
+                self._forget_dead_client_locked()
+            if self._client is None:
+                raise RuntimeError(f'{self.server_kind} LSP client is not initialized.')
+            return self._client
 
     def is_client_running(self) -> bool:
-        return self._client is not None
+        """True when this manager holds a live language-server subprocess (read-only)."""
+
+        client = self._client
+        if client is None:
+            return False
+        return self._client_process_alive(client)
 
 
 PythonLspManager = SessionWorkspaceLspManager

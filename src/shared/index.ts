@@ -17,6 +17,31 @@ export {
 } from './types/composer-mode';
 export { looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel } from './llama-model-download';
 export type {
+  ContextFitPresetId,
+  ContextFitPresetMeta,
+  ManagedLlamaCheckpointMode,
+  ManagedLlamaCheckpointSettings,
+  ManagedLlamaModelFamily,
+  ManagedLlamaModelSource,
+} from './managed-llama-model-pick';
+export {
+  CONTEXT_FIT_PRESET_LIST,
+  MANAGED_LLAMA_CHECKPOINT_DISABLED,
+  buildManagedLlamaChatCommand,
+  formatReadyDefaultsSummary,
+  hubCacheFolderToHfId,
+  inferModelFamilyFromHint,
+  inferOptimizationPresetFromModelHint,
+  isQwenFamily,
+  managedLlamaSourceHint,
+  optimizationPresetDefaultsPatch,
+  parseManagedLlamaCheckpointSettings,
+  parseManagedLlamaModelSelection,
+  suggestContextWindowTokens,
+  syncCheckpointFlagsInManagedChatCommand,
+  syncContextFlagInManagedChatCommand,
+} from './managed-llama-model-pick';
+export type {
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,

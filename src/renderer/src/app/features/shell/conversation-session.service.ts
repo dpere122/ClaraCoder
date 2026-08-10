@@ -398,12 +398,14 @@ export class ConversationSessionService {
   async onNewConversation(currentWorkspaceId: string | null): Promise<void> {
     await this.saveCurrentConversation();
     const conv = await this.electron.newConversation(currentWorkspaceId);
+    this.snapshotActiveStreamToBackground();
     this.activeConversation = conv;
     this.activeConversationId.set(conv.id);
     this.messages.set([]);
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
     this.streamingParts.set([]);
+    this.streamingPlanner.set(null);
     this.streamingFinalText.set(undefined);
     const config = await this.electron.loadConfig();
     applyAppTheme(resolveAppThemeId(config));
@@ -431,6 +433,7 @@ export class ConversationSessionService {
         ? loadOpts.skipPythonResync
         : this.pendingIds().has(id);
     const conv = await this.electron.loadConversation(id, workspaceId, { skipPythonResync: skipPython });
+    this.snapshotActiveStreamToBackground();
     this.activeConversation = conv;
     this.activeConversationId.set(conv.id);
     this.hooks.onConversationLoaded?.(conv.id);
@@ -679,6 +682,33 @@ export class ConversationSessionService {
       conversationId,
       mergeHitlTrailIntoAuxiliaryTimeline(prev, [artifact]),
     );
+  }
+
+  /**
+   * Persist the live stream signals (which only track the active conversation) into the
+   * per-conversation background maps before the active conversation changes. Without this,
+   * switching away from a still-streaming conversation drops its accumulated reasoning/tool
+   * stream text: post-switch chunks route to the background maps, but the parts collected while
+   * the conversation was active live only in the `streamingParts`/`streamingPlanner` signals and
+   * would be cleared on the next switch.
+   */
+  private snapshotActiveStreamToBackground(): void {
+    const oldId = this.activeConversationId();
+    if (!oldId || !this.pendingIds().has(oldId)) {
+      return;
+    }
+    const liveParts = this.streamingParts();
+    if (liveParts.length) {
+      this.backgroundStreamParts.set(oldId, [...liveParts]);
+    } else {
+      this.backgroundStreamParts.delete(oldId);
+    }
+    const livePlanner = this.streamingPlanner();
+    if (livePlanner) {
+      this.backgroundStreamPlanner.set(oldId, livePlanner);
+    } else {
+      this.backgroundStreamPlanner.delete(oldId);
+    }
   }
 
   private applyToolLlmStatus(status: LlmStatus): void {

@@ -65,7 +65,11 @@ import {
 } from './app-chat-file-tabs';
 import { relativePathFromModelKey } from '../workspace/open-editor-file-ref';
 import { applyAppFontOverrides, applyAppTheme, resolveAppThemeId } from './app-theme';
-import { buildContextCapacitySnapshot, CONTEXT_CHAT_BLOCKED_PERCENT } from '../status/context-capacity/context-capacity.utils';
+import {
+  buildContextCapacitySnapshot,
+  CONTEXT_CHAT_BLOCKED_PERCENT,
+  estimateTranscriptContextTokens,
+} from '../status/context-capacity/context-capacity.utils';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
@@ -154,11 +158,16 @@ export class App implements OnInit, OnDestroy {
     { planId: string; relativePath: string; active: boolean }
   >();
   /**
-   * Last measured prompt token count per conversation (from API usage metadata).
-   * Cleared when switching to a conversation so the meter uses transcript estimate
-   * until the next token_usage or context_compressed event for that conversation.
+   * Last measured prompt token count per conversation (from API usage metadata, or that
+   * value adjusted by a mid/post-turn compaction delta). Cleared when switching to a
+   * conversation so the meter uses transcript estimate until the next token_usage.
    */
   protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
+  /**
+   * Transcript heuristic at the moment ``measuredPromptTokensByConversation`` was last set.
+   * Growth above this is added so the meter keeps updating while tools stream after a measurement.
+   */
+  protected readonly measuredBaselineFallbackByConversation = signal<Record<string, number>>({});
   protected readonly activeMeasuredPromptTokens = computed(() => {
     const id = this.activeConversationId();
     if (!id) {
@@ -166,6 +175,14 @@ export class App implements OnInit, OnDestroy {
     }
     const tokens = this.measuredPromptTokensByConversation()[id];
     return typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0 ? tokens : null;
+  });
+  protected readonly activeMeasuredBaselineFallbackTokens = computed(() => {
+    const id = this.activeConversationId();
+    if (!id) {
+      return null;
+    }
+    const tokens = this.measuredBaselineFallbackByConversation()[id];
+    return typeof tokens === 'number' && Number.isFinite(tokens) && tokens >= 0 ? tokens : null;
   });
   /** Main window zoom state (frameless window controls). */
   protected readonly windowMaximized = signal(false);
@@ -391,6 +408,7 @@ export class App implements OnInit, OnDestroy {
     streamingParts: this.streamingParts(),
     workspaceContextText: this.workspaceContextText(),
     measuredPromptTokens: this.activeMeasuredPromptTokens(),
+    measuredBaselineFallbackTokens: this.activeMeasuredBaselineFallbackTokens(),
   }));
   protected readonly contextChatBlocked = computed(
     () => this.contextCapacity().usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT,
@@ -517,16 +535,41 @@ export class App implements OnInit, OnDestroy {
     });
 
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
-      if (inputTokens > 0) {
-        this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
+      if (inputTokens <= 0) {
+        return;
       }
+      // token_usage is an absolute measurement of the last prompt sent to the model. Only let it
+      // RAISE the meter (or set the initial value). Decreases are driven exclusively by the
+      // contextCompressed$ event (mid-turn compaction). Without this guard, a llama.cpp context
+      // checkpoint restore reports a lower input_tokens after silently truncating context, which
+      // would reset the meter mid-conversation even though the transcript is unchanged.
+      const existing = this.measuredPromptTokensByConversation()[conversationId];
+      if (
+        typeof existing === 'number' &&
+        Number.isFinite(existing) &&
+        existing > 0 &&
+        inputTokens < existing
+      ) {
+        return;
+      }
+      this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
     });
 
-    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, tokensAfter }) => {
-      if (tokensAfter > 0) {
-        this.setMeasuredPromptTokensForConversation(conversationId, tokensAfter);
-      }
-    });
+    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(
+      ({ conversationId, tokensBefore, tokensAfter }) => {
+        // Mid-turn estimates are checkpoint-only (no system prompt / tool schemas). Never treat
+        // tokensAfter as an absolute measurement — apply the freed delta to the last API reading.
+        const freed = Math.max(0, tokensBefore - tokensAfter);
+        if (freed <= 0) {
+          return;
+        }
+        const existing = this.measuredPromptTokensByConversation()[conversationId];
+        if (typeof existing !== 'number' || !Number.isFinite(existing) || existing <= 0) {
+          return;
+        }
+        this.setMeasuredPromptTokensForConversation(conversationId, Math.max(1, existing - freed));
+      },
+    );
 
     this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
       this.appConfig.set(config);
@@ -1935,6 +1978,14 @@ export class App implements OnInit, OnDestroy {
     this.electron.windowClose();
   }
 
+  private currentTranscriptFallbackTokens(): number {
+    return estimateTranscriptContextTokens({
+      messages: this.messages(),
+      streamingParts: this.streamingParts(),
+      workspaceContextText: this.workspaceContextText(),
+    });
+  }
+
   private setMeasuredPromptTokensForConversation(conversationId: string, tokens: number): void {
     if (!conversationId || tokens <= 0) {
       return;
@@ -1943,6 +1994,24 @@ export class App implements OnInit, OnDestroy {
       ...prev,
       [conversationId]: Math.floor(tokens),
     }));
+    if (conversationId === this.activeConversationId()) {
+      const baseline = this.currentTranscriptFallbackTokens();
+      this.measuredBaselineFallbackByConversation.update((prev) => ({
+        ...prev,
+        [conversationId]: baseline,
+      }));
+      return;
+    }
+    // Background conversation: only the active transcript signals are live here, so keep the
+    // meter at the absolute measurement until this conversation is focused and remeasured.
+    this.measuredBaselineFallbackByConversation.update((prev) => {
+      if (!(conversationId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
   }
 
   private removeContextMetricsForConversation(conversationId: string): void {
@@ -1950,6 +2019,14 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.measuredPromptTokensByConversation.update((prev) => {
+      if (!(conversationId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
+    this.measuredBaselineFallbackByConversation.update((prev) => {
       if (!(conversationId in prev)) {
         return prev;
       }

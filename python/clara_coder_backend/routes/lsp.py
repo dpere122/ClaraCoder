@@ -491,13 +491,24 @@ def _lsp_editor_code_lens_resolve_sync(
     relative_path: str,
     lens: dict[str, Any],
 ) -> dict[str, Any]:
+    from clara_coder_backend.lsp.editor_monaco import monaco_code_lens_to_lsp
+
     rel = normalize_relative_posix_path(relative_path.strip())
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-    manager.ensure_started()
-    raw = manager.code_lens_resolve(lens)
+    # Normalize Monaco wire → LSP before resolve. Manager also skips null ``data``
+    # (JDT LS NPEs in CodeLensHandler.resolve when ``data`` is null).
+    lsp_lens = monaco_code_lens_to_lsp(lens)
+    if lsp_lens is None:
+        raise ValueError('Invalid code lens payload.')
+    try:
+        raw = manager.code_lens_resolve(lsp_lens)
+    except Exception:
+        # Keep the editor usable; unresolved lenses are better than failing the request.
+        resolved = serialize_code_lenses_payload([lsp_lens])
+        return {'lens': resolved[0] if resolved else None}
     if not isinstance(raw, dict):
         return {'lens': None}
     resolved = serialize_code_lenses_payload([raw])

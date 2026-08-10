@@ -101,6 +101,12 @@ class _FakeLspClient:
             )
         self.notification_handler('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': diagnostics})
 
+    def is_running(self) -> bool:
+        return not self.closed
+
+    def close(self) -> None:
+        self.closed = True
+
     def shutdown(self):
         self.closed = True
 

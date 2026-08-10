@@ -266,7 +266,7 @@
               }
             </div>
 
-            <p class='settings-copy sources-hint'>Built-in sources: LM Studio, remote llama-server (LAN), and managed llama-server on this machine (pinned; chat command required). Use <strong>Add source</strong> for more managed <code>llama-server</code> instances. Click a row to edit; use the radio for chat.</p>
+            <p class='settings-copy sources-hint'>Built-in sources: LM Studio, remote llama-server (LAN), and managed llama-server on this machine. Pick a local model on the managed source to Start with recommended settings. Click a row to edit; use the radio (or <strong>Use for chat</strong>) to activate.</p>
           </div>
 
           <div class='settings-editor'>
@@ -317,6 +317,13 @@
                           Connect
                         }
                       </button>
+                      @if (selectedSourceIsActiveForChat()) {
+                        <span class='lm-studio-status lm-studio-status--ok'>Using for chat</span>
+                      } @else {
+                        <button type='button' class='action-button action-button--compact' (click)='activateSelectedSourceForChat()'>
+                          Use for chat
+                        </button>
+                      }
                       @if (lmStudioInventoryError(); as err) {
                         <span class='lm-studio-status lm-studio-status--err'>{{ err }}</span>
                       } @else if (lmStudioInventory().length) {
@@ -459,6 +466,13 @@
                           Connect
                         }
                       </button>
+                      @if (selectedSourceIsActiveForChat()) {
+                        <span class='lm-studio-status lm-studio-status--ok'>Using for chat</span>
+                      } @else {
+                        <button type='button' class='action-button action-button--compact' (click)='activateSelectedSourceForChat()'>
+                          Use for chat
+                        </button>
+                      }
                       @if (llamacppModelsListError(); as lerr) {
                         <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
                       } @else if (llamacppManagedModelIds().length || llamacppUrlEmbeddingModelIds().length) {
@@ -505,105 +519,101 @@
                   </div>
                 </div>
               } @else if (connection.provider === 'llamacpp') {
-                <div class='form-section'>
+                <div class='form-section model-run-hero'>
                   <div class='form-section__header'>
-                    <h5>llama.cpp source</h5>
+                    <h5>Run this model</h5>
                     <p class='settings-copy'>
-                      Start and stop the managed <code>llama-server</code> with the button below. Paste run commands here; refresh models after the server is running.
-                    </p>
-                  </div>
-                  <div class='form-grid'>
-                    <label class='field field--full'>
-                      <span>Source name</span>
-                      <input
-                        type='text'
-                        [ngModel]='selectedProvider()!.name'
-                        (ngModelChange)='updateSelectedProvider({ name: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>API key (optional)</span>
-                      <input
-                        type='password'
-                        [ngModel]='selectedProvider()!.apiKey'
-                        (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <hr class='settings-divider' />
-
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Managed llama-server</h5>
-                    <p class='settings-copy'>
-                      One shell command per process. Each command must include exactly one
-                      <code>{{ managedLlamaPortToken }}</code>
-                      token; the app replaces it with a free TCP port when you Start the server. OpenAI base URLs
-                      sent to the backend use <code>http://127.0.0.1:&lt;port&gt;/v1</code>. Use <code>--host</code> in the command if you bind elsewhere; health
-                      checks use that host. For long-context stability and to avoid large checkpoint artifacts, include
-                      <code>--ctx-checkpoints 0 --checkpoint-every-n-tokens -1</code>.
+                      Pick a model from Model Manager (or an HF id). Clara fills recommended settings and the Start command.
                     </p>
                   </div>
 
+                  @if (managedInventoryModels().length === 0 && !managedPickerValue()) {
+                    <div class='empty-state empty-state--compact model-run-hero__empty'>
+                      <p>No local models yet — open Model Manager to download or add GGUF files.</p>
+                      <button type='button' class='action-button action-button--primary' (click)='openModelManagerTab("download")'>
+                        Open Model Manager
+                      </button>
+                    </div>
+                  }
+
                   <div class='form-grid'>
-                    <div class='field field--full llamacpp-managed-actions'>
+                    <label class='field field--full'>
+                      <span>Local model</span>
+                      <select
+                        [ngModel]='managedPickerValue()'
+                        (ngModelChange)='onManagedInventoryPick($event)'
+                      >
+                        <option value=''>— Select a local model —</option>
+                        @for (model of managedInventoryModels(); track model.absolutePath) {
+                          <option [value]='managedInventoryOptionValue(model)'>
+                            {{ model.fileName }} · {{ formatModelBytes(model.sizeBytes) }} · {{ managedInventoryFamilyLabel(model) }}
+                          </option>
+                        }
+                        @if (managedPickerValue().startsWith('hf:')) {
+                          <option [value]='managedPickerValue()'>{{ managedPickerValue().slice(3) }} (HF)</option>
+                        }
+                      </select>
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Or Hugging Face id</span>
+                      <div class='model-hf-inline'>
+                        <input
+                          type='text'
+                          [ngModel]='managedHfIdDraft()'
+                          (ngModelChange)='managedHfIdDraft.set($event)'
+                          placeholder='org/model:Q4_K_M'
+                          spellcheck='false'
+                          autocomplete='off'
+                        />
+                        <button type='button' class='action-button action-button--compact action-button--primary' (click)='applyManagedHfIdDraft()'>
+                          Use HF id
+                        </button>
+                      </div>
+                      <p class='settings-copy' style='margin: 0.35rem 0 0'>
+                        Downloads on Start into the Model Manager cache when needed.
+                        <button type='button' class='linkish' (click)='openModelManagerTab("download")'>Browse HF in Model Manager</button>
+                      </p>
+                    </label>
+
+                    @if (managedPickerValue()) {
+                      <div class='field field--full model-run-hero__selected'>
+                        <span class='pill'>{{ managedSelectedFamilyLabel() }}</span>
+                        <span class='settings-copy'>{{ managedPickerValue().startsWith('gguf:') ? managedPickerValue().slice(5) : managedPickerValue().startsWith('hub:') ? managedPickerValue().slice(4) : managedPickerValue().slice(3) }}</span>
+                      </div>
+                    }
+
+                    <div class='field field--full llamacpp-managed-actions model-run-hero__actions'>
                       <button
                         type='button'
                         class='action-button action-button--primary'
                         [class.action-button--danger]='managedLlamaRunning()'
-                        [disabled]='managedLlamaBusy()'
+                        [disabled]='managedLlamaBusy() || !selectedLlamaCppManaged().chatRunCommand.trim()'
                         (click)='toggleManagedLlamaServer()'
                       >
                         {{ managedLlamaActionLabel() }}
                       </button>
-                      @if (managedLlamaRunning()) {
-                        <span class='lm-studio-status lm-studio-status--ok'>Running</span>
-                      } @else if (managedLlamaBusy()) {
-                        <span class='lm-studio-status'>Starting…</span>
+                      @if (selectedSourceIsActiveForChat()) {
+                        <span class='lm-studio-status lm-studio-status--ok'>Using for chat</span>
+                      } @else {
+                        <button type='button' class='action-button action-button--compact' (click)='activateSelectedSourceForChat()'>
+                          Use for chat
+                        </button>
                       }
-                      @if (managedLlamaStartError(); as err) {
-                        <span class='lm-studio-status lm-studio-status--err'>{{ err }}</span>
-                      }
+                      <span
+                        class='lm-studio-status'
+                        [class.lm-studio-status--ok]='managedLlamaRunning()'
+                        [class.lm-studio-status--err]='!!managedLlamaStartError()'
+                      >
+                        {{ managedLlamaStatusLabel() }}
+                      </span>
                     </div>
 
-                    <label class='field field--full'>
-                      <span>Chat llama-server command</span>
-                      <textarea
-                        rows='4'
-                        [ngModel]='selectedLlamaCppManaged().chatRunCommand'
-                        (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
-                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1'"
-                      ></textarea>
-                    </label>
-
-                    <label class='field field--full'>
-                      <span>Embedding llama-server command (optional)</span>
-                      <textarea
-                        rows='4'
-                        [ngModel]='selectedLlamaCppManaged().embeddingRunCommand'
-                        (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
-                        [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
-                      ></textarea>
-                    </label>
-
-                  </div>
-                </div>
-
-                <hr class='settings-divider' />
-
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Models from llama-server</h5>
-                    <p class='settings-copy'>Queries <code>GET /v1/models</code> on the running managed chat server (same host/port as in your Start command).</p>
-                  </div>
-                  <div class='form-grid'>
                     <div class='field field--full llamacpp-models-row'>
                       <button
                         type='button'
-                        class='action-button action-button--primary'
-                        [disabled]='llamacppModelsListInFlight()'
+                        class='action-button action-button--compact'
+                        [disabled]='llamacppModelsListInFlight() || !managedLlamaRunning()'
                         (click)='refreshLlamacppManagedModels()'
                       >
                         @if (llamacppModelsListInFlight()) {
@@ -612,23 +622,21 @@
                           Refresh model list
                         }
                       </button>
+                      <label class='field' style='flex: 1; margin: 0'>
+                        <span>Chat model id</span>
+                        <select [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)'>
+                          @if (selectedModel()?.model && !llamacppManagedModelIds().includes(selectedModel()!.model)) {
+                            <option [value]='selectedModel()!.model'>{{ selectedModel()!.model }} (current)</option>
+                          }
+                          @for (id of llamacppManagedModelIds(); track id) {
+                            <option [value]='id'>{{ id }}</option>
+                          }
+                        </select>
+                      </label>
                       @if (llamacppModelsListError(); as lerr) {
                         <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
-                      } @else if (llamacppManagedModelIds().length) {
-                        <span class='lm-studio-status lm-studio-status--ok'>{{ llamacppManagedModelIds().length }} loaded</span>
                       }
                     </div>
-                    <label class='field field--full'>
-                      <span>Chat model id</span>
-                      <select [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)'>
-                        @if (selectedModel()?.model && !llamacppManagedModelIds().includes(selectedModel()!.model)) {
-                          <option [value]='selectedModel()!.model'>{{ selectedModel()!.model }} (current)</option>
-                        }
-                        @for (id of llamacppManagedModelIds(); track id) {
-                          <option [value]='id'>{{ id }}</option>
-                        }
-                      </select>
-                    </label>
                   </div>
                 </div>
               } @else {
@@ -685,20 +693,14 @@
 
               <hr class='settings-divider' />
 
-              <details class='advanced-tuning'>
-                <summary>Advanced tuning</summary>
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Model tuning</h5>
-                    <p class='settings-copy'>Saved per source. Expand to adjust optimization templates, sampling, and tool-call behavior.</p>
-                  </div>
-
+              <div class='form-section ready-defaults'>
+                <div class='form-section__header'>
+                  <h5>Ready defaults</h5>
+                  <p class='settings-copy'>{{ readyDefaultsSummary() }}</p>
+                </div>
                 <div class='form-grid'>
                   <label class='field field--full'>
                     <span>Optimization template</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      Presets adjust tool calling, max output, sampling hints, and which advanced fields apply. Pick a template first, then tune the fields below.
-                    </p>
                     <select
                       [ngModel]='connection.optimizationPreset'
                       (ngModelChange)='onOptimizationPresetChange($event)'
@@ -707,18 +709,34 @@
                         <option [value]='p.id'>{{ p.label }}</option>
                       }
                     </select>
-                    @if (presetDescription(connection)) {
-                      <p class='settings-copy' style='margin: 0.5rem 0 0'>{{ presetDescription(connection) }}</p>
-                    }
+                  </label>
+
+                  @if (connection.provider === 'llamacpp' && !isUrlOnlyLlamacpp()) {
+                    <label class='field'>
+                      <span>Context fit</span>
+                      <select [ngModel]='contextFitPreset()' (ngModelChange)='onContextFitPresetChange($event)'>
+                        @for (fit of contextFitOptions; track fit.id) {
+                          <option [value]='fit.id'>{{ fit.label }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+
+                  <label class='field'>
+                    <span>Context window tokens</span>
+                    <input
+                      type='number'
+                      min='1024'
+                      max='10000000'
+                      step='1024'
+                      [ngModel]='connection.contextWindowTokens'
+                      (ngModelChange)='onContextWindowTokensChange($event)'
+                    />
                   </label>
 
                   @if (connection.optimizationPreset === 'gemma') {
                     <label class='field field--full'>
                       <span>Gemma thinking</span>
-                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        Boolean thinking via the local chat template, not OpenAI-style
-                        <code>reasoning_effort</code> tiers. Shown when the <strong>Gemma (local)</strong> optimization template is selected.
-                      </p>
                       <select
                         [ngModel]='connection.thinkingMode'
                         (ngModelChange)='updateSelectedModel({ thinkingMode: $event })'
@@ -728,45 +746,11 @@
                         <option value='off'>Off (prefer direct answers)</option>
                       </select>
                     </label>
-
-                    <label class='field'>
-                      <span>Architecture hint (Gemma 4)</span>
-                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        <strong>Auto</strong> lets the backend infer dense vs sparse-expert layouts from the model id. This only adjusts defaults and system notes.
-                      </p>
-                      <select
-                        [ngModel]='connection.architectureHint'
-                        (ngModelChange)='updateSelectedModel({ architectureHint: $event })'
-                      >
-                        <option value='auto'>Auto</option>
-                        <option value='dense'>Dense</option>
-                      </select>
-                    </label>
-
-                    <label class='field field--full'>
-                      <span>Gemma sampling preset</span>
-                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        <strong>Gemma recommended</strong> sends <code>top_p=0.95</code> and <code>top_k=64</code> per Google’s model card.
-                        <strong>Custom</strong> uses the optional <code>top_p</code> / <code>top_k</code> fields under temperature.
-                      </p>
-                      <select
-                        [ngModel]='connection.samplingPreset'
-                        (ngModelChange)='updateSelectedModel({ samplingPreset: $event })'
-                      >
-                        <option value='provider-default'>Provider default (omit top_p / top_k)</option>
-                        <option value='gemma-recommended'>Gemma recommended (top_p / top_k)</option>
-                        <option value='custom'>Custom top_p / top_k</option>
-                      </select>
-                    </label>
                   }
 
                   @if (connection.optimizationPreset !== 'gemma') {
                     <label class='field field--full'>
                       <span>Reasoning effort</span>
-                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        Sent as <code>reasoning_effort</code> for OpenAI-style APIs (none … xhigh). Options
-                        <strong>on</strong> / <strong>off</strong> map to <strong>medium</strong> / <strong>none</strong> on the wire. Hidden for the Gemma optimization template (use Gemma thinking instead).
-                      </p>
                       <select
                         [ngModel]='connection.reasoningEffort || ""'
                         (ngModelChange)='updateSelectedModel({ reasoningEffort: $event })'
@@ -783,21 +767,134 @@
                       </select>
                     </label>
                   }
+                </div>
+              </div>
 
-                  <label class='field'>
-                    <span>Context window tokens</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      Main context capacity for this model profile. The status bar uses this number to show used and remaining context.
-                    </p>
-                    <input
-                      type='number'
-                      min='1024'
-                      max='10000000'
-                      step='1024'
-                      [ngModel]='connection.contextWindowTokens'
-                      (ngModelChange)='onContextWindowTokensChange($event)'
-                    />
-                  </label>
+              <hr class='settings-divider' />
+
+              <details class='advanced-tuning'>
+                <summary>Advanced</summary>
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Power-user options</h5>
+                    <p class='settings-copy'>Sampling, tool-call behavior, and (for managed local) raw server commands.</p>
+                  </div>
+
+                @if (connection.provider === 'llamacpp' && !isUrlOnlyLlamacpp()) {
+                  <div class='form-grid' style='margin-bottom: 1rem'>
+                    <label class='field field--full'>
+                      <span>Source name</span>
+                      <input
+                        type='text'
+                        [ngModel]='selectedProvider()!.name'
+                        (ngModelChange)='updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>API key (optional)</span>
+                      <input
+                        type='password'
+                        [ngModel]='selectedProvider()!.apiKey'
+                        (ngModelChange)='updateSelectedProvider({ apiKey: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>Context checkpoints</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        llama.cpp can snapshot KV context (<code>--ctx-checkpoints</code> /
+                        <code>--checkpoint-every-n-tokens</code>). Disabling avoids large checkpoint artifacts on long prompts.
+                        Changes update the chat command below.
+                      </p>
+                      <select
+                        [ngModel]='managedCheckpointSettings().mode'
+                        (ngModelChange)='onManagedCheckpointModeChange($event)'
+                        [disabled]='!selectedLlamaCppManaged().chatRunCommand.trim()'
+                      >
+                        <option value='disabled'>Disabled (recommended)</option>
+                        <option value='server-default'>Server default (omit flags)</option>
+                        <option value='custom'>Custom</option>
+                      </select>
+                    </label>
+                    @if (managedCheckpointSettings().mode === 'custom') {
+                      <label class='field'>
+                        <span>--ctx-checkpoints</span>
+                        <input
+                          type='number'
+                          min='0'
+                          step='1'
+                          [ngModel]='managedCheckpointSettings().ctxCheckpoints'
+                          (ngModelChange)='onManagedCtxCheckpointsChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>--checkpoint-every-n-tokens</span>
+                        <input
+                          type='number'
+                          step='1'
+                          [ngModel]='managedCheckpointSettings().checkpointEveryNTokens'
+                          (ngModelChange)='onManagedCheckpointEveryNTokensChange($event)'
+                        />
+                      </label>
+                    }
+                    <label class='field field--full'>
+                      <span>Chat llama-server command</span>
+                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
+                        Must include exactly one <code>{{ managedLlamaPortToken }}</code>. Generated when you pick a model; edit freely.
+                      </p>
+                      <textarea
+                        rows='4'
+                        [ngModel]='selectedLlamaCppManaged().chatRunCommand'
+                        (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
+                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1'"
+                      ></textarea>
+                    </label>
+                    <label class='field field--full'>
+                      <span>Embedding llama-server command (optional)</span>
+                      <textarea
+                        rows='3'
+                        [ngModel]='selectedLlamaCppManaged().embeddingRunCommand'
+                        (ngModelChange)='patchLlamaCppManaged({ embeddingRunCommand: $event })'
+                        [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -m embed.gguf'"
+                      ></textarea>
+                    </label>
+                    <div class='field field--full'>
+                      <button
+                        type='button'
+                        class='action-button action-button--compact'
+                        [disabled]='!selectedLlamaCppManaged().chatRunCommand.trim()'
+                        (click)='resetManagedToRecommended()'
+                      >
+                        Reset to recommended
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                <div class='form-grid'>
+                  @if (connection.optimizationPreset === 'gemma') {
+                    <label class='field'>
+                      <span>Architecture hint (Gemma 4)</span>
+                      <select
+                        [ngModel]='connection.architectureHint'
+                        (ngModelChange)='updateSelectedModel({ architectureHint: $event })'
+                      >
+                        <option value='auto'>Auto</option>
+                        <option value='dense'>Dense</option>
+                      </select>
+                    </label>
+
+                    <label class='field field--full'>
+                      <span>Gemma sampling preset</span>
+                      <select
+                        [ngModel]='connection.samplingPreset'
+                        (ngModelChange)='updateSelectedModel({ samplingPreset: $event })'
+                      >
+                        <option value='provider-default'>Provider default (omit top_p / top_k)</option>
+                        <option value='gemma-recommended'>Gemma recommended (top_p / top_k)</option>
+                        <option value='custom'>Custom top_p / top_k</option>
+                      </select>
+                    </label>
+                  }
 
                   <label class='field'>
                     <span>Max output tokens</span>
@@ -947,8 +1044,10 @@
                 <p>
                   @if (connection.provider === 'lmstudio') {
                     LM Studio works well with `http://127.0.0.1:1234/v1`, and the default key can stay `lm-studio` unless your local server expects something else.
+                  } @else if (connection.provider === 'llamacpp' && isUrlOnlyLlamacpp()) {
+                    Point at a running remote <code>llama-server</code>, then Connect to list models. Use the radio on the left (or <strong>Use for chat</strong>) to activate this source.
                   } @else if (connection.provider === 'llamacpp') {
-                    The app starts <code>llama-server</code> from the commands above (use the <strong>Start llama server</strong> button). Use API key only if your server requires auth. Ports are chosen at Start.
+                    Pick a model above and press <strong>Start</strong>. Ports are chosen automatically. Raw commands live under Advanced.
                   } @else {
                     OpenAI providers require a valid API key unless you rely on the backend environment fallback.
                   }
@@ -1048,6 +1147,7 @@
                         <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
                       </div>
                       <div class='model-card__actions'>
+                        <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerBusy()' (click)='useCustomModelInModels(model)'>Use in Models</button>
                         <button type='button' class='action-button action-button--compact' [disabled]='modelManagerBusy()' (click)='renameCustomModel(model)'>Rename</button>
                         <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='modelManagerBusy()' (click)='deleteCustomModel(model)'>Delete</button>
                       </div>
@@ -1237,6 +1337,9 @@
                         <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
                       </div>
                       <p class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></p>
+                    </div>
+                    <div class='model-card__actions'>
+                      <button type='button' class='action-button action-button--compact action-button--primary' (click)='useHfModelInModels(model.id)'>Use in Models</button>
                     </div>
                   </article>
                 } @empty {

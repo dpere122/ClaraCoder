@@ -19,6 +19,7 @@ import type {
   AudioTranscriptionConfig,
   ChatContainerSize,
   FontFamilyOption,
+  HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
   LlamaCppManaged,
   LlamaServerStatusResult,
@@ -439,6 +440,15 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerHfBusy = signal(false);
   protected readonly modelManagerMigratingPath = signal<string | null>(null);
   protected readonly modelManagerMigrateProgress = signal<ModelManagerMigrateProgressPayload | null>(null);
+
+  /** Repo id of the currently expanded HF search card (accordion: one open at a time). */
+  protected readonly modelManagerHfExpandedId = signal<string | null>(null);
+  /** GGUF quant files discovered per repo id. */
+  protected readonly modelManagerHfFilesByRepo = signal<Record<string, HuggingFaceModelFile[]>>({});
+  /** Per-repo loading state for the file/quant fetch. */
+  protected readonly modelManagerHfFilesBusyByRepo = signal<Record<string, boolean>>({});
+  /** Per-repo error message for the file/quant fetch. */
+  protected readonly modelManagerHfFilesErrorByRepo = signal<Record<string, string>>({});
   private migrateProgressUnsub: (() => void) | null = null;
   protected readonly uiFontSizeRemMin = UI_FONT_SIZE_REM_MIN;
   protected readonly uiFontSizeRemMax = UI_FONT_SIZE_REM_MAX;
@@ -1747,6 +1757,92 @@ export class Settings implements OnInit, OnDestroy {
     void this.probeManagedLlamaStatus();
   }
 
+  /** Toggle a HF search card open/closed; loads quant files on first expand. */
+  protected async toggleHfModelCard(repoId: string): Promise<void> {
+    const id = (repoId || '').trim();
+    if (!id) {
+      return;
+    }
+    const current = this.modelManagerHfExpandedId();
+    if (current === id) {
+      this.modelManagerHfExpandedId.set(null);
+      return;
+    }
+    this.modelManagerHfExpandedId.set(id);
+    const cached = this.modelManagerHfFilesByRepo()[id];
+    if (cached || this.modelManagerHfFilesBusyByRepo()[id]) {
+      return;
+    }
+    this.modelManagerHfFilesBusyByRepo.update((m) => ({ ...m, [id]: true }));
+    this.modelManagerHfFilesErrorByRepo.update((m) => {
+      const next = { ...m };
+      delete next[id];
+      return next;
+    });
+    try {
+      const res = await this.electron.modelManagerListHfFiles({
+        id,
+        token: this.modelManagerHfToken().trim(),
+      });
+      if (this.modelManagerHfExpandedId() !== id) {
+        return;
+      }
+      if (!res.ok) {
+        this.modelManagerHfFilesErrorByRepo.update((m) => ({ ...m, [id]: res.error }));
+        this.modelManagerHfFilesByRepo.update((m) => ({ ...m, [id]: [] }));
+        return;
+      }
+      this.modelManagerHfFilesByRepo.update((m) => ({ ...m, [id]: res.files }));
+    } catch (e) {
+      this.modelManagerHfFilesErrorByRepo.update((m) => ({
+        ...m,
+        [id]: e instanceof Error ? e.message : String(e),
+      }));
+      this.modelManagerHfFilesByRepo.update((m) => ({ ...m, [id]: [] }));
+    } finally {
+      this.modelManagerHfFilesBusyByRepo.update((m) => {
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+
+  /** "Use in Models" for a specific quant/file from an expanded HF card. */
+  protected useHfQuantInModels(repoId: string, file: HuggingFaceModelFile): void {
+    const repo = (repoId || '').trim();
+    if (!repo) {
+      return;
+    }
+    const quant = (file.quant || '').trim();
+    const hfId = quant ? `${repo}:${quant}` : `${repo}:${file.fileName}`;
+    this.useHfModelInModels(hfId);
+  }
+
+  /** Clear expanded-card state when a new search resets the results list. */
+  private resetHfCardExpansion(): void {
+    this.modelManagerHfExpandedId.set(null);
+    this.modelManagerHfFilesByRepo.set({});
+    this.modelManagerHfFilesBusyByRepo.set({});
+    this.modelManagerHfFilesErrorByRepo.set({});
+  }
+
+  /** Human-readable file size for the quant list. */
+  protected formatFileSize(bytes: number | null | undefined): string {
+    if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) {
+      return '—';
+    }
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let value = bytes / 1024;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
+  }
+
   private applyManagedModelSource(source: ManagedLlamaModelSource): void {
     const ensureLocal = (): LlmModelProfile | null => {
       const current = this.selectedModel();
@@ -2115,9 +2211,13 @@ export class Settings implements OnInit, OnDestroy {
       this.modelManagerHfTotalPages.set(0);
       this.modelManagerHfWindowStart.set(0);
       this.modelManagerHfHasMore.set(false);
+      this.resetHfCardExpansion();
       return;
     }
     this.modelManagerHfBusy.set(true);
+    if (nextPage === 0) {
+      this.resetHfCardExpansion();
+    }
     try {
       const limit = this.modelManagerHfPageSize;
       const res = await this.electron.modelManagerSearchHf({

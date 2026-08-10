@@ -38,10 +38,10 @@ export function createSettingsWindow(): void {
 
   const icon = resolveAppIconPath();
   mainState.settingsWindow = new BrowserWindow({
-    width: 1440,
-    height: 800,
-    minWidth: 960,
-    minHeight: 600,
+    width: 1680,
+    height: 980,
+    minWidth: 1180,
+    minHeight: 760,
     ...settingsWindowParentOptions(mainWindow),
     frame: false,
     resizable: true,

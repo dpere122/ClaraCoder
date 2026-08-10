@@ -312,11 +312,13 @@ export {
   parseThumbMaxEdge,
 } from './nemo-asset-thumb';
 export type {
+  HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
   ModelManagerCacheLocation,
   ModelManagerDetectCachesResult,
   ModelManagerEntryKind,
   ModelManagerFileEntry,
+  ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMigrateProgressPayload,

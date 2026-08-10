@@ -35,4 +35,6 @@ export const modelManagerApi = {
     ipcRenderer.invoke('model-manager:delete-model', payload),
   modelManagerSearchHf: (payload: { query: string; token?: string; limit?: number; skip?: number }) =>
     ipcRenderer.invoke('model-manager:search-hf', payload),
+  modelManagerListHfFiles: (payload: { id: string; token?: string }) =>
+    ipcRenderer.invoke('model-manager:list-hf-files', payload),
 };

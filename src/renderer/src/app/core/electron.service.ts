@@ -30,6 +30,7 @@ import type {
   LmStudioMutationResult,
   LlmStatus,
   ModelManagerDetectCachesResult,
+  ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMigrateProgressPayload,
@@ -1133,6 +1134,13 @@ export class ElectronService {
   }): Promise<ModelManagerHfSearchResult> {
     return (
       this.api?.modelManagerSearchHf(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerListHfFiles(payload: { id: string; token?: string }): Promise<ModelManagerHfFilesResult> {
+    return (
+      this.api?.modelManagerListHfFiles(payload) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

@@ -21,6 +21,7 @@ import type {
   LlamacppManagedListModelsResult,
   LlmStatus,
   ModelManagerDetectCachesResult,
+  ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMigrateProgressPayload,
@@ -347,6 +348,7 @@ declare global {
       limit?: number;
       skip?: number;
     }) => Promise<ModelManagerHfSearchResult>;
+    modelManagerListHfFiles: (payload: { id: string; token?: string }) => Promise<ModelManagerHfFilesResult>;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
     setLastActiveConversation: (workspaceKey: string, conversationId: string) => Promise<AppConfig>;

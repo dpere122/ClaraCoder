@@ -1304,49 +1304,94 @@
                 Search
               </button>
             </div>
-            <div class='model-card-list'>
+            <div class='model-card-list model-card-list--hf'>
               <div
-                class='cache-location-loading'
-                [class.is-active]='modelManagerHfBusy()'
-                role='status'
-                aria-live='polite'
-                [attr.aria-hidden]='modelManagerHfBusy() ? null : "true"'
-                [attr.aria-label]='modelManagerHfBusy() ? "Searching Hugging Face models" : null'
+                class='model-card-list__content'
+                [class.is-loading]='modelManagerHfBusy()'
+                [attr.aria-busy]='modelManagerHfBusy() ? "true" : null'
               >
-                <span class='cache-location-loading__spinner-host' aria-hidden='true'>
-                  <ngx-spinner
-                    [name]='hfSearchSpinnerName'
-                    [type]='cacheDetectSpinnerType'
-                    [fullScreen]='false'
-                    bdColor='rgba(0,0,0,0)'
-                    size='small'
-                    color='var(--t-primary)'
-                  ></ngx-spinner>
-                </span>
-                <p class='settings-copy'>Searching Hugging Face…</p>
-              </div>
-              @if (!modelManagerHfBusy()) {
                 @for (model of modelManagerHfResults(); track model.id) {
-                  <article class='model-card'>
-                    <div class='model-card__main'>
-                      <div class='model-card__head'>
-                        <strong>{{ model.id }}</strong>
-                        @if (model.gated || model.private) {
-                          <span class='pill'>restricted</span>
+                  <article
+                    class='model-card model-card--hf'
+                    [class.model-card--expanded]='modelManagerHfExpandedId() === model.id'
+                  >
+                    <button
+                      type='button'
+                      class='model-card__header-btn'
+                      (click)='toggleHfModelCard(model.id)'
+                      [attr.aria-expanded]='modelManagerHfExpandedId() === model.id'
+                      [attr.aria-controls]='"hf-card-" + model.id'
+                    >
+                      <span class='model-card__chevron' aria-hidden='true'></span>
+                      <span class='model-card__main'>
+                        <span class='model-card__head'>
+                          <strong>{{ model.id }}</strong>
+                          @if (model.gated || model.private) {
+                            <span class='pill'>restricted</span>
+                          }
+                          <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
+                        </span>
+                        <span class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></span>
+                      </span>
+                    </button>
+                    @if (modelManagerHfExpandedId() === model.id) {
+                      <div class='model-card__versions' [attr.id]='"hf-card-" + model.id'>
+                        @if (modelManagerHfFilesBusyByRepo()[model.id]) {
+                          <div class='model-card__versions-status'>
+                            <span class='model-card__mini-spinner' aria-hidden='true'></span>
+                            <p class='settings-copy'>Loading quants…</p>
+                          </div>
+                        } @else if (modelManagerHfFilesErrorByRepo()[model.id]) {
+                          <p class='settings-copy model-card__versions-error'>{{ modelManagerHfFilesErrorByRepo()[model.id] }}</p>
+                        } @else {
+                          <div class='model-quant-list'>
+                            @for (file of modelManagerHfFilesByRepo()[model.id]; track file.fileName) {
+                              <div class='model-quant-row'>
+                                <span class='model-quant-row__name'>{{ file.quant || file.fileName }}</span>
+                                <span class='settings-copy model-quant-row__size'>{{ formatFileSize(file.sizeBytes) }}</span>
+                                <button
+                                  type='button'
+                                  class='action-button action-button--compact action-button--primary'
+                                  (click)='useHfQuantInModels(model.id, file)'
+                                >
+                                  Use in Models
+                                </button>
+                              </div>
+                            } @empty {
+                              <p class='settings-copy model-card__versions-empty'>No GGUF quant files found for this repo.</p>
+                            }
+                          </div>
                         }
-                        <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
                       </div>
-                      <p class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></p>
-                    </div>
-                    <div class='model-card__actions'>
-                      <button type='button' class='action-button action-button--compact action-button--primary' (click)='useHfModelInModels(model.id)'>Use in Models</button>
-                    </div>
+                    }
                   </article>
                 } @empty {
-                  <div class='empty-state empty-state--compact'>
-                    <p>No results yet.</p>
-                  </div>
+                  @if (!modelManagerHfBusy()) {
+                    <div class='empty-state empty-state--compact'>
+                      <p>No results yet.</p>
+                    </div>
+                  }
                 }
+              </div>
+              @if (modelManagerHfBusy()) {
+                <div
+                  class='model-card-list__loading-overlay'
+                  role='status'
+                  aria-live='polite'
+                  aria-label='Searching Hugging Face models'
+                >
+                  <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                    <ngx-spinner
+                      [name]='hfSearchSpinnerName'
+                      [type]='cacheDetectSpinnerType'
+                      [fullScreen]='false'
+                      bdColor='rgba(0,0,0,0)'
+                      size='small'
+                      color='var(--t-primary)'
+                    ></ngx-spinner>
+                  </span>
+                  <p class='settings-copy'>Searching Hugging Face…</p>
+                </div>
               }
             </div>
             @if (modelManagerHfTotalPages() > 0) {

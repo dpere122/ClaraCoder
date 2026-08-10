@@ -59,3 +59,17 @@ export type ModelManagerHfSearchResult =
       totalPages: number | null;
     }
   | { ok: false; error: string };
+
+/** A single downloadable GGUF file (quant variant) discovered for a Hugging Face repo. */
+export interface HuggingFaceModelFile {
+  /** Repo-relative file path, e.g. ``model-Q4_K_M.gguf``. */
+  fileName: string;
+  /** Parsed quantization label, e.g. ``Q4_K_M``; empty when no label is found. */
+  quant: string;
+  /** File size in bytes when the HF tree API exposed it; null when unknown. */
+  sizeBytes: number | null;
+}
+
+export type ModelManagerHfFilesResult =
+  | { ok: true; files: HuggingFaceModelFile[] }
+  | { ok: false; error: string };

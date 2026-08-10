@@ -6,11 +6,13 @@ import path = require('path');
 import { Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import type {
+  HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
   ModelManagerCacheLocation,
   ModelManagerDetectCachesResult,
   ModelManagerEntryKind,
   ModelManagerFileEntry,
+  ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMigrateProgressPhase,
@@ -1147,4 +1149,142 @@ export function registerModelManagerIpc(): void {
       }
     },
   );
+
+  ipcMain.handle(
+    'model-manager:list-hf-files',
+    async (
+      _event,
+      payload: { id: string; token?: string },
+    ): Promise<ModelManagerHfFilesResult> => {
+      try {
+        const repoId = String(payload?.id || '').trim();
+        if (!repoId || !/^[^/\s]+\/[^/\s]+$/.test(repoId)) {
+          return { ok: false, error: 'Invalid Hugging Face repo id.' };
+        }
+        const token = String(payload?.token || '').trim();
+        const headers: Record<string, string> = {
+          Accept: 'application/json',
+          'User-Agent': 'ClaraCoder-ModelManager',
+        };
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+
+        // 1. Repo metadata → default revision SHA + sibling file list.
+        // Encode org/repo segments separately so the path slash is preserved
+        // (encodeURIComponent would turn "/" into "%2F", which HF rejects with 400).
+        const [orgPart, repoPart] = repoId.split('/');
+        const repoPath = `${encodeURIComponent(orgPart)}/${encodeURIComponent(repoPart)}`;
+        const metaUrl = `https://huggingface.co/api/models/${repoPath}`;
+        const metaRes = await fetch(metaUrl, { headers });
+        if (!metaRes.ok) {
+          return {
+            ok: false,
+            error: `Hugging Face repo lookup failed (${metaRes.status}).`,
+          };
+        }
+        const meta = (await metaRes.json()) as {
+          sha?: unknown;
+          siblings?: Array<{ rfilename?: unknown }>;
+        };
+        const sha =
+          typeof meta.sha === 'string' && meta.sha.trim() ? meta.sha.trim() : 'main';
+        const siblings = Array.isArray(meta.siblings) ? meta.siblings : [];
+        const ggufFiles = siblings
+          .map((s) => String(s?.rfilename ?? ''))
+          .filter((name) => name.toLowerCase().endsWith('.gguf') && !!name.trim());
+
+        if (ggufFiles.length === 0) {
+          return { ok: true, files: [] };
+        }
+
+        // 2. Tree listing (recursive) for file sizes. Best-effort; falls back to null sizes.
+        const sizeByName = new Map<string, number>();
+        try {
+          const treeUrl = `https://huggingface.co/api/models/${repoPath}/tree/${encodeURIComponent(
+            sha,
+          )}?recursive=true`;
+          const treeRes = await fetch(treeUrl, { headers });
+          if (treeRes.ok) {
+            const tree = (await treeRes.json()) as Array<{
+              path?: unknown;
+              size?: unknown;
+              type?: unknown;
+            }>;
+            if (Array.isArray(tree)) {
+              for (const entry of tree) {
+                if (entry.type && String(entry.type) !== 'file') {
+                  continue;
+                }
+                const p = String(entry.path ?? '').trim();
+                const sz = entry.size;
+                if (p && typeof sz === 'number' && Number.isFinite(sz) && sz >= 0) {
+                  sizeByName.set(p, Math.floor(sz));
+                }
+              }
+            }
+          }
+        } catch {
+          // Sizes are optional; ignore tree failures.
+        }
+
+        const files: HuggingFaceModelFile[] = ggufFiles
+          .map((fileName) => {
+            const base = fileName.slice(0, -5); // strip ".gguf"
+            return {
+              fileName,
+              quant: parseGgufQuant(base),
+              sizeBytes: sizeByName.get(fileName) ?? null,
+            };
+          })
+          .sort((a, b) => quantRank(a.quant) - quantRank(b.quant) || a.fileName.localeCompare(b.fileName));
+
+        return { ok: true, files };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
+}
+
+/**
+ * Parse a GGUF quantization label from a file basename (without extension).
+ * Matches llama.cpp quant tokens such as Q8_0, Q6_K, Q5_K_M, Q4_K_S, Q4_0,
+ * Q3_K_L, Q2_K, IQ4_XS, IQ3_M, IQ2_XXS, IQ1_S, F16, BF16, F32.
+ */
+function parseGgufQuant(basename: string): string {
+  const m =
+    /\b((?:IQ|Q)?\d[0-9]*K?_[A-Z0-9]+|[IQBF]\d{1,2}|BF16|F16|F32)\b/i.exec(basename);
+  if (!m) {
+    return '';
+  }
+  return m[1].toUpperCase();
+}
+
+/**
+ * Sort order so higher-precision quants list first (Q8 → Q2 → IQ → F), with
+ * unknown quants last. Lower rank value = listed earlier.
+ */
+function quantRank(quant: string): number {
+  const q = (quant || '').toUpperCase();
+  if (!q) {
+    return 999;
+  }
+  if (q === 'F32') return 0;
+  if (q === 'BF16') return 1;
+  if (q === 'F16') return 2;
+  if (q === 'Q8_0') return 10;
+  if (q === 'Q6_K') return 11;
+  if (q === 'Q5_K_M') return 12;
+  if (q === 'Q5_K_S') return 13;
+  if (q === 'Q5_0' || q === 'Q5_1') return 14;
+  if (q === 'Q4_K_M') return 15;
+  if (q === 'Q4_K_S') return 16;
+  if (q === 'Q4_0' || q === 'Q4_1') return 17;
+  if (q === 'Q3_K_L') return 18;
+  if (q === 'Q3_K_M') return 19;
+  if (q === 'Q3_K_S') return 20;
+  if (q === 'Q2_K') return 21;
+  if (q.startsWith('IQ')) return 30;
+  return 100;
 }

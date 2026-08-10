@@ -1131,6 +1131,7 @@ export class ElectronService {
     token?: string;
     limit?: number;
     skip?: number;
+    fileType?: string;
   }): Promise<ModelManagerHfSearchResult> {
     return (
       this.api?.modelManagerSearchHf(payload) ??

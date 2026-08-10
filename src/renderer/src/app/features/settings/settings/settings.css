@@ -756,6 +756,94 @@ button.linkish {
   border-radius: 6px;
 }
 
+.model-manager-filters-btn.is-active {
+  border-color: color-mix(in srgb, var(--t-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 14%, var(--t-bg-surface));
+  color: var(--t-primary);
+}
+
+/* Collapsible filter panel below the search row. */
+.hf-filters-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--t-bg-surface) 80%, var(--t-bg));
+}
+
+.hf-filters-panel__group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.hf-filters-panel__label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t-primary);
+}
+
+.hf-filters-panel__chips {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hf-filter-chip {
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--t-bg) 60%, transparent);
+  color: var(--t-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.hf-filter-chip:hover {
+  background: color-mix(in srgb, var(--t-hover-bg) 55%, transparent);
+}
+
+.hf-filter-chip.is-active {
+  border-color: color-mix(in srgb, var(--t-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 16%, var(--t-bg-surface));
+  color: var(--t-primary);
+}
+
+.hf-filters-panel__select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.hf-filters-panel__select-field select {
+  padding: 4px 8px;
+  min-height: 28px;
+  min-width: 8rem;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  border-radius: 6px;
+}
+
+.hf-filters-panel__reset-btn {
+  min-height: 28px;
+}
+
 .model-hf-pager {
   display: flex;
   align-items: center;

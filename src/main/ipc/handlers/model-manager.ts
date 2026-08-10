@@ -1068,12 +1068,13 @@ export function registerModelManagerIpc(): void {
     'model-manager:search-hf',
     async (
       _event,
-      payload: { query: string; token?: string; limit?: number; skip?: number },
+      payload: { query: string; token?: string; limit?: number; skip?: number; fileType?: string },
     ): Promise<ModelManagerHfSearchResult> => {
       try {
         const query = String(payload?.query || '').trim();
         const limit = Math.min(50, Math.max(1, Number(payload?.limit ?? 10) || 10));
         const skip = Math.max(0, Math.floor(Number(payload?.skip ?? 0) || 0));
+        const fileType = String(payload?.fileType || '').trim().toLowerCase();
         if (!query) {
           return { ok: true, models: [], hasMore: false, skip, limit, totalCount: 0, totalPages: 0 };
         }
@@ -1098,6 +1099,9 @@ export function registerModelManagerIpc(): void {
               p: '0',
               withCount: 'true',
             });
+            if (fileType) {
+              countParams.set('filter', fileType);
+            }
             const countResponse = await fetch(`https://huggingface.co/models-json?${countParams}`, {
               headers,
             });
@@ -1121,6 +1125,9 @@ export function registerModelManagerIpc(): void {
           sort: 'downloads',
           direction: '-1',
         });
+        if (fileType) {
+          params.set('filter', fileType);
+        }
         const url = `https://huggingface.co/api/models?${params.toString()}`;
         const response = await fetch(url, { headers });
         if (!response.ok) {

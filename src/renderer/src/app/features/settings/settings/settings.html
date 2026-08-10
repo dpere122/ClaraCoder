@@ -1300,10 +1300,76 @@
                 (keydown.enter)='searchHuggingFaceModels(0)'
                 placeholder='Search models…'
               />
+              <button
+                type='button'
+                class='action-button action-button--compact model-manager-filters-btn'
+                [class.is-active]='modelManagerHfFiltersOpen()'
+                [attr.aria-expanded]='modelManagerHfFiltersOpen()'
+                aria-controls='hf-filters-panel'
+                (click)='toggleHfFilters()'
+              >
+                Filters
+              </button>
               <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='modelManagerHfBusy()' (click)='searchHuggingFaceModels(0)'>
                 Search
               </button>
             </div>
+            @if (modelManagerHfFiltersOpen()) {
+              <div class='hf-filters-panel' id='hf-filters-panel'>
+                <div class='hf-filters-panel__group'>
+                  <span class='hf-filters-panel__label'>File type</span>
+                  <div class='hf-filters-panel__chips'>
+                    @for (opt of hfFileTypeOptions; track opt.value) {
+                      <button
+                        type='button'
+                        class='hf-filter-chip'
+                        [class.is-active]='modelManagerHfFileType() === opt.value'
+                        (click)='onHfFileTypeChange(opt.value)'
+                      >
+                        {{ opt.label }}
+                      </button>
+                    }
+                  </div>
+                </div>
+                <div class='row align-items-end g-2 hf-filters-panel__row'>
+                  <div class='col-12 col-sm-auto'>
+                    <label class='hf-filters-panel__select-field'>
+                      <span class='hf-filters-panel__label'>Min downloads</span>
+                      <select
+                        [ngModel]='modelManagerHfMinDownloads()'
+                        (ngModelChange)='onHfMinDownloadsChange($event)'
+                      >
+                        @for (opt of hfMinDownloadsOptions; track opt) {
+                          <option [ngValue]='opt'>{{ opt === 0 ? 'Any' : opt >= 1000 ? (opt >= 1000000 ? (opt / 1000000) + 'M+' : (opt / 1000) + 'k+') : opt + '+' }}</option>
+                        }
+                      </select>
+                    </label>
+                  </div>
+                  <div class='col-12 col-sm-auto'>
+                    <label class='hf-filters-panel__select-field'>
+                      <span class='hf-filters-panel__label'>Min likes</span>
+                      <select
+                        [ngModel]='modelManagerHfMinLikes()'
+                        (ngModelChange)='onHfMinLikesChange($event)'
+                      >
+                        @for (opt of hfMinLikesOptions; track opt) {
+                          <option [ngValue]='opt'>{{ opt === 0 ? 'Any' : opt >= 1000 ? (opt / 1000) + 'k+' : opt + '+' }}</option>
+                        }
+                      </select>
+                    </label>
+                  </div>
+                  <div class='col-12 col-sm-auto'>
+                    <button
+                      type='button'
+                      class='action-button action-button--compact hf-filters-panel__reset-btn'
+                      (click)='resetHfFilters()'
+                    >
+                      Reset filters
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
             <div class='model-card-list model-card-list--hf'>
               <div
                 class='model-card-list__content'

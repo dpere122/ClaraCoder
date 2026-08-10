@@ -347,6 +347,7 @@ declare global {
       token?: string;
       limit?: number;
       skip?: number;
+      fileType?: string;
     }) => Promise<ModelManagerHfSearchResult>;
     modelManagerListHfFiles: (payload: { id: string; token?: string }) => Promise<ModelManagerHfFilesResult>;
     loadConfig: () => Promise<AppConfig>;

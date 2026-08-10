@@ -414,13 +414,46 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerCacheLocations = signal<ModelManagerCacheLocation[]>([]);
   protected readonly modelManagerCacheCandidates = signal<ModelManagerFileEntry[]>([]);
   protected readonly modelManagerHfQuery = signal('');
-  protected readonly modelManagerHfResults = signal<HuggingFaceModelSearchItem[]>([]);
+  protected readonly modelManagerHfRawResults = signal<HuggingFaceModelSearchItem[]>([]);
   protected readonly modelManagerHfPage = signal(0);
   protected readonly modelManagerHfHasMore = signal(false);
   protected readonly modelManagerHfTotalPages = signal(0);
   protected readonly modelManagerHfWindowStart = signal(0);
   protected readonly modelManagerHfPageSize = 10;
+
+  /** Filter panel state for HF search. */
+  protected readonly modelManagerHfFiltersOpen = signal(false);
+  /** Selected file-type tag (server-side HF `filter` param). '' = all file types. */
+  protected readonly modelManagerHfFileType = signal('');
+  /** Minimum downloads threshold (client-side filter). 0 = any. */
+  protected readonly modelManagerHfMinDownloads = signal(0);
+  /** Minimum likes threshold (client-side filter). 0 = any. */
+  protected readonly modelManagerHfMinLikes = signal(0);
+
+  /** Displayed results after applying client-side numeric filters. */
+  protected readonly modelManagerHfResults = computed<HuggingFaceModelSearchItem[]>(() => {
+    const minDl = this.modelManagerHfMinDownloads();
+    const minLikes = this.modelManagerHfMinLikes();
+    const raw = this.modelManagerHfRawResults();
+    if (minDl <= 0 && minLikes <= 0) {
+      return raw;
+    }
+    return raw.filter(
+      (m) => m.downloads >= minDl && m.likes >= minLikes,
+    );
+  });
   protected readonly modelManagerHfPageWindowSize = 10;
+
+  /** File-type filter options (server-side HF `filter` tag). */
+  protected readonly hfFileTypeOptions: readonly { value: string; label: string }[] = [
+    { value: '', label: 'All' },
+    { value: 'gguf', label: 'GGUF' },
+  ];
+  /** Minimum-download threshold options (client-side filter). */
+  protected readonly hfMinDownloadsOptions: readonly number[] = [0, 100, 1_000, 10_000, 100_000, 1_000_000];
+  /** Minimum-likes threshold options (client-side filter). */
+  protected readonly hfMinLikesOptions: readonly number[] = [0, 10, 100, 1_000, 10_000];
+
   protected readonly modelManagerHfPageNumbers = computed(() => {
     const start = this.modelManagerHfWindowStart();
     const totalPages = this.modelManagerHfTotalPages();
@@ -2206,7 +2239,7 @@ export class Settings implements OnInit, OnDestroy {
     const query = this.modelManagerHfQuery().trim();
     const nextPage = Math.max(0, Math.floor(page));
     if (!query) {
-      this.modelManagerHfResults.set([]);
+      this.modelManagerHfRawResults.set([]);
       this.modelManagerHfPage.set(0);
       this.modelManagerHfTotalPages.set(0);
       this.modelManagerHfWindowStart.set(0);
@@ -2225,10 +2258,11 @@ export class Settings implements OnInit, OnDestroy {
         token: this.modelManagerHfToken().trim(),
         limit,
         skip: nextPage * limit,
+        fileType: this.modelManagerHfFileType().trim(),
       });
       if (!res.ok) {
         this.modelManagerStatus.set(res.error);
-        this.modelManagerHfResults.set([]);
+        this.modelManagerHfRawResults.set([]);
         this.modelManagerHfHasMore.set(false);
         this.modelManagerHfTotalPages.set(0);
         return;
@@ -2253,12 +2287,12 @@ export class Settings implements OnInit, OnDestroy {
           await this.searchHuggingFaceModels(lastPage);
           return;
         }
-        this.modelManagerHfResults.set([]);
+        this.modelManagerHfRawResults.set([]);
         this.modelManagerHfPage.set(lastPage);
         return;
       }
 
-      this.modelManagerHfResults.set(res.models);
+      this.modelManagerHfRawResults.set(res.models);
       this.modelManagerHfPage.set(nextPage);
       this.modelManagerHfTotalPages.set(totalPages);
       this.modelManagerHfHasMore.set(res.hasMore || nextPage + 1 < totalPages);
@@ -2269,6 +2303,39 @@ export class Settings implements OnInit, OnDestroy {
     } finally {
       this.modelManagerHfBusy.set(false);
     }
+  }
+
+  /** Toggle the filter panel open/closed. */
+  protected toggleHfFilters(): void {
+    this.modelManagerHfFiltersOpen.set(!this.modelManagerHfFiltersOpen());
+  }
+
+  /** File-type change is server-side → re-run the search from page 0. */
+  protected onHfFileTypeChange(type: string): void {
+    const next = (type || '').trim().toLowerCase();
+    if (next === this.modelManagerHfFileType()) {
+      return;
+    }
+    this.modelManagerHfFileType.set(next);
+    if (this.modelManagerHfQuery().trim()) {
+      void this.searchHuggingFaceModels(0);
+    }
+  }
+
+  /** Numeric filters are client-side → just update the signal (computed re-filters). */
+  protected onHfMinDownloadsChange(value: number): void {
+    this.modelManagerHfMinDownloads.set(Math.max(0, Math.floor(value || 0)));
+  }
+
+  protected onHfMinLikesChange(value: number): void {
+    this.modelManagerHfMinLikes.set(Math.max(0, Math.floor(value || 0)));
+  }
+
+  /** Reset all filters to their defaults. */
+  protected resetHfFilters(): void {
+    this.modelManagerHfFileType.set('');
+    this.modelManagerHfMinDownloads.set(0);
+    this.modelManagerHfMinLikes.set(0);
   }
 
   private alignHfPageWindow(page: number): void {

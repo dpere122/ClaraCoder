@@ -415,7 +415,7 @@ export class App implements OnInit, OnDestroy {
   );
 
   // Layout
-  protected readonly workspaceWidth = signal(280);
+  protected readonly workspaceWidth = signal(App.defaultWorkspaceWidthPx());
   protected readonly sidebarWidth = signal(0);
 
   private static readonly MIN_WORKSPACE = 140;
@@ -423,7 +423,15 @@ export class App implements OnInit, OnDestroy {
   private static readonly MIN_SIDEBAR = 140;
   private static readonly MAX_SIDEBAR = 800;
   private static readonly LAYOUT_RESIZE_HANDLES_PX = 8;
-  private static readonly DEFAULT_SIDEBAR_WIDTH_PERCENT = 0.75;
+  private static readonly DEFAULT_WORKSPACE_WIDTH_PERCENT = 0.25;
+  private static readonly DEFAULT_SIDEBAR_WIDTH_PERCENT = 1 / 3;
+
+  /** Initial workspace pane width: 25% of the viewport (clamped), for a 1:2:1 default layout. */
+  private static defaultWorkspaceWidthPx(): number {
+    const px = Math.round(window.innerWidth * App.DEFAULT_WORKSPACE_WIDTH_PERCENT);
+    return Math.min(App.MAX_WORKSPACE, Math.max(App.MIN_WORKSPACE, px));
+  }
+
   private static readonly SIDEBAR_WIDTH_SAVE_DEBOUNCE_MS = 2000;
 
   private resizing: 'workspace' | 'sidebar' | null = null;

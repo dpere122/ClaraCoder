@@ -687,7 +687,7 @@ export interface AppConfig {
   codeFontFamily?: string;
   /**
    * Chat sidebar width as a fraction of the chat+sidebar layout region (0–1).
-   * Client-only UI preference; default 0.75.
+   * Client-only UI preference; default 1/3 (yields a 1:2:1 workspace:chat:sidebar layout).
    */
   chatSidebarWidthPercent?: number;
   /**

@@ -706,6 +706,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     } else if (schemaVersion < 4) {
       (newConfig as AppConfig).modelManager = getDefaultModelManagerConfig();
     }
+    if (schemaVersion < 5) {
+      // Layout default changed to a 1:2:1 workspace:chat:sidebar ratio. Reset the persisted
+      // sidebar width so the new default takes effect (the workspace pane width is client-only
+      // and already re-initializes to 25% of the viewport on every launch).
+      (newConfig as AppConfig).chatSidebarWidthPercent = 1 / 3;
+    }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
@@ -858,7 +864,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
 
   const csw = (newConfig as AppConfig).chatSidebarWidthPercent;
   if (typeof csw !== 'number' || Number.isNaN(csw) || csw < 0.05 || csw > 0.95) {
-    (newConfig as AppConfig).chatSidebarWidthPercent = 0.75;
+    (newConfig as AppConfig).chatSidebarWidthPercent = 1 / 3;
     migrated = true;
   }
 

@@ -30,7 +30,7 @@ import {
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` should reset LLM sources to defaults (see `migrateConfig`). */
-export const APP_CONFIG_SCHEMA_VERSION = 4;
+export const APP_CONFIG_SCHEMA_VERSION = 5;
 
 /** Seed LLM rows from env (LM Studio + llama-server defaults). */
 function getDefaultPlanRetryAttemptsCount(): number {
@@ -218,7 +218,7 @@ export function createDefaultConfig(): AppConfig {
     modelManager: getDefaultModelManagerConfig(),
     chatFontSizeRem: 0.9,
     uiFontSizeRem: 1.1,
-    chatSidebarWidthPercent: 0.75,
+    chatSidebarWidthPercent: 1 / 3,
     chatContainerSize: DEFAULT_CHAT_CONTAINER_SIZE,
     uiFontFamily: '',
     codeFontFamily: '',

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import type { AppConfig } from '../../../shared';
 import { findLlmModelLocation } from '../../../shared';
+import { unwrapSecret } from '../../../shared/types/app-config';
 import {
   getManagedChatOpenAiBaseUrl,
   getManagedLlamaStatus,
@@ -64,7 +65,7 @@ export function registerLlamaServerIpc(): void {
         error: 'Managed llama-server is not running for this source. Start it from the chat sidebar, then refresh.',
       };
     }
-    return fetchOpenAiCompatibleModelIds(base, loc.provider.apiKey);
+    return fetchOpenAiCompatibleModelIds(base, unwrapSecret(loc.provider.apiKey));
   });
 
   ipcMain.handle('llamacpp-openai:list-models', async (_event, payload: { baseUrl: string; apiKey: string }) => {

@@ -24,6 +24,7 @@ import {
   prepareManagedLlamaShellCommand,
 } from '../shared';
 import { loadConfigSync } from './config/load-save';
+import { SecretValue, unwrapSecret } from '../shared/types/app-config';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import {
@@ -191,11 +192,11 @@ function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
  */
 function modelManagerForManagedLlamaSpawn(config: AppConfig): AppConfig['modelManager'] {
   const disk = loadConfigSync().modelManager;
-  const ipcTok = config.modelManager.huggingFaceToken.trim();
-  const diskTok = disk.huggingFaceToken.trim();
+  const ipcTok = unwrapSecret(config.modelManager.huggingFaceToken).trim();
+  const diskTok = unwrapSecret(disk.huggingFaceToken).trim();
   return {
     ...disk,
-    huggingFaceToken: ipcTok || diskTok,
+    huggingFaceToken: SecretValue.of(ipcTok || diskTok),
   };
 }
 

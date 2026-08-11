@@ -17,5 +17,7 @@ export async function fetchTtsResponse(
   if (provider === 'openai-compatible') {
     return fetchOpenAiCompatibleTtsResponse(audioConfig, params, signal);
   }
+  // Kokoro targets the trusted local PYTHON_URL sidecar; SSRF validation applies
+  // only to user-configured OpenAI-compatible bases (see openai_compatible/fetch.ts).
   return fetchKokoroTtsResponse(params, signal);
 }

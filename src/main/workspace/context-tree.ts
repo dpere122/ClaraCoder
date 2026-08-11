@@ -2,7 +2,12 @@ import { promises as fs } from 'fs';
 import path = require('path');
 import type { WorkspaceChangeRecord, WorkspaceContextState } from '../../shared';
 import { WORKSPACE_CONTEXT_MAX_DEPTH, WORKSPACE_CONTEXT_MAX_ENTRIES, WORKSPACE_NODE_MODULES_DIR } from '../constants';
-import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
+import {
+  isAlwaysIgnoredWorkspaceEntry,
+  loadWorkspaceIgnoreRules,
+  normalizeContextPath,
+  shouldIgnoreWorkspaceEntry,
+} from './ignore-rules';
 
 export function formatContextTruncationNotice(prefix: string, reason: string): string {
   return `${prefix}... [${reason}]\n`;
@@ -77,15 +82,38 @@ export async function buildWorkspaceTree(
     return a.name.localeCompare(b.name);
   });
 
-  const visibleEntries = entries.filter((entry) => {
+  const visibleEntries: typeof entries = [];
+  for (const entry of entries) {
     const relativePath = path.relative(contextState.rootPath, path.join(dirPath, entry.name));
-    return !shouldIgnoreWorkspaceEntry(
-      entry.name,
-      relativePath,
-      contextState.ignoreRules,
-      contextState.exposeAllWorkspaceFiles,
-    );
-  });
+    // Secrets denylist: never list always-ignored entries, even when exposeAll is on.
+    if (isAlwaysIgnoredWorkspaceEntry(entry.name, relativePath)) {
+      continue;
+    }
+    if (
+      shouldIgnoreWorkspaceEntry(
+        entry.name,
+        relativePath,
+        contextState.ignoreRules,
+        contextState.exposeAllWorkspaceFiles,
+      )
+    ) {
+      continue;
+    }
+    // File symlink with innocent name can still point at a denylist target — resolve and check.
+    if (entry.isSymbolicLink()) {
+      const fullPath = path.join(dirPath, entry.name);
+      try {
+        const targetPath = await fs.realpath(fullPath);
+        const targetBase = path.basename(targetPath);
+        if (isAlwaysIgnoredWorkspaceEntry(targetBase, targetBase)) {
+          continue;
+        }
+      } catch {
+        // Broken / unresolvable symlink: keep name-based checks only.
+      }
+    }
+    visibleEntries.push(entry);
+  }
 
   let result = '';
   for (let i = 0; i < visibleEntries.length; i++) {

@@ -15,6 +15,7 @@ import type {
   ModelManagerMutationResult,
 } from '../../../shared';
 import { mainState } from '../../state';
+import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 
 const MODEL_EXTENSIONS = new Set(['.gguf', '.ggml']);
 
@@ -488,7 +489,12 @@ async function readSingleModel(pathname: string, source: 'custom' | 'cache', sou
 
 /** Model Manager IPC: custom model folder CRUD and Hugging Face search. */
 export function registerModelManagerIpc(): void {
-  ipcMain.handle('model-manager:pick-custom-dir', async (): Promise<string | null> => {
+  ipcMain.handle('model-manager:pick-custom-dir', async (event): Promise<string | null> => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     const mw = mainState.mainWindow;
     if (!mw) return null;
     const result = await dialog.showOpenDialog(mw, { properties: ['openDirectory'] });
@@ -498,7 +504,12 @@ export function registerModelManagerIpc(): void {
 
   ipcMain.handle(
     'model-manager:list-custom-models',
-    async (_event, payload: { customDir: string }): Promise<ModelManagerListModelsResult> => {
+    async (event, payload: { customDir: string }): Promise<ModelManagerListModelsResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       try {
         const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
         if (!customDir) {
@@ -528,9 +539,14 @@ export function registerModelManagerIpc(): void {
   ipcMain.handle(
     'model-manager:rename-model',
     async (
-      _event,
+      event,
       payload: { customDir: string; modelPath: string; newFileName: string },
     ): Promise<ModelManagerMutationResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       try {
         const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
         const modelPath = normalizeModelManagerPath(String(payload?.modelPath || '').trim());
@@ -584,9 +600,14 @@ export function registerModelManagerIpc(): void {
   ipcMain.handle(
     'model-manager:delete-model',
     async (
-      _event,
+      event,
       payload: { customDir: string; modelPath: string },
     ): Promise<ModelManagerMutationResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       try {
         const customDir = normalizeModelManagerPath(String(payload?.customDir || '').trim());
         const modelPath = normalizeModelManagerPath(String(payload?.modelPath || '').trim());
@@ -612,9 +633,14 @@ export function registerModelManagerIpc(): void {
   ipcMain.handle(
     'model-manager:search-hf',
     async (
-      _event,
+      event,
       payload: { query: string; token?: string; limit?: number; skip?: number; fileType?: string },
     ): Promise<ModelManagerHfSearchResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       try {
         const query = String(payload?.query || '').trim();
         const limit = Math.min(50, Math.max(1, Number(payload?.limit ?? 10) || 10));
@@ -705,9 +731,14 @@ export function registerModelManagerIpc(): void {
   ipcMain.handle(
     'model-manager:list-hf-files',
     async (
-      _event,
+      event,
       payload: { id: string; token?: string },
     ): Promise<ModelManagerHfFilesResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       try {
         const repoId = String(payload?.id || '').trim();
         if (!repoId || !/^[^/\s]+\/[^/\s]+$/.test(repoId)) {
@@ -801,9 +832,14 @@ export function registerModelManagerIpc(): void {
   ipcMain.handle(
     'model-manager:download-hf-file',
     async (
-      _event,
+      event,
       payload: { repoId: string; fileName: string; customDir: string; token?: string },
     ): Promise<ModelManagerDownloadHfResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       const repoId = String(payload?.repoId || '').trim();
       const fileName = String(payload?.fileName || '').trim();
       const customDirRaw = String(payload?.customDir || '').trim();
@@ -979,7 +1015,12 @@ export function registerModelManagerIpc(): void {
 
   ipcMain.handle(
     'model-manager:cancel-hf-download',
-    async (_event, payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    async (event, payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
       const id = String(payload?.downloadId || '').trim();
       const entry = inFlightDownloads.get(id);
       if (!entry) {

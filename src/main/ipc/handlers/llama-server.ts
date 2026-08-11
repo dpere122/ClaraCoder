@@ -9,6 +9,7 @@ import {
   syncWithManagedLlamaOverrides,
 } from '../../llama-server-manager';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
+import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
 export interface LlamaServerIpcPayload {
   modelId: string;
@@ -23,7 +24,12 @@ function normalizeLlamaModelId(raw: unknown): string {
 }
 
 export function registerLlamaServerIpc(): void {
-  ipcMain.handle('llama-server:start', async (_event, payload: LlamaServerIpcPayload) => {
+  ipcMain.handle('llama-server:start', async (event, payload: LlamaServerIpcPayload) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'Missing model id.' };
@@ -31,7 +37,12 @@ export function registerLlamaServerIpc(): void {
     return startManagedLlamaServers(modelId, payload.config);
   });
 
-  ipcMain.handle('llama-server:stop', async (_event, payload: LlamaServerIpcPayload) => {
+  ipcMain.handle('llama-server:stop', async (event, payload: LlamaServerIpcPayload) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (modelId) {
       stopManagedLlamaServers(modelId);
@@ -40,7 +51,12 @@ export function registerLlamaServerIpc(): void {
     return { ok: true as const };
   });
 
-  ipcMain.handle('llama-server:status', async (_event, payload: LlamaServerIpcPayload) => {
+  ipcMain.handle('llama-server:status', async (event, payload: LlamaServerIpcPayload) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'Missing model id.' };
@@ -48,7 +64,12 @@ export function registerLlamaServerIpc(): void {
     return getManagedLlamaStatus(modelId, payload.config);
   });
 
-  ipcMain.handle('llamacpp-managed:list-models', async (_event, payload: LlamaServerIpcPayload) => {
+  ipcMain.handle('llamacpp-managed:list-models', async (event, payload: LlamaServerIpcPayload) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'Missing model id.' };
@@ -67,7 +88,12 @@ export function registerLlamaServerIpc(): void {
     return fetchOpenAiCompatibleModelIds(base, loc.provider.apiKey);
   });
 
-  ipcMain.handle('llamacpp-openai:list-models', async (_event, payload: { baseUrl: string; apiKey: string }) => {
+  ipcMain.handle('llamacpp-openai:list-models', async (event, payload: { baseUrl: string; apiKey: string }) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
     const base = typeof payload?.baseUrl === 'string' ? payload.baseUrl : '';
     const key = typeof payload?.apiKey === 'string' ? payload.apiKey : '';
     return fetchOpenAiCompatibleModelIds(base, key);

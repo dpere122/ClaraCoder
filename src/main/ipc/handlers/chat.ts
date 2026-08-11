@@ -2,7 +2,12 @@ import { ipcMain } from 'electron';
 import type { LlmStatusPayload } from '../../../shared';
 import { pythonControlFetch, pythonSsePost } from '../../python/http-client';
 import { ensurePythonReady } from '../../python/server';
-import { isTrustedMainRenderer } from '../assert-trusted-renderer';
+import {
+  assertTrustedAppRenderer,
+  assertTrustedMainRenderer,
+  assertTrustedMainRendererOrThrow,
+  isTrustedMainRenderer,
+} from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { createSettingsWindow } from '../../windows/settings-window';
 import { sendParsedPayload } from './chat-stream-payload';
@@ -31,15 +36,26 @@ function replyMessageDone(
  * - `message` — POST to Python `/chat/stream`, forward SSE lines to `message-chunk` / `message-done` / `message-status`.
  */
 export function registerChatIpc(): void {
-  ipcMain.on('ready', () => {
+  ipcMain.on('ready', (event) => {
+    if (!isTrustedMainRenderer(event.sender)) {
+      return;
+    }
     console.log('Renderer is ready');
   });
 
-  ipcMain.on('open-settings-window', () => {
+  ipcMain.on('open-settings-window', (event) => {
+    if (!isTrustedMainRenderer(event.sender)) {
+      return;
+    }
     createSettingsWindow();
   });
 
-  ipcMain.on('close-settings-window', () => {
+  ipcMain.on('close-settings-window', (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
     const sw = mainState.settingsWindow;
     if (sw && !sw.isDestroyed()) {
       sw.close();
@@ -147,7 +163,7 @@ export function registerChatIpc(): void {
   ipcMain.handle(
     'agent-continue',
     async (
-      _event,
+      event,
       conversationId: string,
       note: string,
       deleteAction?: 'confirm' | 'cancel',
@@ -162,6 +178,11 @@ export function registerChatIpc(): void {
       planConfirmAction?: 'confirm' | 'cancel',
       planConfirmRequestId?: string,
     ) => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       try {
         const res = await pythonControlFetch('/chat/agent-continue', {
           method: 'POST',
@@ -195,11 +216,23 @@ export function registerChatIpc(): void {
     },
   );
 
-  ipcMain.handle('abort-message', async (_event, conversationId: string) => abortChatStream(conversationId));
+  ipcMain.handle('abort-message', async (event, conversationId: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    return abortChatStream(conversationId);
+  });
 
   ipcMain.handle(
     'background-command-terminal-closed',
-    async (_event, conversationId: string, commandId: string) => {
+    async (event, conversationId: string, commandId: string) => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       try {
         const res = await pythonControlFetch('/chat/background-command-terminal-closed', {
           method: 'POST',
@@ -225,12 +258,17 @@ export function registerChatIpc(): void {
   ipcMain.handle(
     'agent-question-answers',
     async (
-      _event,
+      event,
       conversationId: string,
       action: 'submit' | 'cancel',
       requestId: string,
       answers: { questionId: string; optionId?: string; otherText?: string }[] = [],
     ) => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       try {
         const res = await pythonControlFetch('/chat/agent-question-answers', {
           method: 'POST',
@@ -259,7 +297,12 @@ export function registerChatIpc(): void {
     },
   );
 
-  ipcMain.handle('build-plan-cancel', async (_event, conversationId: string, planId: string) => {
+  ipcMain.handle('build-plan-cancel', async (event, conversationId: string, planId: string) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false, error: 'Untrusted IPC sender' };
+    }
     try {
       const res = await pythonControlFetch('/build-plan/cancel', {
         method: 'POST',
@@ -278,11 +321,21 @@ export function registerChatIpc(): void {
     }
   });
 
-  ipcMain.handle('get-pending-stream-ids-for-workspace', (_event, workspaceId: string | null) =>
-    getPendingStreamIdsForWorkspace(workspaceId),
-  );
+  ipcMain.handle('get-pending-stream-ids-for-workspace', (event, workspaceId: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return [];
+    }
+    return getPendingStreamIdsForWorkspace(workspaceId);
+  });
 
-  ipcMain.handle('abort-pending-streams-for-workspace', async (_event, workspaceId: string | null) => {
+  ipcMain.handle('abort-pending-streams-for-workspace', async (event, workspaceId: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return { aborted: [] as string[] };
+    }
     const ids = getPendingStreamIdsForWorkspace(workspaceId);
     const aborted: string[] = [];
     for (const id of ids) {
@@ -294,7 +347,12 @@ export function registerChatIpc(): void {
     return { aborted };
   });
 
-  ipcMain.handle('sync-auto-apply-mode', async (_event, conversationId: string, autoApplyMode: boolean) => {
+  ipcMain.handle('sync-auto-apply-mode', async (event, conversationId: string, autoApplyMode: boolean) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false, error: 'Untrusted IPC sender' };
+    }
     try {
       await ensurePythonReady();
       const res = await pythonControlFetch('/session/auto-apply', {

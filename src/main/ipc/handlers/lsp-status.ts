@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import type { LspDashboardStatus } from '../../../shared';
 import { isSemanticLegendServerId } from '../../../shared/lsp-registry';
 import { pythonControlFetch } from '../../python/http-client';
@@ -94,10 +95,15 @@ async function postLspEditorJson<T>(
 export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'get-lsp-dashboard-status',
-    async (_event, sessionId: unknown): Promise<
+    async (event, sessionId: unknown): Promise<
       | { ok: true; status: LspDashboardStatus }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       if (!sid) {
         return { ok: false, error: 'No conversation session.' };
@@ -124,11 +130,16 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'warm-lsp-for-active-file',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       encoding?: unknown,
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -160,10 +171,15 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'warm-lsp-server',
     async (
-      _event,
+      event,
       sessionId: unknown,
       server: unknown,
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const srv = typeof server === 'string' ? server.trim().toLowerCase() : '';
       if (!sid || !isSemanticLegendServerId(srv)) {
@@ -188,7 +204,7 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-hover',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -196,6 +212,11 @@ export function registerLspStatusIpc(): void {
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; markdown: string | null; range?: LspEditorIRangeWire | null; syncedFromDisk?: boolean } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -247,7 +268,7 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-definition',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -258,6 +279,11 @@ export function registerLspStatusIpc(): void {
       | { ok: true; locations: LspEditorLocationWire[] }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -287,7 +313,7 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-references',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -299,6 +325,11 @@ export function registerLspStatusIpc(): void {
       | { ok: true; locations: LspEditorLocationWire[] }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -330,7 +361,7 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-document-symbols',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
@@ -343,6 +374,11 @@ export function registerLspStatusIpc(): void {
         }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -375,7 +411,7 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-completion',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -388,6 +424,11 @@ export function registerLspStatusIpc(): void {
       | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemWire[] }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -432,7 +473,7 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-rename',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -447,6 +488,11 @@ export function registerLspStatusIpc(): void {
         }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');
@@ -483,10 +529,15 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-semantic-tokens-legend',
     async (
-      _event,
+      event,
       sessionId: unknown,
       server: unknown,
     ): Promise<{ ok: true; legend: LspSemanticTokensLegendWire } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const srv = typeof server === 'string' ? server.trim().toLowerCase() : '';
       if (!sid || !isSemanticLegendServerId(srv)) {
@@ -521,12 +572,17 @@ export function registerLspStatusIpc(): void {
   ipcMain.handle(
     'lsp-editor-semantic-tokens-full',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; payload: LspSemanticTokensFullWire } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const raw = typeof relativePath === 'string' ? relativePath.trim() : '';
       const rel = raw.replace(/\\/g, '/');

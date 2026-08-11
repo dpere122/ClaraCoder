@@ -1,4 +1,4 @@
-import type { IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron';
+import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron';
 import { mainState } from '../state';
 
 /** True when the IPC sender is the primary app window (not settings/health satellites). */
@@ -7,13 +7,20 @@ export function isTrustedMainRenderer(sender: WebContents): boolean {
   return !!mw && !mw.isDestroyed() && sender === mw.webContents;
 }
 
-/** Main or settings window — allowed for folder pickers and other user-initiated app UI. */
+function isOwnedAppWindow(sender: WebContents, win: BrowserWindow | null): boolean {
+  return !!win && !win.isDestroyed() && sender === win.webContents;
+}
+
+/** Main, settings, health, or dependencies window — trusted app-owned UI surfaces. */
 export function isTrustedAppRenderer(sender: WebContents): boolean {
   if (isTrustedMainRenderer(sender)) {
     return true;
   }
-  const sw = mainState.settingsWindow;
-  return !!sw && !sw.isDestroyed() && sender === sw.webContents;
+  return (
+    isOwnedAppWindow(sender, mainState.settingsWindow) ||
+    isOwnedAppWindow(sender, mainState.healthWindow) ||
+    isOwnedAppWindow(sender, mainState.dependenciesWindow)
+  );
 }
 
 export function assertTrustedMainRenderer(event: IpcMainEvent | IpcMainInvokeEvent): void {
@@ -26,4 +33,12 @@ export function assertTrustedAppRenderer(event: IpcMainEvent | IpcMainInvokeEven
   if (!isTrustedAppRenderer(event.sender)) {
     throw new Error('Untrusted IPC sender');
   }
+}
+
+/**
+ * Same as {@link assertTrustedMainRenderer}; named for `ipcMain.handle` callers that
+ * catch and map to `{ ok: false, error: 'Untrusted IPC sender' }`.
+ */
+export function assertTrustedMainRendererOrThrow(event: IpcMainEvent | IpcMainInvokeEvent): void {
+  assertTrustedMainRenderer(event);
 }

@@ -33,7 +33,7 @@ import {
 } from '../../workspace/system-prompt';
 import { getRecentConversations } from '../../menu/recent-conversations';
 import { buildMenu } from '../../menu/application-menu';
-import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
+import { assertTrustedAppRenderer, assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './health';
 
 /**
@@ -102,16 +102,28 @@ export function registerConfigWorkspacesIpc(): void {
       : [];
   });
 
-  ipcMain.handle('get-workspace-monaco-unsaved-paths', () => [...(mainState.monacoWorkspaceUnsavedPaths ?? [])]);
+  ipcMain.handle('get-workspace-monaco-unsaved-paths', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return [];
+    }
+    return [...(mainState.monacoWorkspaceUnsavedPaths ?? [])];
+  });
 
   ipcMain.handle(
     'patch-workspace-monaco-scroll',
     async (
-      _event,
+      event,
       workspaceId: string,
       relativePath: string,
       scroll: WorkspaceMonacoEditorScrollState | null,
     ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return;
+      }
       const wsId = typeof workspaceId === 'string' ? workspaceId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.replace(/\\/g, '/').trim() : '';
       if (!wsId || !rel) {
@@ -145,26 +157,58 @@ export function registerConfigWorkspacesIpc(): void {
     },
   );
 
-  ipcMain.handle('get-recent-conversations', (_event, limit: number) => getRecentConversations(limit));
+  ipcMain.handle('get-recent-conversations', (event, limit: number) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return [];
+    }
+    return getRecentConversations(limit);
+  });
 
-  ipcMain.handle('refresh-menu', () => {
+  ipcMain.handle('refresh-menu', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     buildMenu();
   });
 
   ipcMain.handle(
     'set-workspace-context',
     async (
-      _event,
+      event,
       sessionId: string,
       workspacePath: string,
       workspaceContext: string,
       extras?: WorkspaceContextSyncExtras,
     ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return;
+      }
       await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext, extras);
     },
   );
 
-  ipcMain.handle('list-python-interpreters', async (_event, sessionId: string) => {
+  ipcMain.handle('list-python-interpreters', async (event, sessionId: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return {
+        ok: false as const,
+        error: 'Untrusted IPC sender',
+        interpreters: [] as Array<{
+          id: string;
+          label: string;
+          pythonExecutable: string;
+          venvPath: string;
+        }>,
+        activeInterpreterId: null as string | null,
+      };
+    }
     try {
       const data = await fetchPythonInterpretersFromPython(sessionId);
       return { ok: true as const, ...data };
@@ -187,9 +231,14 @@ export function registerConfigWorkspacesIpc(): void {
   ipcMain.handle(
     'apply-workspace-python-interpreter',
     async (
-      _event,
+      event,
       payload: { workspaceId: string; sessionId: string; interpreterId: string },
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       try {
         await postPythonInterpreterSelection(payload.sessionId, payload.interpreterId);
         const config = await updateConfig((cfg) => {
@@ -211,7 +260,12 @@ export function registerConfigWorkspacesIpc(): void {
 
   ipcMain.handle(
     'get-workspace-system-prompt-status',
-    async (_event, workspaceId: string): Promise<WorkspaceSystemPromptStatus> => {
+    async (event, workspaceId: string): Promise<WorkspaceSystemPromptStatus> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { hasFile: false, sourceName: '' };
+      }
       const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
       if (!wid) {
         return { hasFile: false, sourceName: '' };
@@ -387,16 +441,33 @@ export function registerConfigWorkspacesIpc(): void {
     },
   );
 
-  ipcMain.handle('load-config', async () => loadConfig());
+  ipcMain.handle('load-config', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    return loadConfig();
+  });
 
-  ipcMain.handle('save-config', async (_event, config: AppConfig) => {
+  ipcMain.handle('save-config', async (event, config: AppConfig) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     const saved = await updateConfig((disk) => mergeSettingsConfigSave(disk, config));
     return publishConfig(saved);
   });
 
   ipcMain.handle(
     'set-last-active-conversation',
-    async (_event, workspaceKey: string, conversationId: string) => {
+    async (event, workspaceKey: string, conversationId: string) => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return null;
+      }
       const config = await updateConfig((cfg) => {
         if (cfg.lastActiveConversationByWorkspaceId?.[workspaceKey] === conversationId) {
           return;
@@ -411,7 +482,12 @@ export function registerConfigWorkspacesIpc(): void {
     },
   );
 
-  ipcMain.handle('set-active-llm-model', async (_event, modelId: string) => {
+  ipcMain.handle('set-active-llm-model', async (event, modelId: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     const config = await updateConfig((cfg) => {
       if (!modelId || modelId === cfg.activeLlmModelId) {
         return;
@@ -426,7 +502,12 @@ export function registerConfigWorkspacesIpc(): void {
     return config;
   });
 
-  ipcMain.handle('patch-health-monitor', async (_event, patch: Partial<HealthMonitorConfig>) => {
+  ipcMain.handle('patch-health-monitor', async (event, patch: Partial<HealthMonitorConfig>) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     const config = await updateConfig((cfg) => {
       cfg.healthMonitor = { ...cfg.healthMonitor, ...patch };
     });
@@ -436,12 +517,22 @@ export function registerConfigWorkspacesIpc(): void {
     return config;
   });
 
-  ipcMain.handle('get-workspaces', async () => {
+  ipcMain.handle('get-workspaces', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return [];
+    }
     const config = await loadConfig();
     return config.workspaces;
   });
 
-  ipcMain.handle('add-workspace', async (_event, name: string, workspacePath: string) => {
+  ipcMain.handle('add-workspace', async (event, name: string, workspacePath: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     let workspace!: Workspace;
     const config = await updateConfig((cfg) => {
       workspace = {
@@ -458,7 +549,12 @@ export function registerConfigWorkspacesIpc(): void {
     return workspace;
   });
 
-  ipcMain.handle('remove-workspace', async (_event, id: string) => {
+  ipcMain.handle('remove-workspace', async (event, id: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
     const config = await updateConfig((cfg) => {
       cfg.workspaces = cfg.workspaces.filter((w) => w.id !== id);
       if (cfg.currentWorkspaceId === id) {
@@ -470,7 +566,12 @@ export function registerConfigWorkspacesIpc(): void {
     broadcastConfig(config);
   });
 
-  ipcMain.handle('set-current-workspace', async (_event, id: string | null) => {
+  ipcMain.handle('set-current-workspace', async (event, id: string | null) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
     const current = await loadConfig();
     if (id === current.currentWorkspaceId) {
       return;
@@ -485,7 +586,12 @@ export function registerConfigWorkspacesIpc(): void {
     broadcastConfig(config);
   });
 
-  ipcMain.handle('set-theme', async (_event, themeId: string) => {
+  ipcMain.handle('set-theme', async (event, themeId: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     const config = await updateConfig((cfg) => {
       cfg.themeId = themeId || FIRST_THEME_ID;
     });
@@ -494,13 +600,23 @@ export function registerConfigWorkspacesIpc(): void {
     return config;
   });
 
-  ipcMain.handle('get-current-workspace', async () => {
+  ipcMain.handle('get-current-workspace', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
     const config = await loadConfig();
     if (!config.currentWorkspaceId) return null;
     return config.workspaces.find((w) => w.id === config.currentWorkspaceId) || null;
   });
 
-  ipcMain.handle('set-always-on-top', (_event, pinned: boolean) => {
+  ipcMain.handle('set-always-on-top', (event, pinned: boolean) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     mainState.mainWindow?.setAlwaysOnTop(pinned);
   });
 }

@@ -4,6 +4,7 @@ import path = require('path');
 import { randomUUID } from 'crypto';
 
 import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
+import { loadConfig } from '../../config/load-save';
 import { encodeWorkspaceFileContent } from '../../utils/workspace-file-encoding';
 import {
   isAbsolutePathWithinWorkspaceRoot,
@@ -15,6 +16,42 @@ import { mainState } from '../../state';
 import { emitWorkspaceFilesChanged } from '../../workspace/emit-files-changed';
 
 const MAX_READ_BYTES = 5 * 1024 * 1024;
+
+/** Absolute paths outside workspaces explicitly allowed (e.g. Save As outside root). */
+const allowlistedAbsolutePaths = new Set<string>();
+
+function allowlistAbsolutePath(absolutePath: string): void {
+  allowlistedAbsolutePaths.add(path.resolve(absolutePath));
+}
+
+/**
+ * Constrain absolute file IPC to a registered workspace via resolveSafeWorkspacePath,
+ * or to an explicit allowlist (detached snapshots + Save As outside workspace).
+ */
+async function resolveContainedAbsoluteFilePath(absolutePath: string): Promise<string> {
+  const abs = path.resolve(absolutePath.trim());
+  const snapDir = path.resolve(getEditorDetachedSnapshotsDir());
+  if (isAbsolutePathWithinWorkspaceRoot(snapDir, abs)) {
+    return abs;
+  }
+  if (allowlistedAbsolutePaths.has(abs)) {
+    return abs;
+  }
+  const config = await loadConfig();
+  for (const ws of config.workspaces ?? []) {
+    const rootPath = typeof ws.path === 'string' ? ws.path.trim() : '';
+    if (!rootPath) {
+      continue;
+    }
+    const root = await resolveExistingOrResolvedPath(rootPath);
+    if (!isAbsolutePathWithinWorkspaceRoot(root, abs)) {
+      continue;
+    }
+    const rel = path.relative(root, abs);
+    return resolveSafeWorkspacePath(root, rel || '.');
+  }
+  throw new Error('Path is outside registered workspaces');
+}
 
 function dialogParent() {
   const mw = mainState.mainWindow;
@@ -166,6 +203,7 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
             outsideWorkspace: false as const,
           };
         }
+        allowlistAbsolutePath(chosen);
         return { ok: true as const, absolutePath: chosen, outsideWorkspace: true as const };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -186,7 +224,13 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
     if (typeof content !== 'string') {
       return { ok: false as const, error: 'Invalid content.' };
     }
-    const abs = path.resolve(absolutePath.trim());
+    let abs: string;
+    try {
+      abs = await resolveContainedAbsoluteFilePath(absolutePath);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false as const, error: msg };
+    }
     try {
       const st = await fs.stat(abs);
       if (st.isDirectory()) {
@@ -217,7 +261,13 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
     if (typeof absolutePath !== 'string' || !absolutePath.trim()) {
       return { ok: false as const, error: 'No path.' };
     }
-    const abs = path.resolve(absolutePath.trim());
+    let abs: string;
+    try {
+      abs = await resolveContainedAbsoluteFilePath(absolutePath);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false as const, error: msg };
+    }
     try {
       const st = await fs.stat(abs);
       if (!st.isFile()) {

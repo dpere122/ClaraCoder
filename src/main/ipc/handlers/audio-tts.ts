@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { assertTrustedMainRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import { abortAllTtsStreamControllers, mainState } from '../../state';
 import { loadConfig } from '../../config/load-save';
 import { PYTHON_URL } from '../../python/server';
@@ -26,7 +27,12 @@ function ipcAudioPayloadToBuffer(payload: unknown): Buffer {
  * - `tts-stream-register` — reserve a `nemo-tts://` URL backed by protocol handler.
  */
 export function registerAudioTtsIpc(): void {
-  ipcMain.handle('transcribe', async (_event, payload: unknown) => {
+  ipcMain.handle('transcribe', async (event, payload: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      throw new Error('Untrusted IPC sender');
+    }
     const audio = ipcAudioPayloadToBuffer(payload);
     if (audio.length < 100) {
       throw new Error('Recording was too short or empty; check microphone input.');
@@ -60,7 +66,12 @@ export function registerAudioTtsIpc(): void {
     return text;
   });
 
-  ipcMain.handle('tts-stream-abort', () => {
+  ipcMain.handle('tts-stream-abort', (event) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false, error: 'Untrusted IPC sender' };
+    }
     abortAllTtsStreamControllers();
     return { ok: true };
   });
@@ -71,6 +82,11 @@ export function registerAudioTtsIpc(): void {
       event,
       payload: { text: string; voice: string; speed: number; seq: number; instructions?: string },
     ) => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const { text, voice, speed, seq, instructions } = payload;
       const key = `ipc:${seq}`;
       const ac = new AbortController();
@@ -111,7 +127,12 @@ export function registerAudioTtsIpc(): void {
 
   ipcMain.handle(
     'tts-stream-register',
-    (_event, payload: { text: string; voice: string; speed: number; instructions?: string }) => {
+    (event, payload: { text: string; voice: string; speed: number; instructions?: string }) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { url: '' };
+      }
       const id = registerTtsStreamToken(payload.text, payload.voice, payload.speed, payload.instructions);
       return { url: `nemo-tts://electron/stream/${id}` };
     },

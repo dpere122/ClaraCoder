@@ -9,6 +9,7 @@ import { pythonControlFetch } from '../../python/http-client';
 import { isPythonHealthy } from '../../python/server';
 import { listDependencies } from '../../runtime/dependency-manager';
 import { getBundledVtslsEntry } from '../../paths';
+import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 
 const PYTHON_URL = `http://127.0.0.1:${PYTHON_PORT}`;
 
@@ -232,11 +233,36 @@ export async function collectRuntimeHealthSnapshot(): Promise<RuntimeHealthSnaps
 }
 
 export function registerHealthIpc(): void {
-  ipcMain.handle('health-metrics', async () => collectHealthMetrics());
+  ipcMain.handle('health-metrics', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return emptyHealthSnapshot(Date.now());
+    }
+    return collectHealthMetrics();
+  });
 
-  ipcMain.handle('health-runtime-snapshot', async () => collectRuntimeHealthSnapshot());
+  ipcMain.handle('health-runtime-snapshot', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return {
+        timestampMs: Date.now(),
+        python: { healthy: false },
+        dependencies: defaultDependencyCatalog(),
+        llama: { binaryInstalled: false, runningCount: 0, health: 'stopped' as const },
+        lsp: { javaInstalled: false, vtslsInstalled: false, activeSessions: 0 },
+      };
+    }
+    return collectRuntimeHealthSnapshot();
+  });
 
-  ipcMain.handle('health-logs-recent', async (_e, limit: number) => {
+  ipcMain.handle('health-logs-recent', async (event, limit: number) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return { records: [] as HealthLogRecord[] };
+    }
     try {
       const res = await fetch(`${PYTHON_URL}/logs/recent?limit=${Math.min(2000, Math.max(1, limit || 200))}`);
       if (!res.ok) return { records: [] as HealthLogRecord[] };
@@ -247,12 +273,22 @@ export function registerHealthIpc(): void {
     }
   });
 
-  ipcMain.handle('health-set-log-level', async (_e, level: string) => {
+  ipcMain.handle('health-set-log-level', async (event, level: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
     await syncPythonLogLevel(level);
-    return { ok: true };
+    return { ok: true as const };
   });
 
   ipcMain.on('health-logs-subscribe', (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
     const wc = event.sender;
     if (wc.isDestroyed()) return;
     logSubscribers.add(wc);
@@ -264,6 +300,11 @@ export function registerHealthIpc(): void {
   });
 
   ipcMain.on('health-logs-unsubscribe', (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
     logSubscribers.delete(event.sender);
     if (logSubscribers.size === 0) stopLogStream();
   });

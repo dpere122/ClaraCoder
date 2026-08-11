@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { assertTrustedMainRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import type { ConversationFile } from '../../../shared';
@@ -34,7 +35,12 @@ function effectiveWorkspaceId(workspaceId?: string | null): string | null {
  * Conversation persistence (SQLite), Python session sync (`/load`), and theme tweaks.
  */
 export function registerConversationsIpc(): void {
-  ipcMain.handle('get-conversations', async (_event, workspaceId?: string | null) => {
+  ipcMain.handle('get-conversations', async (event, workspaceId?: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return [];
+    }
     const ws = effectiveWorkspaceId(workspaceId);
     if (ws) {
       await fs.mkdir(getWorkspaceConversationsDir(ws), { recursive: true });
@@ -42,7 +48,12 @@ export function registerConversationsIpc(): void {
     return getConversationMetas(ws);
   });
 
-  ipcMain.handle('read-conversation-from-disk', async (_event, id: string, _workspaceId?: string | null) => {
+  ipcMain.handle('read-conversation-from-disk', async (event, id: string, _workspaceId?: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      throw new Error('Untrusted IPC sender');
+    }
     const conv = getConversationById(id);
     if (!conv) {
       throw new Error('Conversation not found');
@@ -53,11 +64,16 @@ export function registerConversationsIpc(): void {
   ipcMain.handle(
     'load-conversation',
     async (
-      _event,
+      event,
       id: string,
       _workspaceId?: string | null,
       options?: { skipPythonResync?: boolean },
     ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        throw new Error('Untrusted IPC sender');
+      }
       const skipPythonResync = Boolean(options?.skipPythonResync);
       mainState.activeConversationId = id;
 
@@ -111,14 +127,24 @@ export function registerConversationsIpc(): void {
     },
   );
 
-  ipcMain.handle('save-conversation', async (_event, conv: ConversationFile) => {
+  ipcMain.handle('save-conversation', async (event, conv: ConversationFile) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     if (conv.workspaceId) {
       await fs.mkdir(getWorkspaceConversationsDir(conv.workspaceId), { recursive: true });
     }
     upsertConversation(conv);
   });
 
-  ipcMain.handle('delete-conversation', async (_event, id: string, _workspaceId?: string | null) => {
+  ipcMain.handle('delete-conversation', async (event, id: string, _workspaceId?: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     try {
       await ensurePythonReady();
       await fetch(`${PYTHON_URL}/dispose`, {
@@ -132,14 +158,24 @@ export function registerConversationsIpc(): void {
     deleteConversationById(id);
   });
 
-  ipcMain.handle('rename-conversation', async (_event, id: string, title: string, _workspaceId?: string | null) => {
+  ipcMain.handle('rename-conversation', async (event, id: string, title: string, _workspaceId?: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     console.log('[Main] rename-conversation called:', { id, title, workspaceId: _workspaceId });
     const updatedAt = new Date().toISOString();
     updateConversationTitleAndLock(id, title, updatedAt);
     console.log('[Main] Rename successful (SQLite)');
   });
 
-  ipcMain.handle('maybe-auto-title-conversation', async (_event, id: string) => {
+  ipcMain.handle('maybe-auto-title-conversation', async (event, id: string) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, reason: 'fetch_failed' as const };
+    }
     const conv = getConversationById(id);
     if (!conv) {
       return { ok: false as const, reason: 'not_found' as const };
@@ -179,7 +215,12 @@ export function registerConversationsIpc(): void {
     }
   });
 
-  ipcMain.handle('new-conversation', async (_event, workspaceId: string | null) => {
+  ipcMain.handle('new-conversation', async (event, workspaceId: string | null) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      throw new Error('Untrusted IPC sender');
+    }
     const id = randomUUID();
     mainState.activeConversationId = id;
     mainState.activeConversationWorkspaceId = workspaceId;
@@ -225,7 +266,12 @@ export function registerConversationsIpc(): void {
     return conv;
   });
 
-  ipcMain.handle('set-conversation-theme', async (_event, id: string, themeId: string) => {
+  ipcMain.handle('set-conversation-theme', async (event, id: string, themeId: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     try {
       updateConversationTheme(id, themeId, new Date().toISOString());
     } catch (err) {
@@ -233,5 +279,12 @@ export function registerConversationsIpc(): void {
     }
   });
 
-  ipcMain.handle('get-active-conversation-id', async () => mainState.activeConversationId);
+  ipcMain.handle('get-active-conversation-id', async (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return null;
+    }
+    return mainState.activeConversationId;
+  });
 }

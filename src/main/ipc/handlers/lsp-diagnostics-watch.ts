@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { pythonControlFetch } from '../../python/http-client';
 
@@ -38,7 +39,12 @@ async function pollDiagnosticsGeneration(): Promise<void> {
 }
 
 export function registerLspDiagnosticsWatchIpc(): void {
-  ipcMain.on('lsp-diagnostics-watch-start', (_event, sessionId: unknown, relativePath: unknown) => {
+  ipcMain.on('lsp-diagnostics-watch-start', (event, sessionId: unknown, relativePath: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
     const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
     // Idempotent for the active target: refresh paths call watch-start repeatedly, and
@@ -60,7 +66,12 @@ export function registerLspDiagnosticsWatchIpc(): void {
     watchTimer = setInterval(() => void pollDiagnosticsGeneration(), 900);
   });
 
-  ipcMain.on('lsp-diagnostics-watch-stop', () => {
+  ipcMain.on('lsp-diagnostics-watch-stop', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     watchSessionId = '';
     watchRelativePath = '';
     lastGeneration = -1;

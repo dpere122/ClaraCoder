@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import type {
   LspEditorCodeActionIpc,
   LspEditorCodeLensIpc,
@@ -59,7 +60,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-diagnostics',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
@@ -68,6 +69,11 @@ export function registerLspEditorExtendedIpc(): void {
       | { ok: true; diagnostics: LspEditorDiagnosticIpc[]; generation: number }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       if (!sid || !rel) {
@@ -92,10 +98,15 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-diagnostics-generation',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
     ): Promise<{ ok: true; generation: number; count: number } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       if (!sid || !rel) {
@@ -120,7 +131,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-signature-help',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -130,6 +141,11 @@ export function registerLspEditorExtendedIpc(): void {
       isRetrigger: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; signatureHelp: LspEditorSignatureHelpIpc | null } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
@@ -160,7 +176,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-document-highlight',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -168,6 +184,11 @@ export function registerLspEditorExtendedIpc(): void {
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; highlights: LspEditorDocumentHighlightIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const ln = typeof line === 'number' && Number.isFinite(line) ? Math.floor(line) : NaN;
@@ -190,11 +211,16 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-completion-resolve',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       item: unknown,
     ): Promise<{ ok: true; item: LspEditorCompletionItemIpc } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       if (!sid || !rel || !item || typeof item !== 'object') {
@@ -218,7 +244,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-code-action',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       startLine: unknown,
@@ -229,6 +255,11 @@ export function registerLspEditorExtendedIpc(): void {
       diagnostics: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; actions: LspEditorCodeActionIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const sl = typeof startLine === 'number' ? Math.floor(startLine) : NaN;
@@ -256,7 +287,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-formatting',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
@@ -264,6 +295,11 @@ export function registerLspEditorExtendedIpc(): void {
       insertSpaces: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; edits: LspEditorTextEditIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       if (!sid || !rel) {
@@ -284,7 +320,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-range-formatting',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       startLine: unknown,
@@ -296,6 +332,11 @@ export function registerLspEditorExtendedIpc(): void {
       insertSpaces: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; edits: LspEditorTextEditIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const sl = typeof startLine === 'number' ? Math.floor(startLine) : NaN;
@@ -324,7 +365,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-on-type-formatting',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       line: unknown,
@@ -335,6 +376,11 @@ export function registerLspEditorExtendedIpc(): void {
       insertSpaces: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; edits: LspEditorTextEditIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const ln = typeof line === 'number' ? Math.floor(line) : NaN;
@@ -361,7 +407,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-inlay-hints',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       startLine: unknown,
@@ -371,6 +417,11 @@ export function registerLspEditorExtendedIpc(): void {
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; hints: LspEditorInlayHintIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const sl = typeof startLine === 'number' ? Math.floor(startLine) : NaN;
@@ -397,12 +448,17 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-code-lens',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<{ ok: true; lenses: LspEditorCodeLensIpc[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       if (!sid || !rel) {
@@ -419,11 +475,16 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-code-lens-resolve',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       lens: unknown,
     ): Promise<{ ok: true; lens: LspEditorCodeLensIpc | null } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       if (!sid || !rel || !lens || typeof lens !== 'object') {
@@ -443,7 +504,7 @@ export function registerLspEditorExtendedIpc(): void {
   ipcMain.handle(
     'lsp-editor-semantic-tokens-delta',
     async (
-      _event,
+      event,
       sessionId: unknown,
       relativePath: unknown,
       previousResultId: unknown,
@@ -453,6 +514,11 @@ export function registerLspEditorExtendedIpc(): void {
       | { ok: true; payload: { legend: { tokenTypes: string[]; tokenModifiers: string[] }; resultId: string | null; edits: unknown[] } }
       | { ok: false; error: string }
     > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
       const prev = typeof previousResultId === 'string' ? previousResultId.trim() : '';

@@ -79,6 +79,11 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   protected readonly inventorySpinnerName = `managed-llama-inventory-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly inventorySpinnerType = INVENTORY_SPINNER_TYPE;
 
+  /** Configured custom models dir (string). The inventory reloads only when this
+   *  value changes — not on every appConfig reference change (e.g. conversation
+   *  switches re-broadcast config and would otherwise re-trigger the spinner). */
+  protected readonly customModelsDir = computed(() => this.appConfig()?.modelManager.customModelsDir?.trim() ?? '');
+
   /** Sources listed in the dropdown, pinned rows first (same order as Settings → Models). */
   protected readonly sources = computed<LlmProviderConfig[]>(() => {
     const cfg = this.appConfig();
@@ -201,10 +206,11 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
     // Keep the local model inventory in sync with the configured custom models dir
     // so source labels resolve the same file names as the Settings sources list.
+    // Depends only on the dir string so conversation switches (which re-broadcast
+    // an unchanged config) don't re-trigger the loading spinner.
     effect(() => {
-      const cfg = this.appConfig();
-      const dir = cfg?.modelManager.customModelsDir?.trim();
-      if (!cfg || !dir) {
+      const dir = this.customModelsDir();
+      if (!dir) {
         this.inventory.set([]);
         return;
       }

@@ -125,8 +125,10 @@ function decryptSecretFromDisk(stored: string): string {
   }
   const ss = tryGetSafeStorage();
   if (!ss?.isEncryptionAvailable()) {
+    // Keychain down: do NOT strip the prefix and treat base64 ciphertext as a
+    // credential — refuse the secret and warn once.
     warnKeychainFallbackOnce();
-    return stored.slice(SECRET_DISK_PREFIX.length);
+    return '';
   }
   try {
     const blob = Buffer.from(stored.slice(SECRET_DISK_PREFIX.length), 'base64');
@@ -1354,7 +1356,14 @@ async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
   const configPath = getConfigPath();
   const tempPath = `${configPath}${CONFIG_TEMP_SUFFIX}`;
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
-  await fs.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  const configDir = path.dirname(configPath);
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+  // mkdir mode only applies on create; tighten pre-existing dirs too.
+  try {
+    await fs.chmod(configDir, 0o700);
+  } catch {
+    // Best-effort on platforms that ignore directory modes.
+  }
   // Encrypt secrets via keychain (or plaintext fallback) before stringify so the
   // payload never relies on live SecretValue fields (toJSON would redact).
   const diskSafe = serializeConfigForDisk(config);

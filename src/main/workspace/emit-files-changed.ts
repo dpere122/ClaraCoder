@@ -4,6 +4,51 @@ import type { WorkspaceChangeKind, WorkspaceFilesChangedPayload } from '../../sh
 import { loadConfig } from '../config/load-save';
 import { mainState } from '../state';
 import { isSameWorkspaceRootPath } from '../utils/workspace-entry-transfer';
+import { isAlwaysIgnoredWorkspaceEntry } from './ignore-rules';
+
+function isAlwaysIgnoredWatchPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalized || normalized === '.') {
+    return false;
+  }
+  // Staging-prefixed paths are not workspace secrets in the same sense; still check basename.
+  const withoutStaging = normalized.startsWith('[staging] ')
+    ? normalized.slice('[staging] '.length)
+    : normalized;
+  const segments = withoutStaging.split('/').filter(Boolean);
+  const entryName = segments[segments.length - 1] || withoutStaging;
+  return isAlwaysIgnoredWorkspaceEntry(entryName, withoutStaging);
+}
+
+function omitAlwaysIgnoredFromPayload(payload: WorkspaceFilesChangedPayload): WorkspaceFilesChangedPayload {
+  const paths: string[] = [];
+  const kinds: WorkspaceChangeKind[] = [];
+  const previousPaths: string[] = [];
+  const hasPrevious = Array.isArray(payload.previousPaths);
+
+  for (let i = 0; i < payload.paths.length; i++) {
+    const p = payload.paths[i] ?? '';
+    if (isAlwaysIgnoredWatchPath(p)) {
+      continue;
+    }
+    paths.push(p);
+    kinds.push(payload.kinds[i] ?? 'unknown');
+    if (hasPrevious) {
+      previousPaths.push(payload.previousPaths?.[i] ?? '');
+    }
+  }
+
+  if (paths.length === payload.paths.length) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    paths,
+    kinds,
+    ...(hasPrevious ? { previousPaths } : {}),
+  };
+}
 
 async function resolveWorkspaceForDiskRoot(
   workspaceRoot: string,
@@ -32,8 +77,13 @@ export function pushWorkspaceFilesChangedToRenderer(payload: WorkspaceFilesChang
   if (!win || win.isDestroyed()) {
     return;
   }
+  const safePayload = omitAlwaysIgnoredFromPayload(payload);
+  if (safePayload.paths.length === 0 && payload.paths.length > 0) {
+    // Entire batch was denylisted — do not leak secret paths over IPC.
+    return;
+  }
   try {
-    win.webContents.send('workspace-files-changed', payload);
+    win.webContents.send('workspace-files-changed', safePayload);
   } catch {
     /* window tearing down */
   }

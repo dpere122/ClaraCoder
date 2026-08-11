@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path = require('path');
 import { getWorkspaceDir, getWorkspaceSystemPromptPath } from '../paths';
+import { isAlwaysIgnoredWorkspaceEntry } from './ignore-rules';
 
 /** Max bytes accepted when copying a user-selected system prompt file. */
 export const WORKSPACE_SYSTEM_PROMPT_MAX_BYTES = 64 * 1024;
@@ -56,6 +57,15 @@ export async function copyWorkspaceSystemPromptFromPath(
   const source = (sourceAbsolutePath || '').trim();
   if (!source || !path.isAbsolute(source)) {
     throw new Error('A valid absolute file path is required.');
+  }
+
+  const sourceName = path.basename(source);
+  const normalizedSource = source.replace(/\\/g, '/');
+  if (
+    isAlwaysIgnoredWorkspaceEntry(sourceName, sourceName) ||
+    isAlwaysIgnoredWorkspaceEntry(sourceName, normalizedSource)
+  ) {
+    throw new Error('Selected file type is not allowed for the workspace system prompt.');
   }
 
   let stat;

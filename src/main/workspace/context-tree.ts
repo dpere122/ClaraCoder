@@ -2,7 +2,12 @@ import { promises as fs } from 'fs';
 import path = require('path');
 import type { WorkspaceChangeRecord, WorkspaceContextState } from '../../shared';
 import { WORKSPACE_CONTEXT_MAX_DEPTH, WORKSPACE_CONTEXT_MAX_ENTRIES, WORKSPACE_NODE_MODULES_DIR } from '../constants';
-import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
+import {
+  isAlwaysIgnoredWorkspaceEntry,
+  loadWorkspaceIgnoreRules,
+  normalizeContextPath,
+  shouldIgnoreWorkspaceEntry,
+} from './ignore-rules';
 
 export function formatContextTruncationNotice(prefix: string, reason: string): string {
   return `${prefix}... [${reason}]\n`;
@@ -79,6 +84,10 @@ export async function buildWorkspaceTree(
 
   const visibleEntries = entries.filter((entry) => {
     const relativePath = path.relative(contextState.rootPath, path.join(dirPath, entry.name));
+    // Secrets denylist: never list always-ignored entries, even when exposeAll is on.
+    if (isAlwaysIgnoredWorkspaceEntry(entry.name, relativePath)) {
+      return false;
+    }
     return !shouldIgnoreWorkspaceEntry(
       entry.name,
       relativePath,

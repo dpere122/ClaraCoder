@@ -12,6 +12,11 @@ export interface WorkspaceWatcherState {
   ignoreRules: string[];
   /** When true, built-in and `.gitignore` filters are skipped for tree sync and workspace watch batches. */
   exposeAllWorkspaceFiles: boolean;
+  /**
+   * Confirmation gate for expose-all: ignore filters are cleared only when this is true
+   * together with the config exposeAll flag. Secrets denylist still applies.
+   */
+  exposeAllConfirmed: boolean;
   watchers: FSWatcher[];
   debounceTimer: NodeJS.Timeout | null;
   /** Debounced watch batch; last kind wins per path within a batch. */

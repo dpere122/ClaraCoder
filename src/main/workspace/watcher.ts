@@ -20,13 +20,37 @@ import { loadConfig } from '../config/load-save';
 import { syncWorkspaceContextToPython } from '../python/workspace-sync';
 import { pushWorkspaceFilesChangedToRenderer } from './emit-files-changed';
 import { buildWorkspaceTree } from './context-tree';
-import { loadWorkspaceIgnoreRules, normalizeContextPath, shouldIgnoreWorkspaceEntry } from './ignore-rules';
+import {
+  isAlwaysIgnoredWorkspaceEntry,
+  loadWorkspaceIgnoreRules,
+  normalizeContextPath,
+  shouldIgnoreWorkspaceEntry,
+} from './ignore-rules';
 import type { WorkspaceWatcherState } from './watcher-state';
 import type { WorkspaceChangeKind, WorkspaceContextSyncExtras } from '../../shared';
 
 export type { WorkspaceWatcherState };
 
 type WatchSource = 'workspace' | 'staging';
+
+/** Optional confirmation flag on workspaceTools (future settings UI); defaults false. */
+function readExposeAllConfirmedFromConfig(config: import('../../shared').AppConfig): boolean {
+  const wt = config.workspaceTools as { exposeAllConfirmed?: unknown };
+  return wt.exposeAllConfirmed === true;
+}
+
+/** Effective expose-all requires both the config toggle and an explicit confirmation. */
+function resolveExposeAllWorkspaceFiles(config: import('../../shared').AppConfig): {
+  exposeAllWorkspaceFiles: boolean;
+  exposeAllConfirmed: boolean;
+} {
+  const exposeAllRequested = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
+  const exposeAllConfirmed = readExposeAllConfirmedFromConfig(config);
+  return {
+    exposeAllWorkspaceFiles: exposeAllRequested && exposeAllConfirmed,
+    exposeAllConfirmed,
+  };
+}
 
 export function clearWorkspaceWatcher(): void {
   const w = mainState.activeWorkspaceWatcher;
@@ -231,18 +255,23 @@ function shouldIncludeWorkspacePathInContextSync(
   ignoreRules: string[],
   exposeAllWorkspaceFiles: boolean,
 ): boolean {
-  if (exposeAllWorkspaceFiles) {
-    return true;
-  }
-
   const normalizedRelativePath = normalizeContextPath(relativePath).replace(/^\/+/, '');
   if (!normalizedRelativePath || normalizedRelativePath === '.') {
     return true;
   }
 
   const pathSegments = normalizedRelativePath.split('/').filter(Boolean);
-  const entryName = pathSegments[pathSegments.length - 1];
+  const entryName = pathSegments[pathSegments.length - 1] ?? '';
   const firstSegment = pathSegments[0] ?? entryName;
+
+  // Secrets denylist: deny even when exposeAll is on.
+  if (isAlwaysIgnoredWorkspaceEntry(entryName, normalizedRelativePath)) {
+    return false;
+  }
+
+  if (exposeAllWorkspaceFiles) {
+    return true;
+  }
 
   if (WORKSPACE_CONTEXT_IGNORED_NAMES.has(firstSegment) || WORKSPACE_CONTEXT_IGNORED_NAMES.has(entryName)) {
     return false;
@@ -258,7 +287,7 @@ function shouldIncludeWorkspacePathInContextSync(
     path.join(normalizedWorkspacePath, normalizedRelativePath),
   );
 
-  return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, ignoreRules);
+  return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, ignoreRules, exposeAllWorkspaceFiles);
 }
 
 function filterChangePayloadForContextSync(
@@ -312,7 +341,9 @@ export async function applyWorkspaceExposeAllFromConfig(config: import('../../sh
   if (!aw) {
     return;
   }
-  const exposeAll = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
+  const { exposeAllWorkspaceFiles: exposeAll, exposeAllConfirmed } = resolveExposeAllWorkspaceFiles(config);
+  aw.exposeAllConfirmed = exposeAllConfirmed;
+  // Confirmation required before clearing ignore filters; denylist still applies via shouldIgnore.
   if (aw.exposeAllWorkspaceFiles === exposeAll) {
     return;
   }
@@ -323,6 +354,9 @@ export async function applyWorkspaceExposeAllFromConfig(config: import('../../sh
     } catch {
       aw.ignoreRules = [];
     }
+  } else {
+    // exposeAll + confirmed: drop gitignore/builtin filters, but always-ignored denylist remains.
+    aw.ignoreRules = [];
   }
   void syncWatchedWorkspaceTree(aw);
 }
@@ -334,7 +368,7 @@ export async function startWorkspaceWatcher(workspace: Workspace): Promise<void>
   syncFs.mkdirSync(stagingPath, { recursive: true });
 
   const config = await loadConfig();
-  const exposeAllWorkspaceFiles = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
+  const { exposeAllWorkspaceFiles, exposeAllConfirmed } = resolveExposeAllWorkspaceFiles(config);
 
   let ignoreRules: string[];
   try {
@@ -350,6 +384,7 @@ export async function startWorkspaceWatcher(workspace: Workspace): Promise<void>
       stagingPath,
       ignoreRules,
       exposeAllWorkspaceFiles,
+      exposeAllConfirmed,
       watchers: [],
       debounceTimer: null,
       pendingChanges: new Map(),
@@ -419,6 +454,27 @@ function workspaceContextSyncExtras(
   };
 }
 
+/** Drop always-ignored (denylist) lines from a workspace tree string before sidecar sync. */
+function filterDenylistedPathsFromWorkspaceTree(tree: string): string {
+  if (!tree) {
+    return tree;
+  }
+  const lines = tree.split('\n');
+  const kept = lines.filter((line) => {
+    // Tree entry lines may be indented: `|  |-- name` / `   `-- name/` (+ optional symlink marker).
+    const match = line.match(/^(?:[| ]{2})*(?:\|-- |`-- )(.+?)(\/)?(?: \[symlink\])?$/);
+    if (!match) {
+      return true;
+    }
+    const label = (match[1] ?? '').trim();
+    if (!label || label.startsWith('[')) {
+      return true;
+    }
+    return !isAlwaysIgnoredWorkspaceEntry(label, label);
+  });
+  return kept.join('\n');
+}
+
 export async function syncConversationWorkspaceContext(conv: ConversationFile): Promise<void> {
   mainState.activeConversationWorkspaceId = conv.workspaceId;
 
@@ -429,12 +485,14 @@ export async function syncConversationWorkspaceContext(conv: ConversationFile): 
       const aw = mainState.activeWorkspaceWatcher;
       const stagingPath = getWorkspaceStagingDir();
       syncFs.mkdirSync(stagingPath, { recursive: true });
-      const exposeAll = !!(config.workspaceTools.exposeAllWorkspaceFiles ?? false);
-      const tree =
+      const { exposeAllWorkspaceFiles: exposeAll } = resolveExposeAllWorkspaceFiles(config);
+      const rawTree =
         aw?.workspaceId === workspace.id
           ? aw.lastTree ||
             (await buildWatchedContextSnapshot(workspace.path, stagingPath, aw.exposeAllWorkspaceFiles))
           : await buildWatchedContextSnapshot(workspace.path, stagingPath, exposeAll);
+      // Hard guard: never push denylisted secret paths to the sidecar, even if exposeAll is on.
+      const tree = filterDenylistedPathsFromWorkspaceTree(rawTree);
       const pyId = (workspace.pythonInterpreterId ?? '').trim();
       await syncWorkspaceContextToPython(
         conv.id,

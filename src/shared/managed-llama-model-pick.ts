@@ -8,8 +8,10 @@ import {
   type ShellQuotingPlatform,
 } from './llama-cpp-managed';
 import { inferContextWindowTokens } from './model-context';
-import type { LlmOptimizationPreset } from './types/app-config';
+import type { LlmOptimizationPreset, LlmProviderConfig } from './types/app-config';
 import { GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
+import type { ModelManagerFileEntry } from './types/model-manager';
+import { isPinnedLlamaServerUrlProviderId } from './llm-provider-ids';
 
 export type ManagedLlamaModelSource =
   | { kind: 'gguf'; absolutePath: string; displayName?: string }
@@ -376,4 +378,56 @@ export function optimizationPresetDefaultsPatch(
     };
   }
   return { optimizationPreset: 'generic' };
+}
+
+/**
+ * Compute the managed-model picker value (``gguf:…`` / ``hub:…`` / ``hf:…`` / empty)
+ * for an arbitrary chat command, resolved against the local model inventory so a
+ * ``-hf`` selection that matches a hub cache folder is reported as ``hub:…``.
+ */
+export function managedPickerValueForCmd(cmd: string, inventory: ModelManagerFileEntry[]): string {
+  const sel = parseManagedLlamaModelSelection(cmd);
+  if (!sel) {
+    return '';
+  }
+  if (sel.kind === 'gguf') {
+    return `gguf:${sel.absolutePath}`;
+  }
+  const hfBase = sel.hfId.split(':')[0] ?? sel.hfId;
+  for (const m of inventory) {
+    if (m.entryKind === 'hubRepo') {
+      const id = hubCacheFolderToHfId(m.fileName) || hubCacheFolderToHfId(m.absolutePath);
+      if (id && (id === sel.hfId || id === hfBase)) {
+        return `hub:${m.absolutePath}`;
+      }
+    }
+  }
+  return `hf:${sel.hfId}`;
+}
+
+/**
+ * Display name for a managed llama-server source row, mirroring the Local model
+ * dropdown: the inventory file name for a GGUF/hub pick, or the HF id for an HF
+ * pick, falling back to the stored provider name when no model is selected.
+ * Non-managed (non-llamacpp or URL-only llama) providers return their stored name.
+ */
+export function managedLlamaSourceDisplayName(
+  provider: LlmProviderConfig,
+  inventory: ModelManagerFileEntry[],
+): string {
+  if (provider.provider !== 'llamacpp' || isPinnedLlamaServerUrlProviderId(provider.id)) {
+    return provider.name;
+  }
+  const cmd = provider.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
+  const picker = managedPickerValueForCmd(cmd, inventory);
+  if (!picker) {
+    return provider.name;
+  }
+  if (picker.startsWith('hf:')) {
+    return picker.slice('hf:'.length) || provider.name;
+  }
+  const match = inventory.find(
+    (m) => (m.entryKind === 'hubRepo' ? `hub:${m.absolutePath}` : `gguf:${m.absolutePath}`) === picker,
+  );
+  return match?.fileName || provider.name;
 }

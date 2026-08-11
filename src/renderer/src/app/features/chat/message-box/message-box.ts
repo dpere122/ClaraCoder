@@ -167,6 +167,7 @@ export class MessageBox {
 
   /**
    * Validates draft text (or attachments), emits {@link messageSent}, and clears input.
+   * Resets multiline mode so the next draft starts in single-line entry.
    * No-op while {@link loading} or {@link contextBlocked}.
    */
   send(): void {
@@ -176,7 +177,9 @@ export class MessageBox {
     this.messageSent.emit(msg);
     this.userInput.set('');
     if (this.multilineMode()) {
-      queueMicrotask(() => this.adjustTextareaHeight());
+      this.multilineMode.set(false);
+      this.focusComposerAfterRender();
+      return;
     }
     this.focusInput();
   }

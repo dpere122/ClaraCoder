@@ -39,6 +39,7 @@
         [activeFileRelativePath]='activeFileRelativePath()'
         [outlineSymbols]='monacoOutlineState().symbols'
         [outlineRelativePath]='monacoOutlineState().relativePath'
+        [appConfig]='appConfig()'
         (workspaceChanged)='onWorkspaceChanged($event)'
         (addWorkspace)='onAddWorkspace()'
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'

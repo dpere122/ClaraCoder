@@ -1,15 +1,14 @@
 import { Component, computed, input } from '@angular/core';
 import type { AppConfig } from '@shared/index';
-import { LlamaStatusIndicator } from '../llama-status-indicator/llama-status-indicator';
 
 @Component({
   selector: 'app-context-capacity',
-  imports: [LlamaStatusIndicator],
+  imports: [],
   templateUrl: './context-capacity.html',
   styleUrl: './context-capacity.css',
 })
 export class ContextCapacityComponent {
-  /** Active app config — drives the llama.cpp model/embeddings status dots shown beside the meter. */
+  /** Active app config (kept for API symmetry; the llama status dots now live beside the workspace Start/Stop). */
   readonly appConfig = input<AppConfig | null>(null);
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);

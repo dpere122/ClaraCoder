@@ -33,6 +33,9 @@ import type {
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
+  ModelManagerDownloadHfResult,
+  HfDownloadId,
+  HfDownloadProgressEvent,
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   AgentQuestionPayload,
@@ -354,6 +357,7 @@ export class ElectronService {
   private readonly llamaServerOutputSubject = new Subject<LlamaServerOutputEvent>();
   private readonly llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
   private readonly llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
+  private readonly hfDownloadProgressSubject = new Subject<HfDownloadProgressEvent>();
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
   private readonly windowMaximizedSubject = new Subject<boolean>();
@@ -402,6 +406,8 @@ export class ElectronService {
   readonly llamaServerOutput$ = this.llamaServerOutputSubject.asObservable();
   readonly llamaServerProcessExit$ = this.llamaServerProcessExitSubject.asObservable();
   readonly llamaServerLifecycle$ = this.llamaServerLifecycleSubject.asObservable();
+  /** Hugging Face GGUF download progress events (queued/progress/done/error/cancelled). */
+  readonly hfDownloadProgress$ = this.hfDownloadProgressSubject.asObservable();
   /** TTS MP3 packets from the main process (filter by `seq` in the app). */
   readonly ttsStream$: Observable<TtsStreamPacket> = this.ttsStreamSubject.asObservable();
   readonly healthLogRecord$ = this.healthLogRecordSubject.asObservable();
@@ -650,6 +656,9 @@ export class ElectronService {
     });
     this.api?.onLlamaServerLifecycle?.((_event, data) => {
       this.zone.run(() => this.llamaServerLifecycleSubject.next(data as LlamaServerLifecycleEvent));
+    });
+    this.api?.onModelManagerHfDownloadProgress?.((_event, data) => {
+      this.zone.run(() => this.hfDownloadProgressSubject.next(data as HfDownloadProgressEvent));
     });
     if (!ElectronService.ttsPacketListenerWired && this.api?.onTtsStreamPacket) {
       ElectronService.ttsPacketListenerWired = true;
@@ -1108,6 +1117,24 @@ export class ElectronService {
     return (
       this.api?.modelManagerListHfFiles(payload) ??
       Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerDownloadHfFile(payload: {
+    repoId: string;
+    fileName: string;
+    customDir: string;
+    token?: string;
+  }): Promise<ModelManagerDownloadHfResult> {
+    return (
+      this.api?.modelManagerDownloadHfFile(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerCancelHfDownload(payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.modelManagerCancelHfDownload(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
 

@@ -34,6 +34,8 @@ export {
   inferOptimizationPresetFromModelHint,
   isQwenFamily,
   managedLlamaSourceHint,
+  managedLlamaSourceDisplayName,
+  managedPickerValueForCmd,
   optimizationPresetDefaultsPatch,
   parseManagedLlamaCheckpointSettings,
   parseManagedLlamaModelSelection,
@@ -320,6 +322,10 @@ export type {
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
+  HfDownloadId,
+  HfDownloadPhase,
+  HfDownloadProgressEvent,
+  ModelManagerDownloadHfResult,
 } from './types/model-manager';
 export type {
   DependencyActionResult,

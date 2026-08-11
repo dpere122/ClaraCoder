@@ -13,7 +13,7 @@ import {
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { filter, merge, Subscription } from 'rxjs';
+import { Subscription } from 'rxjs';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
@@ -21,8 +21,9 @@ import type {
   FontFamilyOption,
   HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
+  HfDownloadId,
+  HfDownloadProgressEvent,
   LlamaCppManaged,
-  LlamaServerStatusResult,
   LlmConnectionConfig,
   LlmModelProfile,
   LlmOptimizationPreset,
@@ -71,7 +72,9 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
+  managedPickerValueForCmd,
   mergeLlmProviderModel,
   normalizeChatContainerSize,
   normalizeMonacoWorkspaceEditorSettings,
@@ -185,6 +188,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly settingsSaveSpinnerName = `settings-save-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
   protected readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly localModelDropdownSpinnerName = `settings-local-model-dropdown-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly hfSearchSpinnerName = `settings-hf-search-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
   protected readonly modelManagerLocalLoading = signal(false);
@@ -459,6 +463,13 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerHfFilesBusyByRepo = signal<Record<string, boolean>>({});
   /** Per-repo error message for the file/quant fetch. */
   protected readonly modelManagerHfFilesErrorByRepo = signal<Record<string, string>>({});
+
+  /** In-flight HF quant downloads keyed by ``${repoId}/${fileName}``. */
+  protected readonly modelManagerHfDownloads = signal<
+    Record<HfDownloadId, { repoId: string; fileName: string; receivedBytes: number; totalBytes: number | null }>
+  >({});
+  /** Quants that finished downloading (value = absolute path of the local GGUF). */
+  protected readonly modelManagerHfDownloaded = signal<Record<HfDownloadId, string>>({});
   protected readonly uiFontSizeRemMin = UI_FONT_SIZE_REM_MIN;
   protected readonly uiFontSizeRemMax = UI_FONT_SIZE_REM_MAX;
   protected readonly uiFontSizeRemDefault = UI_FONT_SIZE_REM_DEFAULT;
@@ -544,39 +555,6 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   protected readonly llamacppModelsListError = signal<string | null>(null);
   protected readonly llamacppModelsListInFlight = signal(false);
-  /** Managed llama-server lifecycle phase for the currently selected model. */
-  protected readonly managedLlamaPhase = signal<'idle' | 'starting' | 'downloading' | 'running'>('idle');
-  protected readonly managedLlamaStartError = signal<string | null>(null);
-  protected readonly managedLlamaBusy = computed(
-    () => this.managedLlamaPhase() === 'starting' || this.managedLlamaPhase() === 'downloading',
-  );
-  protected readonly managedLlamaRunning = computed(() => this.managedLlamaPhase() === 'running');
-  protected readonly managedLlamaActionLabel = computed(() => {
-    if (this.managedLlamaRunning()) {
-      return 'Stop';
-    }
-    if (this.managedLlamaBusy()) {
-      return 'Starting…';
-    }
-    return 'Start';
-  });
-  protected readonly managedLlamaStatusLabel = computed(() => {
-    const err = this.managedLlamaStartError();
-    if (err) {
-      return err;
-    }
-    const phase = this.managedLlamaPhase();
-    if (phase === 'running') {
-      return 'Healthy';
-    }
-    if (phase === 'downloading') {
-      return 'Downloading…';
-    }
-    if (phase === 'starting') {
-      return 'Starting…';
-    }
-    return 'Not running';
-  });
   /** Conservative / Balanced / Max context suggestion for managed local Start. */
   protected readonly contextFitPreset = signal<ContextFitPresetId>('balanced');
   protected readonly contextFitOptions = CONTEXT_FIT_PRESET_LIST;
@@ -584,25 +562,10 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly managedHfIdDraft = signal('');
   protected readonly managedInventoryModels = computed(() => this.modelManagerCustomModels());
   /** Select value for the managed model picker (`gguf:…` / `hub:…` / `hf:…` / empty). */
-  protected readonly managedPickerValue = computed(() => {
-    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
-    if (!sel) {
-      return '';
-    }
-    if (sel.kind === 'gguf') {
-      return `gguf:${sel.absolutePath}`;
-    }
-    const hfBase = sel.hfId.split(':')[0] ?? sel.hfId;
-    for (const m of this.modelManagerCustomModels()) {
-      if (m.entryKind === 'hubRepo') {
-        const id = hubCacheFolderToHfId(m.fileName) || hubCacheFolderToHfId(m.absolutePath);
-        if (id && (id === sel.hfId || id === hfBase)) {
-          return `hub:${m.absolutePath}`;
-        }
-      }
-    }
-    return `hf:${sel.hfId}`;
-  });
+  protected readonly managedPickerValue = computed(() =>
+    managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
+  );
+
   protected readonly managedSelectedFamilyLabel = computed(() => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
     const hint =
@@ -638,7 +601,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly managedCheckpointSettings = computed((): ManagedLlamaCheckpointSettings =>
     parseManagedLlamaCheckpointSettings(this.selectedLlamaCppManaged().chatRunCommand),
   );
-  private llamaLifecycleSubscription: Subscription | null = null;
+  private hfDownloadSubscription: Subscription | null = null;
   protected readonly llamacppUrlModelsSummary = computed(() => {
     const chat = this.llamacppManagedModelIds().length;
     const emb = this.llamacppUrlEmbeddingModelIds().length;
@@ -667,6 +630,7 @@ export class Settings implements OnInit, OnDestroy {
     effect(() => {
       const loading = this.modelManagerLocalLoading();
       untracked(() => this.scheduleNamedSpinnerSync(this.localModelsSpinnerName, loading));
+      untracked(() => this.scheduleNamedSpinnerSync(this.localModelDropdownSpinnerName, loading));
     });
     effect(() => {
       const loading = this.modelManagerHfBusy();
@@ -685,46 +649,47 @@ export class Settings implements OnInit, OnDestroy {
 
     void this.electron.listSystemFonts().then((fonts) => this.systemFonts.set(fonts));
 
-    this.llamaLifecycleSubscription = merge(
-      this.electron.llamaServerLifecycle$,
-      this.electron.llamaServerProcessExit$,
-    )
-      .pipe(
-        filter((e) => {
-          const id = this.selectedModel()?.id;
-          return !!id && e.modelId === id;
-        }),
-      )
-      .subscribe((e) => {
-        if ('phase' in e) {
-          if (e.phase === 'starting') {
-            this.managedLlamaPhase.set('starting');
-          } else if (e.phase === 'downloading') {
-            this.managedLlamaPhase.set('downloading');
-          } else if (e.phase === 'running') {
-            this.managedLlamaPhase.set('running');
-            this.managedLlamaStartError.set(null);
-          } else if (e.phase === 'stopped') {
-            this.managedLlamaPhase.set('idle');
-          }
-        } else {
-          // process exit while not transitioning to running -> back to idle
-          if (this.managedLlamaPhase() !== 'running') {
-            this.managedLlamaPhase.set('idle');
-          }
+    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e) => {
+      const id = e.downloadId;
+      if (e.phase === 'queued') {
+        this.modelManagerHfDownloads.update((m) => ({
+          ...m,
+          [id]: { repoId: e.repoId, fileName: e.fileName, receivedBytes: 0, totalBytes: null },
+        }));
+      } else if (e.phase === 'progress') {
+        this.modelManagerHfDownloads.update((m) => {
+          const cur = m[id];
+          if (!cur) return m;
+          return { ...m, [id]: { ...cur, receivedBytes: e.receivedBytes, totalBytes: e.totalBytes } };
+        });
+      } else if (e.phase === 'done') {
+        this.modelManagerHfDownloads.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+        if (e.absolutePath) {
+          this.modelManagerHfDownloaded.update((m) => ({ ...m, [id]: e.absolutePath as string }));
         }
-      });
-
-    void this.probeManagedLlamaStatus();
+        void this.refreshCustomModelCards();
+      } else if (e.phase === 'error' || e.phase === 'cancelled') {
+        this.modelManagerHfDownloads.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+      }
+    });
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
     void this.ngxSpinner.hide(this.settingsSaveSpinnerName);
     void this.ngxSpinner.hide(this.localModelsSpinnerName);
+    void this.ngxSpinner.hide(this.localModelDropdownSpinnerName);
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
     this.subscription?.unsubscribe();
-    this.llamaLifecycleSubscription?.unsubscribe();
+    this.hfDownloadSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
       void this.enqueuePersist();
     }
@@ -971,7 +936,6 @@ export class Settings implements OnInit, OnDestroy {
         this.llamacppUrlEmbeddingModelIds.set([]);
         void this.refreshCustomModelCards();
         void this.refreshLlamacppManagedModels();
-        void this.probeManagedLlamaStatus();
         const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
         const sel = parseManagedLlamaModelSelection(cmd);
         this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
@@ -1028,84 +992,6 @@ export class Settings implements OnInit, OnDestroy {
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
-    }
-  }
-
-  protected async startManagedLlamaServer(): Promise<void> {
-    const m = this.selectedModel();
-    if (!m) {
-      return;
-    }
-    if (this.managedLlamaBusy()) {
-      return;
-    }
-    if (this.managedLlamaRunning()) {
-      return;
-    }
-    this.managedLlamaPhase.set('starting');
-    this.managedLlamaStartError.set(null);
-    try {
-      const cfg = this.buildConfigForPersist();
-      const res = await this.electron.llamaServerStart({ modelId: m.id, config: cfg });
-      if (!res.ok) {
-        this.managedLlamaPhase.set('idle');
-        this.managedLlamaStartError.set(res.error);
-      }
-      // success path is driven by the 'running' lifecycle event
-    } catch (e) {
-      this.managedLlamaPhase.set('idle');
-      this.managedLlamaStartError.set(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  protected async stopManagedLlamaServer(): Promise<void> {
-    const m = this.selectedModel();
-    if (!m) {
-      return;
-    }
-    if (!this.managedLlamaRunning()) {
-      return;
-    }
-    try {
-      const cfg = this.buildConfigForPersist();
-      await this.electron.llamaServerStop({ modelId: m.id, config: cfg });
-      // 'stopped' lifecycle event resets phase to idle
-    } catch {
-      this.managedLlamaPhase.set('idle');
-    }
-  }
-
-  protected async toggleManagedLlamaServer(): Promise<void> {
-    if (this.managedLlamaRunning()) {
-      await this.stopManagedLlamaServer();
-    } else {
-      await this.startManagedLlamaServer();
-    }
-  }
-
-  private async probeManagedLlamaStatus(): Promise<void> {
-    const m = this.selectedModel();
-    const p = this.selectedProvider();
-    if (!m || !p || p.provider !== 'llamacpp' || this.isUrlOnlyLlamacpp()) {
-      this.managedLlamaPhase.set('idle');
-      return;
-    }
-    if (!this.configSnapshot) {
-      return;
-    }
-    try {
-      const cfg = this.buildConfigForPersist();
-      const res: LlamaServerStatusResult = await this.electron.llamaServerStatus({
-        modelId: m.id,
-        config: cfg,
-      });
-      if (res.ok && res.running) {
-        this.managedLlamaPhase.set('running');
-      } else {
-        this.managedLlamaPhase.set('idle');
-      }
-    } catch {
-      this.managedLlamaPhase.set('idle');
     }
   }
 
@@ -1368,6 +1254,28 @@ export class Settings implements OnInit, OnDestroy {
     return 'OpenAI';
   }
 
+  /**
+   * Whether a source row is a managed (non-URL-only) llamacpp provider — i.e. one
+   * whose label mirrors the selected model and therefore participates in inventory
+   * loading. Used to gate the inline source-label spinner in the sources list.
+   */
+  protected isManagedLlamacppSource(provider: LlmProviderConfig): boolean {
+    return provider.provider === 'llamacpp' && !isPinnedLlamaServerUrlProviderId(provider.id);
+  }
+
+  /**
+   * Display name for a source row in the Models sources list. Any managed
+   * (non-URL-only) llamacpp source mirrors the model picked in its Local model
+   * dropdown — the inventory file name for a GGUF/hub pick, or the HF id for an
+   * HF pick — so the sidebar reflects the same label the dropdown shows. The
+   * name is not user-editable for these sources; it falls back to the stored
+   * provider name (a fixed default) when no model is selected. Other providers
+   * show their stored name.
+   */
+  protected sourceDisplayName(provider: LlmProviderConfig): string {
+    return managedLlamaSourceDisplayName(provider, this.modelManagerCustomModels());
+  }
+
   protected presetDescription(connection: LlmConnectionConfig): string {
     return (
       optimizationPresetsForProvider(connection.provider).find((p) => p.id === connection.optimizationPreset)
@@ -1583,14 +1491,6 @@ export class Settings implements OnInit, OnDestroy {
     }
   }
 
-  protected applyManagedHfIdDraft(): void {
-    const hfId = this.managedHfIdDraft().trim();
-    if (!hfId) {
-      return;
-    }
-    this.applyManagedModelSource({ kind: 'hf', hfId });
-  }
-
   protected onContextFitPresetChange(fit: string): void {
     const next: ContextFitPresetId =
       fit === 'conservative' ? 'conservative' : fit === 'max' ? 'max' : 'balanced';
@@ -1724,7 +1624,6 @@ export class Settings implements OnInit, OnDestroy {
       });
     }
     void this.refreshCustomModelCards();
-    void this.probeManagedLlamaStatus();
   }
 
   protected useHfModelInModels(hfId: string): void {
@@ -1740,7 +1639,6 @@ export class Settings implements OnInit, OnDestroy {
     }
     this.managedHfIdDraft.set(id);
     this.applyManagedModelSource({ kind: 'hf', hfId: id });
-    void this.probeManagedLlamaStatus();
   }
 
   /** Toggle a HF search card open/closed; loads quant files on first expand. */
@@ -1803,6 +1701,82 @@ export class Settings implements OnInit, OnDestroy {
     const quant = (file.quant || '').trim();
     const hfId = quant ? `${repo}:${quant}` : `${repo}:${file.fileName}`;
     this.useHfModelInModels(hfId);
+  }
+
+  /** Stable download id for a quant within a HF repo. */
+  private hfQuantDownloadId(repoId: string, file: HuggingFaceModelFile): HfDownloadId {
+    return `${repoId}/${file.fileName}`;
+  }
+
+  /** Whether a quant is currently downloading (progress bar should be shown). */
+  protected isHfQuantDownloading(repoId: string, file: HuggingFaceModelFile): boolean {
+    return !!this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
+  }
+
+  /** Whether a quant finished downloading (Use in Models becomes primary action). */
+  protected isHfQuantDownloaded(repoId: string, file: HuggingFaceModelFile): boolean {
+    return !!this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repoId, file)];
+  }
+
+  /** Download progress 0..1 for a quant; 0 when total is unknown. */
+  protected hfQuantDownloadFraction(repoId: string, file: HuggingFaceModelFile): number {
+    const id = this.hfQuantDownloadId(repoId, file);
+    const d = this.modelManagerHfDownloads()[id];
+    if (!d || !d.totalBytes || d.totalBytes <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes));
+  }
+
+  /** Human-readable progress label for a downloading quant. */
+  protected hfQuantDownloadLabel(repoId: string, file: HuggingFaceModelFile): string {
+    const id = this.hfQuantDownloadId(repoId, file);
+    const d = this.modelManagerHfDownloads()[id];
+    if (!d) {
+      return '';
+    }
+    const pct = d.totalBytes && d.totalBytes > 0 ? Math.round((d.receivedBytes / d.totalBytes) * 100) : null;
+    const recv = this.formatFileSize(d.receivedBytes);
+    const total = d.totalBytes != null ? this.formatFileSize(d.totalBytes) : '?';
+    return pct != null ? `${pct}% · ${recv} / ${total}` : `${recv} / ${total}`;
+  }
+
+  /** Kick off a HF GGUF download into the configured custom models directory. */
+  protected async downloadHfQuant(repoId: string, file: HuggingFaceModelFile): Promise<void> {
+    const repo = (repoId || '').trim();
+    const fileName = (file?.fileName || '').trim();
+    if (!repo || !fileName) {
+      return;
+    }
+    const customDir = (this.modelManagerCustomDir() || '').trim();
+    if (!customDir) {
+      this.modelManagerStatus.set('Set a custom models directory before downloading.');
+      return;
+    }
+    const downloadId = this.hfQuantDownloadId(repo, file);
+    if (this.modelManagerHfDownloads()[downloadId]) {
+      return;
+    }
+    // The 'queued' progress event from the main process drives the bar; we do not
+    // set optimistic state here. A second invoke that gets `ok:false` ("already
+    // downloading") would otherwise wipe the entry that the first invoke's 'queued'
+    // event legitimately created, hiding the bar while the download continues.
+    const res = await this.electron.modelManagerDownloadHfFile({
+      repoId: repo,
+      fileName,
+      customDir,
+      token: this.modelManagerHfToken().trim(),
+    });
+    // Progress events drive the bar; this resolves only at completion.
+    if (!res.ok) {
+      this.modelManagerStatus.set(res.error);
+    }
+  }
+
+  /** Cancel an in-flight HF quant download. */
+  protected cancelHfQuantDownload(repoId: string, file: HuggingFaceModelFile): void {
+    const id = this.hfQuantDownloadId(repoId, file);
+    void this.electron.modelManagerCancelHfDownload({ downloadId: id });
   }
 
   /** Clear expanded-card state when a new search resets the results list. */
@@ -2966,6 +2940,11 @@ export class Settings implements OnInit, OnDestroy {
 
     if (this.selectedSettingsTab() === 'modelManager') {
       void this.refreshModelManagerData();
+    } else if (forceFull && this.selectedSettingsTab() === 'models') {
+      // The models tab opens by default; selectTab() is never invoked on first
+      // load, so the local model inventory would otherwise stay empty until the
+      // user clicks away and back.
+      void this.refreshCustomModelCards();
     }
 
     this.applyTheme(config.themeId || DEFAULT_THEME_ID);

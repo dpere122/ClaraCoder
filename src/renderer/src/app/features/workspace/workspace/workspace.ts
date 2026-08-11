@@ -12,9 +12,10 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import type { PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
+import type { AppConfig, PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
@@ -59,9 +60,17 @@ import {
   WORKSPACE_TREE_INTERNAL_MOVE_MIME,
 } from '../../chat/chat-context-bar/chat-context-file';
 
+/** Default system prompt written into every workspace so the prompt file always exists. */
+const DEFAULT_WORKSPACE_SYSTEM_PROMPT = `You are Clara, a senior software engineering agent operating inside the Clara Coder IDE.
+
+You work iteratively: read the workspace, plan, make focused edits, run commands, and verify. Prefer small, reviewable changes. Explain trade-offs briefly, then act. Use the provided tools rather than asking the user to do things by hand.
+
+Be direct and concise. When you are unsure about intent, ask a short clarifying question before making changes.
+`;
+
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, WorkspaceOutlineDockComponent],
+  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, ManagedLlamaControlsComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -78,6 +87,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly activeFileRelativePath = input<string | null>(null);
   /** Document outline symbols from the active Monaco tab. */
   readonly outlineSymbols = input<readonly EditorOutlineSymbol[]>([]);
+  /** Live app config from the shell; drives the managed llama-server Start/Stop controls in the footer. */
+  readonly appConfig = input<AppConfig | null>(null);
   /** Relative path for the active outline (from Monaco). */
   readonly outlineRelativePath = input<string | null>(null);
 
@@ -168,6 +179,8 @@ export class WorkspaceComponent implements OnDestroy {
   /** Simple in-app editor for the managed system-prompt file. */
   protected readonly systemPromptEditorOpen = signal(false);
   protected readonly systemPromptEditorDraft = signal('');
+  /** Snapshot of the prompt text when the editor opened — used to detect unsaved changes. */
+  protected readonly systemPromptEditorOriginal = signal('');
   protected readonly systemPromptEditorSaving = signal(false);
   protected readonly systemPromptEditorError = signal('');
 
@@ -427,36 +440,30 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  protected async onPickSystemPrompt(): Promise<void> {
-    const wid = this.currentWorkspaceId();
-    if (!wid || this.systemPromptBusy()) {
-      return;
-    }
-    this.systemPromptBusy.set(true);
-    this.systemPromptError.set('');
-    try {
-      const res = await this.electron.pickWorkspaceSystemPrompt(wid, this.activeConversationId());
-      this.systemPromptHasFile.set(res.hasFile);
-      this.systemPromptSourceName.set(res.sourceName || '');
-      if (!res.ok) {
-        this.systemPromptError.set(res.error);
-      }
-    } catch (e) {
-      this.systemPromptError.set(e instanceof Error ? e.message : String(e));
-    } finally {
-      this.systemPromptBusy.set(false);
-    }
-  }
-
   protected async onClearSystemPrompt(): Promise<void> {
     const wid = this.currentWorkspaceId();
     if (!wid || this.systemPromptBusy()) {
       return;
     }
+    const confirmed =
+      (await this.themedConfirm.open({
+        title: 'Clear system prompt?',
+        message: 'This empties the system prompt file. The file is kept so you can edit it again later.',
+        confirmText: 'Clear',
+        cancelText: 'Cancel',
+      })) === 'confirm';
+    if (!confirmed) {
+      return;
+    }
     this.systemPromptBusy.set(true);
     this.systemPromptError.set('');
     try {
-      const res = await this.electron.clearWorkspaceSystemPrompt(wid, this.activeConversationId());
+      // Empty the file contents but keep the file (so Edit still works afterwards).
+      const res = await this.electron.saveWorkspaceSystemPromptText({
+        workspaceId: wid,
+        text: '',
+        sessionId: this.activeConversationId(),
+      });
       this.systemPromptHasFile.set(res.hasFile);
       this.systemPromptSourceName.set(res.sourceName || '');
       if (!res.ok) {
@@ -484,6 +491,7 @@ export class WorkspaceComponent implements OnDestroy {
         return;
       }
       this.systemPromptEditorDraft.set(res.text);
+      this.systemPromptEditorOriginal.set(res.text);
       this.systemPromptEditorOpen.set(true);
     } catch (e) {
       this.systemPromptError.set(e instanceof Error ? e.message : String(e));
@@ -497,12 +505,29 @@ export class WorkspaceComponent implements OnDestroy {
     this.systemPromptEditorDraft.set(el.value);
   }
 
-  protected onCancelSystemPromptEditor(): void {
+  protected async onCancelSystemPromptEditor(): Promise<void> {
     if (this.systemPromptEditorSaving()) {
       return;
     }
+    if (this.systemPromptEditorDraft() !== this.systemPromptEditorOriginal()) {
+      const confirmed =
+        (await this.themedConfirm.open({
+          title: 'Discard changes?',
+          message: 'The system prompt has unsaved changes. Discard them and close the editor?',
+          confirmText: 'Discard',
+          cancelText: 'Keep editing',
+        })) === 'confirm';
+      if (!confirmed) {
+        return;
+      }
+    }
+    this.closeSystemPromptEditor();
+  }
+
+  private closeSystemPromptEditor(): void {
     this.systemPromptEditorOpen.set(false);
     this.systemPromptEditorDraft.set('');
+    this.systemPromptEditorOriginal.set('');
     this.systemPromptEditorError.set('');
   }
 
@@ -525,8 +550,7 @@ export class WorkspaceComponent implements OnDestroy {
       }
       this.systemPromptHasFile.set(res.hasFile);
       this.systemPromptSourceName.set(res.sourceName || 'system-prompt.md');
-      this.systemPromptEditorOpen.set(false);
-      this.systemPromptEditorDraft.set('');
+      this.closeSystemPromptEditor();
     } catch (e) {
       this.systemPromptEditorError.set(e instanceof Error ? e.message : String(e));
     } finally {
@@ -544,6 +568,23 @@ export class WorkspaceComponent implements OnDestroy {
       }
       const ws = workspaces.find((w) => w.id === workspaceId);
       const fromConfig = (ws?.systemPromptSourceName ?? '').trim();
+      if (!res.hasFile) {
+        // Always provide a default system prompt so the file exists and Edit is available.
+        const saved = await this.electron.saveWorkspaceSystemPromptText({
+          workspaceId,
+          text: DEFAULT_WORKSPACE_SYSTEM_PROMPT,
+          sessionId: this.activeConversationId(),
+        });
+        if (req !== this.systemPromptStatusRequestId) {
+          return;
+        }
+        this.systemPromptHasFile.set(saved.ok);
+        this.systemPromptSourceName.set(saved.ok ? fromConfig || 'system-prompt.md' : '');
+        if (!saved.ok) {
+          this.systemPromptError.set(saved.error);
+        }
+        return;
+      }
       this.systemPromptHasFile.set(res.hasFile);
       this.systemPromptSourceName.set(res.hasFile ? res.sourceName || fromConfig || 'system-prompt.md' : '');
     } catch (e) {

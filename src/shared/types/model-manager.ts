@@ -55,3 +55,30 @@ export interface HuggingFaceModelFile {
 export type ModelManagerHfFilesResult =
   | { ok: true; files: HuggingFaceModelFile[] }
   | { ok: false; error: string };
+
+/** Stable id for a single HF quant download: ``${repoId}/${fileName}``. */
+export type HfDownloadId = string;
+
+/** Phase of an in-flight Hugging Face GGUF download streamed to the renderer. */
+export type HfDownloadPhase = 'queued' | 'progress' | 'done' | 'error' | 'cancelled';
+
+/** Progress event for a Hugging Face GGUF download, sent main → renderer. */
+export interface HfDownloadProgressEvent {
+  /** Stable id matching {@link HfDownloadId}: ``${repoId}/${fileName}``. */
+  downloadId: HfDownloadId;
+  repoId: string;
+  fileName: string;
+  phase: HfDownloadPhase;
+  /** Bytes written so far; 0 when unknown. */
+  receivedBytes: number;
+  /** Total file size in bytes when known; null when the server did not report it. */
+  totalBytes: number | null;
+  /** Absolute path of the finished file (only meaningful for ``done``). */
+  absolutePath?: string;
+  /** Human-readable error message (only meaningful for ``error``). */
+  error?: string;
+}
+
+export type ModelManagerDownloadHfResult =
+  | { ok: true; absolutePath: string }
+  | { ok: false; error: string };

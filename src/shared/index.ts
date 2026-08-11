@@ -314,15 +314,11 @@ export {
 export type {
   HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
-  ModelManagerCacheLocation,
-  ModelManagerDetectCachesResult,
   ModelManagerEntryKind,
   ModelManagerFileEntry,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
-  ModelManagerMigrateProgressPayload,
-  ModelManagerMigrateProgressPhase,
   ModelManagerMutationResult,
 } from './types/model-manager';
 export type {

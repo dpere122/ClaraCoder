@@ -1171,37 +1171,6 @@ button.linkish {
   padding: 6px;
 }
 
-.model-migrate-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 120px;
-  justify-content: center;
-}
-
-.model-migrate-progress__bar {
-  width: 100%;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-  accent-color: color-mix(in srgb, var(--t-primary) 85%, var(--t-bg));
-}
-
-.model-migrate-progress__label {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.2;
-  opacity: 0.92;
-  white-space: nowrap;
-}
-
-.cache-location-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
 .cache-location-loading {
   display: none;
   align-items: center;
@@ -1239,29 +1208,6 @@ button.linkish {
   z-index: 1 !important;
 }
 
-.cache-location-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 75%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--t-bg) 42%, var(--t-bg-surface));
-}
-
-.cache-location-row__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.cache-location-row__main strong {
-  font-size: 12px;
-}
-
 .settings-pane--model-manager .pill {
   padding: 2px 6px;
   font-size: 9px;
@@ -1292,10 +1238,6 @@ button.linkish {
   .model-card__actions {
     width: 100%;
     justify-content: flex-end;
-  }
-
-  .model-migrate-progress {
-    width: 100%;
   }
 }
 

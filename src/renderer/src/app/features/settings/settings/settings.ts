@@ -28,9 +28,7 @@ import type {
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
-  ModelManagerCacheLocation,
   ModelManagerFileEntry,
-  ModelManagerMigrateProgressPayload,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   SystemFontInfo,
@@ -186,14 +184,10 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly settingsSaving = computed(() => this.settingsSaveAction() !== null);
   protected readonly settingsSaveSpinnerName = `settings-save-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
-  protected readonly cacheDetectSpinnerName = `settings-cache-detect-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
-  protected readonly migratableModelsSpinnerName = `settings-migratable-models-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly hfSearchSpinnerName = `settings-hf-search-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
-  protected readonly modelManagerCacheLoading = signal(false);
   protected readonly modelManagerLocalLoading = signal(false);
-  protected readonly modelManagerMigratableLoading = signal(false);
   /**
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
@@ -214,7 +208,7 @@ export class Settings implements OnInit, OnDestroy {
     {
       id: 'modelManager',
       label: 'Model Manager',
-      description: 'Local models, cache migration, and Hugging Face search.',
+      description: 'Local models and Hugging Face search for managed llama-server.',
     },
     {
       id: 'tools',
@@ -260,19 +254,6 @@ export class Settings implements OnInit, OnDestroy {
         label: 'Chat appearance',
         description:
           'App UI scale, chat font size, expanded chat width, app-wide UI font, and code font for message text.',
-      },
-    ],
-    modelManager: [
-      {
-        id: 'storage',
-        label: 'Model Storage',
-        description:
-          'Custom model directory, local inventory, and Hugging Face cache migration into your storage root.',
-      },
-      {
-        id: 'download',
-        label: 'Model Download',
-        description: 'Optional Hugging Face token and model search. Use results in Models → local llama-server.',
       },
     ],
     tools: [
@@ -411,8 +392,6 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerCustomDir = signal('');
   protected readonly modelManagerHfToken = signal('');
   protected readonly modelManagerCustomModels = signal<ModelManagerFileEntry[]>([]);
-  protected readonly modelManagerCacheLocations = signal<ModelManagerCacheLocation[]>([]);
-  protected readonly modelManagerCacheCandidates = signal<ModelManagerFileEntry[]>([]);
   protected readonly modelManagerHfQuery = signal('');
   protected readonly modelManagerHfRawResults = signal<HuggingFaceModelSearchItem[]>([]);
   protected readonly modelManagerHfPage = signal(0);
@@ -471,8 +450,6 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerStatus = signal('');
   protected readonly modelManagerBusy = signal(false);
   protected readonly modelManagerHfBusy = signal(false);
-  protected readonly modelManagerMigratingPath = signal<string | null>(null);
-  protected readonly modelManagerMigrateProgress = signal<ModelManagerMigrateProgressPayload | null>(null);
 
   /** Repo id of the currently expanded HF search card (accordion: one open at a time). */
   protected readonly modelManagerHfExpandedId = signal<string | null>(null);
@@ -482,7 +459,6 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly modelManagerHfFilesBusyByRepo = signal<Record<string, boolean>>({});
   /** Per-repo error message for the file/quant fetch. */
   protected readonly modelManagerHfFilesErrorByRepo = signal<Record<string, string>>({});
-  private migrateProgressUnsub: (() => void) | null = null;
   protected readonly uiFontSizeRemMin = UI_FONT_SIZE_REM_MIN;
   protected readonly uiFontSizeRemMax = UI_FONT_SIZE_REM_MAX;
   protected readonly uiFontSizeRemDefault = UI_FONT_SIZE_REM_DEFAULT;
@@ -689,16 +665,8 @@ export class Settings implements OnInit, OnDestroy {
       untracked(() => this.scheduleSaveSpinnerSync(saving));
     });
     effect(() => {
-      const loading = this.modelManagerCacheLoading();
-      untracked(() => this.scheduleNamedSpinnerSync(this.cacheDetectSpinnerName, loading));
-    });
-    effect(() => {
       const loading = this.modelManagerLocalLoading();
       untracked(() => this.scheduleNamedSpinnerSync(this.localModelsSpinnerName, loading));
-    });
-    effect(() => {
-      const loading = this.modelManagerMigratableLoading();
-      untracked(() => this.scheduleNamedSpinnerSync(this.migratableModelsSpinnerName, loading));
     });
     effect(() => {
       const loading = this.modelManagerHfBusy();
@@ -753,11 +721,8 @@ export class Settings implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     void this.ngxSpinner.hide(this.settingsSaveSpinnerName);
-    void this.ngxSpinner.hide(this.cacheDetectSpinnerName);
     void this.ngxSpinner.hide(this.localModelsSpinnerName);
-    void this.ngxSpinner.hide(this.migratableModelsSpinnerName);
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
-    this.migrateProgressUnsub?.();
     this.subscription?.unsubscribe();
     this.llamaLifecycleSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
@@ -797,18 +762,6 @@ export class Settings implements OnInit, OnDestroy {
           const sizeLabel =
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
           return `${sizeLabel} · UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
-        }
-        break;
-      case 'modelManager':
-        if (id === 'storage') {
-          return `${this.modelManagerCustomModels().length} local`;
-        }
-        if (id === 'download') {
-          const results = this.modelManagerHfResults().length;
-          if (results > 0) {
-            return `${results} results`;
-          }
-          return this.modelManagerHfToken().trim() ? 'Token set' : 'Search';
         }
         break;
       case 'tools':
@@ -1588,8 +1541,8 @@ export class Settings implements OnInit, OnDestroy {
     });
   }
 
-  protected openModelManagerTab(subTab: 'storage' | 'download' = 'download'): void {
-    this.selectSettingsSubTab('modelManager', subTab);
+  protected openModelManagerTab(): void {
+    this.selectTab('modelManager');
   }
 
   protected activateSelectedSourceForChat(): void {
@@ -1964,7 +1917,6 @@ export class Settings implements OnInit, OnDestroy {
     changes: Partial<{
       customModelsDir: string;
       huggingFaceToken: string;
-      detectedCaches: ModelManagerCacheLocation[];
     }>,
   ): void {
     if (changes.customModelsDir !== undefined) {
@@ -1972,9 +1924,6 @@ export class Settings implements OnInit, OnDestroy {
     }
     if (changes.huggingFaceToken !== undefined) {
       this.modelManagerHfToken.set(changes.huggingFaceToken);
-    }
-    if (changes.detectedCaches !== undefined) {
-      this.modelManagerCacheLocations.set(changes.detectedCaches);
     }
     this.markSettingsDirty();
   }
@@ -1989,36 +1938,11 @@ export class Settings implements OnInit, OnDestroy {
     this.modelManagerStatus.set('Custom model directory updated.');
   }
 
-  protected async refreshModelManagerData(options?: {
-    clearStatus?: boolean;
-    /** When true, re-run filesystem cache-root detection and persist results. */
-    forceDetectCaches?: boolean;
-  }): Promise<void> {
+  protected async refreshModelManagerData(options?: { clearStatus?: boolean }): Promise<void> {
     if (options?.clearStatus !== false) {
       this.modelManagerStatus.set('');
     }
-    const needDetect =
-      options?.forceDetectCaches === true || this.modelManagerCacheLocations().length === 0;
-
-    const refreshCacheSide = async (): Promise<void> => {
-      if (needDetect) {
-        // Show cache spinner before detect IPC so the host can mount/paint.
-        this.modelManagerCacheLoading.set(true);
-        const cacheLoadStartedAt = Date.now();
-        try {
-          await this.refreshDetectedCaches({ persist: true });
-        } finally {
-          const elapsed = Date.now() - cacheLoadStartedAt;
-          if (elapsed < 350) {
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
-          }
-          this.modelManagerCacheLoading.set(false);
-        }
-      }
-      await this.refreshCacheCandidates();
-    };
-
-    await Promise.all([this.refreshCustomModelCards(), refreshCacheSide()]);
+    await this.refreshCustomModelCards();
   }
 
   protected async refreshCustomModelCards(): Promise<void> {
@@ -2048,131 +1972,6 @@ export class Settings implements OnInit, OnDestroy {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
       }
       this.modelManagerLocalLoading.set(false);
-    }
-  }
-
-  protected async refreshDetectedCaches(options?: { persist?: boolean }): Promise<void> {
-    const res = await this.electron.modelManagerDetectCaches();
-    if (!res.ok) {
-      this.modelManagerStatus.set(res.error);
-      if (options?.persist) {
-        this.updateModelManagerConfig({ detectedCaches: [] });
-      } else {
-        this.modelManagerCacheLocations.set([]);
-      }
-      return;
-    }
-    if (options?.persist) {
-      this.updateModelManagerConfig({ detectedCaches: res.caches });
-    } else {
-      this.modelManagerCacheLocations.set(res.caches);
-    }
-  }
-
-  protected async refreshCacheCandidates(): Promise<void> {
-    const existingCaches = this.modelManagerCacheLocations()
-      .filter((c) => c.exists)
-      .map((c) => c.path);
-    if (existingCaches.length === 0) {
-      this.modelManagerCacheCandidates.set([]);
-      return;
-    }
-    this.modelManagerMigratableLoading.set(true);
-    const startedAt = Date.now();
-    try {
-      const res = await this.electron.modelManagerListCacheCandidates({ cachePaths: existingCaches });
-      if (!res.ok) {
-        this.modelManagerStatus.set(res.error);
-        this.modelManagerCacheCandidates.set([]);
-        return;
-      }
-      this.modelManagerCacheCandidates.set(res.models);
-    } finally {
-      const elapsed = Date.now() - startedAt;
-      if (elapsed < 350) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
-      }
-      this.modelManagerMigratableLoading.set(false);
-    }
-  }
-
-  protected isCacheModelMigrating(model: ModelManagerFileEntry): boolean {
-    const active = this.modelManagerMigratingPath();
-    return !!active && active === model.absolutePath;
-  }
-
-  protected modelManagerMigratePercent(): number {
-    const p = this.modelManagerMigrateProgress();
-    if (!p || p.bytesTotal <= 0) {
-      return 0;
-    }
-    return Math.min(100, Math.round((Math.min(p.bytesDone, p.bytesTotal) / p.bytesTotal) * 100));
-  }
-
-  protected modelManagerMigrateIndeterminate(): boolean {
-    const p = this.modelManagerMigrateProgress();
-    return !p || p.phase === 'scanning';
-  }
-
-  protected modelManagerMigratePhaseLabel(): string {
-    const p = this.modelManagerMigrateProgress();
-    switch (p?.phase) {
-      case 'scanning':
-        return 'Scanning files…';
-      case 'copying':
-        return `Copying… ${this.modelManagerMigratePercent()}%`;
-      case 'finishing':
-        return 'Finishing…';
-      case 'done':
-        return 'Done';
-      default:
-        return 'Preparing…';
-    }
-  }
-
-  protected async migrateCacheModel(model: ModelManagerFileEntry): Promise<void> {
-    const customDir = this.modelManagerCustomDir().trim();
-    if (!customDir) {
-      this.modelManagerStatus.set('Set a custom model directory first.');
-      return;
-    }
-    const mode = await this.electron.modelManagerChooseMigrateMode({
-      title: `Migrate "${model.fileName}"?`,
-      detail:
-        model.entryKind === 'hubRepo'
-          ? 'Copies or moves the entire Hugging Face hub folder (blobs, refs, snapshots) into your custom directory.'
-          : 'Copies or moves this GGUF/GGML file into your custom directory.',
-    });
-    if (!mode) {
-      return;
-    }
-    this.modelManagerMigratingPath.set(model.absolutePath);
-    this.modelManagerMigrateProgress.set({ bytesDone: 0, bytesTotal: 1, phase: 'scanning' });
-    this.migrateProgressUnsub?.();
-    this.migrateProgressUnsub = this.electron.subscribeModelManagerMigrateProgress((p) => {
-      this.modelManagerMigrateProgress.set(p);
-    });
-    this.modelManagerBusy.set(true);
-    try {
-      const res = await this.electron.modelManagerMigrateModel({
-        sourcePath: model.absolutePath,
-        customDir,
-        mode,
-        suggestedFileName: model.suggestedFileName || model.fileName,
-        entryKind: model.entryKind === 'hubRepo' ? 'hubRepo' : undefined,
-      });
-      if (!res.ok) {
-        this.modelManagerStatus.set(res.error);
-        return;
-      }
-      await this.refreshModelManagerData({ clearStatus: false });
-      this.modelManagerStatus.set(`${model.fileName} migrated via ${mode}.`);
-    } finally {
-      this.migrateProgressUnsub?.();
-      this.migrateProgressUnsub = null;
-      this.modelManagerMigratingPath.set(null);
-      this.modelManagerMigrateProgress.set(null);
-      this.modelManagerBusy.set(false);
     }
   }
 
@@ -2975,7 +2774,6 @@ export class Settings implements OnInit, OnDestroy {
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
         huggingFaceToken: this.modelManagerHfToken(),
-        detectedCaches: this.modelManagerCacheLocations().map((cache) => ({ ...cache })),
       },
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
@@ -3056,11 +2854,6 @@ export class Settings implements OnInit, OnDestroy {
       );
       this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
       this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
-      this.modelManagerCacheLocations.set(
-        Array.isArray(config.modelManager.detectedCaches)
-          ? config.modelManager.detectedCaches.map((cache) => ({ ...cache }))
-          : [],
-      );
       return;
     }
 
@@ -3140,11 +2933,6 @@ export class Settings implements OnInit, OnDestroy {
 
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
     this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
-    this.modelManagerCacheLocations.set(
-      Array.isArray(config.modelManager.detectedCaches)
-        ? config.modelManager.detectedCaches.map((cache) => ({ ...cache }))
-        : [],
-    );
 
     const currentSelected = this.selectedModelId();
     const selectedStillValid =

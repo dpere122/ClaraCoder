@@ -29,11 +29,9 @@ import type {
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
-  ModelManagerDetectCachesResult,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
-  ModelManagerMigrateProgressPayload,
   ModelManagerMutationResult,
   MaybeAutoTitleResult,
   PlanConfirmPayload,
@@ -87,7 +85,6 @@ const FALLBACK_APP_CONFIG: AppConfig = {
   modelManager: {
     customModelsDir: '',
     huggingFaceToken: '',
-    detectedCaches: [],
   },
   chatSidebarWidthPercent: 1 / 3,
 };
@@ -1077,38 +1074,6 @@ export class ElectronService {
     );
   }
 
-  modelManagerDetectCaches(): Promise<ModelManagerDetectCachesResult> {
-    return (
-      this.api?.modelManagerDetectCaches() ?? Promise.resolve({ ok: false, error: 'API not available' })
-    );
-  }
-
-  modelManagerListCacheCandidates(payload: { cachePaths: string[] }): Promise<ModelManagerListModelsResult> {
-    return (
-      this.api?.modelManagerListCacheCandidates(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
-    );
-  }
-
-  modelManagerChooseMigrateMode(payload: { title?: string; detail?: string }): Promise<'copy' | 'move' | null> {
-    return this.api?.modelManagerChooseMigrateMode(payload) ?? Promise.resolve(null);
-  }
-
-  subscribeModelManagerMigrateProgress(cb: (p: ModelManagerMigrateProgressPayload) => void): () => void {
-    const wrapped = (p: ModelManagerMigrateProgressPayload) => this.zone.run(() => cb(p));
-    return this.api?.modelManagerSubscribeMigrateProgress?.(wrapped) ?? (() => {});
-  }
-
-  modelManagerMigrateModel(payload: {
-    sourcePath: string;
-    customDir: string;
-    mode: 'copy' | 'move';
-    suggestedFileName?: string;
-    entryKind?: 'file' | 'hubRepo';
-  }): Promise<ModelManagerMutationResult> {
-    return (
-      this.api?.modelManagerMigrateModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
-    );
-  }
 
   modelManagerRenameModel(payload: {
     customDir: string;

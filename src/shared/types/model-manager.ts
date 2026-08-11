@@ -1,11 +1,3 @@
-export type ModelManagerMigrateProgressPhase = 'scanning' | 'copying' | 'finishing' | 'done';
-
-export interface ModelManagerMigrateProgressPayload {
-  bytesDone: number;
-  bytesTotal: number;
-  phase: ModelManagerMigrateProgressPhase;
-}
-
 export type ModelManagerEntryKind = 'file' | 'hubRepo';
 
 export interface ModelManagerFileEntry {
@@ -20,18 +12,8 @@ export interface ModelManagerFileEntry {
   entryKind?: ModelManagerEntryKind;
 }
 
-export interface ModelManagerCacheLocation {
-  path: string;
-  label: string;
-  exists: boolean;
-}
-
 export type ModelManagerListModelsResult =
   | { ok: true; models: ModelManagerFileEntry[]; resolvedDir?: string; directoryMissing?: boolean }
-  | { ok: false; error: string };
-
-export type ModelManagerDetectCachesResult =
-  | { ok: true; caches: ModelManagerCacheLocation[] }
   | { ok: false; error: string };
 
 export type ModelManagerMutationResult =

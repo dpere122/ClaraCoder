@@ -1,4 +1,3 @@
-import type { ModelManagerCacheLocation } from './model-manager';
 import type { Workspace } from './workspace';
 
 /** Family-specific tuning template from Settings → Models (synced to Python). */
@@ -226,11 +225,6 @@ export interface ModelManagerConfig {
   customModelsDir: string;
   /** Shared Hugging Face token for model search and managed llama `-hf` pulls. */
   huggingFaceToken: string;
-  /**
-   * Last detected local HF / llama.cpp cache roots (Settings → Model Manager).
-   * Reused across opens so path detection is not repeated until an explicit refresh.
-   */
-  detectedCaches: ModelManagerCacheLocation[];
 }
 
 /** Workspace agent tool limits and edit-tool surface; synced to Python `/runtime-config`. */

@@ -11,7 +11,6 @@ import type {
   LlmModelProfile,
   LlmProviderConfig,
   ContextCompressionConfig,
-  ModelManagerCacheLocation,
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
@@ -54,35 +53,6 @@ import {
   getDefaultWorkspaceTools,
   workspaceFromLegacyPath,
 } from './defaults';
-
-function normalizeDetectedCaches(raw: unknown): ModelManagerCacheLocation[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  const out: ModelManagerCacheLocation[] = [];
-  const seen = new Set<string>();
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      continue;
-    }
-    const row = entry as { path?: unknown; label?: unknown; exists?: unknown };
-    const pathValue = typeof row.path === 'string' ? row.path.trim() : '';
-    if (!pathValue) {
-      continue;
-    }
-    const key = pathValue.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    out.push({
-      path: pathValue,
-      label: typeof row.label === 'string' && row.label.trim() ? row.label.trim() : pathValue,
-      exists: row.exists === true,
-    });
-  }
-  return out;
-}
 
 function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
   const {
@@ -1086,10 +1056,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
       mm.huggingFaceToken = huggingFaceToken;
       migrated = true;
     }
-    if (!Array.isArray(mm.detectedCaches)) {
+    if ('detectedCaches' in mm) {
+      delete mm.detectedCaches;
       migrated = true;
     }
-    mm.detectedCaches = normalizeDetectedCaches(mm.detectedCaches);
   }
 
   const mm = (newConfig as AppConfig).modelManager;

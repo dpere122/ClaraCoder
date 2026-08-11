@@ -20,11 +20,9 @@ import type {
   LlamaServerStatusResult,
   LlamacppManagedListModelsResult,
   LlmStatus,
-  ModelManagerDetectCachesResult,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
-  ModelManagerMigrateProgressPayload,
   ModelManagerMutationResult,
   LmStudioListModelsResult,
   LmStudioMutationResult,
@@ -320,22 +318,6 @@ declare global {
     showWorkspacePathInFileManager?: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     modelManagerPickCustomDir: () => Promise<string | null>;
     modelManagerListCustomModels: (payload: { customDir: string }) => Promise<ModelManagerListModelsResult>;
-    modelManagerDetectCaches: () => Promise<ModelManagerDetectCachesResult>;
-    modelManagerListCacheCandidates: (payload: { cachePaths: string[] }) => Promise<ModelManagerListModelsResult>;
-    modelManagerChooseMigrateMode: (payload: {
-      title?: string;
-      detail?: string;
-    }) => Promise<'copy' | 'move' | null>;
-    modelManagerSubscribeMigrateProgress?: (
-      callback: (payload: ModelManagerMigrateProgressPayload) => void,
-    ) => () => void;
-    modelManagerMigrateModel: (payload: {
-      sourcePath: string;
-      customDir: string;
-      mode: 'copy' | 'move';
-      suggestedFileName?: string;
-      entryKind?: 'file' | 'hubRepo';
-    }) => Promise<ModelManagerMutationResult>;
     modelManagerRenameModel: (payload: {
       customDir: string;
       modelPath: string;

@@ -195,7 +195,6 @@ export function getDefaultModelManagerConfig(): ModelManagerConfig {
   return {
     customModelsDir: path.join(homedir(), 'models'),
     huggingFaceToken: '',
-    detectedCaches: [],
   };
 }
 

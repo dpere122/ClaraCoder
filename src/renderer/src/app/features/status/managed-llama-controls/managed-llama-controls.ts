@@ -72,6 +72,9 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   protected readonly phase = signal<ManagedLlamaPhase>('idle');
 
+  /** Monotonic id for the latest in-flight status probe; stale completions are ignored. */
+  private probeRequestId = 0;
+
   /** Local model inventory (Model Manager custom dir listing), used to resolve source labels. */
   protected readonly inventory = signal<ModelManagerFileEntry[]>([]);
   /** True while the inventory fetch is in flight (drives the inline source-label spinner). */
@@ -316,17 +319,24 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (!mid) {
       return;
     }
+    const req = ++this.probeRequestId;
     try {
       const res: LlamaServerStatusResult = await this.electron.llamaServerStatus({
         modelId: mid,
         config: cfg,
       });
+      if (req !== this.probeRequestId) {
+        return;
+      }
       if (res.ok && res.running) {
         this.phase.set('running');
       } else {
         this.phase.set('idle');
       }
     } catch {
+      if (req !== this.probeRequestId) {
+        return;
+      }
       this.phase.set('idle');
     }
   }

@@ -99,7 +99,12 @@ interface InFlightDownload {
   abort: AbortController;
   writeStream: WriteStream | null;
   receivedBytes: number;
+  /** Timestamp (ms) of the last broadcast progress event, for throttling. */
+  lastProgressBroadcastMs: number;
 }
+
+/** Minimum interval between broadcast progress events for a single download. */
+const HF_PROGRESS_BROADCAST_MIN_INTERVAL_MS = 200;
 
 const inFlightDownloads = new Map<HfDownloadId, InFlightDownload>();
 
@@ -835,6 +840,7 @@ export function registerModelManagerIpc(): void {
         abort,
         writeStream: null,
         receivedBytes: 0,
+        lastProgressBroadcastMs: 0,
       };
       inFlightDownloads.set(downloadId, entry);
 
@@ -872,14 +878,21 @@ export function registerModelManagerIpc(): void {
               writeStream.write(value, (err) => (err ? reject(err) : resolve()));
             });
             entry.receivedBytes += value.byteLength;
-            broadcastHfDownloadProgress({
-              downloadId,
-              repoId,
-              fileName,
-              phase: 'progress',
-              receivedBytes: entry.receivedBytes,
-              totalBytes: totalNum,
-            });
+            // Throttle progress broadcasts so a multi-GB download with small chunks
+            // does not flood the renderer (each event triggers an Angular zone.run).
+            // The final 'done'/'error'/'cancelled' events are always sent.
+            const now = Date.now();
+            if (now - entry.lastProgressBroadcastMs >= HF_PROGRESS_BROADCAST_MIN_INTERVAL_MS) {
+              entry.lastProgressBroadcastMs = now;
+              broadcastHfDownloadProgress({
+                downloadId,
+                repoId,
+                fileName,
+                phase: 'progress',
+                receivedBytes: entry.receivedBytes,
+                totalBytes: totalNum,
+              });
+            }
           }
         }
         await new Promise<void>((resolve, reject) => {

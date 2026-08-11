@@ -1757,11 +1757,10 @@ export class Settings implements OnInit, OnDestroy {
     if (this.modelManagerHfDownloads()[downloadId]) {
       return;
     }
-    // Optimistic queued state so the bar appears immediately.
-    this.modelManagerHfDownloads.update((m) => ({
-      ...m,
-      [downloadId]: { repoId: repo, fileName, receivedBytes: 0, totalBytes: null },
-    }));
+    // The 'queued' progress event from the main process drives the bar; we do not
+    // set optimistic state here. A second invoke that gets `ok:false` ("already
+    // downloading") would otherwise wipe the entry that the first invoke's 'queued'
+    // event legitimately created, hiding the bar while the download continues.
     const res = await this.electron.modelManagerDownloadHfFile({
       repoId: repo,
       fileName,
@@ -1770,11 +1769,6 @@ export class Settings implements OnInit, OnDestroy {
     });
     // Progress events drive the bar; this resolves only at completion.
     if (!res.ok) {
-      this.modelManagerHfDownloads.update((m) => {
-        const next = { ...m };
-        delete next[downloadId];
-        return next;
-      });
       this.modelManagerStatus.set(res.error);
     }
   }

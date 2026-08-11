@@ -570,13 +570,19 @@ export class WorkspaceComponent implements OnDestroy {
       const fromConfig = (ws?.systemPromptSourceName ?? '').trim();
       if (!res.hasFile) {
         // Always provide a default system prompt so the file exists and Edit is available.
-        await this.electron.saveWorkspaceSystemPromptText({
+        const saved = await this.electron.saveWorkspaceSystemPromptText({
           workspaceId,
           text: DEFAULT_WORKSPACE_SYSTEM_PROMPT,
           sessionId: this.activeConversationId(),
         });
-        this.systemPromptHasFile.set(true);
-        this.systemPromptSourceName.set(fromConfig || 'system-prompt.md');
+        if (req !== this.systemPromptStatusRequestId) {
+          return;
+        }
+        this.systemPromptHasFile.set(saved.ok);
+        this.systemPromptSourceName.set(saved.ok ? fromConfig || 'system-prompt.md' : '');
+        if (!saved.ok) {
+          this.systemPromptError.set(saved.error);
+        }
         return;
       }
       this.systemPromptHasFile.set(res.hasFile);

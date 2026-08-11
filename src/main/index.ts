@@ -2,6 +2,7 @@
  * Electron main process entry: Python sidecar, IPC, workspace watch, and BrowserWindows.
  * Privileged schemes (`nemo-tts`, `nemo-asset`) must register before `app.whenReady`.
  */
+import { mkdir } from 'fs/promises';
 import { app, BrowserWindow } from 'electron';
 import { registerPrivilegedSchemes } from './protocol/register-privileged';
 import { ensurePythonServer } from './python/server';
@@ -73,6 +74,15 @@ app
       console.error('[Main] Python sidecar unavailable — UI already open:', err);
     }
     const config = await loadConfig();
+    // Ensure the Model Manager library root exists (default: ~/ClaraCoder/models).
+    const modelsDir = config.modelManager?.customModelsDir?.trim();
+    if (modelsDir) {
+      try {
+        await mkdir(modelsDir, { recursive: true });
+      } catch (err) {
+        console.error('[Main] Could not create custom models directory:', err);
+      }
+    }
     try {
       await syncPythonLogLevel(config.healthMonitor.logLevel);
       setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);

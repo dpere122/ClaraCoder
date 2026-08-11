@@ -191,9 +191,19 @@ export function getDefaultHealthMonitor(): HealthMonitorConfig {
   };
 }
 
+/**
+ * Default on-disk library for downloaded / local GGUF models.
+ * Lives under the user home (not app install or ``userData``) so large
+ * weights do not bloat the Clara Coder app directory.
+ * Linux: ``~/ClaraCoder/models`` · Windows: ``%USERPROFILE%\ClaraCoder\models``.
+ */
+export function getDefaultCustomModelsDir(): string {
+  return path.join(homedir(), 'ClaraCoder', 'models');
+}
+
 export function getDefaultModelManagerConfig(): ModelManagerConfig {
   return {
-    customModelsDir: path.join(homedir(), 'models'),
+    customModelsDir: getDefaultCustomModelsDir(),
     huggingFaceToken: '',
   };
 }

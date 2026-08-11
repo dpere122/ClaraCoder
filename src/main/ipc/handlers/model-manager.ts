@@ -215,6 +215,16 @@ async function pathExistsDir(p: string): Promise<boolean> {
   }
 }
 
+/** Create ``dir`` (and parents) so Model Manager / downloads have a ready root. */
+async function ensureModelsDirExists(dir: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 async function childEntryKind(parent: string, baseName: string): Promise<'dir' | 'file' | 'missing'> {
   const full = path.join(parent, baseName);
   try {
@@ -495,7 +505,13 @@ export function registerModelManagerIpc(): void {
           return { ok: false, error: 'Custom model directory is empty.' };
         }
         if (!(await pathExistsDir(customDir))) {
-          return { ok: true, models: [], resolvedDir: customDir, directoryMissing: true };
+          const ensured = await ensureModelsDirExists(customDir);
+          if (!ensured.ok) {
+            return {
+              ok: false,
+              error: `Could not create models directory (${customDir}): ${ensured.error}`,
+            };
+          }
         }
         const hubFolders = await listHubRepoFoldersAtDepthOne(customDir, 'custom');
         const looseFiles = await walkModelFiles(customDir, 'custom', undefined, { skipHubRepoDirectories: true });
@@ -824,10 +840,11 @@ export function registerModelManagerIpc(): void {
       )}`;
 
       let destDir = customDir;
-      try {
-        await fs.mkdir(destDir, { recursive: true });
-      } catch (e) {
-        return { ok: false, error: `Could not create models directory: ${e instanceof Error ? e.message : String(e)}` };
+      {
+        const ensured = await ensureModelsDirExists(destDir);
+        if (!ensured.ok) {
+          return { ok: false, error: `Could not create models directory: ${ensured.error}` };
+        }
       }
       const destPath = path.join(destDir, fileName);
       const tmpPath = `${destPath}.part`;

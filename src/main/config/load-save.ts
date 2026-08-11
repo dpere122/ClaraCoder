@@ -1047,6 +1047,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
     const customModelsDir = typeof mm.customModelsDir === 'string' ? mm.customModelsDir.trim() : '';
     const huggingFaceToken = typeof mm.huggingFaceToken === 'string' ? mm.huggingFaceToken : '';
     const fallback = getDefaultModelManagerConfig();
+    // Empty only — do not rewrite a saved ``~/models`` path (may already hold downloads).
     const nextCustomDir = customModelsDir || fallback.customModelsDir;
     if (nextCustomDir !== mm.customModelsDir) {
       mm.customModelsDir = nextCustomDir;

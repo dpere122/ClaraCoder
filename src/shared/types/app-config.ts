@@ -221,7 +221,10 @@ export interface HealthMonitorConfig {
 
 /** Local model catalog preferences used by Settings → Model Manager. */
 export interface ModelManagerConfig {
-  /** Absolute custom directory where local model cards are sourced from. */
+  /**
+   * Absolute directory for local / downloaded models (hub folders + GGUF).
+   * Default is ``~/ClaraCoder/models`` (outside app install and userData).
+   */
   customModelsDir: string;
   /** Shared Hugging Face token for model search and managed llama `-hf` pulls. */
   huggingFaceToken: string;

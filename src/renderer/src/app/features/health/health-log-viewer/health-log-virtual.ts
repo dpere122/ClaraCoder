@@ -9,12 +9,12 @@ export const HEALTH_LOG_VIRTUAL_THRESHOLD = 80;
 export const HEALTH_LOG_VIRTUAL_PIXEL_BUFFER = 720;
 
 /** Fallback row height when a slot has not been measured yet. */
-export const HEALTH_MIN_FALLBACK_ROW = 26;
+export const HEALTH_MIN_FALLBACK_ROW = 30;
 
-const LINE_PX = 11 * 1.45;
+const LINE_PX = 12 * 1.5;
 
 /**
- * Rough height from log row shape (see health-log-viewer.css: grid + mono 11px).
+ * Rough height from log row shape (see health-log-viewer.css: grid + mono 12px).
  */
 export function estimateHealthLogRowHeight(
   record: HealthLogRecord,
@@ -22,7 +22,7 @@ export function estimateHealthLogRowHeight(
 ): number {
   const msg = record.message ?? '';
   const nl = (msg.match(/\n/g) ?? []).length + 1;
-  const cpl = fmt === 'raw' ? 96 : 52;
+  const cpl = fmt === 'raw' ? 88 : 48;
   const wrapLines = Math.max(nl, Math.ceil(msg.length / cpl));
   const fmtBoost = fmt !== 'raw' ? 1.2 : 1;
   return Math.max(HEALTH_MIN_FALLBACK_ROW, Math.round(8 + wrapLines * LINE_PX * fmtBoost));

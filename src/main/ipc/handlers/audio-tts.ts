@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import { assertTrustedMainRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import { abortAllTtsStreamControllers, mainState } from '../../state';
 import { loadConfig } from '../../config/load-save';
-import { PYTHON_URL } from '../../python/server';
+import { pythonControlFetch } from '../../python/http-client';
 import { registerTtsStreamToken } from '../../protocol/nemo-tts';
 import { streamTtsResponseToIpcPackets } from '../../tts/stream-response-to-packets';
 import { fetchTtsResponse } from '../../tts/fetch';
@@ -37,7 +37,7 @@ export function registerAudioTtsIpc(): void {
     if (audio.length < 100) {
       throw new Error('Recording was too short or empty; check microphone input.');
     }
-    const res = await fetch(`${PYTHON_URL}/transcribe`, {
+    const res = await pythonControlFetch('/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'audio/wav' },
       body: audio,

@@ -175,13 +175,20 @@ export class HealthLogViewer implements OnInit, OnDestroy {
   private mergeRecords(recs: HealthLogRecord[]): void {
     if (recs.length === 0) return;
     const cur = this.entries();
-    const next = [...cur];
+    const next = cur.slice();
+    let appended = 0;
+    let needsSort = false;
+    let runningMax = cur.length ? cur[cur.length - 1]!.seq : -Infinity;
     for (const r of recs) {
       if (this.seenSeq.has(r.seq)) continue;
       this.seenSeq.add(r.seq);
+      if (r.seq < runningMax) needsSort = true;
+      else runningMax = r.seq;
       next.push(r);
+      appended++;
     }
-    next.sort((a, b) => a.seq - b.seq);
+    if (appended === 0) return;
+    if (needsSort) next.sort((a, b) => a.seq - b.seq);
     while (next.length > MAX_ENTRIES) {
       const removed = next.shift();
       if (removed) this.seenSeq.delete(removed.seq);

@@ -6,6 +6,7 @@
 }
 
 .health-log {
+  --health-log-cols: 7.5rem 6.5rem minmax(4.5rem, 6.5rem) minmax(8rem, 13rem) 1fr;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -38,6 +39,13 @@
 
 .health-log__toolbar-right {
   margin-left: auto;
+}
+
+.health-log__toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: color-mix(in srgb, var(--t-border) 70%, transparent);
 }
 
 .health-log__label {
@@ -91,14 +99,32 @@
   background: color-mix(in srgb, var(--t-primary) 12%, transparent);
 }
 
+.health-log__headrow {
+  display: grid;
+  grid-template-columns: var(--health-log-cols);
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  background: color-mix(in srgb, var(--t-bg-deep, var(--t-bg)) 55%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+  overflow: hidden;
+  scrollbar-gutter: stable;
+  -webkit-app-region: no-drag;
+}
+
 .health-log__viewport {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
   font-family: var(--t-font-mono, var(--t-font));
-  font-size: 11px;
-  line-height: 1.45;
-  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 10px;
 }
 
 .health-log__virtual-spacer {
@@ -112,23 +138,74 @@
 
 .health-log__row {
   display: grid;
-  grid-template-columns: 7.5rem 4rem 4.5rem minmax(8rem, 14rem) 1fr;
+  grid-template-columns: var(--health-log-cols);
   gap: 8px;
   padding: 3px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 40%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 35%, transparent);
   color: var(--t-code-text);
 }
 
-.health-log__row[data-level='ERROR'] .health-log__lvl {
-  color: var(--t-log-level-error);
+.health-log__row:nth-child(even) {
+  background: color-mix(in srgb, var(--t-hover-bg) 60%, transparent);
 }
 
-.health-log__row[data-level='WARNING'] .health-log__lvl {
-  color: var(--t-log-level-warning);
+.health-log__row[data-level='ERROR'] {
+  background: color-mix(in srgb, var(--t-log-level-error) 9%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--t-log-level-error) 70%, transparent);
+  margin-left: -2px;
+}
+
+.health-log__row[data-level='WARNING'] {
+  background: color-mix(in srgb, var(--t-log-level-warning) 7%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--t-log-level-warning) 60%, transparent);
+  margin-left: -2px;
+}
+
+.health-log__ts {
+  color: var(--t-text-muted);
+  white-space: nowrap;
 }
 
 .health-log__lvl {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--t-border) 60%, transparent);
+  background: color-mix(in srgb, var(--t-border) 30%, transparent);
+  color: var(--t-text-muted);
+}
+
+.health-log__row[data-level='ERROR'] .health-log__lvl {
+  color: color-mix(in srgb, var(--t-log-level-error) 92%, var(--t-fg));
+  background: color-mix(in srgb, var(--t-log-level-error) 18%, transparent);
+  border-color: color-mix(in srgb, var(--t-log-level-error) 40%, transparent);
+}
+
+.health-log__row[data-level='WARNING'] .health-log__lvl {
+  color: color-mix(in srgb, var(--t-log-level-warning) 92%, var(--t-fg));
+  background: color-mix(in srgb, var(--t-log-level-warning) 18%, transparent);
+  border-color: color-mix(in srgb, var(--t-log-level-warning) 40%, transparent);
+}
+
+.health-log__row[data-level='INFO'] .health-log__lvl {
+  color: color-mix(in srgb, var(--t-primary) 85%, var(--t-fg));
+  background: color-mix(in srgb, var(--t-primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--t-primary) 35%, transparent);
+}
+
+.health-log__src {
+  color: var(--t-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .health-log__logger {

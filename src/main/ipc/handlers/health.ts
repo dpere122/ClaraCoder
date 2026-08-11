@@ -5,7 +5,7 @@ import type { HealthLogRecord, HealthMetricsSnapshot, RuntimeHealthSnapshot } fr
 import { defaultDependencyCatalog } from '../../../shared';
 import { PYTHON_PORT } from '../../constants';
 import { summarizeManagedLlamaRuntime } from '../../llama-server-manager';
-import { pythonControlFetch } from '../../python/http-client';
+import { getPythonSidecarToken, pythonControlFetch } from '../../python/http-client';
 import { isPythonHealthy } from '../../python/server';
 import { listDependencies } from '../../runtime/dependency-manager';
 import { getBundledVtslsEntry } from '../../paths';
@@ -71,7 +71,12 @@ function startLogStreamIfNeeded(): void {
   const u = new URL(`${PYTHON_URL}/logs/stream`);
   u.searchParams.set('since', String(lastStreamSeq));
 
-  streamReq = http.get(u, (res) => {
+  const streamHeaders: http.OutgoingHttpHeaders = {};
+  const token = getPythonSidecarToken();
+  if (token) {
+    streamHeaders.authorization = `Bearer ${token}`;
+  }
+  streamReq = http.get(u, { headers: streamHeaders }, (res) => {
     res.setEncoding('utf8');
     res.on('data', (chunk: string) => {
       streamBuffer += chunk;
@@ -99,7 +104,7 @@ function startLogStreamIfNeeded(): void {
 /** POST /logs/level — call after Python is up (e.g. from loaded config). */
 export async function syncPythonLogLevel(level: string): Promise<void> {
   try {
-    await fetch(`${PYTHON_URL}/logs/level`, {
+    await pythonControlFetch('/logs/level', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level }),
@@ -264,7 +269,7 @@ export function registerHealthIpc(): void {
       return { records: [] as HealthLogRecord[] };
     }
     try {
-      const res = await fetch(`${PYTHON_URL}/logs/recent?limit=${Math.min(2000, Math.max(1, limit || 200))}`);
+      const res = await pythonControlFetch(`/logs/recent?limit=${Math.min(2000, Math.max(1, limit || 200))}`);
       if (!res.ok) return { records: [] as HealthLogRecord[] };
       const data = (await res.json()) as { records?: HealthLogRecord[] };
       return { records: data.records ?? [] };

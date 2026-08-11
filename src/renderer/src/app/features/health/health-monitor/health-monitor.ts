@@ -54,6 +54,14 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   private configSub: { unsubscribe(): void } | null = null;
   private viewInitialized = false;
 
+  private readonly visibilityHandler = (): void => {
+    if (document.hidden) {
+      this.stopPolling();
+    } else if (this.metricsEnabled()) {
+      this.enableMetrics();
+    }
+  };
+
   protected readonly gpuSummary = signal<string>('GPU: collecting…');
   protected readonly metricsEnabled = signal(false);
 
@@ -76,6 +84,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async ngOnInit(): Promise<void> {
+    document.addEventListener('visibilitychange', this.visibilityHandler);
     const cfg = await this.electron.loadConfig();
     this.syncFromConfig(cfg);
     this.configSub = this.electron.config$.subscribe((c: AppConfig) => this.syncFromConfig(c));
@@ -89,6 +98,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
     this.stopPolling();
     this.configSub?.unsubscribe();
     this.destroyCharts();
@@ -149,6 +159,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   private enableMetrics(): void {
     if (this.pollTimer) return;
     this.initCharts();
+    if (document.hidden) return;
     this.pollTimer = setInterval(() => void this.tick(), 1000);
     void this.tick();
   }

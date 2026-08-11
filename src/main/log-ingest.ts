@@ -1,6 +1,4 @@
-import { PYTHON_PORT } from './constants';
-
-const PYTHON_URL = `http://127.0.0.1:${PYTHON_PORT}`;
+import { pythonControlFetch } from './python/http-client';
 
 /** Send a line into the Python unified log (no import cycle with `python/server`). */
 export async function ingestElectronLog(
@@ -10,7 +8,7 @@ export async function ingestElectronLog(
   source = 'electron',
 ): Promise<void> {
   try {
-    await fetch(`${PYTHON_URL}/logs/ingest`, {
+    await pythonControlFetch('/logs/ingest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level, logger, message, source }),

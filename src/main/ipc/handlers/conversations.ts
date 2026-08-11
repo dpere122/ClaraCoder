@@ -5,7 +5,8 @@ import { promises as fs } from 'fs';
 import type { ConversationFile } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
-import { ensurePythonReady, PYTHON_URL } from '../../python/server';
+import { ensurePythonReady } from '../../python/server';
+import { pythonControlFetch } from '../../python/http-client';
 import { getWorkspaceConversationsDir } from '../../paths';
 import { syncConversationWorkspaceContext } from '../../workspace/watcher';
 import {
@@ -113,7 +114,7 @@ export function registerConversationsIpc(): void {
         }
         try {
           await ensurePythonReady();
-          await fetch(`${PYTHON_URL}/load`, {
+          await pythonControlFetch('/load', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: id, messages: pyMessages }),
@@ -147,7 +148,7 @@ export function registerConversationsIpc(): void {
     }
     try {
       await ensurePythonReady();
-      await fetch(`${PYTHON_URL}/dispose`, {
+      await pythonControlFetch('/dispose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: id }),
@@ -188,7 +189,7 @@ export function registerConversationsIpc(): void {
       return { ok: false as const, reason: 'not_due' as const };
     }
     try {
-      const res = await fetch(`${PYTHON_URL}/conversation/suggest-title`, {
+      const res = await pythonControlFetch('/conversation/suggest-title', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: id }),
@@ -248,7 +249,7 @@ export function registerConversationsIpc(): void {
     upsertConversation(conv);
 
     try {
-      await fetch(`${PYTHON_URL}/clear`, {
+      await pythonControlFetch('/clear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: id }),

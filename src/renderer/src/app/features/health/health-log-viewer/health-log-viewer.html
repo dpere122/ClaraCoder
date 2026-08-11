@@ -36,6 +36,7 @@
         </select>
       </label>
     </div>
+    <span class='health-log__toolbar-divider' aria-hidden='true'></span>
     <input
       type='search'
       class='health-log__search'
@@ -43,6 +44,7 @@
       [ngModel]='searchQuery()'
       (ngModelChange)='searchQuery.set($event)'
     />
+    <span class='health-log__toolbar-divider' aria-hidden='true'></span>
     <div class='health-log__toolbar-right'>
       <button type='button' class='health-log__btn health-log__btn--primary' (click)='onLogExpandClick()'>
         {{ logExpanded() ? 'Show charts' : 'Expand log' }}
@@ -51,6 +53,13 @@
         {{ autoScroll() ? 'Auto-scroll on' : 'Auto-scroll off' }}
       </button>
     </div>
+  </div>
+  <div class='health-log__headrow' aria-hidden='true'>
+    <span>Time</span>
+    <span>Level</span>
+    <span>Source</span>
+    <span>Logger</span>
+    <span>Message</span>
   </div>
   <div class='health-log__viewport' #logViewport (scroll)='onLogScroll()'>
     <div class='health-log__virtual-spacer' [style.height.px]='virtualWindow().topSpacer' aria-hidden='true'></div>

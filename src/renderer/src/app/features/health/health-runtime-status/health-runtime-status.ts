@@ -37,22 +37,41 @@ export class HealthRuntimeStatus implements OnInit, OnDestroy {
   private readonly electron = inject(ElectronService);
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private offProgress: (() => void) | null = null;
+  private depsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected readonly chips = signal<StatusChip[]>([]);
   protected readonly stale = signal(false);
 
+  private readonly visibilityHandler = (): void => {
+    if (document.hidden) {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+    } else {
+      void this.refresh();
+      if (!this.pollTimer) {
+        this.pollTimer = setInterval(() => void this.refresh(), POLL_MS);
+      }
+    }
+  };
+
   ngOnInit(): void {
+    document.addEventListener('visibilitychange', this.visibilityHandler);
     void this.refresh();
     this.pollTimer = setInterval(() => void this.refresh(), POLL_MS);
-    this.offProgress = this.electron.onDepsProgress(() => {
-      void this.refresh();
-    });
+    this.offProgress = this.electron.onDepsProgress(() => this.scheduleDepsRefresh());
   }
 
   ngOnDestroy(): void {
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+    if (this.depsRefreshTimer) {
+      clearTimeout(this.depsRefreshTimer);
+      this.depsRefreshTimer = null;
     }
     this.offProgress?.();
     this.offProgress = null;
@@ -60,6 +79,15 @@ export class HealthRuntimeStatus implements OnInit, OnDestroy {
 
   protected openDependencies(): void {
     this.electron.openDependenciesWindow();
+  }
+
+  /** Debounce deps-progress bursts (downloads emit many events); skip while hidden, the visibility handler refreshes on show. */
+  private scheduleDepsRefresh(): void {
+    if (this.depsRefreshTimer) return;
+    this.depsRefreshTimer = setTimeout(() => {
+      this.depsRefreshTimer = null;
+      if (!document.hidden) void this.refresh();
+    }, 400);
   }
 
   private async refresh(): Promise<void> {

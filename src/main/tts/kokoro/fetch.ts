@@ -1,3 +1,4 @@
+import { getPythonSidecarToken } from '../../python/http-client';
 import { PYTHON_URL } from '../../python/server';
 import type { TtsRequestParams } from '../types';
 
@@ -10,9 +11,14 @@ export async function fetchKokoroTtsResponse(
   params: TtsRequestParams,
   signal: AbortSignal,
 ): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getPythonSidecarToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   return fetch(`${PYTHON_URL}/tts`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ text: params.text, voice: params.voice, speed: params.speed }),
     signal,
   });

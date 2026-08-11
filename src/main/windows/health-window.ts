@@ -38,8 +38,10 @@ export function createHealthWindow(): void {
   const mainWindow = mainState.mainWindow;
   const icon = resolveAppIconPath();
   mainState.healthWindow = new BrowserWindow({
-    width: 1200,
-    height: 820,
+    width: 1400,
+    height: 920,
+    minWidth: 1100,
+    minHeight: 720,
     ...(mainWindow && !mainWindow.isDestroyed() ? settingsWindowParentOptions(mainWindow) : {}),
     frame: false,
     resizable: true,

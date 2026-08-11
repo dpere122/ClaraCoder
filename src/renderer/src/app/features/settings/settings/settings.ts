@@ -1020,7 +1020,7 @@ export class Settings implements OnInit, OnDestroy {
     this.llamacppModelsListInFlight.set(true);
     this.llamacppModelsListError.set(null);
     try {
-      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) || '') });
+      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) || '' });
       if (!chatRes.ok) {
         this.llamacppManagedModelIds.set([]);
         this.llamacppUrlEmbeddingModelIds.set([]);

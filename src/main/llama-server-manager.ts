@@ -206,14 +206,14 @@ function modelManagerForManagedLlamaSpawn(config: AppConfig): AppConfig['modelMa
  */
 const activeRedactSecrets = new Map<string, number>();
 
-function acquireRedactSecret(token: string): void {
+export function acquireRedactSecret(token: string): void {
   if (!token) {
     return;
   }
   activeRedactSecrets.set(token, (activeRedactSecrets.get(token) ?? 0) + 1);
 }
 
-function releaseRedactSecret(token: string): void {
+export function releaseRedactSecret(token: string): void {
   if (!token) {
     return;
   }
@@ -225,7 +225,7 @@ function releaseRedactSecret(token: string): void {
   }
 }
 
-function redactSecretValue(text: string, secret: string): string {
+export function redactSecretValue(text: string, secret: string): string {
   if (!text || !secret) {
     return text;
   }
@@ -233,7 +233,7 @@ function redactSecretValue(text: string, secret: string): string {
 }
 
 /** Redact every HF token still referenced by a live managed stream. */
-function redactSecrets(text: string): string {
+export function redactSecrets(text: string): string {
   if (!text || activeRedactSecrets.size === 0) {
     return text;
   }
@@ -244,7 +244,7 @@ function redactSecrets(text: string): string {
   return out;
 }
 
-function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
+export function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   // Prefer managed runtime/bin when resolving a bare ``llama-server``.
   const runtimeBin = getRuntimeBinDir();
@@ -287,13 +287,13 @@ function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
 }
 
 /** Disallowed shell metacharacters in managed run-command strings (checked before argv tokenize). */
-const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
+export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
 
 /**
  * Tokenize a prepared managed run command into argv.
  * Honors single/double quotes; rejects unbalanced quotes and shell metacharacters.
  */
-function tokenizeManagedLlamaCommand(
+export function tokenizeManagedLlamaCommand(
   command: string,
 ): { ok: true; argv: string[] } | { ok: false; error: string } {
   if (MANAGED_LLAMA_SHELL_METACHAR_RE.test(command)) {
@@ -359,7 +359,7 @@ function tokenizeManagedLlamaCommand(
  * Allow only the managed runtime ``llama-server`` binary under the real runtime/bin directory.
  * Resolves symlinks so a symlink inside bin/ cannot point outside the allowlist.
  */
-function resolveAllowedManagedLlamaServerBinary(
+export function resolveAllowedManagedLlamaServerBinary(
   binPath: string,
 ): { ok: true; bin: string } | { ok: false; error: string } {
   const resolved = path.resolve(binPath);
@@ -404,7 +404,7 @@ function resolveAllowedManagedLlamaServerBinary(
 /**
  * Derive argv from a ``prepareManagedLlamaShellCommand`` result and validate the binary allowlist.
  */
-function managedLlamaCommandToSpawnArgv(
+export function managedLlamaCommandToSpawnArgv(
   command: string,
 ): { ok: true; bin: string; args: string[] } | { ok: false; error: string } {
   const tok = tokenizeManagedLlamaCommand(command);

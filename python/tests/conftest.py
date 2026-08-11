@@ -13,6 +13,21 @@ from clara_coder_backend.lsp.manager import shutdown_session_lsp
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
+@pytest.fixture(autouse=True)
+def _sidecar_auth_optional(monkeypatch):
+    """Default the suite to sidecar-auth-optional so existing no-token route tests pass.
+
+    The FastAPI ``SidecarBearerAuthMiddleware`` (security/python-sidecar-auth) is
+    fail-closed when ``CLARA_SIDECAR_TOKEN`` is set and ``CLARA_SIDECAR_AUTH_OPTIONAL``
+    is not. Most legacy tests hit routes without a bearer token, so opt out of
+    auth by default here. Tests that exercise the auth gate live in
+    ``tests/security_sidecar_auth/test_sidecar_auth.py`` and override this by
+    setting ``CLARA_SIDECAR_TOKEN`` and deleting ``CLARA_SIDECAR_AUTH_OPTIONAL``
+    in their own ``auth_on`` fixture.
+    """
+    monkeypatch.setenv('CLARA_SIDECAR_AUTH_OPTIONAL', '1')
+
+
 @pytest.fixture()
 def staging_env():
     saved_staging = os.environ.get('CLARA_STAGING_DIR')

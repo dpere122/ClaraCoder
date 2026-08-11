@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException
 
@@ -22,6 +24,14 @@ logger = logging.getLogger('clara.http.routes')
 router = APIRouter()
 
 
+def _sidecar_marker() -> str:
+    """First 16 hex chars of sha256(CLARA_SIDECAR_TOKEN) — Electron confirms this listener is ours."""
+    token = os.getenv('CLARA_SIDECAR_TOKEN', '') or ''
+    if not token:
+        return ''
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]
+
+
 @router.get('/health')
 async def health() -> dict[str, str | bool]:
     """Liveness probe: confirms the process is up and reports active model metadata."""
@@ -30,6 +40,7 @@ async def health() -> dict[str, str | bool]:
         'status': 'ok',
         'provider': connection.provider,
         'model': connection.model,
+        'x_clara_sidecar': _sidecar_marker(),
     }
 
 

@@ -296,6 +296,20 @@ class RuntimeConnection:
     #: Main context window for this connection (from Settings); used for checkpoint compaction budgets.
     context_window_tokens: int = 0
 
+    def __repr__(self) -> str:
+        masked_key = '***' if self.api_key else ''
+        return (
+            f'RuntimeConnection(id={self.id!r}, name={self.name!r}, provider={self.provider!r}, '
+            f'base_url={self.base_url!r}, model={self.model!r}, api_key={masked_key!r}, '
+            f'reasoning_effort={self.reasoning_effort!r}, temperature={self.temperature!r}, '
+            f'parallel_tool_calls={self.parallel_tool_calls!r}, '
+            f'optimization_preset={self.optimization_preset!r}, '
+            f'max_output_tokens={self.max_output_tokens!r}, …)'
+        )
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
 
 @dataclass
 class RuntimeContextCompressionConfig:
@@ -321,6 +335,16 @@ class RuntimeAudioConfig:
     base_url: str
     model: str
     api_key: str = ''
+
+    def __repr__(self) -> str:
+        masked_key = '***' if self.api_key else ''
+        return (
+            f'RuntimeAudioConfig(provider={self.provider!r}, base_url={self.base_url!r}, '
+            f'model={self.model!r}, api_key={masked_key!r})'
+        )
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
 
 @dataclass

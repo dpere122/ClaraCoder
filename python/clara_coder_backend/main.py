@@ -9,12 +9,17 @@ Or use the repo-level :file:`python/server.py` shim (same port) for Electron.
 
 from __future__ import annotations
 
+import hmac
 import logging
-from collections.abc import AsyncIterator
+import os
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from clara_coder_backend.logging.app_logging import configure_logging
 from clara_coder_backend.config import env_clara
@@ -37,6 +42,66 @@ configure_logging(Path(_raw_log) if _raw_log else None)
 
 _logger = logging.getLogger('clara.main')
 
+# Health is the only unauthenticated route (Electron probes + sidecar marker echo).
+_AUTH_EXEMPT_PATHS = frozenset({'/health'})
+
+# Default CORS allowlist: loopback (dev UI), file://, and Electron app:// only.
+_DEFAULT_ALLOWED_ORIGINS = (
+    'http://127.0.0.1',
+    'http://localhost',
+    'http://127.0.0.1:4200',
+    'http://localhost:4200',
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+    'file://',
+    'null',
+    'app://.',
+)
+
+
+def _allowed_cors_origins() -> list[str]:
+    raw = os.getenv('CLARA_ALLOWED_ORIGINS', '').strip()
+    if not raw:
+        return list(_DEFAULT_ALLOWED_ORIGINS)
+    return [part.strip() for part in raw.split(',') if part.strip()]
+
+
+class SidecarBearerAuthMiddleware(BaseHTTPMiddleware):
+    """Require ``Authorization: Bearer <CLARA_SIDECAR_TOKEN>`` on every route except ``/health``.
+
+    Auth is fail-closed: an empty ``CLARA_SIDECAR_TOKEN`` rejects requests unless
+    ``CLARA_SIDECAR_AUTH_OPTIONAL=1`` is set (pytest / bare uvicorn). Electron always
+    injects a random token at spawn. CORS preflight (OPTIONS with
+    ``Access-Control-Request-Method`` and an allowlisted ``Origin``) skips auth so
+    CORSMiddleware can answer; bare OPTIONS does not.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Skip auth only for real CORS preflight, not every OPTIONS.
+        if request.method == 'OPTIONS':
+            origin = request.headers.get('origin') or ''
+            acrm = request.headers.get('access-control-request-method')
+            if acrm and origin in _allowed_cors_origins():
+                return await call_next(request)
+
+        path = request.url.path.rstrip('/') or '/'
+        if path in _AUTH_EXEMPT_PATHS:
+            return await call_next(request)
+
+        expected = os.getenv('CLARA_SIDECAR_TOKEN', '') or ''
+        if not expected:
+            # Fail closed unless explicitly opted out for local/test runs.
+            if (os.getenv('CLARA_SIDECAR_AUTH_OPTIONAL', '') or '').strip() == '1':
+                return await call_next(request)
+            return JSONResponse({'detail': 'Unauthorized'}, status_code=401)
+
+        auth = request.headers.get('authorization') or ''
+        scheme, _, credential = auth.partition(' ')
+        provided = credential.strip() if scheme.lower() == 'bearer' else ''
+        if not provided or not hmac.compare_digest(provided, expected):
+            return JSONResponse({'detail': 'Unauthorized'}, status_code=401)
+        return await call_next(request)
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -50,6 +115,14 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title='Clara Coder LangChain Backend', lifespan=_lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_cors_origins(),
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+app.add_middleware(SidecarBearerAuthMiddleware)
 app.include_router(runtime_router)
 app.include_router(deps_router)
 app.include_router(session_router)

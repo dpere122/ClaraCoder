@@ -5,7 +5,7 @@ import type {
   WorkspaceContextSyncExtras,
 } from '../../shared';
 import { flattenLlmProvidersToConnections } from '../../shared';
-import { ensurePythonReady, PYTHON_URL } from './server';
+import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
 import { getHostOsInfo } from '../utils/host-os';
 import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
@@ -180,7 +180,7 @@ export async function syncRuntimeConfigToPython(
     const connections = flat.map((c) =>
       connectionToRuntimeWire(c, c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined),
     );
-    const response = await fetch(`${PYTHON_URL}/runtime-config`, {
+    const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -289,7 +289,7 @@ export async function syncWorkspaceSystemPromptToPython(
   }
   const wid = (workspaceId || '').trim();
   const text = wid ? await readWorkspaceSystemPromptText(wid) : '';
-  await fetch(`${PYTHON_URL}/workspace-system-prompt`, {
+  await pythonControlFetch('/workspace-system-prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -309,9 +309,8 @@ export async function fetchPythonInterpretersFromPython(sessionId: string): Prom
   }>;
   activeInterpreterId: string | null;
 }> {
-  const u = new URL(`${PYTHON_URL}/session/python-interpreters`);
-  u.searchParams.set('session_id', sessionId);
-  const response = await fetch(u.toString());
+  const qs = new URLSearchParams({ session_id: sessionId });
+  const response = await pythonControlFetch(`/session/python-interpreters?${qs}`);
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Python interpreters list failed (${response.status}): ${detail}`);
@@ -329,7 +328,7 @@ export async function fetchPythonInterpretersFromPython(sessionId: string): Prom
 
 /** Apply interpreter selection and restart the Python LSP server subprocess for this session. */
 export async function postPythonInterpreterSelection(sessionId: string, interpreterId: string): Promise<void> {
-  const response = await fetch(`${PYTHON_URL}/session/python-interpreter`, {
+  const response = await pythonControlFetch('/session/python-interpreter', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

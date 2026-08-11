@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -46,6 +47,44 @@ _MAX_REPORT_CHARS = 30_000
 _MAX_RUNNING_JOBS_PER_SESSION = 8
 _READ_BLOCK_BYTES = 65_536
 _KILL_REPORT_TIMEOUT_SEC = 20.0
+_MAX_COMMAND_CHARS = 8_192
+
+# Structural denylist — reject before HITL / subprocess. Patterns are intentionally coarse.
+# Defense-in-depth only; HITL still gates approval for non-matching commands.
+_DENIED_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pat, re.IGNORECASE | re.DOTALL), label)
+    for pat, label in (
+        (r'[\n\r]', 'newline / CR command chaining'),
+        (r'\$\(', 'command substitution $()'),
+        (r'`', 'backtick command substitution'),
+        (r'\b(env|printenv)\b', 'env dump (env/printenv)'),
+        (r'\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--force\s+)*(/|/\*|~|/home\b|/Users\b|/var\b|/etc\b)', 'rm -rf / (or similar)'),
+        (r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;?\s*:', 'fork bomb'),
+        (r'\bdd\b[^\n]*\bof\s*=\s*/dev/', 'dd of=/dev/...'),
+        (r'\bmkfs(\.\w+)?\b', 'mkfs'),
+        (r'\b(shutdown|reboot|poweroff|halt)\b', 'shutdown/reboot'),
+        (r'>\s*/dev/sd[a-z]\b', 'redirect to /dev/sdX'),
+        (r'\bchmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+|--recursive\s+)*777\s+/', 'chmod -R 777 /'),
+        (r'\b(curl|wget)\b[\s\S]*\|\s*(ba)?sh\b', 'network download piped to shell'),
+        (r'\b(ba)?sh\b[\s\S]*-c[\s\S]*\b(curl|wget)\b', 'shell -c fetching remote script'),
+        (r'\bbase64\b[\s\S]*\|\s*(curl|wget|nc|ncat|netcat)\b', 'base64 pipe to network exfil'),
+        (r'\b(nc|ncat|netcat)\b[^\n]*\s+-e\s+', 'netcat exec (-e)'),
+        (r'\bcurl\b[^\n]*\s(--data|-d|--upload-file|-T)\b[^\n]*(/etc/passwd|/etc/shadow|\.ssh/)', 'credential exfil via curl'),
+    )
+)
+
+
+def validate_run_command_text(command: str) -> str | None:
+    """Return an error string if ``command`` is too long or matches a denylist pattern."""
+    text = (command or '').strip()
+    if not text:
+        return 'Tool error: `command` must not be empty.'
+    if len(text) > _MAX_COMMAND_CHARS:
+        return f'Tool error: `command` is too long (max {_MAX_COMMAND_CHARS} characters).'
+    for pattern, label in _DENIED_COMMAND_PATTERNS:
+        if pattern.search(text):
+            return f'Tool error: command blocked by safety policy ({label}).'
+    return None
 
 STATUS_RUNNING = 'running'
 STATUS_EXITED = 'exited'
@@ -366,8 +405,9 @@ async def run_command_tool(
     session = get_session(sid)
 
     command_text = (command or '').strip()
-    if not command_text:
-        return 'Tool error: `command` must not be empty.'
+    denied = validate_run_command_text(command_text)
+    if denied:
+        return denied
     wait_sec, wait_err = _normalize_wait_seconds(wait_seconds, default=CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC)
     if wait_err:
         return wait_err
@@ -382,6 +422,11 @@ async def run_command_tool(
     )
     if pending:
         return pending
+
+    # Re-check after HITL in case the approved payload was mutated somehow.
+    denied_after = validate_run_command_text(command_text)
+    if denied_after:
+        return denied_after
 
     from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 

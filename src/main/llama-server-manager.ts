@@ -102,8 +102,8 @@ function killProcessTree(proc: ChildProcess | undefined): void {
     } else {
       /**
        * Managed servers are spawned with ``detached: true`` on POSIX so this PID is a new session /
-       * process-group leader (the shell). Killing the group tears down ``llama-server`` too.
-       * Without that, ``SIGKILL`` on the shell alone often orphans the real server on Linux.
+       * process-group leader (``llama-server`` itself). Killing the group tears down the server.
+       * Without that, ``SIGKILL`` on a lone PID can miss children if the binary ever re-spawns helpers.
        */
       try {
         process.kill(-proc.pid, 'SIGKILL');
@@ -181,7 +181,7 @@ function appendStdout(bucket: StreamBuf, which: StreamKind, chunk: string): void
 function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
   const out = which === 'chat' ? bucket.lastChatStdout : bucket.lastEmbedStdout;
   const err = which === 'chat' ? bucket.lastChatStderr : bucket.lastEmbedStderr;
-  return `${out}\n${err}`.slice(-12_000);
+  return redactSecrets(`${out}\n${err}`.slice(-12_000));
 }
 
 /**
@@ -199,9 +199,26 @@ function modelManagerForManagedLlamaSpawn(config: AppConfig): AppConfig['modelMa
   };
 }
 
+/** Secrets scrubbed from llama-server log streams (HF token / hub token). */
+let redactSecretValues: string[] = [];
+
+function redactSecrets(text: string): string {
+  if (!text || redactSecretValues.length === 0) {
+    return text;
+  }
+  let out = text;
+  for (const secret of redactSecretValues) {
+    if (!secret) {
+      continue;
+    }
+    out = out.split(secret).join('[REDACTED]');
+  }
+  return out;
+}
+
 function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  // Prefer managed runtime/bin when the shell resolves a bare ``llama-server``.
+  // Prefer managed runtime/bin when resolving a bare ``llama-server``.
   const runtimeBin = getRuntimeBinDir();
   const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
   const prevPath = env[pathKey] || env.PATH || '';
@@ -229,12 +246,117 @@ function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
     // A user/system HF_HOME makes llama.cpp resolve $HF_HOME/hub and ignore the dirs above in some builds.
     delete env.HF_HOME;
   }
+  // Never inherit parent HF tokens; re-inject only from Model Manager settings.
+  delete env.HF_TOKEN;
+  delete env.HUGGING_FACE_HUB_TOKEN;
   const tok = mm.huggingFaceToken.trim();
   if (tok) {
     env.HF_TOKEN = tok;
     env.HUGGING_FACE_HUB_TOKEN = tok;
+    redactSecretValues = [tok];
+  } else {
+    redactSecretValues = [];
   }
   return env;
+}
+
+/** Disallowed shell metacharacters in managed run-command strings (checked before argv tokenize). */
+const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
+
+/**
+ * Tokenize a prepared managed run command into argv.
+ * Honors single/double quotes; rejects unbalanced quotes and shell metacharacters.
+ */
+function tokenizeManagedLlamaCommand(
+  command: string,
+): { ok: true; argv: string[] } | { ok: false; error: string } {
+  if (MANAGED_LLAMA_SHELL_METACHAR_RE.test(command)) {
+    return {
+      ok: false,
+      error:
+        'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
+    };
+  }
+  const argv: string[] = [];
+  let i = 0;
+  const s = command;
+  while (i < s.length) {
+    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) {
+      i++;
+    }
+    if (i >= s.length) {
+      break;
+    }
+    const q = s[i];
+    if (q === '"' || q === "'") {
+      i++;
+      let token = '';
+      let closed = false;
+      while (i < s.length) {
+        if (s[i] === q) {
+          closed = true;
+          i++;
+          break;
+        }
+        token += s[i];
+        i++;
+      }
+      if (!closed) {
+        return { ok: false, error: 'Run command has unbalanced quotes.' };
+      }
+      argv.push(token);
+      continue;
+    }
+    let token = '';
+    while (i < s.length && s[i] !== ' ' && s[i] !== '\t' && s[i] !== '"' && s[i] !== "'") {
+      token += s[i];
+      i++;
+    }
+    argv.push(token);
+  }
+  if (argv.length === 0) {
+    return { ok: false, error: 'Run command is empty.' };
+  }
+  return { ok: true, argv };
+}
+
+/** Allow only the managed runtime ``llama-server`` binary (or same basename under runtime/bin). */
+function isAllowedManagedLlamaServerBinary(binPath: string): boolean {
+  const resolved = path.resolve(binPath);
+  const managed = getManagedLlamaServerPath();
+  if (managed && path.resolve(managed) === resolved) {
+    return true;
+  }
+  const binDir = path.resolve(getRuntimeBinDir());
+  if (path.dirname(resolved) !== binDir) {
+    return false;
+  }
+  const base = path.basename(resolved);
+  return base === 'llama-server' || base === 'llama-server.exe';
+}
+
+/**
+ * Derive argv from a ``prepareManagedLlamaShellCommand`` result and validate the binary allowlist.
+ */
+function managedLlamaCommandToSpawnArgv(
+  command: string,
+): { ok: true; bin: string; args: string[] } | { ok: false; error: string } {
+  const tok = tokenizeManagedLlamaCommand(command);
+  if (!tok.ok) {
+    return tok;
+  }
+  const [bin, ...args] = tok.argv;
+  if (!bin) {
+    return { ok: false, error: 'Run command is empty.' };
+  }
+  if (!isAllowedManagedLlamaServerBinary(bin)) {
+    return {
+      ok: false,
+      error:
+        'Run command binary must be the managed llama-server under the Clara runtime bin directory.',
+    };
+  }
+  return { ok: true, bin: path.resolve(bin), args };
 }
 
 function hfWarmHintFromLogs(logBuf: StreamBuf, kind: StreamKind): string {
@@ -270,12 +392,12 @@ function attachLlamaStreams(
   bucket: StreamBuf,
 ): void {
   proc.stdout?.on('data', (d: Buffer) => {
-    const s = d.toString();
+    const s = redactSecrets(d.toString());
     appendStdout(bucket, which, s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: s });
   });
   proc.stderr?.on('data', (d: Buffer) => {
-    const s = d.toString();
+    const s = redactSecrets(d.toString());
     appendStderrQuiet(bucket, which, s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: s });
   });
@@ -388,15 +510,27 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     await fs.mkdir(managedCacheDir, { recursive: true });
   }
 
+  const chatArgv = managedLlamaCommandToSpawnArgv(chatBuilt.command);
+  if (!chatArgv.ok) {
+    return { ok: false, error: chatArgv.error };
+  }
+  let embedArgv: { bin: string; args: string[] } | undefined;
+  if (embedBuilt) {
+    const ea = managedLlamaCommandToSpawnArgv(embedBuilt.command);
+    if (!ea.ok) {
+      return { ok: false, error: ea.error };
+    }
+    embedArgv = { bin: ea.bin, args: ea.args };
+  }
+
   try {
     /**
      * Start chat first and wait for ``/health`` before spawning embedding.
      * If chat fails (e.g. wrong ``-hf`` / 404), we must not have started embed yet—otherwise
      * ``stopManagedLlamaServers`` would kill a long embed download that was never going to be used.
      */
-    const chatProc = spawn(chatBuilt.command, {
-      shell: true,
-      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server``, not just ``sh``. */
+    const chatProc = spawn(chatArgv.bin, chatArgv.args, {
+      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server`` (no shell). */
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -438,9 +572,8 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     invalidateManagedStatusCache(modelId);
     await syncWithManagedLlamaOverrides(config);
 
-    if (embedBuilt && embedPort != null) {
-      embedProc = spawn(embedBuilt.command, {
-        shell: true,
+    if (embedBuilt && embedPort != null && embedArgv) {
+      embedProc = spawn(embedArgv.bin, embedArgv.args, {
         detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,

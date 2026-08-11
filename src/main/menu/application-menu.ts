@@ -5,7 +5,38 @@ import { createSettingsWindow } from '../windows/settings-window';
 import { createHealthWindow } from '../windows/health-window';
 import { createDependenciesWindow } from '../windows/dependencies-window';
 
-const DOCUMENTATION_URL = 'https://github.com';
+/** Hosts permitted for Help → Documentation / shell.openExternal. */
+const ALLOWED_EXTERNAL_HOSTS = new Set(['github.com', 'docs.claraverse.ai']);
+
+/** Pinned Clara docs URL (must pass {@link validateExternalUrl}). */
+const DOCUMENTATION_URL = 'https://github.com/dpere122/ClaraCoder';
+
+/**
+ * Only http(s) URLs on the small host allowlist may be opened externally.
+ * Rejects file:, data:, javascript:, and other schemes.
+ */
+export function validateExternalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (parsed.username || parsed.password) {
+      return false;
+    }
+    return ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url: string): void {
+  if (!validateExternalUrl(url)) {
+    console.warn(`[Main] Blocked openExternal for disallowed URL: ${url}`);
+    return;
+  }
+  void shell.openExternal(url);
+}
 
 function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions[] {
   return [
@@ -47,7 +78,7 @@ function buildHelpMenuTemplate(): Electron.MenuItemConstructorOptions[] {
     },
     {
       label: 'Documentation',
-      click: () => void shell.openExternal(DOCUMENTATION_URL),
+      click: () => openExternalUrl(DOCUMENTATION_URL),
     },
   ];
 }
@@ -75,5 +106,5 @@ export function buildMenu(): void {
 
 /** Opens the docs URL from the themed Help menu (renderer IPC). */
 export function openDocumentation(): void {
-  void shell.openExternal(DOCUMENTATION_URL);
+  openExternalUrl(DOCUMENTATION_URL);
 }

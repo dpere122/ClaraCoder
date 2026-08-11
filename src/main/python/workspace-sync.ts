@@ -180,7 +180,7 @@ export async function syncRuntimeConfigToPython(
     const connections = flat.map((c) =>
       connectionToRuntimeWire(c, c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined),
     );
-    const response = await fetch(`${PYTHON_URL}/runtime-config`, {
+    const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -289,7 +289,7 @@ export async function syncWorkspaceSystemPromptToPython(
   }
   const wid = (workspaceId || '').trim();
   const text = wid ? await readWorkspaceSystemPromptText(wid) : '';
-  await fetch(`${PYTHON_URL}/workspace-system-prompt`, {
+  await pythonControlFetch('/workspace-system-prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

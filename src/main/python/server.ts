@@ -1,9 +1,10 @@
+import { createHash, randomBytes } from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { mkdirSync } from 'fs';
 import path = require('path');
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
-import { pythonControlFetch } from './http-client';
+import { getPythonSidecarToken, pythonControlFetch, setPythonSidecarToken } from './http-client';
 import {
   getCheckpointDbPath,
   getJavaLspCacheDir,
@@ -21,14 +22,65 @@ import { ingestElectronLog } from '../log-ingest';
 
 export { PYTHON_URL, PYTHON_PORT };
 
-/** True when the sidecar on `PYTHON_PORT` already accepts `/health`. */
-export async function isPythonHealthy(): Promise<boolean> {
-  try {
-    const res = await pythonControlFetch('/health');
-    return res.ok;
-  } catch {
-    return false;
+/** Process-lifetime sidecar shared secret (hex). Generated once; passed to the child at spawn. */
+function ensureSidecarToken(): string {
+  let token = getPythonSidecarToken();
+  if (!token) {
+    token = randomBytes(32).toString('hex');
+    setPythonSidecarToken(token);
   }
+  return token;
+}
+
+/** First 16 hex chars of sha256(token) — must match Python `/health` `x_clara_sidecar`. */
+export function expectedSidecarMarker(token = getPythonSidecarToken()): string {
+  if (!token) return '';
+  return createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 16);
+}
+
+async function fetchHealthPayload(): Promise<
+  { reachable: false } | { reachable: true; ok: boolean; marker: string }
+> {
+  try {
+    // /health is auth-exempt on our sidecar; bearer is harmless if present.
+    const res = await pythonControlFetch('/health');
+    let marker = '';
+    if (res.ok) {
+      try {
+        const body = (await res.json()) as { x_clara_sidecar?: unknown };
+        marker = typeof body.x_clara_sidecar === 'string' ? body.x_clara_sidecar : '';
+      } catch {
+        marker = '';
+      }
+    }
+    return { reachable: true, ok: res.ok, marker };
+  } catch {
+    return { reachable: false };
+  }
+}
+
+/**
+ * True when the listener on `PYTHON_PORT` is our sidecar (health ok + marker matches our token).
+ * Returns false for a dead port, wrong marker, or a foreign process.
+ */
+export async function isPythonHealthy(): Promise<boolean> {
+  ensureSidecarToken();
+  const expected = expectedSidecarMarker();
+  const health = await fetchHealthPayload();
+  if (!health.reachable || !health.ok) return false;
+  return health.marker === expected && expected.length > 0;
+}
+
+/**
+ * Probe the port: distinguish "nothing listening", "our sidecar", and "foreign listener".
+ */
+async function probePythonListener(): Promise<'down' | 'ours' | 'foreign'> {
+  ensureSidecarToken();
+  const expected = expectedSidecarMarker();
+  const health = await fetchHealthPayload();
+  if (!health.reachable) return 'down';
+  if (health.ok && health.marker === expected && expected.length > 0) return 'ours';
+  return 'foreign';
 }
 
 /** Shared wait so concurrent startup IPC (workspace sync, history load, …) polls once. */
@@ -45,6 +97,12 @@ export async function ensurePythonReady(
   if (await isPythonHealthy()) {
     return;
   }
+  const probe = await probePythonListener();
+  if (probe === 'foreign') {
+    throw new Error(
+      `Foreign process already listening on PYTHON_PORT (${PYTHON_PORT}); refusing to treat it as the Clara sidecar.`,
+    );
+  }
   if (!pythonReadyWait) {
     pythonReadyWait = waitForPython(mainState.pythonProcess, retries, intervalMs).finally(() => {
       pythonReadyWait = null;
@@ -55,12 +113,18 @@ export async function ensurePythonReady(
 
 /**
  * Spawns `python server.py` from the repo’s `python/` folder; logs stdout/stderr in dev.
- * Skips spawn when another healthy instance is already listening (common after electronmon restarts).
+ * Skips spawn when our healthy instance is already listening. Rejects a foreign listener.
  */
 export async function ensurePythonServer(): Promise<void> {
-  if (await isPythonHealthy()) {
+  const probe = await probePythonListener();
+  if (probe === 'ours') {
     console.log(`[Python] Reusing existing server on ${PYTHON_URL}`);
     return;
+  }
+  if (probe === 'foreign') {
+    throw new Error(
+      `Foreign process already listening on PYTHON_PORT (${PYTHON_PORT}); refusing to reuse it as the Clara sidecar.`,
+    );
   }
   const proc = startPythonServer();
   await waitForPython(proc);
@@ -85,9 +149,16 @@ export async function restartPythonServer(): Promise<void> {
   } else {
     mainState.pythonProcess = null;
   }
-  // If another orphan still holds the port, wait for it to die or reuse after kill attempt.
+  // If another orphan still holds the port, wait for it to die (do not reuse foreign).
   for (let i = 0; i < 20; i++) {
-    if (!(await isPythonHealthy())) break;
+    const probe = await probePythonListener();
+    if (probe === 'down') break;
+    if (probe === 'foreign') {
+      throw new Error(
+        `Foreign process still listening on PYTHON_PORT (${PYTHON_PORT}) after restart; cannot spawn sidecar.`,
+      );
+    }
+    // 'ours' with a dying child — keep waiting for the port to free.
     await new Promise((r) => setTimeout(r, 200));
   }
   const next = startPythonServer();
@@ -102,6 +173,7 @@ export function startPythonServer(): ChildProcess {
   if (mainState.pythonProcess) {
     return mainState.pythonProcess;
   }
+  const sidecarToken = ensureSidecarToken();
   const pythonCmd = getPythonExecutable();
   const scriptPath = getPythonServerScriptPath();
   const logDir = getLogsDir();
@@ -125,6 +197,7 @@ export function startPythonServer(): ChildProcess {
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
+      CLARA_SIDECAR_TOKEN: sidecarToken,
       CLARA_LOG_DIR: logDir,
       CLARA_STAGING_DIR: stagingDir,
       CLARA_CHECKPOINT_DB: checkpointDb,
@@ -185,8 +258,7 @@ export async function waitForPython(
         throw new Error(`Python server exited early with code ${exitedCode}`);
       }
       try {
-        const res = await pythonControlFetch('/health');
-        if (res.ok) return;
+        if (await isPythonHealthy()) return;
       } catch {
         // server not up yet
       }

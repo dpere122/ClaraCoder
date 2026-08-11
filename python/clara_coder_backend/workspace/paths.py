@@ -12,11 +12,16 @@ __all__ = [
 
 
 def normalize_relative_path(root: Path, relative_path: str) -> Path:
-    """Resolve a user/tool-relative path under root; raise if it escapes the workspace."""
+    """Resolve a user/tool-relative path under root; raise if it escapes the workspace.
+
+    Resolves the workspace root once (realpath) before the containment check so
+    symlinked roots and ``..`` escapes cannot slip past ``relative_to``.
+    """
     cleaned = relative_path.strip().replace('\\', '/') or '.'
-    candidate = (root / cleaned).resolve()
+    root_resolved = root.resolve()
+    candidate = (root_resolved / cleaned).resolve()
     try:
-        candidate.relative_to(root)
+        candidate.relative_to(root_resolved)
     except ValueError as exc:
         raise ValueError('Requested path is outside the active workspace.') from exc
     return candidate

@@ -1,5 +1,109 @@
 import type { Workspace } from './workspace';
 
+const SECRET_OPAQUE = Symbol('SecretValue');
+const SECRET_REDACTED = '[REDACTED]';
+
+/**
+ * Opaque secret wrapper (brand: {@link SECRET_OPAQUE}).
+ *
+ * - `toJSON` / `console.log` (`util.inspect`) → {@link SECRET_REDACTED}
+ * - `toString` / `valueOf` / `Symbol.toPrimitive` → underlying string (transparent coercion)
+ * - {@link unwrap} → underlying string for trusted sinks
+ *
+ * Disk writers must unwrap/encrypt before persistence (see load-save). Public load/save
+ * APIs re-expose plain strings so IPC/renderer `typeof === 'string'` consumers keep working.
+ */
+export class SecretValue<T extends string = string> extends String {
+  readonly [SECRET_OPAQUE] = true as const;
+  private readonly _secret: T;
+
+  private constructor(value: T) {
+    super(value);
+    this._secret = value;
+  }
+
+  /** Wrap a plaintext string (or return existing {@link SecretValue} unchanged). */
+  static of<T extends string = string>(value: T | SecretValue<T> | null | undefined): SecretValue<T> {
+    if (isSecretValue<T>(value)) {
+      return value;
+    }
+    return new SecretValue((value ?? '') as T);
+  }
+
+  /** Access the underlying secret string. */
+  unwrap(): T {
+    return this._secret;
+  }
+
+  override toString(): string {
+    return String(this._secret);
+  }
+
+  override valueOf(): T {
+    return this._secret;
+  }
+
+  /** Accidental JSON serialization redacts. */
+  toJSON(): string {
+    return SECRET_REDACTED;
+  }
+
+  [Symbol.toPrimitive](_hint?: string): string {
+    return String(this._secret);
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return SECRET_REDACTED;
+  }
+}
+
+/** `JSON.stringify` that keeps {@link SecretValue.toJSON} redaction (for safe logs). */
+export function redactSecretsInJson(value: unknown, space?: number): string {
+  return JSON.stringify(value, null, space);
+}
+
+/** True when value is a {@link SecretValue} instance. */
+export function isSecretValue<T extends string = string>(value: unknown): value is SecretValue<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { [SECRET_OPAQUE]?: unknown })[SECRET_OPAQUE] === true &&
+    typeof (value as SecretValue<T>).unwrap === 'function'
+  );
+}
+
+/** Unwrap {@link SecretValue} or pass through plaintext strings. */
+export function unwrapSecret(value: unknown): string {
+  if (isSecretValue(value)) {
+    return value.unwrap();
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value instanceof String) {
+    return String(value.valueOf());
+  }
+  return '';
+}
+
+/** Coerce unknown config input into a {@link SecretValue} without dropping material. */
+export function coerceSecretValue(value: unknown): SecretValue<string> {
+  if (isSecretValue(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return SecretValue.of(value);
+  }
+  if (value instanceof String) {
+    return SecretValue.of(String(value.valueOf()));
+  }
+  if (value == null) {
+    return SecretValue.of('');
+  }
+  // Preserve non-string material as stringified form rather than dropping it.
+  return SecretValue.of(String(value));
+}
+
 /** Family-specific tuning template from Settings → Models (synced to Python). */
 export type LlmOptimizationPreset = 'generic' | 'qwen' | 'capable' | 'gemma';
 
@@ -84,7 +188,7 @@ export interface LlmProviderConfig {
   /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). */
   provider: 'openai' | 'lmstudio' | 'llamacpp' | 'python-t2i';
   baseUrl: string;
-  apiKey: string;
+  apiKey: SecretValue<string>;
   /**
    * LM Studio: model id for OpenAI-compatible ``POST /v1/embeddings`` (semantic index).
    * When unset, Python uses ``CLARA_EMBEDDINGS_MODEL`` / defaults.
@@ -167,7 +271,7 @@ export interface AudioTranscriptionConfig {
   provider: 'openai' | 'disabled' | 'google';
   baseUrl: string;
   model: string;
-  apiKey: string;
+  apiKey: SecretValue<string>;
   /**
    * MediaDevices ``deviceId`` for talk-mode capture, or ``"default"`` for browser default.
    * Client-only; ignored by the transcription API runtime.
@@ -200,7 +304,7 @@ export interface AudioTranscriptionConfig {
   /**
    * Optional Bearer token for OpenAI-compatible TTS. Client-only.
    */
-  ttsApiKey?: string;
+  ttsApiKey?: SecretValue<string>;
   /**
    * Default OpenAI-compatible TTS ``instructions`` (mood/tone) when the model omits ``[[tts_mood: ...]]``.
    * Client-only; ignored by Kokoro.
@@ -227,7 +331,7 @@ export interface ModelManagerConfig {
    */
   customModelsDir: string;
   /** Shared Hugging Face token for model search and managed llama `-hf` pulls. */
-  huggingFaceToken: string;
+  huggingFaceToken: SecretValue<string>;
 }
 
 /** Workspace agent tool limits and edit-tool surface; synced to Python `/runtime-config`. */

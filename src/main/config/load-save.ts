@@ -38,6 +38,13 @@ import {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
 } from '../../shared';
+import {
+  coerceSecretValue,
+  isSecretValue,
+  redactSecretsInJson,
+  SecretValue,
+  unwrapSecret,
+} from '../../shared/types/app-config';
 import { APP_THEME_IDS, FIRST_THEME_ID } from '../constants';
 import { getConfigPath } from '../paths';
 import {
@@ -53,6 +60,158 @@ import {
   getDefaultWorkspaceTools,
   workspaceFromLegacyPath,
 } from './defaults';
+
+/** Disk marker for OS-keychain–encrypted secret payloads (Electron safeStorage). */
+const SECRET_DISK_PREFIX = 'clara-secret:v1:';
+
+let keychainFallbackWarned = false;
+
+type SafeStorageLike = {
+  isEncryptionAvailable: () => boolean;
+  encryptString: (plain: string) => Buffer;
+  decryptString: (blob: Buffer) => string;
+};
+
+/** Opt-in OS keychain via Electron safeStorage; no hard native deps if unavailable. */
+function tryGetSafeStorage(): SafeStorageLike | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const electron = require('electron') as { safeStorage?: SafeStorageLike };
+    const ss = electron?.safeStorage;
+    if (
+      ss &&
+      typeof ss.isEncryptionAvailable === 'function' &&
+      typeof ss.encryptString === 'function' &&
+      typeof ss.decryptString === 'function'
+    ) {
+      return ss;
+    }
+  } catch {
+    // Vitest / non-Electron hosts: fall back to mode-0600 plaintext.
+  }
+  return null;
+}
+
+function warnKeychainFallbackOnce(): void {
+  if (keychainFallbackWarned) {
+    return;
+  }
+  keychainFallbackWarned = true;
+  console.warn(
+    '[config] OS keychain encryption unavailable; persisting secrets as plaintext in mode-0600 config file.',
+  );
+}
+
+function encryptSecretForDisk(plain: string): string {
+  if (!plain) {
+    return '';
+  }
+  const ss = tryGetSafeStorage();
+  if (ss?.isEncryptionAvailable()) {
+    try {
+      return `${SECRET_DISK_PREFIX}${ss.encryptString(plain).toString('base64')}`;
+    } catch {
+      warnKeychainFallbackOnce();
+      return plain;
+    }
+  }
+  warnKeychainFallbackOnce();
+  return plain;
+}
+
+function decryptSecretFromDisk(stored: string): string {
+  if (!stored.startsWith(SECRET_DISK_PREFIX)) {
+    return stored;
+  }
+  const ss = tryGetSafeStorage();
+  if (!ss?.isEncryptionAvailable()) {
+    warnKeychainFallbackOnce();
+    return stored.slice(SECRET_DISK_PREFIX.length);
+  }
+  try {
+    const blob = Buffer.from(stored.slice(SECRET_DISK_PREFIX.length), 'base64');
+    return ss.decryptString(blob);
+  } catch {
+    warnKeychainFallbackOnce();
+    return '';
+  }
+}
+
+/** Decrypt disk form (if any) and wrap as {@link SecretValue}; never drops material. */
+function decryptAndWrapSecret(value: unknown): SecretValue<string> {
+  if (isSecretValue(value)) {
+    const inner = value.unwrap();
+    if (inner.startsWith(SECRET_DISK_PREFIX)) {
+      return SecretValue.of(decryptSecretFromDisk(inner));
+    }
+    return value;
+  }
+  if (typeof value === 'string') {
+    return SecretValue.of(decryptSecretFromDisk(value));
+  }
+  return coerceSecretValue(value);
+}
+
+/**
+ * Re-expose secrets as plain strings for IPC/renderer consumers that check
+ * `typeof x === 'string'` while still allowing in-memory {@link SecretValue} during migrate/save.
+ */
+function exposeSecretsForConsumers(config: AppConfig): AppConfig {
+  for (const p of config.llmProviders ?? []) {
+    (p as { apiKey: string | SecretValue<string> }).apiKey = unwrapSecret(p.apiKey);
+  }
+  if (config.audioTranscription) {
+    const audio = config.audioTranscription as {
+      apiKey: string | SecretValue<string>;
+      ttsApiKey?: string | SecretValue<string>;
+    };
+    audio.apiKey = unwrapSecret(audio.apiKey);
+    if (audio.ttsApiKey !== undefined) {
+      audio.ttsApiKey = unwrapSecret(audio.ttsApiKey);
+    }
+  }
+  if (config.modelManager) {
+    (config.modelManager as { huggingFaceToken: string | SecretValue<string> }).huggingFaceToken =
+      unwrapSecret(config.modelManager.huggingFaceToken);
+  }
+  return config;
+}
+
+/** Build a JSON-serializable copy with secrets encrypted (or plaintext fallback). */
+function serializeConfigForDisk(config: AppConfig): Record<string, unknown> {
+  const providers = (config.llmProviders ?? []).map((p) => ({
+    ...p,
+    apiKey: encryptSecretForDisk(unwrapSecret(p.apiKey)),
+    models: p.models,
+  }));
+  const audio = config.audioTranscription
+    ? {
+        ...config.audioTranscription,
+        apiKey: encryptSecretForDisk(unwrapSecret(config.audioTranscription.apiKey)),
+        ttsApiKey: encryptSecretForDisk(unwrapSecret(config.audioTranscription.ttsApiKey)),
+      }
+    : config.audioTranscription;
+  const modelManager = config.modelManager
+    ? {
+        ...config.modelManager,
+        huggingFaceToken: encryptSecretForDisk(unwrapSecret(config.modelManager.huggingFaceToken)),
+      }
+    : config.modelManager;
+  return {
+    ...config,
+    llmProviders: providers,
+    audioTranscription: audio,
+    modelManager,
+  };
+}
+
+async function chmod600BestEffort(filePath: string): Promise<void> {
+  try {
+    await fs.chmod(filePath, 0o600);
+  } catch {
+    // Best-effort on platforms that ignore mode bits.
+  }
+}
 
 function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
   const {
@@ -349,14 +508,18 @@ function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
   return migrated;
 }
 
-function collectLegacyHfTokens(providers: LlmProviderConfig[]): string[] {
-  const out: string[] = [];
+function collectLegacyHfTokens(providers: LlmProviderConfig[]): SecretValue<string>[] {
+  const out: SecretValue<string>[] = [];
   for (const p of providers) {
     for (const m of p.models) {
       const raw = m.llamaCppManaged as unknown as Record<string, unknown> | undefined;
-      const tok = typeof raw?.['huggingFaceToken'] === 'string' ? raw['huggingFaceToken'].trim() : '';
-      if (tok) {
-        out.push(tok);
+      if (!raw || raw['huggingFaceToken'] == null) {
+        continue;
+      }
+      // Preserve token material into SecretValue (including non-string legacy shapes).
+      const wrapped = decryptAndWrapSecret(raw['huggingFaceToken']);
+      if (unwrapSecret(wrapped).trim()) {
+        out.push(wrapped);
       }
     }
   }
@@ -369,6 +532,7 @@ function stripLegacyHfTokens(providers: LlmProviderConfig[]): boolean {
     for (const m of p.models) {
       const raw = m.llamaCppManaged as unknown as Record<string, unknown> | undefined;
       if (raw && 'huggingFaceToken' in raw) {
+        // Strip plaintext from legacy tree after collectLegacyHfTokens preserved it.
         delete raw['huggingFaceToken'];
         migrated = true;
       }
@@ -403,8 +567,14 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
       migrated = true;
     }
     if (p.apiKey === undefined) {
-      p.apiKey = p.provider === 'lmstudio' ? 'lm-studio' : '';
+      p.apiKey = SecretValue.of(p.provider === 'lmstudio' ? 'lm-studio' : '');
       migrated = true;
+    } else {
+      const coerced = decryptAndWrapSecret(p.apiKey);
+      if (!isSecretValue(p.apiKey) || unwrapSecret(p.apiKey) !== coerced.unwrap()) {
+        p.apiKey = coerced;
+        migrated = true;
+      }
     }
     if (!Array.isArray(p.models) || p.models.length === 0) {
       const mid =
@@ -764,8 +934,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
       migrated = true;
     }
     if (audio.apiKey === undefined) {
-      audio.apiKey = '';
+      audio.apiKey = SecretValue.of('');
       migrated = true;
+    } else {
+      const coerced = decryptAndWrapSecret(audio.apiKey);
+      if (!isSecretValue(audio.apiKey) || unwrapSecret(audio.apiKey) !== coerced.unwrap()) {
+        audio.apiKey = coerced;
+        migrated = true;
+      }
     }
     if (audio.talkInputDeviceId === undefined || typeof audio.talkInputDeviceId !== 'string') {
       audio.talkInputDeviceId = 'default';
@@ -785,9 +961,16 @@ export function migrateConfig(config: AppConfig): AppConfig {
       atRecord.ttsBaseUrl = DEFAULT_OPENAI_TTS_BASE_URL;
       migrated = true;
     }
-    if (typeof atRecord.ttsApiKey !== 'string') {
-      atRecord.ttsApiKey = '';
+    if (atRecord.ttsApiKey === undefined) {
+      atRecord.ttsApiKey = SecretValue.of('');
       migrated = true;
+    } else {
+      // Clamp/coerce without dropping secret material (legacy plaintext or SecretValue).
+      const coerced = decryptAndWrapSecret(atRecord.ttsApiKey);
+      if (!isSecretValue(atRecord.ttsApiKey) || unwrapSecret(atRecord.ttsApiKey) !== coerced.unwrap()) {
+        atRecord.ttsApiKey = coerced;
+        migrated = true;
+      }
     }
     if (typeof atRecord.ttsDefaultInstructions !== 'string') {
       atRecord.ttsDefaultInstructions = '';
@@ -1045,7 +1228,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
       detectedCaches?: unknown;
     };
     const customModelsDir = typeof mm.customModelsDir === 'string' ? mm.customModelsDir.trim() : '';
-    const huggingFaceToken = typeof mm.huggingFaceToken === 'string' ? mm.huggingFaceToken : '';
+    const huggingFaceToken = decryptAndWrapSecret(mm.huggingFaceToken);
     const fallback = getDefaultModelManagerConfig();
     // Empty only — do not rewrite a saved ``~/models`` path (may already hold downloads).
     const nextCustomDir = customModelsDir || fallback.customModelsDir;
@@ -1053,7 +1236,11 @@ export function migrateConfig(config: AppConfig): AppConfig {
       mm.customModelsDir = nextCustomDir;
       migrated = true;
     }
-    if (huggingFaceToken !== mm.huggingFaceToken) {
+    // Wrap into SecretValue; never persist/keep raw plaintext shape after coerce.
+    if (
+      !isSecretValue(mm.huggingFaceToken) ||
+      unwrapSecret(mm.huggingFaceToken) !== huggingFaceToken.unwrap()
+    ) {
       mm.huggingFaceToken = huggingFaceToken;
       migrated = true;
     }
@@ -1064,7 +1251,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
   }
 
   const mm = (newConfig as AppConfig).modelManager;
-  if (!mm.huggingFaceToken && legacyHfTokens.length > 0) {
+  if (!unwrapSecret(mm.huggingFaceToken) && legacyHfTokens.length > 0) {
     mm.huggingFaceToken = legacyHfTokens[0]!;
     migrated = true;
   }
@@ -1138,6 +1325,7 @@ async function readConfigFromDiskForMutation(): Promise<AppConfig> {
   for (const filePath of [configPath, backupPath]) {
     try {
       const raw = await readConfigRawFromPath(filePath);
+      // Never log `raw` — may contain plaintext or encrypted secrets.
       const parsed = migrateConfig(JSON.parse(raw) as AppConfig);
       if (filePath === backupPath) {
         console.warn('[config] restored config from backup file.');
@@ -1148,6 +1336,7 @@ async function readConfigFromDiskForMutation(): Promise<AppConfig> {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         continue;
       }
+      // Do not log err stacks that might echo file snippets; keep message generic.
     }
   }
 
@@ -1165,17 +1354,31 @@ async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
   const configPath = getConfigPath();
   const tempPath = `${configPath}${CONFIG_TEMP_SUFFIX}`;
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
-  await fs.mkdir(path.dirname(configPath), { recursive: true });
-  const payload = JSON.stringify(config, null, 2);
-  await fs.writeFile(tempPath, payload, 'utf-8');
+  await fs.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  // Encrypt secrets via keychain (or plaintext fallback) before stringify so the
+  // payload never relies on live SecretValue fields (toJSON would redact).
+  const diskSafe = serializeConfigForDisk(config);
+  const payload = JSON.stringify(diskSafe, null, 2);
+  // Safety: if a SecretValue slipped through, toJSON redacts rather than leaking.
+  if (payload.includes('"apiKey": "[REDACTED]"') || payload.includes('"huggingFaceToken": "[REDACTED]"')) {
+    console.warn('[config] secret field redacted in disk payload; check serializeConfigForDisk.');
+  }
+  await fs.writeFile(tempPath, payload, { encoding: 'utf-8', mode: 0o600 });
+  await chmod600BestEffort(tempPath);
   if (await configFileExists(configPath)) {
     await fs.copyFile(configPath, backupPath);
+    await chmod600BestEffort(backupPath);
   }
   await fs.rename(tempPath, configPath);
+  await chmod600BestEffort(configPath);
+  if (await configFileExists(backupPath)) {
+    await chmod600BestEffort(backupPath);
+  }
 }
 
 /** Preserve workspace registry fields owned by dedicated IPC handlers. */
 export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): AppConfig {
+  // Client-wins settings merge; never log client/disk (secrets).
   const clientMigrated = migrateConfig(client);
   return {
     ...clientMigrated,
@@ -1198,7 +1401,8 @@ export async function updateConfig(
     }
     const migrated = migrateConfig(config);
     await writeConfigToDiskUnsafe(migrated);
-    return migrated;
+    // Plain strings for IPC consumers; do not log migrated/config (secrets).
+    return exposeSecretsForConsumers(migrated);
   });
 }
 
@@ -1209,9 +1413,9 @@ export async function loadConfig(): Promise<AppConfig> {
     const migrated = migrateConfig(config);
     if (migrated !== config) {
       await writeConfigToDiskUnsafe(migrated);
-      return migrated;
+      return exposeSecretsForConsumers(migrated);
     }
-    return config;
+    return exposeSecretsForConsumers(config);
   });
 }
 
@@ -1229,11 +1433,13 @@ export function loadConfigSync(): AppConfig {
   for (const filePath of [configPath, backupPath]) {
     try {
       const raw = readConfigRawFromPathSync(filePath);
-      return migrateConfig(JSON.parse(raw) as AppConfig);
+      // Never log `raw` or throw it in error text — may contain secrets.
+      return exposeSecretsForConsumers(migrateConfig(JSON.parse(raw) as AppConfig));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         continue;
       }
+      // Swallow parse errors without logging file contents or secret-bearing messages.
     }
   }
 
@@ -1247,5 +1453,10 @@ export function loadConfigSync(): AppConfig {
     }
   }
 
-  return createDefaultConfig();
+  return exposeSecretsForConsumers(createDefaultConfig());
+}
+
+/** @internal test/debug helper — redacted JSON only (never use for persistence). */
+export function debugRedactedConfigJson(config: AppConfig): string {
+  return redactSecretsInJson(config, 2);
 }

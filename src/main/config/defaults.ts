@@ -27,6 +27,7 @@ import {
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
+import { SecretValue } from '../../shared/types/app-config';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` should reset LLM sources to defaults (see `migrateConfig`). */
@@ -67,7 +68,7 @@ export function createPinnedLmStudioProvider(): LlmProviderConfig {
     name: 'LM Studio Default',
     provider: 'lmstudio',
     baseUrl: process.env.LM_STUDIO_BASE_URL || 'http://127.0.0.1:1234/v1',
-    apiKey: process.env.LM_STUDIO_API_KEY || 'lm-studio',
+    apiKey: SecretValue.of(process.env.LM_STUDIO_API_KEY || 'lm-studio'),
     models: [defaultLmStudioModelProfile()],
   };
 }
@@ -84,7 +85,7 @@ export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
     name: 'Llama server (local)',
     provider: 'llamacpp',
     baseUrl: process.env.LLAMACPP_BASE_URL || 'http://127.0.0.1:8080/v1',
-    apiKey: process.env.LLAMACPP_API_KEY || '',
+    apiKey: SecretValue.of(process.env.LLAMACPP_API_KEY || ''),
     models: [
       {
         id: 'default-llamacpp',
@@ -139,7 +140,7 @@ export function createPinnedLlamaServerUrlProvider(): LlmProviderConfig {
     provider: 'llamacpp',
     baseUrl: chatBase,
     embeddingsBaseUrl: embeddingsBase,
-    apiKey: process.env.LLAMA_SERVER_API_KEY || '',
+    apiKey: SecretValue.of(process.env.LLAMA_SERVER_API_KEY || ''),
     models: [defaultLlamacppUrlModelProfile()],
   };
 }
@@ -157,14 +158,14 @@ export function getDefaultAudioTranscription(): AudioTranscriptionConfig {
     provider: 'openai',
     baseUrl: process.env.OPENAI_BASE_URL || '',
     model: envClara('TRANSCRIBE_MODEL') || 'gpt-4o-mini-transcribe',
-    apiKey: '',
+    apiKey: SecretValue.of(''),
     talkInputDeviceId: 'default',
     talkSilenceThresholdSeconds: 2,
     ttsVoice: DEFAULT_KOKORO_TTS_VOICE,
     ttsSpeechSpeed: TTS_SPEECH_SPEED_DEFAULT,
     ttsProvider: DEFAULT_TTS_PROVIDER,
     ttsBaseUrl: DEFAULT_OPENAI_TTS_BASE_URL,
-    ttsApiKey: '',
+    ttsApiKey: SecretValue.of(''),
     ttsDefaultInstructions: '',
   };
 }
@@ -204,7 +205,7 @@ export function getDefaultCustomModelsDir(): string {
 export function getDefaultModelManagerConfig(): ModelManagerConfig {
   return {
     customModelsDir: getDefaultCustomModelsDir(),
-    huggingFaceToken: '',
+    huggingFaceToken: SecretValue.of(''),
   };
 }
 

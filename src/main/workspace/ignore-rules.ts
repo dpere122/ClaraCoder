@@ -36,9 +36,10 @@ function stripIgnoreNegation(rule: string): { pattern: string; negated: boolean 
 
 /** True for always-denied secret/credential workspace entries (denylist). */
 export function isAlwaysIgnoredWorkspaceEntry(entryName: string, relativePath: string): boolean {
+  // Case-insensitive: APFS/NTFS treat .ENV / ID_RSA / key.PEM as the same secrets.
   const normalized = normalizeContextPath(relativePath).replace(/^\/+/, '').replace(/\/+$/, '');
-  const segments = normalized ? normalized.split('/') : [];
-  const name = entryName || segments[segments.length - 1] || '';
+  const segments = normalized ? normalized.split('/').map((s) => s.toLowerCase()) : [];
+  const name = (entryName || segments[segments.length - 1] || '').toLowerCase();
 
   if (WORKSPACE_ALWAYS_IGNORED_DIR_NAMES.has(name) || segments.some((s) => WORKSPACE_ALWAYS_IGNORED_DIR_NAMES.has(s))) {
     return true;

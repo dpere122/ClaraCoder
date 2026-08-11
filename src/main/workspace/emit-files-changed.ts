@@ -28,13 +28,15 @@ function omitAlwaysIgnoredFromPayload(payload: WorkspaceFilesChangedPayload): Wo
 
   for (let i = 0; i < payload.paths.length; i++) {
     const p = payload.paths[i] ?? '';
-    if (isAlwaysIgnoredWatchPath(p)) {
+    const prev = hasPrevious ? (payload.previousPaths?.[i] ?? '') : '';
+    // Drop if current OR previous path is denylisted (rename .env→config.txt must not leak .env).
+    if (isAlwaysIgnoredWatchPath(p) || (prev !== '' && isAlwaysIgnoredWatchPath(prev))) {
       continue;
     }
     paths.push(p);
     kinds.push(payload.kinds[i] ?? 'unknown');
     if (hasPrevious) {
-      previousPaths.push(payload.previousPaths?.[i] ?? '');
+      previousPaths.push(prev);
     }
   }
 

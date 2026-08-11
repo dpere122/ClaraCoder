@@ -82,19 +82,38 @@ export async function buildWorkspaceTree(
     return a.name.localeCompare(b.name);
   });
 
-  const visibleEntries = entries.filter((entry) => {
+  const visibleEntries: typeof entries = [];
+  for (const entry of entries) {
     const relativePath = path.relative(contextState.rootPath, path.join(dirPath, entry.name));
     // Secrets denylist: never list always-ignored entries, even when exposeAll is on.
     if (isAlwaysIgnoredWorkspaceEntry(entry.name, relativePath)) {
-      return false;
+      continue;
     }
-    return !shouldIgnoreWorkspaceEntry(
-      entry.name,
-      relativePath,
-      contextState.ignoreRules,
-      contextState.exposeAllWorkspaceFiles,
-    );
-  });
+    if (
+      shouldIgnoreWorkspaceEntry(
+        entry.name,
+        relativePath,
+        contextState.ignoreRules,
+        contextState.exposeAllWorkspaceFiles,
+      )
+    ) {
+      continue;
+    }
+    // File symlink with innocent name can still point at a denylist target — resolve and check.
+    if (entry.isSymbolicLink()) {
+      const fullPath = path.join(dirPath, entry.name);
+      try {
+        const targetPath = await fs.realpath(fullPath);
+        const targetBase = path.basename(targetPath);
+        if (isAlwaysIgnoredWorkspaceEntry(targetBase, targetBase)) {
+          continue;
+        }
+      } catch {
+        // Broken / unresolvable symlink: keep name-based checks only.
+      }
+    }
+    visibleEntries.push(entry);
+  }
 
   let result = '';
   for (let i = 0; i < visibleEntries.length; i++) {

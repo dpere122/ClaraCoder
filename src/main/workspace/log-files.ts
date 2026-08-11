@@ -20,7 +20,8 @@ function stripLogSuffixes(entryName: string): string {
 
 /** Secret-named bases that must not become force-visible via the log exception. */
 function isSecretNamedLogBase(baseName: string): boolean {
-  const name = baseName.trim();
+  // Case-insensitive to match isAlwaysIgnoredWorkspaceEntry (e.g. .ENV.log, ID_RSA.log).
+  const name = baseName.trim().toLowerCase();
   if (!name) {
     return false;
   }

@@ -2,7 +2,7 @@
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
 import { spawn, type ChildProcess } from 'child_process';
-import { existsSync, promises as fs } from 'fs';
+import { existsSync, promises as fs, realpathSync } from 'fs';
 import * as net from 'net';
 import path = require('path');
 
@@ -102,8 +102,8 @@ function killProcessTree(proc: ChildProcess | undefined): void {
     } else {
       /**
        * Managed servers are spawned with ``detached: true`` on POSIX so this PID is a new session /
-       * process-group leader (the shell). Killing the group tears down ``llama-server`` too.
-       * Without that, ``SIGKILL`` on the shell alone often orphans the real server on Linux.
+       * process-group leader (``llama-server`` itself). Killing the group tears down the server.
+       * Without that, ``SIGKILL`` on a lone PID can miss children if the binary ever re-spawns helpers.
        */
       try {
         process.kill(-proc.pid, 'SIGKILL');
@@ -181,7 +181,7 @@ function appendStdout(bucket: StreamBuf, which: StreamKind, chunk: string): void
 function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
   const out = which === 'chat' ? bucket.lastChatStdout : bucket.lastEmbedStdout;
   const err = which === 'chat' ? bucket.lastChatStderr : bucket.lastEmbedStderr;
-  return `${out}\n${err}`.slice(-12_000);
+  return redactSecrets(`${out}\n${err}`.slice(-12_000));
 }
 
 /**
@@ -199,9 +199,54 @@ function modelManagerForManagedLlamaSpawn(config: AppConfig): AppConfig['modelMa
   };
 }
 
-function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
+/**
+ * Active HF token values to scrub from log streams.
+ * Refcounted across concurrent managed spawns / streams so a finished spawn never
+ * clears a secret still needed by another running stream.
+ */
+const activeRedactSecrets = new Map<string, number>();
+
+export function acquireRedactSecret(token: string): void {
+  if (!token) {
+    return;
+  }
+  activeRedactSecrets.set(token, (activeRedactSecrets.get(token) ?? 0) + 1);
+}
+
+export function releaseRedactSecret(token: string): void {
+  if (!token) {
+    return;
+  }
+  const n = activeRedactSecrets.get(token) ?? 0;
+  if (n <= 1) {
+    activeRedactSecrets.delete(token);
+  } else {
+    activeRedactSecrets.set(token, n - 1);
+  }
+}
+
+export function redactSecretValue(text: string, secret: string): string {
+  if (!text || !secret) {
+    return text;
+  }
+  return text.split(secret).join('[REDACTED]');
+}
+
+/** Redact every HF token still referenced by a live managed stream. */
+export function redactSecrets(text: string): string {
+  if (!text || activeRedactSecrets.size === 0) {
+    return text;
+  }
+  let out = text;
+  for (const secret of activeRedactSecrets.keys()) {
+    out = redactSecretValue(out, secret);
+  }
+  return out;
+}
+
+export function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  // Prefer managed runtime/bin when the shell resolves a bare ``llama-server``.
+  // Prefer managed runtime/bin when resolving a bare ``llama-server``.
   const runtimeBin = getRuntimeBinDir();
   const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
   const prevPath = env[pathKey] || env.PATH || '';
@@ -229,12 +274,152 @@ function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
     // A user/system HF_HOME makes llama.cpp resolve $HF_HOME/hub and ignore the dirs above in some builds.
     delete env.HF_HOME;
   }
+  // Never inherit parent HF tokens; re-inject only from Model Manager settings.
+  delete env.HF_TOKEN;
+  delete env.HUGGING_FACE_HUB_TOKEN;
+  delete env.HUGGINGFACE_HUB_TOKEN;
   const tok = mm.huggingFaceToken.trim();
   if (tok) {
     env.HF_TOKEN = tok;
     env.HUGGING_FACE_HUB_TOKEN = tok;
   }
   return env;
+}
+
+/** Disallowed shell metacharacters in managed run-command strings (checked before argv tokenize). */
+export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
+
+/**
+ * Tokenize a prepared managed run command into argv.
+ * Honors single/double quotes; rejects unbalanced quotes and shell metacharacters.
+ */
+export function tokenizeManagedLlamaCommand(
+  command: string,
+): { ok: true; argv: string[] } | { ok: false; error: string } {
+  if (MANAGED_LLAMA_SHELL_METACHAR_RE.test(command)) {
+    return {
+      ok: false,
+      error:
+        'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
+    };
+  }
+  const argv: string[] = [];
+  let i = 0;
+  const s = command;
+  while (i < s.length) {
+    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) {
+      i++;
+    }
+    if (i >= s.length) {
+      break;
+    }
+    const q = s[i];
+    if (q === '"' || q === "'") {
+      i++;
+      let token = '';
+      let closed = false;
+      while (i < s.length) {
+        if (s[i] === q) {
+          closed = true;
+          i++;
+          break;
+        }
+        token += s[i];
+        i++;
+      }
+      if (!closed) {
+        return { ok: false, error: 'Run command has unbalanced quotes.' };
+      }
+      argv.push(token);
+      continue;
+    }
+    let token = '';
+    while (i < s.length && s[i] !== ' ' && s[i] !== '\t' && s[i] !== '"' && s[i] !== "'") {
+      token += s[i];
+      i++;
+    }
+    // Reject shell-style adjacent quotes (e.g. --chat-template-file="/path with spaces").
+    // Supported forms: --flag value, --flag=/path (no spaces), or a fully quoted token.
+    if (i < s.length && (s[i] === '"' || s[i] === "'")) {
+      return {
+        ok: false,
+        error:
+          'Run command has quotes adjacent to an unquoted token (e.g. --flag="value"). Use --flag value or --flag=value without adjacent quotes.',
+      };
+    }
+    argv.push(token);
+  }
+  if (argv.length === 0) {
+    return { ok: false, error: 'Run command is empty.' };
+  }
+  return { ok: true, argv };
+}
+
+/**
+ * Allow only the managed runtime ``llama-server`` binary under the real runtime/bin directory.
+ * Resolves symlinks so a symlink inside bin/ cannot point outside the allowlist.
+ */
+export function resolveAllowedManagedLlamaServerBinary(
+  binPath: string,
+): { ok: true; bin: string } | { ok: false; error: string } {
+  const resolved = path.resolve(binPath);
+  let realBin: string;
+  try {
+    realBin = realpathSync(resolved);
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Run command binary must be the managed llama-server under the Clara runtime bin directory.',
+    };
+  }
+  let realBinDir: string;
+  try {
+    realBinDir = realpathSync(path.resolve(getRuntimeBinDir()));
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Run command binary must be the managed llama-server under the Clara runtime bin directory.',
+    };
+  }
+  if (path.dirname(realBin) !== realBinDir) {
+    return {
+      ok: false,
+      error:
+        'Run command binary must be the managed llama-server under the Clara runtime bin directory.',
+    };
+  }
+  const base = path.basename(realBin);
+  if (base !== 'llama-server' && base !== 'llama-server.exe') {
+    return {
+      ok: false,
+      error:
+        'Run command binary must be the managed llama-server under the Clara runtime bin directory.',
+    };
+  }
+  return { ok: true, bin: realBin };
+}
+
+/**
+ * Derive argv from a ``prepareManagedLlamaShellCommand`` result and validate the binary allowlist.
+ */
+export function managedLlamaCommandToSpawnArgv(
+  command: string,
+): { ok: true; bin: string; args: string[] } | { ok: false; error: string } {
+  const tok = tokenizeManagedLlamaCommand(command);
+  if (!tok.ok) {
+    return tok;
+  }
+  const [bin, ...args] = tok.argv;
+  if (!bin) {
+    return { ok: false, error: 'Run command is empty.' };
+  }
+  const allowed = resolveAllowedManagedLlamaServerBinary(bin);
+  if (!allowed.ok) {
+    return allowed;
+  }
+  return { ok: true, bin: allowed.bin, args };
 }
 
 function hfWarmHintFromLogs(logBuf: StreamBuf, kind: StreamKind): string {
@@ -268,18 +453,21 @@ function attachLlamaStreams(
   which: StreamKind,
   proc: ChildProcess,
   bucket: StreamBuf,
+  hfToken: string,
 ): void {
+  acquireRedactSecret(hfToken);
   proc.stdout?.on('data', (d: Buffer) => {
-    const s = d.toString();
+    const s = redactSecretValue(d.toString(), hfToken);
     appendStdout(bucket, which, s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: s });
   });
   proc.stderr?.on('data', (d: Buffer) => {
-    const s = d.toString();
+    const s = redactSecretValue(d.toString(), hfToken);
     appendStderrQuiet(bucket, which, s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: s });
   });
   proc.on('exit', (code, signal) => {
+    releaseRedactSecret(hfToken);
     sendToRenderer('llama-server-process-exit', {
       modelId,
       stream: which,
@@ -383,9 +571,23 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   const logBuf: StreamBuf = { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
   let embedProc: ChildProcess | undefined;
   const spawnEnv = buildManagedLlamaSpawnEnv(config);
+  const hfToken = modelManagerForManagedLlamaSpawn(config).huggingFaceToken.trim();
   const managedCacheDir = (spawnEnv.LLAMA_CACHE || '').trim();
   if (managedCacheDir) {
     await fs.mkdir(managedCacheDir, { recursive: true });
+  }
+
+  const chatArgv = managedLlamaCommandToSpawnArgv(chatBuilt.command);
+  if (!chatArgv.ok) {
+    return { ok: false, error: chatArgv.error };
+  }
+  let embedArgv: { bin: string; args: string[] } | undefined;
+  if (embedBuilt) {
+    const ea = managedLlamaCommandToSpawnArgv(embedBuilt.command);
+    if (!ea.ok) {
+      return { ok: false, error: ea.error };
+    }
+    embedArgv = { bin: ea.bin, args: ea.args };
   }
 
   try {
@@ -394,15 +596,14 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
      * If chat fails (e.g. wrong ``-hf`` / 404), we must not have started embed yet—otherwise
      * ``stopManagedLlamaServers`` would kill a long embed download that was never going to be used.
      */
-    const chatProc = spawn(chatBuilt.command, {
-      shell: true,
-      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server``, not just ``sh``. */
+    const chatProc = spawn(chatArgv.bin, chatArgv.args, {
+      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server`` (no shell). */
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       env: spawnEnv,
     });
-    attachLlamaStreams(modelId, 'chat', chatProc, logBuf);
+    attachLlamaStreams(modelId, 'chat', chatProc, logBuf, hfToken);
     chatProc.on('error', () => {
       /* spawn errors surface via exit / health wait */
     });
@@ -438,15 +639,14 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     invalidateManagedStatusCache(modelId);
     await syncWithManagedLlamaOverrides(config);
 
-    if (embedBuilt && embedPort != null) {
-      embedProc = spawn(embedBuilt.command, {
-        shell: true,
+    if (embedBuilt && embedPort != null && embedArgv) {
+      embedProc = spawn(embedArgv.bin, embedArgv.args, {
         detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
         env: spawnEnv,
       });
-      attachLlamaStreams(modelId, 'embed', embedProc, logBuf);
+      attachLlamaStreams(modelId, 'embed', embedProc, logBuf, hfToken);
       embedProc.on('error', () => {
         /* spawn errors surface via exit / health wait */
       });

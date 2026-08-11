@@ -34,6 +34,87 @@ function notFound(): Response {
   return new Response('Not found', { status: 404 });
 }
 
+/**
+ * Strip active content from SVG bytes before serving over `nemo-asset://`.
+ * Removes `<script>`, `<foreignObject>`, `on*` handlers, and `javascript:` / `data:` URIs.
+ */
+export function sanitizeSvg(bytes: Buffer): Buffer {
+  let svg = bytes.toString('utf8');
+
+  // Self-closing first so `<script …/>` is not treated as an open tag that
+  // swallows content until a later `</script>`.
+  svg = svg.replace(/<script\b[^>]*\/>/gi, '');
+  svg = svg.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
+
+  // `<foreignObject>` can embed HTML/scriptable content
+  svg = svg.replace(/<foreignObject\b[^>]*\/>/gi, '');
+  svg = svg.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject\s*>/gi, '');
+
+  // Event-handler attributes: onclick, onload, onerror, …
+  svg = svg.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+)/g, '');
+
+  // javascript: / data: in common URL-bearing attributes (quoted)
+  svg = svg.replace(
+    /(\s(?:href|xlink:href|src|poster)\s*=\s*)(["'])\s*(?:javascript|data)\s*:[\s\S]*?\2/gi,
+    '$1$2$2',
+  );
+  // Unquoted javascript: / data: attribute values
+  svg = svg.replace(
+    /(\s(?:href|xlink:href|src|poster)\s*=\s*)(?:javascript|data)\s*:[^\s>]*/gi,
+    '$1""',
+  );
+
+  // CSS url(javascript:…) / url(data:…) — balanced-paren aware
+  svg = stripDangerousCssUrls(svg);
+
+  return Buffer.from(svg, 'utf8');
+}
+
+/** Replace `url(javascript:…)` / `url(data:…)` with `none`, including nested `()`. */
+function stripDangerousCssUrls(input: string): string {
+  const re = /url\s*\(\s*(['"]?)\s*(?:javascript|data)\s*:/gi;
+  let out = '';
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(input)) !== null) {
+    out += input.slice(last, match.index);
+    out += 'none';
+    const openParen = input.indexOf('(', match.index);
+    let depth = 1;
+    let i = openParen + 1;
+    while (i < input.length && depth > 0) {
+      const ch = input[i];
+      if (ch === '(') {
+        depth++;
+      } else if (ch === ')') {
+        depth--;
+      }
+      i++;
+    }
+    last = i;
+    re.lastIndex = i;
+  }
+  out += input.slice(last);
+  return out;
+}
+
+function prepareAssetBytes(data: Buffer, mime: string): Buffer {
+  return mime === 'image/svg+xml' ? sanitizeSvg(data) : data;
+}
+
+/** Response headers for every nemo-asset payload; SVG gets a tight CSP. */
+function assetResponseHeaders(mime: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': mime,
+    'Cache-Control': 'no-cache',
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (mime === 'image/svg+xml') {
+    headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'";
+  }
+  return headers;
+}
+
 function rememberThumb(cacheKey: string, entry: ThumbCacheEntry): void {
   if (thumbCache.has(cacheKey)) {
     thumbCache.delete(cacheKey);
@@ -126,10 +207,7 @@ export function registerNemoAssetProtocol(): void {
           thumbCache.set(cacheKey, cached);
           return new Response(new Uint8Array(cached.bytes), {
             status: 200,
-            headers: {
-              'Content-Type': 'image/png',
-              'Cache-Control': 'no-cache',
-            },
+            headers: assetResponseHeaders('image/png'),
           });
         }
 
@@ -144,29 +222,21 @@ export function registerNemoAssetProtocol(): void {
           });
           return new Response(new Uint8Array(thumb), {
             status: 200,
-            headers: {
-              'Content-Type': 'image/png',
-              'Cache-Control': 'no-cache',
-            },
+            headers: assetResponseHeaders('image/png'),
           });
         }
-        // Undecodable as raster (often SVG) — serve original bytes.
-        return new Response(new Uint8Array(data), {
+        // Undecodable as raster (often SVG) — serve sanitized original bytes.
+        const fallback = prepareAssetBytes(data, mime);
+        return new Response(new Uint8Array(fallback), {
           status: 200,
-          headers: {
-            'Content-Type': mime,
-            'Cache-Control': 'no-cache',
-          },
+          headers: assetResponseHeaders(mime),
         });
       }
 
-      const data = await fs.readFile(abs);
+      const data = prepareAssetBytes(await fs.readFile(abs), mime);
       return new Response(new Uint8Array(data), {
         status: 200,
-        headers: {
-          'Content-Type': mime,
-          'Cache-Control': 'no-cache',
-        },
+        headers: assetResponseHeaders(mime),
       });
     } catch {
       return notFound();

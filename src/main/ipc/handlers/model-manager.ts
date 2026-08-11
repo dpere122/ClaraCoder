@@ -557,10 +557,21 @@ export function registerModelManagerIpc(): void {
           };
           return { ok: true, model };
         }
-        if (!hasModelExtension(newFileName)) {
-          return { ok: false, error: 'Renamed model file must keep a .gguf or .ggml extension.' };
+        // Auto-append the original file's extension when the user submits a bare
+        // name (the renderer pre-fills the prompt with the extension trimmed for
+        // ergonomics). Preserve the original type — a .ggml rename keeps .ggml,
+        // a .gguf rename keeps .gguf. If the user typed an explicit model
+        // extension, honor it as-is.
+        const originalExt = path.extname(modelPath);
+        let finalFileName: string;
+        if (hasModelExtension(newFileName)) {
+          finalFileName = newFileName;
+        } else if (hasModelExtension(originalExt)) {
+          finalFileName = `${newFileName}${originalExt}`;
+        } else {
+          finalFileName = `${newFileName}.gguf`;
         }
-        const targetPath = path.join(path.dirname(modelPath), newFileName);
+        const targetPath = path.join(path.dirname(modelPath), finalFileName);
         await fs.rename(modelPath, targetPath);
         const model = await readSingleModel(targetPath, 'custom');
         return { ok: true, model };

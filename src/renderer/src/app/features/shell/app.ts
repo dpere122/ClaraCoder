@@ -84,6 +84,7 @@ import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { PendingDiffReviewService } from '../diff/pending-diff-review.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
+import { ThemedPromptDialogComponent } from '../../shared/themed-prompt-dialog/themed-prompt-dialog';
 import {
   activeStreamWorkspaceSwitchPrompt,
   unsavedCloseFileTabPrompt,
@@ -113,6 +114,7 @@ function parentRelativePath(relativePath: string): string {
     ImageViewerComponent,
     WorkspaceTerminalDockComponent,
     ThemedConfirmDialogComponent,
+    ThemedPromptDialogComponent,
     CdkDropList,
     CdkDrag,
     CdkDragHandle,

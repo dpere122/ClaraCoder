@@ -98,6 +98,8 @@ import {
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog';
+import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
+import { ThemedPromptDialogComponent } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog';
 import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { customModelDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { DEFAULT_THEME_ID, THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
@@ -155,6 +157,30 @@ function openAiV1BasesEquivalent(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+/** Strip a trailing .gguf / .ggml extension (case-insensitive) for rename pre-fill. */
+function stripModelExtension(fileName: string): string {
+  const lower = (fileName || '').toLowerCase();
+  if (lower.endsWith('.gguf')) {
+    return fileName.slice(0, -'.gguf'.length);
+  }
+  if (lower.endsWith('.ggml')) {
+    return fileName.slice(0, -'.ggml'.length);
+  }
+  return fileName;
+}
+
+/** Return the lowercased model extension (e.g. '.gguf', '.ggml') or '' if none. */
+function modelExtension(fileName: string): string {
+  const lower = (fileName || '').toLowerCase();
+  if (lower.endsWith('.gguf')) {
+    return '.gguf';
+  }
+  if (lower.endsWith('.ggml')) {
+    return '.ggml';
+  }
+  return '';
+}
+
 const MONACO_EDITOR_THEME_LABELS: Record<MonacoWorkspaceEditorThemeId, string> = {
   'clara-monaco': 'Clara (matches app)',
   vs: 'VS Light',
@@ -170,7 +196,7 @@ interface TalkAudioInputDevice {
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, LucideAngularModule, DecimalPipe, FontControl, ThemedConfirmDialogComponent, NgxSpinnerComponent],
+  imports: [FormsModule, LucideAngularModule, DecimalPipe, FontControl, ThemedConfirmDialogComponent, ThemedPromptDialogComponent, NgxSpinnerComponent],
   templateUrl: './settings.html',
   styleUrl: './settings.css',
 })
@@ -622,6 +648,7 @@ export class Settings implements OnInit, OnDestroy {
   constructor(
     private electron: ElectronService,
     private themedConfirm: ThemedConfirmDialogService,
+    private themedPrompt: ThemedPromptDialogService,
   ) {
     effect(() => {
       const saving = this.settingsSaving();
@@ -1954,8 +1981,28 @@ export class Settings implements OnInit, OnDestroy {
     if (!customDir) {
       return;
     }
-    const nextName = window.prompt('Rename model file:', model.fileName);
-    if (!nextName || nextName.trim() === model.fileName) {
+    const isHubRepo = model.entryKind === 'hubRepo';
+    // Pre-fill with the base name, trimming the model extension so the user
+    // edits just the meaningful part. The main process re-appends the original
+    // extension (preserving its type — .gguf stays .gguf, .ggml stays .ggml)
+    // if the user submits a name without a model extension.
+    const trimmedBase = stripModelExtension(model.fileName);
+    const originalExt = modelExtension(model.fileName);
+    const extLabel = originalExt || '.gguf';
+    const entered = await this.themedPrompt.open({
+      title: isHubRepo ? 'Rename model folder' : 'Rename model file',
+      message: isHubRepo
+        ? 'Enter a new folder name. Hub repo folders are not given an extension.'
+        : `Enter a new file name. The ${extLabel} extension is added automatically if omitted.`,
+      value: trimmedBase,
+      placeholder: isHubRepo ? 'folder-name' : `model-name${extLabel}`,
+      confirmText: 'Rename',
+    });
+    if (entered == null) {
+      return;
+    }
+    const nextName = entered.trim();
+    if (!nextName || nextName === trimmedBase || nextName === model.fileName) {
       return;
     }
     this.modelManagerBusy.set(true);
@@ -1963,13 +2010,13 @@ export class Settings implements OnInit, OnDestroy {
       const res = await this.electron.modelManagerRenameModel({
         customDir,
         modelPath: model.absolutePath,
-        newFileName: nextName.trim(),
+        newFileName: nextName,
       });
       if (!res.ok) {
         this.modelManagerStatus.set(res.error);
         return;
       }
-      this.modelManagerStatus.set(`Renamed to ${res.model?.fileName ?? nextName.trim()}.`);
+      this.modelManagerStatus.set(`Renamed to ${res.model?.fileName ?? nextName}.`);
       await this.refreshCustomModelCards();
     } finally {
       this.modelManagerBusy.set(false);

@@ -410,6 +410,8 @@ export function managedPickerValueForCmd(cmd: string, inventory: ModelManagerFil
  * dropdown: the inventory file name for a GGUF/hub pick, or the HF id for an HF
  * pick, falling back to the stored provider name when no model is selected.
  * Non-managed (non-llamacpp or URL-only llama) providers return their stored name.
+ * The ``.gguf`` / ``.ggml`` extension is trimmed from loose GGUF file names so the
+ * Models list shows a clean model label instead of a raw filename.
  */
 export function managedLlamaSourceDisplayName(
   provider: LlmProviderConfig,
@@ -429,5 +431,23 @@ export function managedLlamaSourceDisplayName(
   const match = inventory.find(
     (m) => (m.entryKind === 'hubRepo' ? `hub:${m.absolutePath}` : `gguf:${m.absolutePath}`) === picker,
   );
-  return match?.fileName || provider.name;
+  if (!match) {
+    return provider.name;
+  }
+  if (match.entryKind === 'hubRepo') {
+    return match.fileName;
+  }
+  return stripModelExtensionForDisplay(match.fileName) || provider.name;
+}
+
+/** Remove a trailing ``.gguf`` / ``.ggml`` (case-insensitive) for display purposes. */
+function stripModelExtensionForDisplay(fileName: string): string {
+  const lower = (fileName || '').toLowerCase();
+  if (lower.endsWith('.gguf')) {
+    return fileName.slice(0, -'.gguf'.length);
+  }
+  if (lower.endsWith('.ggml')) {
+    return fileName.slice(0, -'.ggml'.length);
+  }
+  return fileName || '';
 }

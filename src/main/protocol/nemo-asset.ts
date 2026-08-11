@@ -34,24 +34,27 @@ function notFound(): Response {
   return new Response('Not found', { status: 404 });
 }
 
+/** Match optional namespace prefix + script|foreignObject (e.g. `s:script`, `svg:foreignObject`). */
+const DANGEROUS_SVG_TAG = '(?:[\\w-]+:)?(?:script|foreignObject)';
+
 /**
  * Strip active content from SVG bytes before serving over `nemo-asset://`.
- * Removes `<script>`, `<foreignObject>`, `on*` handlers, and `javascript:` / `data:` URIs.
+ * Removes namespaced/plain `<script>` / `<foreignObject>`, `on*` handlers (any case),
+ * entity-encoded `javascript:` / `data:` URIs, and SMIL attrs that can set scripted hrefs.
  */
 export function sanitizeSvg(bytes: Buffer): Buffer {
   let svg = bytes.toString('utf8');
 
-  // Self-closing first so `<script …/>` is not treated as an open tag that
-  // swallows content until a later `</script>`.
-  svg = svg.replace(/<script\b[^>]*\/>/gi, '');
-  svg = svg.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
+  svg = stripDangerousSvgTags(svg);
 
-  // `<foreignObject>` can embed HTML/scriptable content
-  svg = svg.replace(/<foreignObject\b[^>]*\/>/gi, '');
-  svg = svg.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject\s*>/gi, '');
+  // Event-handler attributes: onclick, ONCLICK, OnLoad, onerror, …
+  svg = svg.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+)/gi, '');
 
-  // Event-handler attributes: onclick, onload, onerror, …
-  svg = svg.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+)/g, '');
+  // Decode entities so javascript&#58; / &#106;avascript: are visible to URI scrubbers.
+  // Re-strip tags/handlers in case decoding reconstituted markup.
+  svg = decodeHtmlEntities(svg);
+  svg = stripDangerousSvgTags(svg);
+  svg = svg.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+)/gi, '');
 
   // javascript: / data: in common URL-bearing attributes (quoted)
   svg = svg.replace(
@@ -64,10 +67,53 @@ export function sanitizeSvg(bytes: Buffer): Buffer {
     '$1""',
   );
 
+  // SMIL: attributeName targeting href can animate a scripted URI into place
+  svg = svg.replace(/\s+attributeName\s*=\s*(["'])\s*(?:xlink:)?href\s*\1/gi, '');
+  svg = svg.replace(/\s+attributeName\s*=\s*(?:xlink:)?href\b/gi, '');
+  // Neutralize to/values/from/by carrying javascript: / data:
+  svg = svg.replace(
+    /(\s(?:to|values|from|by)\s*=\s*)(["'])[\s\S]*?(?:javascript|data)\s*:[\s\S]*?\2/gi,
+    '$1$2$2',
+  );
+  svg = svg.replace(
+    /(\s(?:to|values|from|by)\s*=\s*)(?:javascript|data)\s*:[^\s>]*/gi,
+    '$1""',
+  );
+
   // CSS url(javascript:…) / url(data:…) — balanced-paren aware
   svg = stripDangerousCssUrls(svg);
 
   return Buffer.from(svg, 'utf8');
+}
+
+/** Self-closing first so open-tag match does not swallow until a later close tag. */
+function stripDangerousSvgTags(svg: string): string {
+  svg = svg.replace(new RegExp(`<${DANGEROUS_SVG_TAG}\\b[^>]*\\/>`, 'gi'), '');
+  svg = svg.replace(
+    new RegExp(`<${DANGEROUS_SVG_TAG}\\b[^>]*>[\\s\\S]*?<\\/${DANGEROUS_SVG_TAG}\\s*>`, 'gi'),
+    '',
+  );
+  return svg;
+}
+
+/** Decode numeric / common named entities used in URI-scheme bypasses. */
+function decodeHtmlEntities(input: string): string {
+  let out = input.replace(/&#x([0-9a-fA-F]+);?/g, (_, hex: string) => {
+    const code = Number.parseInt(hex, 16);
+    return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+      ? String.fromCodePoint(code)
+      : '';
+  });
+  out = out.replace(/&#([0-9]+);?/g, (_, dec: string) => {
+    const code = Number.parseInt(dec, 10);
+    return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+      ? String.fromCodePoint(code)
+      : '';
+  });
+  out = out.replace(/&colon;/gi, ':');
+  out = out.replace(/&tab;/gi, '\t');
+  out = out.replace(/&newline;/gi, '\n');
+  return out;
 }
 
 /** Replace `url(javascript:…)` / `url(data:…)` with `none`, including nested `()`. */

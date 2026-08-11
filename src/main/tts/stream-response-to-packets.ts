@@ -10,10 +10,11 @@ export async function streamTtsResponseToIpcPackets(
 ): Promise<void> {
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
+    console.error(`[TTS] HTTP ${res.status}:`, detail);
     wc.send('tts-stream-packet', {
       kind: 'error',
       seq,
-      message: `TTS HTTP ${res.status}: ${detail.slice(0, 240)}`,
+      message: `TTS HTTP ${res.status}`,
     });
     return;
   }
@@ -61,7 +62,13 @@ export async function streamTtsResponseToPassThrough(
   pass: PassThrough,
   signal: AbortSignal,
 ): Promise<void> {
-  if (!res.ok || !res.body) {
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    console.error(`[TTS] HTTP ${res.status}:`, detail);
+    pass.destroy();
+    return;
+  }
+  if (!res.body) {
     pass.destroy();
     return;
   }

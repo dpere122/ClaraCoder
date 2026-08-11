@@ -1,6 +1,7 @@
 import type { AudioTranscriptionConfig } from '../../../shared';
 import { DEFAULT_OPENAI_TTS_BASE_URL } from '../../../shared';
-import type { TtsRequestParams } from '../types';
+import { parseAllowedHttpUrl } from '../../../shared/safe-http-url';
+import { isPrivateHost, type TtsRequestParams } from '../types';
 import { normalizeOpenAiBaseUrl } from './normalize-base-url';
 
 /** POST to an OpenAI-compatible ``/v1/audio/speech`` endpoint (WAV). */
@@ -9,7 +10,23 @@ export async function fetchOpenAiCompatibleTtsResponse(
   params: TtsRequestParams,
   signal: AbortSignal,
 ): Promise<Response> {
-  const base = normalizeOpenAiBaseUrl(audioConfig.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
+  const normalized = normalizeOpenAiBaseUrl(audioConfig.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
+  const baseUrl = normalized ? parseAllowedHttpUrl(normalized) : null;
+  if (!baseUrl) {
+    throw new Error('Invalid TTS base URL');
+  }
+  if (isPrivateHost(baseUrl) && process.env.TTS_ALLOW_PRIVATE_TARGETS !== '1') {
+    console.warn(
+      '[TTS] Rejected private/loopback/link-local TTS target; set TTS_ALLOW_PRIVATE_TARGETS=1 to allow:',
+      baseUrl.hostname,
+    );
+    throw new Error('TTS target not allowed');
+  }
+
+  const speechUrl = new URL(baseUrl.toString());
+  const basePath = speechUrl.pathname.replace(/\/+$/, '');
+  speechUrl.pathname = `${basePath}/v1/audio/speech`;
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const apiKey = audioConfig.ttsApiKey?.trim();
   if (apiKey) {
@@ -26,7 +43,7 @@ export async function fetchOpenAiCompatibleTtsResponse(
   if (instructions) {
     body.instructions = instructions;
   }
-  return fetch(`${base}/v1/audio/speech`, {
+  return fetch(speechUrl.toString(), {
     method: 'POST',
     headers,
     body: JSON.stringify(body),

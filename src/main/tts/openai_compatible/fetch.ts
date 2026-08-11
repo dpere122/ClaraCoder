@@ -4,6 +4,34 @@ import { parseAllowedHttpUrl } from '../../../shared/safe-http-url';
 import { isPrivateHost, type TtsRequestParams } from '../types';
 import { normalizeOpenAiBaseUrl } from './normalize-base-url';
 
+const MAX_REDIRECTS = 5;
+
+function assertAllowedTtsTarget(url: URL): void {
+  if (isPrivateHost(url) && process.env.TTS_ALLOW_PRIVATE_TARGETS !== '1') {
+    console.warn(
+      '[TTS] Rejected private/loopback/link-local TTS target; set TTS_ALLOW_PRIVATE_TARGETS=1 to allow:',
+      url.hostname,
+    );
+    throw new Error('TTS target not allowed');
+  }
+}
+
+/** Resolve Location, re-run parseAllowedHttpUrl + isPrivateHost before following. */
+function resolveAllowedRedirect(currentUrl: string, location: string): URL {
+  let absolute: URL;
+  try {
+    absolute = new URL(location, currentUrl);
+  } catch {
+    throw new Error('Invalid TTS redirect URL');
+  }
+  const parsed = parseAllowedHttpUrl(absolute.toString());
+  if (!parsed) {
+    throw new Error('Invalid TTS redirect URL');
+  }
+  assertAllowedTtsTarget(parsed);
+  return parsed;
+}
+
 /** POST to an OpenAI-compatible ``/v1/audio/speech`` endpoint (WAV). */
 export async function fetchOpenAiCompatibleTtsResponse(
   audioConfig: AudioTranscriptionConfig,
@@ -15,13 +43,7 @@ export async function fetchOpenAiCompatibleTtsResponse(
   if (!baseUrl) {
     throw new Error('Invalid TTS base URL');
   }
-  if (isPrivateHost(baseUrl) && process.env.TTS_ALLOW_PRIVATE_TARGETS !== '1') {
-    console.warn(
-      '[TTS] Rejected private/loopback/link-local TTS target; set TTS_ALLOW_PRIVATE_TARGETS=1 to allow:',
-      baseUrl.hostname,
-    );
-    throw new Error('TTS target not allowed');
-  }
+  assertAllowedTtsTarget(baseUrl);
 
   const speechUrl = new URL(baseUrl.toString());
   const basePath = speechUrl.pathname.replace(/\/+$/, '');
@@ -43,10 +65,39 @@ export async function fetchOpenAiCompatibleTtsResponse(
   if (instructions) {
     body.instructions = instructions;
   }
-  return fetch(speechUrl.toString(), {
+
+  const bodyJson = JSON.stringify(body);
+  let currentUrl = speechUrl.toString();
+  // redirect:'manual' — undici follows by default; public base can 302 to 169.254.169.254
+  // and bypass isPrivateHost. Re-validate every Location before following.
+  let response = await fetch(currentUrl, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body),
+    body: bodyJson,
     signal,
+    redirect: 'manual',
   });
+
+  for (let hop = 0; hop < MAX_REDIRECTS; hop++) {
+    if (response.status < 300 || response.status >= 400) {
+      return response;
+    }
+    const location = response.headers.get('location');
+    if (!location) {
+      throw new Error('TTS redirect missing Location');
+    }
+    const next = resolveAllowedRedirect(currentUrl, location);
+    currentUrl = next.toString();
+    // Fetch redirect semantics: 303 → GET; 307/308 keep method; 301/302 typically GET for POST.
+    const preserveMethod = response.status === 307 || response.status === 308;
+    response = await fetch(currentUrl, {
+      method: preserveMethod ? 'POST' : 'GET',
+      headers: preserveMethod ? headers : {},
+      body: preserveMethod ? bodyJson : undefined,
+      signal,
+      redirect: 'manual',
+    });
+  }
+
+  throw new Error('Too many TTS redirects');
 }

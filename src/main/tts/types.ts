@@ -17,7 +17,8 @@ function ipv4Parts(host: string): number[] | null {
 function isPrivateIpv4(host: string): boolean {
   const parts = ipv4Parts(host);
   if (!parts) return false;
-  const [a, b] = parts;
+  const [a, b, c, d] = parts;
+  if (a === 0 && b === 0 && c === 0 && d === 0) return true; // 0.0.0.0 unspecified
   if (a === 127) return true; // 127.0.0.0/8 loopback
   if (a === 10) return true; // 10.0.0.0/8
   if (a === 192 && b === 168) return true; // 192.168.0.0/16
@@ -39,6 +40,8 @@ function isPrivateIpv6(host: string): boolean {
   // Node may keep brackets on URL.hostname for IPv6 literals.
   const h = host.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0] ?? '';
   if (h === '::1') return true;
+  // Unspecified address (:: / 0:0:0:0:0:0:0:0)
+  if (h === '::' || h === '0:0:0:0:0:0:0:0') return true;
 
   // IPv4-mapped IPv6: ::ffff:x.x.x.x or ::ffff:7f00:1 (Node form)
   const dotted = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
@@ -51,10 +54,18 @@ function isPrivateIpv6(host: string): boolean {
 
   // fe80::/10 link-local
   if (/^fe[89ab][0-9a-f]/i.test(h)) return true;
+  // fc00::/7 unique local addresses (ULA)
+  const firstHextet = parseInt(h.split(':')[0] ?? '', 16);
+  if (!Number.isNaN(firstHextet) && firstHextet >= 0xfc00 && firstHextet <= 0xfdff) return true;
   return false;
 }
 
-/** True when URL hostname is loopback, RFC1918 private, link-local, or CGNAT. */
+/**
+ * True when URL hostname is loopback, RFC1918 private, link-local, CGNAT,
+ * unspecified (0.0.0.0 / ::), or ULA (fc00::/7).
+ * Hostname-literal checks only (no DNS). DNS-rebind residual is mitigated by
+ * the connect-time check in http_guards on the Python side.
+ */
 export function isPrivateHost(url: URL): boolean {
   const host = url.hostname.toLowerCase();
   if (!host) return true;

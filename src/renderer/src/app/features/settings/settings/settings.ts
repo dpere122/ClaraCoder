@@ -88,6 +88,7 @@ import {
   type ContextFitPresetId,
   type ManagedLlamaModelSource,
 } from '@shared/index';
+import { SecretValue, unwrapSecret } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog';
@@ -659,13 +660,13 @@ export class Settings implements OnInit, OnDestroy {
     this.configSnapshot = structuredClone(config);
     this.syncFromConfig(config, true);
 
-    this.subscription = this.electron.config$.subscribe((nextConfig) => {
+    this.subscription = this.electron.config$.subscribe((nextConfig: AppConfig) => {
       this.syncFromConfig(nextConfig, false);
     });
 
-    void this.electron.listSystemFonts().then((fonts) => this.systemFonts.set(fonts));
+    void this.electron.listSystemFonts().then((fonts: SystemFontInfo[]) => this.systemFonts.set(fonts));
 
-    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e) => {
+    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) => {
       const id = e.downloadId;
       if (e.phase === 'queued') {
         this.modelManagerHfDownloads.update((m) => ({
@@ -1019,7 +1020,7 @@ export class Settings implements OnInit, OnDestroy {
     this.llamacppModelsListInFlight.set(true);
     this.llamacppModelsListError.set(null);
     try {
-      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: p.apiKey || '' });
+      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) || '') });
       if (!chatRes.ok) {
         this.llamacppManagedModelIds.set([]);
         this.llamacppUrlEmbeddingModelIds.set([]);
@@ -1034,7 +1035,7 @@ export class Settings implements OnInit, OnDestroy {
         return;
       }
 
-      const embRes = await this.electron.llamacppOpenAiListModels({ baseUrl: embBase, apiKey: p.apiKey || '' });
+      const embRes = await this.electron.llamacppOpenAiListModels({ baseUrl: embBase, apiKey: unwrapSecret(p.apiKey || '') });
       if (!embRes.ok) {
         this.llamacppUrlEmbeddingModelIds.set([]);
         this.llamacppModelsListError.set(`Chat OK; embeddings server: ${embRes.error}`);
@@ -1061,7 +1062,7 @@ export class Settings implements OnInit, OnDestroy {
     }
     this.lmStudioListInFlight.set(true);
     this.lmStudioInventoryError.set(null);
-    const res = await this.electron.lmStudioListModels({ baseUrl: p.baseUrl, apiKey: p.apiKey });
+    const res = await this.electron.lmStudioListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) });
     this.lmStudioListInFlight.set(false);
     if (res.ok) {
       this.lmStudioInventory.set(res.models);
@@ -1105,7 +1106,7 @@ export class Settings implements OnInit, OnDestroy {
       keys.push(emb);
     }
     for (const k of keys) {
-      await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: p.apiKey });
+      await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: unwrapSecret(p.apiKey) });
     }
     await this.refreshLmStudioInventory();
   }
@@ -1118,7 +1119,7 @@ export class Settings implements OnInit, OnDestroy {
     await this.electron.lmStudioUnloadModel({
       baseUrl: p.baseUrl,
       instanceId: card.instanceId,
-      apiKey: p.apiKey,
+      apiKey: unwrapSecret(p.apiKey),
     });
     await this.refreshLmStudioInventory();
   }
@@ -2155,7 +2156,7 @@ export class Settings implements OnInit, OnDestroy {
       this.audioModel.set(changes.model);
     }
     if (changes.apiKey !== undefined) {
-      this.audioApiKey.set(changes.apiKey);
+      this.audioApiKey.set(unwrapSecret(changes.apiKey));
     }
     if (changes.talkInputDeviceId !== undefined) {
       this.talkInputDeviceId.set(changes.talkInputDeviceId || 'default');
@@ -2192,7 +2193,7 @@ export class Settings implements OnInit, OnDestroy {
       this.ttsBaseUrl.set(typeof changes.ttsBaseUrl === 'string' ? changes.ttsBaseUrl : DEFAULT_OPENAI_TTS_BASE_URL);
     }
     if (changes.ttsApiKey !== undefined) {
-      this.ttsApiKey.set(typeof changes.ttsApiKey === 'string' ? changes.ttsApiKey : '');
+      this.ttsApiKey.set(unwrapSecret(changes.ttsApiKey));
     }
     if (changes.ttsDefaultInstructions !== undefined) {
       this.ttsDefaultInstructions.set(
@@ -2611,19 +2612,19 @@ export class Settings implements OnInit, OnDestroy {
     if (provider === 'lmstudio') {
       return {
         baseUrl: 'http://127.0.0.1:1234/v1',
-        apiKey: 'lm-studio',
+        apiKey: SecretValue.of('lm-studio'),
       };
     }
     if (provider === 'llamacpp') {
       return {
         baseUrl: 'http://127.0.0.1:8080/v1',
-        apiKey: '',
+        apiKey: SecretValue.of(''),
       };
     }
 
     return {
       baseUrl: '',
-      apiKey: '',
+      apiKey: SecretValue.of(''),
     };
   }
 
@@ -2657,21 +2658,21 @@ export class Settings implements OnInit, OnDestroy {
       activeLlmModelId: this.activeLlmModelId(),
       llmProviders: structuredClone(this.llmProviders()).map((p) =>
         isPinnedLmStudioProviderId(p.id)
-          ? { ...p, provider: 'lmstudio', apiKey: (p.apiKey && p.apiKey.trim()) || 'lm-studio' }
+          ? { ...p, provider: 'lmstudio', apiKey: SecretValue.of((p.apiKey && unwrapSecret(p.apiKey).trim()) || 'lm-studio') }
           : p,
       ),
       audioTranscription: {
         provider: this.audioProvider(),
         baseUrl: this.audioBaseUrl(),
         model: this.audioModel(),
-        apiKey: this.audioApiKey(),
+        apiKey: SecretValue.of(this.audioApiKey()),
         talkInputDeviceId: this.talkInputDeviceId(),
         talkSilenceThresholdSeconds: this.talkSilenceThresholdSeconds(),
         ttsVoice: this.ttsVoice(),
         ttsSpeechSpeed: this.ttsSpeechSpeed(),
         ttsProvider: this.ttsProvider(),
         ttsBaseUrl: this.ttsBaseUrl(),
-        ttsApiKey: this.ttsApiKey(),
+        ttsApiKey: SecretValue.of(this.ttsApiKey()),
         ttsDefaultInstructions: this.ttsDefaultInstructions(),
       },
       workspaceTools: {
@@ -2697,7 +2698,7 @@ export class Settings implements OnInit, OnDestroy {
       },
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
-        huggingFaceToken: this.modelManagerHfToken(),
+        huggingFaceToken: SecretValue.of(this.modelManagerHfToken()),
       },
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
@@ -2754,7 +2755,7 @@ export class Settings implements OnInit, OnDestroy {
       const at = config.audioTranscription;
       this.ttsProvider.set(at?.ttsProvider === 'openai-compatible' ? 'openai-compatible' : DEFAULT_TTS_PROVIDER);
       this.ttsBaseUrl.set(at?.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
-      this.ttsApiKey.set(at?.ttsApiKey ?? '');
+      this.ttsApiKey.set(unwrapSecret(at?.ttsApiKey));
       this.ttsDefaultInstructions.set(at?.ttsDefaultInstructions ?? '');
       const defaultVoice =
         this.ttsProvider() === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
@@ -2777,7 +2778,7 @@ export class Settings implements OnInit, OnDestroy {
         normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
       );
       this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
-      this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
+      this.modelManagerHfToken.set(unwrapSecret(config.modelManager.huggingFaceToken));
       return;
     }
 
@@ -2792,7 +2793,7 @@ export class Settings implements OnInit, OnDestroy {
     this.audioProvider.set(config.audioTranscription.provider);
     this.audioBaseUrl.set(config.audioTranscription.baseUrl);
     this.audioModel.set(config.audioTranscription.model);
-    this.audioApiKey.set(config.audioTranscription.apiKey);
+    this.audioApiKey.set(unwrapSecret(config.audioTranscription.apiKey));
     const at = config.audioTranscription;
     this.talkInputDeviceId.set(at.talkInputDeviceId ?? 'default');
     const thr = at.talkSilenceThresholdSeconds;
@@ -2806,7 +2807,7 @@ export class Settings implements OnInit, OnDestroy {
     );
     this.ttsProvider.set(at.ttsProvider === 'openai-compatible' ? 'openai-compatible' : DEFAULT_TTS_PROVIDER);
     this.ttsBaseUrl.set(at.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
-    this.ttsApiKey.set(at.ttsApiKey ?? '');
+    this.ttsApiKey.set(unwrapSecret(at.ttsApiKey ?? ''));
     this.ttsDefaultInstructions.set(at.ttsDefaultInstructions ?? '');
     const defaultVoice =
       this.ttsProvider() === 'openai-compatible' ? DEFAULT_OPENAI_TTS_VOICE : DEFAULT_KOKORO_TTS_VOICE;
@@ -2856,7 +2857,7 @@ export class Settings implements OnInit, OnDestroy {
     this.contextCompressionSystemReserve.set(cc.systemReserveRatio);
 
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
-    this.modelManagerHfToken.set(config.modelManager.huggingFaceToken);
+    this.modelManagerHfToken.set(unwrapSecret(config.modelManager.huggingFaceToken));
 
     const currentSelected = this.selectedModelId();
     const selectedStillValid =

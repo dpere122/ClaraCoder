@@ -97,6 +97,8 @@ export {
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
+  SecretValue,
+  unwrapSecret,
 } from './types/app-config';
 export { GEMMA4_CHAT_TEMPLATE_FILENAME } from './gemma-template';
 export { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from './qwen-template';

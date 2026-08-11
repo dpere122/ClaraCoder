@@ -29,7 +29,7 @@ import { envForChildProcess } from '../utils/filter-sensitive-env';
 
 const DEPS_LOGGER = 'clara.electron.deps';
 
-/** Exact env keys kept for the deps CLI child (plus CLARA_*/NEMO_* prefixes). */
+/** Exact env keys kept for the deps CLI child (plus CLARA_ and NEMO_ prefixes). */
 const RUNTIME_ENV_PASSTHROUGH = new Set([
   'PATH',
   'PYTHONHOME',
@@ -39,7 +39,7 @@ const RUNTIME_ENV_PASSTHROUGH = new Set([
   'CURL_CA_BUNDLE',
 ]);
 
-function isRuntimeEnvPassthrough(key: string): boolean {
+export function isRuntimeEnvPassthrough(key: string): boolean {
   const upper = key.toUpperCase();
   if (upper.startsWith('CLARA_') || upper.startsWith('NEMO_')) return true;
   return RUNTIME_ENV_PASSTHROUGH.has(upper);

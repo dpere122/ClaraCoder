@@ -256,6 +256,14 @@ export class App implements OnInit, OnDestroy {
   });
   /** When true, active chat stack overlays the main editor stage. */
   protected readonly chatExpanded = model(false);
+  /** When true, the chat sidebar collapses to a thin bar holding only the un-collapse button. */
+  protected readonly chatCollapsed = model(false);
+
+  /** Width of the sidebar when the chat is collapsed (just the un-collapse button + padding). */
+  private static readonly CHAT_COLLAPSED_WIDTH_PX = 36;
+  protected readonly effectiveSidebarWidth = computed(() =>
+    this.chatCollapsed() ? App.CHAT_COLLAPSED_WIDTH_PX : this.sidebarWidth(),
+  );
 
   protected readonly openFileRelativePaths = computed(() =>
     this.fileTabs()

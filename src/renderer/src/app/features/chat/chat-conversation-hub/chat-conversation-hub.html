@@ -1,102 +1,127 @@
-<div class="chat-hub">
-  <div class="chat-hub__toolbar" [class.chat-hub__toolbar--expanded]="expanded()">
+@if (collapsed()) {
+  <div class="chat-hub chat-hub--collapsed">
     <button
       type="button"
-      class="chat-hub__expand"
-      [disabled]="view() !== 'activeChat'"
-      [attr.aria-pressed]="expanded()"
-      [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
-      [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
-      (click)="toggleExpanded()"
+      class="chat-hub__uncollapse"
+      [attr.aria-pressed]="false"
+      aria-label="Expand chat sidebar"
+      title="Expand chat"
+      (click)="toggleCollapsed()"
     >
-      <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="16" />
+      <lucide-icon name="chevron-left" [size]="16" />
     </button>
-
-    <button
-      type="button"
-      class="chat-hub__new-conv"
-      aria-label="New conversation"
-      title="New conversation"
-      (click)="newConversation.emit()"
-    >
-      <lucide-icon name="plus" [size]="16" />
-      <span class="chat-hub__new-conv-label">New Conversation</span>
-    </button>
-
-    @if (!expanded()) {
+  </div>
+} @else {
+  <div class="chat-hub">
+    <div class="chat-hub__toolbar" [class.chat-hub__toolbar--expanded]="expanded()">
       <button
         type="button"
-        class="chat-hub__conv-toggle"
-        [attr.aria-pressed]="view() === 'conversations'"
-        [attr.aria-label]="view() === 'conversations' ? 'Show active chat' : 'Show conversations'"
-        [title]="view() === 'conversations' ? 'Active chat' : 'Conversations'"
-        (click)="toggleView()"
+        class="chat-hub__expand"
+        [disabled]="view() !== 'activeChat'"
+        [attr.aria-pressed]="expanded()"
+        [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
+        [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
+        (click)="toggleExpanded()"
       >
-        <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="16" />
+        <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="16" />
       </button>
+
+      <button
+        type="button"
+        class="chat-hub__new-conv"
+        aria-label="New conversation"
+        title="New conversation"
+        (click)="newConversation.emit()"
+      >
+        <lucide-icon name="plus" [size]="16" />
+        <span class="chat-hub__new-conv-label">New Conversation</span>
+      </button>
+
+      @if (!expanded()) {
+        <button
+          type="button"
+          class="chat-hub__conv-toggle"
+          [attr.aria-pressed]="view() === 'conversations'"
+          [attr.aria-label]="view() === 'conversations' ? 'Show active chat' : 'Show conversations'"
+          [title]="view() === 'conversations' ? 'Active chat' : 'Conversations'"
+          (click)="toggleView()"
+        >
+          <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="16" />
+        </button>
+      }
+
+      <button
+        type="button"
+        class="chat-hub__collapse"
+        aria-label="Collapse chat sidebar"
+        title="Collapse chat"
+        (click)="toggleCollapsed()"
+      >
+        <lucide-icon name="chevron-right" [size]="16" />
+      </button>
+    </div>
+
+    @if (expanded() || view() === 'conversations') {
+      <app-conversation-manager
+        class="chat-hub__body"
+        [conversations]="conversations()"
+        [activeId]="activeConversationId()"
+        [activeFileRelativePath]="activeFileRelativePath()"
+        [pendingIds]="pendingIds()"
+        [hasWorkspace]="hasWorkspace()"
+        (selectConversation)="onSelectFromList($event)"
+        (deleteConversation)="deleteConversation.emit($event)"
+        (renameConversation)="renameConversation.emit($event)"
+      />
+    } @else {
+      <app-chat-active-stack
+        class="chat-hub__body"
+        layout="sidebar"
+        [messages]="messages()"
+        [conversationId]="activeConversationId()"
+        [loading]="loading()"
+        [processingToolsActive]="processingToolsActive()"
+        [ttsLoading]="ttsLoading()"
+        [streamingParts]="streamingParts()"
+        [streamingFinalText]="streamingFinalText()"
+        [streamingPlanner]="streamingPlanner()"
+        [fontSize]="fontSize()"
+        (sendResponse)="sendResponse.emit($event)"
+        (diffReviewFinished)="diffReviewFinished.emit($event)"
+        (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+        (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
+        (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+        (copyReviewFinished)="copyReviewFinished.emit($event)"
+        (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+        (planConfirmFinished)="planConfirmFinished.emit($event)"
+        (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+        [chatContextFiles]="chatContextFiles()"
+        [workspaceRoot]="workspaceRoot()"
+        (removeChatContextFile)="removeChatContextFile.emit($event)"
+        (togglePinChatContextFile)="togglePinChatContextFile.emit($event)"
+        (chatContextPathsDropped)="chatContextPathsDropped.emit($event)"
+        [attachmentCount]="attachmentCount()"
+        [appConfig]="appConfig()"
+        [talkInputDeviceId]="talkInputDeviceId()"
+        [talkSilenceThresholdSec]="talkSilenceThresholdSec()"
+        [(talkEnabled)]="talkEnabled"
+        [(talkStatus)]="talkStatus"
+        [(talkModeDetailStatus)]="talkModeDetailStatus"
+        (promptCaptured)="promptCaptured.emit($event)"
+        (talkRecordingBegan)="talkRecordingBegan.emit()"
+        (talkCaptureFinished)="talkCaptureFinished.emit($event)"
+        [(composerMode)]="composerMode"
+        [voiceActive]="voiceActive()"
+        (voiceToggle)="voiceToggle.emit()"
+        [contextBlocked]="contextBlocked()"
+        (messageSent)="messageSent.emit($event)"
+        (abortRequested)="abortRequested.emit()"
+        [usedTokens]="usedTokens()"
+        [maxTokens]="maxTokens()"
+        [remainingTokens]="remainingTokens()"
+        [usedPercentage]="usedPercentage()"
+        [(autoApplyMode)]="autoApplyMode"
+      />
     }
   </div>
-
-  @if (expanded() || view() === 'conversations') {
-    <app-conversation-manager
-      class="chat-hub__body"
-      [conversations]="conversations()"
-      [activeId]="activeConversationId()"
-      [activeFileRelativePath]="activeFileRelativePath()"
-      [pendingIds]="pendingIds()"
-      [hasWorkspace]="hasWorkspace()"
-      (selectConversation)="onSelectFromList($event)"
-      (deleteConversation)="deleteConversation.emit($event)"
-      (renameConversation)="renameConversation.emit($event)"
-    />
-  } @else {
-    <app-chat-active-stack
-      class="chat-hub__body"
-      layout="sidebar"
-      [messages]="messages()"
-      [conversationId]="activeConversationId()"
-      [loading]="loading()"
-      [processingToolsActive]="processingToolsActive()"
-      [ttsLoading]="ttsLoading()"
-      [streamingParts]="streamingParts()"
-      [streamingFinalText]="streamingFinalText()"
-      [streamingPlanner]="streamingPlanner()"
-      [fontSize]="fontSize()"
-      (sendResponse)="sendResponse.emit($event)"
-      (diffReviewFinished)="diffReviewFinished.emit($event)"
-      (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-      (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-      (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-      (copyReviewFinished)="copyReviewFinished.emit($event)"
-      (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-      (planConfirmFinished)="planConfirmFinished.emit($event)"
-      (agentQuestionFinished)="agentQuestionFinished.emit($event)"
-      [chatContextFiles]="chatContextFiles()"
-      [workspaceRoot]="workspaceRoot()"
-      (removeChatContextFile)="removeChatContextFile.emit($event)"
-      (togglePinChatContextFile)="togglePinChatContextFile.emit($event)"
-      (chatContextPathsDropped)="chatContextPathsDropped.emit($event)"
-      [attachmentCount]="attachmentCount()"
-      [appConfig]="appConfig()"
-      [talkInputDeviceId]="talkInputDeviceId()"
-      [talkSilenceThresholdSec]="talkSilenceThresholdSec()"
-      [(talkEnabled)]="talkEnabled"
-      [(talkStatus)]="talkStatus"
-      [(talkModeDetailStatus)]="talkModeDetailStatus"
-      (promptCaptured)="promptCaptured.emit($event)"
-      (talkRecordingBegan)="talkRecordingBegan.emit()"
-      (talkCaptureFinished)="talkCaptureFinished.emit($event)"
-      [(composerMode)]="composerMode"
-      [voiceActive]="voiceActive()"
-      (voiceToggle)="voiceToggle.emit()"
-      [contextBlocked]="contextBlocked()"
-      (messageSent)="messageSent.emit($event)"
-      (abortRequested)="abortRequested.emit()"
-      [usedTokens]="usedTokens()"
-      [maxTokens]="maxTokens()"
-      [remainingTokens]="remainingTokens()"
-      [usedPercentage]="usedPercentage()"
-      [(autoApplyMode)]="autoApplyMode"
-    />
-  }
-</div>
+}

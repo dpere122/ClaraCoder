@@ -19,6 +19,8 @@ export type ChatHubView = 'conversations' | 'activeChat';
 export class ChatConversationHubComponent {
   readonly view = model<ChatHubView>('activeChat');
   readonly expanded = model(false);
+  /** When true, the entire chat sidebar collapses to a thin bar with only the un-collapse button. */
+  readonly collapsed = model(false);
 
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeConversationId = input<string | null>(null);
@@ -118,6 +120,18 @@ export class ChatConversationHubComponent {
       return;
     }
     this.expanded.update((v) => !v);
+  }
+
+  protected toggleCollapsed(): void {
+    if (this.collapsed()) {
+      this.collapsed.set(false);
+      return;
+    }
+    // Collapsing the sidebar also closes the expanded overlay so the editor
+    // stage stays usable and there's no dangling expanded state with no
+    // visible toolbar to un-expand it.
+    this.expanded.set(false);
+    this.collapsed.set(true);
   }
 
   protected toggleView(): void {

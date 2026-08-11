@@ -185,6 +185,10 @@
   border-left: 1px solid var(--t-border-subtle);
 }
 
+.sidebar--collapsed {
+  border-left: 1px solid var(--t-border-subtle);
+}
+
 .sidebar > app-chat-conversation-hub {
   flex: 1 1 auto;
   min-height: 0;

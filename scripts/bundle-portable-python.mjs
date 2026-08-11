@@ -4,12 +4,19 @@
  *
  * Skip download when the interpreter already exists unless --force is passed.
  */
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs';
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  rmSync,
+} from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const outDir = path.join(root, 'runtime-bundle', 'python');
 const force = process.argv.includes('--force');
@@ -17,6 +24,20 @@ const force = process.argv.includes('--force');
 /** Pinned: CPython 3.12.11 from python-build-standalone 20250630 (Kokoro-friendly). */
 const RELEASE = '20250630';
 const PY_VER = '3.12.11';
+
+/** SHA256 from release SHA256SUMS — fail closed if download/cache mismatches. */
+export const EXPECTED_SHA256 = {
+  'cpython-3.12.11+20250630-aarch64-apple-darwin-install_only_stripped.tar.gz':
+    '52f103b1bae4105c8c3ba415fbfb992fc80672795c58262b96719efde97c49d9',
+  'cpython-3.12.11+20250630-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz':
+    '117b1d2daa96486005827dd50029fecd61e99141396583ea8e57733f7cf0abad',
+  'cpython-3.12.11+20250630-x86_64-apple-darwin-install_only_stripped.tar.gz':
+    '5e7229d72ec588b77f753ee043fcefe62f89190e84b8b43d20b1be4b4e6e8540',
+  'cpython-3.12.11+20250630-x86_64-pc-windows-msvc-install_only_stripped.tar.gz':
+    '91f7196d5d103eb3d1214f74606144adb326f0770d80c636cb11b96670477736',
+  'cpython-3.12.11+20250630-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz':
+    '358ad7bf46260a2e1b31726adc62dc04258c7ea7469352e155ffdea0f168499e',
+};
 
 function targetTriple() {
   const platform = process.platform;
@@ -41,6 +62,28 @@ async function download(url, dest) {
   if (!res.ok) throw new Error(`Download failed ${res.status}: ${url}`);
   mkdirSync(path.dirname(dest), { recursive: true });
   await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+}
+
+export async function sha256File(filePath) {
+  const hash = createHash('sha256');
+  const stream = createReadStream(filePath);
+  for await (const chunk of stream) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+export async function verifyArchiveSha256(archive, asset) {
+  const expected = EXPECTED_SHA256[asset];
+  if (!expected) {
+    throw new Error(`[bundle-python] No expected SHA256 for asset: ${asset}`);
+  }
+  const actual = await sha256File(archive);
+  if (actual !== expected) {
+    throw new Error(
+      `[bundle-python] SHA256 mismatch for ${asset}: expected ${expected}, got ${actual}`,
+    );
+  }
 }
 
 function extractTarGz(archive, dest) {
@@ -72,6 +115,8 @@ async function main() {
     await download(url, archive);
   }
 
+  await verifyArchiveSha256(archive, asset);
+
   if (existsSync(outDir)) {
     rmSync(outDir, { recursive: true, force: true });
   }
@@ -85,7 +130,9 @@ async function main() {
   console.info(`[bundle-python] Ready: ${marker}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

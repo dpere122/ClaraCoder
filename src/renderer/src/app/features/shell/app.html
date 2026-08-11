@@ -268,13 +268,20 @@
       </section>
     </div>
 
-    <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
+    @if (!chatCollapsed()) {
+      <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
+    }
 
-    <div class='sidebar' [style.width.px]='sidebarWidth()'>
+    <div
+      class='sidebar'
+      [class.sidebar--collapsed]='chatCollapsed()'
+      [style.width.px]='effectiveSidebarWidth()'
+    >
       <app-chat-conversation-hub
         [view]="chatHubView()"
         (viewChange)="chatHubView.set($event)"
         [(expanded)]='chatExpanded'
+        [(collapsed)]='chatCollapsed'
         [conversations]='conversations()'
         [activeConversationId]='activeConversationId()'
         [activeFileRelativePath]='activeFileRelativePath()'

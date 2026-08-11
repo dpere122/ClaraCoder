@@ -32,7 +32,38 @@
 }
 
 .chat-hub__expand,
-.chat-hub__conv-toggle {
+.chat-hub__conv-toggle,
+.chat-hub__collapse {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--t-border);
+  border-radius: 0.2rem;
+  background: var(--t-bg-surface);
+  color: var(--t-fg);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.chat-hub--collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--t-bg-deep);
+  padding: 0.35rem 0;
+}
+
+.chat-hub__uncollapse {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -77,6 +108,8 @@
 
 .chat-hub__expand:hover:not(:disabled),
 .chat-hub__conv-toggle:hover,
+.chat-hub__collapse:hover,
+.chat-hub__uncollapse:hover,
 .chat-hub__new-conv:hover {
   background: var(--t-hover-bg);
   border-color: var(--t-primary);

@@ -54,7 +54,7 @@ import type {
   WorkspaceSystemPromptMutationResult,
   WorkspaceSystemPromptStatus,
 } from '@shared/index';
-import { getDefaultContextCompression } from '@shared/index';
+import { getDefaultContextCompression, SecretValue } from '@shared/index';
 
 /** Shape returned when `window.electronAPI` is unavailable (e.g. browser preview outside Electron). */
 const FALLBACK_APP_CONFIG: AppConfig = {
@@ -67,7 +67,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     provider: 'openai',
     baseUrl: '',
     model: 'gpt-4o-mini-transcribe',
-    apiKey: '',
+    apiKey: SecretValue.of(''),
   },
   workspaceTools: {
     editToolsMode: 'standard',
@@ -87,7 +87,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
   },
   modelManager: {
     customModelsDir: '',
-    huggingFaceToken: '',
+    huggingFaceToken: SecretValue.of(''),
   },
   chatSidebarWidthPercent: 1 / 3,
 };

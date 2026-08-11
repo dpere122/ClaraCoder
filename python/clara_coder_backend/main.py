@@ -69,14 +69,20 @@ def _allowed_cors_origins() -> list[str]:
 class SidecarBearerAuthMiddleware(BaseHTTPMiddleware):
     """Require ``Authorization: Bearer <CLARA_SIDECAR_TOKEN>`` on every route except ``/health``.
 
-    When the env token is unset/empty (pytest / bare uvicorn), auth is skipped so local
-    tests keep working. Electron always injects a random token at spawn.
+    Auth is fail-closed: an empty ``CLARA_SIDECAR_TOKEN`` rejects requests unless
+    ``CLARA_SIDECAR_AUTH_OPTIONAL=1`` is set (pytest / bare uvicorn). Electron always
+    injects a random token at spawn. CORS preflight (OPTIONS with
+    ``Access-Control-Request-Method`` and an allowlisted ``Origin``) skips auth so
+    CORSMiddleware can answer; bare OPTIONS does not.
     """
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # CORS preflight has no Authorization header; let CORSMiddleware answer it.
+        # Skip auth only for real CORS preflight, not every OPTIONS.
         if request.method == 'OPTIONS':
-            return await call_next(request)
+            origin = request.headers.get('origin') or ''
+            acrm = request.headers.get('access-control-request-method')
+            if acrm and origin in _allowed_cors_origins():
+                return await call_next(request)
 
         path = request.url.path.rstrip('/') or '/'
         if path in _AUTH_EXEMPT_PATHS:
@@ -84,7 +90,10 @@ class SidecarBearerAuthMiddleware(BaseHTTPMiddleware):
 
         expected = os.getenv('CLARA_SIDECAR_TOKEN', '') or ''
         if not expected:
-            return await call_next(request)
+            # Fail closed unless explicitly opted out for local/test runs.
+            if (os.getenv('CLARA_SIDECAR_AUTH_OPTIONAL', '') or '').strip() == '1':
+                return await call_next(request)
+            return JSONResponse({'detail': 'Unauthorized'}, status_code=401)
 
         auth = request.headers.get('authorization') or ''
         scheme, _, credential = auth.partition(' ')

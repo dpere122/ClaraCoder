@@ -50,9 +50,14 @@ _KILL_REPORT_TIMEOUT_SEC = 20.0
 _MAX_COMMAND_CHARS = 8_192
 
 # Structural denylist — reject before HITL / subprocess. Patterns are intentionally coarse.
+# Defense-in-depth only; HITL still gates approval for non-matching commands.
 _DENIED_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pat, re.IGNORECASE | re.DOTALL), label)
     for pat, label in (
+        (r'[\n\r]', 'newline / CR command chaining'),
+        (r'\$\(', 'command substitution $()'),
+        (r'`', 'backtick command substitution'),
+        (r'\b(env|printenv)\b', 'env dump (env/printenv)'),
         (r'\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--force\s+)*(/|/\*|~|/home\b|/Users\b|/var\b|/etc\b)', 'rm -rf / (or similar)'),
         (r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;?\s*:', 'fork bomb'),
         (r'\bdd\b[^\n]*\bof\s*=\s*/dev/', 'dd of=/dev/...'),
@@ -60,7 +65,9 @@ _DENIED_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r'\b(shutdown|reboot|poweroff|halt)\b', 'shutdown/reboot'),
         (r'>\s*/dev/sd[a-z]\b', 'redirect to /dev/sdX'),
         (r'\bchmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+|--recursive\s+)*777\s+/', 'chmod -R 777 /'),
-        (r'\b(curl|wget)\b[^\n|]*\|\s*(ba)?sh\b', 'network download piped to shell'),
+        (r'\b(curl|wget)\b[\s\S]*\|\s*(ba)?sh\b', 'network download piped to shell'),
+        (r'\b(ba)?sh\b[\s\S]*-c[\s\S]*\b(curl|wget)\b', 'shell -c fetching remote script'),
+        (r'\bbase64\b[\s\S]*\|\s*(curl|wget|nc|ncat|netcat)\b', 'base64 pipe to network exfil'),
         (r'\b(nc|ncat|netcat)\b[^\n]*\s+-e\s+', 'netcat exec (-e)'),
         (r'\bcurl\b[^\n]*\s(--data|-d|--upload-file|-T)\b[^\n]*(/etc/passwd|/etc/shadow|\.ssh/)', 'credential exfil via curl'),
     )

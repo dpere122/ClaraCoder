@@ -12,9 +12,10 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import type { PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
+import type { AppConfig, PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
@@ -61,7 +62,7 @@ import {
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, WorkspaceOutlineDockComponent],
+  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, ManagedLlamaControlsComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -78,6 +79,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly activeFileRelativePath = input<string | null>(null);
   /** Document outline symbols from the active Monaco tab. */
   readonly outlineSymbols = input<readonly EditorOutlineSymbol[]>([]);
+  /** Live app config from the shell; drives the managed llama-server Start/Stop controls in the footer. */
+  readonly appConfig = input<AppConfig | null>(null);
   /** Relative path for the active outline (from Monaco). */
   readonly outlineRelativePath = input<string | null>(null);
 

@@ -554,89 +554,6 @@
                         }
                       </select>
                     </label>
-
-                    <label class='field field--full'>
-                      <span>Or Hugging Face id</span>
-                      <div class='model-hf-inline'>
-                        <input
-                          type='text'
-                          [ngModel]='managedHfIdDraft()'
-                          (ngModelChange)='managedHfIdDraft.set($event)'
-                          placeholder='org/model:Q4_K_M'
-                          spellcheck='false'
-                          autocomplete='off'
-                        />
-                        <button type='button' class='action-button action-button--compact action-button--primary' (click)='applyManagedHfIdDraft()'>
-                          Use HF id
-                        </button>
-                      </div>
-                      <p class='settings-copy' style='margin: 0.35rem 0 0'>
-                        Downloads on Start into the Model Manager cache when needed.
-                        <button type='button' class='linkish' (click)='openModelManagerTab()'>Browse HF in Model Manager</button>
-                      </p>
-                    </label>
-
-                    @if (managedPickerValue()) {
-                      <div class='field field--full model-run-hero__selected'>
-                        <span class='pill'>{{ managedSelectedFamilyLabel() }}</span>
-                        <span class='settings-copy'>{{ managedPickerValue().startsWith('gguf:') ? managedPickerValue().slice(5) : managedPickerValue().startsWith('hub:') ? managedPickerValue().slice(4) : managedPickerValue().slice(3) }}</span>
-                      </div>
-                    }
-
-                    <div class='field field--full llamacpp-managed-actions model-run-hero__actions'>
-                      <button
-                        type='button'
-                        class='action-button action-button--primary'
-                        [class.action-button--danger]='managedLlamaRunning()'
-                        [disabled]='managedLlamaBusy() || !selectedLlamaCppManaged().chatRunCommand.trim()'
-                        (click)='toggleManagedLlamaServer()'
-                      >
-                        {{ managedLlamaActionLabel() }}
-                      </button>
-                      @if (selectedSourceIsActiveForChat()) {
-                        <span class='lm-studio-status lm-studio-status--ok'>Using for chat</span>
-                      } @else {
-                        <button type='button' class='action-button action-button--compact' (click)='activateSelectedSourceForChat()'>
-                          Use for chat
-                        </button>
-                      }
-                      <span
-                        class='lm-studio-status'
-                        [class.lm-studio-status--ok]='managedLlamaRunning()'
-                        [class.lm-studio-status--err]='!!managedLlamaStartError()'
-                      >
-                        {{ managedLlamaStatusLabel() }}
-                      </span>
-                    </div>
-
-                    <div class='field field--full llamacpp-models-row'>
-                      <button
-                        type='button'
-                        class='action-button action-button--compact'
-                        [disabled]='llamacppModelsListInFlight() || !managedLlamaRunning()'
-                        (click)='refreshLlamacppManagedModels()'
-                      >
-                        @if (llamacppModelsListInFlight()) {
-                          Refreshing…
-                        } @else {
-                          Refresh model list
-                        }
-                      </button>
-                      <label class='field' style='flex: 1; margin: 0'>
-                        <span>Chat model id</span>
-                        <select [ngModel]='selectedModel()!.model' (ngModelChange)='onModelApiIdChange($event)'>
-                          @if (selectedModel()?.model && !llamacppManagedModelIds().includes(selectedModel()!.model)) {
-                            <option [value]='selectedModel()!.model'>{{ selectedModel()!.model }} (current)</option>
-                          }
-                          @for (id of llamacppManagedModelIds(); track id) {
-                            <option [value]='id'>{{ id }}</option>
-                          }
-                        </select>
-                      </label>
-                      @if (llamacppModelsListError(); as lerr) {
-                        <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
-                      }
-                    </div>
                   </div>
                 </div>
               } @else {
@@ -1299,16 +1216,40 @@
                         } @else {
                           <div class='model-quant-list'>
                             @for (file of modelManagerHfFilesByRepo()[model.id]; track file.fileName) {
-                              <div class='model-quant-row'>
+                              <div
+                                class='model-quant-row'
+                                [class.model-quant-row--downloading]='isHfQuantDownloading(model.id, file)'
+                                [class.model-quant-row--done]='isHfQuantDownloaded(model.id, file)'
+                                [style.--hf-dl-pct]='(hfQuantDownloadFraction(model.id, file) * 100).toFixed(1) + "%"'
+                              >
                                 <span class='model-quant-row__name'>{{ file.quant || file.fileName }}</span>
                                 <span class='settings-copy model-quant-row__size'>{{ formatFileSize(file.sizeBytes) }}</span>
-                                <button
-                                  type='button'
-                                  class='action-button action-button--compact action-button--primary'
-                                  (click)='useHfQuantInModels(model.id, file)'
-                                >
-                                  Use in Models
-                                </button>
+                                @if (isHfQuantDownloading(model.id, file)) {
+                                  <span class='model-quant-row__progress-label'>{{ hfQuantDownloadLabel(model.id, file) }}</span>
+                                  <button
+                                    type='button'
+                                    class='action-button action-button--compact model-quant-row__cancel'
+                                    (click)='cancelHfQuantDownload(model.id, file)'
+                                  >
+                                    Cancel
+                                  </button>
+                                } @else if (isHfQuantDownloaded(model.id, file)) {
+                                  <button
+                                    type='button'
+                                    class='action-button action-button--compact action-button--primary'
+                                    (click)='useHfQuantInModels(model.id, file)'
+                                  >
+                                    Use in Models
+                                  </button>
+                                } @else {
+                                  <button
+                                    type='button'
+                                    class='action-button action-button--compact action-button--primary'
+                                    (click)='downloadHfQuant(model.id, file)'
+                                  >
+                                    Download Model
+                                  </button>
+                                }
                               </div>
                             } @empty {
                               <p class='settings-copy model-card__versions-empty'>No GGUF quant files found for this repo.</p>

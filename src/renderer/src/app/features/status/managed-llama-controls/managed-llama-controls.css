@@ -1,0 +1,33 @@
+:host {
+  display: block;
+}
+
+.managed-llama-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid color-mix(in srgb, var(--t-border, #444) 55%, transparent);
+  margin-top: 0.35rem;
+}
+
+.managed-llama-controls__btn {
+  min-height: 28px;
+  padding: 4px 14px;
+  font-size: 12px;
+  min-width: 6rem;
+}
+
+.managed-llama-controls__status {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.managed-llama-controls__status--ok {
+  color: #7ff0aa;
+}
+
+.managed-llama-controls__status--err {
+  color: #ff8e8e;
+}

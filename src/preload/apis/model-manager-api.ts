@@ -1,6 +1,7 @@
 import { ipcRenderer } from 'electron';
+import type { HfDownloadId, HfDownloadProgressEvent } from '../../shared';
 
-/** Local model manager (HF search, rename, delete). */
+/** Local model manager (HF search, rename, delete, GGUF download). */
 export const modelManagerApi = {
   modelManagerPickCustomDir: () => ipcRenderer.invoke('model-manager:pick-custom-dir'),
   modelManagerListCustomModels: (payload: { customDir: string }) =>
@@ -16,4 +17,10 @@ export const modelManagerApi = {
     ipcRenderer.invoke('model-manager:search-hf', payload),
   modelManagerListHfFiles: (payload: { id: string; token?: string }) =>
     ipcRenderer.invoke('model-manager:list-hf-files', payload),
+  modelManagerDownloadHfFile: (payload: { repoId: string; fileName: string; customDir: string; token?: string }) =>
+    ipcRenderer.invoke('model-manager:download-hf-file', payload),
+  modelManagerCancelHfDownload: (payload: { downloadId: HfDownloadId }) =>
+    ipcRenderer.invoke('model-manager:cancel-hf-download', payload),
+  onModelManagerHfDownloadProgress: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) =>
+    ipcRenderer.on('model-manager:hf-download-progress', callback),
 };

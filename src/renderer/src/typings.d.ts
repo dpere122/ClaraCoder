@@ -24,6 +24,9 @@ import type {
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
+  ModelManagerDownloadHfResult,
+  HfDownloadId,
+  HfDownloadProgressEvent,
   LmStudioListModelsResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
@@ -332,6 +335,14 @@ declare global {
       fileType?: string;
     }) => Promise<ModelManagerHfSearchResult>;
     modelManagerListHfFiles: (payload: { id: string; token?: string }) => Promise<ModelManagerHfFilesResult>;
+    modelManagerDownloadHfFile: (payload: {
+      repoId: string;
+      fileName: string;
+      customDir: string;
+      token?: string;
+    }) => Promise<ModelManagerDownloadHfResult>;
+    modelManagerCancelHfDownload: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    onModelManagerHfDownloadProgress?: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) => void;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
     setLastActiveConversation: (workspaceKey: string, conversationId: string) => Promise<AppConfig>;

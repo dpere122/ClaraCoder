@@ -1,10 +1,13 @@
-import { dialog, ipcMain } from 'electron';
-import { promises as fs } from 'fs';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { promises as fs, createWriteStream, type WriteStream } from 'fs';
 import { homedir } from 'os';
 import path = require('path');
 import type {
+  HfDownloadId,
+  HfDownloadProgressEvent,
   HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
+  ModelManagerDownloadHfResult,
   ModelManagerFileEntry,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
@@ -86,6 +89,34 @@ function normalizeModelManagerPath(p: string): string {
 
 function normalizeAbs(p: string): string {
   return normalizeModelManagerPath(p);
+}
+
+/** In-flight HF GGUF downloads keyed by {@link HfDownloadId}. */
+interface InFlightDownload {
+  downloadId: HfDownloadId;
+  repoId: string;
+  fileName: string;
+  abort: AbortController;
+  writeStream: WriteStream | null;
+  receivedBytes: number;
+}
+
+const inFlightDownloads = new Map<HfDownloadId, InFlightDownload>();
+
+function makeDownloadId(repoId: string, fileName: string): HfDownloadId {
+  return `${repoId}/${fileName}`;
+}
+
+/** Broadcast a download progress event to every live BrowserWindow (main + settings). */
+function broadcastHfDownloadProgress(payload: HfDownloadProgressEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    try {
+      win.webContents.send('model-manager:hf-download-progress', payload);
+    } catch {
+      /* window gone */
+    }
+  }
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -732,6 +763,198 @@ export function registerModelManagerIpc(): void {
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
+    },
+  );
+
+  ipcMain.handle(
+    'model-manager:download-hf-file',
+    async (
+      _event,
+      payload: { repoId: string; fileName: string; customDir: string; token?: string },
+    ): Promise<ModelManagerDownloadHfResult> => {
+      const repoId = String(payload?.repoId || '').trim();
+      const fileName = String(payload?.fileName || '').trim();
+      const customDirRaw = String(payload?.customDir || '').trim();
+      if (!repoId || !/^[^/\s]+\/[^/\s]+$/.test(repoId)) {
+        return { ok: false, error: 'Invalid Hugging Face repo id.' };
+      }
+      if (!fileName || !fileName.toLowerCase().endsWith('.gguf')) {
+        return { ok: false, error: 'Invalid GGUF file name.' };
+      }
+      const customDir = normalizeModelManagerPath(customDirRaw);
+      if (!customDir) {
+        return { ok: false, error: 'No custom models directory configured.' };
+      }
+      const downloadId = makeDownloadId(repoId, fileName);
+      if (inFlightDownloads.has(downloadId)) {
+        return { ok: false, error: 'This quant is already downloading.' };
+      }
+
+      const token = String(payload?.token || '').trim();
+      const headers: Record<string, string> = {
+        'User-Agent': 'ClaraCoder-ModelManager',
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      // Resolve the default revision SHA so the resolve URL is stable (not a moving ref).
+      const [orgPart, repoPart] = repoId.split('/');
+      const repoPath = `${encodeURIComponent(orgPart)}/${encodeURIComponent(repoPart)}`;
+      let revision = 'main';
+      try {
+        const metaRes = await fetch(`https://huggingface.co/api/models/${repoPath}`, { headers });
+        if (metaRes.ok) {
+          const meta = (await metaRes.json()) as { sha?: unknown };
+          if (typeof meta.sha === 'string' && meta.sha.trim()) {
+            revision = meta.sha.trim();
+          }
+        }
+      } catch {
+        // Fall back to 'main' revision.
+      }
+
+      const resolveUrl = `https://huggingface.co/${repoPath}/resolve/${encodeURIComponent(revision)}/${encodeURIComponent(
+        fileName,
+      )}`;
+
+      let destDir = customDir;
+      try {
+        await fs.mkdir(destDir, { recursive: true });
+      } catch (e) {
+        return { ok: false, error: `Could not create models directory: ${e instanceof Error ? e.message : String(e)}` };
+      }
+      const destPath = path.join(destDir, fileName);
+      const tmpPath = `${destPath}.part`;
+
+      const abort = new AbortController();
+      const entry: InFlightDownload = {
+        downloadId,
+        repoId,
+        fileName,
+        abort,
+        writeStream: null,
+        receivedBytes: 0,
+      };
+      inFlightDownloads.set(downloadId, entry);
+
+      broadcastHfDownloadProgress({
+        downloadId,
+        repoId,
+        fileName,
+        phase: 'queued',
+        receivedBytes: 0,
+        totalBytes: null,
+      });
+
+      try {
+        const res = await fetch(resolveUrl, { headers, signal: abort.signal, redirect: 'follow' });
+        if (!res.ok) {
+          throw new Error(`Hugging Face download failed (${res.status}).`);
+        }
+        const totalBytes = res.headers.get('content-length');
+        const total = totalBytes ? Number(totalBytes) : null;
+        const totalNum = typeof total === 'number' && Number.isFinite(total) && total > 0 ? total : null;
+
+        if (res.body == null) {
+          throw new Error('Hugging Face download returned no body.');
+        }
+
+        const writeStream = createWriteStream(tmpPath);
+        entry.writeStream = writeStream;
+
+        const reader = res.body.getReader();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            await new Promise<void>((resolve, reject) => {
+              writeStream.write(value, (err) => (err ? reject(err) : resolve()));
+            });
+            entry.receivedBytes += value.byteLength;
+            broadcastHfDownloadProgress({
+              downloadId,
+              repoId,
+              fileName,
+              phase: 'progress',
+              receivedBytes: entry.receivedBytes,
+              totalBytes: totalNum,
+            });
+          }
+        }
+        await new Promise<void>((resolve, reject) => {
+          writeStream.end((err?: Error | null) => (err ? reject(err) : resolve()));
+        });
+        entry.writeStream = null;
+
+        await fs.rename(tmpPath, destPath);
+
+        broadcastHfDownloadProgress({
+          downloadId,
+          repoId,
+          fileName,
+          phase: 'done',
+          receivedBytes: entry.receivedBytes,
+          totalBytes: totalNum ?? entry.receivedBytes,
+          absolutePath: destPath,
+        });
+
+        return { ok: true, absolutePath: destPath };
+      } catch (e) {
+        const aborted = abort.signal.aborted;
+        // Clean up partial file.
+        try {
+          await fs.unlink(tmpPath);
+        } catch {
+          /* ignore */
+        }
+        if (aborted) {
+          broadcastHfDownloadProgress({
+            downloadId,
+            repoId,
+            fileName,
+            phase: 'cancelled',
+            receivedBytes: entry.receivedBytes,
+            totalBytes: null,
+          });
+          return { ok: false, error: 'Download cancelled.' };
+        }
+        const msg = e instanceof Error ? e.message : String(e);
+        broadcastHfDownloadProgress({
+          downloadId,
+          repoId,
+          fileName,
+          phase: 'error',
+          receivedBytes: entry.receivedBytes,
+          totalBytes: null,
+          error: msg,
+        });
+        return { ok: false, error: msg };
+      } finally {
+        inFlightDownloads.delete(downloadId);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'model-manager:cancel-hf-download',
+    async (_event, payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const id = String(payload?.downloadId || '').trim();
+      const entry = inFlightDownloads.get(id);
+      if (!entry) {
+        return { ok: false, error: 'No active download for that id.' };
+      }
+      try {
+        entry.abort.abort();
+        } catch {
+          /* ignore */
+        }
+        try {
+          entry.writeStream?.destroy();
+        } catch {
+          /* ignore */
+        }
+      return { ok: true };
     },
   );
 }

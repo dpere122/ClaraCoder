@@ -1,0 +1,21 @@
+@if (show()) {
+  <div class="managed-llama-controls" role="group" aria-label="Managed llama-server controls">
+    <button
+      type="button"
+      class="action-button action-button--primary managed-llama-controls__btn"
+      [class.action-button--danger]="running()"
+      [disabled]="busy() || !chatRunCommand().trim()"
+      (click)="toggle()"
+    >
+      {{ actionLabel() }}
+    </button>
+    <app-llama-status-indicator [appConfig]="appConfig()" />
+    <span
+      class="managed-llama-controls__status"
+      [class.managed-llama-controls__status--ok]="running()"
+      [class.managed-llama-controls__status--err]="!!startError()"
+    >
+      {{ statusLabel() }}
+    </span>
+  </div>
+}

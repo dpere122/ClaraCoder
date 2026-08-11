@@ -1118,6 +1118,67 @@ button.linkish {
   flex-shrink: 0;
 }
 
+/* Download-in-progress: the whole row becomes a determinate progress bar.
+   The fill is a pseudo-element sized by the --hf-dl-pct custom property
+   (set inline by the template). Text sits above the fill with high contrast. */
+.model-quant-row--downloading {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--t-bg) 40%, transparent);
+  --hf-dl-pct: 0%;
+  --hf-dl-fill: color-mix(in srgb, var(--t-primary) 70%, var(--t-bg-surface));
+  --hf-dl-fg: var(--t-on-primary, #fff);
+}
+
+.model-quant-row--downloading::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: var(--hf-dl-pct);
+  background: var(--hf-dl-fill);
+  transition: width 180ms ease-out;
+  z-index: 0;
+}
+
+.model-quant-row--downloading > * {
+  position: relative;
+  z-index: 1;
+  color: var(--hf-dl-fg);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.model-quant-row--downloading .model-quant-row__size {
+  opacity: 1;
+}
+
+.model-quant-row--downloading .model-quant-row__progress-label {
+  flex: 1 1 auto;
+  text-align: right;
+  font-family: var(--t-font-mono, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+
+.model-quant-row--downloading .model-quant-row__cancel {
+  background: color-mix(in srgb, var(--t-danger, #c0473a) 85%, transparent);
+  color: var(--hf-dl-fg);
+  border-color: transparent;
+}
+
+.model-quant-row--downloading:hover {
+  background: color-mix(in srgb, var(--t-bg) 40%, transparent);
+}
+
+/* Completed download: subtle success tint to hint the file is cached locally. */
+.model-quant-row--done {
+  background: color-mix(in srgb, var(--t-success, #2e7d52) 12%, transparent);
+}
+
+.model-quant-row--done:hover {
+  background: color-mix(in srgb, var(--t-success, #2e7d52) 22%, transparent);
+}
+
 .model-manager-accordion {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--t-border) 75%, transparent);

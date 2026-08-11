@@ -20,7 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -34,18 +34,23 @@ const entryPath = path.join(
   'vtsls.js',
 );
 const markerPath = path.join(bundleDir, '.clara-vtsls-version');
+
 // Pinned for reproducible distributable builds. Override with CLARA_VTSLS_VERSION
 // (exact semver only — dist-tags and ranges are rejected).
-const DEFAULT_VTSLS_VERSION = '0.3.0';
-const EXACT_SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-const version = (process.env.CLARA_VTSLS_VERSION || '').trim() || DEFAULT_VTSLS_VERSION;
-if (!EXACT_SEMVER.test(version)) {
-  console.error(
-    `[vtsls-bundle] CLARA_VTSLS_VERSION=${version} is not allowed; pin an exact semver (e.g. ${DEFAULT_VTSLS_VERSION}), not a dist-tag or range.`,
-  );
-  process.exit(1);
+export const DEFAULT_VTSLS_VERSION = '0.3.0';
+export const EXACT_SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+
+/** Resolve and validate CLARA_VTSLS_VERSION (exact semver only). Exits on invalid. */
+export function resolveVtslsVersion() {
+  const version = (process.env.CLARA_VTSLS_VERSION || '').trim() || DEFAULT_VTSLS_VERSION;
+  if (!EXACT_SEMVER.test(version)) {
+    console.error(
+      `[vtsls-bundle] CLARA_VTSLS_VERSION=${version} is not allowed; pin an exact semver (e.g. ${DEFAULT_VTSLS_VERSION}), not a dist-tag or range.`,
+    );
+    process.exit(1);
+  }
+  return version;
 }
-const force = process.argv.includes('--force');
 
 function log(msg) {
   console.log(`[vtsls-bundle] ${msg}`);
@@ -59,30 +64,39 @@ function readMarker() {
   }
 }
 
-if (!force && existsSync(entryPath) && readMarker() === version) {
-  log(`Already assembled (version=${version}); entry=${entryPath}`);
-  log('Run with --force to reinstall.');
-  process.exit(0);
+function main() {
+  const version = resolveVtslsVersion();
+  const force = process.argv.includes('--force');
+
+  if (!force && existsSync(entryPath) && readMarker() === version) {
+    log(`Already assembled (version=${version}); entry=${entryPath}`);
+    log('Run with --force to reinstall.');
+    process.exit(0);
+  }
+
+  mkdirSync(bundleDir, { recursive: true });
+
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const spec = `@vtsls/language-server@${version}`;
+  log(`Installing ${spec} into ${bundleDir} …`);
+  try {
+    execFileSync(npm, ['install', '--prefix', bundleDir, spec], {
+      stdio: 'inherit',
+    });
+  } catch (err) {
+    console.error(`[vtsls-bundle] npm install failed: ${err}`);
+    process.exit(1);
+  }
+
+  if (!existsSync(entryPath)) {
+    console.error(`[vtsls-bundle] expected entry not found after install: ${entryPath}`);
+    process.exit(1);
+  }
+
+  writeFileSync(markerPath, `${version}\n`, 'utf8');
+  log(`Ready: version=${version} entry=${entryPath}`);
 }
 
-mkdirSync(bundleDir, { recursive: true });
-
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const spec = `@vtsls/language-server@${version}`;
-log(`Installing ${spec} into ${bundleDir} …`);
-try {
-  execFileSync(npm, ['install', '--prefix', bundleDir, spec], {
-    stdio: 'inherit',
-  });
-} catch (err) {
-  console.error(`[vtsls-bundle] npm install failed: ${err}`);
-  process.exit(1);
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main();
 }
-
-if (!existsSync(entryPath)) {
-  console.error(`[vtsls-bundle] expected entry not found after install: ${entryPath}`);
-  process.exit(1);
-}
-
-writeFileSync(markerPath, `${version}\n`, 'utf8');
-log(`Ready: version=${version} entry=${entryPath}`);

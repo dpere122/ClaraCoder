@@ -16,7 +16,7 @@ import {
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const outDir = path.join(root, 'runtime-bundle', 'python');
 const force = process.argv.includes('--force');
@@ -26,7 +26,7 @@ const RELEASE = '20250630';
 const PY_VER = '3.12.11';
 
 /** SHA256 from release SHA256SUMS — fail closed if download/cache mismatches. */
-const EXPECTED_SHA256 = {
+export const EXPECTED_SHA256 = {
   'cpython-3.12.11+20250630-aarch64-apple-darwin-install_only_stripped.tar.gz':
     '52f103b1bae4105c8c3ba415fbfb992fc80672795c58262b96719efde97c49d9',
   'cpython-3.12.11+20250630-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz':
@@ -64,7 +64,7 @@ async function download(url, dest) {
   await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
 }
 
-async function sha256File(filePath) {
+export async function sha256File(filePath) {
   const hash = createHash('sha256');
   const stream = createReadStream(filePath);
   for await (const chunk of stream) {
@@ -73,7 +73,7 @@ async function sha256File(filePath) {
   return hash.digest('hex');
 }
 
-async function verifyArchiveSha256(archive, asset) {
+export async function verifyArchiveSha256(archive, asset) {
   const expected = EXPECTED_SHA256[asset];
   if (!expected) {
     throw new Error(`[bundle-python] No expected SHA256 for asset: ${asset}`);
@@ -130,7 +130,9 @@ async function main() {
   console.info(`[bundle-python] Ready: ${marker}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

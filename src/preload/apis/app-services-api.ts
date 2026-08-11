@@ -47,8 +47,8 @@ export const appServicesApi = {
     ipcRenderer.on('llama-server-process-exit', callback),
   onLlamaServerLifecycle: (callback: (event: unknown, data: unknown) => void) =>
     ipcRenderer.on('llama-server-lifecycle', callback),
-  popupFileMenu: (x: number, y: number) => ipcRenderer.invoke('popup-file-menu', x, y),
-  popupHelpMenu: (x: number, y: number) => ipcRenderer.invoke('popup-help-menu', x, y),
+  openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  openDocumentation: () => ipcRenderer.send('open-documentation'),
   windowMinimize: () => ipcRenderer.send('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.send('window-toggle-maximize'),
   windowClose: () => ipcRenderer.send('window-close'),

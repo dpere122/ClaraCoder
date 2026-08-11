@@ -240,6 +240,13 @@ export class App implements OnInit, OnDestroy {
   protected readonly fileTabContextMenuX = signal(0);
   protected readonly fileTabContextMenuY = signal(0);
   protected readonly fileTabContextMenuTabId = signal<string | null>(null);
+  /** Titlebar File/Help dropdown (`null` when closed). */
+  protected readonly chromeMenu = signal<'file' | 'help' | null>(null);
+  protected readonly chromeMenuX = signal(0);
+  protected readonly chromeMenuY = signal(0);
+  protected readonly chromeAccelMod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform)
+    ? '⌘'
+    : 'Ctrl';
   protected readonly fileTabContextMenuCanCloseLeft = computed(() => {
     const tabId = this.fileTabContextMenuTabId();
     if (!tabId) {
@@ -1363,6 +1370,74 @@ export class App implements OnInit, OnDestroy {
     this.fileTabContextMenuTabId.set(null);
   }
 
+  private closeChromeMenu(): void {
+    this.chromeMenu.set(null);
+  }
+
+  private openChromeMenu(kind: 'file' | 'help', ev: MouseEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.closeFileTabContextMenu();
+    if (this.chromeMenu() === kind) {
+      this.closeChromeMenu();
+      return;
+    }
+    const el = ev.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    this.chromeMenuX.set(Math.floor(r.left));
+    this.chromeMenuY.set(Math.floor(r.bottom) + 2);
+    this.chromeMenu.set(kind);
+  }
+
+  protected onChromeFileMenu(ev: MouseEvent): void {
+    this.openChromeMenu('file', ev);
+  }
+
+  protected onChromeHelpMenu(ev: MouseEvent): void {
+    this.openChromeMenu('help', ev);
+  }
+
+  protected onChromeMenuItemMousedown(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  protected onChromeMenuSettings(): void {
+    this.closeChromeMenu();
+    this.electron.openSettingsWindow();
+  }
+
+  protected onChromeMenuDependencies(): void {
+    this.closeChromeMenu();
+    this.electron.openDependenciesWindow();
+  }
+
+  protected onChromeMenuHealth(): void {
+    this.closeChromeMenu();
+    this.electron.openHealthWindow();
+  }
+
+  protected onChromeMenuCloseWindow(): void {
+    this.closeChromeMenu();
+    this.electron.windowClose();
+  }
+
+  protected async onChromeMenuAbout(): Promise<void> {
+    this.closeChromeMenu();
+    await this.themedConfirm.open({
+      title: 'About Clara Coder',
+      message: 'Clara Coder v1.0.0',
+      detail: 'An AI chat application with speech synthesis and recognition.',
+      confirmText: 'OK',
+      cancelText: 'Close',
+    });
+  }
+
+  protected onChromeMenuDocumentation(): void {
+    this.closeChromeMenu();
+    this.electron.openDocumentation();
+  }
+
   private async tryCloseFileTabById(tabId: string): Promise<boolean> {
     if (!tabId.startsWith('file:')) {
       return false;
@@ -1618,6 +1693,7 @@ export class App implements OnInit, OnDestroy {
   protected onFileTabContextMenu(event: MouseEvent, tabId: string): void {
     event.preventDefault();
     event.stopPropagation();
+    this.closeChromeMenu();
     this.fileTabContextMenuTabId.set(tabId);
     this.fileTabContextMenuX.set(event.clientX);
     this.fileTabContextMenuY.set(event.clientY);
@@ -1669,22 +1745,34 @@ export class App implements OnInit, OnDestroy {
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(ev: MouseEvent): void {
-    if (!this.fileTabContextMenuVisible()) {
-      return;
+    const path = ev.composedPath();
+    if (this.fileTabContextMenuVisible()) {
+      const insideFileTab = path.some(
+        (n) => n instanceof HTMLElement && n.classList.contains('file-tab-context-menu'),
+      );
+      if (!insideFileTab) {
+        this.closeFileTabContextMenu();
+      }
     }
-    const inside = ev
-      .composedPath()
-      .some((n) => n instanceof HTMLElement && n.classList.contains('file-tab-context-menu'));
-    if (inside) {
-      return;
+    if (this.chromeMenu()) {
+      const insideChrome = path.some(
+        (n) =>
+          n instanceof HTMLElement &&
+          (n.classList.contains('chrome-dropdown-menu') || n.classList.contains('chrome-menu-btn')),
+      );
+      if (!insideChrome) {
+        this.closeChromeMenu();
+      }
     }
-    this.closeFileTabContextMenu();
   }
 
   @HostListener('document:keydown.escape')
-  onEscapeCloseFileTabContextMenu(): void {
+  onEscapeCloseMenus(): void {
     if (this.fileTabContextMenuVisible()) {
       this.closeFileTabContextMenu();
+    }
+    if (this.chromeMenu()) {
+      this.closeChromeMenu();
     }
   }
 
@@ -1964,18 +2052,6 @@ export class App implements OnInit, OnDestroy {
 
     await this.conversationSession.loadConversation(conv.id, conv.workspaceId, { skipPythonResync: skipTargetPython });
     this.chatHubView.set('activeChat');
-  }
-
-  protected onChromeFileMenu(ev: MouseEvent): void {
-    const el = ev.currentTarget as HTMLElement;
-    const r = el.getBoundingClientRect();
-    void this.electron.popupFileMenu(Math.floor(r.left), Math.floor(r.bottom));
-  }
-
-  protected onChromeHelpMenu(ev: MouseEvent): void {
-    const el = ev.currentTarget as HTMLElement;
-    const r = el.getBoundingClientRect();
-    void this.electron.popupHelpMenu(Math.floor(r.left), Math.floor(r.bottom));
   }
 
   protected onWindowMinimize(): void {

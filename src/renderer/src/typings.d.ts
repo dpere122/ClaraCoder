@@ -746,8 +746,8 @@ declare global {
     offDepsProgress: (
       callback: (event: unknown, data: import('@shared/index').DependencyProgressEvent) => void,
     ) => void;
-    popupFileMenu: (x: number, y: number) => Promise<void>;
-    popupHelpMenu: (x: number, y: number) => Promise<void>;
+    openSettingsWindow: () => void;
+    openDocumentation: () => void;
     windowMinimize: () => void;
     windowToggleMaximize: () => void;
     windowClose: () => void;

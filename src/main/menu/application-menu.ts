@@ -1,9 +1,11 @@
-import { BrowserWindow, dialog, Menu, shell } from 'electron';
+import { dialog, Menu, shell } from 'electron';
 import type Electron from 'electron';
 import { mainState } from '../state';
 import { createSettingsWindow } from '../windows/settings-window';
 import { createHealthWindow } from '../windows/health-window';
 import { createDependenciesWindow } from '../windows/dependencies-window';
+
+const DOCUMENTATION_URL = 'https://github.com';
 
 function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions[] {
   return [
@@ -45,19 +47,9 @@ function buildHelpMenuTemplate(): Electron.MenuItemConstructorOptions[] {
     },
     {
       label: 'Documentation',
-      click: () => shell.openExternal('https://github.com'),
+      click: () => void shell.openExternal(DOCUMENTATION_URL),
     },
   ];
-}
-
-export function popupFileMenu(win: BrowserWindow, x: number, y: number): void {
-  const menu = Menu.buildFromTemplate(buildFileMenuTemplate());
-  menu.popup({ window: win, x, y });
-}
-
-export function popupHelpMenu(win: BrowserWindow, x: number, y: number): void {
-  const menu = Menu.buildFromTemplate(buildHelpMenuTemplate());
-  menu.popup({ window: win, x, y });
 }
 
 function buildWindowMenuTemplate(): Electron.MenuItemConstructorOptions[] {
@@ -68,8 +60,8 @@ function buildWindowMenuTemplate(): Electron.MenuItemConstructorOptions[] {
 }
 
 /**
- * Frameless main window uses in-titlebar File/Help buttons; native menu is a fallback
- * (Alt on Windows/Linux) and supplies Window actions when custom chrome is unavailable.
+ * Native application menu: Alt fallback on Windows/Linux and keyboard accelerators.
+ * Titlebar File/Help use themed in-renderer dropdowns instead of Menu.popup.
  */
 export function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -79,4 +71,9 @@ export function buildMenu(): void {
     { label: 'Help', submenu: buildHelpMenuTemplate() },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** Opens the docs URL from the themed Help menu (renderer IPC). */
+export function openDocumentation(): void {
+  void shell.openExternal(DOCUMENTATION_URL);
 }

@@ -4,6 +4,7 @@ import { pythonControlFetch, pythonSsePost } from '../../python/http-client';
 import { ensurePythonReady } from '../../python/server';
 import { isTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
+import { createSettingsWindow } from '../../windows/settings-window';
 import { sendParsedPayload } from './chat-stream-payload';
 import {
   abortChatStream,
@@ -26,12 +27,16 @@ function replyMessageDone(
 
 /**
  * - `ready` — renderer finished boot (log only).
- * - `close-settings-window` — closes the modal settings BrowserWindow.
+ * - `open-settings-window` / `close-settings-window` — settings BrowserWindow.
  * - `message` — POST to Python `/chat/stream`, forward SSE lines to `message-chunk` / `message-done` / `message-status`.
  */
 export function registerChatIpc(): void {
   ipcMain.on('ready', () => {
     console.log('Renderer is ready');
+  });
+
+  ipcMain.on('open-settings-window', () => {
+    createSettingsWindow();
   });
 
   ipcMain.on('close-settings-window', () => {

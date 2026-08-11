@@ -22,6 +22,71 @@
         </button>
         <button type='button' class='chrome-win-btn chrome-win-close' (click)='onWindowClose()' aria-label='Close'>×</button>
       </div>
+      @if (chromeMenu(); as menuKind) {
+        <div
+          class='chrome-dropdown-menu'
+          role='menu'
+          [style.left.px]='chromeMenuX()'
+          [style.top.px]='chromeMenuY()'
+        >
+          @switch (menuKind) {
+            @case ('file') {
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuSettings()'
+              >
+                <span>Settings</span>
+                <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+,</span>
+              </button>
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuDependencies()'
+              >
+                Dependencies
+              </button>
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuHealth()'
+              >
+                Health window
+              </button>
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuCloseWindow()'
+              >
+                <span>Close</span>
+                <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+W</span>
+              </button>
+            }
+            @case ('help') {
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuAbout()'
+              >
+                About
+              </button>
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuDocumentation()'
+              >
+                Documentation
+              </button>
+            }
+          }
+        </div>
+      }
     } @else {
       <p class='browser-only-hint'>
         This tab is a browser preview only — close it and use the <strong>Clara Coder</strong> Electron window from <code>npm run dev</code> for File/Help menus, window controls, and workspaces.

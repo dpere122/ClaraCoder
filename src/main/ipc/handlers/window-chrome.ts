@@ -1,20 +1,13 @@
 import { BrowserWindow, ipcMain } from 'electron';
-import { popupFileMenu, popupHelpMenu } from '../../menu/application-menu';
+import { openDocumentation } from '../../menu/application-menu';
 
 /**
- * Frameless window controls and in-window File / Help menus (native Menu.popup).
+ * Frameless window controls (minimize / maximize / close).
+ * File / Help titlebar menus are rendered in-app so they follow UI themes.
  */
 export function registerWindowChromeIpc(): void {
-  ipcMain.handle('popup-file-menu', (event, x: number, y: number) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
-    popupFileMenu(win, Math.round(x), Math.round(y));
-  });
-
-  ipcMain.handle('popup-help-menu', (event, x: number, y: number) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
-    popupHelpMenu(win, Math.round(x), Math.round(y));
+  ipcMain.on('open-documentation', () => {
+    openDocumentation();
   });
 
   ipcMain.on('window-minimize', (event) => {

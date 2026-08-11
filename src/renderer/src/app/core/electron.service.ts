@@ -1323,8 +1323,20 @@ export class ElectronService {
     return this.api?.lmStudioUnloadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
+  openSettingsWindow(): void {
+    this.api?.openSettingsWindow();
+  }
+
   closeSettingsWindow(): void {
     this.api?.closeSettingsWindow();
+  }
+
+  openHealthWindow(): void {
+    this.api?.openHealthWindow();
+  }
+
+  openDocumentation(): void {
+    this.api?.openDocumentation();
   }
 
   runScript(script: string, language: string, workspacePath: string): Promise<{ stdout: string; stderr: string; exitCode?: number }> {
@@ -1913,14 +1925,6 @@ export class ElectronService {
     };
     this.api?.onDepsProgress?.(handler);
     return () => this.api?.offDepsProgress?.(handler);
-  }
-
-  popupFileMenu(x: number, y: number): Promise<void> {
-    return this.api?.popupFileMenu(x, y) ?? Promise.resolve();
-  }
-
-  popupHelpMenu(x: number, y: number): Promise<void> {
-    return this.api?.popupHelpMenu(x, y) ?? Promise.resolve();
   }
 
   windowMinimize(): void {

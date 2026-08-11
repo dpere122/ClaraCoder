@@ -512,6 +512,9 @@ export class ChatBox implements OnDestroy {
     });
 
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
+    // When the viewport shrinks while pinned to the bottom (HITL dock slides up or the
+    // terminal auto-expands below, covering the chat), re-bottom so the latest content
+    // stays visible instead of getting hidden under the newly revealed chrome.
     afterNextRender(
       () => {
         const elScroll = this.chatScroll()?.nativeElement;
@@ -519,8 +522,15 @@ export class ChatBox implements OnDestroy {
         this.viewportHeightSig.set(elScroll.clientHeight);
         this.chatScrollResizeObserver?.disconnect();
         this.chatScrollResizeObserver = new ResizeObserver(() => {
-          this.viewportHeightSig.set(elScroll.clientHeight);
-          requestAnimationFrame(() => this.updatePinFromScroll());
+          const prevHeight = this.viewportHeightSig();
+          const wasPinned = this.pinToBottom;
+          const nextHeight = elScroll.clientHeight;
+          this.viewportHeightSig.set(nextHeight);
+          if (nextHeight < prevHeight && wasPinned) {
+            this.scrollToBottom('instant');
+          } else {
+            requestAnimationFrame(() => this.updatePinFromScroll());
+          }
         });
         this.chatScrollResizeObserver.observe(elScroll);
       },

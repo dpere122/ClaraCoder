@@ -16,8 +16,11 @@ const venvDir = path.join(root, '.venv');
 const req = path.join(root, 'python', 'requirements.txt');
 const reqKokoroPypi = path.join(root, 'python', 'requirements-kokoro-pypi.txt');
 
-const MISAKI_GIT = 'git+https://github.com/hexgrad/misaki.git';
-const KOKORO_GIT = 'git+https://github.com/hexgrad/kokoro.git';
+// Pin to commit SHAs (no tags published) — never float on git+https HEAD.
+const MISAKI_GIT =
+  'git+https://github.com/hexgrad/misaki.git@fba1236595f2d2bf21d414ba6e57d25256afada3';
+const KOKORO_GIT =
+  'git+https://github.com/hexgrad/kokoro.git@dfb907a02bba8152ca444717ca5d78747ccb4bec';
 
 function venvPython() {
   const unix = path.join(venvDir, 'bin', 'python');
@@ -58,7 +61,13 @@ function envFlag(...names) {
 
 function findBasePython() {
   const fromEnv = process.env.PYTHON?.trim();
-  if (fromEnv && versionOk(fromEnv)) return fromEnv;
+  if (fromEnv) {
+    if (!existsSync(fromEnv)) {
+      console.error(`[setup:python] PYTHON path does not exist: ${fromEnv}`);
+    } else if (versionOk(fromEnv)) {
+      return fromEnv;
+    }
+  }
 
   const candidates = [
     'python3.13',

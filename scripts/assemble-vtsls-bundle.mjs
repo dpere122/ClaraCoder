@@ -15,7 +15,7 @@
  * Usage:
  *   node scripts/assemble-vtsls-bundle.mjs          # install / reuse cache (pinned default)
  *   node scripts/assemble-vtsls-bundle.mjs --force   # reinstall
- *   CLARA_VTSLS_VERSION=latest node scripts/assemble-vtsls-bundle.mjs   # track upstream
+ *   CLARA_VTSLS_VERSION=0.3.0 node scripts/assemble-vtsls-bundle.mjs
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -35,9 +35,15 @@ const entryPath = path.join(
 );
 const markerPath = path.join(bundleDir, '.clara-vtsls-version');
 // Pinned for reproducible distributable builds. Override with CLARA_VTSLS_VERSION
-// (e.g. `latest` to track upstream, or a specific tag like `0.3.0`).
+// (explicit semver/tag only — `latest` / floating ranges are rejected).
 const DEFAULT_VTSLS_VERSION = '0.3.0';
 const version = (process.env.CLARA_VTSLS_VERSION || '').trim() || DEFAULT_VTSLS_VERSION;
+if (version === 'latest' || version === '*' || version.startsWith('^') || version.startsWith('~')) {
+  console.error(
+    `[vtsls-bundle] CLARA_VTSLS_VERSION=${version} is not allowed; pin an explicit version (default ${DEFAULT_VTSLS_VERSION}).`,
+  );
+  process.exit(1);
+}
 const force = process.argv.includes('--force');
 
 function log(msg) {
@@ -66,7 +72,6 @@ log(`Installing ${spec} into ${bundleDir} …`);
 try {
   execFileSync(npm, ['install', '--prefix', bundleDir, spec], {
     stdio: 'inherit',
-    shell: process.platform === 'win32',
   });
 } catch (err) {
   console.error(`[vtsls-bundle] npm install failed: ${err}`);

@@ -54,10 +54,10 @@ function maybeRelaxNodePtySpectreMitigation() {
 }
 
 function rebuild(moduleName) {
-  const r = spawnSync('npx', ['electron-rebuild', '-f', '-o', moduleName], {
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const r = spawnSync(npx, ['electron-rebuild', '-f', '-o', moduleName], {
     cwd: root,
     stdio: 'inherit',
-    shell: true,
   });
   if (r.status !== 0) {
     console.warn(`[postinstall] electron-rebuild for ${moduleName} exited ${r.status} (continuing).`);

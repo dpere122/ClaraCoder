@@ -242,7 +242,15 @@
                   <button type='button' class='source-row' (click)='selectSource(provider.id)'>
                     <div class='source-row__body'>
                       <div class='source-row__top'>
-                        <strong>{{ provider.name }}</strong>
+                        <strong>{{ sourceDisplayName(provider) }}</strong>
+                        @if (isManagedLlamacppSource(provider) && modelManagerLocalLoading()) {
+                          <span
+                            class='source-label-spinner'
+                            role='status'
+                            aria-live='polite'
+                            aria-label='Loading source label'
+                          ><span></span><span></span><span></span></span>
+                        }
                       </div>
                       <span class='source-row__kind'>{{ providerKindLabel(provider.provider) }}</span>
                     </div>
@@ -274,7 +282,7 @@
               <div class='settings-editor__header'>
                 <div>
                   <p class='settings-eyebrow'>Source</p>
-                  <h4>{{ selectedProvider()?.name }}</h4>
+                  <h4>{{ selectedProvider() ? sourceDisplayName(selectedProvider()!) : '' }}</h4>
                   <p class='panel__copy'>Saved in <code>config.json</code> and synced to Python. Click a row to edit; use the radio on the left to choose which source chat uses.</p>
                 </div>
               </div>
@@ -538,7 +546,28 @@
 
                   <div class='form-grid'>
                     <label class='field field--full'>
-                      <span>Local model</span>
+                      <span class='local-model-label'>
+                        Local model
+                        <span
+                          class='cache-location-loading cache-location-loading--inline'
+                          [class.is-active]='modelManagerLocalLoading()'
+                          role='status'
+                          aria-live='polite'
+                          [attr.aria-hidden]='modelManagerLocalLoading() ? null : "true"'
+                          [attr.aria-label]='modelManagerLocalLoading() ? "Loading local models" : null'
+                        >
+                          <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                            <ngx-spinner
+                              [name]='localModelDropdownSpinnerName'
+                              [type]='cacheDetectSpinnerType'
+                              [fullScreen]='false'
+                              bdColor='rgba(0,0,0,0)'
+                              size='small'
+                              color='var(--t-primary)'
+                            ></ngx-spinner>
+                          </span>
+                        </span>
+                      </span>
                       <select
                         [ngModel]='managedPickerValue()'
                         (ngModelChange)='onManagedInventoryPick($event)'
@@ -699,14 +728,6 @@
 
                 @if (connection.provider === 'llamacpp' && !isUrlOnlyLlamacpp()) {
                   <div class='form-grid' style='margin-bottom: 1rem'>
-                    <label class='field field--full'>
-                      <span>Source name</span>
-                      <input
-                        type='text'
-                        [ngModel]='selectedProvider()!.name'
-                        (ngModelChange)='updateSelectedProvider({ name: $event })'
-                      />
-                    </label>
                     <label class='field field--full'>
                       <span>API key (optional)</span>
                       <input

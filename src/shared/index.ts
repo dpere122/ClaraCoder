@@ -34,6 +34,8 @@ export {
   inferOptimizationPresetFromModelHint,
   isQwenFamily,
   managedLlamaSourceHint,
+  managedLlamaSourceDisplayName,
+  managedPickerValueForCmd,
   optimizationPresetDefaultsPatch,
   parseManagedLlamaCheckpointSettings,
   parseManagedLlamaModelSelection,

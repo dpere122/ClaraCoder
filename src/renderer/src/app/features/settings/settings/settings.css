@@ -578,6 +578,50 @@
   line-height: 1.2;
 }
 
+/* Inline ball-pulse-sync-style spinner shown beside a llama.cpp source row
+   label while the model inventory (and thus the model-name label) loads. */
+.source-label-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.source-label-spinner span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--t-primary, #7aa2f7);
+  animation: source-label-pulse 0.75s ease-in-out infinite;
+}
+
+.source-label-spinner span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.source-label-spinner span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes source-label-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .source-label-spinner span {
+    animation: none;
+  }
+}
+
 .source-row__kind {
   display: block;
   margin-top: 1px;
@@ -1267,6 +1311,34 @@ button.linkish {
 .cache-location-loading__spinner-host .ngx-spinner-overlay {
   pointer-events: none;
   z-index: 1 !important;
+}
+
+/* Inline variant: a compact spinner that sits on the same row as a label
+   (e.g. the Local model dropdown) rather than filling its own row. */
+.cache-location-loading--inline {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  margin-left: 6px;
+}
+
+.cache-location-loading--inline.is-active {
+  display: inline-flex;
+}
+
+.cache-location-loading--inline .cache-location-loading__spinner-host {
+  width: 1.4rem;
+  height: 1rem;
+}
+
+.local-model-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .settings-pane--model-manager .pill {

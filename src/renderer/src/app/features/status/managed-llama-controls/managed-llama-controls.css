@@ -12,22 +12,85 @@
   margin-top: 0.35rem;
 }
 
+/* Dropdown + Start button stay on one line; the status indicator can wrap below. */
+.managed-llama-controls__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .managed-llama-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 28px;
   padding: 4px 14px;
   font-size: 12px;
   min-width: 6rem;
 }
 
-.managed-llama-controls__status {
+.managed-llama-controls__source-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  font: inherit;
   font-size: 12px;
-  white-space: nowrap;
+  color: inherit;
+  background: color-mix(in srgb, var(--t-bg, #1a1a1a) 70%, var(--t-bg-surface, #2a2a2a));
+  border: 1px solid color-mix(in srgb, var(--t-border, #444) 80%, transparent);
+  border-radius: 5px;
 }
 
-.managed-llama-controls__status--ok {
-  color: #7ff0aa;
+.managed-llama-controls__source-select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--t-primary, #7aa2f7) 75%, transparent);
 }
 
-.managed-llama-controls__status--err {
-  color: #ff8e8e;
+.managed-llama-controls__source-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Inline loading spinner lives inside the Start button; the text label hides
+   while the spinner is active so the button reads as "loading". */
+.managed-llama-controls__spinner-host {
+  position: relative;
+  width: 1.2rem;
+  height: 1rem;
+  flex-shrink: 0;
+  pointer-events: none;
+  display: none;
+}
+
+.managed-llama-controls__spinner-host.is-active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.managed-llama-controls__spinner-host ngx-spinner {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.managed-llama-controls__spinner-host ::ng-deep .ngx-spinner-overlay {
+  pointer-events: none;
+  z-index: 1 !important;
+}
+
+.managed-llama-controls__btn-label {
+  line-height: 1;
+}
+
+.managed-llama-controls__btn--loading .managed-llama-controls__btn-label {
+  display: none;
 }

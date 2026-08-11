@@ -1,41 +1,121 @@
-import { Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  Injector,
+  input,
+  OnDestroy,
+  signal,
+  untracked,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type {
   AppConfig,
   LlamaServerLifecycleEvent,
   LlamaServerProcessExitEvent,
   LlamaServerStatusResult,
+  LlmProviderConfig,
+  ModelManagerFileEntry,
 } from '@shared/index';
-import { findLlmModelLocation, isPinnedLlamaCppLocalProviderId } from '@shared/index';
+import {
+  findLlmModelLocation,
+  isPinnedLlamaCppLocalProviderId,
+  isPinnedLlamaServerUrlProviderId,
+  isPinnedLmStudioProviderId,
+  isPinnedLlmSourceId,
+  managedLlamaSourceDisplayName,
+} from '@shared/index';
 import { filter, merge } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
 import { LlamaStatusIndicator } from '../llama-status-indicator/llama-status-indicator';
 
 type ManagedLlamaPhase = 'idle' | 'starting' | 'downloading' | 'running';
 
+const INVENTORY_SPINNER_TYPE = 'ball-pulse-sync' as const;
+const INVENTORY_SPINNER = {
+  fullScreen: false as const,
+  bdColor: 'rgba(0,0,0,0)',
+  size: 'small' as const,
+  color: 'var(--t-primary)',
+  type: INVENTORY_SPINNER_TYPE,
+};
+
 /**
- * Start/Stop controls for the pinned managed ``llama-server`` on this machine.
- * Lives in the workspace panel below the system prompt area; shown only when
- * the active LLM provider is the managed local llama row. The model + embeddings
- * health dots ({@link LlamaStatusIndicator}) sit next to the Start/Stop button.
+ * LLM source picker + managed ``llama-server`` Start/Stop controls, shown in
+ * the workspace panel below the system prompt area. A dropdown lists every
+ * LLM source and switches the active one; the Start/Stop button is enabled
+ * only for a managed (non-URL-only) llamacpp source — i.e. the local llama
+ * server — and disabled for everything else. The model + embeddings health
+ * dots ({@link LlamaStatusIndicator}) sit beside the button. An inline
+ * loading spinner shows while the local model inventory (source labels) is
+ * being fetched.
  */
 @Component({
   selector: 'app-managed-llama-controls',
-  imports: [LlamaStatusIndicator],
+  imports: [FormsModule, LlamaStatusIndicator, NgxSpinnerComponent],
   templateUrl: './managed-llama-controls.html',
   styleUrl: './managed-llama-controls.css',
 })
-export class ManagedLlamaControlsComponent {
+export class ManagedLlamaControlsComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly inj = inject(Injector);
+  private readonly ngxSpinner = inject(NgxSpinnerService);
 
-  /** Live app config from the shell; drives the active model id and start/stop IPC calls. */
+  /** Live app config from the shell; drives the active source and start/stop IPC calls. */
   readonly appConfig = input<AppConfig | null>(null);
 
   protected readonly phase = signal<ManagedLlamaPhase>('idle');
-  protected readonly startError = signal<string | null>(null);
 
-  /** Active model location; null when not the managed local llama provider. */
+  /** Local model inventory (Model Manager custom dir listing), used to resolve source labels. */
+  protected readonly inventory = signal<ModelManagerFileEntry[]>([]);
+  /** True while the inventory fetch is in flight (drives the inline source-label spinner). */
+  protected readonly inventoryLoading = signal(false);
+  protected readonly inventorySpinnerName = `managed-llama-inventory-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly inventorySpinnerType = INVENTORY_SPINNER_TYPE;
+
+  /** Sources listed in the dropdown, pinned rows first (same order as Settings → Models). */
+  protected readonly sources = computed<LlmProviderConfig[]>(() => {
+    const cfg = this.appConfig();
+    if (!cfg) {
+      return [];
+    }
+    const list = cfg.llmProviders;
+    const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
+    const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
+    const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+    const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
+    const head: LlmProviderConfig[] = [];
+    if (pinLm) {
+      head.push(pinLm);
+    }
+    if (pinUrl) {
+      head.push(pinUrl);
+    }
+    if (pinLocal) {
+      head.push(pinLocal);
+    }
+    return [...head, ...rest];
+  });
+
+  protected readonly show = computed(() => this.sources().length > 0);
+
+  /** Id of the provider that owns the active model preset (dropdown selection). */
+  protected readonly activeProviderId = computed(() => {
+    const cfg = this.appConfig();
+    const mid = cfg?.activeLlmModelId?.trim();
+    if (!cfg || !mid) {
+      return '';
+    }
+    return findLlmModelLocation(cfg.llmProviders, mid)?.provider.id ?? '';
+  });
+
+  /** Active model location; null when the active source is not a managed local llama server. */
   private readonly activeLocation = computed(() => {
     const cfg = this.appConfig();
     if (!cfg) {
@@ -46,13 +126,17 @@ export class ManagedLlamaControlsComponent {
       return null;
     }
     const loc = findLlmModelLocation(cfg.llmProviders, mid);
-    if (!loc || loc.provider.provider !== 'llamacpp' || !isPinnedLlamaCppLocalProviderId(loc.provider.id)) {
+    // Any managed (non-URL-only) llamacpp provider gets Start/Stop: the pinned
+    // local default plus user-added custom llamacpp sources. The pinned URL-only
+    // remote row is excluded (it Connects to an already-running server).
+    if (!loc || loc.provider.provider !== 'llamacpp' || isPinnedLlamaServerUrlProviderId(loc.provider.id)) {
       return null;
     }
     return loc;
   });
 
-  protected readonly show = computed(() => this.activeLocation() !== null);
+  /** Whether the active source is a local llama server (Start/Stop eligible). */
+  protected readonly isLocalLlama = computed(() => this.activeLocation() !== null);
 
   protected readonly modelId = computed(() => this.activeLocation()?.model.id ?? '');
 
@@ -75,24 +159,6 @@ export class ManagedLlamaControlsComponent {
     return 'Start';
   });
 
-  protected readonly statusLabel = computed(() => {
-    const err = this.startError();
-    if (err) {
-      return err;
-    }
-    const p = this.phase();
-    if (p === 'running') {
-      return 'Healthy';
-    }
-    if (p === 'downloading') {
-      return 'Downloading…';
-    }
-    if (p === 'starting') {
-      return 'Starting…';
-    }
-    return 'Not running';
-  });
-
   constructor() {
     merge(this.electron.llamaServerLifecycle$, this.electron.llamaServerProcessExit$)
       .pipe(
@@ -111,7 +177,6 @@ export class ManagedLlamaControlsComponent {
             this.phase.set('downloading');
           } else if (ev.phase === 'running') {
             this.phase.set('running');
-            this.startError.set(null);
           } else if (ev.phase === 'stopped') {
             this.phase.set('idle');
           }
@@ -123,18 +188,81 @@ export class ManagedLlamaControlsComponent {
         }
       });
 
-    effect((onCleanup) => {
+    effect(() => {
       const cfg = this.appConfig();
-      if (!cfg || !this.show()) {
+      const loc = this.activeLocation();
+      if (!cfg || !loc) {
+        // Not a local llama server: keep the button idle/disabled.
         this.phase.set('idle');
-        this.startError.set(null);
         return;
       }
       void this.probeStatus(cfg);
-      onCleanup(() => {
-        /* nothing to tear down between probes; lifecycle stream is owned by the constructor subscription */
-      });
     });
+
+    // Keep the local model inventory in sync with the configured custom models dir
+    // so source labels resolve the same file names as the Settings sources list.
+    effect(() => {
+      const cfg = this.appConfig();
+      const dir = cfg?.modelManager.customModelsDir?.trim();
+      if (!cfg || !dir) {
+        this.inventory.set([]);
+        return;
+      }
+      void this.refreshInventory(dir);
+    });
+
+    // Show/hide the inline inventory spinner alongside the loading signal.
+    effect(() => {
+      const loading = this.inventoryLoading();
+      untracked(() => this.scheduleSpinnerSync(loading));
+    });
+  }
+
+  ngOnDestroy(): void {
+    void this.ngxSpinner.hide(this.inventorySpinnerName);
+  }
+
+  private scheduleSpinnerSync(show: boolean): void {
+    afterNextRender(
+      () => {
+        if (show) {
+          void this.ngxSpinner.show(this.inventorySpinnerName, INVENTORY_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(this.inventorySpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
+  }
+
+  /** Display name for a source option in the dropdown (model name for llama sources, else stored name). */
+  protected sourceLabel(provider: LlmProviderConfig): string {
+    return managedLlamaSourceDisplayName(provider, this.inventory());
+  }
+
+  private async refreshInventory(customDir: string): Promise<void> {
+    this.inventoryLoading.set(true);
+    try {
+      const res = await this.electron.modelManagerListCustomModels({ customDir });
+      if (res.ok) {
+        this.inventory.set(res.models);
+      } else {
+        this.inventory.set([]);
+      }
+    } finally {
+      this.inventoryLoading.set(false);
+    }
+  }
+
+  /** Switch the active LLM source to the chosen provider (its first model preset). */
+  protected async onSourceChange(providerId: string): Promise<void> {
+    const cfg = this.appConfig();
+    const provider = cfg?.llmProviders.find((p) => p.id === providerId);
+    const mid = provider?.models[0]?.id;
+    if (!mid) {
+      return;
+    }
+    await this.electron.setActiveLlmModel(mid);
   }
 
   protected async toggle(): Promise<void> {
@@ -152,17 +280,14 @@ export class ManagedLlamaControlsComponent {
       return;
     }
     this.phase.set('starting');
-    this.startError.set(null);
     try {
       const res = await this.electron.llamaServerStart({ modelId: mid, config: cfg });
       if (!res.ok) {
         this.phase.set('idle');
-        this.startError.set(res.error);
       }
       // success path is driven by the 'running' lifecycle event
-    } catch (e) {
+    } catch {
       this.phase.set('idle');
-      this.startError.set(e instanceof Error ? e.message : String(e));
     }
   }
 

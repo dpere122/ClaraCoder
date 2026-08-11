@@ -1,21 +1,47 @@
 @if (show()) {
-  <div class="managed-llama-controls" role="group" aria-label="Managed llama-server controls">
-    <button
-      type="button"
-      class="action-button action-button--primary managed-llama-controls__btn"
-      [class.action-button--danger]="running()"
-      [disabled]="busy() || !chatRunCommand().trim()"
-      (click)="toggle()"
-    >
-      {{ actionLabel() }}
-    </button>
+  <div class="managed-llama-controls" role="group" aria-label="LLM source and managed llama-server controls">
+    <div class="managed-llama-controls__row">
+      <select
+        class="managed-llama-controls__source-select"
+        [ngModel]="activeProviderId()"
+        (ngModelChange)="onSourceChange($event)"
+        [disabled]="running()"
+        [attr.aria-busy]="inventoryLoading() ? 'true' : null"
+        aria-label="Active LLM source"
+      >
+        @for (provider of sources(); track provider.id) {
+          <option [value]="provider.id">{{ sourceLabel(provider) }}</option>
+        }
+      </select>
+      <button
+        type="button"
+        class="action-button action-button--primary managed-llama-controls__btn"
+        [class.action-button--danger]="running()"
+        [class.managed-llama-controls__btn--loading]="inventoryLoading()"
+        [disabled]="busy() || !isLocalLlama() || !chatRunCommand().trim()"
+        [attr.aria-busy]="inventoryLoading() ? 'true' : null"
+        (click)="toggle()"
+      >
+        <span
+          class="managed-llama-controls__spinner-host"
+          [class.is-active]="inventoryLoading()"
+          role="status"
+          aria-live="polite"
+          [attr.aria-hidden]="inventoryLoading() ? null : 'true'"
+          [attr.aria-label]="inventoryLoading() ? 'Loading source labels' : null"
+        >
+          <ngx-spinner
+            [name]="inventorySpinnerName"
+            [type]="inventorySpinnerType"
+            [fullScreen]="false"
+            bdColor="rgba(0,0,0,0)"
+            size="small"
+            color="var(--t-primary)"
+          ></ngx-spinner>
+        </span>
+        <span class="managed-llama-controls__btn-label">{{ actionLabel() }}</span>
+      </button>
+    </div>
     <app-llama-status-indicator [appConfig]="appConfig()" />
-    <span
-      class="managed-llama-controls__status"
-      [class.managed-llama-controls__status--ok]="running()"
-      [class.managed-llama-controls__status--err]="!!startError()"
-    >
-      {{ statusLabel() }}
-    </span>
   </div>
 }

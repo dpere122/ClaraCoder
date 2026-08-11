@@ -72,7 +72,9 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
+  managedPickerValueForCmd,
   mergeLlmProviderModel,
   normalizeChatContainerSize,
   normalizeMonacoWorkspaceEditorSettings,
@@ -186,6 +188,7 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly settingsSaveSpinnerName = `settings-save-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly planProgressSpinnerType = PLAN_PROGRESS_SPINNER_TYPE;
   protected readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
+  protected readonly localModelDropdownSpinnerName = `settings-local-model-dropdown-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly hfSearchSpinnerName = `settings-hf-search-${Math.random().toString(36).slice(2, 10)}`;
   protected readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
   protected readonly modelManagerLocalLoading = signal(false);
@@ -559,25 +562,10 @@ export class Settings implements OnInit, OnDestroy {
   protected readonly managedHfIdDraft = signal('');
   protected readonly managedInventoryModels = computed(() => this.modelManagerCustomModels());
   /** Select value for the managed model picker (`gguf:…` / `hub:…` / `hf:…` / empty). */
-  protected readonly managedPickerValue = computed(() => {
-    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
-    if (!sel) {
-      return '';
-    }
-    if (sel.kind === 'gguf') {
-      return `gguf:${sel.absolutePath}`;
-    }
-    const hfBase = sel.hfId.split(':')[0] ?? sel.hfId;
-    for (const m of this.modelManagerCustomModels()) {
-      if (m.entryKind === 'hubRepo') {
-        const id = hubCacheFolderToHfId(m.fileName) || hubCacheFolderToHfId(m.absolutePath);
-        if (id && (id === sel.hfId || id === hfBase)) {
-          return `hub:${m.absolutePath}`;
-        }
-      }
-    }
-    return `hf:${sel.hfId}`;
-  });
+  protected readonly managedPickerValue = computed(() =>
+    managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
+  );
+
   protected readonly managedSelectedFamilyLabel = computed(() => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
     const hint =
@@ -642,6 +630,7 @@ export class Settings implements OnInit, OnDestroy {
     effect(() => {
       const loading = this.modelManagerLocalLoading();
       untracked(() => this.scheduleNamedSpinnerSync(this.localModelsSpinnerName, loading));
+      untracked(() => this.scheduleNamedSpinnerSync(this.localModelDropdownSpinnerName, loading));
     });
     effect(() => {
       const loading = this.modelManagerHfBusy();
@@ -697,6 +686,7 @@ export class Settings implements OnInit, OnDestroy {
     this.destroyed = true;
     void this.ngxSpinner.hide(this.settingsSaveSpinnerName);
     void this.ngxSpinner.hide(this.localModelsSpinnerName);
+    void this.ngxSpinner.hide(this.localModelDropdownSpinnerName);
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
     this.subscription?.unsubscribe();
     this.hfDownloadSubscription?.unsubscribe();
@@ -1262,6 +1252,28 @@ export class Settings implements OnInit, OnDestroy {
       return 'llama.cpp';
     }
     return 'OpenAI';
+  }
+
+  /**
+   * Whether a source row is a managed (non-URL-only) llamacpp provider — i.e. one
+   * whose label mirrors the selected model and therefore participates in inventory
+   * loading. Used to gate the inline source-label spinner in the sources list.
+   */
+  protected isManagedLlamacppSource(provider: LlmProviderConfig): boolean {
+    return provider.provider === 'llamacpp' && !isPinnedLlamaServerUrlProviderId(provider.id);
+  }
+
+  /**
+   * Display name for a source row in the Models sources list. Any managed
+   * (non-URL-only) llamacpp source mirrors the model picked in its Local model
+   * dropdown — the inventory file name for a GGUF/hub pick, or the HF id for an
+   * HF pick — so the sidebar reflects the same label the dropdown shows. The
+   * name is not user-editable for these sources; it falls back to the stored
+   * provider name (a fixed default) when no model is selected. Other providers
+   * show their stored name.
+   */
+  protected sourceDisplayName(provider: LlmProviderConfig): string {
+    return managedLlamaSourceDisplayName(provider, this.modelManagerCustomModels());
   }
 
   protected presetDescription(connection: LlmConnectionConfig): string {

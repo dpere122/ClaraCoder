@@ -18,10 +18,24 @@ import { emitWorkspaceFilesChanged } from '../../workspace/emit-files-changed';
 const MAX_READ_BYTES = 5 * 1024 * 1024;
 
 /** Absolute paths outside workspaces explicitly allowed (e.g. Save As outside root). */
-const allowlistedAbsolutePaths = new Set<string>();
+const ALLOWLIST_TTL_MS = 60 * 60 * 1000;
+const allowlistedAbsolutePaths = new Map<string, number>();
 
 function allowlistAbsolutePath(absolutePath: string): void {
-  allowlistedAbsolutePaths.add(path.resolve(absolutePath));
+  allowlistedAbsolutePaths.set(path.resolve(absolutePath), Date.now());
+}
+
+function isAllowlistedAbsolutePath(absolutePath: string): boolean {
+  const abs = path.resolve(absolutePath);
+  const addedAt = allowlistedAbsolutePaths.get(abs);
+  if (addedAt == null) {
+    return false;
+  }
+  if (Date.now() - addedAt > ALLOWLIST_TTL_MS) {
+    allowlistedAbsolutePaths.delete(abs);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -34,7 +48,7 @@ async function resolveContainedAbsoluteFilePath(absolutePath: string): Promise<s
   if (isAbsolutePathWithinWorkspaceRoot(snapDir, abs)) {
     return abs;
   }
-  if (allowlistedAbsolutePaths.has(abs)) {
+  if (isAllowlistedAbsolutePath(abs)) {
     return abs;
   }
   const config = await loadConfig();

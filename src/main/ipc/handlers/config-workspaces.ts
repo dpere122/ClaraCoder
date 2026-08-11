@@ -102,16 +102,28 @@ export function registerConfigWorkspacesIpc(): void {
       : [];
   });
 
-  ipcMain.handle('get-workspace-monaco-unsaved-paths', () => [...(mainState.monacoWorkspaceUnsavedPaths ?? [])]);
+  ipcMain.handle('get-workspace-monaco-unsaved-paths', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return [];
+    }
+    return [...(mainState.monacoWorkspaceUnsavedPaths ?? [])];
+  });
 
   ipcMain.handle(
     'patch-workspace-monaco-scroll',
     async (
-      _event,
+      event,
       workspaceId: string,
       relativePath: string,
       scroll: WorkspaceMonacoEditorScrollState | null,
     ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return;
+      }
       const wsId = typeof workspaceId === 'string' ? workspaceId.trim() : '';
       const rel = typeof relativePath === 'string' ? relativePath.replace(/\\/g, '/').trim() : '';
       if (!wsId || !rel) {
@@ -145,26 +157,58 @@ export function registerConfigWorkspacesIpc(): void {
     },
   );
 
-  ipcMain.handle('get-recent-conversations', (_event, limit: number) => getRecentConversations(limit));
+  ipcMain.handle('get-recent-conversations', (event, limit: number) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return [];
+    }
+    return getRecentConversations(limit);
+  });
 
-  ipcMain.handle('refresh-menu', () => {
+  ipcMain.handle('refresh-menu', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
     buildMenu();
   });
 
   ipcMain.handle(
     'set-workspace-context',
     async (
-      _event,
+      event,
       sessionId: string,
       workspacePath: string,
       workspaceContext: string,
       extras?: WorkspaceContextSyncExtras,
     ) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return;
+      }
       await syncWorkspaceContextToPython(sessionId, workspacePath, workspaceContext, extras);
     },
   );
 
-  ipcMain.handle('list-python-interpreters', async (_event, sessionId: string) => {
+  ipcMain.handle('list-python-interpreters', async (event, sessionId: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return {
+        ok: false as const,
+        error: 'Untrusted IPC sender',
+        interpreters: [] as Array<{
+          id: string;
+          label: string;
+          pythonExecutable: string;
+          venvPath: string;
+        }>,
+        activeInterpreterId: null as string | null,
+      };
+    }
     try {
       const data = await fetchPythonInterpretersFromPython(sessionId);
       return { ok: true as const, ...data };
@@ -187,9 +231,14 @@ export function registerConfigWorkspacesIpc(): void {
   ipcMain.handle(
     'apply-workspace-python-interpreter',
     async (
-      _event,
+      event,
       payload: { workspaceId: string; sessionId: string; interpreterId: string },
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
       try {
         await postPythonInterpreterSelection(payload.sessionId, payload.interpreterId);
         const config = await updateConfig((cfg) => {
@@ -211,7 +260,12 @@ export function registerConfigWorkspacesIpc(): void {
 
   ipcMain.handle(
     'get-workspace-system-prompt-status',
-    async (_event, workspaceId: string): Promise<WorkspaceSystemPromptStatus> => {
+    async (event, workspaceId: string): Promise<WorkspaceSystemPromptStatus> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { hasFile: false, sourceName: '' };
+      }
       const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
       if (!wid) {
         return { hasFile: false, sourceName: '' };

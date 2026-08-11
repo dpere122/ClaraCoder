@@ -35,12 +35,13 @@ const entryPath = path.join(
 );
 const markerPath = path.join(bundleDir, '.clara-vtsls-version');
 // Pinned for reproducible distributable builds. Override with CLARA_VTSLS_VERSION
-// (explicit semver/tag only — `latest` / floating ranges are rejected).
+// (exact semver only — dist-tags and ranges are rejected).
 const DEFAULT_VTSLS_VERSION = '0.3.0';
+const EXACT_SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 const version = (process.env.CLARA_VTSLS_VERSION || '').trim() || DEFAULT_VTSLS_VERSION;
-if (version === 'latest' || version === '*' || version.startsWith('^') || version.startsWith('~')) {
+if (!EXACT_SEMVER.test(version)) {
   console.error(
-    `[vtsls-bundle] CLARA_VTSLS_VERSION=${version} is not allowed; pin an explicit version (default ${DEFAULT_VTSLS_VERSION}).`,
+    `[vtsls-bundle] CLARA_VTSLS_VERSION=${version} is not allowed; pin an exact semver (e.g. ${DEFAULT_VTSLS_VERSION}), not a dist-tag or range.`,
   );
   process.exit(1);
 }

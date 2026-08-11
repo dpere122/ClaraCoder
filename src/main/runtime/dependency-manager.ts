@@ -25,8 +25,25 @@ import {
   getRuntimePythonDir,
 } from '../paths';
 import { mainState } from '../state';
+import { envForChildProcess } from '../utils/filter-sensitive-env';
 
 const DEPS_LOGGER = 'clara.electron.deps';
+
+/** Exact env keys kept for the deps CLI child (plus CLARA_ and NEMO_ prefixes). */
+const RUNTIME_ENV_PASSTHROUGH = new Set([
+  'PATH',
+  'PYTHONHOME',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+]);
+
+export function isRuntimeEnvPassthrough(key: string): boolean {
+  const upper = key.toUpperCase();
+  if (upper.startsWith('CLARA_') || upper.startsWith('NEMO_')) return true;
+  return RUNTIME_ENV_PASSTHROUGH.has(upper);
+}
 
 function pythonPackageRoot(): string {
   return path.dirname(getPythonServerScriptPath());
@@ -39,8 +56,15 @@ function ensureRuntimeDirs(): void {
 }
 
 function runtimeEnv(): NodeJS.ProcessEnv {
+  const scrubbed = envForChildProcess();
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(scrubbed)) {
+    if (value !== undefined && isRuntimeEnvPassthrough(key)) {
+      env[key] = value;
+    }
+  }
   return {
-    ...process.env,
+    ...env,
     PYTHONUNBUFFERED: '1',
     CLARA_RUNTIME_DIR: getRuntimeDir(),
     CLARA_RUNTIME_PYTHON_DIR: getRuntimePythonDir(),
@@ -108,8 +132,19 @@ async function runDepsCli(
   ensureRuntimeDirs();
   const py = bootstrapPythonCmd();
   const args = ['-m', 'clara_coder_backend.runtime.deps', action];
-  if (depId) args.push(depId);
-  if (variant && action !== 'list' && action !== 'status') args.push('--variant', variant);
+  if (depId) {
+    if (!isKnownDependencyId(depId)) {
+      return { ok: false, error: `Unknown dependency: ${depId}` };
+    }
+    args.push(depId);
+  }
+  if (variant && action !== 'list' && action !== 'status') {
+    // Defense-in-depth: only pass --variant for allowlisted dependency ids.
+    if (!depId || !isKnownDependencyId(depId)) {
+      return { ok: false, error: `Unknown dependency for variant: ${depId ?? '(none)'}` };
+    }
+    args.push('--variant', variant);
+  }
   const cwd = pythonPackageRoot();
   logDeps('INFO', `CLI ${action}${depId ? ` ${depId}` : ''}${variant ? ` variant=${variant}` : ''} via ${py} (cwd=${cwd})`);
 
@@ -152,7 +187,27 @@ async function runDepsCli(
         return;
       }
       try {
-        resolve(JSON.parse(last));
+        const parsed: unknown = JSON.parse(last);
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          !('ok' in parsed) ||
+          typeof (parsed as { ok: unknown }).ok !== 'boolean'
+        ) {
+          resolve({
+            ok: false,
+            error: stderr.trim() || `Invalid CLI JSON shape: ${last.slice(0, 200)}`,
+          });
+          return;
+        }
+        resolve(
+          parsed as {
+            ok: boolean;
+            dependencies?: DependencyInfo[];
+            dependency?: DependencyInfo;
+            error?: string;
+          },
+        );
       } catch {
         resolve({ ok: false, error: stderr.trim() || `Invalid CLI JSON: ${last.slice(0, 200)}` });
       }
@@ -313,6 +368,9 @@ export async function installDependency(
   depId: DependencyId,
   variant?: string | null,
 ): Promise<DependencyActionResult> {
+  if (!isKnownDependencyId(depId)) {
+    return { ok: false, error: `Unknown dependency: ${depId}` };
+  }
   return runInstallOrReinstall('install', depId, variant);
 }
 
@@ -320,10 +378,16 @@ export async function reinstallDependency(
   depId: DependencyId,
   variant?: string | null,
 ): Promise<DependencyActionResult> {
+  if (!isKnownDependencyId(depId)) {
+    return { ok: false, error: `Unknown dependency: ${depId}` };
+  }
   return runInstallOrReinstall('reinstall', depId, variant);
 }
 
 export async function deleteDependency(depId: DependencyId): Promise<DependencyActionResult> {
+  if (!isKnownDependencyId(depId)) {
+    return { ok: false, error: `Unknown dependency: ${depId}` };
+  }
   ensureRuntimeDirs();
   logDeps('INFO', `delete ${depId} starting`);
   const http = await viaHttp<DependencyActionResult>('/runtime/deps/delete', {

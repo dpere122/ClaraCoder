@@ -737,44 +737,6 @@
                       />
                     </label>
                     <label class='field field--full'>
-                      <span>Context checkpoints</span>
-                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        llama.cpp can snapshot KV context (<code>--ctx-checkpoints</code> /
-                        <code>--checkpoint-every-n-tokens</code>). Disabling avoids large checkpoint artifacts on long prompts.
-                        Changes update the chat command below.
-                      </p>
-                      <select
-                        [ngModel]='managedCheckpointSettings().mode'
-                        (ngModelChange)='onManagedCheckpointModeChange($event)'
-                        [disabled]='!selectedLlamaCppManaged().chatRunCommand.trim()'
-                      >
-                        <option value='disabled'>Disabled (recommended)</option>
-                        <option value='server-default'>Server default (omit flags)</option>
-                        <option value='custom'>Custom</option>
-                      </select>
-                    </label>
-                    @if (managedCheckpointSettings().mode === 'custom') {
-                      <label class='field'>
-                        <span>--ctx-checkpoints</span>
-                        <input
-                          type='number'
-                          min='0'
-                          step='1'
-                          [ngModel]='managedCheckpointSettings().ctxCheckpoints'
-                          (ngModelChange)='onManagedCtxCheckpointsChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>--checkpoint-every-n-tokens</span>
-                        <input
-                          type='number'
-                          step='1'
-                          [ngModel]='managedCheckpointSettings().checkpointEveryNTokens'
-                          (ngModelChange)='onManagedCheckpointEveryNTokensChange($event)'
-                        />
-                      </label>
-                    }
-                    <label class='field field--full'>
                       <span>Chat llama-server command</span>
                       <p class='settings-copy' style='margin: 0 0 0.35rem'>
                         Must include exactly one <code>{{ managedLlamaPortToken }}</code>. Generated when you pick a model; edit freely.
@@ -783,7 +745,7 @@
                         rows='4'
                         [ngModel]='selectedLlamaCppManaged().chatRunCommand'
                         (ngModelChange)='patchLlamaCppManaged({ chatRunCommand: $event })'
-                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0 --ctx-checkpoints 0 --checkpoint-every-n-tokens -1'"
+                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + managedLlamaPortToken + ' -hf org/model:Q4_0'"
                       ></textarea>
                     </label>
                     <label class='field field--full'>
@@ -809,31 +771,6 @@
                 }
 
                 <div class='form-grid'>
-                  @if (connection.optimizationPreset === 'gemma') {
-                    <label class='field'>
-                      <span>Architecture hint (Gemma 4)</span>
-                      <select
-                        [ngModel]='connection.architectureHint'
-                        (ngModelChange)='updateSelectedModel({ architectureHint: $event })'
-                      >
-                        <option value='auto'>Auto</option>
-                        <option value='dense'>Dense</option>
-                      </select>
-                    </label>
-
-                    <label class='field field--full'>
-                      <span>Gemma sampling preset</span>
-                      <select
-                        [ngModel]='connection.samplingPreset'
-                        (ngModelChange)='updateSelectedModel({ samplingPreset: $event })'
-                      >
-                        <option value='provider-default'>Provider default (omit top_p / top_k)</option>
-                        <option value='gemma-recommended'>Gemma recommended (top_p / top_k)</option>
-                        <option value='custom'>Custom top_p / top_k</option>
-                      </select>
-                    </label>
-                  }
-
                   <label class='field'>
                     <span>Max output tokens</span>
                     <p class='settings-copy' style='margin: 0 0 0.35rem'>

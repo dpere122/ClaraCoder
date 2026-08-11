@@ -3,10 +3,9 @@ import {
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   inferOptimizationPresetFromModelHint,
-  parseManagedLlamaCheckpointSettings,
+  optimizationPresetDefaultsPatch,
   parseManagedLlamaModelSelection,
   suggestContextWindowTokens,
-  syncCheckpointFlagsInManagedChatCommand,
   syncContextFlagInManagedChatCommand,
 } from '@shared/index';
 
@@ -42,7 +41,8 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('{{PORT}}');
     expect(cmd).toContain('-m /models/a.gguf');
     expect(cmd).toContain('-c 32768');
-    expect(cmd).toContain('--ctx-checkpoints 0');
+    expect(cmd).not.toContain('--ctx-checkpoints');
+    expect(cmd).not.toContain('--checkpoint-every-n-tokens');
   });
 
   it('builds an -hf command from hub repo folder', () => {
@@ -97,59 +97,60 @@ describe('suggestContextWindowTokens', () => {
   });
 });
 
-describe('syncCheckpointFlagsInManagedChatCommand', () => {
-  it('disables checkpoints with recommended flags', () => {
-    const cmd = syncCheckpointFlagsInManagedChatCommand(
-      'llama-server --port {{PORT}} -m /x.gguf -c 8192',
-      { mode: 'disabled', ctxCheckpoints: 0, checkpointEveryNTokens: -1 },
-      'posix',
-    );
-    expect(cmd).toContain('--ctx-checkpoints 0');
-    expect(cmd).toContain('--checkpoint-every-n-tokens -1');
-  });
-
-  it('removes flags for server-default', () => {
-    const cmd = syncCheckpointFlagsInManagedChatCommand(
-      'llama-server --port {{PORT}} --ctx-checkpoints 0 --checkpoint-every-n-tokens -1',
-      { mode: 'server-default', ctxCheckpoints: 0, checkpointEveryNTokens: -1 },
-      'posix',
-    );
-    expect(cmd).not.toContain('--ctx-checkpoints');
-    expect(cmd).not.toContain('--checkpoint-every-n-tokens');
-  });
-
-  it('writes custom values', () => {
-    const cmd = syncCheckpointFlagsInManagedChatCommand(
-      'llama-server --port {{PORT}}',
-      { mode: 'custom', ctxCheckpoints: 2, checkpointEveryNTokens: 4096 },
-      'posix',
-    );
-    expect(cmd).toContain('--ctx-checkpoints 2');
-    expect(cmd).toContain('--checkpoint-every-n-tokens 4096');
-  });
-});
-
-describe('parseManagedLlamaCheckpointSettings', () => {
-  it('detects disabled, custom, and server-default', () => {
-    expect(
-      parseManagedLlamaCheckpointSettings(
-        'llama-server --ctx-checkpoints 0 --checkpoint-every-n-tokens -1',
-      ).mode,
-    ).toBe('disabled');
-    expect(
-      parseManagedLlamaCheckpointSettings(
-        'llama-server --ctx-checkpoints 3 --checkpoint-every-n-tokens 1024',
-      ),
-    ).toEqual({ mode: 'custom', ctxCheckpoints: 3, checkpointEveryNTokens: 1024 });
-    expect(parseManagedLlamaCheckpointSettings('llama-server --port {{PORT}}').mode).toBe(
-      'server-default',
-    );
-  });
-});
-
 describe('formatReadyDefaultsSummary', () => {
   it('formats qwen summary', () => {
     expect(formatReadyDefaultsSummary({ preset: 'qwen', contextWindowTokens: 32_768 })).toContain('Qwen');
     expect(formatReadyDefaultsSummary({ preset: 'qwen', contextWindowTokens: 32_768 })).toContain('32k');
+    expect(formatReadyDefaultsSummary({ preset: 'qwen', contextWindowTokens: 32_768 })).toContain('temp 0.65');
+  });
+
+  it('formats gemma summary with recommended sampling', () => {
+    const s = formatReadyDefaultsSummary({ preset: 'gemma', contextWindowTokens: 16_384 });
+    expect(s).toContain('Gemma');
+    expect(s).toContain('temp 1');
+    expect(s).toContain('top_p 0.95');
+    expect(s).toContain('top_k 64');
+  });
+});
+
+describe('optimizationPresetDefaultsPatch', () => {
+  it('applies qwen defaults and clears gemma sampling leftovers', () => {
+    expect(optimizationPresetDefaultsPatch('qwen')).toEqual({
+      optimizationPreset: 'qwen',
+      parallelToolCalls: false,
+      maxOutputTokens: 0,
+      temperature: 0.65,
+      samplingPreset: 'provider-default',
+      thinkingMode: 'default',
+      topP: 0.95,
+      topK: 20,
+      repeatPenalty: 1,
+    });
+  });
+
+  it('applies gemma recommended sampling onto the connection', () => {
+    expect(optimizationPresetDefaultsPatch('gemma')).toEqual({
+      optimizationPreset: 'gemma',
+      parallelToolCalls: false,
+      maxOutputTokens: 0,
+      temperature: 1,
+      samplingPreset: 'provider-default',
+      thinkingMode: 'on',
+      architectureHint: 'auto',
+      topP: 0.95,
+      topK: 64,
+      repeatPenalty: undefined,
+    });
+  });
+
+  it('clears sampling when returning to generic', () => {
+    expect(optimizationPresetDefaultsPatch('generic')).toEqual({
+      optimizationPreset: 'generic',
+      samplingPreset: 'provider-default',
+      thinkingMode: 'default',
+      topP: undefined,
+      topK: undefined,
+      repeatPenalty: undefined,
+    });
   });
 });

@@ -60,7 +60,7 @@
   min-width: 0;
   overflow: hidden;
   background-color: var(--t-bg-deep);
-  padding: 0.35rem 0;
+  padding: 0.35rem 0.5rem;
 }
 
 .chat-hub__uncollapse {

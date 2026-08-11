@@ -7,8 +7,8 @@ which profile is active. Model ids alone do **not** enable Qwen or Gemma profile
 The **capable** preset turns on parallel tool calls by default (UI) and appends batching hints in the system prompt.
 
 **Gemma** (LM Studio / OpenAI-compatible): use the **gemma** template. Thinking is boolean (``thinking_mode``),
-not OpenAI ``reasoning_effort`` tiers. Sampling can follow Google's recommended ``temperature`` /
-``top_p`` / ``top_k`` via ``sampling_preset``.
+not OpenAI ``reasoning_effort`` tiers. Recommended ``temperature`` / ``top_p`` / ``top_k`` are written onto
+the connection when the template is selected; inference uses those connection fields directly.
 
 ``max_output_tokens`` on the connection sets API ``max_tokens`` when positive; otherwise preset/env
 defaults apply. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models.
@@ -88,32 +88,22 @@ def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
     return bool(connection.parallel_tool_calls)
 
 
-GEMMA_RECOMMENDED_TOP_P = 0.95
-GEMMA_RECOMMENDED_TOP_K = 64
-
-
 def connection_user_sampling_kwargs_for_llm(connection: RuntimeConnection) -> dict[str, Any]:
     """Map explicit Settings sampling fields to ``ChatOpenAI`` kwargs / ``extra_body``.
 
-    ``top_p`` / ``top_k`` from the connection are skipped when the Gemma template already
-    derives them from :func:`gemma_sampling_kwargs_for_llm` (recommended or custom preset).
-    ``min_p`` and ``repeat_penalty`` are sent in ``extra_body`` for OpenAI-compatible locals
-    (e.g. llama.cpp ``llama-server``); ``presence_penalty`` uses the standard Chat Completions field.
+    ``top_p`` uses the standard Chat Completions field. ``top_k``, ``min_p``, and
+    ``repeat_penalty`` are sent in ``extra_body`` for OpenAI-compatible locals
+    (e.g. llama.cpp ``llama-server``); ``presence_penalty`` uses the standard field.
     """
     out: dict[str, Any] = {}
     extra: dict[str, Any] = {}
 
-    opt = optimization_preset(connection)
-    sp = (getattr(connection, 'sampling_preset', None) or 'provider-default').strip().lower()
-    gemma_owns_top = opt == 'gemma' and sp in ('gemma-recommended', 'custom')
-
-    if not gemma_owns_top:
-        tp = getattr(connection, 'top_p', None)
-        tk = getattr(connection, 'top_k', None)
-        if tp is not None:
-            out['top_p'] = float(tp)
-        if tk is not None:
-            extra['top_k'] = int(tk)
+    tp = getattr(connection, 'top_p', None)
+    tk = getattr(connection, 'top_k', None)
+    if tp is not None:
+        out['top_p'] = float(tp)
+    if tk is not None:
+        extra['top_k'] = int(tk)
 
     mnp = getattr(connection, 'min_p', None)
     if mnp is not None:
@@ -133,31 +123,13 @@ def connection_user_sampling_kwargs_for_llm(connection: RuntimeConnection) -> di
 
 
 def gemma_sampling_kwargs_for_llm(connection: RuntimeConnection) -> dict[str, Any]:
-    """Extra ``ChatOpenAI`` kwargs for Gemma sampling.
+    """Deprecated no-op: Gemma sampling is applied via connection ``top_p`` / ``top_k``.
 
-    ``top_p`` is a standard Chat Completions field. ``top_k`` is not accepted by the
-    OpenAI Python client's ``create()`` signature when merged from ``model_kwargs``;
-    LM Studio and other OpenAI-compatible stacks expect it under ``extra_body`` instead
-    (see LangChain ``ChatOpenAI`` docs: model_kwargs vs extra_body).
+    Kept for call-site compatibility; Settings writes recommended values onto the
+    connection when the Gemma template is selected.
     """
-    if optimization_preset(connection) != 'gemma':
-        return {}
-    preset = (getattr(connection, 'sampling_preset', None) or 'provider-default').strip().lower()
-    out: dict[str, Any] = {}
-    extra: dict[str, Any] = {}
-    if preset == 'gemma-recommended':
-        out['top_p'] = GEMMA_RECOMMENDED_TOP_P
-        extra['top_k'] = GEMMA_RECOMMENDED_TOP_K
-    elif preset == 'custom':
-        tp = getattr(connection, 'top_p', None)
-        tk = getattr(connection, 'top_k', None)
-        if tp is not None:
-            out['top_p'] = float(tp)
-        if tk is not None:
-            extra['top_k'] = int(tk)
-    if extra:
-        out['extra_body'] = extra
-    return out
+    _ = connection
+    return {}
 
 
 def llm_optional_kwargs(connection: RuntimeConnection) -> dict[str, Any]:

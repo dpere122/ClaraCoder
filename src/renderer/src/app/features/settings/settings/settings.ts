@@ -39,7 +39,6 @@ import type {
   TtsProvider,
 } from '@shared/index';
 import {
-  CAPABLE_PRESET_DEFAULTS,
   CHAT_CONTAINER_SIZE_OPTIONS,
   CODE_FONT_FAMILY_OPTIONS,
   CONTEXT_FIT_PRESET_LIST,
@@ -65,7 +64,6 @@ import {
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   formatReadyDefaultsSummary,
-  GEMMA_PRESET_DEFAULTS,
   countLlmModels,
   findLlmModelLocation,
   hubCacheFolderToHfId,
@@ -81,18 +79,13 @@ import {
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
   parseManagedLlamaModelSelection,
-  QWEN_PRESET_DEFAULTS,
   suggestContextWindowTokens,
-  syncCheckpointFlagsInManagedChatCommand,
   syncContextFlagInManagedChatCommand,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
-  parseManagedLlamaCheckpointSettings,
   type ContextFitPresetId,
-  type ManagedLlamaCheckpointMode,
-  type ManagedLlamaCheckpointSettings,
   type ManagedLlamaModelSource,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
@@ -623,10 +616,6 @@ export class Settings implements OnInit, OnDestroy {
     const p = this.selectedProvider();
     return !!p && this.sourceIsActive(p);
   });
-  /** Checkpoint handling derived from the managed chat command (Advanced power-user control). */
-  protected readonly managedCheckpointSettings = computed((): ManagedLlamaCheckpointSettings =>
-    parseManagedLlamaCheckpointSettings(this.selectedLlamaCppManaged().chatRunCommand),
-  );
   private hfDownloadSubscription: Subscription | null = null;
   protected readonly llamacppUrlModelsSummary = computed(() => {
     const chat = this.llamacppManagedModelIds().length;
@@ -1327,36 +1316,10 @@ export class Settings implements OnInit, OnDestroy {
     if (!model) {
       return;
     }
-    if (preset === 'qwen') {
-      const cap = QWEN_PRESET_DEFAULTS.temperatureCap;
-      const nextTemp = Math.min(model.temperature, cap);
-      this.applyLlmModelPatch(model.id, {
-        optimizationPreset: 'qwen',
-        parallelToolCalls: QWEN_PRESET_DEFAULTS.parallelToolCalls,
-        maxOutputTokens: QWEN_PRESET_DEFAULTS.maxOutputTokens,
-        temperature: nextTemp,
-      });
-    } else if (preset === 'gemma') {
-      const g = GEMMA_PRESET_DEFAULTS;
-      this.applyLlmModelPatch(model.id, {
-        optimizationPreset: 'gemma',
-        parallelToolCalls: g.parallelToolCalls,
-        maxOutputTokens: g.maxOutputTokens,
-        temperature: g.temperature,
-        samplingPreset: g.samplingPreset,
-        thinkingMode: g.thinkingMode,
-        architectureHint: g.architectureHint,
-        topP: g.topP,
-        topK: g.topK,
-      });
-    } else if (preset === 'capable') {
-      this.applyLlmModelPatch(model.id, {
-        optimizationPreset: 'capable',
-        parallelToolCalls: CAPABLE_PRESET_DEFAULTS.parallelToolCalls,
-      });
-    } else {
-      this.applyLlmModelPatch(model.id, { optimizationPreset: 'generic' });
-    }
+    this.applyLlmModelPatch(
+      model.id,
+      optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>,
+    );
     this.markSettingsDirty();
   }
 
@@ -1536,66 +1499,6 @@ export class Settings implements OnInit, OnDestroy {
         chatRunCommand: syncContextFlagInManagedChatCommand(cmd, ctx, detectShellQuotingPlatform()),
       });
     }
-  }
-
-  protected onManagedCheckpointModeChange(modeRaw: string): void {
-    const mode: ManagedLlamaCheckpointMode =
-      modeRaw === 'server-default' ? 'server-default' : modeRaw === 'custom' ? 'custom' : 'disabled';
-    const current = this.managedCheckpointSettings();
-    const next: ManagedLlamaCheckpointSettings =
-      mode === 'disabled'
-        ? { mode: 'disabled', ctxCheckpoints: 0, checkpointEveryNTokens: -1 }
-        : mode === 'server-default'
-          ? { mode: 'server-default', ctxCheckpoints: current.ctxCheckpoints, checkpointEveryNTokens: current.checkpointEveryNTokens }
-          : {
-              mode: 'custom',
-              ctxCheckpoints: current.ctxCheckpoints || 0,
-              checkpointEveryNTokens:
-                current.checkpointEveryNTokens === 0 && current.mode !== 'custom'
-                  ? 1024
-                  : current.checkpointEveryNTokens,
-            };
-    this.applyManagedCheckpointSettings(next);
-  }
-
-  protected onManagedCtxCheckpointsChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const current = this.managedCheckpointSettings();
-    this.applyManagedCheckpointSettings({
-      mode: 'custom',
-      ctxCheckpoints: Math.max(0, Math.floor(n)),
-      checkpointEveryNTokens: current.checkpointEveryNTokens,
-    });
-  }
-
-  protected onManagedCheckpointEveryNTokensChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const current = this.managedCheckpointSettings();
-    this.applyManagedCheckpointSettings({
-      mode: 'custom',
-      ctxCheckpoints: current.ctxCheckpoints,
-      checkpointEveryNTokens: Math.floor(n),
-    });
-  }
-
-  private applyManagedCheckpointSettings(settings: ManagedLlamaCheckpointSettings): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncCheckpointFlagsInManagedChatCommand(
-        cmd,
-        settings,
-        detectShellQuotingPlatform(),
-      ),
-    });
   }
 
   protected resetManagedToRecommended(): void {
@@ -1857,7 +1760,7 @@ export class Settings implements OnInit, OnDestroy {
       return;
     }
     const base = model.llamaCppManaged ?? defaultLlamaCppManaged();
-    const patch = optimizationPresetDefaultsPatch(preset, model.temperature) as Partial<LlmModelProfile>;
+    const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;
     this.applyLlmModelPatch(model.id, {
       ...patch,
       name: hint,

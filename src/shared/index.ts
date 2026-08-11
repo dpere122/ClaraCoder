@@ -19,14 +19,11 @@ export { looksLikeLlamaModelDownload, managedLlamaCmdUsesHfRemoteModel } from '.
 export type {
   ContextFitPresetId,
   ContextFitPresetMeta,
-  ManagedLlamaCheckpointMode,
-  ManagedLlamaCheckpointSettings,
   ManagedLlamaModelFamily,
   ManagedLlamaModelSource,
 } from './managed-llama-model-pick';
 export {
   CONTEXT_FIT_PRESET_LIST,
-  MANAGED_LLAMA_CHECKPOINT_DISABLED,
   buildManagedLlamaChatCommand,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
@@ -37,10 +34,8 @@ export {
   managedLlamaSourceDisplayName,
   managedPickerValueForCmd,
   optimizationPresetDefaultsPatch,
-  parseManagedLlamaCheckpointSettings,
   parseManagedLlamaModelSelection,
   suggestContextWindowTokens,
-  syncCheckpointFlagsInManagedChatCommand,
   syncContextFlagInManagedChatCommand,
 } from './managed-llama-model-pick';
 export type {

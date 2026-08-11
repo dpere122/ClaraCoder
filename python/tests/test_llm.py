@@ -24,9 +24,9 @@ def _gemma_conn(**kwargs: object) -> RuntimeConnection:
         max_output_tokens=0,
         plan_retry_attempts_count=2,
         thinking_mode='default',
-        sampling_preset='gemma-recommended',
-        top_p=None,
-        top_k=None,
+        sampling_preset='provider-default',
+        top_p=0.95,
+        top_k=64,
         architecture_hint='auto',
     )
     base.update(kwargs)

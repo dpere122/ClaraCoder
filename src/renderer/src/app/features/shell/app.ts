@@ -269,7 +269,7 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatCollapsed = model(false);
 
   /** Width of the sidebar when the chat is collapsed (just the un-collapse button + padding). */
-  private static readonly CHAT_COLLAPSED_WIDTH_PX = 36;
+  private static readonly CHAT_COLLAPSED_WIDTH_PX = 48;
   protected readonly effectiveSidebarWidth = computed(() =>
     this.chatCollapsed() ? App.CHAT_COLLAPSED_WIDTH_PX : this.sidebarWidth(),
   );

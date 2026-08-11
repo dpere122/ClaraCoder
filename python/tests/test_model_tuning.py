@@ -74,11 +74,13 @@ def test_qwen_optimize_profile_generic_even_when_model_id_qwen() -> None:
     assert not qwen_optimize_profile_active(_conn(model='qwen3.5-9b', optimization_preset='generic'))
 
 
-def test_gemma_sampling_kwargs_empty_for_generic_preset() -> None:
+def test_gemma_sampling_kwargs_always_empty() -> None:
     c = _conn(
         model='google/gemma-4-it',
-        optimization_preset='generic',
+        optimization_preset='gemma',
         sampling_preset='gemma-recommended',
+        top_p=0.95,
+        top_k=64,
     )
     assert gemma_sampling_kwargs_for_llm(c) == {}
 
@@ -151,26 +153,6 @@ def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_
     assert gemma_sparse_expert_workspace_suffix(generic) == ''
 
 
-def test_gemma_sampling_recommended() -> None:
-    c = _conn(model='google/gemma-4-it', optimization_preset='gemma', sampling_preset='gemma-recommended')
-    kw = gemma_sampling_kwargs_for_llm(c)
-    assert kw.get('top_p') == 0.95
-    assert kw.get('extra_body', {}).get('top_k') == 64
-
-
-def test_gemma_sampling_custom() -> None:
-    c = _conn(
-        model='google/gemma-4-it',
-        optimization_preset='gemma',
-        sampling_preset='custom',
-        top_p=0.88,
-        top_k=32,
-    )
-    kw = gemma_sampling_kwargs_for_llm(c)
-    assert kw.get('top_p') == 0.88
-    assert kw.get('extra_body', {}).get('top_k') == 32
-
-
 def test_connection_user_sampling_generic_top_p_top_k() -> None:
     c = _conn(model='local-model', optimization_preset='generic', top_p=0.9, top_k=20)
     kw = connection_user_sampling_kwargs_for_llm(c)
@@ -178,20 +160,20 @@ def test_connection_user_sampling_generic_top_p_top_k() -> None:
     assert kw.get('extra_body', {}).get('top_k') == 20
 
 
-def test_connection_user_sampling_gemma_recommended_skips_top_p_top_k() -> None:
+def test_connection_user_sampling_gemma_uses_connection_top_p_top_k() -> None:
     c = replace(
         _conn(
             model='google/gemma-4-it',
             optimization_preset='gemma',
-            sampling_preset='gemma-recommended',
-            top_p=0.1,
-            top_k=3,
+            sampling_preset='provider-default',
+            top_p=0.95,
+            top_k=64,
         ),
         min_p=0.02,
     )
     kw = connection_user_sampling_kwargs_for_llm(c)
-    assert 'top_p' not in kw
-    assert kw.get('extra_body') == {'min_p': 0.02}
+    assert kw.get('top_p') == 0.95
+    assert kw.get('extra_body') == {'top_k': 64, 'min_p': 0.02}
 
 
 def test_connection_user_sampling_presence_and_repeat_penalty() -> None:

@@ -273,11 +273,11 @@ class RuntimeConnection:
     plan_retry_attempts_count: int = 2
     #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
     thinking_mode: str = 'default'
-    #: ``provider-default`` | ``gemma-recommended`` | ``custom``
+    #: Legacy sampling-preset label (UI removed); inference uses ``top_p`` / ``top_k`` directly.
     sampling_preset: str = 'provider-default'
-    #: When ``sampling_preset`` is ``custom``, optional ``top_p`` (else ``None``).
+    #: Optional Chat Completions ``top_p`` (else ``None`` / omit).
     top_p: float | None = None
-    #: When ``sampling_preset`` is ``custom``, optional ``top_k`` (else ``None``).
+    #: Optional ``top_k`` via ``extra_body`` for local OpenAI-compatible servers (else ``None`` / omit).
     top_k: int | None = None
     #: ``auto`` | ``dense`` — sparse-expert Gemma notes are inferred from the model id when ``auto``.
     architecture_hint: str = 'auto'

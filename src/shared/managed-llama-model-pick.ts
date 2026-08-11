@@ -9,7 +9,7 @@ import {
 } from './llama-cpp-managed';
 import { inferContextWindowTokens } from './model-context';
 import type { LlmOptimizationPreset, LlmProviderConfig } from './types/app-config';
-import { GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
+import { CAPABLE_PRESET_DEFAULTS, GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
 import type { ModelManagerFileEntry } from './types/model-manager';
 import { isPinnedLlamaServerUrlProviderId } from './llm-provider-ids';
 
@@ -21,28 +21,6 @@ export type ManagedLlamaModelSource =
 export type ManagedLlamaModelFamily = 'qwen' | 'gemma' | 'other';
 
 export type ContextFitPresetId = 'conservative' | 'balanced' | 'max';
-
-/**
- * How managed ``llama-server`` context checkpoints are configured in the Start command.
- * - ``disabled``: ``--ctx-checkpoints 0 --checkpoint-every-n-tokens -1`` (recommended for long context)
- * - ``server-default``: omit both flags (llama.cpp built-in defaults)
- * - ``custom``: user-chosen values for both flags
- */
-export type ManagedLlamaCheckpointMode = 'disabled' | 'server-default' | 'custom';
-
-export interface ManagedLlamaCheckpointSettings {
-  mode: ManagedLlamaCheckpointMode;
-  /** ``--ctx-checkpoints`` when mode is ``custom`` (also used as display when parsing). */
-  ctxCheckpoints: number;
-  /** ``--checkpoint-every-n-tokens`` when mode is ``custom``. */
-  checkpointEveryNTokens: number;
-}
-
-export const MANAGED_LLAMA_CHECKPOINT_DISABLED: ManagedLlamaCheckpointSettings = {
-  mode: 'disabled',
-  ctxCheckpoints: 0,
-  checkpointEveryNTokens: -1,
-};
 
 export interface ContextFitPresetMeta {
   id: ContextFitPresetId;
@@ -169,7 +147,6 @@ export function buildManagedLlamaChatCommand(
   source: ManagedLlamaModelSource,
   contextWindowTokens: number,
   platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
-  checkpoints: ManagedLlamaCheckpointSettings = MANAGED_LLAMA_CHECKPOINT_DISABLED,
 ): string {
   const ctx = Math.min(10_000_000, Math.max(256, Math.floor(contextWindowTokens)));
   const argv: string[] = ['llama-server', '--host', '127.0.0.1', '--port', '{{PORT}}'];
@@ -187,16 +164,6 @@ export function buildManagedLlamaChatCommand(
     argv.push('-hf', hf);
   }
   argv.push('-c', String(ctx), '--metrics');
-  if (checkpoints.mode === 'disabled') {
-    argv.push('--ctx-checkpoints', '0', '--checkpoint-every-n-tokens', '-1');
-  } else if (checkpoints.mode === 'custom') {
-    argv.push(
-      '--ctx-checkpoints',
-      String(Math.floor(checkpoints.ctxCheckpoints)),
-      '--checkpoint-every-n-tokens',
-      String(Math.floor(checkpoints.checkpointEveryNTokens)),
-    );
-  }
   return argvToShellCommandLine(argv, platform);
 }
 
@@ -254,75 +221,6 @@ export function syncContextFlagInManagedChatCommand(
   return `${trimmed} ${argvToShellCommandLine(['-c', ctxStr], platform)}`;
 }
 
-function parseNamedIntFlag(cmd: string, flag: '--ctx-checkpoints' | '--checkpoint-every-n-tokens'): number | null {
-  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`(?:^|[\\s"'])${escaped}(?:\\s+|=)(?:"([^"]+)"|'([^']+)'|(\\S+))`, 'i');
-  const m = re.exec(cmd);
-  if (!m) {
-    return null;
-  }
-  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Read checkpoint flags from a managed chat command. */
-export function parseManagedLlamaCheckpointSettings(cmd: string): ManagedLlamaCheckpointSettings {
-  const trimmed = (cmd || '').trim();
-  const ctxCheckpoints = parseNamedIntFlag(trimmed, '--ctx-checkpoints');
-  const checkpointEveryNTokens = parseNamedIntFlag(trimmed, '--checkpoint-every-n-tokens');
-  if (ctxCheckpoints === null && checkpointEveryNTokens === null) {
-    return {
-      mode: 'server-default',
-      ctxCheckpoints: 0,
-      checkpointEveryNTokens: -1,
-    };
-  }
-  const ctx = ctxCheckpoints ?? 0;
-  const every = checkpointEveryNTokens ?? -1;
-  if (ctx === 0 && every === -1) {
-    return { ...MANAGED_LLAMA_CHECKPOINT_DISABLED };
-  }
-  return {
-    mode: 'custom',
-    ctxCheckpoints: ctx,
-    checkpointEveryNTokens: every,
-  };
-}
-
-function stripCheckpointFlags(cmd: string): string {
-  return cmd
-    .replace(/(^|[\s"'])--ctx-checkpoints(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi, '$1')
-    .replace(/(^|[\s"'])--checkpoint-every-n-tokens(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi, '$1')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
-/**
- * Apply checkpoint handling to a managed chat command (insert, update, or remove flags).
- */
-export function syncCheckpointFlagsInManagedChatCommand(
-  cmd: string,
-  settings: ManagedLlamaCheckpointSettings,
-  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
-): string {
-  const trimmed = (cmd || '').trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  const base = stripCheckpointFlags(trimmed);
-  if (settings.mode === 'server-default') {
-    return base;
-  }
-  const ctx = settings.mode === 'disabled' ? 0 : Math.floor(settings.ctxCheckpoints);
-  const every = settings.mode === 'disabled' ? -1 : Math.floor(settings.checkpointEveryNTokens);
-  const flags = argvToShellCommandLine(
-    ['--ctx-checkpoints', String(ctx), '--checkpoint-every-n-tokens', String(every)],
-    platform,
-  );
-  return `${base} ${flags}`.trim();
-}
-
 /** One-line Ready defaults summary for the Models UI. */
 export function formatReadyDefaultsSummary(opts: {
   preset: LlmOptimizationPreset;
@@ -333,10 +231,10 @@ export function formatReadyDefaultsSummary(opts: {
       ? `${Math.round(opts.contextWindowTokens / 1024)}k`
       : String(opts.contextWindowTokens);
   if (opts.preset === 'qwen') {
-    return `Qwen preset · ctx ${ctxLabel} · temp capped · Jinja template on Start`;
+    return `Qwen preset · ctx ${ctxLabel} · temp ${QWEN_PRESET_DEFAULTS.temperature} · top_p ${QWEN_PRESET_DEFAULTS.topP} · top_k ${QWEN_PRESET_DEFAULTS.topK} · repeat_penalty ${QWEN_PRESET_DEFAULTS.repeatPenalty} · Jinja template on Start`;
   }
   if (opts.preset === 'gemma') {
-    return `Gemma preset · ctx ${ctxLabel} · recommended sampling · Jinja template on Start`;
+    return `Gemma preset · ctx ${ctxLabel} · temp ${GEMMA_PRESET_DEFAULTS.temperature} · top_p ${GEMMA_PRESET_DEFAULTS.topP} · top_k ${GEMMA_PRESET_DEFAULTS.topK} · Jinja template on Start`;
   }
   if (opts.preset === 'capable') {
     return `Capable API · ctx ${ctxLabel} · parallel tool calls on`;
@@ -344,17 +242,23 @@ export function formatReadyDefaultsSummary(opts: {
   return `Generic · ctx ${ctxLabel}`;
 }
 
-/** Partial profile fields applied when an optimization template is chosen from a model pick. */
-export function optimizationPresetDefaultsPatch(
-  preset: LlmOptimizationPreset,
-  currentTemperature: number,
-): Record<string, unknown> {
+/**
+ * Partial profile fields applied when an optimization template is chosen.
+ * Clears cross-preset sampling/thinking leftovers so Qwen ↔ Gemma ↔ Generic
+ * switches do not keep stale inference knobs.
+ */
+export function optimizationPresetDefaultsPatch(preset: LlmOptimizationPreset): Record<string, unknown> {
   if (preset === 'qwen') {
     return {
       optimizationPreset: 'qwen',
       parallelToolCalls: QWEN_PRESET_DEFAULTS.parallelToolCalls,
       maxOutputTokens: QWEN_PRESET_DEFAULTS.maxOutputTokens,
-      temperature: Math.min(currentTemperature, QWEN_PRESET_DEFAULTS.temperatureCap),
+      temperature: QWEN_PRESET_DEFAULTS.temperature,
+      samplingPreset: 'provider-default',
+      thinkingMode: 'default',
+      topP: QWEN_PRESET_DEFAULTS.topP,
+      topK: QWEN_PRESET_DEFAULTS.topK,
+      repeatPenalty: QWEN_PRESET_DEFAULTS.repeatPenalty,
     };
   }
   if (preset === 'gemma') {
@@ -369,15 +273,26 @@ export function optimizationPresetDefaultsPatch(
       architectureHint: g.architectureHint,
       topP: g.topP,
       topK: g.topK,
+      repeatPenalty: undefined,
     };
   }
   if (preset === 'capable') {
     return {
       optimizationPreset: 'capable',
-      parallelToolCalls: true,
+      parallelToolCalls: CAPABLE_PRESET_DEFAULTS.parallelToolCalls,
+      samplingPreset: 'provider-default',
+      thinkingMode: 'default',
+      repeatPenalty: undefined,
     };
   }
-  return { optimizationPreset: 'generic' };
+  return {
+    optimizationPreset: 'generic',
+    samplingPreset: 'provider-default',
+    thinkingMode: 'default',
+    topP: undefined,
+    topK: undefined,
+    repeatPenalty: undefined,
+  };
 }
 
 /**

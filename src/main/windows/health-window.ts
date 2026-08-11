@@ -6,7 +6,10 @@ import { mainState } from '../state';
 import { getLogsDir } from '../paths';
 import { resolveAppIconPath } from '../utils/app-icon';
 import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
-import { attachBrowserWindowRevealFallbacks } from '../utils/reveal-browser-window';
+import {
+  attachBrowserWindowRevealFallbacks,
+  settingsWindowParentOptions,
+} from '../utils/reveal-browser-window';
 
 function preloadPath(): string {
   return path.join(__dirname, '..', '..', 'preload', 'preload.js');
@@ -21,7 +24,8 @@ function ensureLogsDir(): void {
 }
 
 /**
- * Non-modal health monitor (`#/health`). Does not dim the main window.
+ * Non-modal health monitor (`#/health`). Does not dim the main window, but is parented to it
+ * (like Settings and Dependencies) so it stays layered above the main window.
  */
 export function createHealthWindow(): void {
   ensureLogsDir();
@@ -31,10 +35,12 @@ export function createHealthWindow(): void {
     return;
   }
 
+  const mainWindow = mainState.mainWindow;
   const icon = resolveAppIconPath();
   mainState.healthWindow = new BrowserWindow({
     width: 1200,
     height: 820,
+    ...(mainWindow && !mainWindow.isDestroyed() ? settingsWindowParentOptions(mainWindow) : {}),
     frame: false,
     resizable: true,
     maximizable: true,

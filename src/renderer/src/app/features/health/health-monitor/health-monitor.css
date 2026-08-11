@@ -16,6 +16,10 @@
     radial-gradient(circle at top left, color-mix(in srgb, var(--t-primary) 14%, transparent), transparent 32%),
     linear-gradient(180deg, color-mix(in srgb, var(--t-bg-surface) 88%, transparent), var(--t-bg));
   color: var(--t-fg);
+  /* Frameless popup window: a visible border/glow is the only thing separating it from
+     the main Clara Coder window when the two overlap on screen. */
+  border: 2px solid color-mix(in srgb, var(--t-primary) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-bg-deep) 60%, transparent), var(--t-elev-shadow, 0 10px 28px rgba(0, 0, 0, 0.45));
 }
 
 .health-header {

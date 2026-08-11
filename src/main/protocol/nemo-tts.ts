@@ -6,6 +6,26 @@ import { loadConfig } from '../config/load-save';
 import { streamTtsResponseToPassThrough } from '../tts/stream-response-to-packets';
 import { fetchTtsResponse } from '../tts/fetch';
 
+/** Cap remembered consumed ids so replay rejection cannot grow without bound. */
+const CONSUMED_TTS_TOKEN_CAP = 500;
+
+/**
+ * Token ids already consumed by a one-shot `nemo-tts://` fetch.
+ * Replay of the same id is rejected even if the map entry is somehow restored.
+ */
+const consumedTtsStreamTokenIds = new Set<string>();
+
+function rememberConsumedTtsToken(id: string): void {
+  consumedTtsStreamTokenIds.add(id);
+  while (consumedTtsStreamTokenIds.size > CONSUMED_TTS_TOKEN_CAP) {
+    const oldest = consumedTtsStreamTokenIds.values().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    consumedTtsStreamTokenIds.delete(oldest);
+  }
+}
+
 /**
  * Registers `registerStreamProtocol('nemo-tts')` to stream WAV from the configured TTS backend.
  */
@@ -24,12 +44,22 @@ export function registerNemoTtsStreamProtocol(): void {
       callback({ error: -6 });
       return;
     }
+    // Defensive replay guard: token already consumed → error (one-shot).
+    if (consumedTtsStreamTokenIds.has(id)) {
+      callback({ error: -6 });
+      return;
+    }
     const entry = mainState.ttsStreamTokens.get(id);
     if (!entry) {
       callback({ error: -6 });
       return;
     }
-    mainState.ttsStreamTokens.delete(id);
+    // Delete before streaming so concurrent/replay fetches cannot reuse the token.
+    if (!mainState.ttsStreamTokens.delete(id)) {
+      callback({ error: -6 });
+      return;
+    }
+    rememberConsumedTtsToken(id);
 
     abortAllTtsStreamControllers();
     const protoKey = `proto:${id}`;

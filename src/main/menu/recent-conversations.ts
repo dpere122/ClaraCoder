@@ -4,7 +4,7 @@ const DEFAULT_RECENT_LIMIT = 50;
 const MAX_RECENT_LIMIT = 200;
 
 /** Clamp IPC/caller limit: non-positive/non-numeric → default; cap at {@link MAX_RECENT_LIMIT}. */
-function clampRecentLimit(limit: number): number {
+export function clampRecentLimit(limit: number): number {
   const n = Number(limit);
   if (!Number.isFinite(n) || n <= 0) {
     return DEFAULT_RECENT_LIMIT;

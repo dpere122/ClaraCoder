@@ -1,40 +1,12 @@
 import { BrowserWindow, dialog, Menu, shell } from 'electron';
 import type Electron from 'electron';
 import { mainState } from '../state';
-import { getRecentConversations } from './recent-conversations';
 import { createSettingsWindow } from '../windows/settings-window';
 import { createHealthWindow } from '../windows/health-window';
 import { createDependenciesWindow } from '../windows/dependencies-window';
 
 function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions[] {
-  const recentConversations = getRecentConversations(5);
   return [
-    {
-      label: 'Open',
-      accelerator: 'CmdOrCtrl+O',
-      click: async () => {
-        const mw = mainState.mainWindow;
-        if (!mw) return;
-        const result = await dialog.showOpenDialog(mw, {
-          properties: ['openDirectory'],
-        });
-        if (!result.canceled && result.filePaths.length > 0) {
-          mw.webContents.send('open-workspace', result.filePaths[0]);
-        }
-      },
-    },
-    {
-      label: 'Open Recent',
-      submenu:
-        recentConversations.length > 0
-          ? recentConversations.map((conv) => ({
-              label: conv.title,
-              click: () => {
-                mainState.mainWindow?.webContents.send('open-conversation', conv.id);
-              },
-            }))
-          : [{ label: 'No Recent Conversations', enabled: false }],
-    },
     {
       label: 'Settings',
       accelerator: 'CmdOrCtrl+,',

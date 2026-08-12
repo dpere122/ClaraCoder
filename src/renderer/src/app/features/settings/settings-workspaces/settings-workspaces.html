@@ -1,0 +1,40 @@
+      <div class='settings-pane'>
+        <div class='workspace-list'>
+          <div class='workspace-card workspace-card--none' [class.is-selected]='!s.currentWorkspace()'>
+            <button type='button' class='workspace-card__body' (click)='s.selectWorkspace(null)'>
+              <div class='workspace-card__header'>
+                <strong>No Workspace</strong>
+                @if (!s.currentWorkspace()) {
+                  <span class='pill pill--success'>Active</span>
+                }
+              </div>
+              <p>Chat without attaching a local project.</p>
+            </button>
+          </div>
+
+          @for (workspace of s.workspaces(); track s.trackWorkspace($index, workspace)) {
+            <div class='workspace-card' [class.is-selected]='workspace.id === s.currentWorkspace()?.id'>
+              <button type='button' class='workspace-card__body' (click)='s.selectWorkspace(workspace.id)'>
+                <div class='workspace-card__header'>
+                  <strong>{{ workspace.name }}</strong>
+                  @if (workspace.id === s.currentWorkspace()?.id) {
+                    <span class='pill pill--success'>Active</span>
+                  }
+                </div>
+                <p>{{ workspace.path }}</p>
+              </button>
+
+              <div class='workspace-card__controls'>
+                <button type='button' class='action-button action-button--danger' (click)='s.removeWorkspace(workspace.id)'>
+                  <lucide-icon name='trash' [size]='16' />
+                  Remove
+                </button>
+              </div>
+            </div>
+          } @empty {
+            <div class='empty-state'>
+              <p>No workspaces added yet. Attach a folder to give the agent local project context.</p>
+            </div>
+          }
+        </div>
+      </div>

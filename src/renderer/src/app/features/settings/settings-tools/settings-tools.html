@@ -1,0 +1,243 @@
+      <div class='settings-pane settings-pane--sectioned'>
+        
+        @if (s.activeSubTabId('tools') === 'editTools') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Mode</span>
+                <select [ngModel]='s.editToolsMode()' (ngModelChange)='s.onEditToolsModeChange($event)'>
+                  <option value='standard'>Standard — full file, line range, snippet replace</option>
+                  <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
+                </select>
+              </label>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.allowStagingOverlayCommands()'
+                    (ngModelChange)='s.onAllowStagingOverlayCommandsChange($event)'
+                  />
+                  <span>Allow staging overlay commands</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When on, nested code review may run <code>run_staging_overlay_command</code> against a temporary
+                  workspace copy with staged drafts applied (argv-only subprocess; no shell).
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.exposeAllWorkspaceFiles()'
+                    (ngModelChange)='s.onExposeAllWorkspaceFilesChange($event)'
+                  />
+                  <span>Expose all workspace files to the agent</span>
+                </label>
+                <p class='settings-field-hint'>
+                  Includes most paths in tree, listing, search, and semantic index. <code>node_modules</code> is never
+                  bulk-listed. Off by default.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.commandLineExplainStep()'
+                    (ngModelChange)='s.onCommandLineExplainStepChange($event)'
+                  />
+                  <span>Explain terminal commands before running</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When Auto-apply is off, asks the model for a one-line description and a low/medium/high risk rating for
+                  each <code>run_command</code> approval request, shown on the confirmation card.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.allowWebAccess()'
+                    (ngModelChange)='s.onAllowWebAccessChange($event)'
+                  />
+                  <span>Allow web access</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When on, the agent may use <code>web_search</code> (via SearXNG) and <code>fetch_url</code>. When
+                  Auto-apply is off, each call asks for confirmation. SearXNG is not bundled — run your own instance.
+                </p>
+              </div>
+              <label class='field'>
+                <span>SearXNG base URL</span>
+                <input
+                  type='text'
+                  [ngModel]='s.searxngBaseUrl()'
+                  (ngModelChange)='s.onSearxngBaseUrlChange($event)'
+                  placeholder='http://127.0.0.1:8080'
+                  autocomplete='off'
+                />
+              </label>
+            </div>
+            <div class='callout'>
+              <p>
+                Editor mode in the chat window still controls whether write tools are bound at all. This page only
+                changes how those tools behave.
+              </p>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('tools') === 'limits') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Max lines per read</span>
+                <input
+                  type='number'
+                  min='50'
+                  max='2000'
+                  step='50'
+                  [ngModel]='s.maxFileReadLines()'
+                  (ngModelChange)='s.onMaxFileReadLinesChange($event)'
+                />
+              </label>
+              <label class='field'>
+                <span>Max search matches</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='200'
+                  step='1'
+                  [ngModel]='s.maxSearchResults()'
+                  (ngModelChange)='s.onMaxSearchResultsChange($event)'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('tools') === 'compression') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.contextCompressionEnabled()'
+                    (ngModelChange)='s.onContextCompressionEnabledChange($event)'
+                  />
+                  <span>Enable checkpoint context compression</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Compact when usage ≥ (ratio)</span>
+                <input
+                  type='number'
+                  min='0.5'
+                  max='0.95'
+                  step='0.05'
+                  [ngModel]='s.contextCompressionTriggerRatio()'
+                  (ngModelChange)='s.onContextCompressionTriggerRatioChange($event)'
+                  [disabled]='!s.contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Target ratio (reserved)</span>
+                <input
+                  type='number'
+                  min='0.4'
+                  max='0.9'
+                  step='0.05'
+                  [ngModel]='s.contextCompressionTargetRatio()'
+                  (ngModelChange)='s.onContextCompressionTargetRatioChange($event)'
+                  [disabled]='!s.contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Protected tail messages</span>
+                <input
+                  type='number'
+                  min='8'
+                  max='100'
+                  step='1'
+                  [ngModel]='s.contextCompressionProtectTail()'
+                  (ngModelChange)='s.onContextCompressionProtectTailChange($event)'
+                  [disabled]='!s.contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>System reserve (ratio)</span>
+                <input
+                  type='number'
+                  min='0.1'
+                  max='0.5'
+                  step='0.05'
+                  [ngModel]='s.contextCompressionSystemReserve()'
+                  (ngModelChange)='s.onContextCompressionSystemReserveChange($event)'
+                  [disabled]='!s.contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Recent tool body max chars</span>
+                <input
+                  type='number'
+                  min='200'
+                  max='20000'
+                  step='100'
+                  [ngModel]='s.contextCompressionRecentToolChars()'
+                  (ngModelChange)='s.onContextCompressionRecentToolCharsChange($event)'
+                  [disabled]='!s.contextCompressionEnabled()'
+                />
+              </label>
+              <label class='field'>
+                <span>Older tool body max chars</span>
+                <input
+                  type='number'
+                  min='100'
+                  max='10000'
+                  step='50'
+                  [ngModel]='s.contextCompressionOldToolChars()'
+                  (ngModelChange)='s.onContextCompressionOldToolCharsChange($event)'
+                  [disabled]='!s.contextCompressionEnabled()'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('tools') === 'encoding') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Default encoding</span>
+                <select
+                  [ngModel]='s.defaultWorkspaceEncoding()'
+                  (ngModelChange)='s.onDefaultWorkspaceEncodingChange($event)'
+                >
+                  <option value='utf-8'>utf-8</option>
+                  <option value='utf-8-sig'>utf-8-sig (BOM)</option>
+                  <option value='utf-16'>utf-16 (BOM + LE)</option>
+                  <option value='utf-16-le'>utf-16-le</option>
+                  <option value='utf-16-be'>utf-16-be</option>
+                  <option value='latin-1'>latin-1</option>
+                  <option value='cp1252'>cp1252 (Windows-1252)</option>
+                  <option value='ascii'>ascii</option>
+                  <option value='mac-roman'>mac-roman</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Default newline for edits</span>
+                <select
+                  [ngModel]='s.defaultWorkspaceNewline()'
+                  (ngModelChange)='s.onDefaultWorkspaceNewlineChange($event)'
+                >
+                  <option value='lf'>LF (Unix)</option>
+                  <option value='crlf'>CRLF (Windows)</option>
+                  <option value='preserve'>Preserve existing file</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+          
+
+      </div>

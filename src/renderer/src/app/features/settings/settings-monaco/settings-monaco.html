@@ -1,0 +1,482 @@
+      <div class='settings-pane settings-pane--sectioned'>
+        
+        @if (s.activeSubTabId('monaco') === 'theme') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Theme</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().theme'
+                  (ngModelChange)='s.patchMonaco({ theme: $event })'
+                >
+                  @for (opt of s.monacoEditorThemeSelectOptions; track opt.id) {
+                    <option [value]='opt.id'>{{ opt.label }}</option>
+                  }
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('monaco') === 'typography') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Font size (px)</span>
+                <input
+                  type='number'
+                  min='8'
+                  max='48'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().fontSize'
+                  (ngModelChange)='s.patchMonaco({ fontSize: s.parseMonacoFloat($event, s.monacoWorkspaceEditor().fontSize) })'
+                />
+              </label>
+              <label class='field'>
+                <span>Line height (0 = default)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='64'
+                  step='0.5'
+                  [ngModel]='s.monacoWorkspaceEditor().lineHeight'
+                  (ngModelChange)='s.patchMonaco({ lineHeight: s.parseMonacoFloat($event, s.monacoWorkspaceEditor().lineHeight) })'
+                />
+              </label>
+              <label class='field field--full'>
+                <span>Font family (optional)</span>
+                <input
+                  type='text'
+                  [ngModel]='s.monacoWorkspaceEditor().fontFamily'
+                  (ngModelChange)='s.patchMonaco({ fontFamily: $event })'
+                  placeholder='App default (CSS stack)'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('monaco') === 'wrapMinimap') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Word wrap</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().wordWrap'
+                  (ngModelChange)='s.patchMonaco({ wordWrap: $event })'
+                >
+                  <option value='off'>Off</option>
+                  <option value='on'>On</option>
+                  <option value='wordWrapColumn'>Wrap at column</option>
+                  <option value='bounded'>Bounded</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Wrap column</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='500'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().wordWrapColumn'
+                  (ngModelChange)='s.patchMonaco({ wordWrapColumn: s.parseMonacoInt($event, s.monacoWorkspaceEditor().wordWrapColumn) })'
+                />
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().minimapEnabled'
+                    (ngModelChange)='s.patchMonaco({ minimapEnabled: $event })'
+                  />
+                  <span>Enable minimap</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Minimap max column</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='200'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().minimapMaxColumn'
+                  (ngModelChange)='s.patchMonaco({ minimapMaxColumn: s.parseMonacoInt($event, s.monacoWorkspaceEditor().minimapMaxColumn) })'
+                />
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().minimapRenderCharacters'
+                    (ngModelChange)='s.patchMonaco({ minimapRenderCharacters: $event })'
+                  />
+                  <span>Minimap render characters</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Minimap slider</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().minimapShowSlider'
+                  (ngModelChange)='s.patchMonaco({ minimapShowSlider: $event })'
+                >
+                  <option value='mouseover'>Show on mouseover</option>
+                  <option value='always'>Always</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('monaco') === 'display') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().scrollBeyondLastLine'
+                    (ngModelChange)='s.patchMonaco({ scrollBeyondLastLine: $event })'
+                  />
+                  <span>Scroll beyond last line</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().smoothScrolling'
+                    (ngModelChange)='s.patchMonaco({ smoothScrolling: $event })'
+                  />
+                  <span>Smooth scrolling</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Render whitespace</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().renderWhitespace'
+                  (ngModelChange)='s.patchMonaco({ renderWhitespace: $event })'
+                >
+                  <option value='none'>None</option>
+                  <option value='boundary'>Boundary</option>
+                  <option value='selection'>Selection</option>
+                  <option value='trailing'>Trailing</option>
+                  <option value='all'>All</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Render line highlight</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().renderLineHighlight'
+                  (ngModelChange)='s.patchMonaco({ renderLineHighlight: $event })'
+                >
+                  <option value='all'>All</option>
+                  <option value='line'>Line</option>
+                  <option value='gutter'>Gutter</option>
+                  <option value='none'>None</option>
+                </select>
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().renderControlCharacters'
+                    (ngModelChange)='s.patchMonaco({ renderControlCharacters: $event })'
+                  />
+                  <span>Render control characters</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Line numbers</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().lineNumbers'
+                  (ngModelChange)='s.patchMonaco({ lineNumbers: $event })'
+                >
+                  <option value='on'>On</option>
+                  <option value='off'>Off</option>
+                  <option value='relative'>Relative</option>
+                  <option value='interval'>Interval</option>
+                </select>
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().glyphMargin'
+                    (ngModelChange)='s.patchMonaco({ glyphMargin: $event })'
+                  />
+                  <span>Glyph margin</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().folding'
+                    (ngModelChange)='s.patchMonaco({ folding: $event })'
+                  />
+                  <span>Code folding</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Padding top (px)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='200'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().paddingTop'
+                  (ngModelChange)='s.patchMonaco({ paddingTop: s.parseMonacoInt($event, s.monacoWorkspaceEditor().paddingTop) })'
+                />
+              </label>
+              <label class='field'>
+                <span>Padding bottom (px)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='200'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().paddingBottom'
+                  (ngModelChange)='s.patchMonaco({ paddingBottom: s.parseMonacoInt($event, s.monacoWorkspaceEditor().paddingBottom) })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('monaco') === 'guides') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().guidesIndentation'
+                    (ngModelChange)='s.patchMonaco({ guidesIndentation: $event })'
+                  />
+                  <span>Indentation guides</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().guidesBracketPairs'
+                    (ngModelChange)='s.patchMonaco({ guidesBracketPairs: $event })'
+                  />
+                  <span>Bracket pair guides</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().bracketPairColorizationEnabled'
+                    (ngModelChange)='s.patchMonaco({ bracketPairColorizationEnabled: $event })'
+                  />
+                  <span>Bracket pair colorization</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Tab size</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='32'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().tabSize'
+                  (ngModelChange)='s.patchMonaco({ tabSize: s.parseMonacoInt($event, s.monacoWorkspaceEditor().tabSize) })'
+                />
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().insertSpaces'
+                    (ngModelChange)='s.patchMonaco({ insertSpaces: $event })'
+                  />
+                  <span>Insert spaces</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().detectIndentation'
+                    (ngModelChange)='s.patchMonaco({ detectIndentation: $event })'
+                  />
+                  <span>Detect indentation from content</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('monaco') === 'cursor') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Cursor blinking</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().cursorBlinking'
+                  (ngModelChange)='s.patchMonaco({ cursorBlinking: $event })'
+                >
+                  <option value='blink'>Blink</option>
+                  <option value='smooth'>Smooth</option>
+                  <option value='phase'>Phase</option>
+                  <option value='expand'>Expand</option>
+                  <option value='solid'>Solid</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Cursor style</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().cursorStyle'
+                  (ngModelChange)='s.patchMonaco({ cursorStyle: $event })'
+                >
+                  <option value='line'>Line</option>
+                  <option value='block'>Block</option>
+                  <option value='underline'>Underline</option>
+                  <option value='line-thin'>Line thin</option>
+                  <option value='block-outline'>Block outline</option>
+                  <option value='underline-thin'>Underline thin</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Cursor width</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='10'
+                  step='1'
+                  [ngModel]='s.monacoWorkspaceEditor().cursorWidth'
+                  (ngModelChange)='s.patchMonaco({ cursorWidth: s.parseMonacoInt($event, s.monacoWorkspaceEditor().cursorWidth) })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('monaco') === 'editing') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().formatOnPaste'
+                    (ngModelChange)='s.patchMonaco({ formatOnPaste: $event })'
+                  />
+                  <span>Format on paste</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().formatOnType'
+                    (ngModelChange)='s.patchMonaco({ formatOnType: $event })'
+                  />
+                  <span>Format on type</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().quickSuggestions'
+                    (ngModelChange)='s.patchMonaco({ quickSuggestions: $event })'
+                  />
+                  <span>Quick suggestions</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Auto-closing brackets</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().autoClosingBrackets'
+                  (ngModelChange)='s.patchMonaco({ autoClosingBrackets: $event })'
+                >
+                  <option value='always'>Always</option>
+                  <option value='languageDefined'>Language defined</option>
+                  <option value='beforeWhitespace'>Before whitespace</option>
+                  <option value='never'>Never</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Auto-closing quotes</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().autoClosingQuotes'
+                  (ngModelChange)='s.patchMonaco({ autoClosingQuotes: $event })'
+                >
+                  <option value='always'>Always</option>
+                  <option value='languageDefined'>Language defined</option>
+                  <option value='beforeWhitespace'>Before whitespace</option>
+                  <option value='never'>Never</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Accept suggestion on Enter</span>
+                <select
+                  [ngModel]='s.monacoWorkspaceEditor().acceptSuggestionOnEnter'
+                  (ngModelChange)='s.patchMonaco({ acceptSuggestionOnEnter: $event })'
+                >
+                  <option value='on'>On</option>
+                  <option value='off'>Off</option>
+                  <option value='smart'>Smart</option>
+                </select>
+              </label>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().stickyScrollEnabled'
+                    (ngModelChange)='s.patchMonaco({ stickyScrollEnabled: $event })'
+                  />
+                  <span>Sticky scroll (scope headers)</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().formatOnSave'
+                    (ngModelChange)='s.patchMonaco({ formatOnSave: $event })'
+                  />
+                  <span>Format on save (LSP languages)</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().parameterHintsEnabled'
+                    (ngModelChange)='s.patchMonaco({ parameterHintsEnabled: $event })'
+                  />
+                  <span>Parameter hints (signature help)</span>
+                </label>
+              </div>
+              <div class='field'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.monacoWorkspaceEditor().hoverEnabled'
+                    (ngModelChange)='s.patchMonaco({ hoverEnabled: $event })'
+                  />
+                  <span>Hover tooltips</span>
+                </label>
+              </div>
+              <label class='field'>
+                <span>Hover delay (ms)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='5000'
+                  [ngModel]='s.monacoWorkspaceEditor().hoverDelay'
+                  (ngModelChange)='s.patchMonaco({ hoverDelay: s.parseMonacoInt($event, s.monacoWorkspaceEditor().hoverDelay) })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+          
+
+      </div>

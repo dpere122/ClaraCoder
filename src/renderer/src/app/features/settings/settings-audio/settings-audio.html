@@ -1,0 +1,194 @@
+      <div class='settings-pane settings-pane--sectioned'>
+        
+        @if (s.activeSubTabId('audio') === 'provider') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Provider</span>
+                <select [ngModel]='s.audioProvider()' (ngModelChange)='s.onAudioProviderChange($event)'>
+                  <option value='openai'>OpenAI (API key)</option>
+                  <option value='google'>Google Web Speech (free, online)</option>
+                  <option value='disabled'>Disabled</option>
+                </select>
+              </label>
+              <label class='field'>
+                <span>Model</span>
+                <input
+                  type='text'
+                  [ngModel]='s.audioModel()'
+                  [disabled]='s.audioProvider() === &quot;disabled&quot; || s.audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='s.updateAudioSettings({ model: $event })'
+                />
+              </label>
+            </div>
+            @if (s.audioProvider() === 'google') {
+              <p class='settings-field-hint'>
+                No API key needed. Requires internet; audio is sent to Google's speech service. For offline use, run a
+                local Whisper server and point OpenAI mode at it.
+              </p>
+            }
+            <div class='callout'>
+              <p>
+                @if (s.audioProvider() === 'disabled') {
+                  Voice transcription is currently disabled. Text chat still works normally.
+                } @else {
+                  Audio transcription supports OpenAI-compatible endpoints. These settings are stored alongside your LLM connections.
+                }
+              </p>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('audio') === 'endpoint') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Base URL</span>
+                <input
+                  type='text'
+                  [ngModel]='s.audioBaseUrl()'
+                  [disabled]='s.audioProvider() === &quot;disabled&quot; || s.audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='s.updateAudioSettings({ baseUrl: $event })'
+                />
+              </label>
+              <label class='field'>
+                <span>API Key</span>
+                <input
+                  type='password'
+                  [ngModel]='s.audioApiKey()'
+                  [disabled]='s.audioProvider() === &quot;disabled&quot; || s.audioProvider() === &quot;google&quot;'
+                  (ngModelChange)='s.updateAudioSettings({ apiKey: $event })'
+                />
+              </label>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('audio') === 'capture') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Microphone input</span>
+                <select
+                  [ngModel]='s.talkInputDeviceId()'
+                  (ngModelChange)='s.onTalkInputDeviceIdChange($event)'
+                  title='Select microphone for talk mode'
+                  class='settings-voice-device-select'
+                >
+                  <option value='default'>Default system microphone</option>
+                  @for (d of s.talkAudioInputDevices(); track d.deviceId) {
+                    <option [value]='d.deviceId'>{{ d.label }}</option>
+                  }
+                </select>
+              </label>
+              @if (s.talkAudioInputsLoadError()) {
+                <p class='settings-field-hint'>{{ s.talkAudioInputsLoadError() }}</p>
+              }
+              <div class='field'>
+                <span>Silence before sending</span>
+                <div class='settings-voice-threshold'>
+                  <button type='button' (click)='s.decreaseTalkSilenceThreshold()' title='Decrease silence threshold'>
+                    <lucide-icon name='minus' [size]='14' />
+                  </button>
+                  <span class='settings-voice-threshold-value' title='Silence threshold (seconds)'>
+                    {{ s.talkSilenceThresholdSeconds() | number: '1.1-1' }}s
+                  </span>
+                  <button type='button' (click)='s.increaseTalkSilenceThreshold()' title='Increase silence threshold'>
+                    <lucide-icon name='plus' [size]='14' />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (s.activeSubTabId('audio') === 'tts') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>TTS provider</span>
+                <select
+                  [ngModel]='s.ttsProvider()'
+                  (ngModelChange)='s.updateAudioSettings({ ttsProvider: $event })'
+                  title='Assistant TTS backend'
+                >
+                  <option value='kokoro'>Kokoro (local)</option>
+                  <option value='openai-compatible'>OpenAI-compatible (remote)</option>
+                </select>
+              </label>
+
+              @if (s.ttsProvider() === 'openai-compatible') {
+                <label class='field'>
+                  <span>TTS base URL</span>
+                  <input
+                    type='url'
+                    [ngModel]='s.ttsBaseUrl()'
+                    (ngModelChange)='s.updateAudioSettings({ ttsBaseUrl: $event })'
+                    placeholder='http://127.0.0.1:8083'
+                    title='Host only — do not include /v1/audio/speech (added automatically)'
+                  />
+                </label>
+                <label class='field'>
+                  <span>TTS API key (optional)</span>
+                  <input
+                    type='password'
+                    [ngModel]='s.ttsApiKey()'
+                    (ngModelChange)='s.updateAudioSettings({ ttsApiKey: $event })'
+                    autocomplete='off'
+                    title='Bearer token for remote TTS, if required'
+                  />
+                </label>
+                <label class='field'>
+                  <span>Default mood / instructions (optional)</span>
+                  <input
+                    type='text'
+                    [ngModel]='s.ttsDefaultInstructions()'
+                    (ngModelChange)='s.updateAudioSettings({ ttsDefaultInstructions: $event })'
+                    placeholder='calm, helpful, slightly upbeat'
+                    title='Fallback speaking style when the model omits [[tts_mood: ...]]'
+                  />
+                </label>
+                <label class='field'>
+                  <span>Voice</span>
+                  <input
+                    type='text'
+                    [ngModel]='s.ttsVoice()'
+                    (ngModelChange)='s.updateAudioSettings({ ttsVoice: $event })'
+                    placeholder='Ryan'
+                    title='Remote speaker name (e.g. Ryan, Vivian, Serena)'
+                  />
+                </label>
+              } @else {
+                <label class='field'>
+                  <span>TTS voice</span>
+                  <select
+                    [ngModel]='s.ttsVoice()'
+                    (ngModelChange)='s.updateAudioSettings({ ttsVoice: $event })'
+                    class='settings-voice-device-select'
+                    title='Assistant TTS voice (Kokoro)'
+                  >
+                    @for (v of s.ttsVoiceChoices; track v.id) {
+                      <option [value]='v.id'>{{ v.label }}</option>
+                    }
+                  </select>
+                </label>
+              }
+
+              <label class='field'>
+                <span>Speech speed ({{ s.ttsSpeechSpeed() | number: '1.2-2' }}×)</span>
+                <input
+                  type='range'
+                  [min]='s.ttsSpeechSpeedMin'
+                  [max]='s.ttsSpeechSpeedMax'
+                  [step]='s.ttsSpeechSpeedStep'
+                  [ngModel]='s.ttsSpeechSpeed()'
+                  (ngModelChange)='s.onTtsSpeechSpeedInput($event)'
+                  title='Speech speed multiplier'
+                />
+              </label>
+            </div>
+          </div>
+        }
+          
+
+      </div>

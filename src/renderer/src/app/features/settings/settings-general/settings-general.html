@@ -1,0 +1,105 @@
+      <div class='settings-pane settings-pane--sectioned'>
+        
+        @if (s.activeSubTabId('general') === 'themes') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Theme</span>
+                <select [ngModel]='s.themeId()' (ngModelChange)='s.onThemeChange($event)'>
+                  @for (theme of s.themes; track theme.id) {
+                    <option [value]='theme.id'>{{ theme.label }}</option>
+                  }
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+        @if (s.activeSubTabId('general') === 'chat') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div
+                class='field settings-general-font'
+                title='Scales rem-based app UI text — sidebar, toolbar, dialogs, and settings. Does not change Monaco or the terminal.'
+              >
+                <span>App font size</span>
+                <app-font-control
+                  [fontSize]='s.uiFontSizeRem()'
+                  [minSize]='s.uiFontSizeRemMin'
+                  [maxSize]='s.uiFontSizeRemMax'
+                  [step]='s.uiFontSizeRemStep'
+                  [defaultSize]='s.uiFontSizeRemDefault'
+                  (fontSizeChange)='s.onUiFontSizeRemChange($event)'
+                />
+              </div>
+              <div
+                class='field settings-general-font'
+                title='Font size for message text in the chat area.'
+              >
+                <span>Chat font size</span>
+                <app-font-control
+                  [fontSize]='s.chatFontSizeRem()'
+                  (fontSizeChange)='s.onChatFontSizeRemChange($event)'
+                />
+              </div>
+              <label
+                class='field'
+                title='Content width when chat is expanded to the main panel. Sidebar chat is always full width.'
+              >
+                <span>Chat container size</span>
+                <select
+                  [ngModel]='s.chatContainerSize()'
+                  (ngModelChange)='s.onChatContainerSizeChange($event)'
+                >
+                  @for (opt of s.chatContainerSizeOptions; track opt.value) {
+                    <option [value]='opt.value'>{{ opt.label }}</option>
+                  }
+                </select>
+              </label>
+              <label
+                class='field'
+                title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
+              >
+                <span>App font</span>
+                <select
+                  [ngModel]='s.uiFontFamily()'
+                  (ngModelChange)='s.onUiFontFamilyChange($event)'
+                >
+                  @for (opt of s.uiFontFamilyOptions; track opt.stack) {
+                    <option [value]='opt.stack'>{{ opt.label }}</option>
+                  }
+                  @if (s.systemFontOptions().length > 0) {
+                    <optgroup label='System fonts'>
+                      @for (opt of s.systemFontOptions(); track opt.stack) {
+                        <option [value]='opt.stack'>{{ opt.label }}</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              </label>
+              <label
+                class='field'
+                title='Code font: applies to rendered code blocks in chat and overrides the font family set on the Monaco tab (Settings → Monaco → Typography) when not left on Theme default. Includes your OS-installed fonts under "System fonts".'
+              >
+                <span>Code font</span>
+                <select
+                  [ngModel]='s.codeFontFamily()'
+                  (ngModelChange)='s.onCodeFontFamilyChange($event)'
+                >
+                  @for (opt of s.codeFontFamilyOptions; track opt.stack) {
+                    <option [value]='opt.stack'>{{ opt.label }}</option>
+                  }
+                  @if (s.systemFontOptions().length > 0) {
+                    <optgroup label='System fonts'>
+                      @for (opt of s.systemFontOptions(); track opt.stack) {
+                        <option [value]='opt.stack'>{{ opt.label }}</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              </label>
+            </div>
+          </div>
+        }
+          
+
+      </div>

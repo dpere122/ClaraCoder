@@ -36,7 +36,7 @@ cd ClaraCoder
 npm install
 ```
 
-One root `package.json` covers Electron and the Angular UI. `postinstall` rebuilds native Electron modules (`node-pty`, `better-sqlite3`) for the pinned Electron version.
+One root `package.json` covers Electron and the Angular UI. `postinstall` rebuilds native Electron modules (`node-pty`, `better-sqlite3`) for the pinned Electron version. `npm run dev`, `npm start`, and `npm run pack` also check those addons and rebuild if they were compiled for a different Node/Electron ABI (for example after copying `node_modules` between machines). Prefer `npm install` on each device rather than copying `node_modules` across OS or CPU architectures.
 
 If you previously had a separate `src/renderer/node_modules` (or an old workspace install), clean once and reinstall:
 
@@ -224,9 +224,11 @@ To recreate from scratch: `rm -rf .venv && npm run setup:python`.
 
 Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Run `npm run setup:python` or set `CLARA_PYTHON`.
 
-### Windows native modules
+### Native modules (`better-sqlite3` / `node-pty`)
 
-`node-pty` may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm install` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
+These addons must match this repo's Electron ABI, not system Node. If you see `NODE_MODULE_VERSION` / `was compiled against a different Node.js version`, run `npm run rebuild:sqlite` (and `npm run rebuild:pty` if the terminal is broken). `npm run dev` does that check automatically.
+
+`node-pty` on Windows may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm install` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
 
 ### Kokoro / TTS errors at runtime
 

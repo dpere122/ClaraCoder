@@ -33,15 +33,6 @@ import { FIRST_THEME_ID } from '../constants';
 /** Bump when persisted `config.json` should reset LLM sources to defaults (see `migrateConfig`). */
 export const APP_CONFIG_SCHEMA_VERSION = 5;
 
-/** Seed LLM rows from env (LM Studio + llama-server defaults). */
-function getDefaultPlanRetryAttemptsCount(): number {
-  const raw = Number.parseInt(process.env.PLAN_RETRY_ATTEMPTS_COUNT || '2', 10);
-  if (Number.isNaN(raw)) {
-    return 2;
-  }
-  return Math.min(20, Math.max(0, raw));
-}
-
 function defaultLmStudioModelProfile(): LlmModelProfile {
   const defaultLmStudioModel = process.env.LM_STUDIO_MODEL || 'local-model';
   return {
@@ -57,7 +48,6 @@ function defaultLmStudioModelProfile(): LlmModelProfile {
     parallelToolCalls: false,
     optimizationPreset: 'generic',
     maxOutputTokens: 0,
-    planRetryAttemptsCount: getDefaultPlanRetryAttemptsCount(),
   };
 }
 
@@ -100,7 +90,6 @@ export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
         parallelToolCalls: false,
         optimizationPreset: 'generic',
         maxOutputTokens: 0,
-        planRetryAttemptsCount: getDefaultPlanRetryAttemptsCount(),
         llamaCppManaged: {
           ...defaultLlamaCppManaged(),
           chatRunCommand,
@@ -125,7 +114,6 @@ function defaultLlamacppUrlModelProfile(): LlmModelProfile {
     parallelToolCalls: false,
     optimizationPreset: 'generic',
     maxOutputTokens: 0,
-    planRetryAttemptsCount: getDefaultPlanRetryAttemptsCount(),
   };
 }
 

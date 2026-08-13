@@ -27,7 +27,6 @@ from clara_coder_backend.config import (
     MAX_FILE_READ_LINES,
     MAX_SEARCH_RESULTS,
     CLARA_EDIT_TOOLS_STRICT,
-    PLAN_RETRY_ATTEMPTS_COUNT,
 )
 from clara_coder_backend.domain import (
     RuntimeAudioConfig,
@@ -65,7 +64,6 @@ def build_default_runtime_config() -> RuntimeConfig:
         parallel_tool_calls=False,
         optimization_preset='generic',
         max_output_tokens=0,
-        plan_retry_attempts_count=PLAN_RETRY_ATTEMPTS_COUNT,
     )
     lmstudio_connection = RuntimeConnection(
         id='default-lmstudio',
@@ -78,7 +76,6 @@ def build_default_runtime_config() -> RuntimeConfig:
         parallel_tool_calls=False,
         optimization_preset='generic',
         max_output_tokens=0,
-        plan_retry_attempts_count=PLAN_RETRY_ATTEMPTS_COUNT,
     )
     return RuntimeConfig(
         active_connection_id=openai_connection.id,

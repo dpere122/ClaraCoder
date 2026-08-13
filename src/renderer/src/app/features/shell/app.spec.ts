@@ -49,7 +49,6 @@ function stubElectronApi(): StubRefs {
             parallelToolCalls: false,
             optimizationPreset: 'generic' as const,
             maxOutputTokens: 0,
-            planRetryAttemptsCount: 2,
           },
         ],
       },

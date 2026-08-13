@@ -21,7 +21,6 @@ def _gemma_conn() -> RuntimeConnection:
         parallel_tool_calls=False,
         optimization_preset='gemma',
         max_output_tokens=0,
-        plan_retry_attempts_count=2,
     )
 
 

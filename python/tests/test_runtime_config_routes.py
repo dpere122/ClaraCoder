@@ -25,7 +25,6 @@ def _payload(
         'parallelToolCalls': False,
         'optimizationPreset': 'generic',
         'maxOutputTokens': 0,
-        'planRetryAttemptsCount': 2,
         'thinkingMode': 'default',
         'samplingPreset': 'provider-default',
         'topP': None,

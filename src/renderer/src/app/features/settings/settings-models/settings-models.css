@@ -1,1 +1,171 @@
 /* Tab-specific styles for settings-models; shared form chrome lives in settings/settings.css */
+
+.context-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.context-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--t-fg);
+  cursor: pointer;
+}
+
+.settings-pane .field .context-mode-row input[type='radio'] {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--t-primary);
+  cursor: pointer;
+}
+
+.settings-pane .field .context-mode-row input[type='text'] {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.field > span .settings-wip {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--t-warn, #e8b931);
+}
+
+.form-grid.sampling-compact {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  max-width: 28rem;
+}
+
+.sampling-compact .field {
+  gap: 4px;
+}
+
+.sampling-compact .field:has(.toggle-row) {
+  gap: 0;
+}
+
+.sampling-compact .field:not(:has(.toggle-row)) > span {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.sampling-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sampling-compact .field-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 55%, var(--t-bg-surface));
+  color: var(--t-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1;
+  cursor: help;
+}
+
+.sampling-compact .field-help__popup {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 8;
+  width: max-content;
+  max-width: 16rem;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  border-radius: 5px;
+  background: var(--t-bg-surface);
+  color: var(--t-fg);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px color-mix(in srgb, #000 28%, transparent);
+}
+
+.sampling-compact .field-help:hover .field-help__popup,
+.sampling-compact .field-help:focus-visible .field-help__popup {
+  display: block;
+}
+
+.sampling-compact .field input:not([type='checkbox']):not([type='range']) {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.sampling-compact .temperature-row {
+  margin-top: 0;
+  gap: 8px;
+}
+
+.sampling-compact .field .temperature-row input[type='range'] {
+  min-height: 0;
+  padding: 0;
+}
+
+.sampling-compact .field .toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 3px 8px;
+  min-height: 26px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--t-bg) 65%, var(--t-bg-surface));
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.sampling-compact .field .toggle-row input[type='checkbox'],
+.sampling-compact .field .toggle-row span {
+  cursor: not-allowed;
+}
+
+.sampling-compact .field .toggle-row input[type='checkbox'] {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--t-primary);
+}
+
+.sampling-compact .field .toggle-row span {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--t-fg);
+  line-height: 1.2;
+}

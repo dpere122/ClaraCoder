@@ -22,7 +22,6 @@ def _llamacpp_conn(**kwargs: object) -> RuntimeConnection:
         'parallel_tool_calls': False,
         'optimization_preset': 'generic',
         'max_output_tokens': 0,
-        'plan_retry_attempts_count': 2,
         'embeddings_enabled': True,
     }
     base.update(kwargs)
@@ -42,7 +41,6 @@ def _lmstudio_conn(**kwargs: object) -> RuntimeConnection:
         'parallel_tool_calls': False,
         'optimization_preset': 'generic',
         'max_output_tokens': 0,
-        'plan_retry_attempts_count': 2,
         'embeddings_enabled': True,
     }
     base.update(kwargs)

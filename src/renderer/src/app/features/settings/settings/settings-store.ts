@@ -37,7 +37,6 @@ import type {
 import {
   CHAT_CONTAINER_SIZE_OPTIONS,
   CODE_FONT_FAMILY_OPTIONS,
-  CONTEXT_FIT_PRESET_LIST,
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
@@ -74,14 +73,14 @@ import {
   normalizeMonacoWorkspaceEditorSettings,
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
+  parseCustomManagedContextTokens,
+  parseManagedLlamaContextSize,
   parseManagedLlamaModelSelection,
-  suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
-  type ContextFitPresetId,
   type ManagedLlamaModelSource,
 } from '@shared/index';
 import { SecretValue, unwrapSecret } from '@shared/index';
@@ -432,9 +431,6 @@ export class SettingsStore {
   readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   readonly llamacppModelsListError = signal<string | null>(null);
   readonly llamacppModelsListInFlight = signal(false);
-  /** Conservative / Balanced / Max context suggestion for managed local Start. */
-  readonly contextFitPreset = signal<ContextFitPresetId>('balanced');
-  readonly contextFitOptions = CONTEXT_FIT_PRESET_LIST;
   /** Optional Hugging Face id (`org/repo` or `org/repo:quant`) for managed local without a local GGUF. */
   readonly managedHfIdDraft = signal('');
   readonly managedInventoryModels = computed(() => this.modelManagerCustomModels());
@@ -442,6 +438,23 @@ export class SettingsStore {
   readonly managedPickerValue = computed(() =>
     managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
   );
+  /** Max (``-c 0``) vs Custom, derived from the current chat command so the radios follow power-user edits. */
+  readonly managedContextMode = computed((): 'max' | 'custom' => {
+    const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
+    if (parsed === null || parsed === 0) {
+      return 'max';
+    }
+    return 'custom';
+  });
+  /** Token count shown in the Custom field: parsed ``-c`` when set, otherwise the profile value. */
+  readonly managedCustomContextTokensDisplay = computed((): string => {
+    const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
+    if (parsed !== null && parsed > 0) {
+      return String(parsed);
+    }
+    const tokens = this.selectedModel()?.contextWindowTokens;
+    return tokens != null ? String(tokens) : '';
+  });
 
   readonly managedSelectedFamilyLabel = computed(() => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
@@ -1262,28 +1275,6 @@ export class SettingsStore {
     }
     const clamped = Math.min(10_000_000, Math.max(1_024, n));
     this.updateSelectedModel({ contextWindowTokens: clamped });
-    const p = this.selectedProvider();
-    if (p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
-      const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-      if (cmd.trim()) {
-        this.patchLlamaCppManaged({
-          chatRunCommand: syncContextFlagInManagedChatCommand(
-            cmd,
-            clamped,
-            detectShellQuotingPlatform(),
-          ),
-        });
-      }
-    }
-  }
-
-  onPlanRetryAttemptsCountChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const clamped = Math.min(20, Math.max(0, n));
-    this.updateSelectedModel({ planRetryAttemptsCount: clamped });
   }
 
   patchLlamaCppManaged(patch: Partial<LlamaCppManaged>): void {
@@ -1339,24 +1330,41 @@ export class SettingsStore {
     }
   }
 
-  onContextFitPresetChange(fit: string): void {
-    const next: ContextFitPresetId =
-      fit === 'conservative' ? 'conservative' : fit === 'max' ? 'max' : 'balanced';
-    this.contextFitPreset.set(next);
-    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
-    const hint =
-      sel?.kind === 'gguf' ? sel.absolutePath : sel?.kind === 'hf' ? sel.hfId : this.managedHfIdDraft();
-    if (!hint.trim()) {
+  onManagedContextModeChange(mode: string): void {
+    if (mode === 'max') {
+      this.syncManagedChatContextFlag(0);
       return;
     }
-    const ctx = suggestContextWindowTokens(hint, next, 'llamacpp');
-    this.updateSelectedModel({ contextWindowTokens: ctx });
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (cmd.trim()) {
-      this.patchLlamaCppManaged({
-        chatRunCommand: syncContextFlagInManagedChatCommand(cmd, ctx, detectShellQuotingPlatform()),
-      });
+    if (mode !== 'custom') {
+      return;
     }
+    const n =
+      parseCustomManagedContextTokens(this.managedCustomContextTokensDisplay()) ??
+      parseCustomManagedContextTokens(this.selectedModel()?.contextWindowTokens ?? '');
+    if (n === null) {
+      return;
+    }
+    this.updateSelectedModel({ contextWindowTokens: n });
+    this.syncManagedChatContextFlag(n);
+  }
+
+  onManagedCustomContextTokensChange(raw: string): void {
+    const n = parseCustomManagedContextTokens(raw);
+    if (n === null) {
+      return;
+    }
+    this.updateSelectedModel({ contextWindowTokens: n });
+    this.syncManagedChatContextFlag(n);
+  }
+
+  private syncManagedChatContextFlag(ctx: number): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncContextFlagInManagedChatCommand(cmd, ctx, detectShellQuotingPlatform()),
+    });
   }
 
   resetManagedToRecommended(): void {
@@ -1610,20 +1618,22 @@ export class SettingsStore {
       return;
     }
     const hint = managedLlamaSourceHint(source);
-    const fit = this.contextFitPreset();
-    const ctx = suggestContextWindowTokens(hint, fit, 'llamacpp');
     const preset = inferOptimizationPresetFromModelHint(hint);
-    const chatRunCommand = buildManagedLlamaChatCommand(source, ctx, detectShellQuotingPlatform());
+    const base = model.llamaCppManaged ?? defaultLlamaCppManaged();
+    const existingCtx = parseManagedLlamaContextSize(base.chatRunCommand);
+    const ctxForCmd = existingCtx === null || existingCtx === 0 ? 0 : existingCtx;
+    const ctxForProfile =
+      ctxForCmd > 0 ? ctxForCmd : inferContextWindowTokens(hint, 'llamacpp');
+    const chatRunCommand = buildManagedLlamaChatCommand(source, ctxForCmd, detectShellQuotingPlatform());
     if (!chatRunCommand) {
       return;
     }
-    const base = model.llamaCppManaged ?? defaultLlamaCppManaged();
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;
     this.applyLlmModelPatch(model.id, {
       ...patch,
       name: hint,
       model: model.model || 'local-model',
-      contextWindowTokens: ctx,
+      contextWindowTokens: ctxForProfile,
       llamaCppManaged: {
         ...base,
         chatRunCommand,
@@ -2441,7 +2451,6 @@ export class SettingsStore {
       parallelToolCalls: false,
       optimizationPreset: 'generic',
       maxOutputTokens: 0,
-      planRetryAttemptsCount: 2,
     };
     if (providerKind === 'llamacpp') {
       base.llamaCppManaged = {

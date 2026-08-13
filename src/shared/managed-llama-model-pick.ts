@@ -140,15 +140,51 @@ function resolveHfIdForSource(source: ManagedLlamaModelSource): string | null {
   return null;
 }
 
+const MANAGED_CTX_FLAG_MAX = 10_000_000;
+
+/** Clamp a ``-c`` / ``--ctx-size`` value. ``0`` means llama-server loads context from the model. */
+function clampManagedContextFlag(contextWindowTokens: number): number | null {
+  if (!Number.isFinite(contextWindowTokens)) {
+    return null;
+  }
+  return Math.min(MANAGED_CTX_FLAG_MAX, Math.max(0, Math.floor(contextWindowTokens)));
+}
+
+/**
+ * Parse a custom context token count from the Settings text field.
+ * Rejects empty, non-integers, ``0`` (that is Max), and out-of-range values.
+ */
+export function parseCustomManagedContextTokens(raw: string | number): number | null {
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1 || raw > MANAGED_CTX_FLAG_MAX) {
+      return null;
+    }
+    return raw;
+  }
+  const t = String(raw).trim();
+  if (!/^\d+$/.test(t)) {
+    return null;
+  }
+  const n = Number.parseInt(t, 10);
+  if (!Number.isFinite(n) || n < 1 || n > MANAGED_CTX_FLAG_MAX) {
+    return null;
+  }
+  return n;
+}
+
 /**
  * Build a managed chat ``llama-server`` command with ``{{PORT}}``, model load, and ``-c``.
+ * ``contextWindowTokens`` of ``0`` emits ``-c 0`` (model-native context).
  */
 export function buildManagedLlamaChatCommand(
   source: ManagedLlamaModelSource,
   contextWindowTokens: number,
   platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
 ): string {
-  const ctx = Math.min(10_000_000, Math.max(256, Math.floor(contextWindowTokens)));
+  const ctx = clampManagedContextFlag(contextWindowTokens);
+  if (ctx === null) {
+    return '';
+  }
   const argv: string[] = ['llama-server', '--host', '127.0.0.1', '--port', '{{PORT}}'];
   if (source.kind === 'gguf') {
     const path = source.absolutePath.trim();
@@ -196,9 +232,27 @@ export function parseManagedLlamaModelSelection(
   return null;
 }
 
+/** Parse ``-c`` / ``--ctx-size`` from a managed chat command. ``0`` is a valid Max value. */
+export function parseManagedLlamaContextSize(cmd: string): number | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = /(?:^|[\s"'])(?:--ctx-size|-c)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i.exec(t);
+  if (!m) {
+    return null;
+  }
+  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
+  if (!/^-?\d+$/.test(raw)) {
+    return null;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * Replace ``-c`` / ``--ctx-size`` in a command, or append ``-c`` when missing.
- * Leaves the rest of the command intact for power-user edits.
+ * Leaves the rest of the command intact for power-user edits. ``0`` is allowed (model max).
  */
 export function syncContextFlagInManagedChatCommand(
   cmd: string,
@@ -209,10 +263,13 @@ export function syncContextFlagInManagedChatCommand(
   if (!trimmed) {
     return trimmed;
   }
-  const ctx = Math.min(10_000_000, Math.max(256, Math.floor(contextWindowTokens)));
+  const ctx = clampManagedContextFlag(contextWindowTokens);
+  if (ctx === null) {
+    return trimmed;
+  }
   const ctxStr = String(ctx);
   const replaced = trimmed.replace(
-    /(^|[\s"'])((-c|--ctx-size)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i,
+    /(^|[\s"'])((--ctx-size|-c)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i,
     (_full, lead: string, _flagged: string, flag: string) => `${lead}${flag} ${ctxStr}`,
   );
   if (replaced !== trimmed) {
@@ -231,13 +288,13 @@ export function formatReadyDefaultsSummary(opts: {
       ? `${Math.round(opts.contextWindowTokens / 1024)}k`
       : String(opts.contextWindowTokens);
   if (opts.preset === 'qwen') {
-    return `Qwen preset · ctx ${ctxLabel} · temp ${QWEN_PRESET_DEFAULTS.temperature} · top_p ${QWEN_PRESET_DEFAULTS.topP} · top_k ${QWEN_PRESET_DEFAULTS.topK} · repeat_penalty ${QWEN_PRESET_DEFAULTS.repeatPenalty} · Jinja template on Start`;
+    return `Qwen · ctx ${ctxLabel} · temp ${QWEN_PRESET_DEFAULTS.temperature}`;
   }
   if (opts.preset === 'gemma') {
-    return `Gemma preset · ctx ${ctxLabel} · temp ${GEMMA_PRESET_DEFAULTS.temperature} · top_p ${GEMMA_PRESET_DEFAULTS.topP} · top_k ${GEMMA_PRESET_DEFAULTS.topK} · Jinja template on Start`;
+    return `Gemma · ctx ${ctxLabel} · temp ${GEMMA_PRESET_DEFAULTS.temperature}`;
   }
   if (opts.preset === 'capable') {
-    return `Capable API · ctx ${ctxLabel} · parallel tool calls on`;
+    return `Capable API · ctx ${ctxLabel}`;
   }
   return `Generic · ctx ${ctxLabel}`;
 }

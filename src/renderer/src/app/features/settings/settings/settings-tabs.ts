@@ -17,8 +17,7 @@ export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description:
   {
     id: 'models',
     label: 'Models',
-    description:
-      'Pick a Model Manager GGUF or HF id on the local llama-server source, apply ready defaults, and Start. LM Studio and remote URL remain available.',
+    description: 'Chat sources, model defaults, and Start.',
   },
   {
     id: 'modelManager',

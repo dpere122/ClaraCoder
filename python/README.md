@@ -129,7 +129,6 @@ Staged code review does not run pytest; use `run_command` on the outer agent whe
 | `LM_STUDIO_MODEL`           | Default LM Studio model id (default `local-model`).                                                                                                  |
 | `LM_STUDIO_API_KEY`         | Optional key for local server (default placeholder `lm-studio` if unset).                                                                            |
 | `CLARA_TRANSCRIBE_MODEL`     | OpenAI transcription model (default `gpt-4o-mini-transcribe`).                                                                                       |
-| `PLAN_RETRY_ATTEMPTS_COUNT` | Reserved default for project-review retry budgeting (default `2`; outer agent uses review tools directly).                                      |
 
 
 ## Dependencies

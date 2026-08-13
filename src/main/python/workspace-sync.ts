@@ -151,7 +151,6 @@ function connectionToRuntimeWire(
     parallelToolCalls: c.parallelToolCalls,
     optimizationPreset: c.optimizationPreset,
     maxOutputTokens: c.maxOutputTokens,
-    planRetryAttemptsCount: c.planRetryAttemptsCount,
     thinkingMode: c.thinkingMode,
     samplingPreset: c.samplingPreset,
     topP: c.topP ?? null,

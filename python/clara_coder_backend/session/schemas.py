@@ -272,7 +272,6 @@ class RuntimeConnectionRequest(BaseModel):
     parallelToolCalls: bool = False
     optimizationPreset: Literal['generic', 'qwen', 'capable', 'gemma'] = 'generic'
     maxOutputTokens: int = Field(default=0, ge=0, le=200_000)
-    planRetryAttemptsCount: int = Field(default=2, ge=0, le=20)
     thinkingMode: Literal['default', 'on', 'off'] = 'default'
     samplingPreset: Literal['provider-default', 'gemma-recommended', 'custom'] = 'provider-default'
     topP: float | None = Field(default=None, ge=0.0, le=1.0)

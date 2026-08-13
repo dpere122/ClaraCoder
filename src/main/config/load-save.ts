@@ -237,7 +237,6 @@ function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
     parallelToolCalls,
     optimizationPreset,
     maxOutputTokens,
-    planRetryAttemptsCount,
     embeddingsModel,
     embeddingsBaseUrl,
   } = row;
@@ -259,7 +258,6 @@ function legacyFlatRowToProvider(row: LlmConnectionConfig): LlmProviderConfig {
     parallelToolCalls,
     optimizationPreset,
     maxOutputTokens,
-    planRetryAttemptsCount,
   };
   const embBase = (embeddingsBaseUrl ?? '').trim();
   return {
@@ -333,7 +331,8 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
       migrated = true;
     }
   }
-  if (model.parallelToolCalls !== true && model.parallelToolCalls !== false) {
+  // Parked: parallel tool calling is in construction; keep the stored flag off.
+  if (model.parallelToolCalls !== false) {
     model.parallelToolCalls = false;
     migrated = true;
   }
@@ -457,15 +456,9 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
       migrated = true;
     }
   }
-  if (typeof model.planRetryAttemptsCount !== 'number' || Number.isNaN(model.planRetryAttemptsCount)) {
-    model.planRetryAttemptsCount = 2;
+  if (Object.prototype.hasOwnProperty.call(model, 'planRetryAttemptsCount')) {
+    delete (model as LlmModelProfile & { planRetryAttemptsCount?: unknown }).planRetryAttemptsCount;
     migrated = true;
-  } else {
-    const attempts = Math.min(20, Math.max(0, Math.floor(model.planRetryAttemptsCount)));
-    if (attempts !== model.planRetryAttemptsCount) {
-      model.planRetryAttemptsCount = attempts;
-      migrated = true;
-    }
   }
   if (provider.provider === 'llamacpp') {
     if (normalizeLlamaCppManagedField(model)) {
@@ -595,7 +588,6 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
           parallelToolCalls: false,
           optimizationPreset: 'generic',
           maxOutputTokens: 0,
-          planRetryAttemptsCount: 2,
         },
       ];
       migrated = true;

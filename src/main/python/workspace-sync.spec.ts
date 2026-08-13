@@ -18,7 +18,6 @@ function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnecti
     parallelToolCalls: false,
     optimizationPreset: 'generic',
     maxOutputTokens: 0,
-    planRetryAttemptsCount: 2,
     ...overrides,
   };
 }

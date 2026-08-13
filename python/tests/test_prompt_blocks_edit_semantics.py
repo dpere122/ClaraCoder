@@ -22,7 +22,6 @@ def _conn() -> RuntimeConnection:
         parallel_tool_calls=False,
         optimization_preset='generic',
         max_output_tokens=0,
-        plan_retry_attempts_count=2,
     )
 
 

@@ -269,8 +269,6 @@ class RuntimeConnection:
     optimization_preset: str = 'generic'
     #: Chat max_tokens when > 0; 0 means use preset/env defaults.
     max_output_tokens: int = 0
-    #: Max number of final project-review retry attempts for this connection.
-    plan_retry_attempts_count: int = 2
     #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
     thinking_mode: str = 'default'
     #: Legacy sampling-preset label (UI removed); inference uses ``top_p`` / ``top_k`` directly.

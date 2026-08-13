@@ -164,7 +164,7 @@ export interface LlmModelProfile {
   architectureHint: GemmaArchitectureHint;
   /** Sampling temperature for chat completions (0–1). */
   temperature: number;
-  /** When true, the model may request multiple tool calls in one completion. */
+  /** When true, the model may request multiple tool calls in one completion. Parked off (in construction). */
   parallelToolCalls: boolean;
   /**
    * Optimization template (e.g. Qwen). "generic" uses normal settings; for Qwen models you can still
@@ -175,8 +175,6 @@ export interface LlmModelProfile {
    * Hard cap on completion length sent to the API (max_tokens). 0 = let the backend choose (preset/env defaults).
    */
   maxOutputTokens: number;
-  /** Max final project-review retry attempts for this model preset. */
-  planRetryAttemptsCount: number;
   /** Managed ``llama-server`` launch profile (``llamacpp`` provider). */
   llamaCppManaged?: LlamaCppManaged;
 }

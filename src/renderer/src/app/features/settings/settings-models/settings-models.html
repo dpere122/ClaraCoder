@@ -55,12 +55,10 @@
                 </div>
               } @empty {
                 <div class='empty-state'>
-                  <p>No sources configured.</p>
+                  <p>No sources.</p>
                 </div>
               }
             </div>
-
-            <p class='settings-copy sources-hint'>Built-in sources: LM Studio, remote llama-server (LAN), and managed llama-server on this machine. Pick a local model on the managed source to Start with recommended settings. Click a row to edit; use the radio (or <strong>Use for chat</strong>) to activate.</p>
           </div>
 
           <div class='settings-editor'>
@@ -69,7 +67,6 @@
                 <div>
                   <p class='settings-eyebrow'>Source</p>
                   <h4>{{ s.selectedProvider() ? s.sourceDisplayName(s.selectedProvider()!) : '' }}</h4>
-                  <p class='panel__copy'>Saved in <code>config.json</code> and synced to Python. Click a row to edit; use the radio on the left to choose which source chat uses.</p>
                 </div>
               </div>
 
@@ -78,8 +75,7 @@
               @if (connection.provider === 'lmstudio') {
                 <div class='form-section'>
                   <div class='form-section__header'>
-                    <h5>LM Studio connection</h5>
-                    <p class='settings-copy'>OpenAI-compatible base URL. Use <strong>Connect</strong> to list models from the local LM Studio API.</p>
+                    <h5>Connection</h5>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
@@ -94,6 +90,7 @@
                       <span>Base URL</span>
                       <input
                         type='text'
+                        placeholder='http://127.0.0.1:1234/v1'
                         [ngModel]='s.selectedProvider()!.baseUrl'
                         (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
                       />
@@ -129,12 +126,11 @@
 
                 <div class='form-section'>
                   <div class='form-section__header'>
-                    <h5>Models in LM Studio</h5>
-                    <p class='settings-copy'>Pick chat and embedding model ids, then load into LM Studio if needed.</p>
+                    <h5>Models</h5>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
-                      <span>Main model (chat)</span>
+                      <span>Chat model</span>
                       <select
                         [ngModel]='s.selectedModel()!.model'
                         (ngModelChange)='s.onModelApiIdChange($event)'
@@ -153,7 +149,7 @@
                         [ngModel]='s.selectedProvider()!.embeddingsModel ?? ""'
                         (ngModelChange)='s.updateSelectedProvider({ embeddingsModel: $event || undefined })'
                       >
-                        <option value=''>— None (env default) —</option>
+                        <option value=''>None</option>
                         @for (opt of s.lmStudioEmbeddingModelOptions(); track opt.id) {
                           <option [value]='opt.id'>{{ opt.id }} — {{ opt.state }}</option>
                         }
@@ -165,10 +161,10 @@
                         class='action-button action-button--primary'
                         [disabled]='s.lmStudioLoadDisabled() || s.lmStudioListInFlight()'
                         (click)='s.loadLmStudioSelectedModels()'
+                        title='Disabled when the selected models are already loaded'
                       >
                         Load model(s)
                       </button>
-                      <p class='settings-copy' style='margin-top: 0.35rem'>Disabled when selected models are already loaded.</p>
                     </div>
                   </div>
                 </div>
@@ -177,8 +173,7 @@
                   <hr class='settings-divider' />
                   <div class='form-section'>
                     <div class='form-section__header'>
-                      <h5>Loaded models</h5>
-                      <p class='settings-copy'>Unload uses LM Studio’s API (local server only).</p>
+                      <h5>Loaded</h5>
                     </div>
                     <div class='lm-loaded-grid'>
                       @for (card of s.lmStudioLoadedCards(); track card.id) {
@@ -211,8 +206,7 @@
               } @else if (connection.provider === 'llamacpp' && s.isUrlOnlyLlamacpp()) {
                 <div class='form-section'>
                   <div class='form-section__header'>
-                    <h5>Llama server connection</h5>
-                    <p class='settings-copy'>Chat completions base URL (e.g. <code>http://192.168.1.10:8080/v1</code>) and optional separate embeddings base URL (e.g. <code>http://192.168.1.10:8081/v1</code>). Use <strong>Connect</strong> to list models: chat models from the chat URL, embedding models from the embeddings URL when it differs.</p>
+                    <h5>Connection</h5>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
@@ -224,23 +218,25 @@
                       />
                     </label>
                     <label class='field field--full'>
-                      <span>Base URL (chat)</span>
+                      <span>Chat URL</span>
                       <input
                         type='text'
+                        placeholder='http://192.168.1.10:8080/v1'
                         [ngModel]='s.selectedProvider()!.baseUrl'
                         (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
                       />
                     </label>
                     <label class='field field--full'>
-                      <span>Embeddings base URL</span>
+                      <span>Embeddings URL</span>
                       <input
                         type='text'
+                        placeholder='http://192.168.1.10:8081/v1'
                         [ngModel]='s.selectedProvider()!.embeddingsBaseUrl ?? ""'
                         (ngModelChange)='s.updateSelectedProvider({ embeddingsBaseUrl: $event || undefined })'
                       />
                     </label>
                     <label class='field field--full'>
-                      <span>API key (optional)</span>
+                      <span>API key</span>
                       <input
                         type='password'
                         [ngModel]='s.selectedProvider()!.apiKey'
@@ -277,12 +273,11 @@
                 </div>
                 <div class='form-section'>
                   <div class='form-section__header'>
-                    <h5>Models from llama-server</h5>
-                    <p class='settings-copy'>Choose chat and (optional) embedding model ids. <strong>Connect</strong> loads chat models from the chat URL and embedding models from the embeddings URL when it is set and different.</p>
+                    <h5>Models</h5>
                   </div>
                   <div class='form-grid'>
                     <label class='field field--full'>
-                      <span>Main model (chat)</span>
+                      <span>Chat model</span>
                       <select
                         [ngModel]='s.selectedModel()!.model'
                         (ngModelChange)='s.onModelApiIdChange($event)'
@@ -296,12 +291,12 @@
                       </select>
                     </label>
                     <label class='field field--full'>
-                      <span>Embedding model (optional)</span>
+                      <span>Embedding model</span>
                       <select
                         [ngModel]='s.selectedProvider()!.embeddingsModel ?? ""'
                         (ngModelChange)='s.updateSelectedProvider({ embeddingsModel: $event || undefined })'
                       >
-                        <option value=''>— None (env default) —</option>
+                        <option value=''>None</option>
                         @if ((s.selectedProvider()?.embeddingsModel || "") && !s.llamacppUrlEmbeddingModelIds().includes((s.selectedProvider()?.embeddingsModel) || "")) {
                           <option [value]='s.selectedProvider()!.embeddingsModel'>{{ s.selectedProvider()!.embeddingsModel }} (current)</option>
                         }
@@ -315,15 +310,12 @@
               } @else if (connection.provider === 'llamacpp') {
                 <div class='form-section model-run-hero'>
                   <div class='form-section__header'>
-                    <h5>Run this model</h5>
-                    <p class='settings-copy'>
-                      Pick a model from Model Manager (or an HF id). Clara fills recommended settings and the Start command.
-                    </p>
+                    <h5>Model</h5>
                   </div>
 
                   @if (s.managedInventoryModels().length === 0 && !s.managedPickerValue()) {
                     <div class='empty-state empty-state--compact model-run-hero__empty'>
-                      <p>No local models yet — open Model Manager to download or add GGUF files.</p>
+                      <p>No local models. Add a GGUF in Model Manager.</p>
                       <button type='button' class='action-button action-button--primary' (click)='s.openModelManagerTab()'>
                         Open Model Manager
                       </button>
@@ -358,7 +350,7 @@
                         [ngModel]='s.managedPickerValue()'
                         (ngModelChange)='s.onManagedInventoryPick($event)'
                       >
-                        <option value=''>— Select a local model —</option>
+                        <option value=''>Select a model</option>
                         @for (model of s.managedInventoryModels(); track model.absolutePath) {
                           <option [value]='s.managedInventoryOptionValue(model)'>
                             {{ model.fileName }} · {{ s.formatModelBytes(model.sizeBytes) }} · {{ s.managedInventoryFamilyLabel(model) }}
@@ -374,13 +366,12 @@
               } @else {
                 <div class='form-section'>
                   <div class='form-section__header'>
-                    <h5>OpenAI-compatible source</h5>
-                    <p class='settings-copy'>Endpoint and API key for this source. One chat model id per source.</p>
+                    <h5>Connection</h5>
                   </div>
 
                   <div class='form-grid'>
                     <label class='field field--full'>
-                      <span>Source name</span>
+                      <span>Name</span>
                       <input
                         type='text'
                         [ngModel]='s.selectedProvider()!.name'
@@ -389,11 +380,11 @@
                     </label>
 
                     <label class='field'>
-                      <span>Provider type</span>
+                      <span>Type</span>
                       <select [ngModel]='s.selectedProvider()!.provider' (ngModelChange)='s.onProviderKindChange($event)'>
                         <option value='openai'>OpenAI</option>
                         <option value='lmstudio'>LM Studio</option>
-                        <option value='llamacpp'>llama.cpp (OpenAI server)</option>
+                        <option value='llamacpp'>llama.cpp</option>
                       </select>
                     </label>
 
@@ -407,7 +398,7 @@
                     </label>
 
                     <label class='field field--full'>
-                      <span>API Key</span>
+                      <span>API key</span>
                       <input
                         type='password'
                         [ngModel]='s.selectedProvider()!.apiKey'
@@ -416,7 +407,7 @@
                     </label>
 
                     <label class='field field--full'>
-                      <span>Model (API id)</span>
+                      <span>Model</span>
                       <input type='text' [ngModel]='s.selectedModel()!.model' (ngModelChange)='s.onModelApiIdChange($event)' />
                     </label>
                   </div>
@@ -432,7 +423,7 @@
                 </div>
                 <div class='form-grid'>
                   <label class='field field--full'>
-                    <span>Optimization template</span>
+                    <span>Template</span>
                     <select
                       [ngModel]='connection.optimizationPreset'
                       (ngModelChange)='s.onOptimizationPresetChange($event)'
@@ -444,52 +435,79 @@
                   </label>
 
                   @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
+                    <div class='field field--full'>
+                      <span>Context</span>
+                      <div class='context-mode-row'>
+                        <label class='context-mode-option' title='Model-native context (-c 0)'>
+                          <input
+                            type='radio'
+                            name='managedContextMode'
+                            value='max'
+                            [ngModel]='s.managedContextMode()'
+                            (ngModelChange)='s.onManagedContextModeChange($event)'
+                          />
+                          Max
+                        </label>
+                        <label class='context-mode-option' title='Sets -c from the token field'>
+                          <input
+                            type='radio'
+                            name='managedContextMode'
+                            value='custom'
+                            [ngModel]='s.managedContextMode()'
+                            (ngModelChange)='s.onManagedContextModeChange($event)'
+                          />
+                          Custom
+                        </label>
+                        <input
+                          type='text'
+                          inputmode='numeric'
+                          autocomplete='off'
+                          spellcheck='false'
+                          placeholder='e.g. 8192'
+                          [disabled]='s.managedContextMode() !== "custom"'
+                          [ngModel]='s.managedCustomContextTokensDisplay()'
+                          (ngModelChange)='s.onManagedCustomContextTokensChange($event)'
+                        />
+                      </div>
+                    </div>
+                  } @else {
                     <label class='field'>
-                      <span>Context fit</span>
-                      <select [ngModel]='s.contextFitPreset()' (ngModelChange)='s.onContextFitPresetChange($event)'>
-                        @for (fit of s.contextFitOptions; track fit.id) {
-                          <option [value]='fit.id'>{{ fit.label }}</option>
-                        }
-                      </select>
+                      <span>Context</span>
+                      <input
+                        type='number'
+                        min='1024'
+                        max='10000000'
+                        step='1024'
+                        [ngModel]='connection.contextWindowTokens'
+                        (ngModelChange)='s.onContextWindowTokensChange($event)'
+                      />
                     </label>
                   }
 
-                  <label class='field'>
-                    <span>Context window tokens</span>
-                    <input
-                      type='number'
-                      min='1024'
-                      max='10000000'
-                      step='1024'
-                      [ngModel]='connection.contextWindowTokens'
-                      (ngModelChange)='s.onContextWindowTokensChange($event)'
-                    />
-                  </label>
-
                   @if (connection.optimizationPreset === 'gemma') {
                     <label class='field field--full'>
-                      <span>Gemma thinking</span>
+                      <span>Thinking</span>
                       <select
                         [ngModel]='connection.thinkingMode'
                         (ngModelChange)='s.updateSelectedModel({ thinkingMode: $event })'
                       >
-                        <option value='default'>Default (no extra hint)</option>
-                        <option value='on'>On (encourage structured reasoning)</option>
-                        <option value='off'>Off (prefer direct answers)</option>
+                        <option value='default'>Default</option>
+                        <option value='on'>On</option>
+                        <option value='off'>Off</option>
                       </select>
                     </label>
                   }
 
                   @if (connection.optimizationPreset !== 'gemma') {
                     <label class='field field--full'>
-                      <span>Reasoning effort</span>
+                      <span>Reasoning</span>
                       <select
                         [ngModel]='connection.reasoningEffort || ""'
                         (ngModelChange)='s.updateSelectedModel({ reasoningEffort: $event })'
                       >
-                        <option value=''>Default (omit)</option>
-                        <option value='on'>on (→ medium)</option>
-                        <option value='off'>off (→ none)</option>
+                        <option value=''>Default</option>
+                        <option value='on'>on → medium</option>
+                        <option value='off'>off → none</option>
                         <option value='none'>none</option>
                         <option value='minimal'>minimal</option>
                         <option value='low'>low</option>
@@ -507,15 +525,11 @@
               <details class='advanced-tuning'>
                 <summary>Advanced</summary>
                 <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Power-user options</h5>
-                    <p class='settings-copy'>Sampling, tool-call behavior, and (for managed local) raw server commands.</p>
-                  </div>
 
                 @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
                   <div class='form-grid' style='margin-bottom: 1rem'>
                     <label class='field field--full'>
-                      <span>API key (optional)</span>
+                      <span>API key</span>
                       <input
                         type='password'
                         [ngModel]='s.selectedProvider()!.apiKey'
@@ -523,9 +537,9 @@
                       />
                     </label>
                     <label class='field field--full'>
-                      <span>Chat llama-server command</span>
+                      <span>Chat command</span>
                       <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        Must include exactly one <code>{{ s.managedLlamaPortToken }}</code>. Generated when you pick a model; edit freely.
+                        Must include one <code>{{ s.managedLlamaPortToken }}</code>.
                       </p>
                       <textarea
                         rows='4'
@@ -535,12 +549,12 @@
                       ></textarea>
                     </label>
                     <label class='field field--full'>
-                      <span>Embedding llama-server command (optional)</span>
+                      <span>Embedding command</span>
                       <textarea
                         rows='3'
                         [ngModel]='s.selectedLlamaCppManaged().embeddingRunCommand'
                         (ngModelChange)='s.patchLlamaCppManaged({ embeddingRunCommand: $event })'
-                        [placeholder]="'Leave empty to skip; e.g. llama-server --embedding --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' -m embed.gguf'"
+                        [placeholder]="'optional; include ' + s.managedLlamaPortToken"
                       ></textarea>
                     </label>
                     <div class='field field--full'>
@@ -550,45 +564,33 @@
                         [disabled]='!s.selectedLlamaCppManaged().chatRunCommand.trim()'
                         (click)='s.resetManagedToRecommended()'
                       >
-                        Reset to recommended
+                        Reset defaults
                       </button>
                     </div>
                   </div>
                 }
 
-                <div class='form-grid'>
+                <div class='form-grid sampling-compact'>
                   <label class='field'>
-                    <span>Max output tokens</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      0 = automatic (preset defaults or server). Set a positive value to cap completion length (API max_tokens).
-                    </p>
+                    <span class='sampling-label'>
+                      Max output 0–200k
+                      <span class='field-help' tabindex='0' aria-label='0 is no max output limit.'>
+                        ?
+                        <span class='field-help__popup' role='tooltip'>0 is no max output limit.</span>
+                      </span>
+                    </span>
                     <input
                       type='number'
                       min='0'
                       max='200000'
                       step='256'
+                      placeholder='0 = auto'
                       [ngModel]='connection.maxOutputTokens'
                       (ngModelChange)='s.onMaxOutputTokensChange($event)'
                     />
                   </label>
-
                   <label class='field'>
-                    <span>PLAN_RETRY_ATTEMPTS_COUNT</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      Max number of final project-review retry passes this preset can trigger after the initial review fails.
-                    </p>
-                    <input
-                      type='number'
-                      min='0'
-                      max='20'
-                      step='1'
-                      [ngModel]='connection.planRetryAttemptsCount'
-                      (ngModelChange)='s.onPlanRetryAttemptsCountChange($event)'
-                    />
-                  </label>
-
-                  <label class='field field--full'>
-                    <span>Temperature (0–1): {{ s.formatTemperature(connection.temperature) }}</span>
+                    <span>Temp 0–1</span>
                     <div class='temperature-row'>
                       <input
                         type='range'
@@ -609,114 +611,80 @@
                       />
                     </div>
                   </label>
-
-                  <div class='field field--full optional-sampling'>
-                    <span>Optional sampling</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      Leave a field empty to omit it from chat requests.
-                      <code>top_k</code>, <code>min_p</code>, and <code>repeat_penalty</code> are sent in the request body the way local OpenAI-compatible servers (for example <code>llama-server</code>) expect.
-                      <code>repeat_penalty</code> is the llama.cpp JSON name (some apps call the same knob <code>repetition_penalty</code>).
-                    </p>
-                    <div class='optional-sampling-grid'>
-                      <label class='field'>
-                        <span>top_p (0–1)</span>
-                        <input
-                          type='number'
-                          min='0'
-                          max='1'
-                          step='0.01'
-                          placeholder='omit'
-                          [ngModel]='connection.topP'
-                          (ngModelChange)='s.onOptionalTopPChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>top_k (1–256)</span>
-                        <input
-                          type='number'
-                          min='1'
-                          max='256'
-                          step='1'
-                          placeholder='omit'
-                          [ngModel]='connection.topK'
-                          (ngModelChange)='s.onOptionalTopKChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>min_p (0–1)</span>
-                        <input
-                          type='number'
-                          min='0'
-                          max='1'
-                          step='0.01'
-                          placeholder='omit'
-                          [ngModel]='connection.minP'
-                          (ngModelChange)='s.onOptionalMinPChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>Presence penalty (−2–2)</span>
-                        <input
-                          type='number'
-                          min='-2'
-                          max='2'
-                          step='0.05'
-                          placeholder='omit'
-                          [ngModel]='connection.presencePenalty'
-                          (ngModelChange)='s.onOptionalPresencePenaltyChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>Repeat penalty (0.01–4)</span>
-                        <input
-                          type='number'
-                          min='0.01'
-                          max='4'
-                          step='0.05'
-                          placeholder='omit'
-                          [ngModel]='connection.repeatPenalty'
-                          (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)'
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class='field field--full'>
-                    <span>Parallel tool calls</span>
-                    <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                      When enabled, the model may request several tools in one completion. The <strong>Qwen</strong> optimization template turns this off in the UI and the backend keeps a single-tool call path stable for that profile.
-                    </p>
+                  <label class='field'>
+                    <span>top_p 0–1</span>
+                    <input
+                      type='number'
+                      min='0'
+                      max='1'
+                      step='0.01'
+                      placeholder='omit'
+                      [ngModel]='connection.topP'
+                      (ngModelChange)='s.onOptionalTopPChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>top_k 1–256</span>
+                    <input
+                      type='number'
+                      min='1'
+                      max='256'
+                      step='1'
+                      placeholder='omit'
+                      [ngModel]='connection.topK'
+                      (ngModelChange)='s.onOptionalTopKChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>min_p 0–1</span>
+                    <input
+                      type='number'
+                      min='0'
+                      max='1'
+                      step='0.01'
+                      placeholder='omit'
+                      [ngModel]='connection.minP'
+                      (ngModelChange)='s.onOptionalMinPChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>Presence −2–2</span>
+                    <input
+                      type='number'
+                      min='-2'
+                      max='2'
+                      step='0.05'
+                      placeholder='omit'
+                      [ngModel]='connection.presencePenalty'
+                      (ngModelChange)='s.onOptionalPresencePenaltyChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>Repeat 0.01–4</span>
+                    <input
+                      type='number'
+                      min='0.01'
+                      max='4'
+                      step='0.05'
+                      placeholder='omit'
+                      [ngModel]='connection.repeatPenalty'
+                      (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)'
+                    />
+                  </label>
+                  <div class='field'>
+                    <span>Parallel tool calls <span class='settings-wip'>in construction</span></span>
                     <label class='toggle-row'>
-                      <input
-                        type='checkbox'
-                        [ngModel]='connection.parallelToolCalls'
-                        (ngModelChange)='s.updateSelectedModel({ parallelToolCalls: $event })'
-                      />
-                      <span>Allow parallel tool calls</span>
+                      <input type='checkbox' disabled />
+                      <span>Off</span>
                     </label>
                   </div>
                 </div>
               </div>
               </details>
 
-              <hr class='settings-divider' />
-
-              <div class='callout'>
-                <p>
-                  @if (connection.provider === 'lmstudio') {
-                    LM Studio works well with `http://127.0.0.1:1234/v1`, and the default key can stay `lm-studio` unless your local server expects something else.
-                  } @else if (connection.provider === 'llamacpp' && s.isUrlOnlyLlamacpp()) {
-                    Point at a running remote <code>llama-server</code>, then Connect to list models. Use the radio on the left (or <strong>Use for chat</strong>) to activate this source.
-                  } @else if (connection.provider === 'llamacpp') {
-                    Pick a model above and press <strong>Start</strong>. Ports are chosen automatically. Raw commands live under Advanced.
-                  } @else {
-                    OpenAI providers require a valid API key unless you rely on the backend environment fallback.
-                  }
-                </p>
-              </div>
             } @else {
               <div class='empty-state'>
-                <p>Select a source from the list to edit it.</p>
+                <p>Select a source.</p>
               </div>
             }
           </div>

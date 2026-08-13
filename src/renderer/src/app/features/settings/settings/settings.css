@@ -1869,6 +1869,25 @@ button.linkish {
   background: color-mix(in srgb, var(--t-primary) 7%, var(--t-bg-surface));
 }
 
+.settings-pane--sectioned .field .toggle-row:has(input:disabled),
+.settings-pane--monaco .field .toggle-row:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.settings-pane--sectioned .field .toggle-row:has(input:disabled):hover,
+.settings-pane--monaco .field .toggle-row:has(input:disabled):hover {
+  border-color: color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 65%, var(--t-bg-surface));
+}
+
+.settings-pane--sectioned .field .toggle-row:has(input:disabled) input,
+.settings-pane--sectioned .field .toggle-row:has(input:disabled) span,
+.settings-pane--monaco .field .toggle-row:has(input:disabled) input,
+.settings-pane--monaco .field .toggle-row:has(input:disabled) span {
+  cursor: not-allowed;
+}
+
 .settings-pane--sectioned .field .toggle-row:has(input:checked),
 .settings-pane--monaco .field .toggle-row:has(input:checked) {
   border-color: color-mix(in srgb, var(--t-primary) 58%, transparent);

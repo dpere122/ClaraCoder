@@ -27,7 +27,7 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     id: 'capable',
     label: 'Capable API',
     description:
-      'For OpenAI and similar APIs that handle parallel tool calls well: enables parallel tool calls by default and adds prompt hints to batch independent reads.',
+      'For OpenAI and similar APIs that handle parallel tool calls well. Parallel tool calling is in construction and stays off.',
     providers: ['openai', 'lmstudio', 'llamacpp'],
   },
   {
@@ -69,7 +69,8 @@ export const QWEN_PRESET_DEFAULTS = {
 
 /** Defaults applied when the user picks the Capable API optimization template. */
 export const CAPABLE_PRESET_DEFAULTS = {
-  parallelToolCalls: true,
+  /** Parked off while parallel tool calling is in construction. */
+  parallelToolCalls: false,
 } as const;
 
 /** Defaults applied when the user picks the Gemma (local) optimization template. */

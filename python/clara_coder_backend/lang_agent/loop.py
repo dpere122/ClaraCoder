@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 
 class AgentLoopOutcome(str, Enum):
@@ -76,33 +75,3 @@ class LangGraphWorkerOutcome:
         self.final_text = final_text
         if partial_text:
             self.partial_text = partial_text
-
-
-class NestedWorkerRunState(str, Enum):
-    """Structured result for one nested worker attempt (legacy nested-router types)."""
-
-    COMPLETED = 'completed'
-    RETRY = 'retry'
-    RETRY_EXHAUSTED = 'retry_exhausted'
-    ABORTED = 'aborted'
-    FAILED = 'failed'
-
-
-@dataclass
-class NestedWorkerRunResult:
-    """Outcome returned by nested worker middleware for one or more attempts (legacy)."""
-
-    state: NestedWorkerRunState
-    output_text: str
-    next_task_summary: str = ''
-    reentry_attempts: int = 0
-    retry_budget: int = 0
-
-
-def normalize_retry_budget(value: Any, *, minimum: int = 0) -> int:
-    """Best-effort integer coercion for retry settings."""
-
-    try:
-        return max(minimum, int(value))
-    except Exception:
-        return minimum

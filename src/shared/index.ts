@@ -34,6 +34,8 @@ export {
   managedLlamaSourceDisplayName,
   managedPickerValueForCmd,
   optimizationPresetDefaultsPatch,
+  parseCustomManagedContextTokens,
+  parseManagedLlamaContextSize,
   parseManagedLlamaModelSelection,
   suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,

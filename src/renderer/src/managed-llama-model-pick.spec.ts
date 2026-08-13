@@ -4,6 +4,8 @@ import {
   hubCacheFolderToHfId,
   inferOptimizationPresetFromModelHint,
   optimizationPresetDefaultsPatch,
+  parseCustomManagedContextTokens,
+  parseManagedLlamaContextSize,
   parseManagedLlamaModelSelection,
   suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,
@@ -27,6 +29,28 @@ describe('inferOptimizationPresetFromModelHint', () => {
     expect(inferOptimizationPresetFromModelHint('Qwen2.5-27B-Q4_K_M.gguf')).toBe('qwen');
     expect(inferOptimizationPresetFromModelHint('google/gemma-3-12b')).toBe('gemma');
     expect(inferOptimizationPresetFromModelHint('llama-3.1-8b')).toBe('generic');
+  });
+});
+
+describe('parseCustomManagedContextTokens', () => {
+  it('accepts positive integers and rejects invalid input', () => {
+    expect(parseCustomManagedContextTokens('8192')).toBe(8192);
+    expect(parseCustomManagedContextTokens(4096)).toBe(4096);
+    expect(parseCustomManagedContextTokens(' 16384 ')).toBe(16384);
+    expect(parseCustomManagedContextTokens('0')).toBeNull();
+    expect(parseCustomManagedContextTokens('8192.5')).toBeNull();
+    expect(parseCustomManagedContextTokens('abc')).toBeNull();
+    expect(parseCustomManagedContextTokens('')).toBeNull();
+    expect(parseCustomManagedContextTokens(-1)).toBeNull();
+  });
+});
+
+describe('parseManagedLlamaContextSize', () => {
+  it('parses -c and --ctx-size including 0', () => {
+    expect(parseManagedLlamaContextSize('llama-server -c 8192 --port {{PORT}}')).toBe(8192);
+    expect(parseManagedLlamaContextSize('llama-server --ctx-size 0 --port {{PORT}}')).toBe(0);
+    expect(parseManagedLlamaContextSize('llama-server --ctx-size=4096 --port {{PORT}}')).toBe(4096);
+    expect(parseManagedLlamaContextSize('llama-server --port {{PORT}}')).toBeNull();
   });
 });
 
@@ -58,6 +82,16 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('-hf Qwen/Qwen2.5-7B-Instruct-GGUF');
     expect(cmd).toContain('-c 16384');
   });
+
+  it('emits -c 0 for model-native max context', () => {
+    const cmd = buildManagedLlamaChatCommand(
+      { kind: 'gguf', absolutePath: '/models/a.gguf' },
+      0,
+      'posix',
+    );
+    expect(cmd).toContain('-c 0');
+    expect(cmd).not.toContain('-c 256');
+  });
 });
 
 describe('parseManagedLlamaModelSelection', () => {
@@ -85,6 +119,14 @@ describe('syncContextFlagInManagedChatCommand', () => {
       '-c 4096',
     );
   });
+
+  it('sets -c 0 without rewriting other flags', () => {
+    const cmd =
+      'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics -ngl 99';
+    expect(syncContextFlagInManagedChatCommand(cmd, 0, 'posix')).toBe(
+      'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 0 --metrics -ngl 99',
+    );
+  });
 });
 
 describe('suggestContextWindowTokens', () => {
@@ -108,8 +150,6 @@ describe('formatReadyDefaultsSummary', () => {
     const s = formatReadyDefaultsSummary({ preset: 'gemma', contextWindowTokens: 16_384 });
     expect(s).toContain('Gemma');
     expect(s).toContain('temp 1');
-    expect(s).toContain('top_p 0.95');
-    expect(s).toContain('top_k 64');
   });
 });
 

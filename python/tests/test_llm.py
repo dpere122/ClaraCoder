@@ -22,7 +22,6 @@ def _gemma_conn(**kwargs: object) -> RuntimeConnection:
         parallel_tool_calls=False,
         optimization_preset='gemma',
         max_output_tokens=0,
-        plan_retry_attempts_count=2,
         thinking_mode='default',
         sampling_preset='provider-default',
         top_p=0.95,
@@ -46,7 +45,6 @@ def _openai_conn() -> RuntimeConnection:
         parallel_tool_calls=False,
         optimization_preset='generic',
         max_output_tokens=0,
-        plan_retry_attempts_count=2,
     )
 
 
@@ -88,7 +86,6 @@ def test_build_llm_llamacpp_defaults_base_url(
         parallel_tool_calls=False,
         optimization_preset='generic',
         max_output_tokens=0,
-        plan_retry_attempts_count=2,
     )
     from clara_coder_backend.llm.factory import build_llm
 
@@ -211,7 +208,6 @@ def test_build_llm_generic_merges_optional_sampling(
         parallel_tool_calls=False,
         optimization_preset='generic',
         max_output_tokens=0,
-        plan_retry_attempts_count=2,
         top_p=0.95,
         top_k=20,
         min_p=0.0,

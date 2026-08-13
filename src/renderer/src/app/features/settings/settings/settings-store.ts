@@ -58,7 +58,6 @@ import {
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
-  formatReadyDefaultsSummary,
   countLlmModels,
   findLlmModelLocation,
   hubCacheFolderToHfId,
@@ -478,10 +477,9 @@ export class SettingsStore {
     if (!c) {
       return '';
     }
-    return formatReadyDefaultsSummary({
-      preset: c.optimizationPreset,
-      contextWindowTokens: c.contextWindowTokens,
-    });
+    return (
+      optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
+    );
   });
   readonly selectedSourceIsActiveForChat = computed(() => {
     const p = this.selectedProvider();
@@ -1176,13 +1174,7 @@ export class SettingsStore {
 
   onOptimizationPresetChange(value: string): void {
     const preset: LlmOptimizationPreset =
-      value === 'qwen'
-        ? 'qwen'
-        : value === 'capable'
-          ? 'capable'
-          : value === 'gemma'
-            ? 'gemma'
-            : 'generic';
+      value === 'qwen' ? 'qwen' : value === 'gemma' ? 'gemma' : 'generic';
     const model = this.selectedModel();
     if (!model) {
       return;

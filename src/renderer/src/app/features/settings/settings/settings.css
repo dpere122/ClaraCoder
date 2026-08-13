@@ -715,6 +715,18 @@ button.linkish {
 
 .ready-defaults .form-section__header {
   margin-bottom: 8px;
+  gap: 8px 16px;
+}
+
+.ready-defaults .form-section__header .settings-copy {
+  max-width: 22rem;
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ready-defaults .form-grid {
+  gap: 10px 12px;
 }
 
 .llamacpp-models-row {

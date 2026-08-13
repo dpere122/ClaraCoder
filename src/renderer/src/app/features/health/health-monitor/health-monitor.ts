@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import Chart from 'chart.js/auto';
-import type { AppConfig, HealthMetricsSnapshot } from '@shared/index';
+import type { AppConfig, GpuInfo, HealthMetricsSnapshot } from '@shared/index';
 import { THEMES } from '../../layout/theme-selector/theme-selector';
 import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme';
 import { ElectronService } from '../../../core/electron.service';
@@ -62,7 +62,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     }
   };
 
-  protected readonly gpuSummary = signal<string>('GPU: collecting…');
+  protected readonly gpus = signal<GpuInfo[]>([]);
   protected readonly metricsEnabled = signal(false);
 
   protected readonly chartDefs: Array<{ key: ChartKey; label: string; suffix: string; yMax?: number }> = [
@@ -168,7 +168,7 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     this.stopPolling();
     this.destroyCharts();
     this.lastValues.set({});
-    this.gpuSummary.set('GPU: monitoring paused');
+    this.gpus.set([]);
   }
 
   private initCharts(): void {
@@ -254,17 +254,21 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private updateGpu(s: HealthMetricsSnapshot): void {
+    this.gpus.set(s.gpus ?? []);
+  }
+
+  protected formatGpuLine(g: GpuInfo): string {
     const parts: string[] = [];
-    if (s.gpuModel) parts.push(s.gpuModel);
-    if (s.gpuUtilPercent != null && Number.isFinite(s.gpuUtilPercent)) {
-      parts.push(`util ${s.gpuUtilPercent.toFixed(0)}%`);
+    if (g.model) parts.push(g.model);
+    if (g.utilPercent != null && Number.isFinite(g.utilPercent)) {
+      parts.push(`util ${g.utilPercent.toFixed(0)}%`);
     }
-    if (s.gpuMemoryUsedMb != null && s.gpuMemoryTotalMb != null) {
-      parts.push(`VRAM ${s.gpuMemoryUsedMb} / ${s.gpuMemoryTotalMb} MB`);
-    } else if (s.gpuMemoryTotalMb != null) {
-      parts.push(`VRAM ${s.gpuMemoryTotalMb} MB (reported)`);
+    if (g.memoryUsedMb != null && g.memoryTotalMb != null) {
+      parts.push(`VRAM ${g.memoryUsedMb} / ${g.memoryTotalMb} MB`);
+    } else if (g.memoryTotalMb != null) {
+      parts.push(`VRAM ${g.memoryTotalMb} MB (reported)`);
     }
-    this.gpuSummary.set(parts.length ? parts.join(' · ') : 'GPU: no detailed metrics (OS/driver)');
+    return parts.length ? parts.join(' · ') : 'no detailed metrics (OS/driver)';
   }
 
   private pushSnapshot(s: HealthMetricsSnapshot): void {

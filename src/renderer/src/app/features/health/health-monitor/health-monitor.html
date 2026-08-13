@@ -33,7 +33,18 @@
       </div>
       <div class='health-gpu-card'>
         <span class='health-chart-card__label'>GPU (best effort)</span>
-        <p class='health-gpu-card__text'>{{ gpuSummary() }}</p>
+        @if (gpus().length > 0) {
+          <ul class='health-gpu-card__list'>
+            @for (g of gpus(); track $index) {
+              <li class='health-gpu-card__row'>
+                <span class='health-gpu-card__index'>{{ $index + 1 }}</span>
+                <span class='health-gpu-card__text'>{{ formatGpuLine(g) }}</span>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class='health-gpu-card__text'>no GPUs detected yet…</p>
+        }
       </div>
     } @else {
       <div class='health-disabled-card'>

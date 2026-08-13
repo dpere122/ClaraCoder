@@ -151,6 +151,12 @@ describe('formatReadyDefaultsSummary', () => {
     expect(s).toContain('Gemma');
     expect(s).toContain('temp 1');
   });
+
+  it('labels model-native context as max instead of a guessed window', () => {
+    expect(formatReadyDefaultsSummary({ preset: 'qwen', contextWindowTokens: 32_768, contextMax: true })).toBe(
+      'Qwen · ctx max · temp 0.65',
+    );
+  });
 });
 
 describe('optimizationPresetDefaultsPatch', () => {

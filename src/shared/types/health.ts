@@ -1,6 +1,14 @@
 import type { DependencyInfo } from './dependencies';
 import type { ManagedServerHealthState } from './llama-server-ipc';
 
+/** One GPU controller reported by the OS/driver (best effort). */
+export interface GpuInfo {
+  model: string | null;
+  utilPercent: number | null;
+  memoryUsedMb: number | null;
+  memoryTotalMb: number | null;
+}
+
 /** System snapshot for Health window charts (Electron main → renderer). */
 export interface HealthMetricsSnapshot {
   timestampMs: number;
@@ -12,10 +20,8 @@ export interface HealthMetricsSnapshot {
   networkTxBps: number;
   diskReadBps: number;
   diskWriteBps: number;
-  gpuModel: string | null;
-  gpuUtilPercent: number | null;
-  gpuMemoryUsedMb: number | null;
-  gpuMemoryTotalMb: number | null;
+  /** All detected GPU controllers. */
+  gpus: GpuInfo[];
 }
 
 /** One row from Python `/logs/recent` or SSE `data:` lines. */

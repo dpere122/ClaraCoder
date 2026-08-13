@@ -9,7 +9,7 @@ import {
 } from './llama-cpp-managed';
 import { inferContextWindowTokens } from './model-context';
 import type { LlmOptimizationPreset, LlmProviderConfig } from './types/app-config';
-import { CAPABLE_PRESET_DEFAULTS, GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
+import { GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
 import type { ModelManagerFileEntry } from './types/model-manager';
 import { isPinnedLlamaServerUrlProviderId } from './llm-provider-ids';
 
@@ -282,9 +282,12 @@ export function syncContextFlagInManagedChatCommand(
 export function formatReadyDefaultsSummary(opts: {
   preset: LlmOptimizationPreset;
   contextWindowTokens: number;
+  /** When true, llama-server uses ``-c 0`` (model-native); do not show a guessed k count. */
+  contextMax?: boolean;
 }): string {
-  const ctxLabel =
-    opts.contextWindowTokens >= 1000
+  const ctxLabel = opts.contextMax
+    ? 'max'
+    : opts.contextWindowTokens >= 1000
       ? `${Math.round(opts.contextWindowTokens / 1024)}k`
       : String(opts.contextWindowTokens);
   if (opts.preset === 'qwen') {
@@ -292,9 +295,6 @@ export function formatReadyDefaultsSummary(opts: {
   }
   if (opts.preset === 'gemma') {
     return `Gemma · ctx ${ctxLabel} · temp ${GEMMA_PRESET_DEFAULTS.temperature}`;
-  }
-  if (opts.preset === 'capable') {
-    return `Capable API · ctx ${ctxLabel}`;
   }
   return `Generic · ctx ${ctxLabel}`;
 }
@@ -330,15 +330,6 @@ export function optimizationPresetDefaultsPatch(preset: LlmOptimizationPreset): 
       architectureHint: g.architectureHint,
       topP: g.topP,
       topK: g.topK,
-      repeatPenalty: undefined,
-    };
-  }
-  if (preset === 'capable') {
-    return {
-      optimizationPreset: 'capable',
-      parallelToolCalls: CAPABLE_PRESET_DEFAULTS.parallelToolCalls,
-      samplingPreset: 'provider-default',
-      thinkingMode: 'default',
       repeatPenalty: undefined,
     };
   }

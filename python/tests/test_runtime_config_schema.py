@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.session.schemas import RuntimeConfigRequest
+from clara_coder_backend.session.schemas import RuntimeConfigRequest, RuntimeConnectionRequest
 
 _CONN = {
     'id': 'x',
@@ -69,3 +69,9 @@ def test_allow_web_access_and_searxng_base_url() -> None:
     assert r.tools is not None
     assert r.tools.allowWebAccess is True
     assert r.tools.searxngBaseUrl == 'http://127.0.0.1:8080'
+
+
+def test_legacy_capable_optimization_preset_maps_to_generic() -> None:
+    conn = {**_CONN, 'optimizationPreset': 'capable'}
+    r = RuntimeConnectionRequest.model_validate(conn)
+    assert r.optimizationPreset == 'generic'

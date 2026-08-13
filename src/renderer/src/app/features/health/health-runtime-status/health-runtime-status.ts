@@ -41,6 +41,12 @@ export class HealthRuntimeStatus implements OnInit, OnDestroy {
 
   protected readonly chips = signal<StatusChip[]>([]);
   protected readonly stale = signal(false);
+  /** Collapsed by default so the log viewer gets the window height on open. */
+  protected readonly collapsed = signal(true);
+
+  protected toggleCollapsed(): void {
+    this.collapsed.update((v) => !v);
+  }
 
   private readonly visibilityHandler = (): void => {
     if (document.hidden) {

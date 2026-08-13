@@ -152,6 +152,33 @@
   word-break: break-word;
 }
 
+.health-gpu-card__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.health-gpu-card__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.health-gpu-card__index {
+  flex-shrink: 0;
+  min-width: 16px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--t-bg);
+  background: color-mix(in srgb, var(--t-primary) 70%, transparent);
+  border-radius: 4px;
+  padding: 1px 0;
+}
+
 .health-disabled-card {
   border: 1px dashed color-mix(in srgb, var(--t-border) 82%, transparent);
   border-radius: 10px;

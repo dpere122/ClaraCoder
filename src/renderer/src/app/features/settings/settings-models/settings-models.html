@@ -422,17 +422,50 @@
                   <p class='settings-copy'>{{ s.readyDefaultsSummary() }}</p>
                 </div>
                 <div class='form-grid'>
-                  <label class='field field--full'>
+                  <label class='field'>
                     <span>Template</span>
                     <select
                       [ngModel]='connection.optimizationPreset'
                       (ngModelChange)='s.onOptimizationPresetChange($event)'
+                      [title]='s.presetDescription(connection)'
                     >
                       @for (p of s.presetsFor(connection.provider); track p.id) {
-                        <option [value]='p.id'>{{ p.label }}</option>
+                        <option [value]='p.id' [title]='p.summary'>{{ p.label }}</option>
                       }
                     </select>
                   </label>
+
+                  @if (connection.optimizationPreset === 'gemma') {
+                    <label class='field'>
+                      <span>Thinking</span>
+                      <select
+                        [ngModel]='connection.thinkingMode'
+                        (ngModelChange)='s.updateSelectedModel({ thinkingMode: $event })'
+                      >
+                        <option value='default'>Default</option>
+                        <option value='on'>On</option>
+                        <option value='off'>Off</option>
+                      </select>
+                    </label>
+                  } @else {
+                    <label class='field'>
+                      <span>Reasoning</span>
+                      <select
+                        [ngModel]='connection.reasoningEffort || ""'
+                        (ngModelChange)='s.updateSelectedModel({ reasoningEffort: $event })'
+                      >
+                        <option value=''>Default</option>
+                        <option value='on'>On (medium)</option>
+                        <option value='off'>Off (none)</option>
+                        <option value='none'>none</option>
+                        <option value='minimal'>minimal</option>
+                        <option value='low'>low</option>
+                        <option value='medium'>medium</option>
+                        <option value='high'>high</option>
+                        <option value='xhigh'>xhigh</option>
+                      </select>
+                    </label>
+                  }
 
                   @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
                     <div class='field field--full'>
@@ -481,40 +514,6 @@
                         [ngModel]='connection.contextWindowTokens'
                         (ngModelChange)='s.onContextWindowTokensChange($event)'
                       />
-                    </label>
-                  }
-
-                  @if (connection.optimizationPreset === 'gemma') {
-                    <label class='field field--full'>
-                      <span>Thinking</span>
-                      <select
-                        [ngModel]='connection.thinkingMode'
-                        (ngModelChange)='s.updateSelectedModel({ thinkingMode: $event })'
-                      >
-                        <option value='default'>Default</option>
-                        <option value='on'>On</option>
-                        <option value='off'>Off</option>
-                      </select>
-                    </label>
-                  }
-
-                  @if (connection.optimizationPreset !== 'gemma') {
-                    <label class='field field--full'>
-                      <span>Reasoning</span>
-                      <select
-                        [ngModel]='connection.reasoningEffort || ""'
-                        (ngModelChange)='s.updateSelectedModel({ reasoningEffort: $event })'
-                      >
-                        <option value=''>Default</option>
-                        <option value='on'>on → medium</option>
-                        <option value='off'>off → none</option>
-                        <option value='none'>none</option>
-                        <option value='minimal'>minimal</option>
-                        <option value='low'>low</option>
-                        <option value='medium'>medium</option>
-                        <option value='high'>high</option>
-                        <option value='xhigh'>xhigh</option>
-                      </select>
                     </label>
                   }
                 </div>

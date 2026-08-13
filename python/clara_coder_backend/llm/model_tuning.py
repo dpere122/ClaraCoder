@@ -1,10 +1,8 @@
-"""Heuristic tuning for optimization presets (Qwen, Capable API, Gemma, etc.).
+"""Heuristic tuning for optimization presets (Qwen, Gemma, Generic).
 
 The desktop **Optimization template** (``optimization_preset`` on the active connection) selects
 which profile is active. Model ids alone do **not** enable Qwen or Gemma profiles; pick **qwen** or
 **gemma** in Settings when you want those behaviors.
-
-The **capable** preset turns on parallel tool calls by default (UI) and appends batching hints in the system prompt.
 
 **Gemma** (LM Studio / OpenAI-compatible): use the **gemma** template. Thinking is boolean (``thinking_mode``),
 not OpenAI ``reasoning_effort`` tiers. Recommended ``temperature`` / ``top_p`` / ``top_k`` are written onto

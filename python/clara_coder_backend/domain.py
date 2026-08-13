@@ -265,7 +265,7 @@ class RuntimeConnection:
     reasoning_effort: str = ''
     temperature: float = 0.0
     parallel_tool_calls: bool = False
-    #: ``generic`` | ``qwen`` | ``capable`` | ``gemma`` — from Settings optimization template.
+    #: ``generic`` | ``qwen`` | ``gemma`` — from Settings optimization template.
     optimization_preset: str = 'generic'
     #: Chat max_tokens when > 0; 0 means use preset/env defaults.
     max_output_tokens: int = 0

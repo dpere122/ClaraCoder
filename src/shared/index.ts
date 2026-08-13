@@ -129,7 +129,6 @@ export {
 export type { LlmOptimizationPresetMeta } from './types/llm-presets';
 export {
   LLM_OPTIMIZATION_PRESET_LIST,
-  CAPABLE_PRESET_DEFAULTS,
   GEMMA_PRESET_DEFAULTS,
   optimizationPresetsForProvider,
   QWEN_PRESET_DEFAULTS,
@@ -305,6 +304,7 @@ export type {
   HealthLogLevel,
   HealthLogRecord,
   HealthMetricsSnapshot,
+  GpuInfo,
   RuntimeHealthSnapshot,
 } from './types/health';
 export {

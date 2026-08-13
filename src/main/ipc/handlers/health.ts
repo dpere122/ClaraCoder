@@ -1,7 +1,12 @@
 import * as http from 'http';
 import { ipcMain, type WebContents } from 'electron';
 import * as si from 'systeminformation';
-import type { HealthLogRecord, HealthMetricsSnapshot, RuntimeHealthSnapshot } from '../../../shared';
+import type {
+  GpuInfo,
+  HealthLogRecord,
+  HealthMetricsSnapshot,
+  RuntimeHealthSnapshot,
+} from '../../../shared';
 import { defaultDependencyCatalog } from '../../../shared';
 import { PYTHON_PORT } from '../../constants';
 import { summarizeManagedLlamaRuntime } from '../../llama-server-manager';
@@ -9,6 +14,9 @@ import { getPythonSidecarToken, pythonControlFetch } from '../../python/http-cli
 import { isPythonHealthy } from '../../python/server';
 import { listDependencies } from '../../runtime/dependency-manager';
 import { getBundledVtslsEntry } from '../../paths';
+import { enumerateGpus, NVIDIA_VENDOR_ID, AMD_VENDOR_ID } from '../../utils/dxgi-gpu';
+import { getNvidiaStats, shutdownNvml } from '../../utils/nvml-gpu';
+import { getAmdStats, shutdownAdl } from '../../utils/adl-gpu';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 
 const PYTHON_URL = `http://127.0.0.1:${PYTHON_PORT}`;
@@ -19,6 +27,143 @@ let streamReq: http.ClientRequest | null = null;
 let lastStreamSeq = 0;
 let streamBuffer = '';
 let healthMetricsEnabled = false;
+
+/** GPU model/VRAM are static; utilization and memoryUsed do not need 1s resolution. */
+const GRAPHICS_TTL_MS = 10_000;
+/** Charts are visual; ~3s staleness is invisible and cuts net/disk process spawns ~3x. */
+const NET_FS_TTL_MS = 3_000;
+
+type MetricCache<T> = {
+  value: T | null;
+  fetchedAt: number;
+  inflight: Promise<T> | null;
+};
+
+function emptyMetricCache<T>(): MetricCache<T> {
+  return { value: null, fetchedAt: 0, inflight: null };
+}
+
+const graphicsCache = emptyMetricCache<Awaited<ReturnType<typeof si.graphics>>>();
+const networkCache = emptyMetricCache<Awaited<ReturnType<typeof si.networkStats>>>();
+const fsCache = emptyMetricCache<Awaited<ReturnType<typeof si.fsStats>>>();
+
+function resetHealthMetricsCache(): void {
+  graphicsCache.value = null;
+  graphicsCache.fetchedAt = 0;
+  networkCache.value = null;
+  networkCache.fetchedAt = 0;
+  fsCache.value = null;
+  fsCache.fetchedAt = 0;
+}
+
+/** Collapse whitespace and lowercase a GPU model name for fuzzy matching. */
+function normalizeGpuModel(model: string | null | undefined): string {
+  return (model ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Build the per-GPU list. On Windows, DXGI enumerates every adapter spawn-free
+ * (model + vendor id + total VRAM, including secondary cards that
+ * systeminformation leaves blank). Live stats are then overlaid by vendor
+ * pipeline:
+ *   - NVIDIA (NVML, nvml.dll): utilization + VRAM used/total for every card.
+ *   - AMD (ADL, atiadlxx.dll): utilization for active adapters (display-centric;
+ *     an inactive iGPU yields nothing and falls back to DXGI total only).
+ *   - other vendors: best-effort overlay from the throttled systeminformation
+ *     controllers by model name.
+ * On other platforms, systeminformation is the sole source.
+ */
+function buildGpuList(
+  controllers: Array<{ model?: string | null; name?: string | null; utilizationGpu?: number | null; memoryUsed?: number | null; memoryTotal?: number | null; vram?: number | null }>,
+): GpuInfo[] {
+  if (process.platform === 'win32') {
+    const dxgpus = enumerateGpus();
+    if (dxgpus.length > 0) {
+      const nvmlByModel = getNvidiaStats();
+      const amdActive = getAmdStats(); // active AMD adapters, ordinal order
+
+      // systeminformation fallback, keyed by model name (covers non-NVIDIA/AMD
+      // vendors and any NVIDIA card NVML didn't report).
+      const siByModel = new Map<string, { utilPercent: number | null; memoryUsedMb: number | null }>();
+      for (const c of controllers) {
+        const key = normalizeGpuModel(c?.model || c?.name);
+        if (!key || siByModel.has(key)) continue;
+        siByModel.set(key, {
+          utilPercent: c?.utilizationGpu ?? null,
+          memoryUsedMb: c?.memoryUsed ?? null,
+        });
+      }
+
+      let amdOrdinal = 0;
+      return dxgpus.map((g): GpuInfo => {
+        const key = normalizeGpuModel(g.model);
+        if (g.vendorId === NVIDIA_VENDOR_ID) {
+          const n = nvmlByModel.get(key);
+          if (n) {
+            return {
+              model: g.model,
+              utilPercent: n.utilPercent,
+              memoryUsedMb: n.memoryUsedMb,
+              memoryTotalMb: n.memoryTotalMb ?? g.memoryTotalMb,
+            };
+          }
+        } else if (g.vendorId === AMD_VENDOR_ID) {
+          const a = amdActive[amdOrdinal++];
+          if (a?.utilPercent != null) {
+            return { model: g.model, utilPercent: a.utilPercent, memoryUsedMb: null, memoryTotalMb: g.memoryTotalMb };
+          }
+        }
+        const si = siByModel.get(key);
+        return {
+          model: g.model,
+          utilPercent: si?.utilPercent ?? null,
+          memoryUsedMb: si?.memoryUsedMb ?? null,
+          memoryTotalMb: g.memoryTotalMb,
+        };
+      });
+    }
+  }
+  return controllers.map((c) => ({
+    model: c?.model || c?.name || null,
+    utilPercent: c?.utilizationGpu ?? null,
+    memoryUsedMb: c?.memoryUsed ?? null,
+    memoryTotalMb: c?.memoryTotal ?? c?.vram ?? null,
+  }));
+}
+
+/**
+ * Refresh at most once per ttlMs. Concurrent ticks share one in-flight fetch.
+ * When a stale value exists, return it immediately so a slow Windows probe
+ * cannot stall mem/cpu collection.
+ */
+function getCachedMetric<T>(state: MetricCache<T>, fetch: () => Promise<T>, ttlMs: number): Promise<T> {
+  if (state.value !== null && Date.now() - state.fetchedAt < ttlMs) {
+    return Promise.resolve(state.value);
+  }
+  if (!state.inflight) {
+    state.inflight = fetch()
+      .then((value) => {
+        if (healthMetricsEnabled) {
+          state.value = value;
+          state.fetchedAt = Date.now();
+        }
+        return value;
+      })
+      .catch((err: unknown) => {
+        if (state.value !== null) {
+          return state.value;
+        }
+        throw err;
+      })
+      .finally(() => {
+        state.inflight = null;
+      });
+  }
+  if (state.value !== null) {
+    return Promise.resolve(state.value);
+  }
+  return state.inflight;
+}
 
 function broadcastLogRecord(rec: HealthLogRecord): void {
   if (typeof rec.seq === 'number' && rec.seq > lastStreamSeq) {
@@ -116,6 +261,11 @@ export async function syncPythonLogLevel(level: string): Promise<void> {
 
 export function setHealthMetricsEnabled(enabled: boolean): void {
   healthMetricsEnabled = enabled;
+  if (!enabled) {
+    resetHealthMetricsCache();
+    shutdownNvml();
+    shutdownAdl();
+  }
 }
 
 function emptyHealthSnapshot(now: number): HealthMetricsSnapshot {
@@ -129,10 +279,7 @@ function emptyHealthSnapshot(now: number): HealthMetricsSnapshot {
     networkTxBps: 0,
     diskReadBps: 0,
     diskWriteBps: 0,
-    gpuModel: null,
-    gpuUtilPercent: null,
-    gpuMemoryUsedMb: null,
-    gpuMemoryTotalMb: null,
+    gpus: [],
   };
 }
 
@@ -142,17 +289,20 @@ export async function collectHealthMetrics(): Promise<HealthMetricsSnapshot> {
     return emptyHealthSnapshot(now);
   }
   try {
-    const [mem, load, netStats, fsStats, gfx] = await Promise.all([
-      si.mem(),
+    // Electron's built-in getSystemMemoryInfo calls GlobalMemoryStatusEx directly
+    // (no child process), unlike si.mem() which shells out on Windows.
+    const memInfo = process.getSystemMemoryInfo();
+    const [load, netStats, fsStats, gfx] = await Promise.all([
       si.currentLoad(),
-      si.networkStats(),
-      si.fsStats(),
-      si.graphics(),
+      getCachedMetric(networkCache, () => si.networkStats(), NET_FS_TTL_MS),
+      getCachedMetric(fsCache, () => si.fsStats(), NET_FS_TTL_MS),
+      getCachedMetric(graphicsCache, () => si.graphics(), GRAPHICS_TTL_MS),
     ]);
 
-    const memoryTotalBytes = mem?.total && mem.total > 0 ? mem.total : 1;
-    const memoryUsedBytes = mem?.active ?? mem?.used ?? 0;
-    const memoryUsedPercent = (memoryUsedBytes / memoryTotalBytes) * 100;
+    const memoryTotalBytes = memInfo.total > 0 ? memInfo.total * 1024 : 1;
+    const memoryFreeBytes = memInfo.free * 1024;
+    const memoryUsedBytes = Math.max(memoryTotalBytes - memoryFreeBytes, 0);
+    const memoryUsedPercent = memoryTotalBytes > 0 ? (memoryUsedBytes / memoryTotalBytes) * 100 : 0;
 
     let networkRxBps = 0;
     let networkTxBps = 0;
@@ -167,11 +317,8 @@ export async function collectHealthMetrics(): Promise<HealthMetricsSnapshot> {
     const diskReadBps = fsStats?.rx_sec ?? 0;
     const diskWriteBps = fsStats?.wx_sec ?? 0;
 
-    const ctrl = gfx?.controllers?.[0];
-    const gpuModel = ctrl?.model || ctrl?.name || null;
-    const gpuUtilPercent = ctrl?.utilizationGpu ?? null;
-    const gpuMemoryUsedMb = ctrl?.memoryUsed ?? null;
-    const gpuMemoryTotalMb = ctrl?.memoryTotal ?? ctrl?.vram ?? null;
+    const controllers = Array.isArray(gfx?.controllers) ? gfx.controllers : [];
+    const gpus = buildGpuList(controllers);
 
     return {
       timestampMs: now,
@@ -183,10 +330,7 @@ export async function collectHealthMetrics(): Promise<HealthMetricsSnapshot> {
       networkTxBps,
       diskReadBps,
       diskWriteBps,
-      gpuModel,
-      gpuUtilPercent,
-      gpuMemoryUsedMb,
-      gpuMemoryTotalMb,
+      gpus,
     };
   } catch {
     return emptyHealthSnapshot(now);

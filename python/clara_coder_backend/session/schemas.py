@@ -270,7 +270,7 @@ class RuntimeConnectionRequest(BaseModel):
     reasoningEffort: str = ''
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     parallelToolCalls: bool = False
-    optimizationPreset: Literal['generic', 'qwen', 'capable', 'gemma'] = 'generic'
+    optimizationPreset: Literal['generic', 'qwen', 'gemma'] = 'generic'
     maxOutputTokens: int = Field(default=0, ge=0, le=200_000)
     thinkingMode: Literal['default', 'on', 'off'] = 'default'
     samplingPreset: Literal['provider-default', 'gemma-recommended', 'custom'] = 'provider-default'
@@ -298,6 +298,13 @@ class RuntimeConnectionRequest(BaseModel):
         le=10_000_000,
         validation_alias=AliasChoices('contextWindowTokens', 'context_window_tokens'),
     )
+
+    @field_validator('optimizationPreset', mode='before')
+    @classmethod
+    def _legacy_optimization_preset(cls, v: object) -> object:
+        if isinstance(v, str) and v.strip().lower() == 'capable':
+            return 'generic'
+        return v
 
     @field_validator('architectureHint', mode='before')
     @classmethod

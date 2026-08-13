@@ -105,7 +105,7 @@ export function coerceSecretValue(value: unknown): SecretValue<string> {
 }
 
 /** Family-specific tuning template from Settings → Models (synced to Python). */
-export type LlmOptimizationPreset = 'generic' | 'qwen' | 'capable' | 'gemma';
+export type LlmOptimizationPreset = 'generic' | 'qwen' | 'gemma';
 
 /** Gemma 4 / LM Studio thinking: boolean-style control (not OpenAI reasoning_effort tiers). */
 export type GemmaThinkingMode = 'default' | 'on' | 'off';

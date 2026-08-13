@@ -339,7 +339,6 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
   if (
     model.optimizationPreset !== 'generic' &&
     model.optimizationPreset !== 'qwen' &&
-    model.optimizationPreset !== 'capable' &&
     model.optimizationPreset !== 'gemma'
   ) {
     model.optimizationPreset = 'generic';

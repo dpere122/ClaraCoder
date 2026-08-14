@@ -1,7 +1,7 @@
 /**
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { existsSync, promises as fs, realpathSync } from 'fs';
 import * as net from 'net';
 import path = require('path');
@@ -57,18 +57,28 @@ interface StreamBuf {
   lastEmbedStderr: string;
 }
 
-const running = new Map<
-  string,
-  {
-    chatProc: ChildProcess;
-    embedProc: ChildProcess | undefined;
-    chatPort: number;
-    embedPort: number | undefined;
-    chatHost: string;
-    embedHost: string | undefined;
-    logBuf: StreamBuf;
-  }
->();
+interface ManagedLlamaSlot {
+  generation: number;
+  abort: boolean;
+  /** Chat ``/health`` succeeded; Python may use the chat URL. */
+  chatReady: boolean;
+  /** Chat and embed (if configured) passed ``/health``; UI may show running. */
+  ready: boolean;
+  chatProc: ChildProcess | undefined;
+  embedProc: ChildProcess | undefined;
+  chatPort: number;
+  embedPort: number | undefined;
+  chatHost: string;
+  embedHost: string | undefined;
+  chatHealthHost: string;
+  embedHealthHost: string | undefined;
+  chatSpawnError: Error | undefined;
+  embedSpawnError: Error | undefined;
+  logBuf: StreamBuf;
+}
+
+const running = new Map<string, ManagedLlamaSlot>();
+let nextManagedLlamaGeneration = 1;
 
 /** Short TTL so burst IPC status calls (renderer debounce + poll) reuse one /health probe round. */
 const STATUS_CACHE_TTL_MS = 450;
@@ -88,18 +98,36 @@ function sendToRenderer(channel: string, payload: unknown): void {
   }
 }
 
+function childHasExited(proc: ChildProcess): boolean {
+  return proc.exitCode !== null || proc.signalCode !== null;
+}
+
+function isCurrent(modelId: string, generation: number): boolean {
+  const st = running.get(modelId);
+  return !!st && st.generation === generation && !st.abort;
+}
+
+function slotMissingOrAborted(modelId: string, generation: number): boolean {
+  return !isCurrent(modelId, generation);
+}
+
+function emptyLogBuf(): StreamBuf {
+  return { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
+}
+
 function killProcessTree(proc: ChildProcess | undefined): void {
-  if (!proc || proc.killed || !proc.pid) {
+  if (!proc || !proc.pid || childHasExited(proc)) {
     return;
   }
   try {
     if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], {
-        stdio: 'ignore',
+      const r = spawnSync('taskkill', ['/pid', String(proc.pid), '/t', '/f'], {
         windowsHide: true,
-      }).on('error', () => {
-        proc.kill();
+        timeout: 8000,
       });
+      if (r.error || (r.status !== 0 && !childHasExited(proc))) {
+        proc.kill();
+      }
     } else {
       /**
        * Managed servers are spawned with ``detached: true`` on POSIX so this PID is a new session /
@@ -113,7 +141,11 @@ function killProcessTree(proc: ChildProcess | undefined): void {
       }
     }
   } catch {
-    proc.kill();
+    try {
+      proc.kill();
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -135,8 +167,28 @@ async function pickPort(): Promise<number> {
 }
 
 /**
+ * Probe address for managed ``/health``. Wildcard bind hosts are not fetchable on every OS.
+ */
+export function managedLlamaHealthHost(bindHost: string): string {
+  const h = bindHost.trim().toLowerCase();
+  if (
+    !h ||
+    h === '0.0.0.0' ||
+    h === '*' ||
+    h === '::' ||
+    h === '[::]' ||
+    h === '::0' ||
+    h === '[::0]'
+  ) {
+    return '127.0.0.1';
+  }
+  return bindHost.trim();
+}
+
+/**
  * Effective OpenAI-compatible URLs for each **managed** llamacpp model (spawned subprocess).
  * Skips URL-only rows (no ``chatRunCommand``) so Python uses the persisted provider ``baseUrl``.
+ * Real ports are published only after chat ``/health`` succeeds.
  */
 export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<string, LlamaManagedRuntimeEndpoints> {
   const out: Record<string, LlamaManagedRuntimeEndpoints> = {};
@@ -149,7 +201,7 @@ export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<strin
         continue;
       }
       const st = running.get(m.id);
-      if (st) {
+      if (st?.chatReady && st.chatPort) {
         out[m.id] = {
           baseUrl: `http://127.0.0.1:${st.chatPort}/v1`,
           embeddingsBaseUrl:
@@ -245,6 +297,48 @@ export function redactSecrets(text: string): string {
   return out;
 }
 
+/**
+ * Redact ``secret`` even when it is split across successive stream chunks.
+ * Holds back only a proper prefix of ``secret`` at the chunk boundary so a
+ * complete token is never split between emit and pending.
+ */
+export function createSecretChunkRedactor(secret: string): {
+  push(chunk: string): string;
+  flush(): string;
+} {
+  let pending = '';
+  return {
+    push(chunk: string): string {
+      if (!chunk) {
+        return '';
+      }
+      if (!secret) {
+        return chunk;
+      }
+      const combined = pending + chunk;
+      const maxHold = secret.length - 1;
+      let hold = 0;
+      for (let n = Math.min(maxHold, combined.length); n >= 1; n--) {
+        if (secret.startsWith(combined.slice(-n))) {
+          hold = n;
+          break;
+        }
+      }
+      pending = hold ? combined.slice(-hold) : '';
+      const emit = combined.slice(0, combined.length - hold);
+      return redactSecretValue(emit, secret);
+    },
+    flush(): string {
+      if (!pending) {
+        return '';
+      }
+      const rest = redactSecretValue(pending, secret);
+      pending = '';
+      return rest;
+    },
+  };
+}
+
 export function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   // Prefer managed runtime/bin when resolving a bare ``llama-server``.
@@ -287,17 +381,19 @@ export function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv 
   return env;
 }
 
-/** Disallowed shell metacharacters in managed run-command strings (checked before argv tokenize). */
+/** Disallowed shell metacharacters (unquoted tokens; newlines are rejected on the full string). */
 export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
+const UNQUOTED_TOKEN_METACHAR_RE = /[;|&<>`$(){}!*~#]/;
 
 /**
  * Tokenize a prepared managed run command into argv.
- * Honors single/double quotes; rejects unbalanced quotes and shell metacharacters.
+ * Honors single/double quotes; rejects unbalanced quotes and unquoted shell metacharacters.
+ * Quoted tokens may contain path characters such as ``()`` (e.g. ``Program Files (x86)``).
  */
 export function tokenizeManagedLlamaCommand(
   command: string,
 ): { ok: true; argv: string[] } | { ok: false; error: string } {
-  if (MANAGED_LLAMA_SHELL_METACHAR_RE.test(command)) {
+  if (/[\n\r]/.test(command)) {
     return {
       ok: false,
       error:
@@ -346,6 +442,13 @@ export function tokenizeManagedLlamaCommand(
         ok: false,
         error:
           'Run command has quotes adjacent to an unquoted token (e.g. --flag="value"). Use --flag value or --flag=value without adjacent quotes.',
+      };
+    }
+    if (UNQUOTED_TOKEN_METACHAR_RE.test(token)) {
+      return {
+        ok: false,
+        error:
+          'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
       };
     }
     argv.push(token);
@@ -457,17 +560,35 @@ function attachLlamaStreams(
   hfToken: string,
 ): void {
   acquireRedactSecret(hfToken);
+  const stdoutRedact = createSecretChunkRedactor(hfToken);
+  const stderrRedact = createSecretChunkRedactor(hfToken);
   proc.stdout?.on('data', (d: Buffer) => {
-    const s = redactSecretValue(d.toString(), hfToken);
+    const s = stdoutRedact.push(d.toString());
+    if (!s) {
+      return;
+    }
     appendStdout(bucket, which, s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: s });
   });
   proc.stderr?.on('data', (d: Buffer) => {
-    const s = redactSecretValue(d.toString(), hfToken);
+    const s = stderrRedact.push(d.toString());
+    if (!s) {
+      return;
+    }
     appendStderrQuiet(bucket, which, s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: s });
   });
   proc.on('exit', (code, signal) => {
+    const flushedOut = stdoutRedact.flush();
+    if (flushedOut) {
+      appendStdout(bucket, which, flushedOut);
+      sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: flushedOut });
+    }
+    const flushedErr = stderrRedact.flush();
+    if (flushedErr) {
+      appendStderrQuiet(bucket, which, flushedErr);
+      sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: flushedErr });
+    }
     releaseRedactSecret(hfToken);
     sendToRenderer('llama-server-process-exit', {
       modelId,
@@ -489,9 +610,59 @@ function attachLlamaStreams(
           `chat llama-server exited modelId=${modelId} code=${code} signal=${signal ?? ''}`,
         );
       }
+      return;
+    }
+    const st = running.get(modelId);
+    if (!st || st.embedProc !== proc) {
+      return;
+    }
+    st.embedProc = undefined;
+    st.embedPort = undefined;
+    st.embedHost = undefined;
+    st.embedHealthHost = undefined;
+    invalidateManagedStatusCache(modelId);
+    if (st.ready) {
+      try {
+        void syncWithManagedLlamaOverrides(loadConfigSync());
+      } catch {
+        /* config unavailable */
+      }
     }
   });
 }
+
+function reserveManagedLlamaSlot(modelId: string): ManagedLlamaSlot {
+  const slot: ManagedLlamaSlot = {
+    generation: nextManagedLlamaGeneration++,
+    abort: false,
+    chatReady: false,
+    ready: false,
+    chatProc: undefined,
+    embedProc: undefined,
+    chatPort: 0,
+    embedPort: undefined,
+    chatHost: '127.0.0.1',
+    embedHost: undefined,
+    chatHealthHost: '127.0.0.1',
+    embedHealthHost: undefined,
+    chatSpawnError: undefined,
+    embedSpawnError: undefined,
+    logBuf: emptyLogBuf(),
+  };
+  running.set(modelId, slot);
+  return slot;
+}
+
+function failStart(modelId: string, generation: number, error: string): { ok: false; error: string } {
+  logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${error}`);
+  const st = running.get(modelId);
+  if (st && st.generation === generation) {
+    stopManagedLlamaServers(modelId);
+  }
+  return { ok: false, error };
+}
+
+const STOPPED_DURING_START = 'Managed servers were stopped.';
 
 export async function startManagedLlamaServers(modelId: string, config: AppConfig): Promise<{ ok: true } | { ok: false; error: string }> {
   if (running.has(modelId)) {
@@ -542,56 +713,81 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());
   }
 
-  const chatPort = await pickPort();
-  let embedPort: number | undefined;
   const embedCmd = rewriteManagedLlamaCommand((managed.embeddingRunCommand || '').trim(), managedLlamaBin);
-  if (embedCmd) {
-    embedPort = await pickPort();
-    if (embedPort === chatPort) {
-      return { ok: false, error: 'Could not allocate two distinct ports.' };
-    }
-  }
 
-  const chatBuilt = prepareManagedLlamaShellCommand(chatCmd, chatPort);
-  if (!chatBuilt.ok) {
-    return { ok: false, error: chatBuilt.error };
+  if (running.has(modelId)) {
+    return { ok: false, error: 'Managed servers already running for this model preset.' };
   }
-
-  let embedBuilt: { command: string; host: string } | undefined;
-  if (embedCmd && embedPort != null) {
-    const eb = prepareManagedLlamaShellCommand(embedCmd, embedPort);
-    if (!eb.ok) {
-      return { ok: false, error: eb.error };
-    }
-    embedBuilt = { command: eb.command, host: eb.host };
-  }
-
+  const slot = reserveManagedLlamaSlot(modelId);
+  const generation = slot.generation;
   sendToRenderer('llama-server-lifecycle', { phase: 'starting', modelId });
   logLlamaLifecycle('INFO', `starting managed llama-server modelId=${modelId}`);
 
-  const logBuf: StreamBuf = { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
-  let embedProc: ChildProcess | undefined;
   const spawnEnv = buildManagedLlamaSpawnEnv(config);
   const hfToken = modelManagerForManagedLlamaSpawn(config).huggingFaceToken.trim();
-  const managedCacheDir = (spawnEnv.LLAMA_CACHE || '').trim();
-  if (managedCacheDir) {
-    await fs.mkdir(managedCacheDir, { recursive: true });
-  }
-
-  const chatArgv = managedLlamaCommandToSpawnArgv(chatBuilt.command);
-  if (!chatArgv.ok) {
-    return { ok: false, error: chatArgv.error };
-  }
-  let embedArgv: { bin: string; args: string[] } | undefined;
-  if (embedBuilt) {
-    const ea = managedLlamaCommandToSpawnArgv(embedBuilt.command);
-    if (!ea.ok) {
-      return { ok: false, error: ea.error };
-    }
-    embedArgv = { bin: ea.bin, args: ea.args };
-  }
 
   try {
+    const managedCacheDir = (spawnEnv.LLAMA_CACHE || '').trim();
+    if (managedCacheDir) {
+      await fs.mkdir(managedCacheDir, { recursive: true });
+    }
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
+
+    const chatPort = await pickPort();
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
+    let embedPort: number | undefined;
+    if (embedCmd) {
+      embedPort = await pickPort();
+      if (embedPort === chatPort) {
+        return failStart(modelId, generation, 'Could not allocate two distinct ports.');
+      }
+    }
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
+
+    const chatBuilt = prepareManagedLlamaShellCommand(chatCmd, chatPort);
+    if (!chatBuilt.ok) {
+      return failStart(modelId, generation, chatBuilt.error);
+    }
+
+    let embedBuilt: { command: string; host: string } | undefined;
+    if (embedCmd && embedPort != null) {
+      const eb = prepareManagedLlamaShellCommand(embedCmd, embedPort);
+      if (!eb.ok) {
+        return failStart(modelId, generation, eb.error);
+      }
+      embedBuilt = { command: eb.command, host: eb.host };
+    }
+
+    const chatArgv = managedLlamaCommandToSpawnArgv(chatBuilt.command);
+    if (!chatArgv.ok) {
+      return failStart(modelId, generation, chatArgv.error);
+    }
+    let embedArgv: { bin: string; args: string[] } | undefined;
+    if (embedBuilt) {
+      const ea = managedLlamaCommandToSpawnArgv(embedBuilt.command);
+      if (!ea.ok) {
+        return failStart(modelId, generation, ea.error);
+      }
+      embedArgv = { bin: ea.bin, args: ea.args };
+    }
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
+
+    const st = running.get(modelId);
+    if (!st || st.generation !== generation) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
+    st.chatPort = chatPort;
+    st.chatHost = chatBuilt.host;
+    st.chatHealthHost = managedLlamaHealthHost(chatBuilt.host);
+
     /**
      * Start chat first and wait for ``/health`` before spawning embedding.
      * If chat fails (e.g. wrong ``-hf`` / 404), we must not have started embed yet—otherwise
@@ -604,97 +800,128 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       windowsHide: true,
       env: spawnEnv,
     });
-    attachLlamaStreams(modelId, 'chat', chatProc, logBuf, hfToken);
-    chatProc.on('error', () => {
-      /* spawn errors surface via exit / health wait */
+    st.chatProc = chatProc;
+    attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
+    chatProc.on('error', (err: Error) => {
+      const cur = running.get(modelId);
+      if (cur && cur.generation === generation && cur.chatProc === chatProc) {
+        cur.chatSpawnError = err;
+      }
     });
 
-    const chatHost = chatBuilt.host;
     const chatBudgetMs = managedLlamaCmdUsesHfRemoteModel(chatCmd) ? HEALTH_WAIT_HF_CMD_MS : HEALTH_WAIT_DEFAULT_MS;
-    const chatWait = await waitForHealth(chatHost, chatPort, chatBudgetMs, {
+    const chatWait = await waitForHealth(st.chatHealthHost, chatPort, chatBudgetMs, {
       proc: chatProc,
-      getLogTail: () => logTailForStream(logBuf, 'chat'),
+      getLogTail: () => logTailForStream(st.logBuf, 'chat'),
       modelId,
+      generation,
+      spawnError: () => running.get(modelId)?.chatSpawnError,
     });
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
     if (chatWait !== 'ok') {
-      killProcessTree(chatProc);
-      if (chatWait === 'exited') {
-        const error = shortEarlyExitError('Chat', chatProc, logBuf, 'chat');
-        logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${error}`);
-        return { ok: false, error };
+      if (chatWait === 'spawn_error') {
+        const err = st.chatSpawnError;
+        return failStart(
+          modelId,
+          generation,
+          err ? `Chat llama-server failed to start (${err.message}).` : 'Chat llama-server failed to start.',
+        );
       }
-      const error = `Chat llama-server did not become healthy in time (no HTTP 200 from http://${chatHost}:${chatPort}/health). See the llama.cpp server terminal tab for output.`;
-      logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${error}`);
-      return { ok: false, error };
+      if (chatWait === 'exited') {
+        return failStart(modelId, generation, shortEarlyExitError('Chat', chatProc, st.logBuf, 'chat'));
+      }
+      return failStart(
+        modelId,
+        generation,
+        `Chat llama-server did not become healthy in time (no HTTP 200 from http://${st.chatHealthHost}:${chatPort}/health). See the llama.cpp server terminal tab for output.`,
+      );
     }
 
-    running.set(modelId, {
-      chatProc,
-      embedProc: undefined,
-      chatPort,
-      embedPort: undefined,
-      chatHost: chatBuilt.host,
-      embedHost: undefined,
-      logBuf,
-    });
+    st.chatReady = true;
     invalidateManagedStatusCache(modelId);
     await syncWithManagedLlamaOverrides(config);
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
 
     if (embedBuilt && embedPort != null && embedArgv) {
-      embedProc = spawn(embedArgv.bin, embedArgv.args, {
+      const stEmbed = running.get(modelId);
+      if (!stEmbed || stEmbed.generation !== generation) {
+        return { ok: false, error: STOPPED_DURING_START };
+      }
+      stEmbed.embedPort = embedPort;
+      stEmbed.embedHost = embedBuilt.host;
+      stEmbed.embedHealthHost = managedLlamaHealthHost(embedBuilt.host);
+      const embedProc = spawn(embedArgv.bin, embedArgv.args, {
         detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
         env: spawnEnv,
       });
-      attachLlamaStreams(modelId, 'embed', embedProc, logBuf, hfToken);
-      embedProc.on('error', () => {
-        /* spawn errors surface via exit / health wait */
+      stEmbed.embedProc = embedProc;
+      attachLlamaStreams(modelId, 'embed', embedProc, stEmbed.logBuf, hfToken);
+      embedProc.on('error', (err: Error) => {
+        const cur = running.get(modelId);
+        if (cur && cur.generation === generation && cur.embedProc === embedProc) {
+          cur.embedSpawnError = err;
+        }
       });
-
-      const st = running.get(modelId);
-      if (st) {
-        st.embedProc = embedProc;
-        st.embedPort = embedPort;
-        st.embedHost = embedBuilt.host;
-      }
       invalidateManagedStatusCache(modelId);
 
-      const embHost = embedBuilt.host;
       const embedBudgetMs = managedLlamaCmdUsesHfRemoteModel(embedCmd) ? HEALTH_WAIT_HF_CMD_MS : HEALTH_WAIT_DEFAULT_MS;
-      const embWait = await waitForHealth(embHost, embedPort, embedBudgetMs, {
+      const embWait = await waitForHealth(stEmbed.embedHealthHost ?? '127.0.0.1', embedPort, embedBudgetMs, {
         proc: embedProc,
-        getLogTail: () => logTailForStream(logBuf, 'embed'),
+        getLogTail: () => logTailForStream(stEmbed.logBuf, 'embed'),
         modelId,
+        generation,
+        spawnError: () => running.get(modelId)?.embedSpawnError,
       });
+      if (slotMissingOrAborted(modelId, generation)) {
+        return { ok: false, error: STOPPED_DURING_START };
+      }
       if (embWait !== 'ok') {
-        stopManagedLlamaServers(modelId);
-        if (embWait === 'exited') {
-          return {
-            ok: false,
-            error: shortEarlyExitError('Embedding', embedProc, logBuf, 'embed'),
-          };
+        if (embWait === 'spawn_error') {
+          const err = stEmbed.embedSpawnError;
+          return failStart(
+            modelId,
+            generation,
+            err
+              ? `Embedding llama-server failed to start (${err.message}).`
+              : 'Embedding llama-server failed to start.',
+          );
         }
-        return {
-          ok: false,
-          error: 'Embedding llama-server did not become healthy in time. See the llama.cpp server terminal tab for output.',
-        };
+        if (embWait === 'exited') {
+          return failStart(modelId, generation, shortEarlyExitError('Embedding', embedProc, stEmbed.logBuf, 'embed'));
+        }
+        return failStart(
+          modelId,
+          generation,
+          'Embedding llama-server did not become healthy in time. See the llama.cpp server terminal tab for output.',
+        );
       }
     }
 
+    const stDone = running.get(modelId);
+    if (!stDone || stDone.generation !== generation || stDone.abort) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
+    stDone.ready = true;
     await syncWithManagedLlamaOverrides(config);
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
     sendToRenderer('llama-server-lifecycle', { phase: 'running', modelId });
     logLlamaLifecycle(
       'INFO',
-      `running managed llama-server modelId=${modelId} chat=${chatHost}:${chatPort}` +
-        (embedPort != null ? ` embedPort=${embedPort}` : ''),
+      `running managed llama-server modelId=${modelId} chat=${stDone.chatHealthHost}:${stDone.chatPort}` +
+        (stDone.embedPort != null ? ` embedPort=${stDone.embedPort}` : ''),
     );
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${msg}`);
-    stopManagedLlamaServers(modelId);
-    return { ok: false, error: msg };
+    return failStart(modelId, generation, msg);
   }
 }
 
@@ -712,17 +939,15 @@ function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   return fetch(url, { signal: ac.signal }).finally(() => clearTimeout(t));
 }
 
-function childHasExited(proc: ChildProcess): boolean {
-  return proc.exitCode !== null || proc.signalCode !== null;
-}
-
-type HealthWait = 'ok' | 'timeout' | 'exited';
+type HealthWait = 'ok' | 'timeout' | 'exited' | 'spawn_error' | 'aborted';
 
 interface HealthWaitContext {
   proc?: ChildProcess;
   /** Recent stdout+stderr for this stream (used to detect long HF / model downloads). */
   getLogTail?: () => string;
   modelId?: string;
+  generation?: number;
+  spawnError?: () => Error | undefined;
 }
 
 const HEALTH_POLL_MS = 500;
@@ -747,12 +972,21 @@ async function waitForHealth(
   let downloadLifecycleSent = false;
 
   while (Date.now() < Math.min(deadline, hardCap)) {
+    if (ctx?.modelId != null && ctx.generation != null && slotMissingOrAborted(ctx.modelId, ctx.generation)) {
+      return 'aborted';
+    }
+    if (ctx?.spawnError?.()) {
+      return 'spawn_error';
+    }
     if (ctx?.proc && childHasExited(ctx.proc)) {
       return 'exited';
     }
     try {
       const res = await fetchWithTimeout(`http://${host}:${port}/health`, 2000);
       if (res.ok) {
+        if (ctx?.modelId != null && ctx.generation != null && slotMissingOrAborted(ctx.modelId, ctx.generation)) {
+          return 'aborted';
+        }
         return 'ok';
       }
     } catch {
@@ -770,6 +1004,15 @@ async function waitForHealth(
 
     await new Promise((r) => setTimeout(r, HEALTH_POLL_MS));
   }
+  if (ctx?.modelId != null && ctx.generation != null && slotMissingOrAborted(ctx.modelId, ctx.generation)) {
+    return 'aborted';
+  }
+  if (ctx?.spawnError?.()) {
+    return 'spawn_error';
+  }
+  if (ctx?.proc && childHasExited(ctx.proc)) {
+    return 'exited';
+  }
   return 'timeout';
 }
 
@@ -778,6 +1021,7 @@ export function stopManagedLlamaServers(modelId: string): void {
   if (!st) {
     return;
   }
+  st.abort = true;
   invalidateManagedStatusCache(modelId);
   // Remove before kill so the chat ``exit`` handler does not double-emit lifecycle.
   running.delete(modelId);
@@ -790,7 +1034,7 @@ export function stopManagedLlamaServers(modelId: string): void {
 /** Drop map entries whose chat process has already exited (belt-and-suspenders). */
 function pruneDeadManagedLlamaEntries(): void {
   for (const [modelId, st] of [...running.entries()]) {
-    if (!childHasExited(st.chatProc)) {
+    if (!st.chatProc || !childHasExited(st.chatProc)) {
       continue;
     }
     invalidateManagedStatusCache(modelId);
@@ -833,10 +1077,16 @@ export async function summarizeManagedLlamaRuntime(): Promise<ManagedLlamaRuntim
   }
   const healths = await Promise.all(
     entries.map(async ([, st]): Promise<ManagedServerHealthState> => {
+      if (!st.chatProc) {
+        return 'loading';
+      }
       if (childHasExited(st.chatProc)) {
         return 'error';
       }
-      return probeOnce(st.chatHost, st.chatPort);
+      if (!st.chatReady || !st.chatPort) {
+        return 'loading';
+      }
+      return probeOnce(st.chatHealthHost, st.chatPort);
     }),
   );
   let worst: ManagedServerHealthState = 'ok';
@@ -979,6 +1229,16 @@ export async function getManagedLlamaStatus(
     };
   }
 
+  if (!st.chatReady || !st.chatPort) {
+    return {
+      ok: true,
+      running: false,
+      starting: true,
+      modelId,
+      chat: { port: st.chatPort, health: 'loading' },
+    };
+  }
+
   const now = Date.now();
   if (
     statusCache &&
@@ -988,17 +1248,17 @@ export async function getManagedLlamaStatus(
     return statusCache.result;
   }
 
-  const chatHost = st.chatHost;
-  const ch = await probeOnce(chatHost, st.chatPort);
+  const ch = await probeOnce(st.chatHealthHost, st.chatPort);
   let emb: LlamaServerStatusPayload['embed'];
-  if (st.embedPort != null && st.embedHost) {
-    const eh = await probeOnce(st.embedHost, st.embedPort);
+  if (st.embedPort != null && st.embedHealthHost) {
+    const eh = await probeOnce(st.embedHealthHost, st.embedPort);
     emb = { port: st.embedPort, health: eh };
   }
 
   const out: LlamaServerStatusPayload = {
     ok: true,
-    running: true,
+    running: st.ready,
+    starting: !st.ready,
     modelId,
     chat: { port: st.chatPort, health: ch },
     embed: emb,
@@ -1010,14 +1270,17 @@ export async function getManagedLlamaStatus(
 /** OpenAI-compatible ``…/v1`` base URL for the managed chat server when it is running; otherwise ``null``. */
 export function getManagedChatOpenAiBaseUrl(modelId: string): string | null {
   const st = running.get(modelId);
-  if (!st) {
+  if (!st?.chatReady || !st.chatPort) {
     return null;
   }
-  return `http://${st.chatHost}:${st.chatPort}/v1`;
+  return `http://${st.chatHealthHost}:${st.chatPort}/v1`;
 }
 
-/** True if the active model preset has running managed servers. */
+/** True if the active model preset has ready managed servers. */
 export function isManagedLlamaRunningForActivePreset(config: AppConfig): boolean {
   const id = config.activeLlmModelId;
-  return !!id && running.has(id);
+  if (!id) {
+    return false;
+  }
+  return !!running.get(id)?.ready;
 }

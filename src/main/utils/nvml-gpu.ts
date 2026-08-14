@@ -101,6 +101,43 @@ export function getNvidiaStats(): Map<string, NvmlGpuStats> {
   }
 }
 
+/**
+ * NVIDIA GPUs in CUDA / NVML index order (same ordinals llama-server ``-dev CUDA{n}`` uses).
+ * Empty on non-Windows, missing NVML, or any failure.
+ */
+export function listNvidiaCudaGpus(): Array<{ cudaIndex: number; model: string; memoryTotalMb: number }> {
+  if (process.platform !== 'win32') return [];
+  try {
+    if (!initialized && !init()) return [];
+
+    const countSlot = koffi.alloc('uint32', 1);
+    if (nvmlDeviceGetCount(countSlot) !== NVML_SUCCESS) return [];
+    const count = koffi.decode(countSlot, 'uint32') as number;
+
+    const out: Array<{ cudaIndex: number; model: string; memoryTotalMb: number }> = [];
+    for (let i = 0; i < count; i++) {
+      const handleSlot = koffi.alloc('void *', 1);
+      if (nvmlDeviceGetHandleByIndex(i, handleSlot) !== NVML_SUCCESS) continue;
+      const handle = koffi.decode(handleSlot, 'void *') as bigint;
+      if (!handle) continue;
+
+      const nameBuf = Buffer.alloc(NVML_DEVICE_NAME_BUFFER);
+      const nameOk = nvmlDeviceGetName(handle, nameBuf, NVML_DEVICE_NAME_BUFFER) === NVML_SUCCESS;
+      const model = nameOk ? nameBuf.toString('ascii', 0, nameBuf.indexOf(0)).trim() : '';
+
+      const memBuf = Buffer.alloc(NVML_MEMORY_SIZE);
+      const memOk = nvmlDeviceGetMemoryInfo(handle, memBuf) === NVML_SUCCESS;
+      const total = memOk ? Number(memBuf.readBigUInt64LE(0)) : 0;
+      const memoryTotalMb = memOk && total > 0 ? Math.round(total / 1048576) : 0;
+      if (!model || memoryTotalMb < 1024) continue;
+      out.push({ cudaIndex: i, model, memoryTotalMb });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Release the NVML session (called when live stats are disabled). */
 export function shutdownNvml(): void {
   if (initialized) {

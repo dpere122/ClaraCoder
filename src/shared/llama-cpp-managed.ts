@@ -370,7 +370,7 @@ export function appendQwenChatTemplateFlagsToManagedChatCommand(
 }
 
 /**
- * Validate and substitute ``{{PORT}}`` for one managed server command before ``spawn(..., { shell: true })``.
+ * Validate and substitute ``{{PORT}}`` for one managed server command before argv spawn (no shell).
  */
 export function prepareManagedLlamaShellCommand(
   raw: string,

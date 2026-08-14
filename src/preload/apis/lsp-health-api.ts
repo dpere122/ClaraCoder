@@ -4,6 +4,7 @@ import type {
   HealthMetricsSnapshot,
   LspDashboardStatus,
   RuntimeHealthSnapshot,
+  CudaGpuDevice,
 } from '../../shared';
 import type {
   LspEditorCodeActionIpc,
@@ -25,6 +26,7 @@ import type {
 /** LSP dashboard, editor features, and health metrics IPC. */
 export const lspHealthApi = {
   healthMetrics: () => ipcRenderer.invoke('health-metrics') as Promise<HealthMetricsSnapshot>,
+  listCudaGpus: () => ipcRenderer.invoke('gpu-cuda-inventory') as Promise<CudaGpuDevice[]>,
   healthRuntimeSnapshot: () =>
     ipcRenderer.invoke('health-runtime-snapshot') as Promise<RuntimeHealthSnapshot>,
   getLspDashboardStatus: (sessionId: string) =>

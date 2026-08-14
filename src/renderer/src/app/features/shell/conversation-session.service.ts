@@ -86,6 +86,8 @@ export class ConversationSessionService {
   readonly streamingPlanner = signal<PlannerProgress | null>(null);
   readonly streamingFinalText = signal<string | undefined>(undefined);
   readonly chatHubView = signal<ChatHubView>('activeChat');
+  /** True while save + `new-conversation` IPC is in flight (drives the chat-panel overlay). */
+  readonly creatingConversation = signal(false);
 
   private readonly toolRunIds = signal<Set<string>>(new Set());
   private readonly toolPhaseEngaged = signal(false);
@@ -396,22 +398,30 @@ export class ConversationSessionService {
   }
 
   async onNewConversation(currentWorkspaceId: string | null): Promise<void> {
-    await this.saveCurrentConversation();
-    const conv = await this.electron.newConversation(currentWorkspaceId);
-    this.snapshotActiveStreamToBackground();
-    this.activeConversation = conv;
-    this.activeConversationId.set(conv.id);
-    this.messages.set([]);
-    this.toolRunIds.set(new Set());
-    this.toolPhaseEngaged.set(false);
-    this.streamingParts.set([]);
-    this.streamingPlanner.set(null);
-    this.streamingFinalText.set(undefined);
-    const config = await this.electron.loadConfig();
-    applyAppTheme(resolveAppThemeId(config));
-    await this.refreshConversationList(currentWorkspaceId);
-    await this.rememberLastActiveForWorkspace(conv);
-    this.chatHubView.set('activeChat');
+    if (this.creatingConversation()) {
+      return;
+    }
+    this.creatingConversation.set(true);
+    try {
+      await this.saveCurrentConversation();
+      const conv = await this.electron.newConversation(currentWorkspaceId);
+      this.snapshotActiveStreamToBackground();
+      this.activeConversation = conv;
+      this.activeConversationId.set(conv.id);
+      this.messages.set([]);
+      this.toolRunIds.set(new Set());
+      this.toolPhaseEngaged.set(false);
+      this.streamingParts.set([]);
+      this.streamingPlanner.set(null);
+      this.streamingFinalText.set(undefined);
+      const config = await this.electron.loadConfig();
+      applyAppTheme(resolveAppThemeId(config));
+      await this.refreshConversationList(currentWorkspaceId);
+      await this.rememberLastActiveForWorkspace(conv);
+      this.chatHubView.set('activeChat');
+    } finally {
+      this.creatingConversation.set(false);
+    }
   }
 
   async onSelectConversation(id: string, currentWorkspaceId: string | null): Promise<void> {

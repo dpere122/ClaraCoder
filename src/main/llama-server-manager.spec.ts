@@ -14,6 +14,8 @@ import {
   acquireRedactSecret,
   releaseRedactSecret,
   MANAGED_LLAMA_SHELL_METACHAR_RE,
+  createSecretChunkRedactor,
+  managedLlamaHealthHost,
 } from './llama-server-manager';
 
 describe('tokenizeManagedLlamaCommand', () => {
@@ -92,6 +94,17 @@ describe('tokenizeManagedLlamaCommand', () => {
       expect(r.argv).toContain('2048');
     }
   });
+
+  it('accepts a quoted Program Files (x86) path', () => {
+    const r = tokenizeManagedLlamaCommand(
+      'llama-server --chat-template-file "C:\\Program Files (x86)\\Clara\\t.jinja"',
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.argv).toContain('--chat-template-file');
+      expect(r.argv).toContain('C:\\Program Files (x86)\\Clara\\t.jinja');
+    }
+  });
 });
 
 describe('MANAGED_LLAMA_SHELL_METACHAR_RE', () => {
@@ -146,5 +159,42 @@ describe('redactSecrets refcount', () => {
 
   it('redacts nothing when no token is active', () => {
     expect(redactSecrets('plain text')).toBe('plain text');
+  });
+});
+
+describe('createSecretChunkRedactor', () => {
+  it('redacts a secret split across two pushes', () => {
+    const r = createSecretChunkRedactor('hf_secret');
+    const a = r.push('start hf_sec');
+    const b = r.push('ret end');
+    const c = r.flush();
+    expect(`${a}${b}${c}`).toBe('start [REDACTED] end');
+  });
+
+  it('flushes a trailing prefix that is not a complete secret', () => {
+    const r = createSecretChunkRedactor('TOKEN');
+    expect(r.push('hello TOK')).toBe('hello ');
+    expect(r.flush()).toBe('TOK');
+  });
+
+  it('is a pass-through when the secret is empty', () => {
+    const r = createSecretChunkRedactor('');
+    expect(r.push('visible')).toBe('visible');
+    expect(r.flush()).toBe('');
+  });
+});
+
+describe('managedLlamaHealthHost', () => {
+  it('maps wildcard bind addresses to 127.0.0.1', () => {
+    expect(managedLlamaHealthHost('0.0.0.0')).toBe('127.0.0.1');
+    expect(managedLlamaHealthHost('*')).toBe('127.0.0.1');
+    expect(managedLlamaHealthHost('::')).toBe('127.0.0.1');
+    expect(managedLlamaHealthHost('[::]')).toBe('127.0.0.1');
+    expect(managedLlamaHealthHost('')).toBe('127.0.0.1');
+  });
+
+  it('keeps specific bind hosts', () => {
+    expect(managedLlamaHealthHost('127.0.0.1')).toBe('127.0.0.1');
+    expect(managedLlamaHealthHost('10.0.0.1')).toBe('10.0.0.1');
   });
 });

@@ -45,6 +45,9 @@ extraResources:
 asarUnpack:
   - "**/node_modules/node-pty/**/*"
   - "**/node_modules/better-sqlite3/**/*"
+  # @huggingface/hub Xet path loads wasm/native helpers from these packages.
+  - "**/node_modules/@huggingface/xetchunk-wasm/**/*"
+  - "**/node_modules/@huggingface/blake3-jit/**/*"
 
 win:
   target:

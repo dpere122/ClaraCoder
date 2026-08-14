@@ -5,7 +5,7 @@
         class="managed-llama-controls__source-select"
         [ngModel]="activeProviderId()"
         (ngModelChange)="onSourceChange($event)"
-        [disabled]="running()"
+        [disabled]="running() || busy()"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
         aria-label="Active LLM source"
       >
@@ -16,9 +16,9 @@
       <button
         type="button"
         class="action-button action-button--primary managed-llama-controls__btn"
-        [class.action-button--danger]="running()"
+        [class.action-button--danger]="running() || busy()"
         [class.managed-llama-controls__btn--loading]="inventoryLoading()"
-        [disabled]="busy() || !isLocalLlama() || !chatRunCommand().trim()"
+        [disabled]="!isLocalLlama() || !chatRunCommand().trim()"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
         (click)="toggle()"
       >

@@ -83,7 +83,9 @@ function broadcastConfig(config: AppConfig): void {
 async function applyPublishedConfigRuntime(config: AppConfig): Promise<void> {
   await syncPythonLogLevel(config.healthMonitor.logLevel);
   setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
-  await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+  // Getter: read managed overrides live at send time so a concurrent start's real ports
+  // are not clobbered by this (possibly delayed) save-time snapshot.
+  await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
   await applyWorkspaceExposeAllFromConfig(config);
 }
 

@@ -220,7 +220,9 @@ export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<strin
 
 /** Push runtime config with managed overrides (call after start/stop/save). */
 export async function syncWithManagedLlamaOverrides(config: AppConfig): Promise<void> {
-  await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+  // Pass a getter so overrides are read at send time (after any in-flight sync completes),
+  // reflecting live `running` state rather than a snapshot captured when this was called.
+  await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
 }
 
 function appendStdout(bucket: StreamBuf, which: StreamKind, chunk: string): void {
@@ -601,14 +603,11 @@ function attachLlamaStreams(
     if (which === 'chat') {
       const st = running.get(modelId);
       if (st && st.chatProc === proc) {
-        invalidateManagedStatusCache(modelId);
-        running.delete(modelId);
-        killProcessTree(st.embedProc);
-        sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
         logLlamaLifecycle(
           'WARNING',
           `chat llama-server exited modelId=${modelId} code=${code} signal=${signal ?? ''}`,
         );
+        stopManagedLlamaServers(modelId);
       }
       return;
     }
@@ -1029,6 +1028,13 @@ export function stopManagedLlamaServers(modelId: string): void {
   logLlamaLifecycle('INFO', `stopped managed llama-server modelId=${modelId}`);
   killProcessTree(st.embedProc);
   killProcessTree(st.chatProc);
+  // Retract the published runtime overrides so Python stops targeting a dead URL.
+  // Every teardown path (manual stop, chat crash, prune, embed-fail) must sync.
+  try {
+    void syncWithManagedLlamaOverrides(loadConfigSync());
+  } catch {
+    /* config unavailable */
+  }
 }
 
 /** Drop map entries whose chat process has already exited (belt-and-suspenders). */
@@ -1037,11 +1043,8 @@ function pruneDeadManagedLlamaEntries(): void {
     if (!st.chatProc || !childHasExited(st.chatProc)) {
       continue;
     }
-    invalidateManagedStatusCache(modelId);
-    running.delete(modelId);
-    killProcessTree(st.embedProc);
-    sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
     logLlamaLifecycle('WARNING', `pruned dead managed llama-server modelId=${modelId}`);
+    stopManagedLlamaServers(modelId);
   }
 }
 

@@ -172,7 +172,9 @@ const MG_FLAG_REPLACE_RE =
 
 function parseCudaIndexes(raw: string): number[] {
   const out: number[] = [];
-  const re = /(?:CUDA)?(\d+)/gi;
+  // Require the literal `CUDA` prefix so non-CUDA device tokens (`Vulkan0`, `RPC0`,
+  // `-1`, `foo123`) are not silently promoted to CUDA indexes.
+  const re = /CUDA(\d+)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(raw)) !== null) {
     const n = Number.parseInt(m[1] ?? '', 10);
@@ -207,7 +209,9 @@ export function parseManagedLlamaGpuOffload(cmd: string): ParsedGpuOffload {
     const n = Number.parseInt(unquoteShellToken(mgM[1] ?? mgM[2] ?? mgM[3] ?? ''), 10);
     mainGpu = Number.isFinite(n) ? n : null;
   }
-  if (cudaIndexes.length >= 2 || (tensorSplit && tensorSplit.includes(','))) {
+  // Split mode requires multiple devices. A lone `--tensor-split a,b` left over after
+  // pinning one card must not flip the UI to Split (it would keep stale ratios).
+  if (cudaIndexes.length >= 2) {
     return { mode: 'split', cudaIndexes, tensorSplit, mainGpu };
   }
   if (cudaIndexes.length === 1) {

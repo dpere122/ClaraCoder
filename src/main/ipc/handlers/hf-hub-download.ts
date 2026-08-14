@@ -4,9 +4,10 @@
  * Does not use `downloadFileToCacheDir` so abort and byte progress stay first-class.
  */
 import { downloadFile, getRepoFolderName, pathsInfo } from '@huggingface/hub';
-import { createWriteStream, type WriteStream } from 'fs';
+import { createReadStream, createWriteStream, type WriteStream } from 'fs';
 import { promises as fs } from 'fs';
 import path = require('path');
+import { createHash } from 'crypto';
 import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import type { ReadableStream as NodeWebReadableStream } from 'stream/web';
@@ -58,9 +59,43 @@ export function hubCacheLayout(
   fileName: string,
 ): HubCacheLayout {
   const repoFolder = path.join(path.resolve(customDir), getRepoFolderName({ name: repoId, type: 'model' }));
-  const blobPath = path.join(repoFolder, 'blobs', etag);
-  const pointerPath = path.join(repoFolder, 'snapshots', snapshotId, fileName);
+  // etag/snapshotId are server-derived hashes and must be bare names; reject any
+  // path separators or `..` so they cannot cross into another repo's folder.
+  const safeEtag = assertSafeName(etag, 'etag');
+  const safeSnapshot = assertSafeName(snapshotId, 'snapshotId');
+  // fileName may legitimately live in a subdirectory of the repo, but no
+  // component may be `..` or absolute, and it must stay within repoFolder.
+  const safeFile = assertSafeRelativePath(fileName, 'fileName');
+  const blobPath = path.join(repoFolder, 'blobs', safeEtag);
+  const pointerPath = path.join(repoFolder, 'snapshots', safeSnapshot, safeFile);
   return { repoFolder, blobPath, pointerPath, incompletePath: `${blobPath}.incomplete` };
+}
+
+/** Reject anything that is not a single path segment (used for hash-like ids). */
+function assertSafeName(value: string, field: string): string {
+  const norm = path.normalize((value ?? '').trim());
+  if (!norm || norm === '.' || norm === '..' || norm !== path.basename(norm) || norm.includes('\0')) {
+    throw new Error(`Unsafe ${field}: ${JSON.stringify(value)}`);
+  }
+  return norm;
+}
+
+/** Allow subdirectories but reject `..`, absolute paths, and NUL bytes. */
+function assertSafeRelativePath(value: string, field: string): string {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed || trimmed.includes('\0')) {
+    throw new Error(`Unsafe ${field}: ${JSON.stringify(value)}`);
+  }
+  const norm = path.normalize(trimmed);
+  if (path.isAbsolute(norm)) {
+    throw new Error(`Unsafe ${field}: ${JSON.stringify(value)}`);
+  }
+  for (const part of norm.split(path.sep)) {
+    if (part === '..' || part === '') {
+      throw new Error(`Unsafe ${field}: ${JSON.stringify(value)}`);
+    }
+  }
+  return norm;
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -68,6 +103,23 @@ function isWithinRoot(root: string, target: string): boolean {
   const t = path.resolve(target);
   const rel = path.relative(r, t);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/** SHA-256 hex of a file on disk (LFS oid algorithm). */
+async function sha256OfFile(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk: Buffer) => hash.update(chunk));
+    stream.on('end', () => resolve());
+    stream.on('error', reject);
+  });
+  return hash.digest('hex');
+}
+
+/** True when etag is a 64-char hex string (LFS oid = SHA-256 of content). */
+function isLfsSha256Oid(etag: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(etag);
 }
 
 async function pathExists(target: string, followSymlinks: boolean): Promise<boolean> {
@@ -146,10 +198,13 @@ export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Pro
     const snapshotId =
       info.lastCommit?.id && COMMIT_HASH_RE.test(info.lastCommit.id) ? info.lastCommit.id : etag;
     const layout = hubCacheLayout(customDir, params.repoId, etag, snapshotId, params.fileName);
-    if (!isWithinRoot(customDir, layout.blobPath) || !isWithinRoot(customDir, layout.pointerPath)) {
+    if (
+      !isWithinRoot(layout.repoFolder, layout.blobPath) ||
+      !isWithinRoot(layout.repoFolder, layout.pointerPath)
+    ) {
       return {
         ok: false,
-        error: 'Download path escaped the custom models directory.',
+        error: 'Download path escaped the model repository directory.',
         aborted: false,
         receivedBytes: 0,
       };
@@ -225,6 +280,29 @@ export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Pro
       await pipeline(nodeReadable, counter, writeStream);
     } finally {
       params.onWriteStream?.(null);
+    }
+
+    // Integrity: reject truncated or swapped bytes before promoting to the blob.
+    if (totalBytes != null && receivedBytes !== totalBytes) {
+      await fs.unlink(layout.incompletePath).catch(() => {});
+      return {
+        ok: false,
+        error: `Download size mismatch: received ${receivedBytes} of ${totalBytes} bytes.`,
+        aborted: false,
+        receivedBytes,
+      };
+    }
+    if (isLfsSha256Oid(etag)) {
+      const digest = await sha256OfFile(layout.incompletePath);
+      if (digest.toLowerCase() !== etag.toLowerCase()) {
+        await fs.unlink(layout.incompletePath).catch(() => {});
+        return {
+          ok: false,
+          error: 'Download integrity check failed (SHA-256 mismatch).',
+          aborted: false,
+          receivedBytes,
+        };
+      }
     }
 
     await fs.rename(layout.incompletePath, layout.blobPath);

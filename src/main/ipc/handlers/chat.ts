@@ -155,7 +155,7 @@ export function registerChatIpc(): void {
         event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
         replyMessageDone(event, conversationId, 'error');
       } finally {
-        endChatStream(conversationId);
+        endChatStream(conversationId, abortController);
       }
     },
   );

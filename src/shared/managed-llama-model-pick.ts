@@ -278,6 +278,104 @@ export function syncContextFlagInManagedChatCommand(
   return `${trimmed} ${argvToShellCommandLine(['-c', ctxStr], platform)}`;
 }
 
+/** Slider / command range for ``-ngl`` (0 = CPU, 99 ≈ all layers). */
+export const MANAGED_LLAMA_NGL_MIN = 0;
+export const MANAGED_LLAMA_NGL_MAX = 99;
+/** Display default when the chat command has no ``-ngl`` (llama.cpp treats missing as all layers). */
+export const MANAGED_LLAMA_NGL_DEFAULT = 99;
+
+const NGL_FLAG_RE =
+  /(?:^|[\s"'])(?:--n-gpu-layers|--gpu-layers|-ngl)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const NGL_FLAG_REPLACE_RE =
+  /(^|[\s"'])((--n-gpu-layers|--gpu-layers|-ngl)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+const NO_HOST_TOKEN_RE = /(?:^|[\s"'])--no-host(?:\s|=|$)/i;
+
+function clampManagedNglFlag(n: number): number | null {
+  if (!Number.isFinite(n)) {
+    return null;
+  }
+  if (n < 0) {
+    return MANAGED_LLAMA_NGL_DEFAULT;
+  }
+  return Math.min(MANAGED_LLAMA_NGL_MAX, Math.max(MANAGED_LLAMA_NGL_MIN, Math.floor(n)));
+}
+
+/** Parse ``-ngl`` / ``--n-gpu-layers`` / ``--gpu-layers``. Negative llama.cpp “all” values map to 99. */
+export function parseManagedLlamaNgl(cmd: string): number | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = NGL_FLAG_RE.exec(t);
+  if (!m) {
+    return null;
+  }
+  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
+  if (!/^-?\d+$/.test(raw)) {
+    return null;
+  }
+  const n = Number.parseInt(raw, 10);
+  return clampManagedNglFlag(n);
+}
+
+/**
+ * Replace ``-ngl`` (or long aliases) in a command, or append ``-ngl`` when missing.
+ * Leaves the rest of the command intact. Range is 0–99.
+ */
+export function syncNglFlagInManagedChatCommand(
+  cmd: string,
+  nGpuLayers: number,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const ngl = clampManagedNglFlag(nGpuLayers);
+  if (ngl === null) {
+    return trimmed;
+  }
+  const nglStr = String(ngl);
+  const replaced = trimmed.replace(
+    NGL_FLAG_REPLACE_RE,
+    (_full, lead: string, _flagged: string, flag: string) => `${lead}${flag} ${nglStr}`,
+  );
+  if (replaced !== trimmed) {
+    return replaced;
+  }
+  return `${trimmed} ${argvToShellCommandLine(['-ngl', nglStr], platform)}`;
+}
+
+/** True when the command already has the boolean ``--no-host`` token (not ``--host``). */
+export function managedLlamaCommandHasNoHost(cmd: string): boolean {
+  return NO_HOST_TOKEN_RE.test((cmd || '').trim());
+}
+
+/**
+ * Append ``--no-host`` when enabled, or strip it when disabled.
+ * Does not touch ``--host <addr>``.
+ */
+export function syncNoHostFlagInManagedChatCommand(cmd: string, enabled: boolean): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const has = managedLlamaCommandHasNoHost(trimmed);
+  if (enabled) {
+    if (has) {
+      return trimmed;
+    }
+    return `${trimmed} --no-host`;
+  }
+  if (!has) {
+    return trimmed;
+  }
+  return trimmed
+    .replace(/(^|[\s"'])--no-host(?=\s|$)/gi, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** One-line Ready defaults summary for the Models UI. */
 export function formatReadyDefaultsSummary(opts: {
   preset: LlmOptimizationPreset;
@@ -354,6 +452,12 @@ export function managedPickerValueForCmd(cmd: string, inventory: ModelManagerFil
     return '';
   }
   if (sel.kind === 'gguf') {
+    const hubWithFile = inventory.find(
+      (m) => m.entryKind === 'hubRepo' && !!m.ggufAbsolutePath && m.ggufAbsolutePath === sel.absolutePath,
+    );
+    if (hubWithFile) {
+      return `hub:${hubWithFile.absolutePath}`;
+    }
     return `gguf:${sel.absolutePath}`;
   }
   const hfBase = sel.hfId.split(':')[0] ?? sel.hfId;

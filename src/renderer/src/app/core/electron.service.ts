@@ -19,6 +19,7 @@ import type {
   HealthMetricsSnapshot,
   HealthMonitorConfig,
   RuntimeHealthSnapshot,
+  CudaGpuDevice,
   LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -1388,6 +1389,10 @@ export class ElectronService {
 
   healthMetrics(): Promise<HealthMetricsSnapshot | null> {
     return this.api?.healthMetrics() ?? Promise.resolve(null);
+  }
+
+  listCudaGpus(): Promise<CudaGpuDevice[]> {
+    return this.api?.listCudaGpus?.() ?? Promise.resolve([]);
   }
 
   healthRuntimeSnapshot(): Promise<RuntimeHealthSnapshot | null> {

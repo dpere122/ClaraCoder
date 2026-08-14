@@ -10,6 +10,11 @@ export interface ModelManagerFileEntry {
   suggestedFileName?: string;
   /** Hugging Face hub-style repo folder (`models--*` plus blobs/refs/snapshots layout). Omit means a single file. */
   entryKind?: ModelManagerEntryKind;
+  /**
+   * Snapshot GGUF path inside a hub repo folder when exactly one model file is present.
+   * Used so Settings can emit ``-m`` instead of ``-hf``.
+   */
+  ggufAbsolutePath?: string;
 }
 
 export type ModelManagerListModelsResult =

@@ -204,4 +204,44 @@ describe('ConversationSessionService', () => {
     expect(assistant).toBeDefined();
     expect(assistant?.reasoningStreams?.some((p) => p.text.includes('thinking hard'))).toBe(true);
   });
+
+  it('sets creatingConversation while new-conversation IPC is in flight and ignores overlapping calls', async () => {
+    const convMeta: ConversationMeta = {
+      id: 'conv-a',
+      title: 'A',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workspaceId: 'ws-1',
+      customTitle: false,
+    };
+    const created: Conversation = {
+      ...convMeta,
+      id: 'conv-b',
+      title: 'B',
+      messages: [],
+      themeId: 'woodland',
+    };
+    let releaseNew!: (value: Conversation) => void;
+    const newConversation = vi.fn(
+      () =>
+        new Promise<Conversation>((resolve) => {
+          releaseNew = resolve;
+        }),
+    );
+    const { service } = setup({ newConversation });
+
+    const first = service.onNewConversation('ws-1');
+    expect(service.creatingConversation()).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(newConversation).toHaveBeenCalledTimes(1);
+
+    await service.onNewConversation('ws-1');
+    expect(newConversation).toHaveBeenCalledTimes(1);
+
+    releaseNew(created);
+    await first;
+    expect(service.creatingConversation()).toBe(false);
+    expect(service.activeConversationId()).toBe('conv-b');
+  });
 });

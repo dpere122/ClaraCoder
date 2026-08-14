@@ -33,6 +33,8 @@ import type {
   WorkspaceToolsConfig,
   ContextCompressionConfig,
   TtsProvider,
+  CudaGpuDevice,
+  ManagedGpuOffloadMode,
 } from '@shared/index';
 import {
   CHAT_CONTAINER_SIZE_OPTIONS,
@@ -64,6 +66,10 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  MANAGED_LLAMA_NGL_DEFAULT,
+  MANAGED_LLAMA_NGL_MAX,
+  MANAGED_LLAMA_NGL_MIN,
+  managedLlamaCommandHasNoHost,
   managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
   managedPickerValueForCmd,
@@ -74,8 +80,17 @@ import {
   optimizationPresetsForProvider,
   parseCustomManagedContextTokens,
   parseManagedLlamaContextSize,
+  parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
+  parseManagedLlamaGpuOffload,
+  recommendGpuOffload,
+  formatGpuVramGb,
+  shortCudaGpuName,
   syncContextFlagInManagedChatCommand,
+  syncNglFlagInManagedChatCommand,
+  syncNoHostFlagInManagedChatCommand,
+  syncGpuOffloadInManagedChatCommand,
+  syncGpuOffloadFromParsed,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
@@ -454,6 +469,48 @@ export class SettingsStore {
     const tokens = this.selectedModel()?.contextWindowTokens;
     return tokens != null ? String(tokens) : '';
   });
+  readonly managedNglMin = MANAGED_LLAMA_NGL_MIN;
+  readonly managedNglMax = MANAGED_LLAMA_NGL_MAX;
+  /** GPU layers from the chat command; 99 when ``-ngl`` is absent (llama.cpp default is all layers). */
+  readonly managedNglLayers = computed((): number => {
+    const parsed = parseManagedLlamaNgl(this.selectedLlamaCppManaged().chatRunCommand);
+    return parsed === null ? MANAGED_LLAMA_NGL_DEFAULT : parsed;
+  });
+  /** Whether the chat command includes ``--no-host`` (host-buffer bypass, not ``--host``). */
+  readonly managedNoHostEnabled = computed((): boolean =>
+    managedLlamaCommandHasNoHost(this.selectedLlamaCppManaged().chatRunCommand),
+  );
+  /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
+  readonly cudaGpus = signal<CudaGpuDevice[]>([]);
+  readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
+    parseManagedLlamaGpuOffload(this.selectedLlamaCppManaged().chatRunCommand).mode,
+  );
+  readonly managedGgufSizeBytes = computed((): number | null => {
+    const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
+    if (sel?.kind !== 'gguf') {
+      return null;
+    }
+    const hit = this.modelManagerCustomModels().find((m) => m.absolutePath === sel.absolutePath);
+    return hit && Number.isFinite(hit.sizeBytes) ? hit.sizeBytes : null;
+  });
+  readonly managedGpuAdvice = computed(() => {
+    const parsedCtx = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
+    return recommendGpuOffload(this.cudaGpus(), this.managedGgufSizeBytes(), parsedCtx ?? 0);
+  });
+  readonly managedGpuSplitRatioLabel = computed(() => {
+    const gpus = this.cudaGpus();
+    if (gpus.length < 2) {
+      return '';
+    }
+    return gpus.map((g) => formatGpuVramGb(g.memoryTotalMb)).join(' : ');
+  });
+  readonly managedPrimaryGpuLabel = computed(() => {
+    const gpus = this.cudaGpus();
+    const advice = this.managedGpuAdvice();
+    const gpu =
+      (advice ? gpus.find((g) => g.cudaIndex === advice.primaryCudaIndex) : null) ?? gpus[0] ?? null;
+    return gpu ? this.cudaGpuLabel(gpu) : '';
+  });
 
   readonly managedSelectedFamilyLabel = computed(() => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
@@ -529,10 +586,14 @@ export class SettingsStore {
     this.syncFromConfig(config, true);
 
     this.subscription = this.electron.config$.subscribe((nextConfig: AppConfig) => {
+      if (this.settingsSaveAction() !== null) {
+        return;
+      }
       this.syncFromConfig(nextConfig, false);
     });
 
     void this.electron.listSystemFonts().then((fonts: SystemFontInfo[]) => this.systemFonts.set(fonts));
+    void this.electron.listCudaGpus().then((gpus) => this.cudaGpus.set(gpus));
 
     this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) => {
       const id = e.downloadId;
@@ -1306,6 +1367,15 @@ export class SettingsStore {
     if (v.startsWith('hub:')) {
       const absolutePath = v.slice('hub:'.length);
       const entry = this.modelManagerCustomModels().find((m) => m.absolutePath === absolutePath);
+      const localGguf = (entry?.ggufAbsolutePath || '').trim();
+      if (localGguf) {
+        this.applyManagedModelSource({
+          kind: 'gguf',
+          absolutePath: localGguf,
+          displayName: entry?.fileName || localGguf.split(/[/\\]/).pop() || localGguf,
+        });
+        return;
+      }
       const folderName = entry?.fileName || absolutePath.split(/[/\\]/).pop() || absolutePath;
       this.applyManagedModelSource({
         kind: 'hubRepo',
@@ -1359,6 +1429,52 @@ export class SettingsStore {
     });
   }
 
+  onManagedNglChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncNglFlagInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
+    });
+  }
+
+  onManagedNoHostChange(enabled: boolean): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncNoHostFlagInManagedChatCommand(cmd, enabled === true),
+    });
+  }
+
+  onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string): void {
+    if (mode !== 'auto' && mode !== 'single' && mode !== 'split') {
+      return;
+    }
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncGpuOffloadInManagedChatCommand(
+        cmd,
+        mode,
+        this.cudaGpus(),
+        detectShellQuotingPlatform(),
+      ),
+    });
+  }
+
+  cudaGpuLabel(gpu: CudaGpuDevice): string {
+    return `${shortCudaGpuName(gpu.model)} (${formatGpuVramGb(gpu.memoryTotalMb)})`;
+  }
+
   resetManagedToRecommended(): void {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
     if (!sel) {
@@ -1379,6 +1495,15 @@ export class SettingsStore {
       return !!id && (id === sel.hfId || id === base);
     });
     if (hub) {
+      const localGguf = (hub.ggufAbsolutePath || '').trim();
+      if (localGguf) {
+        this.applyManagedModelSource({
+          kind: 'gguf',
+          absolutePath: localGguf,
+          displayName: hub.fileName,
+        });
+        return;
+      }
       this.applyManagedModelSource({
         kind: 'hubRepo',
         absolutePath: hub.absolutePath,
@@ -1397,7 +1522,14 @@ export class SettingsStore {
       this.selectedModelId.set(local.models[0].id);
       this.activateSource(local.id);
     }
-    if (model.entryKind === 'hubRepo') {
+    const localGguf = (model.ggufAbsolutePath || '').trim();
+    if (localGguf) {
+      this.applyManagedModelSource({
+        kind: 'gguf',
+        absolutePath: localGguf,
+        displayName: model.fileName,
+      });
+    } else if (model.entryKind === 'hubRepo') {
       this.applyManagedModelSource({
         kind: 'hubRepo',
         absolutePath: model.absolutePath,
@@ -1484,6 +1616,21 @@ export class SettingsStore {
   useHfQuantInModels(repoId: string, file: HuggingFaceModelFile): void {
     const repo = (repoId || '').trim();
     if (!repo) {
+      return;
+    }
+    const localPath = this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repo, file)];
+    if (localPath) {
+      this.selectTab('models');
+      const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+      if (local?.models[0]) {
+        this.selectedModelId.set(local.models[0].id);
+        this.activateSource(local.id);
+      }
+      this.applyManagedModelSource({
+        kind: 'gguf',
+        absolutePath: localPath,
+        displayName: file.quant || file.fileName,
+      });
       return;
     }
     const quant = (file.quant || '').trim();
@@ -1616,9 +1763,23 @@ export class SettingsStore {
     const ctxForCmd = existingCtx === null || existingCtx === 0 ? 0 : existingCtx;
     const ctxForProfile =
       ctxForCmd > 0 ? ctxForCmd : inferContextWindowTokens(hint, 'llamacpp');
-    const chatRunCommand = buildManagedLlamaChatCommand(source, ctxForCmd, detectShellQuotingPlatform());
+    const platform = detectShellQuotingPlatform();
+    let chatRunCommand = buildManagedLlamaChatCommand(source, ctxForCmd, platform);
     if (!chatRunCommand) {
       return;
+    }
+    const prevCmd = base.chatRunCommand;
+    const prevNgl = parseManagedLlamaNgl(prevCmd);
+    if (prevNgl !== null) {
+      chatRunCommand = syncNglFlagInManagedChatCommand(chatRunCommand, prevNgl, platform);
+    }
+    chatRunCommand = syncNoHostFlagInManagedChatCommand(
+      chatRunCommand,
+      managedLlamaCommandHasNoHost(prevCmd),
+    );
+    const prevGpu = parseManagedLlamaGpuOffload(prevCmd);
+    if (prevGpu.mode !== 'auto') {
+      chatRunCommand = syncGpuOffloadFromParsed(chatRunCommand, prevGpu, platform);
     }
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;
     this.applyLlmModelPatch(model.id, {
@@ -2493,9 +2654,17 @@ export class SettingsStore {
   private async enqueuePersist(): Promise<void> {
     const next = this.buildConfigForPersist();
     const saved = await this.electron.saveConfig(next);
+    if (!saved) {
+      return;
+    }
     this.configSnapshot = structuredClone(saved);
     this.settingsDirty.set(false);
-    this.syncFromConfig(saved, true);
+    // Disk-owned workspace registry may differ from the client payload; skip
+    // forceFull hydrate so Apply does not re-list llama/HF models after save.
+    this.workspaces.set(saved.workspaces);
+    const currentWorkspace =
+      saved.workspaces.find((workspace) => workspace.id === saved.currentWorkspaceId) ?? null;
+    this.currentWorkspace.set(currentWorkspace);
   }
 
   private buildConfigForPersist(): AppConfig {

@@ -15,7 +15,7 @@ import { isPythonHealthy } from '../../python/server';
 import { listDependencies } from '../../runtime/dependency-manager';
 import { getBundledVtslsEntry } from '../../paths';
 import { enumerateGpus, NVIDIA_VENDOR_ID, AMD_VENDOR_ID } from '../../utils/dxgi-gpu';
-import { getNvidiaStats, shutdownNvml } from '../../utils/nvml-gpu';
+import { getNvidiaStats, listNvidiaCudaGpus, shutdownNvml } from '../../utils/nvml-gpu';
 import { getAmdStats, shutdownAdl } from '../../utils/adl-gpu';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 
@@ -389,6 +389,15 @@ export function registerHealthIpc(): void {
       return emptyHealthSnapshot(Date.now());
     }
     return collectHealthMetrics();
+  });
+
+  ipcMain.handle('gpu-cuda-inventory', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return [] as ReturnType<typeof listNvidiaCudaGpus>;
+    }
+    return listNvidiaCudaGpus();
   });
 
   ipcMain.handle('health-runtime-snapshot', async (event) => {

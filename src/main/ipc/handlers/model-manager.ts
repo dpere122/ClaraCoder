@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
-import { promises as fs, createWriteStream, type WriteStream } from 'fs';
+import { promises as fs, type WriteStream } from 'fs';
 import { homedir } from 'os';
 import path = require('path');
 import type {
@@ -16,6 +16,7 @@ import type {
 } from '../../../shared';
 import { mainState } from '../../state';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
+import { downloadHfGgufToHubCache } from './hf-hub-download';
 
 const MODEL_EXTENSIONS = new Set(['.gguf', '.ggml']);
 
@@ -103,9 +104,6 @@ interface InFlightDownload {
   /** Timestamp (ms) of the last broadcast progress event, for throttling. */
   lastProgressBroadcastMs: number;
 }
-
-/** Minimum interval between broadcast progress events for a single download. */
-const HF_PROGRESS_BROADCAST_MIN_INTERVAL_MS = 200;
 
 const inFlightDownloads = new Map<HfDownloadId, InFlightDownload>();
 
@@ -304,6 +302,47 @@ async function computeHubFolderStats(dirPath: string): Promise<{ sizeBytes: numb
   return { sizeBytes, modifiedMs };
 }
 
+/** GGUF/GGML files under ``snapshots/`` (follows snapshot → blob symlinks). */
+async function findHubSnapshotGgufPaths(hubDir: string): Promise<string[]> {
+  const snapshotsRoot = path.join(hubDir, 'snapshots');
+  if (!(await pathExistsDir(snapshotsRoot))) {
+    return [];
+  }
+  const out: string[] = [];
+  const stack: string[] = [snapshotsRoot];
+  const visited = new Set<string>();
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    const real = await fs.realpath(current).catch(() => current);
+    const key = pathKey(real);
+    if (visited.has(key)) {
+      continue;
+    }
+    visited.add(key);
+    let names: string[];
+    try {
+      names = await fs.readdir(current);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const full = path.join(current, name);
+      let st: import('fs').Stats;
+      try {
+        st = await fs.stat(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push(full);
+      } else if (st.isFile() && hasModelExtension(full)) {
+        out.push(full);
+      }
+    }
+  }
+  return out;
+}
+
 async function listHubRepoFoldersAtDepthOne(
   parentDir: string,
   source: 'custom' | 'cache',
@@ -344,6 +383,7 @@ async function listHubRepoFoldersAtDepthOne(
       continue;
     }
     const { sizeBytes, modifiedMs } = await computeHubFolderStats(full);
+    const snapshotGgufs = await findHubSnapshotGgufPaths(full);
     out.push({
       fileName: name,
       absolutePath: full,
@@ -353,6 +393,7 @@ async function listHubRepoFoldersAtDepthOne(
       entryKind: 'hubRepo',
       suggestedFileName: name,
       ...(sourceRoot ? { sourceRoot } : {}),
+      ...(snapshotGgufs.length === 1 ? { ggufAbsolutePath: snapshotGgufs[0] } : {}),
     });
   }
   out.sort((a, b) => b.modifiedMs - a.modifiedMs || a.fileName.localeCompare(b.fileName));
@@ -859,42 +900,12 @@ export function registerModelManagerIpc(): void {
       }
 
       const token = String(payload?.token || '').trim();
-      const headers: Record<string, string> = {
-        'User-Agent': 'ClaraCoder-ModelManager',
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      // Resolve the default revision SHA so the resolve URL is stable (not a moving ref).
-      const [orgPart, repoPart] = repoId.split('/');
-      const repoPath = `${encodeURIComponent(orgPart)}/${encodeURIComponent(repoPart)}`;
-      let revision = 'main';
-      try {
-        const metaRes = await fetch(`https://huggingface.co/api/models/${repoPath}`, { headers });
-        if (metaRes.ok) {
-          const meta = (await metaRes.json()) as { sha?: unknown };
-          if (typeof meta.sha === 'string' && meta.sha.trim()) {
-            revision = meta.sha.trim();
-          }
-        }
-      } catch {
-        // Fall back to 'main' revision.
-      }
-
-      const resolveUrl = `https://huggingface.co/${repoPath}/resolve/${encodeURIComponent(revision)}/${encodeURIComponent(
-        fileName,
-      )}`;
-
-      let destDir = customDir;
       {
-        const ensured = await ensureModelsDirExists(destDir);
+        const ensured = await ensureModelsDirExists(customDir);
         if (!ensured.ok) {
           return { ok: false, error: `Could not create models directory: ${ensured.error}` };
         }
       }
-      const destPath = path.join(destDir, fileName);
-      const tmpPath = `${destPath}.part`;
 
       const abort = new AbortController();
       const entry: InFlightDownload = {
@@ -918,95 +929,51 @@ export function registerModelManagerIpc(): void {
       });
 
       try {
-        const res = await fetch(resolveUrl, { headers, signal: abort.signal, redirect: 'follow' });
-        if (!res.ok) {
-          throw new Error(`Hugging Face download failed (${res.status}).`);
-        }
-        const totalBytes = res.headers.get('content-length');
-        const total = totalBytes ? Number(totalBytes) : null;
-        const totalNum = typeof total === 'number' && Number.isFinite(total) && total > 0 ? total : null;
-
-        if (res.body == null) {
-          throw new Error('Hugging Face download returned no body.');
-        }
-
-        const writeStream = createWriteStream(tmpPath);
-        entry.writeStream = writeStream;
-
-        const reader = res.body.getReader();
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (value) {
-            await new Promise<void>((resolve, reject) => {
-              writeStream.write(value, (err) => (err ? reject(err) : resolve()));
+        const result = await downloadHfGgufToHubCache({
+          repoId,
+          fileName,
+          customDir,
+          token,
+          abort,
+          onWriteStream: (stream) => {
+            entry.writeStream = stream;
+          },
+          onProgress: (receivedBytes, totalBytes) => {
+            entry.receivedBytes = receivedBytes;
+            entry.lastProgressBroadcastMs = Date.now();
+            broadcastHfDownloadProgress({
+              downloadId,
+              repoId,
+              fileName,
+              phase: 'progress',
+              receivedBytes,
+              totalBytes,
             });
-            entry.receivedBytes += value.byteLength;
-            // Throttle progress broadcasts so a multi-GB download with small chunks
-            // does not flood the renderer (each event triggers an Angular zone.run).
-            // The final 'done'/'error'/'cancelled' events are always sent.
-            const now = Date.now();
-            if (now - entry.lastProgressBroadcastMs >= HF_PROGRESS_BROADCAST_MIN_INTERVAL_MS) {
-              entry.lastProgressBroadcastMs = now;
-              broadcastHfDownloadProgress({
-                downloadId,
-                repoId,
-                fileName,
-                phase: 'progress',
-                receivedBytes: entry.receivedBytes,
-                totalBytes: totalNum,
-              });
-            }
-          }
-        }
-        await new Promise<void>((resolve, reject) => {
-          writeStream.end((err?: Error | null) => (err ? reject(err) : resolve()));
+          },
         });
-        entry.writeStream = null;
-
-        await fs.rename(tmpPath, destPath);
-
+        entry.receivedBytes = result.receivedBytes;
+        if (!result.ok) {
+          broadcastHfDownloadProgress({
+            downloadId,
+            repoId,
+            fileName,
+            phase: result.aborted ? 'cancelled' : 'error',
+            receivedBytes: result.receivedBytes,
+            totalBytes: null,
+            ...(result.aborted ? {} : { error: result.error }),
+          });
+          return { ok: false, error: result.error };
+        }
         broadcastHfDownloadProgress({
           downloadId,
           repoId,
           fileName,
           phase: 'done',
-          receivedBytes: entry.receivedBytes,
-          totalBytes: totalNum ?? entry.receivedBytes,
-          absolutePath: destPath,
+          receivedBytes: result.receivedBytes,
+          totalBytes: result.totalBytes ?? result.receivedBytes,
+          absolutePath: result.absolutePath,
         });
-
-        return { ok: true, absolutePath: destPath };
-      } catch (e) {
-        const aborted = abort.signal.aborted;
-        // Clean up partial file.
-        try {
-          await fs.unlink(tmpPath);
-        } catch {
-          /* ignore */
-        }
-        if (aborted) {
-          broadcastHfDownloadProgress({
-            downloadId,
-            repoId,
-            fileName,
-            phase: 'cancelled',
-            receivedBytes: entry.receivedBytes,
-            totalBytes: null,
-          });
-          return { ok: false, error: 'Download cancelled.' };
-        }
-        const msg = e instanceof Error ? e.message : String(e);
-        broadcastHfDownloadProgress({
-          downloadId,
-          repoId,
-          fileName,
-          phase: 'error',
-          receivedBytes: entry.receivedBytes,
-          totalBytes: null,
-          error: msg,
-        });
-        return { ok: false, error: msg };
+        return { ok: true, absolutePath: result.absolutePath };
       } finally {
         inFlightDownloads.delete(downloadId);
       }

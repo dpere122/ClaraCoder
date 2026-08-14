@@ -80,11 +80,17 @@ function broadcastConfig(config: AppConfig): void {
   sendToWindowIfAlive(mainState.healthWindow, 'config-updated', config);
 }
 
-async function publishConfig(config: AppConfig): Promise<AppConfig> {
+async function applyPublishedConfigRuntime(config: AppConfig): Promise<void> {
   await syncPythonLogLevel(config.healthMonitor.logLevel);
   setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
-  await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+  // Getter: read managed overrides live at send time so a concurrent start's real ports
+  // are not clobbered by this (possibly delayed) save-time snapshot.
+  await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
   await applyWorkspaceExposeAllFromConfig(config);
+}
+
+async function publishConfig(config: AppConfig): Promise<AppConfig> {
+  await applyPublishedConfigRuntime(config);
   broadcastConfig(config);
   return config;
 }
@@ -457,7 +463,14 @@ export function registerConfigWorkspacesIpc(): void {
       return null;
     }
     const saved = await updateConfig((disk) => mergeSettingsConfigSave(disk, config));
-    return publishConfig(saved);
+    // Disk write + UI broadcast first. Python /runtime-config can block for tens of
+    // seconds (sidecar busy or 60s headers timeout) and was freezing Settings → Apply.
+    setHealthMetricsEnabled(saved.healthMonitor.metricsEnabled);
+    broadcastConfig(saved);
+    void applyPublishedConfigRuntime(saved).catch((err) => {
+      console.error('Failed to apply saved config to runtime:', err);
+    });
+    return saved;
   });
 
   ipcMain.handle(

@@ -3,12 +3,17 @@ import {
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   inferOptimizationPresetFromModelHint,
+  managedLlamaCommandHasNoHost,
   optimizationPresetDefaultsPatch,
   parseCustomManagedContextTokens,
   parseManagedLlamaContextSize,
+  parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
+  managedPickerValueForCmd,
   suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,
+  syncNglFlagInManagedChatCommand,
+  syncNoHostFlagInManagedChatCommand,
 } from '@shared/index';
 
 describe('hubCacheFolderToHfId', () => {
@@ -107,6 +112,26 @@ describe('parseManagedLlamaModelSelection', () => {
   });
 });
 
+describe('managedPickerValueForCmd', () => {
+  it('maps a snapshot GGUF -m command back to the hub folder pick', () => {
+    const snap = '/cache/models--org--name/snapshots/abc/model-Q4_K_M.gguf';
+    const cmd = `llama-server --port {{PORT}} -m ${snap} -c 0`;
+    expect(
+      managedPickerValueForCmd(cmd, [
+        {
+          fileName: 'models--org--name',
+          absolutePath: '/cache/models--org--name',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+          entryKind: 'hubRepo',
+          ggufAbsolutePath: snap,
+        },
+      ]),
+    ).toBe('hub:/cache/models--org--name');
+  });
+});
+
 describe('syncContextFlagInManagedChatCommand', () => {
   it('updates existing -c', () => {
     expect(syncContextFlagInManagedChatCommand('llama-server -c 8192 --port {{PORT}}', 16384, 'posix')).toBe(
@@ -125,6 +150,74 @@ describe('syncContextFlagInManagedChatCommand', () => {
       'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics -ngl 99';
     expect(syncContextFlagInManagedChatCommand(cmd, 0, 'posix')).toBe(
       'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 0 --metrics -ngl 99',
+    );
+  });
+});
+
+describe('parseManagedLlamaNgl', () => {
+  it('parses -ngl and long aliases, including 0', () => {
+    expect(parseManagedLlamaNgl('llama-server -ngl 40 --port {{PORT}}')).toBe(40);
+    expect(parseManagedLlamaNgl('llama-server --n-gpu-layers 0 --port {{PORT}}')).toBe(0);
+    expect(parseManagedLlamaNgl('llama-server --gpu-layers=12 --port {{PORT}}')).toBe(12);
+    expect(parseManagedLlamaNgl('llama-server --port {{PORT}}')).toBeNull();
+  });
+
+  it('maps llama.cpp all-layers (-1) and values above 99 to 99', () => {
+    expect(parseManagedLlamaNgl('llama-server -ngl -1 --port {{PORT}}')).toBe(99);
+    expect(parseManagedLlamaNgl('llama-server -ngl 999 --port {{PORT}}')).toBe(99);
+  });
+});
+
+describe('syncNglFlagInManagedChatCommand', () => {
+  it('updates existing -ngl', () => {
+    expect(syncNglFlagInManagedChatCommand('llama-server -ngl 99 --port {{PORT}}', 40, 'posix')).toBe(
+      'llama-server -ngl 40 --port {{PORT}}',
+    );
+  });
+
+  it('keeps --n-gpu-layers form when replacing', () => {
+    expect(
+      syncNglFlagInManagedChatCommand('llama-server --n-gpu-layers 8 --port {{PORT}}', 16, 'posix'),
+    ).toBe('llama-server --n-gpu-layers 16 --port {{PORT}}');
+  });
+
+  it('appends -ngl when missing', () => {
+    expect(syncNglFlagInManagedChatCommand('llama-server --port {{PORT}}', 0, 'posix')).toContain('-ngl 0');
+  });
+
+  it('does not rewrite other flags', () => {
+    const cmd = 'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics';
+    expect(syncNglFlagInManagedChatCommand(cmd, 99, 'posix')).toBe(
+      'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics -ngl 99',
+    );
+  });
+});
+
+describe('syncNoHostFlagInManagedChatCommand', () => {
+  it('appends --no-host when missing', () => {
+    expect(syncNoHostFlagInManagedChatCommand('llama-server --host 127.0.0.1 --port {{PORT}}', true)).toBe(
+      'llama-server --host 127.0.0.1 --port {{PORT}} --no-host',
+    );
+  });
+
+  it('does not duplicate --no-host', () => {
+    const cmd = 'llama-server --no-host --port {{PORT}}';
+    expect(syncNoHostFlagInManagedChatCommand(cmd, true)).toBe(cmd);
+  });
+
+  it('removes --no-host without touching --host', () => {
+    expect(
+      syncNoHostFlagInManagedChatCommand(
+        'llama-server --host 127.0.0.1 --port {{PORT}} --no-host -ngl 99',
+        false,
+      ),
+    ).toBe('llama-server --host 127.0.0.1 --port {{PORT}} -ngl 99');
+  });
+
+  it('detects --no-host without matching --host', () => {
+    expect(managedLlamaCommandHasNoHost('llama-server --host 127.0.0.1 --port {{PORT}}')).toBe(false);
+    expect(managedLlamaCommandHasNoHost('llama-server --host 127.0.0.1 --port {{PORT}} --no-host')).toBe(
+      true,
     );
   });
 });

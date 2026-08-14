@@ -26,7 +26,13 @@ export function beginChatStream(conversationId: string, workspaceId: string | nu
   return abortController;
 }
 
-export function endChatStream(conversationId: string): void {
+export function endChatStream(conversationId: string, controller?: AbortController): void {
+  // Only delete the controller we started with. A newer stream may have replaced
+  // us in the map; deleting unconditionally would drop the replacement's controller
+  // and leave it uncancellable.
+  if (controller && streamAbortControllers.get(conversationId) !== controller) {
+    return;
+  }
   streamAbortControllers.delete(conversationId);
   streamWorkspaceByConversationId.delete(conversationId);
 }

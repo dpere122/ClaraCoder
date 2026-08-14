@@ -1,5 +1,7 @@
+import { importProvidersFrom } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { NgxSpinnerModule } from 'ngx-spinner';
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { lucideAppProviders } from '../../lucide-setup';
 import { App } from './app';
@@ -212,7 +214,7 @@ describe('App', () => {
     refs = stubElectronApi();
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideNoopAnimations(), ...lucideAppProviders],
+      providers: [provideNoopAnimations(), importProvidersFrom(NgxSpinnerModule), ...lucideAppProviders],
     }).compileComponents();
   });
 

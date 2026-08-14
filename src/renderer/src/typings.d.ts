@@ -12,6 +12,7 @@ import type {
   HealthMetricsSnapshot,
   HealthMonitorConfig,
   RuntimeHealthSnapshot,
+  CudaGpuDevice,
   LspDashboardStatus,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
@@ -485,6 +486,7 @@ declare global {
     ) => Promise<WorkspaceSystemPromptMutationResult>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
+    listCudaGpus?: () => Promise<CudaGpuDevice[]>;
     healthRuntimeSnapshot: () => Promise<RuntimeHealthSnapshot>;
     getLspDashboardStatus: (
       sessionId: string,

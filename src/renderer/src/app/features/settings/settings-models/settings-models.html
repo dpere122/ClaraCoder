@@ -569,114 +569,262 @@
                   </div>
                 }
 
-                <div class='form-grid sampling-compact'>
-                  <label class='field'>
-                    <span class='sampling-label'>
-                      Max output 0–200k
-                      <span class='field-help' tabindex='0' aria-label='0 is no max output limit.'>
-                        ?
-                        <span class='field-help__popup' role='tooltip'>0 is no max output limit.</span>
-                      </span>
-                    </span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='200000'
-                      step='256'
-                      placeholder='0 = auto'
-                      [ngModel]='connection.maxOutputTokens'
-                      (ngModelChange)='s.onMaxOutputTokensChange($event)'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Temp 0–1</span>
-                    <div class='temperature-row'>
-                      <input
-                        type='range'
-                        min='0'
-                        max='1'
-                        step='0.05'
-                        [ngModel]='connection.temperature'
-                        (ngModelChange)='s.onTemperatureChange($event)'
-                      />
-                      <input
-                        type='number'
-                        class='temperature-row__number'
-                        min='0'
-                        max='1'
-                        step='0.05'
-                        [ngModel]='connection.temperature'
-                        (ngModelChange)='s.onTemperatureChange($event)'
-                      />
+                <div
+                  class='advanced-inference-split'
+                  [class.advanced-inference-split--paired]='connection.provider === "llamacpp" && !s.isUrlOnlyLlamacpp()'
+                >
+                  <div class='advanced-inference-split__col'>
+                    @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
+                      <h6 class='advanced-inference-split__head'>Inference</h6>
+                    }
+                    <div class='form-grid sampling-compact'>
+                      <label class='field'>
+                        <span class='sampling-label'>
+                          Max output 0–200k
+                          <span class='field-help' tabindex='0' aria-label='0 is no max output limit.'>
+                            ?
+                            <span class='field-help__popup' role='tooltip'>0 is no max output limit.</span>
+                          </span>
+                        </span>
+                        <input
+                          type='number'
+                          min='0'
+                          max='200000'
+                          step='256'
+                          placeholder='0 = auto'
+                          [ngModel]='connection.maxOutputTokens'
+                          (ngModelChange)='s.onMaxOutputTokensChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>Temp 0–1</span>
+                        <div class='temperature-row'>
+                          <input
+                            type='range'
+                            min='0'
+                            max='1'
+                            step='0.05'
+                            [ngModel]='connection.temperature'
+                            (ngModelChange)='s.onTemperatureChange($event)'
+                          />
+                          <input
+                            type='number'
+                            class='temperature-row__number'
+                            min='0'
+                            max='1'
+                            step='0.05'
+                            [ngModel]='connection.temperature'
+                            (ngModelChange)='s.onTemperatureChange($event)'
+                          />
+                        </div>
+                      </label>
+                      <label class='field'>
+                        <span>top_p 0–1</span>
+                        <input
+                          type='number'
+                          min='0'
+                          max='1'
+                          step='0.01'
+                          placeholder='omit'
+                          [ngModel]='connection.topP'
+                          (ngModelChange)='s.onOptionalTopPChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>top_k 1–256</span>
+                        <input
+                          type='number'
+                          min='1'
+                          max='256'
+                          step='1'
+                          placeholder='omit'
+                          [ngModel]='connection.topK'
+                          (ngModelChange)='s.onOptionalTopKChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>min_p 0–1</span>
+                        <input
+                          type='number'
+                          min='0'
+                          max='1'
+                          step='0.01'
+                          placeholder='omit'
+                          [ngModel]='connection.minP'
+                          (ngModelChange)='s.onOptionalMinPChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>Presence −2–2</span>
+                        <input
+                          type='number'
+                          min='-2'
+                          max='2'
+                          step='0.05'
+                          placeholder='omit'
+                          [ngModel]='connection.presencePenalty'
+                          (ngModelChange)='s.onOptionalPresencePenaltyChange($event)'
+                        />
+                      </label>
+                      <label class='field'>
+                        <span>Repeat 0.01–4</span>
+                        <input
+                          type='number'
+                          min='0.01'
+                          max='4'
+                          step='0.05'
+                          placeholder='omit'
+                          [ngModel]='connection.repeatPenalty'
+                          (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)'
+                        />
+                      </label>
+                      <div class='field'>
+                        <span>Parallel tool calls <span class='settings-wip'>in construction</span></span>
+                        <label class='toggle-row'>
+                          <input type='checkbox' disabled />
+                          <span>Off</span>
+                        </label>
+                      </div>
                     </div>
-                  </label>
-                  <label class='field'>
-                    <span>top_p 0–1</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='1'
-                      step='0.01'
-                      placeholder='omit'
-                      [ngModel]='connection.topP'
-                      (ngModelChange)='s.onOptionalTopPChange($event)'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>top_k 1–256</span>
-                    <input
-                      type='number'
-                      min='1'
-                      max='256'
-                      step='1'
-                      placeholder='omit'
-                      [ngModel]='connection.topK'
-                      (ngModelChange)='s.onOptionalTopKChange($event)'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>min_p 0–1</span>
-                    <input
-                      type='number'
-                      min='0'
-                      max='1'
-                      step='0.01'
-                      placeholder='omit'
-                      [ngModel]='connection.minP'
-                      (ngModelChange)='s.onOptionalMinPChange($event)'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Presence −2–2</span>
-                    <input
-                      type='number'
-                      min='-2'
-                      max='2'
-                      step='0.05'
-                      placeholder='omit'
-                      [ngModel]='connection.presencePenalty'
-                      (ngModelChange)='s.onOptionalPresencePenaltyChange($event)'
-                    />
-                  </label>
-                  <label class='field'>
-                    <span>Repeat 0.01–4</span>
-                    <input
-                      type='number'
-                      min='0.01'
-                      max='4'
-                      step='0.05'
-                      placeholder='omit'
-                      [ngModel]='connection.repeatPenalty'
-                      (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)'
-                    />
-                  </label>
-                  <div class='field'>
-                    <span>Parallel tool calls <span class='settings-wip'>in construction</span></span>
-                    <label class='toggle-row'>
-                      <input type='checkbox' disabled />
-                      <span>Off</span>
-                    </label>
                   </div>
+                  @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
+                    <div class='advanced-inference-split__col'>
+                      <h6 class='advanced-inference-split__head'>llama.cpp</h6>
+                      <div class='form-grid sampling-compact'>
+                        <div class='field'>
+                          <span class='sampling-label'>
+                            --no-host
+                            <span
+                              class='field-help'
+                              tabindex='0'
+                              aria-label='Bypass host buffer so extra buffers can be used.'
+                            >
+                              ?
+                              <span class='field-help__popup' role='tooltip'>
+                                Bypass host buffer so extra buffers can be used.
+                              </span>
+                            </span>
+                          </span>
+                          <label class='toggle-row'>
+                            <input
+                              type='checkbox'
+                              [ngModel]='s.managedNoHostEnabled()'
+                              (ngModelChange)='s.onManagedNoHostChange($event)'
+                            />
+                            <span>{{ s.managedNoHostEnabled() ? 'On' : 'Off' }}</span>
+                          </label>
+                        </div>
+                        <label class='field'>
+                          <span class='sampling-label'>
+                            GPU layers (-ngl) 0–99
+                            <span
+                              class='field-help'
+                              tabindex='0'
+                              aria-label='Layers offloaded to VRAM. 0 is CPU only.'
+                            >
+                              ?
+                              <span class='field-help__popup' role='tooltip'>
+                                Layers offloaded to VRAM. 0 is CPU only.
+                              </span>
+                            </span>
+                          </span>
+                          <div class='temperature-row'>
+                            <input
+                              type='range'
+                              [min]='s.managedNglMin'
+                              [max]='s.managedNglMax'
+                              step='1'
+                              [ngModel]='s.managedNglLayers()'
+                              (ngModelChange)='s.onManagedNglChange($event)'
+                            />
+                            <input
+                              type='number'
+                              class='temperature-row__number'
+                              [min]='s.managedNglMin'
+                              [max]='s.managedNglMax'
+                              step='1'
+                              [ngModel]='s.managedNglLayers()'
+                              (ngModelChange)='s.onManagedNglChange($event)'
+                            />
+                          </div>
+                        </label>
+                        @if (s.cudaGpus().length) {
+                          <div class='field field--full'>
+                            <span class='sampling-label'>
+                              GPU offload
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='Fastest card is usually better when the model fits. Split only when it does not.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  Fastest card is usually better when the model fits. Split by VRAM only when weights would spill into system RAM.
+                                </span>
+                              </span>
+                            </span>
+                            <div class='gpu-offload-options'>
+                              <label class='gpu-offload-option'>
+                                <input
+                                  type='radio'
+                                  name='managedGpuOffload'
+                                  value='single'
+                                  [ngModel]='s.managedGpuOffloadMode()'
+                                  (ngModelChange)='s.onManagedGpuOffloadChange($event)'
+                                />
+                                <span>
+                                  Fastest card
+                                  @if (s.managedGpuAdvice()?.mode === 'single') {
+                                    <span class='gpu-offload-rec'>Recommended</span>
+                                  }
+                                  <span class='gpu-offload-detail'>
+                                    @if (s.managedGpuAdvice(); as advice) {
+                                      CUDA{{ advice.primaryCudaIndex }} · {{ s.managedPrimaryGpuLabel() }}
+                                    }
+                                  </span>
+                                </span>
+                              </label>
+                              <label class='gpu-offload-option' [class.is-disabled]='s.cudaGpus().length < 2'>
+                                <input
+                                  type='radio'
+                                  name='managedGpuOffload'
+                                  value='split'
+                                  [disabled]='s.cudaGpus().length < 2'
+                                  [ngModel]='s.managedGpuOffloadMode()'
+                                  (ngModelChange)='s.onManagedGpuOffloadChange($event)'
+                                />
+                                <span>
+                                  Split by VRAM
+                                  @if (s.managedGpuAdvice()?.mode === 'split') {
+                                    <span class='gpu-offload-rec'>Recommended</span>
+                                  }
+                                  <span class='gpu-offload-detail'>
+                                    {{ s.managedGpuSplitRatioLabel() }}
+                                  </span>
+                                </span>
+                              </label>
+                              <label class='gpu-offload-option'>
+                                <input
+                                  type='radio'
+                                  name='managedGpuOffload'
+                                  value='auto'
+                                  [ngModel]='s.managedGpuOffloadMode()'
+                                  (ngModelChange)='s.onManagedGpuOffloadChange($event)'
+                                />
+                                <span>
+                                  All GPUs
+                                  <span class='gpu-offload-detail'>llama.cpp default — often slower with mixed cards</span>
+                                </span>
+                              </label>
+                            </div>
+                            @if (s.managedGpuAdvice()?.reason; as reason) {
+                              <p class='gpu-offload-reason'>{{ reason }}</p>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
                 </div>
               </div>
               </details>

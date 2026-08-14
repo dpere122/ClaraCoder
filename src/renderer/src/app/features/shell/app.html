@@ -266,7 +266,10 @@
           </div>
 
           @if (chatExpanded()) {
-            <div class='chat-area__chat-expanded-overlay'>
+            <div
+              class='chat-area__chat-expanded-overlay'
+              [class.chat-area__chat-expanded-overlay--loading]='creatingConversation()'
+            >
               <app-chat-active-stack
                 class='chat-area__panel-host'
                 layout='expanded'
@@ -315,6 +318,25 @@
                 [usedPercentage]='contextCapacity().usedPercentage'
                 [(autoApplyMode)]='autoApplyMode'
               />
+              @if (creatingConversation()) {
+                <div
+                  class='chat-area__new-conv-loading-overlay'
+                  role='status'
+                  aria-live='polite'
+                  aria-label='Starting new conversation'
+                >
+                  <span class='chat-area__new-conv-loading-spinner-host' aria-hidden='true'>
+                    <ngx-spinner
+                      [name]='newConvExpandedSpinnerName'
+                      type='ball-atom'
+                      [fullScreen]='false'
+                      bdColor='rgba(0,0,0,0)'
+                      size='medium'
+                      color='var(--t-primary)'
+                    ></ngx-spinner>
+                  </span>
+                </div>
+              }
             </div>
           }
         </div>
@@ -352,6 +374,7 @@
         [activeFileRelativePath]='activeFileRelativePath()'
         [pendingIds]='pendingIds()'
         [hasWorkspace]='!!currentWorkspaceId()'
+        [creatingConversation]='creatingConversation()'
         (newConversation)='onNewConversation()'
         (selectConversation)='onSelectConversation($event)'
         (deleteConversation)='onDeleteConversation($event)'

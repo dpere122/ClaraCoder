@@ -162,7 +162,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       return 'Stop';
     }
     if (this.busy()) {
-      return 'Starting…';
+      return 'Cancel';
     }
     return 'Start';
   });
@@ -275,7 +275,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   }
 
   protected async toggle(): Promise<void> {
-    if (this.running()) {
+    if (this.running() || this.busy()) {
       await this.stop();
     } else {
       await this.start();
@@ -303,7 +303,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   protected async stop(): Promise<void> {
     const cfg = this.appConfig();
     const mid = this.modelId();
-    if (!cfg || !mid || !this.running()) {
+    if (!cfg || !mid || (!this.running() && !this.busy())) {
       return;
     }
     try {
@@ -330,11 +330,20 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       }
       if (res.ok && res.running) {
         this.phase.set('running');
+      } else if (res.ok && res.starting) {
+        if (this.phase() !== 'downloading') {
+          this.phase.set('starting');
+        }
+      } else if (this.busy()) {
+        return;
       } else {
         this.phase.set('idle');
       }
     } catch {
       if (req !== this.probeRequestId) {
+        return;
+      }
+      if (this.busy()) {
         return;
       }
       this.phase.set('idle');

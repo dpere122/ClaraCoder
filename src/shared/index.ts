@@ -24,22 +24,40 @@ export type {
 } from './managed-llama-model-pick';
 export {
   CONTEXT_FIT_PRESET_LIST,
+  MANAGED_LLAMA_NGL_DEFAULT,
+  MANAGED_LLAMA_NGL_MAX,
+  MANAGED_LLAMA_NGL_MIN,
   buildManagedLlamaChatCommand,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
   isQwenFamily,
+  managedLlamaCommandHasNoHost,
   managedLlamaSourceHint,
   managedLlamaSourceDisplayName,
   managedPickerValueForCmd,
   optimizationPresetDefaultsPatch,
   parseCustomManagedContextTokens,
   parseManagedLlamaContextSize,
+  parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,
+  syncNglFlagInManagedChatCommand,
+  syncNoHostFlagInManagedChatCommand,
 } from './managed-llama-model-pick';
+export type { CudaGpuDevice, GpuOffloadAdvice, ManagedGpuOffloadMode, ParsedGpuOffload } from './managed-llama-gpu-split';
+export {
+  cudaDeviceListArg,
+  formatGpuVramGb,
+  parseManagedLlamaGpuOffload,
+  recommendGpuOffload,
+  shortCudaGpuName,
+  syncGpuOffloadInManagedChatCommand,
+  syncGpuOffloadFromParsed,
+  tensorSplitForGpus,
+} from './managed-llama-gpu-split';
 export type {
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,

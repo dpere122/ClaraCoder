@@ -168,9 +168,37 @@ function connectionToRuntimeWire(
 
 /**
  * POST active LLM + audio config and host OS to Python so chat/transcribe use current settings.
- * @param llamaManagedEndpoints per model preset id for ``llamacpp`` (managed dynamic ports).
+ * @param llamaManagedEndpoints per model preset id for ``llamacpp`` (managed dynamic ports),
+ *   or a getter evaluated at send time so the last sync reflects live process state.
+ *
+ * Calls are serialized: a newer sync (e.g. start) always lands after an older one (e.g. save),
+ * and overrides are read live, so the last writer wins with current ``running`` state instead of
+ * a snapshot captured when the older call was initiated (which could clobber real ports with
+ * ``127.0.0.1:0`` if its POST was delayed).
  */
+let runtimeSyncChain: Promise<void> = Promise.resolve();
+
 export async function syncRuntimeConfigToPython(
+  config: AppConfig,
+  llamaManagedEndpoints?:
+    | Record<string, LlamaManagedRuntimeEndpoints>
+    | (() => Record<string, LlamaManagedRuntimeEndpoints> | undefined),
+): Promise<void> {
+  const send = async (): Promise<void> => {
+    const overrides =
+      typeof llamaManagedEndpoints === 'function' ? llamaManagedEndpoints() : llamaManagedEndpoints;
+    await postRuntimeConfigToPython(config, overrides);
+  };
+  runtimeSyncChain = runtimeSyncChain
+    .then(send)
+    .catch((err) => {
+      console.error('Failed to sync runtime config to Python:', err);
+    })
+    .then(() => undefined);
+  await runtimeSyncChain;
+}
+
+async function postRuntimeConfigToPython(
   config: AppConfig,
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
 ): Promise<void> {

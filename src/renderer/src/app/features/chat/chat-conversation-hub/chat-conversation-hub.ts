@@ -1,22 +1,46 @@
-import { Component, input, model, output } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  effect,
+  inject,
+  Injector,
+  input,
+  model,
+  OnDestroy,
+  output,
+  untracked,
+} from '@angular/core';
 import type { AppConfig, ComposerRunMode, ConversationMeta, PlannerProgress, StreamPart } from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import { ConversationManager } from '../conversation-manager/conversation-manager';
 import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack';
 import type { ChatMessage } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 
+const NEW_CONV_HUB_SPINNER = {
+  fullScreen: false as const,
+  bdColor: 'rgba(0,0,0,0)',
+  size: 'medium' as const,
+  color: 'var(--t-primary)',
+  type: 'ball-atom' as const,
+};
+
 export type ChatHubView = 'conversations' | 'activeChat';
 
 @Component({
   selector: 'app-chat-conversation-hub',
-  imports: [LucideAngularModule, ConversationManager, ChatActiveStackComponent],
+  imports: [LucideAngularModule, ConversationManager, ChatActiveStackComponent, NgxSpinnerComponent],
   templateUrl: './chat-conversation-hub.html',
   styleUrl: './chat-conversation-hub.css',
 })
-export class ChatConversationHubComponent {
+export class ChatConversationHubComponent implements OnDestroy {
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
+  private destroyed = false;
+
   readonly view = model<ChatHubView>('activeChat');
   readonly expanded = model(false);
   /** When true, the entire chat sidebar collapses to a thin bar with only the un-collapse button. */
@@ -27,6 +51,9 @@ export class ChatConversationHubComponent {
   readonly activeFileRelativePath = input<string | null>(null);
   readonly pendingIds = input<Set<string>>(new Set());
   readonly hasWorkspace = input(false);
+  readonly creatingConversation = input(false);
+
+  protected readonly newConvSpinnerName = 'new-conv-hub';
 
   readonly newConversation = output<void>();
   readonly selectConversation = output<string>();
@@ -115,6 +142,13 @@ export class ChatConversationHubComponent {
   readonly usedPercentage = input(0);
   readonly autoApplyMode = model(false);
 
+  constructor() {
+    effect(() => {
+      const creating = this.creatingConversation();
+      untracked(() => this.scheduleNewConvSpinnerSync(creating));
+    });
+  }
+
   protected toggleExpanded(): void {
     if (this.view() !== 'activeChat') {
       return;
@@ -146,5 +180,26 @@ export class ChatConversationHubComponent {
   protected onSelectFromList(id: string): void {
     this.selectConversation.emit(id);
     this.view.set('activeChat');
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+    void this.ngxSpinner.hide(this.newConvSpinnerName);
+  }
+
+  private scheduleNewConvSpinnerSync(creating: boolean): void {
+    afterNextRender(
+      () => {
+        if (this.destroyed) {
+          return;
+        }
+        if (creating) {
+          void this.ngxSpinner.show(this.newConvSpinnerName, NEW_CONV_HUB_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(this.newConvSpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
   }
 }

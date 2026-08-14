@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { Component, computed, effect, HostListener, inject, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
+import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -94,7 +94,16 @@ import {
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
+
+const NEW_CONV_EXPANDED_SPINNER = {
+  fullScreen: false as const,
+  bdColor: 'rgba(0,0,0,0)',
+  size: 'medium' as const,
+  color: 'var(--t-primary)',
+  type: 'ball-atom' as const,
+};
 
 function parentRelativePath(relativePath: string): string {
   const norm = normalizePathSlashes(relativePath);
@@ -118,12 +127,17 @@ function parentRelativePath(relativePath: string): string {
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
+    NgxSpinnerComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App implements OnInit, OnDestroy {
   @ViewChild(WorkspaceMonacoComponent) private workspaceMonaco?: WorkspaceMonacoComponent;
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
+  private shellDestroyed = false;
+  protected readonly newConvExpandedSpinnerName = 'new-conv-expanded';
   protected readonly conversationSession = inject(ConversationSessionService);
   protected readonly messages = this.conversationSession.messages;
   protected readonly pendingIds = this.conversationSession.pendingIds;
@@ -135,6 +149,7 @@ export class App implements OnInit, OnDestroy {
   protected readonly streamingFinalText = this.conversationSession.streamingFinalText;
   protected readonly chatHubView = this.conversationSession.chatHubView;
   protected readonly processingToolsActive = this.conversationSession.processingToolsActive;
+  protected readonly creatingConversation = this.conversationSession.creatingConversation;
 
   protected readonly appConfig = signal<AppConfig | null>(null);
   protected readonly pinned = model(false);
@@ -548,6 +563,12 @@ export class App implements OnInit, OnDestroy {
       untracked(() => this.pendingDiffReview.clearAllSessions());
     });
 
+    effect(() => {
+      const creating = this.creatingConversation();
+      const expanded = this.chatExpanded();
+      untracked(() => this.scheduleNewConvExpandedSpinnerSync(creating && expanded));
+    });
+
     this.conversationSession.bindHooks({
       getCurrentWorkspaceId: () => this.currentWorkspaceId(),
       getSpeechSettings: () => ({
@@ -706,10 +727,28 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.shellDestroyed = true;
+    void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
     void this.tts.invalidateSpeechPipeline();
     window.removeEventListener('resize', this.boundOnWindowResize);
     this.flushSidebarWidthPersist();
     this.onResizeEnd();
+  }
+
+  private scheduleNewConvExpandedSpinnerSync(show: boolean): void {
+    afterNextRender(
+      () => {
+        if (this.shellDestroyed) {
+          return;
+        }
+        if (show) {
+          void this.ngxSpinner.show(this.newConvExpandedSpinnerName, NEW_CONV_EXPANDED_SPINNER);
+        } else {
+          void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
+        }
+      },
+      { injector: this.inj },
+    );
   }
 
   private normalizeSidebarWidthPercent(value: number | undefined): number {

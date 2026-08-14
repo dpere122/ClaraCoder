@@ -6,6 +6,8 @@ export type LlamaServerStartResult = { ok: true } | { ok: false; error: string }
 export interface LlamaServerStatusPayload {
   ok: true;
   running: boolean;
+  /** Slot reserved and process in flight, but chat ``/health`` has not succeeded yet. */
+  starting?: boolean;
   modelId: string;
   chat: { port: number; health: ManagedServerHealthState; lastLog?: string };
   embed?: { port: number; health: ManagedServerHealthState; lastLog?: string };

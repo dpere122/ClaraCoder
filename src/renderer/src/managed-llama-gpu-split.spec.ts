@@ -39,6 +39,11 @@ describe('recommendGpuOffload', () => {
     expect(advice?.mode).toBe('single');
     expect(advice?.reason).toMatch(/unknown/i);
   });
+
+  it('treats Max context (-c 0) as a large KV reserve', () => {
+    const advice = recommendGpuOffload([rtx5090, rtx5070ti], 22 * 1024 * 1024 * 1024, 0);
+    expect(advice?.mode).toBe('split');
+  });
 });
 
 describe('tensorSplitForGpus / device list', () => {

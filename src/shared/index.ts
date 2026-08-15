@@ -42,6 +42,7 @@ export {
   parseManagedLlamaContextSize,
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
+  promoteManagedSentinelNglToAuto,
   suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,
   syncNglFlagInManagedChatCommand,

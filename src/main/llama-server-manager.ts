@@ -22,6 +22,7 @@ import {
   looksLikeLlamaModelDownload,
   managedLlamaCmdUsesHfRemoteModel,
   prepareManagedLlamaShellCommand,
+  promoteManagedSentinelNglToAuto,
 } from '../shared';
 import { loadConfigSync } from './config/load-save';
 import { SecretValue, unwrapSecret } from '../shared/types/app-config';
@@ -678,7 +679,10 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   }
 
   const managedLlamaBin = getManagedLlamaServerPath();
-  let chatCmd = rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin);
+  let chatCmd = promoteManagedSentinelNglToAuto(
+    rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin),
+    detectShellQuotingPlatform(),
+  );
   if (!chatCmd) {
     return { ok: false, error: 'chatRunCommand is empty.' };
   }

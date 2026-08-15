@@ -471,7 +471,7 @@
                     <div class='field field--full'>
                       <span>Context</span>
                       <div class='context-mode-row'>
-                        <label class='context-mode-option' title='Model-native context (-c 0)'>
+                        <label class='context-mode-option' title='Model-native context (-c 0). Gemma 4 12B is 256k — llama.cpp --fit shrinks this to what fits in VRAM when GPU layers are Auto.'>
                           <input
                             type='radio'
                             name='managedContextMode'
@@ -697,11 +697,11 @@
                             <span
                               class='field-help'
                               tabindex='0'
-                              aria-label='Bypass host buffer so extra buffers can be used.'
+                              aria-label='Skip CUDA pinned host buffers for CPU tensors so CPU extra buffers can be used. Does not keep weights in VRAM.'
                             >
                               ?
                               <span class='field-help__popup' role='tooltip'>
-                                Bypass host buffer so extra buffers can be used.
+                                Skip CUDA pinned host buffers for CPU tensors so CPU extra buffers (repacking) can be used. This does not keep model weights in VRAM.
                               </span>
                             </span>
                           </span>
@@ -716,15 +716,15 @@
                         </div>
                         <label class='field'>
                           <span class='sampling-label'>
-                            GPU layers (-ngl) 0–99
+                            GPU layers (-ngl) 0–99 auto
                             <span
                               class='field-help'
                               tabindex='0'
-                              aria-label='Layers offloaded to VRAM. 0 is CPU only.'
+                              aria-label='99 is auto: fill VRAM and shrink context before spilling to RAM. 0 is CPU only. 1–98 pins that many layers and disables auto-fit.'
                             >
                               ?
                               <span class='field-help__popup' role='tooltip'>
-                                Layers offloaded to VRAM. 0 is CPU only.
+                                99 is auto (llama.cpp --fit): fill VRAM and shrink context before spilling weights into system RAM. 0 is CPU only. Values 1–98 pin an exact layer count and turn auto-fit off.
                               </span>
                             </span>
                           </span>
@@ -813,7 +813,7 @@
                                 />
                                 <span>
                                   All GPUs
-                                  <span class='gpu-offload-detail'>llama.cpp default — often slower with mixed cards</span>
+                                  <span class='gpu-offload-detail'>llama.cpp default — can overflow into RAM on mixed cards</span>
                                 </span>
                               </label>
                             </div>

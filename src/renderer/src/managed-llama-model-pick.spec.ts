@@ -10,6 +10,7 @@ import {
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   managedPickerValueForCmd,
+  promoteManagedSentinelNglToAuto,
   suggestContextWindowTokens,
   syncContextFlagInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
@@ -162,8 +163,11 @@ describe('parseManagedLlamaNgl', () => {
     expect(parseManagedLlamaNgl('llama-server --port {{PORT}}')).toBeNull();
   });
 
-  it('maps llama.cpp all-layers (-1) and values above 99 to 99', () => {
+  it('parses auto, all, and llama.cpp sentinels as 99', () => {
+    expect(parseManagedLlamaNgl('llama-server -ngl auto --port {{PORT}}')).toBe(99);
+    expect(parseManagedLlamaNgl('llama-server -ngl all --port {{PORT}}')).toBe(99);
     expect(parseManagedLlamaNgl('llama-server -ngl -1 --port {{PORT}}')).toBe(99);
+    expect(parseManagedLlamaNgl('llama-server -ngl -2 --port {{PORT}}')).toBe(99);
     expect(parseManagedLlamaNgl('llama-server -ngl 999 --port {{PORT}}')).toBe(99);
   });
 });
@@ -185,11 +189,45 @@ describe('syncNglFlagInManagedChatCommand', () => {
     expect(syncNglFlagInManagedChatCommand('llama-server --port {{PORT}}', 0, 'posix')).toContain('-ngl 0');
   });
 
-  it('does not rewrite other flags', () => {
+  it('writes -ngl auto at 99 so llama.cpp --fit can use VRAM', () => {
     const cmd = 'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics';
     expect(syncNglFlagInManagedChatCommand(cmd, 99, 'posix')).toBe(
-      'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics -ngl 99',
+      'llama-server --host 127.0.0.1 --port {{PORT}} -m /a.gguf -c 8192 --metrics -ngl auto',
     );
+  });
+
+  it('replaces a pinned 99 with auto', () => {
+    expect(syncNglFlagInManagedChatCommand('llama-server -ngl 99 --port {{PORT}}', 99, 'posix')).toBe(
+      'llama-server -ngl auto --port {{PORT}}',
+    );
+  });
+});
+
+describe('promoteManagedSentinelNglToAuto', () => {
+  it('rewrites Clara sentinel -ngl 99 to auto', () => {
+    expect(
+      promoteManagedSentinelNglToAuto(
+        'llama-server --host 127.0.0.1 --port {{PORT}} -hf unsloth/gemma-4-12b-it-GGUF -c 0 --metrics -ngl 99 --no-host -dev CUDA0 --main-gpu 0',
+        'posix',
+      ),
+    ).toContain('-ngl auto');
+  });
+
+  it('leaves exact layer counts and -ngl all alone', () => {
+    expect(promoteManagedSentinelNglToAuto('llama-server -ngl 40 --port {{PORT}}', 'posix')).toBe(
+      'llama-server -ngl 40 --port {{PORT}}',
+    );
+    expect(promoteManagedSentinelNglToAuto('llama-server -ngl all --port {{PORT}}', 'posix')).toBe(
+      'llama-server -ngl all --port {{PORT}}',
+    );
+    expect(promoteManagedSentinelNglToAuto('llama-server -ngl 999 --port {{PORT}}', 'posix')).toBe(
+      'llama-server -ngl 999 --port {{PORT}}',
+    );
+  });
+
+  it('no-ops when -ngl is absent', () => {
+    const cmd = 'llama-server --port {{PORT}} -c 0';
+    expect(promoteManagedSentinelNglToAuto(cmd, 'posix')).toBe(cmd);
   });
 });
 

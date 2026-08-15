@@ -96,6 +96,9 @@ export function inferContextWindowTokens(
       if (/\be2b\b/.test(m) || /\be4b\b/.test(m)) {
         return 128_000;
       }
+      if (/gemma[-_.]?4\b/.test(m)) {
+        return 256_000;
+      }
       return 128_000;
     }
   }

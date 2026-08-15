@@ -278,10 +278,13 @@ export function syncContextFlagInManagedChatCommand(
   return `${trimmed} ${argvToShellCommandLine(['-c', ctxStr], platform)}`;
 }
 
-/** Slider / command range for ``-ngl`` (0 = CPU, 99 ≈ all layers). */
+/** Slider / command range for ``-ngl`` (0 = CPU, 99 = llama.cpp ``auto`` / ``--fit``). */
 export const MANAGED_LLAMA_NGL_MIN = 0;
 export const MANAGED_LLAMA_NGL_MAX = 99;
-/** Display default when the chat command has no ``-ngl`` (llama.cpp treats missing as all layers). */
+/**
+ * Display default when the chat command has no ``-ngl``.
+ * llama.cpp default is ``auto`` (``--fit`` fills VRAM, shrinks context before spilling to RAM).
+ */
 export const MANAGED_LLAMA_NGL_DEFAULT = 99;
 
 const NGL_FLAG_RE =
@@ -300,7 +303,25 @@ function clampManagedNglFlag(n: number): number | null {
   return Math.min(MANAGED_LLAMA_NGL_MAX, Math.max(MANAGED_LLAMA_NGL_MIN, Math.floor(n)));
 }
 
-/** Parse ``-ngl`` / ``--n-gpu-layers`` / ``--gpu-layers``. Negative llama.cpp “all” values map to 99. */
+function parseNglToken(raw: string): number | null {
+  const t = (raw || '').trim();
+  if (!t) {
+    return null;
+  }
+  if (/^auto$/i.test(t) || t === '-1') {
+    return MANAGED_LLAMA_NGL_MAX;
+  }
+  if (/^all$/i.test(t) || t === '-2') {
+    return MANAGED_LLAMA_NGL_MAX;
+  }
+  if (!/^-?\d+$/.test(t)) {
+    return null;
+  }
+  const n = Number.parseInt(t, 10);
+  return clampManagedNglFlag(n);
+}
+
+/** Parse ``-ngl`` / ``--n-gpu-layers`` / ``--gpu-layers``. ``auto`` / ``all`` / negatives map to 99. */
 export function parseManagedLlamaNgl(cmd: string): number | null {
   const t = (cmd || '').trim();
   if (!t) {
@@ -310,17 +331,28 @@ export function parseManagedLlamaNgl(cmd: string): number | null {
   if (!m) {
     return null;
   }
-  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
-  if (!/^-?\d+$/.test(raw)) {
-    return null;
+  return parseNglToken(unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? ''));
+}
+
+function replaceNglFlagValue(
+  cmd: string,
+  value: string,
+  platform: ShellQuotingPlatform,
+): string {
+  const replaced = cmd.replace(
+    NGL_FLAG_REPLACE_RE,
+    (_full, lead: string, _flagged: string, flag: string) => `${lead}${flag} ${value}`,
+  );
+  if (replaced !== cmd) {
+    return replaced;
   }
-  const n = Number.parseInt(raw, 10);
-  return clampManagedNglFlag(n);
+  return `${cmd} ${argvToShellCommandLine(['-ngl', value], platform)}`;
 }
 
 /**
  * Replace ``-ngl`` (or long aliases) in a command, or append ``-ngl`` when missing.
- * Leaves the rest of the command intact. Range is 0–99.
+ * ``99`` writes ``-ngl auto`` so llama.cpp ``--fit`` can keep weights in VRAM and shrink
+ * context instead of spilling layers into system RAM. ``0``–``98`` pin an exact count.
  */
 export function syncNglFlagInManagedChatCommand(
   cmd: string,
@@ -335,15 +367,35 @@ export function syncNglFlagInManagedChatCommand(
   if (ngl === null) {
     return trimmed;
   }
-  const nglStr = String(ngl);
-  const replaced = trimmed.replace(
-    NGL_FLAG_REPLACE_RE,
-    (_full, lead: string, _flagged: string, flag: string) => `${lead}${flag} ${nglStr}`,
-  );
-  if (replaced !== trimmed) {
-    return replaced;
+  if (ngl === MANAGED_LLAMA_NGL_MAX) {
+    return replaceNglFlagValue(trimmed, 'auto', platform);
   }
-  return `${trimmed} ${argvToShellCommandLine(['-ngl', nglStr], platform)}`;
+  return replaceNglFlagValue(trimmed, String(ngl), platform);
+}
+
+/**
+ * Rewrite Clara's old “all layers” sentinel ``-ngl 99`` to ``-ngl auto``.
+ * An explicit numeric 99 disables llama.cpp ``--fit``, which then allocates
+ * model-native context (``-c 0``, often 128k–256k) and pages weights into RAM
+ * while dedicated VRAM still looks free. Leaves ``999`` / ``all`` / other counts alone.
+ */
+export function promoteManagedSentinelNglToAuto(
+  cmd: string,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const m = NGL_FLAG_RE.exec(trimmed);
+  if (!m) {
+    return trimmed;
+  }
+  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
+  if (raw !== '99') {
+    return trimmed;
+  }
+  return replaceNglFlagValue(trimmed, 'auto', platform);
 }
 
 /** True when the command already has the boolean ``--no-host`` token (not ``--host``). */

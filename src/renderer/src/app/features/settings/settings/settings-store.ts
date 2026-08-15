@@ -83,6 +83,7 @@ import {
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   parseManagedLlamaGpuOffload,
+  promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
   formatGpuVramGb,
   shortCudaGpuName,
@@ -471,7 +472,7 @@ export class SettingsStore {
   });
   readonly managedNglMin = MANAGED_LLAMA_NGL_MIN;
   readonly managedNglMax = MANAGED_LLAMA_NGL_MAX;
-  /** GPU layers from the chat command; 99 when ``-ngl`` is absent (llama.cpp default is all layers). */
+  /** GPU layers from the chat command; 99 (``auto`` / ``--fit``) when ``-ngl`` is absent. */
   readonly managedNglLayers = computed((): number => {
     const parsed = parseManagedLlamaNgl(this.selectedLlamaCppManaged().chatRunCommand);
     return parsed === null ? MANAGED_LLAMA_NGL_DEFAULT : parsed;
@@ -1462,10 +1463,13 @@ export class SettingsStore {
       return;
     }
     this.patchLlamaCppManaged({
-      chatRunCommand: syncGpuOffloadInManagedChatCommand(
-        cmd,
-        mode,
-        this.cudaGpus(),
+      chatRunCommand: promoteManagedSentinelNglToAuto(
+        syncGpuOffloadInManagedChatCommand(
+          cmd,
+          mode,
+          this.cudaGpus(),
+          detectShellQuotingPlatform(),
+        ),
         detectShellQuotingPlatform(),
       ),
     });
@@ -1781,6 +1785,7 @@ export class SettingsStore {
     if (prevGpu.mode !== 'auto') {
       chatRunCommand = syncGpuOffloadFromParsed(chatRunCommand, prevGpu, platform);
     }
+    chatRunCommand = promoteManagedSentinelNglToAuto(chatRunCommand, platform);
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;
     this.applyLlmModelPatch(model.id, {
       ...patch,

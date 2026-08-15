@@ -88,6 +88,15 @@ describe('inferContextWindowTokens (Gemma LM Studio)', () => {
     expect(inferContextWindowTokens('google/gemma-4-E2B-it', 'lmstudio')).toBe(128_000);
   });
 
+  it('uses 256k for Gemma 4 12B', () => {
+    expect(inferContextWindowTokens('unsloth/gemma-4-12b-it-GGUF', 'llamacpp')).toBe(256_000);
+    expect(inferContextWindowTokens('google/gemma-4-12B-it', 'lmstudio')).toBe(256_000);
+  });
+
+  it('uses 128k for Gemma 3 12B', () => {
+    expect(inferContextWindowTokens('google/gemma-3-12b-it', 'llamacpp')).toBe(128_000);
+  });
+
   it('falls back for unknown LM Studio model', () => {
     expect(inferContextWindowTokens('local-model', 'lmstudio')).toBe(128_000);
     expect(inferContextWindowTokens('local-model', 'llamacpp')).toBe(128_000);

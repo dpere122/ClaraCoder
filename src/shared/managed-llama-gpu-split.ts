@@ -77,7 +77,9 @@ export function cudaDeviceListArg(gpus: readonly CudaGpuDevice[]): string {
 
 function estimateKvMb(ctxTokens: number): number {
   if (!Number.isFinite(ctxTokens) || ctxTokens <= 0) {
-    return 4096;
+    // ``-c 0`` is model-native context (Gemma 4 12B is 256k). Use the KV cap so
+    // Fastest-card vs Split does not treat Max as a tiny cache.
+    return MAX_KV_MB;
   }
   return Math.min(MAX_KV_MB, Math.max(MIN_KV_MB, Math.round((ctxTokens / 1024) * KV_MB_PER_1K_CTX)));
 }

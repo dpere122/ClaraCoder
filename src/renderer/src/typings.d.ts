@@ -423,7 +423,7 @@ declare global {
       | { success: true; sessionId: string }
       | { success: false; error: string }
     >;
-    workspacePtyWrite: (sessionId: string, data: string) => Promise<{ success: boolean; error?: string }>;
+    workspacePtyWrite: (sessionId: string, data: string) => void;
     workspacePtyResize: (
       sessionId: string,
       cols: number,
@@ -439,6 +439,9 @@ declare global {
         event: unknown,
         data: { sessionId: string; exitCode: number; signal: number | null },
       ) => void,
+    ) => void;
+    onWorkspacePtyCwd: (
+      callback: (event: unknown, data: { sessionId: string; cwd: string }) => void,
     ) => void;
     onLlamaServerOutput?: (callback: (event: unknown, data: LlamaServerOutputEvent) => void) => void;
     onLlamaServerProcessExit?: (

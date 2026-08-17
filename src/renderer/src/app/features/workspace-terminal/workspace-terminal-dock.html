@@ -52,7 +52,7 @@
               [attr.aria-selected]="tab.id === activeTabId()"
               (click)="selectTab(tab.id)"
             >
-              <span class="workspace-terminal-dock__tab-title">{{ tab.title }}</span>
+              <span class="workspace-terminal-dock__tab-title" [attr.title]="tab.cwd || tab.title">{{ tab.title }}</span>
               <button
                 type="button"
                 class="workspace-terminal-dock__tab-close"
@@ -125,13 +125,20 @@
                   Retry
                 </button>
               </div>
+            } @else if (tab.exited && !tab.sessionId && !tab.spawning) {
+              <div class="workspace-terminal-dock__spawn-error" role="status">
+                <p class="workspace-terminal-dock__spawn-error-text">Shell exited.</p>
+                <button type="button" class="workspace-terminal-dock__spawn-error-retry" (click)="retryPtySpawn(tab.id)">
+                  Relaunch
+                </button>
+              </div>
             } @else if (tab.spawning && !tab.sessionId) {
               <div class="workspace-terminal-dock__starting">Starting shell…</div>
             }
             <div class="workspace-terminal-dock__xterm-host" [id]="hostDomId(tab.id)"></div>
           </div>
         }
-        @for (agentTab of agentCommandTabsForConversation(); track agentTab.id) {
+        @for (agentTab of agentCommandTabs(); track agentTab.id) {
           <div
             class="workspace-terminal-dock__pane workspace-terminal-dock__pane--agent-command"
             [class.workspace-terminal-dock__pane--hidden]="agentTab.id !== activeTabId()"

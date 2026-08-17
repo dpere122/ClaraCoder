@@ -27,6 +27,7 @@ import { ElectronService } from '../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { activeTerminalClosePrompt } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { buildXtermThemeFromCssVars, invalidateTerminalPaletteCache } from './xterm-theme-from-css';
+import { consumeOsc7CwdChunk, ptyTabTitleFromCwd } from './terminal-tab-title';
 import { EditorProblemsComponent } from '../workspace/editor-problems/editor-problems';
 
 /** Prefix for read-only llama.cpp server log tabs (not PTYs). */
@@ -42,10 +43,14 @@ interface PtyTerminalTab {
   readonly id: string;
   sessionId: string | null;
   title: string;
+  /** Last known filesystem cwd for this shell (drives the tab label). */
+  cwd?: string;
   /** Set when the main process could not start a PTY for this tab. */
   spawnError?: string;
   /** True while ``workspace-pty-spawn`` is in flight (shows a "starting" placeholder). */
   spawning?: boolean;
+  /** True after the shell process exited; relaunch only via Retry. */
+  exited?: boolean;
 }
 
 interface MergedTab {
@@ -53,6 +58,7 @@ interface MergedTab {
   kind: 'pty';
   sessionId: string | null;
   title: string;
+  cwd?: string;
 }
 
 interface LlamaTerminalTab {
@@ -96,6 +102,12 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   private readonly llamaBacklogByTab = new Map<string, string>();
   /** Pending run_command bytes keyed by agent tab id until xterm mounts. */
   private readonly agentCommandBacklogByTab = new Map<string, string>();
+  /** PTY bytes keyed by tab id until xterm mounts. */
+  private readonly ptyBacklogByTab = new Map<string, string>();
+  /** run_command bytes that arrived before backgroundCommandOpen created the tab. */
+  private readonly agentPreOpenBacklog = new Map<string, string>();
+  /** Incomplete OSC 7 prefix per PTY session (sequences can split across IPC chunks). */
+  private readonly osc7RemainderBySession = new Map<string, string>();
   private readonly spawningTabs = new Set<string>();
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
@@ -130,8 +142,6 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   /** Exposed for template bindings. */
   readonly problemsTabId = PROBLEMS_TAB_ID;
 
-  private lastWorkspacePath = '';
-
   readonly hasWorkspace = computed(() => this.workspacePath().trim().length > 0);
 
   readonly showLlamaServerTab = computed(() => {
@@ -150,7 +160,11 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   });
 
   readonly hasDockPanelContent = computed(
-    () => this.hasWorkspace() || this.showLlamaServerTab() || this.agentCommandTabsForConversation().length > 0,
+    () =>
+      this.hasWorkspace()
+      || this.showLlamaServerTab()
+      || this.ptyTabs().length > 0
+      || this.agentCommandTabs().length > 0,
   );
 
   readonly showProblemsTab = computed(() => this.hasDockPanelContent());
@@ -164,6 +178,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       kind: 'pty' as const,
       sessionId: t.sessionId,
       title: t.title,
+      cwd: t.cwd,
     })),
   );
 
@@ -192,47 +207,61 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       if (this.destroyed) {
         return;
       }
-      const tabId = this.ptySessionToTabId.get(msg.sessionId);
+      const osc = consumeOsc7CwdChunk(this.osc7RemainderBySession.get(msg.sessionId) ?? '', msg.data);
+      this.osc7RemainderBySession.set(msg.sessionId, osc.remainder);
+      if (osc.cwd) {
+        this.applyPtyCwdTitle(msg.sessionId, osc.cwd);
+      }
+      const tabId = this.resolvePtyTabIdForSession(msg.sessionId);
       const inst = tabId ? this.xterms.get(tabId) : undefined;
       if (inst && inst.sessionId === msg.sessionId) {
         inst.terminal.write(msg.data);
         return;
       }
-      for (const i of this.xterms.values()) {
-        if (i.sessionId === msg.sessionId) {
-          i.terminal.write(msg.data);
-          break;
-        }
+      if (tabId) {
+        this.appendCappedBacklog(this.ptyBacklogByTab, tabId, msg.data);
       }
     });
 
     this.electron.workspacePtyExit$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((msg) => {
-    if (this.destroyed) {
-      return;
-    }
-    const tabIdHint = this.ptySessionToTabId.get(msg.sessionId);
-    const preferred = tabIdHint != null ? this.xterms.get(tabIdHint) : undefined;
-    const entry =
-      preferred?.sessionId === msg.sessionId
-        ? ([tabIdHint!, preferred] as const)
-        : [...this.xterms.entries()].find(([, inst]) => inst.sessionId === msg.sessionId);
-    if (entry) {
-      const [tabId, inst] = entry;
-      inst.terminal.writeln('');
-      inst.terminal.writeln(`\x1b[90m[Exit code ${msg.exitCode}]\x1b[0m`);
-      this.ptySessionToTabId.delete(msg.sessionId);
-      this.disposeXterm(tabId);
-    }
+      if (this.destroyed) {
+        return;
+      }
+      this.osc7RemainderBySession.delete(msg.sessionId);
+      const tabIdHint = this.ptySessionToTabId.get(msg.sessionId);
+      const preferred = tabIdHint != null ? this.xterms.get(tabIdHint) : undefined;
+      const entry =
+        preferred?.sessionId === msg.sessionId
+          ? ([tabIdHint!, preferred] as const)
+          : [...this.xterms.entries()].find(([, inst]) => inst.sessionId === msg.sessionId);
+      if (entry) {
+        const [tabId, inst] = entry;
+        inst.terminal.writeln('');
+        inst.terminal.writeln(`\x1b[90m[Exit code ${msg.exitCode}]\x1b[0m`);
+        inst.sessionId = '';
+        this.ptySessionToTabId.delete(msg.sessionId);
+        this.ptyBacklogByTab.delete(tabId);
+      }
       this.ptyTabs.update((list) =>
         list.map((t) => {
           if (t.sessionId !== msg.sessionId) {
             return t;
           }
-          const base = t.title.replace(/ \(exited\)$/, '');
-          return { ...t, sessionId: null, title: `${base} (exited)` };
+          return {
+            ...t,
+            sessionId: null,
+            exited: true,
+            title: ptyTabTitleFromCwd(t.cwd ?? t.title.replace(/ \(exited\)$/, ''), true),
+          };
         }),
       );
-      void this.ensureActiveTabSession();
+    });
+
+    this.electron.workspacePtyCwd$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((msg) => {
+      if (this.destroyed) {
+        return;
+      }
+      this.applyPtyCwdTitle(msg.sessionId, msg.cwd);
     });
 
     this.electron.llamaServerOutput$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((msg: LlamaServerOutputEvent) => {
@@ -318,6 +347,11 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       }
       const tab = this.findAgentCommandTabByStreamTag(msg.conversationId, msg.streamTag ?? '');
       if (!tab) {
+        this.appendCappedBacklog(
+          this.agentPreOpenBacklog,
+          this.agentPreOpenKey(msg.conversationId, msg.streamTag ?? ''),
+          msg.delta,
+        );
         return;
       }
       this.writeAgentCommandChunk(tab.id, msg.delta);
@@ -350,17 +384,6 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     this.themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['class'],
-    });
-
-    effect(() => {
-      const path = this.workspacePath().trim();
-      if (path === this.lastWorkspacePath) {
-        return;
-      }
-      this.lastWorkspacePath = path;
-      untracked(() => {
-        void this.onWorkspaceRootChanged();
-      });
     });
 
     effect(() => {
@@ -490,8 +513,11 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
   addTab(): void {
     const id = crypto.randomUUID();
-    const n = this.ptyTabs().length + 1;
-    this.ptyTabs.update((list) => [...list, { id, sessionId: null, title: `Terminal ${n}`, spawnError: undefined }]);
+    const cwd = this.workspacePath().trim();
+    this.ptyTabs.update((list) => [
+      ...list,
+      { id, sessionId: null, title: ptyTabTitleFromCwd(cwd), cwd: cwd || undefined, spawnError: undefined },
+    ]);
     this.activeTabId.set(id);
     if (this.expanded() && this.hasWorkspace()) {
       this.queueSafe(() => void this.ensureActiveTabSession());
@@ -557,15 +583,6 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       }
       this.teardownResizeTracking();
       this.ptyTabs.set([]);
-      if (this.agentCommandTabsForConversation().length > 0) {
-        this.activeTabId.set(this.agentCommandTabsForConversation()[0]!.id);
-        this.queueSafe(() => {
-          this.observeActiveHostResize();
-          this.mountAgentCommandXtermsIfNeeded();
-          this.fitActive();
-        });
-        return;
-      }
       this.activeTabId.set(null);
       this.expanded.set(false);
       return;
@@ -600,10 +617,12 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     });
   }
 
-  /** Clears a failed spawn and tries again (same workspace cwd). */
+  /** Clears a failed spawn or exited shell and tries again (same workspace cwd). */
   retryPtySpawn(tabId: string): void {
     this.ptyTabs.update((list) =>
-      list.map((t) => (t.id === tabId ? { ...t, spawnError: undefined } : t)),
+      list.map((t) =>
+        t.id === tabId ? { ...t, spawnError: undefined, exited: false } : t,
+      ),
     );
     if (this.activeTabId() === tabId) {
       void this.ensureActiveTabSession();
@@ -651,31 +670,6 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     });
   }
 
-  private async onWorkspaceRootChanged(): Promise<void> {
-    if (this.destroyed) {
-      return;
-    }
-    this.teardownResizeTracking();
-    await this.notifyAllAgentCommandTabsClosed();
-    await this.electron.workspacePtyKillAll();
-    if (this.destroyed) {
-      return;
-    }
-    for (const id of [...this.xterms.keys()]) {
-      if (!this.isLlamaTabId(id)) {
-        this.disposeXterm(id);
-      }
-    }
-    this.agentCommandBacklogByTab.clear();
-    this.agentCommandTabs.set([]);
-    this.ptyTabs.set([]);
-    const firstLlamaTabId = this.llamaTabs()[0]?.id ?? null;
-    this.activeTabId.set(firstLlamaTabId);
-    if (this.expanded() && this.hasWorkspace()) {
-      this.addTab();
-    }
-  }
-
   /** Kill Python background run_command jobs when their UI tabs are torn down without closeTab. */
   private async notifyAllAgentCommandTabsClosed(): Promise<void> {
     const tabs = this.agentCommandTabs();
@@ -686,6 +680,25 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       tabs.map((tab) =>
         this.electron.notifyBackgroundCommandTerminalClosed(tab.conversationId, tab.commandId),
       ),
+    );
+  }
+
+  private applyPtyCwdTitle(sessionId: string, cwd: string): void {
+    const nextCwd = cwd.trim();
+    if (!nextCwd) {
+      return;
+    }
+    this.ptyTabs.update((list) =>
+      list.map((t) => {
+        if (t.sessionId !== sessionId) {
+          return t;
+        }
+        return {
+          ...t,
+          cwd: nextCwd,
+          title: ptyTabTitleFromCwd(nextCwd, !!t.exited),
+        };
+      }),
     );
   }
 
@@ -711,10 +724,8 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       if (this.spawningTabs.has(tabId)) {
         return;
       }
-      // Do not auto-retry after a failed spawn; require an explicit Retry click. Without this,
-      // the effect that watches ``ptyTabs()`` re-fires when ``spawnError`` is written and starts
-      // an infinite spawn loop.
-      if (tab?.spawnError) {
+      // Do not auto-retry after a failed spawn or a natural exit; require Retry / Relaunch.
+      if (tab?.spawnError || tab?.exited) {
         return;
       }
       this.spawningTabs.add(tabId);
@@ -754,6 +765,9 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
           clearTimeout(spawnTimeoutId);
         }
         if (this.destroyed) {
+          if (res.success) {
+            void this.electron.workspacePtyKill(res.sessionId);
+          }
           return;
         }
         if (!res.success) {
@@ -773,7 +787,15 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         this.ptyTabs.update((list) =>
           list.map((t) =>
             t.id === tabId
-              ? { ...t, sessionId: res.sessionId, spawnError: undefined, spawning: false }
+              ? {
+                  ...t,
+                  sessionId: res.sessionId,
+                  spawnError: undefined,
+                  spawning: false,
+                  exited: false,
+                  cwd: path,
+                  title: ptyTabTitleFromCwd(path),
+                }
               : t,
           ),
         );
@@ -789,7 +811,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     }
     const updated = this.ptyTabs().find((t) => t.id === tabId);
     if (updated?.sessionId) {
-      this.queueSafe(() => this.mountPtyXtermIfNeeded(tabId, updated.sessionId!));
+      this.queueSafe(() => this.attachOrMountPtyXterm(tabId, updated.sessionId!));
     }
   }
 
@@ -842,6 +864,25 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     this.llamaBacklogByTab.set(tabId, (pending + data).slice(-WorkspaceTerminalDockComponent.LLAMA_BACKLOG_MAX));
   }
 
+  private attachOrMountPtyXterm(tabId: string, sessionId: string): void {
+    const existing = this.xterms.get(tabId);
+    if (existing) {
+      existing.sessionId = sessionId;
+      this.ptySessionToTabId.set(sessionId, tabId);
+      this.flushPtyBacklog(tabId, existing);
+      return;
+    }
+    this.mountPtyXtermIfNeeded(tabId, sessionId);
+  }
+
+  private flushPtyBacklog(tabId: string, inst: XtermInstance): void {
+    const backlog = this.ptyBacklogByTab.get(tabId);
+    if (backlog) {
+      inst.terminal.write(backlog);
+      this.ptyBacklogByTab.delete(tabId);
+    }
+  }
+
   private mountPtyXtermIfNeeded(tabId: string, sessionId: string): void {
     if (this.destroyed) {
       return;
@@ -866,6 +907,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     if (this.xterms.has(tabId)) {
+      this.attachOrMountPtyXterm(tabId, sessionId);
       return;
     }
     const terminal = new Terminal({
@@ -883,17 +925,19 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         return;
       }
       const live = this.xterms.get(tabId);
-      if (!live || live.sessionId !== sessionId) {
+      if (!live?.sessionId) {
         return;
       }
-      void this.electron.workspacePtyWrite(sessionId, data);
+      this.electron.workspacePtyWrite(live.sessionId, data);
     });
     if (this.destroyed) {
       terminal.dispose();
       return;
     }
-    this.xterms.set(tabId, { terminal, fit, sessionId });
+    const inst = { terminal, fit, sessionId };
+    this.xterms.set(tabId, inst);
     this.ptySessionToTabId.set(sessionId, tabId);
+    this.flushPtyBacklog(tabId, inst);
     try {
       fit.fit();
     } catch {
@@ -918,6 +962,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       inst.terminal.dispose();
       this.xterms.delete(tabId);
     }
+    this.ptyBacklogByTab.delete(tabId);
     if (this.isLlamaTabId(tabId)) {
       this.llamaBacklogByTab.delete(tabId);
     }
@@ -941,7 +986,13 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     try {
       inst.fit.fit();
       const dims = inst.fit.proposeDimensions();
-      if (dims?.cols && dims?.rows && !this.isLlamaTabId(tabId) && !this.isAgentCommandTabId(tabId)) {
+      if (
+        dims?.cols
+        && dims?.rows
+        && inst.sessionId
+        && !this.isLlamaTabId(tabId)
+        && !this.isAgentCommandTabId(tabId)
+      ) {
         void this.electron.workspacePtyResize(inst.sessionId, dims.cols, dims.rows);
       }
     } catch {
@@ -1051,6 +1102,26 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     return `${AGENT_COMMAND_TAB_PREFIX}-${commandId}`;
   }
 
+  private resolvePtyTabIdForSession(sessionId: string): string | undefined {
+    const mapped = this.ptySessionToTabId.get(sessionId);
+    if (mapped) {
+      return mapped;
+    }
+    return this.ptyTabs().find((t) => t.sessionId === sessionId)?.id;
+  }
+
+  private appendCappedBacklog(store: Map<string, string>, key: string, data: string): void {
+    if (!key || !data) {
+      return;
+    }
+    const pending = store.get(key) ?? '';
+    store.set(key, (pending + data).slice(-WorkspaceTerminalDockComponent.LLAMA_BACKLOG_MAX));
+  }
+
+  private agentPreOpenKey(conversationId: string, streamTag: string): string {
+    return `${conversationId.trim()}\0${streamTag.trim()}`;
+  }
+
   private findAgentCommandTabByStreamTag(conversationId: string, streamTag: string): AgentCommandTab | undefined {
     const cid = conversationId.trim();
     const tag = streamTag.trim();
@@ -1077,17 +1148,23 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     const title = (msg.label || commandId).trim() || commandId;
     const existing = this.agentCommandTabs().find((t) => t.id === tabId);
     if (!existing) {
+      const streamTag = msg.streamTag.trim() || `run-command:${commandId}`;
       this.agentCommandTabs.update((list) => [
         ...list,
         {
           id: tabId,
           commandId,
           conversationId,
-          streamTag: msg.streamTag.trim() || `run-command:${commandId}`,
+          streamTag,
           title,
           status: 'running',
         },
       ]);
+      const preOpenKey = this.agentPreOpenKey(conversationId, streamTag);
+      const preOpen = this.agentPreOpenBacklog.get(preOpenKey);
+      if (preOpen) {
+        this.agentPreOpenBacklog.delete(preOpenKey);
+      }
       this.queueSafe(() => {
         this.mountAgentCommandXtermsIfNeeded();
         this.withAgentCommandTerminal(tabId, (inst) => {
@@ -1095,7 +1172,13 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
           inst.terminal.writeln(`\x1b[36m$ ${msg.commandText}\x1b[0m`);
           inst.terminal.writeln(`\x1b[90m(cwd: ${msg.cwdLabel || '.'})\x1b[0m`);
           inst.terminal.writeln('');
+          if (preOpen) {
+            inst.terminal.write(preOpen);
+          }
         });
+        if (preOpen && !this.xterms.has(tabId)) {
+          this.appendCappedBacklog(this.agentCommandBacklogByTab, tabId, preOpen);
+        }
       });
     }
     this.expanded.set(true);
@@ -1194,7 +1277,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     if (this.destroyed) {
       return;
     }
-    for (const tab of this.agentCommandTabsForConversation()) {
+    for (const tab of this.agentCommandTabs()) {
       const host = document.getElementById(this.hostDomId(tab.id));
       if (!host || this.xterms.has(tab.id)) {
         continue;

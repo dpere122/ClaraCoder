@@ -99,7 +99,9 @@ export const workspaceApi = {
   onOpenWorkspace: (callback: (event: unknown, p: string) => void) => ipcRenderer.on('open-workspace', callback),
   workspacePtySpawn: (workspaceRoot: string, cwd: string, cols: number, rows: number) =>
     ipcRenderer.invoke('workspace-pty-spawn', workspaceRoot, cwd, cols, rows),
-  workspacePtyWrite: (sessionId: string, data: string) => ipcRenderer.invoke('workspace-pty-write', sessionId, data),
+  workspacePtyWrite: (sessionId: string, data: string) => {
+    ipcRenderer.send('workspace-pty-write', sessionId, data);
+  },
   workspacePtyResize: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('workspace-pty-resize', sessionId, cols, rows),
   workspacePtyKill: (sessionId: string) => ipcRenderer.invoke('workspace-pty-kill', sessionId),
@@ -113,4 +115,7 @@ export const workspaceApi = {
       data: { sessionId: string; exitCode: number; signal: number | null },
     ) => void,
   ) => ipcRenderer.on('workspace-pty-exit', callback),
+  onWorkspacePtyCwd: (
+    callback: (event: unknown, data: { sessionId: string; cwd: string }) => void,
+  ) => ipcRenderer.on('workspace-pty-cwd', callback),
 };

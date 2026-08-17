@@ -73,6 +73,7 @@ describe('WorkspaceTerminalDockComponent', () => {
   let mockThemedConfirm: { open: Mock };
   let workspacePtyDataSubject: Subject<{ sessionId: string; data: string }>;
   let workspacePtyExitSubject: Subject<{ sessionId: string; exitCode: number; signal: number | null }>;
+  let workspacePtyCwdSubject: Subject<{ sessionId: string; cwd: string }>;
   let backgroundCommandOpenSubject: Subject<BackgroundCommandOpenMessage>;
   let toolExecChunkSubject: Subject<ToolExecChunkMessage>;
   let toolExecCompleteSubject: Subject<ToolExecCompleteMessage>;
@@ -90,6 +91,7 @@ describe('WorkspaceTerminalDockComponent', () => {
 
     workspacePtyDataSubject = new Subject();
     workspacePtyExitSubject = new Subject();
+    workspacePtyCwdSubject = new Subject();
     backgroundCommandOpenSubject = new Subject();
     toolExecChunkSubject = new Subject();
     toolExecCompleteSubject = new Subject();
@@ -103,6 +105,7 @@ describe('WorkspaceTerminalDockComponent', () => {
       isElectron: true,
       workspacePtyData$: workspacePtyDataSubject.asObservable(),
       workspacePtyExit$: workspacePtyExitSubject.asObservable(),
+      workspacePtyCwd$: workspacePtyCwdSubject.asObservable(),
       backgroundCommandOpen$: backgroundCommandOpenSubject.asObservable(),
       toolExecChunk$: toolExecChunkSubject.asObservable(),
       toolExecComplete$: toolExecCompleteSubject.asObservable(),
@@ -111,7 +114,7 @@ describe('WorkspaceTerminalDockComponent', () => {
       llamaServerLifecycle$: new Subject<never>().asObservable(),
       config$: configSubject.asObservable(),
       workspacePtySpawn: vi.fn().mockResolvedValue({ success: true, sessionId: 'test-session-1' }),
-      workspacePtyWrite: vi.fn().mockResolvedValue({ success: true }),
+      workspacePtyWrite: vi.fn(),
       workspacePtyResize: vi.fn().mockResolvedValue({ success: true }),
       workspacePtyKill: vi.fn().mockResolvedValue({ success: true }),
       workspacePtyKillAll: vi.fn().mockResolvedValue({ success: true }),
@@ -158,19 +161,20 @@ describe('WorkspaceTerminalDockComponent', () => {
       fixture.detectChanges();
     });
 
-    it('addTab creates new terminal tab', () => {
+    it('addTab names the tab after the workspace folder', () => {
       component.addTab();
 
       expect(component.ptyTabs().length).toBe(1);
-      expect(component.ptyTabs()[0].title).toBe('Terminal 1');
+      expect(component.ptyTabs()[0].title).toBe('workspace');
+      expect(component.ptyTabs()[0].cwd).toBe('/test/workspace');
     });
 
-    it('addTab increments tab number', () => {
+    it('addTab uses the same folder name for additional tabs in that cwd', () => {
       component.addTab();
       component.addTab();
 
-      expect(component.ptyTabs()[0].title).toBe('Terminal 1');
-      expect(component.ptyTabs()[1].title).toBe('Terminal 2');
+      expect(component.ptyTabs()[0].title).toBe('workspace');
+      expect(component.ptyTabs()[1].title).toBe('workspace');
     });
 
     it('addTab sets new tab as active', () => {
@@ -316,6 +320,30 @@ describe('WorkspaceTerminalDockComponent', () => {
 
       expect(mockTerminal.write).not.toHaveBeenCalled();
     });
+
+    it('buffers PTY data until xterm mounts', async () => {
+      component.expanded.set(true);
+      component.addTab();
+      const tab = component.ptyTabs()[0];
+      (component as any).ptyTabs.update((list: any[]) =>
+        list.map((t) => (t.id === tab.id ? { ...t, sessionId: 'late-session' } : t)),
+      );
+
+      workspacePtyDataSubject.next({ sessionId: 'late-session', data: 'hello-backlog' });
+      await flushMicrotasks();
+
+      expect(mockTerminal.write).not.toHaveBeenCalled();
+      expect((component as any).ptyBacklogByTab.get(tab.id)).toBe('hello-backlog');
+
+      (component as any).xterms.set(tab.id, {
+        terminal: mockTerminal,
+        fit: mockFitAddon,
+        sessionId: 'late-session',
+      });
+      (component as any).flushPtyBacklog(tab.id, (component as any).xterms.get(tab.id));
+
+      expect(mockTerminal.write).toHaveBeenCalledWith('hello-backlog');
+    });
   });
 
   describe('PTY exit handling', () => {
@@ -345,24 +373,27 @@ describe('WorkspaceTerminalDockComponent', () => {
 
       expect(mockTerminal.writeln).toHaveBeenCalledWith('');
       expect(mockTerminal.writeln).toHaveBeenCalledWith(expect.stringContaining('Exit code 0'));
+      expect(mockTerminal.dispose).not.toHaveBeenCalled();
     });
 
-    it('updates tab title to show exited state', async () => {
+    it('updates tab title to show exited state without respawning', async () => {
       component.expanded.set(true);
       component.addTab();
       const tab = component.ptyTabs()[0];
-      // Prevent ensureActiveTabSession from overwriting the session id under test.
-      (component as any).spawningTabs.add(tab.id);
       (component as any).ptyTabs.update((list: any[]) =>
         list.map((t) => (t.id === tab.id ? { ...t, sessionId: 'test-session', spawning: false } : t))
       );
+      (mockElectronService.workspacePtySpawn as Mock).mockClear();
 
       workspacePtyExitSubject.next({ sessionId: 'test-session', exitCode: 1, signal: null });
       await flushMicrotasks();
 
       const updatedTab = component.ptyTabs().find((t) => t.id === tab.id);
       expect(updatedTab?.title).toContain('(exited)');
+      expect(updatedTab?.title).toBe('workspace (exited)');
       expect(updatedTab?.sessionId).toBeNull();
+      expect(updatedTab?.exited).toBe(true);
+      expect(mockElectronService.workspacePtySpawn).not.toHaveBeenCalled();
     });
   });
 
@@ -495,12 +526,22 @@ describe('WorkspaceTerminalDockComponent', () => {
   });
 
   describe('workspace changes', () => {
-    it('kills all PTY sessions on workspace change', async () => {
+    it('keeps PTY sessions alive across workspace changes', async () => {
       fixture.componentRef.setInput('workspacePath', '/first/workspace');
       fixture.detectChanges();
       await flushMicrotasks();
-      component.expanded.set(true);
       component.addTab();
+      const tabId = component.ptyTabs()[0]!.id;
+      (component as any).ptyTabs.update((list: any[]) =>
+        list.map((t) => (t.id === tabId ? { ...t, sessionId: 'live-session', spawning: false } : t)),
+      );
+      (component as any).xterms.set(tabId, {
+        terminal: mockTerminal,
+        fit: mockFitAddon,
+        sessionId: 'live-session',
+      });
+      (component as any).ptySessionToTabId.set('live-session', tabId);
+      component.expanded.set(true);
       fixture.detectChanges();
       await flushMicrotasks();
 
@@ -508,10 +549,18 @@ describe('WorkspaceTerminalDockComponent', () => {
       fixture.detectChanges();
       await flushMicrotasks();
 
-      expect(mockElectronService.workspacePtyKillAll).toHaveBeenCalled();
+      expect(mockElectronService.workspacePtyKillAll).not.toHaveBeenCalled();
+      expect(mockElectronService.workspacePtyKill).not.toHaveBeenCalled();
+      expect(component.ptyTabs().length).toBe(1);
+      expect(component.ptyTabs()[0]!.sessionId).toBe('live-session');
+      expect(component.ptyTabs()[0]!.id).toBe(tabId);
+
+      workspacePtyDataSubject.next({ sessionId: 'live-session', data: 'still running' });
+      await flushMicrotasks();
+      expect(mockTerminal.write).toHaveBeenCalledWith('still running');
     });
 
-    it('clears PTY tabs then auto-opens one when expanded after workspace change', async () => {
+    it('keeps existing PTY tabs when switching workspaces while expanded', async () => {
       fixture.componentRef.setInput('workspacePath', '/first/workspace');
       fixture.detectChanges();
       await flushMicrotasks();
@@ -522,16 +571,17 @@ describe('WorkspaceTerminalDockComponent', () => {
       await flushMicrotasks();
 
       expect(component.ptyTabs().length).toBe(2);
+      const tabIds = component.ptyTabs().map((t) => t.id);
 
       fixture.componentRef.setInput('workspacePath', '/second/workspace');
       fixture.detectChanges();
       await flushMicrotasks();
 
-      // onWorkspaceRootChanged clears tabs then addTab() when expanded + workspace.
-      expect(component.ptyTabs().length).toBe(1);
+      expect(component.ptyTabs().length).toBe(2);
+      expect(component.ptyTabs().map((t) => t.id)).toEqual(tabIds);
     });
 
-    it('notifies and clears agent command tabs on workspace change', async () => {
+    it('keeps agent command tabs across workspace changes', async () => {
       fixture.componentRef.setInput('workspacePath', '/first/workspace');
       fixture.componentRef.setInput('conversationId', 'conv-1');
       fixture.detectChanges();
@@ -551,14 +601,31 @@ describe('WorkspaceTerminalDockComponent', () => {
 
       fixture.componentRef.setInput('workspacePath', '/second/workspace');
       fixture.detectChanges();
-      // Effect schedules onWorkspaceRootChanged; await the same path explicitly for determinism.
-      await (component as any).onWorkspaceRootChanged();
+      await flushMicrotasks();
 
-      expect(mockElectronService.notifyBackgroundCommandTerminalClosed).toHaveBeenCalledWith(
-        'conv-1',
-        'abc12345',
-      );
-      expect(component.agentCommandTabs().length).toBe(0);
+      expect(mockElectronService.notifyBackgroundCommandTerminalClosed).not.toHaveBeenCalled();
+      expect(component.agentCommandTabs().length).toBe(1);
+      expect(component.agentCommandTabs()[0]!.commandId).toBe('abc12345');
+    });
+
+    it('keeps PTY tabs when the workspace is closed', async () => {
+      fixture.componentRef.setInput('workspacePath', '/first/workspace');
+      fixture.detectChanges();
+      await flushMicrotasks();
+      component.expanded.set(true);
+      component.addTab();
+      fixture.detectChanges();
+      await flushMicrotasks();
+
+      expect(component.ptyTabs().length).toBe(1);
+
+      fixture.componentRef.setInput('workspacePath', '');
+      fixture.detectChanges();
+      await flushMicrotasks();
+
+      expect(mockElectronService.workspacePtyKillAll).not.toHaveBeenCalled();
+      expect(component.ptyTabs().length).toBe(1);
+      expect(component.hasDockPanelContent()).toBe(true);
     });
   });
 
@@ -576,10 +643,10 @@ describe('WorkspaceTerminalDockComponent', () => {
 
       component.expanded.set(true);
       component.addTab();
-      await flushMicrotasks();
+      await flushUi();
 
       const tab = component.ptyTabs()[0];
-      expect(tab.spawnError).toBeUndefined();
+      expect(tab.spawnError).toBe('Could not start shell');
     });
 
     it('retryPtySpawn clears error and retries', () => {
@@ -599,6 +666,28 @@ describe('WorkspaceTerminalDockComponent', () => {
   });
 
   describe('cleanup', () => {
+    it('kills a spawn that finishes after destroy', async () => {
+      fixture.componentRef.setInput('workspacePath', '/test/workspace');
+      fixture.detectChanges();
+      let resolveSpawn: ((value: { success: true; sessionId: string }) => void) | undefined;
+      (mockElectronService.workspacePtySpawn as Mock).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveSpawn = resolve;
+          }),
+      );
+
+      component.expanded.set(true);
+      component.addTab();
+      await flushMicrotasks();
+      fixture.destroy();
+
+      resolveSpawn?.({ success: true, sessionId: 'late-session' });
+      await flushMicrotasks();
+
+      expect(mockElectronService.workspacePtyKill).toHaveBeenCalledWith('late-session');
+    });
+
     it('kills all sessions on destroy', async () => {
       fixture.componentRef.setInput('workspacePath', '/test/workspace');
       fixture.detectChanges();
@@ -663,6 +752,43 @@ describe('WorkspaceTerminalDockComponent', () => {
         'conv-1',
         'abc12345',
       );
+    });
+  });
+
+  describe('tab titles from cwd', () => {
+    beforeEach(() => {
+      fixture.componentRef.setInput('workspacePath', '/home/dev/ClaraCoder');
+      fixture.detectChanges();
+    });
+
+    it('renames the tab when the PTY cwd event arrives', async () => {
+      component.addTab();
+      const tab = component.ptyTabs()[0];
+      (component as any).ptyTabs.update((list: any[]) =>
+        list.map((t) => (t.id === tab.id ? { ...t, sessionId: 'live-session' } : t)),
+      );
+
+      workspacePtyCwdSubject.next({ sessionId: 'live-session', cwd: '/home/dev/ClaraCoder/src' });
+      await flushMicrotasks();
+
+      expect(component.ptyTabs()[0].title).toBe('src');
+      expect(component.ptyTabs()[0].cwd).toBe('/home/dev/ClaraCoder/src');
+    });
+
+    it('renames the tab from an OSC 7 sequence in PTY output', async () => {
+      component.addTab();
+      const tab = component.ptyTabs()[0];
+      (component as any).ptyTabs.update((list: any[]) =>
+        list.map((t) => (t.id === tab.id ? { ...t, sessionId: 'live-session' } : t)),
+      );
+
+      workspacePtyDataSubject.next({
+        sessionId: 'live-session',
+        data: '\x1b]7;file://localhost/tmp/other-project\x07',
+      });
+      await flushMicrotasks();
+
+      expect(component.ptyTabs()[0].title).toBe('other-project');
     });
   });
 
@@ -774,6 +900,37 @@ describe('WorkspaceTerminalDockComponent', () => {
       expect(component.agentCommandTabsForConversation().length).toBe(0);
     });
 
+    it('buffers run_command chunks that arrive before the tab opens', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      toolExecChunkSubject.next({
+        conversationId: 'conv-1',
+        delta: 'early-output\n',
+        streamTag: 'run-command:abc12345',
+        label: 'echo hi',
+      });
+      await flushMicrotasks();
+
+      expect((component as any).agentPreOpenBacklog.get('conv-1\0run-command:abc12345')).toBe(
+        'early-output\n',
+      );
+
+      backgroundCommandOpenSubject.next({
+        conversationId: 'conv-1',
+        commandId: 'abc12345',
+        commandText: 'echo hi',
+        cwdLabel: '.',
+        label: 'echo hi',
+        streamTag: 'run-command:abc12345',
+      });
+      await flushMicrotasks();
+
+      const tabId = component.agentCommandTabsForConversation()[0].id;
+      expect((component as any).agentPreOpenBacklog.has('conv-1\0run-command:abc12345')).toBe(false);
+      expect((component as any).agentCommandBacklogByTab.get(tabId)).toContain('early-output\n');
+    });
+
     it('routes run_command output chunks to the matching tab', async () => {
       fixture.componentRef.setInput('conversationId', 'conv-1');
       fixture.detectChanges();
@@ -822,6 +979,7 @@ describe('WorkspaceTerminalDockComponent - ANSI color rendering', () => {
       isElectron: true,
       workspacePtyData$: workspacePtyDataSubject.asObservable(),
       workspacePtyExit$: new Subject().asObservable(),
+      workspacePtyCwd$: new Subject().asObservable(),
       backgroundCommandOpen$: new Subject<never>().asObservable(),
       toolExecChunk$: new Subject<never>().asObservable(),
       toolExecComplete$: new Subject<never>().asObservable(),
@@ -830,7 +988,7 @@ describe('WorkspaceTerminalDockComponent - ANSI color rendering', () => {
       llamaServerLifecycle$: new Subject<never>().asObservable(),
       config$: new Subject().asObservable(),
       workspacePtySpawn: vi.fn().mockResolvedValue({ success: true, sessionId: 'test-session' }),
-      workspacePtyWrite: vi.fn().mockResolvedValue({ success: true }),
+      workspacePtyWrite: vi.fn(),
       workspacePtyResize: vi.fn().mockResolvedValue({ success: true }),
       workspacePtyKill: vi.fn().mockResolvedValue({ success: true }),
       workspacePtyKillAll: vi.fn().mockResolvedValue({ success: true }),

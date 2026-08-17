@@ -9,6 +9,7 @@ vi.mock('fs', () => ({
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
+    on: vi.fn(),
   },
 }));
 
@@ -24,11 +25,16 @@ vi.mock('../../state', () => ({
         send: vi.fn(),
       },
     },
+    activeWorkspaceWatcher: null,
   },
 }));
 
 vi.mock('../../utils/workspace-pty-cwd', () => ({
   validateWorkspacePtyCwd: vi.fn(),
+}));
+
+vi.mock('../../utils/pty-process-cwd', () => ({
+  readPtyProcessCwd: vi.fn(() => null),
 }));
 
 vi.mock('../assert-trusted-renderer', () => ({
@@ -43,18 +49,24 @@ import { ipcMain } from 'electron';
 import * as pty from 'node-pty';
 import { mainState } from '../../state';
 import { validateWorkspacePtyCwd } from '../../utils/workspace-pty-cwd';
+import { readPtyProcessCwd } from '../../utils/pty-process-cwd';
 import { notifyWorkspaceTreeRefresh } from '../../workspace/emit-files-changed';
-import { registerWorkspacePtyIpc, killAllWorkspacePtySessions } from './workspace-pty';
+import { registerWorkspacePtyIpc, killAllWorkspacePtySessions, PTY_CWD_POLL_MS, PTY_TREE_REFRESH_IDLE_MS } from './workspace-pty';
 
 describe('workspace-pty', () => {
   let handlers: Map<string, (...args: unknown[]) => Promise<unknown>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(readPtyProcessCwd).mockReturnValue(null);
     handlers = new Map();
     (ipcMain.handle as Mock).mockImplementation((channel: string, handler: (...args: unknown[]) => Promise<unknown>) => {
       handlers.set(channel, handler);
     });
+    (ipcMain.on as Mock).mockImplementation((channel: string, handler: (...args: unknown[]) => unknown) => {
+      handlers.set(channel, handler);
+    });
+    mainState.activeWorkspaceWatcher = null;
     if (mainState.mainWindow) {
       mainState.mainWindow.isDestroyed = () => false;
     }
@@ -106,6 +118,37 @@ describe('workspace-pty', () => {
       const result = await handler({}, '', '/some/path', 80, 24);
 
       expect(result).toEqual({ success: false, error: 'Workspace root is required' });
+    });
+
+    it('prefers $SHELL when it is an absolute path that exists', async () => {
+      if (process.platform === 'win32') {
+        return;
+      }
+      const previousShell = process.env.SHELL;
+      process.env.SHELL = '/custom/myshell';
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn(),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/cwd' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+
+      try {
+        const handler = handlers.get('workspace-pty-spawn')!;
+        await handler({}, '/workspace', '/workspace', 80, 24);
+        expect(pty.spawn).toHaveBeenCalledWith('/custom/myshell', [], expect.any(Object));
+      } finally {
+        if (previousShell === undefined) {
+          delete process.env.SHELL;
+        } else {
+          process.env.SHELL = previousShell;
+        }
+      }
     });
 
     it('spawns PTY with validated cwd on success', async () => {
@@ -281,6 +324,7 @@ describe('workspace-pty', () => {
       const handler = handlers.get('workspace-pty-spawn')!;
       const result = await handler({}, '/workspace', '/workspace', 80, 24) as { success: true; sessionId: string };
 
+      mainState.activeWorkspaceWatcher = { workspacePath: '/workspace' } as typeof mainState.activeWorkspaceWatcher;
       exitCallback!({ exitCode: 0, signal: undefined });
 
       expect(mainState.mainWindow?.webContents.send).toHaveBeenCalledWith(
@@ -368,11 +412,9 @@ describe('workspace-pty', () => {
       registerWorkspacePtyIpc();
     });
 
-    it('returns error for non-existent session', async () => {
+    it('ignores writes for a non-existent session', () => {
       const handler = handlers.get('workspace-pty-write')!;
-      const result = await handler({}, 'non-existent-session', 'data');
-
-      expect(result).toEqual({ success: false, error: 'Session not found' });
+      expect(() => handler({}, 'non-existent-session', 'data')).not.toThrow();
     });
 
     it('writes data to existing session', async () => {
@@ -392,17 +434,14 @@ describe('workspace-pty', () => {
       const spawnResult = await spawnHandler({}, '/workspace', '/workspace', 80, 24) as { success: true; sessionId: string };
 
       const writeHandler = handlers.get('workspace-pty-write')!;
-      const result = await writeHandler({}, spawnResult.sessionId, 'test input');
+      writeHandler({}, spawnResult.sessionId, 'test input');
 
-      expect(result).toEqual({ success: true });
       expect(mockPty.write).toHaveBeenCalledWith('test input');
     });
 
-    it('handles non-string sessionId', async () => {
+    it('handles non-string sessionId', () => {
       const handler = handlers.get('workspace-pty-write')!;
-      const result = await handler({}, 12345, 'data');
-
-      expect(result).toEqual({ success: false, error: 'Session not found' });
+      expect(() => handler({}, 12345, 'data')).not.toThrow();
     });
 
     it('handles non-string data by coercing to empty string', async () => {
@@ -422,7 +461,7 @@ describe('workspace-pty', () => {
       const spawnResult = await spawnHandler({}, '/workspace', '/workspace', 80, 24) as { success: true; sessionId: string };
 
       const writeHandler = handlers.get('workspace-pty-write')!;
-      await writeHandler({}, spawnResult.sessionId, null);
+      writeHandler({}, spawnResult.sessionId, null);
 
       expect(mockPty.write).toHaveBeenCalledWith('');
     });
@@ -542,8 +581,38 @@ describe('workspace-pty', () => {
       expect(result).toEqual({ success: true });
       expect(mockPty.kill).toHaveBeenCalled();
 
-      const writeResult = await handlers.get('workspace-pty-write')!({}, spawnResult.sessionId, 'data');
-      expect(writeResult).toEqual({ success: false, error: 'Session not found' });
+      handlers.get('workspace-pty-write')!({}, spawnResult.sessionId, 'data');
+      expect(mockPty.write).not.toHaveBeenCalled();
+    });
+
+    it('does not emit workspace-pty-exit when a single tab is killed', async () => {
+      let exitCallback: ((exit: { exitCode: number; signal?: number }) => void) | null = null;
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn(),
+        onExit: vi.fn((cb: (exit: { exitCode: number; signal?: number }) => void) => {
+          exitCallback = cb;
+        }),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(() => {
+          exitCallback?.({ exitCode: 0, signal: undefined });
+        }),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/cwd' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+
+      const spawnHandler = handlers.get('workspace-pty-spawn')!;
+      const spawnResult = await spawnHandler({}, '/workspace', '/workspace', 80, 24) as { success: true; sessionId: string };
+      (mainState.mainWindow?.webContents.send as Mock).mockClear();
+
+      await handlers.get('workspace-pty-kill')!({}, spawnResult.sessionId);
+
+      expect(mainState.mainWindow?.webContents.send).not.toHaveBeenCalledWith(
+        'workspace-pty-exit',
+        expect.anything(),
+      );
     });
 
     it('still removes session from map even if kill throws', async () => {
@@ -569,8 +638,8 @@ describe('workspace-pty', () => {
 
       expect(result).toMatchObject({ success: false });
 
-      const writeResult = await handlers.get('workspace-pty-write')!({}, spawnResult.sessionId, 'data');
-      expect(writeResult).toEqual({ success: false, error: 'Session not found' });
+      handlers.get('workspace-pty-write')!({}, spawnResult.sessionId, 'data');
+      expect(mockPty.write).not.toHaveBeenCalled();
     });
   });
 
@@ -613,10 +682,142 @@ describe('workspace-pty', () => {
       expect(mockPty1.kill).toHaveBeenCalled();
       expect(mockPty2.kill).toHaveBeenCalled();
 
-      const writeResult1 = await handlers.get('workspace-pty-write')!({}, result1.sessionId, 'data');
-      const writeResult2 = await handlers.get('workspace-pty-write')!({}, result2.sessionId, 'data');
-      expect(writeResult1).toEqual({ success: false, error: 'Session not found' });
-      expect(writeResult2).toEqual({ success: false, error: 'Session not found' });
+      handlers.get('workspace-pty-write')!({}, result1.sessionId, 'data');
+      handlers.get('workspace-pty-write')!({}, result2.sessionId, 'data');
+      expect(mockPty1.write).not.toHaveBeenCalled();
+      expect(mockPty2.write).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('workspace tree refresh', () => {
+    beforeEach(() => {
+      registerWorkspacePtyIpc();
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      killAllWorkspacePtySessions();
+      vi.useRealTimers();
+    });
+
+    async function spawnWithData(): Promise<{
+      sessionId: string;
+      dataCallback: (data: string) => void;
+    }> {
+      let dataCallback: ((data: string) => void) | null = null;
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn((cb: (data: string) => void) => {
+          dataCallback = cb;
+        }),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/workspace' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+      const result = await handlers.get('workspace-pty-spawn')!({}, '/workspace', '/workspace', 80, 24) as {
+        success: true;
+        sessionId: string;
+      };
+      return { sessionId: result.sessionId, dataCallback: dataCallback! };
+    }
+
+    it('does not refresh the file tree on PTY output', async () => {
+      mainState.activeWorkspaceWatcher = { workspacePath: '/workspace' } as typeof mainState.activeWorkspaceWatcher;
+      const { dataCallback } = await spawnWithData();
+      (notifyWorkspaceTreeRefresh as Mock).mockClear();
+
+      dataCallback('lots of build output\n');
+      await vi.advanceTimersByTimeAsync(PTY_TREE_REFRESH_IDLE_MS);
+
+      expect(notifyWorkspaceTreeRefresh).not.toHaveBeenCalled();
+    });
+
+    it('refreshes the current workspace tree after Enter', async () => {
+      mainState.activeWorkspaceWatcher = { workspacePath: '/workspace' } as typeof mainState.activeWorkspaceWatcher;
+      const { sessionId } = await spawnWithData();
+      (notifyWorkspaceTreeRefresh as Mock).mockClear();
+
+      handlers.get('workspace-pty-write')!({}, sessionId, 'ls\r');
+      await vi.advanceTimersByTimeAsync(PTY_TREE_REFRESH_IDLE_MS);
+
+      expect(notifyWorkspaceTreeRefresh).toHaveBeenCalledWith('/workspace');
+    });
+
+    it('does not refresh when the PTY belongs to a non-current workspace', async () => {
+      mainState.activeWorkspaceWatcher = { workspacePath: '/other' } as typeof mainState.activeWorkspaceWatcher;
+      const { sessionId } = await spawnWithData();
+      (notifyWorkspaceTreeRefresh as Mock).mockClear();
+
+      handlers.get('workspace-pty-write')!({}, sessionId, 'ls\r');
+      await vi.advanceTimersByTimeAsync(PTY_TREE_REFRESH_IDLE_MS);
+
+      expect(notifyWorkspaceTreeRefresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cwd polling', () => {
+    beforeEach(() => {
+      registerWorkspacePtyIpc();
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      killAllWorkspacePtySessions();
+      vi.useRealTimers();
+    });
+
+    it('emits workspace-pty-cwd when the shell cwd changes', async () => {
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn(),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/workspace' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+      vi.mocked(readPtyProcessCwd).mockReturnValue('/workspace/src');
+
+      const handler = handlers.get('workspace-pty-spawn')!;
+      const result = await handler({}, '/workspace', '/workspace', 80, 24) as { success: true; sessionId: string };
+
+      await vi.advanceTimersByTimeAsync(PTY_CWD_POLL_MS);
+
+      expect(mainState.mainWindow?.webContents.send).toHaveBeenCalledWith(
+        'workspace-pty-cwd',
+        { sessionId: result.sessionId, cwd: '/workspace/src' },
+      );
+    });
+
+    it('does not emit when cwd is unchanged', async () => {
+      const mockPty = {
+        pid: 12345,
+        onData: vi.fn(),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/workspace' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+      vi.mocked(readPtyProcessCwd).mockReturnValue('/workspace');
+
+      await handlers.get('workspace-pty-spawn')!({}, '/workspace', '/workspace', 80, 24);
+      vi.mocked(mainState.mainWindow!.webContents.send).mockClear();
+
+      await vi.advanceTimersByTimeAsync(PTY_CWD_POLL_MS);
+
+      expect(mainState.mainWindow?.webContents.send).not.toHaveBeenCalledWith(
+        'workspace-pty-cwd',
+        expect.anything(),
+      );
     });
   });
 
@@ -718,6 +919,9 @@ describe('security: session isolation', () => {
     vi.clearAllMocks();
     handlers = new Map();
     (ipcMain.handle as Mock).mockImplementation((channel: string, handler: (...args: unknown[]) => Promise<unknown>) => {
+      handlers.set(channel, handler);
+    });
+    (ipcMain.on as Mock).mockImplementation((channel: string, handler: (...args: unknown[]) => unknown) => {
       handlers.set(channel, handler);
     });
     registerWorkspacePtyIpc();

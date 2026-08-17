@@ -122,11 +122,12 @@ function stubElectronApi(): StubRefs {
     onScriptComplete: noop,
     onWorkspacePtyData: noop,
     onWorkspacePtyExit: noop,
+    onWorkspacePtyCwd: noop,
     workspacePtySpawn: async (_workspaceRoot: string, _cwd: string, _cols: number, _rows: number) => ({
       success: false as const,
       error: 'stub',
     }),
-    workspacePtyWrite: async () => ({ success: false }),
+    workspacePtyWrite: () => {},
     workspacePtyResize: async () => ({ success: false }),
     workspacePtyKill: async () => ({ success: false }),
     workspacePtyKillAll: async () => ({ success: true }),

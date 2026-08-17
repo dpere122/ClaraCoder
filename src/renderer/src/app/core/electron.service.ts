@@ -236,6 +236,11 @@ export interface WorkspacePtyExitMessage {
   signal: number | null;
 }
 
+export interface WorkspacePtyCwdMessage {
+  sessionId: string;
+  cwd: string;
+}
+
 export interface ConversationWorkspaceChangedMessage {
   id: string;
   workspacePath: string;
@@ -355,6 +360,7 @@ export class ElectronService {
   private readonly scriptCompleteSubject = new Subject<ScriptCompleteMessage>();
   private readonly workspacePtyDataSubject = new Subject<WorkspacePtyDataMessage>();
   private readonly workspacePtyExitSubject = new Subject<WorkspacePtyExitMessage>();
+  private readonly workspacePtyCwdSubject = new Subject<WorkspacePtyCwdMessage>();
   private readonly llamaServerOutputSubject = new Subject<LlamaServerOutputEvent>();
   private readonly llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
   private readonly llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
@@ -404,6 +410,7 @@ export class ElectronService {
   readonly scriptComplete$ = this.scriptCompleteSubject.asObservable();
   readonly workspacePtyData$ = this.workspacePtyDataSubject.asObservable();
   readonly workspacePtyExit$ = this.workspacePtyExitSubject.asObservable();
+  readonly workspacePtyCwd$ = this.workspacePtyCwdSubject.asObservable();
   readonly llamaServerOutput$ = this.llamaServerOutputSubject.asObservable();
   readonly llamaServerProcessExit$ = this.llamaServerProcessExitSubject.asObservable();
   readonly llamaServerLifecycle$ = this.llamaServerLifecycleSubject.asObservable();
@@ -648,6 +655,9 @@ export class ElectronService {
     });
     this.api?.onWorkspacePtyExit?.((_event, data) => {
       this.zone.run(() => this.workspacePtyExitSubject.next(data));
+    });
+    this.api?.onWorkspacePtyCwd?.((_event, data) => {
+      this.zone.run(() => this.workspacePtyCwdSubject.next(data));
     });
     this.api?.onLlamaServerOutput?.((_event, data) => {
       this.zone.run(() => this.llamaServerOutputSubject.next(data as LlamaServerOutputEvent));
@@ -1368,8 +1378,8 @@ export class ElectronService {
     );
   }
 
-  workspacePtyWrite(sessionId: string, data: string): Promise<{ success: boolean; error?: string }> {
-    return this.api?.workspacePtyWrite(sessionId, data) ?? Promise.resolve({ success: false, error: 'API not available' });
+  workspacePtyWrite(sessionId: string, data: string): void {
+    this.api?.workspacePtyWrite(sessionId, data);
   }
 
   workspacePtyResize(sessionId: string, cols: number, rows: number): Promise<{ success: boolean; error?: string }> {

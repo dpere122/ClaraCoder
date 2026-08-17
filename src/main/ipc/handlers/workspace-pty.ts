@@ -6,18 +6,32 @@ import * as pty from 'node-pty';
 import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { envForChildProcess } from '../../utils/filter-sensitive-env';
+import { readPtyProcessCwd } from '../../utils/pty-process-cwd';
+import { isSameWorkspaceRootPath } from '../../utils/workspace-entry-transfer';
 import { validateWorkspacePtyCwd } from '../../utils/workspace-pty-cwd';
 import { notifyWorkspaceTreeRefresh } from '../../workspace/emit-files-changed';
 
 const sessions = new Map<string, pty.IPty>();
 /** PTY session id → workspace root (for debounced file-tree refresh after shell output). */
 const sessionWorkspaceRoots = new Map<string, string>();
+/** Last known filesystem cwd per session (tab titles follow the base folder). */
+const sessionLastCwd = new Map<string, string>();
 const ptyTreeRefreshTimers = new Map<string, NodeJS.Timeout>();
-const PTY_TREE_REFRESH_IDLE_MS = 1_500;
+export const PTY_TREE_REFRESH_IDLE_MS = 1_500;
+export const PTY_CWD_POLL_MS = 750;
+let cwdPollTimer: NodeJS.Timeout | null = null;
+
+function isCurrentWatchedWorkspace(workspaceRoot: string): boolean {
+  const watched = mainState.activeWorkspaceWatcher?.workspacePath?.trim() ?? '';
+  if (!watched || !workspaceRoot.trim()) {
+    return false;
+  }
+  return isSameWorkspaceRootPath(watched, workspaceRoot.trim());
+}
 
 function schedulePtyWorkspaceTreeRefresh(sessionId: string, workspaceRoot: string): void {
   const root = workspaceRoot.trim();
-  if (!root) {
+  if (!root || !isCurrentWatchedWorkspace(root)) {
     return;
   }
   const existing = ptyTreeRefreshTimers.get(sessionId);
@@ -35,10 +49,42 @@ function schedulePtyWorkspaceTreeRefresh(sessionId: string, workspaceRoot: strin
 
 function clearPtyWorkspaceTreeRefresh(sessionId: string): void {
   sessionWorkspaceRoots.delete(sessionId);
+  sessionLastCwd.delete(sessionId);
   const timer = ptyTreeRefreshTimers.get(sessionId);
   if (timer) {
     clearTimeout(timer);
     ptyTreeRefreshTimers.delete(sessionId);
+  }
+}
+
+function pollPtySessionCwds(): void {
+  for (const [sessionId, term] of sessions) {
+    const cwd = readPtyProcessCwd(term.pid);
+    if (!cwd || sessionLastCwd.get(sessionId) === cwd) {
+      continue;
+    }
+    sessionLastCwd.set(sessionId, cwd);
+    sendToMainRenderer('workspace-pty-cwd', { sessionId, cwd });
+  }
+}
+
+function ensureCwdPoller(): void {
+  if (cwdPollTimer) {
+    return;
+  }
+  cwdPollTimer = setInterval(() => {
+    pollPtySessionCwds();
+  }, PTY_CWD_POLL_MS);
+  cwdPollTimer.unref();
+}
+
+function stopCwdPollerIfIdle(): void {
+  if (sessions.size > 0) {
+    return;
+  }
+  if (cwdPollTimer) {
+    clearInterval(cwdPollTimer);
+    cwdPollTimer = null;
   }
 }
 
@@ -64,15 +110,21 @@ function candidateShells(): Array<{ file: string; args: string[] }> {
     ];
   }
   const shell = process.env.SHELL?.trim();
-  const candidates: Array<{ file: string; args: string[] }> = [
-    { file: '/bin/zsh', args: [] },
-    { file: '/bin/bash', args: [] },
-    { file: '/bin/sh', args: [] },
-  ];
+  const candidates: Array<{ file: string; args: string[] }> = [];
   if (shell && path.isAbsolute(shell)) {
     candidates.push({ file: shell, args: [] });
   }
-  candidates.push({ file: shell || '/bin/bash', args: [] });
+  for (const file of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
+    if (!candidates.some((c) => c.file === file)) {
+      candidates.push({ file, args: [] });
+    }
+  }
+  if (shell && !path.isAbsolute(shell)) {
+    candidates.push({ file: shell, args: [] });
+  }
+  if (candidates.length === 0) {
+    candidates.push({ file: '/bin/bash', args: [] });
+  }
   return candidates;
 }
 
@@ -128,6 +180,7 @@ export function killAllWorkspacePtySessions(): void {
     }
   }
   sessions.clear();
+  stopCwdPollerIfIdle();
 }
 
 /** Registers IPC for the workspace terminal dock (node-pty in main). */
@@ -171,19 +224,23 @@ export function registerWorkspacePtyIpc(): void {
             : pty.spawn(file, args, baseOpts);
         sessions.set(sessionId, term);
         sessionWorkspaceRoots.set(sessionId, wr.trim());
+        sessionLastCwd.set(sessionId, cwdReal);
+        ensureCwdPoller();
         term.onData((data) => {
           sendData(sessionId, data);
-          schedulePtyWorkspaceTreeRefresh(sessionId, wr.trim());
         });
         term.onExit(({ exitCode, signal }) => {
           const quiet = disposingSessionIds.delete(sessionId);
           sessions.delete(sessionId);
           clearPtyWorkspaceTreeRefresh(sessionId);
+          stopCwdPollerIfIdle();
           if (quiet) {
             return;
           }
           sendExit(sessionId, exitCode, signal ?? null);
-          void notifyWorkspaceTreeRefresh(wr.trim());
+          if (isCurrentWatchedWorkspace(wr.trim())) {
+            void notifyWorkspaceTreeRefresh(wr.trim());
+          }
         });
         console.log('[workspace-pty] spawn ok', { sessionId, pid: term.pid });
         return { success: true as const, sessionId };
@@ -195,17 +252,17 @@ export function registerWorkspacePtyIpc(): void {
     },
   );
 
-  ipcMain.handle('workspace-pty-write', async (event, sessionId: unknown, data: unknown) => {
+  ipcMain.on('workspace-pty-write', (event, sessionId: unknown, data: unknown) => {
     try {
       assertTrustedMainRenderer(event);
     } catch {
-      return { success: false as const, error: 'Forbidden' };
+      return;
     }
     const id = typeof sessionId === 'string' ? sessionId : '';
     const chunk = typeof data === 'string' ? data : '';
     const term = sessions.get(id);
     if (!term) {
-      return { success: false as const, error: 'Session not found' };
+      return;
     }
     try {
       term.write(chunk);
@@ -213,10 +270,8 @@ export function registerWorkspacePtyIpc(): void {
       if (root && (chunk.includes('\r') || chunk.includes('\n'))) {
         schedulePtyWorkspaceTreeRefresh(id, root);
       }
-      return { success: true as const };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { success: false as const, error: message };
+    } catch {
+      /* session already dying */
     }
   });
 
@@ -253,14 +308,18 @@ export function registerWorkspacePtyIpc(): void {
     if (!term) {
       return { success: false as const, error: 'Session not found' };
     }
+    disposingSessionIds.add(id);
     try {
       term.kill();
       sessions.delete(id);
       clearPtyWorkspaceTreeRefresh(id);
+      stopCwdPollerIfIdle();
       return { success: true as const };
     } catch (err: unknown) {
+      disposingSessionIds.delete(id);
       sessions.delete(id);
       clearPtyWorkspaceTreeRefresh(id);
+      stopCwdPollerIfIdle();
       const message = err instanceof Error ? err.message : String(err);
       return { success: false as const, error: message };
     }

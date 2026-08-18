@@ -82,7 +82,7 @@ describe('inferContextWindowTokens (Qwen models)', () => {
   });
 
   it('uses 1M for Qwen 2.5-1M', () => {
-    expect(inferContextWindowTokens('qwen2.5-7b-instruct-1m', 'llamacpp')).toBe(1_000_000);
+    expect(inferContextWindowTokens('qwen-instruct-1m', 'llamacpp')).toBe(1_000_000);
   });
 });
 

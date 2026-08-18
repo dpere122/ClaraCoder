@@ -196,7 +196,7 @@
                             <div><dt>compat</dt><dd>{{ card.compatibility_type }}</dd></div>
                             <div><dt>quant</dt><dd>{{ card.quantization }}</dd></div>
                             <div><dt>state</dt><dd>{{ card.state }}</dd></div>
-                            <div><dt>ctx</dt><dd>{{ card.max_context_length }}</dd></div>
+                            <div><dt>ctx</dt><dd>{{ card.loaded_context_length > 0 ? card.loaded_context_length + ' loaded / ' + card.max_context_length + ' max' : card.max_context_length }}</dd></div>
                           </dl>
                         </div>
                       }
@@ -466,7 +466,7 @@
                     <div class='field field--full'>
                       <span>Context</span>
                       <div class='context-mode-row'>
-                        <label class='context-mode-option' title='Model-native context (-c 0). Gemma 4 12B is 256k — llama.cpp --fit shrinks this to what fits in VRAM when GPU layers are Auto.'>
+                        <label class='context-mode-option' title='Model-native context (-c 0). After start, the token field shows llama.cpp n_ctx (the same value as n_ctx_slot in the server log). --fit may shrink this to what fits in VRAM when GPU layers are Auto.'>
                           <input
                             type='radio'
                             name='managedContextMode'

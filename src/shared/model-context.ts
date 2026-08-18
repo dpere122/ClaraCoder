@@ -57,9 +57,10 @@ const MODEL_CONTEXT_WINDOWS: Array<{ pattern: RegExp; tokens: number }> = [
   { pattern: /mixtral/i, tokens: 32_000 },
   { pattern: /mistral/i, tokens: 32_000 },
 
-  // Qwen models (128k+ for Qwen 2+)
-  { pattern: /qwen.*2/i, tokens: 128_000 },
-  { pattern: /qwen/i, tokens: 32_000 },
+  // Qwen (native GGUF n_ctx_train; YaRN 128k is not what llama.cpp loads with -c 0)
+  { pattern: /qwen.*1m\b/i, tokens: 1_000_000 },
+  { pattern: /qwen3\.5/i, tokens: 262_144 },
+  { pattern: /qwen/i, tokens: 32_768 },
 
   // DeepSeek models
   { pattern: /deepseek.*v3/i, tokens: 128_000 },
@@ -98,6 +99,12 @@ export function inferContextWindowTokens(
       }
       if (/gemma[-_.]?4\b/.test(m)) {
         return 256_000;
+      }
+      if (/gemma[-_.]?3n\b/.test(m)) {
+        return 32_768;
+      }
+      if (/gemma[-_.]?2\b/.test(m)) {
+        return 8_192;
       }
       return 128_000;
     }

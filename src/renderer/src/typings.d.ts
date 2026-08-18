@@ -361,7 +361,10 @@ declare global {
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
     llamaServerChatTemplateReasoning: (payload: {
       modelId: string;
-    }) => Promise<{ ok: true; modelId: string; chatTemplateReasoning: ChatTemplateReasoningCaps | null } | { ok: false; error: string }>;
+    }) => Promise<
+      | { ok: true; modelId: string; chatTemplateReasoning: ChatTemplateReasoningCaps | null; nCtx: number | null }
+      | { ok: false; error: string }
+    >;
     llamacppManagedListModels: (payload: {
       modelId: string;
       config: AppConfig;

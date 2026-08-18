@@ -1,13 +1,5 @@
-import {
-  Injectable,
-  afterNextRender,
-  effect,
-  inject,
-  Injector,
-  computed,
-  signal,
-  untracked,
-} from '@angular/core';
+import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
 import type {
@@ -60,6 +52,7 @@ import {
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
+  effectiveLmStudioContextTokens,
   countLlmModels,
   findLlmModelLocation,
   hubCacheFolderToHfId,
@@ -481,11 +474,19 @@ export class SettingsStore {
     }
     return 'custom';
   });
-  /** Token count shown in the Custom field: parsed ``-c`` when set, otherwise the profile value. */
+  private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
+    initialValue: {} as Readonly<Record<string, number>>,
+  });
+  /** Token count shown in the Custom field: parsed ``-c`` when set, live ``n_ctx`` after start, otherwise the profile value. */
   readonly managedCustomContextTokensDisplay = computed((): string => {
     const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
     if (parsed !== null && parsed > 0) {
       return String(parsed);
+    }
+    const modelId = this.selectedModel()?.id;
+    const live = modelId ? this.llamaServerNctxByModel()[modelId] : undefined;
+    if (typeof live === 'number' && live > 0) {
+      return String(live);
     }
     const tokens = this.selectedModel()?.contextWindowTokens;
     return tokens != null ? String(tokens) : '';
@@ -1043,9 +1044,23 @@ export class SettingsStore {
     this.lmStudioListInFlight.set(false);
     if (res.ok) {
       this.lmStudioInventory.set(res.models);
+      this.applyLmStudioLiveContextFromInventory();
     } else {
       this.lmStudioInventory.set([]);
       this.lmStudioInventoryError.set(res.error);
+    }
+  }
+
+  private applyLmStudioLiveContextFromInventory(): void {
+    const loc = this.selectedLocation();
+    if (!loc || loc.provider.provider !== 'lmstudio') {
+      return;
+    }
+    const inv = this.lmStudioInventory();
+    for (const m of loc.provider.models) {
+      const card = inv.find((c) => c.id === m.model);
+      const n = card ? effectiveLmStudioContextTokens(card) : 0;
+      this.electron.applyLiveContextWindow(m.id, n > 0 ? n : undefined);
     }
   }
 
@@ -1217,10 +1232,18 @@ export class SettingsStore {
     if (!loc) {
       return;
     }
+    let contextWindowTokens = inferContextWindowTokens(model, loc.provider.provider);
+    if (loc.provider.provider === 'lmstudio') {
+      const card = this.lmStudioInventory().find((c) => c.id === model);
+      const live = card ? effectiveLmStudioContextTokens(card) : 0;
+      if (live > 0) {
+        contextWindowTokens = live;
+      }
+    }
     this.applyLlmModelPatch(loc.model.id, {
       model,
       name: model,
-      contextWindowTokens: inferContextWindowTokens(model, loc.provider.provider),
+      contextWindowTokens,
     });
     this.markSettingsDirty();
   }

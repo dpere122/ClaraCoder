@@ -8,6 +8,7 @@ import {
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
   parseChatTemplateReasoning,
+  parseLlamaServerPropsNctx,
   parseLlamaServerPropsReasoning,
 } from '@shared/index';
 
@@ -145,6 +146,30 @@ describe('parseLlamaServerPropsReasoning', () => {
     expect(r.missingTemplate).toBe(true);
     expect(r.templateBytes).toBe(0);
     expect(r.caps).toEqual({ enableThinking: false, reasoningEffortValues: null });
+  });
+});
+
+describe('parseLlamaServerPropsNctx', () => {
+  it('reads n_ctx from default_generation_settings', () => {
+    expect(
+      parseLlamaServerPropsNctx({
+        default_generation_settings: { n_ctx: 32768, params: { temperature: 0.8 } },
+      }),
+    ).toBe(32768);
+  });
+
+  it('reads n_ctx from nested params when the top field is missing', () => {
+    expect(
+      parseLlamaServerPropsNctx({
+        default_generation_settings: { params: { n_ctx: 40960 } },
+      }),
+    ).toBe(40960);
+  });
+
+  it('returns null when n_ctx is absent or invalid', () => {
+    expect(parseLlamaServerPropsNctx({ chat_template: 'x' })).toBeNull();
+    expect(parseLlamaServerPropsNctx({ default_generation_settings: { n_ctx: 0 } })).toBeNull();
+    expect(parseLlamaServerPropsNctx(null)).toBeNull();
   });
 });
 

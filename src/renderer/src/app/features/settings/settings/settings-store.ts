@@ -66,10 +66,15 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  MANAGED_LLAMA_BATCH_MAX,
+  MANAGED_LLAMA_BATCH_MIN,
+  MANAGED_LLAMA_CACHE_TYPES,
+  MANAGED_LLAMA_FLASH_ATTN_MODES,
   MANAGED_LLAMA_NGL_DEFAULT,
   MANAGED_LLAMA_NGL_MAX,
   MANAGED_LLAMA_NGL_MIN,
   managedLlamaCommandHasNoHost,
+  managedLlamaCommandHasNoMmproj,
   managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
   managedPickerValueForCmd,
@@ -79,25 +84,38 @@ import {
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
   parseCustomManagedContextTokens,
+  parseManagedLlamaBatchSize,
+  parseManagedLlamaCacheTypeK,
+  parseManagedLlamaCacheTypeV,
   parseManagedLlamaContextSize,
+  parseManagedLlamaFlashAttn,
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   parseManagedLlamaGpuOffload,
   parseManagedLlamaChatTemplateFile,
+  parseManagedLlamaUbatchSize,
   promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
   formatGpuVramGb,
   shortCudaGpuName,
+  syncBatchSizeInManagedChatCommand,
+  syncCacheTypeKInManagedChatCommand,
+  syncCacheTypeVInManagedChatCommand,
   syncContextFlagInManagedChatCommand,
+  syncFlashAttnInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
+  syncNoMmprojFlagInManagedChatCommand,
   syncChatTemplateFileInManagedChatCommand,
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
+  syncUbatchSizeInManagedChatCommand,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
+  type ManagedLlamaCacheType,
+  type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
 } from '@shared/index';
 import { SecretValue, unwrapSecret } from '@shared/index';
@@ -483,6 +501,33 @@ export class SettingsStore {
   readonly managedChatTemplateFile = computed(
     (): string => parseManagedLlamaChatTemplateFile(this.selectedLlamaCppManaged().chatRunCommand) ?? '',
   );
+  readonly managedFlashAttnModes = MANAGED_LLAMA_FLASH_ATTN_MODES;
+  readonly managedCacheTypes = MANAGED_LLAMA_CACHE_TYPES;
+  readonly managedBatchMin = MANAGED_LLAMA_BATCH_MIN;
+  readonly managedBatchMax = MANAGED_LLAMA_BATCH_MAX;
+  /** ``-fa``; llama.cpp default is auto when the flag is absent. */
+  readonly managedFlashAttn = computed((): ManagedLlamaFlashAttn => {
+    return parseManagedLlamaFlashAttn(this.selectedLlamaCppManaged().chatRunCommand) ?? 'auto';
+  });
+  readonly managedNoMmproj = computed((): boolean =>
+    managedLlamaCommandHasNoMmproj(this.selectedLlamaCppManaged().chatRunCommand),
+  );
+  /** ``-b``; ``0`` means omit (llama.cpp default 2048). */
+  readonly managedBatchSize = computed((): number => {
+    return parseManagedLlamaBatchSize(this.selectedLlamaCppManaged().chatRunCommand) ?? 0;
+  });
+  /** ``-ub``; ``0`` means omit (llama.cpp default 512). */
+  readonly managedUbatchSize = computed((): number => {
+    return parseManagedLlamaUbatchSize(this.selectedLlamaCppManaged().chatRunCommand) ?? 0;
+  });
+  /** ``-ctk``; empty means omit (llama.cpp default f16). */
+  readonly managedCacheTypeK = computed((): ManagedLlamaCacheType | '' => {
+    return parseManagedLlamaCacheTypeK(this.selectedLlamaCppManaged().chatRunCommand) ?? '';
+  });
+  /** ``-ctv``; empty means omit (llama.cpp default f16). */
+  readonly managedCacheTypeV = computed((): ManagedLlamaCacheType | '' => {
+    return parseManagedLlamaCacheTypeV(this.selectedLlamaCppManaged().chatRunCommand) ?? '';
+  });
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
   readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
@@ -1502,6 +1547,85 @@ export class SettingsStore {
     });
   }
 
+  onManagedFlashAttnChange(raw: ManagedLlamaFlashAttn | string): void {
+    if (raw !== 'auto' && raw !== 'on' && raw !== 'off') {
+      return;
+    }
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncFlashAttnInManagedChatCommand(cmd, raw, detectShellQuotingPlatform()),
+    });
+  }
+
+  onManagedNoMmprojChange(enabled: boolean | string): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncNoMmprojFlagInManagedChatCommand(cmd, enabled === true || enabled === 'true'),
+    });
+  }
+
+  onManagedBatchSizeChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncBatchSizeInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
+    });
+  }
+
+  onManagedUbatchSizeChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncUbatchSizeInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
+    });
+  }
+
+  onManagedCacheTypeKChange(raw: string): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    const value = (raw || '').trim();
+    const cacheType = (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(value)
+      ? (value as ManagedLlamaCacheType)
+      : null;
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncCacheTypeKInManagedChatCommand(cmd, cacheType, detectShellQuotingPlatform()),
+    });
+  }
+
+  onManagedCacheTypeVChange(raw: string): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    const value = (raw || '').trim();
+    const cacheType = (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(value)
+      ? (value as ManagedLlamaCacheType)
+      : null;
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncCacheTypeVInManagedChatCommand(cmd, cacheType, detectShellQuotingPlatform()),
+    });
+  }
+
   cudaGpuLabel(gpu: CudaGpuDevice): string {
     return `${shortCudaGpuName(gpu.model)} (${formatGpuVramGb(gpu.memoryTotalMb)})`;
   }
@@ -1815,6 +1939,30 @@ export class SettingsStore {
     const prevChatTemplate = parseManagedLlamaChatTemplateFile(prevCmd);
     if (prevChatTemplate) {
       chatRunCommand = syncChatTemplateFileInManagedChatCommand(chatRunCommand, prevChatTemplate, platform);
+    }
+    const prevFa = parseManagedLlamaFlashAttn(prevCmd);
+    if (prevFa !== null) {
+      chatRunCommand = syncFlashAttnInManagedChatCommand(chatRunCommand, prevFa, platform);
+    }
+    chatRunCommand = syncNoMmprojFlagInManagedChatCommand(
+      chatRunCommand,
+      managedLlamaCommandHasNoMmproj(prevCmd),
+    );
+    const prevBatch = parseManagedLlamaBatchSize(prevCmd);
+    if (prevBatch !== null && prevBatch > 0) {
+      chatRunCommand = syncBatchSizeInManagedChatCommand(chatRunCommand, prevBatch, platform);
+    }
+    const prevUbatch = parseManagedLlamaUbatchSize(prevCmd);
+    if (prevUbatch !== null && prevUbatch > 0) {
+      chatRunCommand = syncUbatchSizeInManagedChatCommand(chatRunCommand, prevUbatch, platform);
+    }
+    const prevCtk = parseManagedLlamaCacheTypeK(prevCmd);
+    if (prevCtk) {
+      chatRunCommand = syncCacheTypeKInManagedChatCommand(chatRunCommand, prevCtk, platform);
+    }
+    const prevCtv = parseManagedLlamaCacheTypeV(prevCmd);
+    if (prevCtv) {
+      chatRunCommand = syncCacheTypeVInManagedChatCommand(chatRunCommand, prevCtv, platform);
     }
     chatRunCommand = promoteManagedSentinelNglToAuto(chatRunCommand, platform);
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;

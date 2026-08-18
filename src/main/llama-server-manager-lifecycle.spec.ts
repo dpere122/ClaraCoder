@@ -290,4 +290,17 @@ describe('managed llama-server lifecycle', () => {
     }
     expect(spawnMock).not.toHaveBeenCalled();
   });
+
+  it('injects --no-webui and -np 1 when the saved command omits them', async () => {
+    const cfg = makeConfig();
+    const startP = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(args).toContain('--no-webui');
+    const npAt = args.indexOf('-np');
+    expect(npAt).toBeGreaterThanOrEqual(0);
+    expect(args[npAt + 1]).toBe('1');
+    stopManagedLlamaServers('m1');
+    await startP;
+  });
 });

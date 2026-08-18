@@ -544,7 +544,7 @@
                         rows='4'
                         [ngModel]='s.selectedLlamaCppManaged().chatRunCommand'
                         (ngModelChange)='s.patchLlamaCppManaged({ chatRunCommand: $event })'
-                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' --jinja -hf org/model:Q4_0'"
+                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' --jinja --no-webui -np 1 -hf org/model:Q4_0'"
                       ></textarea>
                     </label>
                     <label class='field field--full'>
@@ -726,6 +726,143 @@
                               Clear
                             </button>
                           </div>
+                        </div>
+                        <div class='llama-flag-pair'>
+                          <label class='field'>
+                            <span class='sampling-label'>
+                              Flash attn (-fa)
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='auto is the llama.cpp default. on is recommended for CUDA and required for quantized KV cache.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  auto is the llama.cpp default. on is faster and uses less VRAM on CUDA; quantized KV cache requires it.
+                                </span>
+                              </span>
+                            </span>
+                            <select [ngModel]='s.managedFlashAttn()' (ngModelChange)='s.onManagedFlashAttnChange($event)'>
+                              @for (mode of s.managedFlashAttnModes; track mode) {
+                                <option [value]='mode'>{{ mode }}</option>
+                              }
+                            </select>
+                          </label>
+                          <div class='field'>
+                            <span class='sampling-label'>
+                              Vision projector
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='Off writes --no-mmproj so llama.cpp does not load a multimodal projector. Auto lets -hf pull mmproj when present.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  Off writes --no-mmproj. Auto (unchecked) lets llama.cpp load a multimodal projector, including auto-download with -hf.
+                                </span>
+                              </span>
+                            </span>
+                            <label class='toggle-row'>
+                              <input
+                                type='checkbox'
+                                [ngModel]='s.managedNoMmproj()'
+                                (ngModelChange)='s.onManagedNoMmprojChange($event)'
+                              />
+                              <span>{{ s.managedNoMmproj() ? 'Off (--no-mmproj)' : 'Auto' }}</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div class='llama-flag-pair'>
+                          <label class='field'>
+                            <span class='sampling-label'>
+                              Batch (-b)
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='Logical batch size. 0 omits -b and uses the llama.cpp default of 2048.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  Logical max batch. 0 removes -b so llama.cpp uses 2048.
+                                </span>
+                              </span>
+                            </span>
+                            <input
+                              type='number'
+                              [min]='s.managedBatchMin'
+                              [max]='s.managedBatchMax'
+                              step='64'
+                              [ngModel]='s.managedBatchSize()'
+                              (ngModelChange)='s.onManagedBatchSizeChange($event)'
+                            />
+                          </label>
+                          <label class='field'>
+                            <span class='sampling-label'>
+                              Ubatch (-ub)
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='Physical batch size. 0 omits -ub and uses the llama.cpp default of 512.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  Physical max batch. 0 removes -ub so llama.cpp uses 512.
+                                </span>
+                              </span>
+                            </span>
+                            <input
+                              type='number'
+                              [min]='s.managedBatchMin'
+                              [max]='s.managedBatchMax'
+                              step='64'
+                              [ngModel]='s.managedUbatchSize()'
+                              (ngModelChange)='s.onManagedUbatchSizeChange($event)'
+                            />
+                          </label>
+                        </div>
+                        <div class='llama-flag-pair'>
+                          <label class='field'>
+                            <span class='sampling-label'>
+                              K cache (-ctk)
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='KV cache type for keys. Default omits the flag (f16). q8_0 halves VRAM with little quality loss; needs Flash Attention on.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  Default omits -ctk (llama.cpp f16). q8_0 cuts KV VRAM roughly in half; use Flash Attention on.
+                                </span>
+                              </span>
+                            </span>
+                            <select [ngModel]='s.managedCacheTypeK()' (ngModelChange)='s.onManagedCacheTypeKChange($event)'>
+                              <option value=''>Default (f16)</option>
+                              @for (t of s.managedCacheTypes; track t) {
+                                <option [value]='t'>{{ t }}</option>
+                              }
+                            </select>
+                          </label>
+                          <label class='field'>
+                            <span class='sampling-label'>
+                              V cache (-ctv)
+                              <span
+                                class='field-help'
+                                tabindex='0'
+                                aria-label='KV cache type for values. Default omits the flag (f16). Match -ctk unless you are measuring quality.'
+                              >
+                                ?
+                                <span class='field-help__popup' role='tooltip'>
+                                  Default omits -ctv (llama.cpp f16). Match K cache unless you are measuring quality.
+                                </span>
+                              </span>
+                            </span>
+                            <select [ngModel]='s.managedCacheTypeV()' (ngModelChange)='s.onManagedCacheTypeVChange($event)'>
+                              <option value=''>Default (f16)</option>
+                              @for (t of s.managedCacheTypes; track t) {
+                                <option [value]='t'>{{ t }}</option>
+                              }
+                            </select>
+                          </label>
                         </div>
                         <label class='field'>
                           <span class='sampling-label'>

@@ -49,6 +49,16 @@
   flex-shrink: 0;
 }
 
+.llama-flag-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 5px 8px;
+}
+
+.llama-flag-pair .field {
+  min-width: 0;
+}
+
 .field > span .settings-wip {
   font-style: normal;
   font-weight: 700;
@@ -156,7 +166,8 @@
   display: block;
 }
 
-.sampling-compact .field input:not([type='checkbox']):not([type='range']) {
+.sampling-compact .field input:not([type='checkbox']):not([type='range']),
+.sampling-compact .field select {
   min-height: 28px;
   padding: 4px 8px;
   font-size: 12px;

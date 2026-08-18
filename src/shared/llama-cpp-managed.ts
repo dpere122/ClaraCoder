@@ -67,7 +67,7 @@ export function defaultLlamaCppManaged(): LlamaCppManaged {
 const PORT_TOKEN = '{{PORT}}';
 /** Baseline managed chat command template used in defaults and Settings placeholders. */
 export const DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND =
-  'llama-server --host 127.0.0.1 --port {{PORT}} --jinja -hf org/model:Q4_0';
+  'llama-server --host 127.0.0.1 --port {{PORT}} --jinja --no-webui -np 1 -hf org/model:Q4_0';
 
 /** True when a managed chat command already includes ``--jinja``. */
 export function managedLlamaCommandHasJinja(command: string): boolean {

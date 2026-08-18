@@ -173,7 +173,8 @@ export function parseCustomManagedContextTokens(raw: string | number): number | 
 }
 
 /**
- * Build a managed chat ``llama-server`` command with ``{{PORT}}``, ``--jinja``, model load, and ``-c``.
+ * Build a managed chat ``llama-server`` command with ``{{PORT}}``, ``--jinja``,
+ * ``-np 1``, ``--no-webui``, model load, and ``-c``.
  * ``contextWindowTokens`` of ``0`` emits ``-c 0`` (model-native context).
  */
 export function buildManagedLlamaChatCommand(
@@ -199,7 +200,7 @@ export function buildManagedLlamaChatCommand(
     }
     argv.push('-hf', hf);
   }
-  argv.push('-c', String(ctx), '--metrics');
+  argv.push('-c', String(ctx), '--metrics', '-np', '1', '--no-webui');
   return argvToShellCommandLine(argv, platform);
 }
 
@@ -426,6 +427,296 @@ export function syncNoHostFlagInManagedChatCommand(cmd: string, enabled: boolean
     .replace(/(^|[\s"'])--no-host(?=\s|$)/gi, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export const MANAGED_LLAMA_FLASH_ATTN_MODES = ['auto', 'on', 'off'] as const;
+export type ManagedLlamaFlashAttn = (typeof MANAGED_LLAMA_FLASH_ATTN_MODES)[number];
+
+export const MANAGED_LLAMA_CACHE_TYPES = [
+  'f32',
+  'f16',
+  'bf16',
+  'q8_0',
+  'q4_0',
+  'q4_1',
+  'iq4_nl',
+  'q5_0',
+  'q5_1',
+] as const;
+export type ManagedLlamaCacheType = (typeof MANAGED_LLAMA_CACHE_TYPES)[number];
+
+/** ``0`` in the Settings field strips ``-b`` / ``-ub`` so llama.cpp keeps its defaults. */
+export const MANAGED_LLAMA_BATCH_MIN = 0;
+export const MANAGED_LLAMA_BATCH_MAX = 65_536;
+
+const FA_FLAG_RE =
+  /(?:^|[\s"'])(?:--flash-attn|-fa)(?:(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(on|off|auto)))?(?=\s|$)/i;
+const FA_FLAG_REPLACE_RE =
+  /(^|[\s"'])((--flash-attn|-fa)(?:(?:\s+|=)(?:"[^"]+"|'[^']+'|(?:on|off|auto)))?)/i;
+const NO_MMPROJ_TOKEN_RE = /(?:^|[\s"'])--no-mmproj(?:\s|=|$)/i;
+const NO_WEBUI_TOKEN_RE = /(?:^|[\s"'])--no-(?:web)?ui(?:\s|=|$)/i;
+const PARALLEL_FLAG_RE =
+  /(?:^|[\s"'])(?:--parallel|-np)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
+const BATCH_PARSE_RE =
+  /(?:^|[\s"'])(?:--batch-size|-b)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const BATCH_REPLACE_RE =
+  /(^|[\s"'])((--batch-size|-b)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+const UBATCH_PARSE_RE =
+  /(?:^|[\s"'])(?:--ubatch-size|-ub)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const UBATCH_REPLACE_RE =
+  /(^|[\s"'])((--ubatch-size|-ub)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+const CTK_PARSE_RE =
+  /(?:^|[\s"'])(?:--cache-type-k|-ctk)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const CTK_REPLACE_RE =
+  /(^|[\s"'])((--cache-type-k|-ctk)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+const CTV_PARSE_RE =
+  /(?:^|[\s"'])(?:--cache-type-v|-ctv)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const CTV_REPLACE_RE =
+  /(^|[\s"'])((--cache-type-v|-ctv)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+
+function parseQuotedFlagValue(match: RegExpExecArray): string {
+  return unquoteShellToken(match[1] ?? match[2] ?? match[3] ?? '');
+}
+
+function isFlashAttnMode(raw: string): raw is ManagedLlamaFlashAttn {
+  return (MANAGED_LLAMA_FLASH_ATTN_MODES as readonly string[]).includes(raw);
+}
+
+function isCacheType(raw: string): raw is ManagedLlamaCacheType {
+  return (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(raw);
+}
+
+function clampManagedBatchFlag(n: number): number | null {
+  if (!Number.isFinite(n)) {
+    return null;
+  }
+  const v = Math.floor(n);
+  if (v < MANAGED_LLAMA_BATCH_MIN) {
+    return null;
+  }
+  return Math.min(MANAGED_LLAMA_BATCH_MAX, v);
+}
+
+function parsePositiveOrZeroIntFlag(cmd: string, re: RegExp): number | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  re.lastIndex = 0;
+  const m = re.exec(t);
+  if (!m) {
+    return null;
+  }
+  const raw = parseQuotedFlagValue(m);
+  if (!/^-?\d+$/.test(raw)) {
+    return null;
+  }
+  return clampManagedBatchFlag(Number.parseInt(raw, 10));
+}
+
+function syncOrStripFlagValue(
+  cmd: string,
+  replaceRe: RegExp,
+  canonicalFlag: string,
+  value: string | null,
+  platform: ShellQuotingPlatform,
+): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  if (value === null) {
+    return trimmed.replace(replaceRe, '$1').replace(/\s+/g, ' ').trim();
+  }
+  const replaced = trimmed.replace(
+    replaceRe,
+    (_full, lead: string, _flagged: string, flagName: string) => `${lead}${flagName} ${value}`,
+  );
+  if (replaced !== trimmed) {
+    return replaced;
+  }
+  return `${trimmed} ${argvToShellCommandLine([canonicalFlag, value], platform)}`;
+}
+
+function syncBooleanTokenFlag(cmd: string, enabled: boolean, token: string, hasRe: RegExp): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const has = hasRe.test(trimmed);
+  if (enabled) {
+    if (has) {
+      return trimmed;
+    }
+    return `${trimmed} ${token}`;
+  }
+  if (!has) {
+    return trimmed;
+  }
+  const tokenBody = token.replace(/^--/, '');
+  return trimmed
+    .replace(new RegExp(`(^|[\\s"'])--${tokenBody}(?=\\s|$)`, 'gi'), '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Parse ``-fa`` / ``--flash-attn``. Bare ``-fa`` is ``on``. Missing flag is ``null`` (UI shows auto). */
+export function parseManagedLlamaFlashAttn(cmd: string): ManagedLlamaFlashAttn | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = FA_FLAG_RE.exec(t);
+  if (!m) {
+    return null;
+  }
+  const raw = (m[1] ?? m[2] ?? m[3] ?? '').trim().toLowerCase();
+  if (!raw) {
+    return 'on';
+  }
+  return isFlashAttnMode(raw) ? raw : null;
+}
+
+/** Write ``-fa on|off|auto`` (or the existing long form). */
+export function syncFlashAttnInManagedChatCommand(
+  cmd: string,
+  mode: ManagedLlamaFlashAttn,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  if (!isFlashAttnMode(mode)) {
+    return (cmd || '').trim();
+  }
+  return syncOrStripFlagValue(cmd, FA_FLAG_REPLACE_RE, '-fa', mode, platform);
+}
+
+export function managedLlamaCommandHasNoMmproj(cmd: string): boolean {
+  return NO_MMPROJ_TOKEN_RE.test((cmd || '').trim());
+}
+
+/** Append or strip ``--no-mmproj``. */
+export function syncNoMmprojFlagInManagedChatCommand(cmd: string, enabled: boolean): string {
+  return syncBooleanTokenFlag(cmd, enabled, '--no-mmproj', NO_MMPROJ_TOKEN_RE);
+}
+
+export function parseManagedLlamaBatchSize(cmd: string): number | null {
+  return parsePositiveOrZeroIntFlag(cmd, BATCH_PARSE_RE);
+}
+
+export function parseManagedLlamaUbatchSize(cmd: string): number | null {
+  return parsePositiveOrZeroIntFlag(cmd, UBATCH_PARSE_RE);
+}
+
+/**
+ * Replace ``-b`` / ``--batch-size``. ``0`` strips the flag so llama.cpp uses its default (2048).
+ */
+export function syncBatchSizeInManagedChatCommand(
+  cmd: string,
+  batchSize: number,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const n = clampManagedBatchFlag(batchSize);
+  if (n === null) {
+    return (cmd || '').trim();
+  }
+  if (n === 0) {
+    return syncOrStripFlagValue(cmd, BATCH_REPLACE_RE, '-b', null, platform);
+  }
+  return syncOrStripFlagValue(cmd, BATCH_REPLACE_RE, '-b', String(n), platform);
+}
+
+/**
+ * Replace ``-ub`` / ``--ubatch-size``. ``0`` strips the flag so llama.cpp uses its default (512).
+ */
+export function syncUbatchSizeInManagedChatCommand(
+  cmd: string,
+  ubatchSize: number,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const n = clampManagedBatchFlag(ubatchSize);
+  if (n === null) {
+    return (cmd || '').trim();
+  }
+  if (n === 0) {
+    return syncOrStripFlagValue(cmd, UBATCH_REPLACE_RE, '-ub', null, platform);
+  }
+  return syncOrStripFlagValue(cmd, UBATCH_REPLACE_RE, '-ub', String(n), platform);
+}
+
+export function parseManagedLlamaCacheTypeK(cmd: string): ManagedLlamaCacheType | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = CTK_PARSE_RE.exec(t);
+  if (!m) {
+    return null;
+  }
+  const raw = parseQuotedFlagValue(m).toLowerCase();
+  return isCacheType(raw) ? raw : null;
+}
+
+export function parseManagedLlamaCacheTypeV(cmd: string): ManagedLlamaCacheType | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = CTV_PARSE_RE.exec(t);
+  if (!m) {
+    return null;
+  }
+  const raw = parseQuotedFlagValue(m).toLowerCase();
+  return isCacheType(raw) ? raw : null;
+}
+
+/** Write ``-ctk`` / ``--cache-type-k``. ``null`` strips the flag (llama.cpp default f16). */
+export function syncCacheTypeKInManagedChatCommand(
+  cmd: string,
+  cacheType: ManagedLlamaCacheType | null,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  if (cacheType !== null && !isCacheType(cacheType)) {
+    return (cmd || '').trim();
+  }
+  return syncOrStripFlagValue(cmd, CTK_REPLACE_RE, '-ctk', cacheType, platform);
+}
+
+/** Write ``-ctv`` / ``--cache-type-v``. ``null`` strips the flag (llama.cpp default f16). */
+export function syncCacheTypeVInManagedChatCommand(
+  cmd: string,
+  cacheType: ManagedLlamaCacheType | null,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  if (cacheType !== null && !isCacheType(cacheType)) {
+    return (cmd || '').trim();
+  }
+  return syncOrStripFlagValue(cmd, CTV_REPLACE_RE, '-ctv', cacheType, platform);
+}
+
+export function managedLlamaCommandHasNoWebui(cmd: string): boolean {
+  return NO_WEBUI_TOKEN_RE.test((cmd || '').trim());
+}
+
+export function managedLlamaCommandHasParallel(cmd: string): boolean {
+  return PARALLEL_FLAG_RE.test((cmd || '').trim());
+}
+
+/**
+ * Ensure managed chat commands always carry ``--no-webui`` and ``-np 1`` when those
+ * flags are missing. Does not overwrite an existing ``-np`` / ``--parallel`` value.
+ */
+export function ensureManagedLlamaDefaultServerFlags(cmd: string): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return cmd;
+  }
+  let out = trimmed;
+  if (!managedLlamaCommandHasNoWebui(out)) {
+    out = `${out} --no-webui`;
+  }
+  if (!managedLlamaCommandHasParallel(out)) {
+    out = `${out} -np 1`;
+  }
+  return out;
 }
 
 /** One-line Ready defaults summary for the Models UI. */

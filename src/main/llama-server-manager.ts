@@ -18,6 +18,7 @@ import type {
 import {
   appendJinjaFlagToManagedChatCommand,
   detectShellQuotingPlatform,
+  ensureManagedLlamaDefaultServerFlags,
   findLlmModelLocation,
   looksLikeLlamaModelDownload,
   managedLlamaCmdUsesHfRemoteModel,
@@ -690,7 +691,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     };
   }
 
-  chatCmd = appendJinjaFlagToManagedChatCommand(chatCmd);
+  chatCmd = ensureManagedLlamaDefaultServerFlags(appendJinjaFlagToManagedChatCommand(chatCmd));
   const chatTemplateFile = parseManagedLlamaChatTemplateFile(chatCmd);
   if (chatTemplateFile && !existsSync(chatTemplateFile)) {
     return {

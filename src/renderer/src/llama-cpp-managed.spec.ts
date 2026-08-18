@@ -25,8 +25,10 @@ describe('defaultLlamaCppManaged', () => {
 });
 
 describe('DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND', () => {
-  it('includes --jinja', () => {
+  it('includes --jinja, --no-webui, and -np 1', () => {
     expect(DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND).toContain('--jinja');
+    expect(DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND).toContain('--no-webui');
+    expect(DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND).toContain('-np 1');
     expect(DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND).toContain('{{PORT}}');
   });
 });

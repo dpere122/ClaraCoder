@@ -1,20 +1,33 @@
 import {
   buildManagedLlamaChatCommand,
+  ensureManagedLlamaDefaultServerFlags,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   inferOptimizationPresetFromModelHint,
   managedLlamaCommandHasNoHost,
+  managedLlamaCommandHasNoMmproj,
   optimizationPresetDefaultsPatch,
   parseCustomManagedContextTokens,
+  parseManagedLlamaBatchSize,
+  parseManagedLlamaCacheTypeK,
+  parseManagedLlamaCacheTypeV,
   parseManagedLlamaContextSize,
+  parseManagedLlamaFlashAttn,
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
+  parseManagedLlamaUbatchSize,
   managedPickerValueForCmd,
   promoteManagedSentinelNglToAuto,
   suggestContextWindowTokens,
+  syncBatchSizeInManagedChatCommand,
+  syncCacheTypeKInManagedChatCommand,
+  syncCacheTypeVInManagedChatCommand,
   syncContextFlagInManagedChatCommand,
+  syncFlashAttnInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
+  syncNoMmprojFlagInManagedChatCommand,
+  syncUbatchSizeInManagedChatCommand,
 } from '@shared/index';
 
 describe('hubCacheFolderToHfId', () => {
@@ -72,6 +85,8 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('-m /models/a.gguf');
     expect(cmd).toContain('-c 32768');
     expect(cmd).toContain('--jinja');
+    expect(cmd).toContain('-np 1');
+    expect(cmd).toContain('--no-webui');
     expect(cmd).not.toContain('--chat-template-file');
     expect(cmd).not.toContain('--ctx-checkpoints');
     expect(cmd).not.toContain('--checkpoint-every-n-tokens');
@@ -258,6 +273,75 @@ describe('syncNoHostFlagInManagedChatCommand', () => {
     expect(managedLlamaCommandHasNoHost('llama-server --host 127.0.0.1 --port {{PORT}}')).toBe(false);
     expect(managedLlamaCommandHasNoHost('llama-server --host 127.0.0.1 --port {{PORT}} --no-host')).toBe(
       true,
+    );
+  });
+});
+
+describe('flash attn / mmproj / batch / cache flags', () => {
+  it('parses -fa on, off, auto, and bare -fa as on', () => {
+    expect(parseManagedLlamaFlashAttn('llama-server -fa on --port {{PORT}}')).toBe('on');
+    expect(parseManagedLlamaFlashAttn('llama-server --flash-attn off --port {{PORT}}')).toBe('off');
+    expect(parseManagedLlamaFlashAttn('llama-server --flash-attn=auto --port {{PORT}}')).toBe('auto');
+    expect(parseManagedLlamaFlashAttn('llama-server -fa --port {{PORT}}')).toBe('on');
+    expect(parseManagedLlamaFlashAttn('llama-server --port {{PORT}}')).toBeNull();
+  });
+
+  it('writes -fa and keeps the long form when present', () => {
+    expect(syncFlashAttnInManagedChatCommand('llama-server -fa on --port {{PORT}}', 'auto', 'posix')).toBe(
+      'llama-server -fa auto --port {{PORT}}',
+    );
+    expect(
+      syncFlashAttnInManagedChatCommand('llama-server --flash-attn off --port {{PORT}}', 'on', 'posix'),
+    ).toBe('llama-server --flash-attn on --port {{PORT}}');
+    expect(syncFlashAttnInManagedChatCommand('llama-server --port {{PORT}}', 'on', 'posix')).toContain(
+      '-fa on',
+    );
+  });
+
+  it('appends and strips --no-mmproj without matching --no-mmproj-auto', () => {
+    expect(managedLlamaCommandHasNoMmproj('llama-server --no-mmproj-auto --port {{PORT}}')).toBe(false);
+    expect(syncNoMmprojFlagInManagedChatCommand('llama-server --port {{PORT}}', true)).toBe(
+      'llama-server --port {{PORT}} --no-mmproj',
+    );
+    expect(
+      syncNoMmprojFlagInManagedChatCommand('llama-server --port {{PORT}} --no-mmproj -ngl auto', false),
+    ).toBe('llama-server --port {{PORT}} -ngl auto');
+  });
+
+  it('treats batch 0 as omit and writes positive -b / -ub', () => {
+    const cmd = 'llama-server --port {{PORT}} -m /a.gguf -c 0 --metrics';
+    expect(parseManagedLlamaBatchSize(cmd)).toBeNull();
+    expect(syncBatchSizeInManagedChatCommand(cmd, 2048, 'posix')).toContain('-b 2048');
+    expect(syncBatchSizeInManagedChatCommand(`${cmd} -b 2048`, 0, 'posix')).toBe(cmd);
+    expect(syncUbatchSizeInManagedChatCommand(cmd, 1024, 'posix')).toContain('-ub 1024');
+    expect(parseManagedLlamaUbatchSize('llama-server --ubatch-size 512 --port {{PORT}}')).toBe(512);
+  });
+
+  it('writes and strips -ctk / -ctv dropdown values', () => {
+    const cmd = 'llama-server --port {{PORT}} -m /a.gguf';
+    expect(parseManagedLlamaCacheTypeK(cmd)).toBeNull();
+    expect(syncCacheTypeKInManagedChatCommand(cmd, 'q8_0', 'posix')).toContain('-ctk q8_0');
+    expect(syncCacheTypeVInManagedChatCommand(`${cmd} -ctv f16`, 'q4_0', 'posix')).toContain('-ctv q4_0');
+    expect(syncCacheTypeKInManagedChatCommand(`${cmd} -ctk q8_0`, null, 'posix')).toBe(cmd);
+    expect(parseManagedLlamaCacheTypeK('llama-server --cache-type-k bf16 --port {{PORT}}')).toBe('bf16');
+  });
+});
+
+describe('ensureManagedLlamaDefaultServerFlags', () => {
+  it('appends --no-webui and -np 1 when missing', () => {
+    expect(ensureManagedLlamaDefaultServerFlags('llama-server --port {{PORT}} -m /a.gguf')).toBe(
+      'llama-server --port {{PORT}} -m /a.gguf --no-webui -np 1',
+    );
+  });
+
+  it('does not duplicate flags or overwrite an existing -np', () => {
+    const cmd = 'llama-server --no-webui -np 4 --port {{PORT}}';
+    expect(ensureManagedLlamaDefaultServerFlags(cmd)).toBe(cmd);
+  });
+
+  it('treats --no-ui as already disabling the web UI', () => {
+    expect(ensureManagedLlamaDefaultServerFlags('llama-server --no-ui --port {{PORT}}')).toBe(
+      'llama-server --no-ui --port {{PORT}} -np 1',
     );
   });
 });

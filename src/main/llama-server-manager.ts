@@ -978,9 +978,16 @@ async function fetchChatTemplateReasoningOnce(
     const parsed = parseLlamaServerPropsReasoning(body);
     if (parsed.missingTemplate) {
       logLlamaLifecycle('WARNING', `chat template missing modelId=${modelId}`);
+      propsFetchFailedAt.set(modelId, Date.now());
+      return undefined;
     }
     setCachedChatTemplateReasoning(modelId, parsed.caps);
     propsFetchFailedAt.delete(modelId);
+    try {
+      void syncWithManagedLlamaOverrides(loadConfigSync());
+    } catch {
+      /* config unavailable */
+    }
     logLlamaLifecycle(
       'INFO',
       `chat template reasoning modelId=${modelId} ${formatChatTemplateReasoningSummary(parsed.caps)} bytes=${parsed.templateBytes}`,

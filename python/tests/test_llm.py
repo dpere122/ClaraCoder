@@ -340,6 +340,27 @@ def test_build_llm_qwen_caps_effort_allow_list(
 @patch('clara_coder_backend.llm.factory.ChatOpenAI')
 @patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
 @patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_caps_invalid_effort_omitted(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(
+        reasoning_effort='high',
+        chat_template_reasoning={'enableThinking': False, 'reasoningEffortValues': ['xhigh', 'medium', 'low']},
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert 'reasoning_effort' not in ctk
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_caps_neither_knob_omits_both(
     mock_get: MagicMock,
     _mock_log: MagicMock,

@@ -130,7 +130,10 @@ def build_llm() -> ChatOpenAI:
             effort_raw = (env_clara('CLARA_REASONING_EFFORT', '') or '').strip().lower()
         resolved = _resolve_reasoning_effort(effort_raw)
         if resolved is not None:
-            kwargs['reasoning_effort'] = resolved
+            effort_caps = getattr(connection, 'chat_template_reasoning', None)
+            allowed = effort_caps.get('reasoningEffortValues') if isinstance(effort_caps, dict) else None
+            if not isinstance(allowed, list) or resolved in allowed:
+                kwargs['reasoning_effort'] = resolved
 
     kwargs.update(llm_optional_kwargs(connection))
 

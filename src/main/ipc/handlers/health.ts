@@ -66,7 +66,7 @@ function normalizeGpuModel(model: string | null | undefined): string {
  * (model + vendor id + total VRAM, including secondary cards that
  * systeminformation leaves blank). Live stats are then overlaid by vendor
  * pipeline:
- *   - NVIDIA (NVML, nvml.dll): utilization + VRAM used/total for every card.
+ *   - NVIDIA (NVML): utilization + VRAM used/total for every card.
  *   - AMD (ADL, atiadlxx.dll): utilization for active adapters (display-centric;
  *     an inactive iGPU yields nothing and falls back to DXGI total only).
  *   - other vendors: best-effort overlay from the throttled systeminformation

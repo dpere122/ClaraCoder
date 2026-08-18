@@ -173,7 +173,7 @@ export function parseCustomManagedContextTokens(raw: string | number): number | 
 }
 
 /**
- * Build a managed chat ``llama-server`` command with ``{{PORT}}``, model load, and ``-c``.
+ * Build a managed chat ``llama-server`` command with ``{{PORT}}``, ``--jinja``, model load, and ``-c``.
  * ``contextWindowTokens`` of ``0`` emits ``-c 0`` (model-native context).
  */
 export function buildManagedLlamaChatCommand(
@@ -185,7 +185,7 @@ export function buildManagedLlamaChatCommand(
   if (ctx === null) {
     return '';
   }
-  const argv: string[] = ['llama-server', '--host', '127.0.0.1', '--port', '{{PORT}}'];
+  const argv: string[] = ['llama-server', '--host', '127.0.0.1', '--port', '{{PORT}}', '--jinja'];
   if (source.kind === 'gguf') {
     const path = source.absolutePath.trim();
     if (!path) {

@@ -1065,6 +1065,10 @@ export class ElectronService {
     return this.api?.openDirectoryDialog() ?? Promise.resolve(null);
   }
 
+  openFileDialog(options?: { filters?: { name: string; extensions: string[] }[] }): Promise<string | null> {
+    return this.api?.openFileDialog(options) ?? Promise.resolve(null);
+  }
+
   readDirectory(dirPath: string): Promise<FileEntry[]> {
     return this.api?.readDirectory(dirPath) ?? Promise.resolve([]);
   }

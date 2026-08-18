@@ -17,22 +17,22 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     label: 'Generic',
     summary: 'No family-specific prompt or sampling profile.',
     description:
-      'No Qwen/Gemma-specific profile. Pick Qwen or Gemma here when you want those templates; the backend does not infer them from the model id alone.',
+      'No Qwen/Gemma-specific profile. Pick Qwen or Gemma here when you want those templates; the backend does not infer them from the model id alone. Managed llama-server uses --jinja with the GGUF chat template unless you set a custom --chat-template-file in Advanced.',
   },
   {
     id: 'qwen',
     label: 'Qwen',
-    summary: 'Qwen prompt hints, vision tool, and llama Jinja.',
+    summary: 'Qwen prompt hints, vision tool, and sampling.',
     description:
-      'For Qwen-class models (e.g. Qwen 3.5 27B via LM Studio): Extra system prompt hints, and `read_workspace_image` for workspace PNG/JPEG/GIF/WebP/BMP. Managed llama-server adds --jinja and --chat-template-file for the bundled Qwen Jinja template (recent llama.cpp with Jinja support).',
+      'For Qwen-class models (e.g. Qwen 3.5 27B via LM Studio): Extra system prompt hints, and `read_workspace_image` for workspace PNG/JPEG/GIF/WebP/BMP. Managed llama-server uses the GGUF Jinja chat template (--jinja) unless you set a custom --chat-template-file in Advanced.',
     providers: ['openai', 'lmstudio', 'llamacpp'],
   },
   {
     id: 'gemma',
     label: 'Gemma (local)',
-    summary: 'Thinking on/off, recommended sampling, llama Jinja.',
+    summary: 'Thinking on/off and recommended sampling.',
     description:
-      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, applies recommended sampling onto the connection (temp 1 / top_p 0.95 / top_k 64), max output left automatic (0), sparse-expert layout notes when the model id suggests a 26B A4B–style variant, managed llama-server adds --jinja and the bundled Gemma 4 Jinja template, and <|channel>thought output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
+      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, applies recommended sampling onto the connection (temp 1 / top_p 0.95 / top_k 64), max output left automatic (0), sparse-expert layout notes when the model id suggests a 26B A4B–style variant, managed llama-server uses the GGUF Jinja chat template (--jinja) unless you set a custom --chat-template-file in Advanced, and <|channel>thought output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
     providers: ['lmstudio', 'llamacpp'],
   },
 ] as const;

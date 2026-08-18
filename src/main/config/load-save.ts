@@ -492,6 +492,7 @@ function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
   if (typeof raw.chatRunCommand !== 'string' || typeof raw.embeddingRunCommand !== 'string') {
     migrated = true;
   }
+  // Placeholder default before managed llama-server always included ``--jinja``.
   const legacyDefaultChat = 'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
   if (chatRunCommand.trim() === legacyDefaultChat) {
     chatRunCommand = DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;

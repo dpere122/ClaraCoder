@@ -45,6 +45,8 @@ export const workspaceApi = {
     ipcRenderer.invoke('write-absolute-file', absolutePath, content),
   readAbsoluteFile: (absolutePath: string) => ipcRenderer.invoke('read-absolute-file', absolutePath),
   openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
+  openFileDialog: (options?: { filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke('open-file-dialog', options),
   readDirectory: (dirPath: string) => ipcRenderer.invoke('read-directory', dirPath),
   readDirectoryRecursive: (dirPath: string) => ipcRenderer.invoke('read-directory-recursive', dirPath),
   workspacePathIsDirectory: (absolutePath: string) =>

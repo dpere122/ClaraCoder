@@ -34,6 +34,21 @@
   min-width: 8rem;
 }
 
+.sampling-compact .chat-template-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sampling-compact .chat-template-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.sampling-compact .chat-template-row .action-button--compact {
+  flex-shrink: 0;
+}
+
 .field > span .settings-wip {
   font-style: normal;
   font-weight: 700;

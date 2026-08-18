@@ -46,8 +46,6 @@ let managedBin = '';
 vi.mock('./paths', () => ({
   getRuntimeBinDir: () => tempBinDir,
   getManagedLlamaServerPath: () => managedBin || null,
-  getGemma4ChatTemplatePath: () => path.join(tempBinDir, 'missing-gemma.jinja'),
-  getQwenInferenceChatTemplatePath: () => path.join(tempBinDir, 'missing-qwen.jinja'),
 }));
 
 vi.mock('./config/load-save', () => ({
@@ -269,5 +267,27 @@ describe('managed llama-server lifecycle', () => {
     expect(ov.m1.baseUrl).toMatch(/127\.0\.0\.1:\d+\/v1/);
     expect(ov.m1.embeddingsBaseUrl).toBe('');
     expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(true);
+  });
+
+  it('does not require a bundled chat template for the gemma preset', async () => {
+    const cfg = makeConfig();
+    cfg.llmProviders[0].models[0].optimizationPreset = 'gemma';
+    const startP = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    stopManagedLlamaServers('m1');
+    await startP;
+  });
+
+  it('fails start when --chat-template-file points at a missing file', async () => {
+    const cfg = makeConfig();
+    const managed = cfg.llmProviders[0].models[0].llamaCppManaged!;
+    const missing = path.join(tempBinDir, 'missing.jinja');
+    managed.chatRunCommand = `${managed.chatRunCommand} --chat-template-file ${missing}`;
+    const result = await startManagedLlamaServers('m1', cfg);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/Chat template file was not found/i);
+    }
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });

@@ -1,35 +1,58 @@
 import {
   appendChatTemplateFileFlags,
+  appendJinjaFlagToManagedChatCommand,
   appendQwenChatTemplateFlagsToManagedChatCommand,
   argvToShellCommandLine,
   buildLlamaServerArgv,
+  DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   defaultLlamaCppManaged,
   isLegacyLlamaCppManagedShape,
+  managedLlamaCommandHasJinja,
   migrateLegacyLlamaCppManagedToCommands,
   parseHostFromLlamaCommand,
+  parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
-  GEMMA4_CHAT_TEMPLATE_FILENAME,
-  QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME,
+  syncChatTemplateFileInManagedChatCommand,
   type LlamaCppManagedLegacy,
 } from '@shared/index';
-
-describe('QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME', () => {
-  it('matches the bundled resource name used by main getQwenInferenceChatTemplatePath and electron-builder LLM_Templates', () => {
-    expect(QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME).toBe('qwen_inference_template.jinja');
-  });
-});
-
-describe('GEMMA4_CHAT_TEMPLATE_FILENAME', () => {
-  it('matches the bundled resource name used by main getGemma4ChatTemplatePath and electron-builder LLM_Templates', () => {
-    expect(GEMMA4_CHAT_TEMPLATE_FILENAME).toBe('gemma4_12b_chat_template.jinja');
-  });
-});
 
 describe('defaultLlamaCppManaged', () => {
   it('provides empty run commands', () => {
     const d = defaultLlamaCppManaged();
     expect(d.chatRunCommand).toBe('');
     expect(d.embeddingRunCommand).toBe('');
+  });
+});
+
+describe('DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND', () => {
+  it('includes --jinja', () => {
+    expect(DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND).toContain('--jinja');
+    expect(DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND).toContain('{{PORT}}');
+  });
+});
+
+describe('appendJinjaFlagToManagedChatCommand', () => {
+  it('appends --jinja when missing', () => {
+    expect(appendJinjaFlagToManagedChatCommand('llama-server --port {{PORT}} -m a.gguf')).toBe(
+      'llama-server --port {{PORT}} -m a.gguf --jinja',
+    );
+  });
+
+  it('does not duplicate --jinja', () => {
+    const orig = 'llama-server --jinja --port {{PORT}} -m a.gguf';
+    expect(appendJinjaFlagToManagedChatCommand(orig)).toBe(orig);
+  });
+
+  it('leaves empty commands empty', () => {
+    expect(appendJinjaFlagToManagedChatCommand('')).toBe('');
+    expect(appendJinjaFlagToManagedChatCommand('   ')).toBe('   ');
+  });
+});
+
+describe('managedLlamaCommandHasJinja', () => {
+  it('detects --jinja as a token', () => {
+    expect(managedLlamaCommandHasJinja('llama-server --jinja -m a.gguf')).toBe(true);
+    expect(managedLlamaCommandHasJinja('llama-server -m a.gguf')).toBe(false);
   });
 });
 
@@ -107,14 +130,20 @@ describe('appendQwenChatTemplateFlagsToManagedChatCommand', () => {
     expect(line).toContain('/x/t.jinja');
   });
 
-  it('leaves command unchanged when --chat-template-file exists', () => {
+  it('does not replace an existing --chat-template-file and still ensures --jinja', () => {
     const orig = 'llama-server --port {{PORT}} --chat-template-file /custom.jinja -m a.gguf';
-    expect(appendQwenChatTemplateFlagsToManagedChatCommand(orig, '/bundled.jinja', 'posix')).toBe(orig);
+    const line = appendQwenChatTemplateFlagsToManagedChatCommand(orig, '/bundled.jinja', 'posix');
+    expect(line).toContain('--chat-template-file /custom.jinja');
+    expect(line).not.toContain('/bundled.jinja');
+    expect(line).toContain('--jinja');
   });
 
-  it('leaves command unchanged when --chat-template-file uses equals form', () => {
+  it('does not replace equals-form --chat-template-file and still ensures --jinja', () => {
     const orig = 'llama-server --port {{PORT}} --chat-template-file=/custom.jinja -m a.gguf';
-    expect(appendQwenChatTemplateFlagsToManagedChatCommand(orig, '/bundled.jinja', 'posix')).toBe(orig);
+    const line = appendQwenChatTemplateFlagsToManagedChatCommand(orig, '/bundled.jinja', 'posix');
+    expect(line).toContain('--chat-template-file=/custom.jinja');
+    expect(line).not.toContain('/bundled.jinja');
+    expect(line).toContain('--jinja');
   });
 
   it('quotes paths with spaces on win32', () => {
@@ -124,6 +153,71 @@ describe('appendQwenChatTemplateFlagsToManagedChatCommand', () => {
       'win32',
     );
     expect(line).toContain('"C:\\Program Files\\app\\qwen_inference_template.jinja"');
+  });
+});
+
+describe('parseManagedLlamaChatTemplateFile', () => {
+  it('returns null when the flag is absent', () => {
+    expect(parseManagedLlamaChatTemplateFile('llama-server --jinja --port {{PORT}} -m a.gguf')).toBeNull();
+  });
+
+  it('parses space and equals forms and unquotes paths', () => {
+    expect(parseManagedLlamaChatTemplateFile('llama-server --chat-template-file /tmp/t.jinja -m a.gguf')).toBe(
+      '/tmp/t.jinja',
+    );
+    expect(parseManagedLlamaChatTemplateFile('llama-server --chat-template-file=/tmp/t.jinja -m a.gguf')).toBe(
+      '/tmp/t.jinja',
+    );
+    expect(
+      parseManagedLlamaChatTemplateFile('llama-server --chat-template-file "C:\\Program Files\\t.jinja" -m a.gguf'),
+    ).toBe('C:\\Program Files\\t.jinja');
+  });
+});
+
+describe('syncChatTemplateFileInManagedChatCommand', () => {
+  it('appends --chat-template-file when missing', () => {
+    const line = syncChatTemplateFileInManagedChatCommand(
+      'llama-server --jinja --port {{PORT}} -m a.gguf',
+      '/tmp/t.jinja',
+      'posix',
+    );
+    expect(line).toContain('--chat-template-file /tmp/t.jinja');
+    expect(line).toContain('--jinja');
+  });
+
+  it('replaces an existing flag including equals form', () => {
+    expect(
+      syncChatTemplateFileInManagedChatCommand(
+        'llama-server --port {{PORT}} --chat-template-file=/old.jinja -m a.gguf',
+        '/new.jinja',
+        'posix',
+      ),
+    ).toContain('--chat-template-file /new.jinja');
+    expect(
+      syncChatTemplateFileInManagedChatCommand(
+        'llama-server --port {{PORT}} --chat-template-file=/old.jinja -m a.gguf',
+        '/new.jinja',
+        'posix',
+      ),
+    ).not.toContain('/old.jinja');
+  });
+
+  it('quotes paths with spaces on win32', () => {
+    const line = syncChatTemplateFileInManagedChatCommand(
+      'llama-server --port {{PORT}} -m a.gguf',
+      'C:\\Program Files\\t.jinja',
+      'win32',
+    );
+    expect(line).toContain('--chat-template-file "C:\\Program Files\\t.jinja"');
+  });
+
+  it('strips the flag when path is empty', () => {
+    const orig = 'llama-server --jinja --port {{PORT}} --chat-template-file /tmp/t.jinja -m a.gguf';
+    const line = syncChatTemplateFileInManagedChatCommand(orig, null, 'posix');
+    expect(line).not.toContain('--chat-template-file');
+    expect(line).not.toContain('/tmp/t.jinja');
+    expect(line).toContain('--jinja');
+    expect(line).toContain('-m a.gguf');
   });
 });
 
@@ -192,6 +286,7 @@ describe('migrateLegacyLlamaCppManagedToCommands', () => {
     expect(m.chatRunCommand).toContain('{{PORT}}');
     expect(m.chatRunCommand).toContain('-hf');
     expect(m.chatRunCommand).toContain('org/model:Q4');
+    expect(m.chatRunCommand).toContain('--jinja');
   });
 
   it('migrates embedding when enabled', () => {
@@ -262,6 +357,7 @@ describe('buildLlamaServerArgv (legacy migration)', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.argv).toContain('{{PORT}}');
+    expect(r.argv).toContain('--jinja');
   });
 });
 

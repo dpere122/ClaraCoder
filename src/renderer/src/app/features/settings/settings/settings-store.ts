@@ -83,6 +83,7 @@ import {
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   parseManagedLlamaGpuOffload,
+  parseManagedLlamaChatTemplateFile,
   promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
   formatGpuVramGb,
@@ -90,6 +91,7 @@ import {
   syncContextFlagInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
+  syncChatTemplateFileInManagedChatCommand,
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
   isPinnedLlmSourceId,
@@ -477,9 +479,9 @@ export class SettingsStore {
     const parsed = parseManagedLlamaNgl(this.selectedLlamaCppManaged().chatRunCommand);
     return parsed === null ? MANAGED_LLAMA_NGL_DEFAULT : parsed;
   });
-  /** Whether the chat command includes ``--no-host`` (host-buffer bypass, not ``--host``). */
-  readonly managedNoHostEnabled = computed((): boolean =>
-    managedLlamaCommandHasNoHost(this.selectedLlamaCppManaged().chatRunCommand),
+  /** Custom ``--chat-template-file`` path; empty means use the GGUF template. */
+  readonly managedChatTemplateFile = computed(
+    (): string => parseManagedLlamaChatTemplateFile(this.selectedLlamaCppManaged().chatRunCommand) ?? '',
   );
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
@@ -1444,16 +1446,6 @@ export class SettingsStore {
     });
   }
 
-  onManagedNoHostChange(enabled: boolean): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncNoHostFlagInManagedChatCommand(cmd, enabled === true),
-    });
-  }
-
   onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string): void {
     if (mode !== 'auto' && mode !== 'single' && mode !== 'split') {
       return;
@@ -1470,6 +1462,41 @@ export class SettingsStore {
           this.cudaGpus(),
           detectShellQuotingPlatform(),
         ),
+        detectShellQuotingPlatform(),
+      ),
+    });
+  }
+
+  onManagedChatTemplateFileChange(raw: string): void {
+    this.syncManagedChatTemplateFile((raw || '').trim() || null);
+  }
+
+  async pickManagedChatTemplateFile(): Promise<void> {
+    const selected = await this.electron.openFileDialog({
+      filters: [
+        { name: 'Chat templates', extensions: ['jinja', 'json'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (!selected) {
+      return;
+    }
+    this.syncManagedChatTemplateFile(selected);
+  }
+
+  clearManagedChatTemplateFile(): void {
+    this.syncManagedChatTemplateFile(null);
+  }
+
+  private syncManagedChatTemplateFile(templatePath: string | null): void {
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim()) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncChatTemplateFileInManagedChatCommand(
+        cmd,
+        templatePath,
         detectShellQuotingPlatform(),
       ),
     });
@@ -1784,6 +1811,10 @@ export class SettingsStore {
     const prevGpu = parseManagedLlamaGpuOffload(prevCmd);
     if (prevGpu.mode !== 'auto') {
       chatRunCommand = syncGpuOffloadFromParsed(chatRunCommand, prevGpu, platform);
+    }
+    const prevChatTemplate = parseManagedLlamaChatTemplateFile(prevCmd);
+    if (prevChatTemplate) {
+      chatRunCommand = syncChatTemplateFileInManagedChatCommand(chatRunCommand, prevChatTemplate, platform);
     }
     chatRunCommand = promoteManagedSentinelNglToAuto(chatRunCommand, platform);
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;

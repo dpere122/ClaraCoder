@@ -1,5 +1,6 @@
 import { dialog, ipcMain, shell } from 'electron';
-import { promises as fs } from 'fs';
+import { existsSync, promises as fs } from 'fs';
+import { homedir } from 'os';
 import path = require('path');
 import { assertTrustedAppRenderer, assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
@@ -14,6 +15,18 @@ import {
 } from '../../utils/assert-registered-workspace-dir';
 import { buildWorkspaceTree } from '../../workspace/context-tree';
 import { loadWorkspaceIgnoreRules } from '../../workspace/ignore-rules';
+
+/** Desktop on Windows/macOS when that folder exists; otherwise the user home directory. */
+export function defaultOpenFileDialogPath(): string {
+  const home = homedir();
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    const desktop = path.join(home, 'Desktop');
+    if (existsSync(desktop)) {
+      return desktop;
+    }
+  }
+  return home;
+}
 
 /**
  * Native folder picker, shallow listing, and recursive tree text for workspace UI.
@@ -32,6 +45,30 @@ export function registerFsIpc(): void {
     if (!parent || parent.isDestroyed()) return null;
     const result = await dialog.showOpenDialog(parent, {
       properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('open-file-dialog', async (event, options?: { filters?: { name: string; extensions: string[] }[] }) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    const parent =
+      mainState.settingsWindow && !mainState.settingsWindow.isDestroyed() && event.sender === mainState.settingsWindow.webContents
+        ? mainState.settingsWindow
+        : mainState.mainWindow;
+    if (!parent || parent.isDestroyed()) return null;
+    const filters =
+      Array.isArray(options?.filters) && options.filters.length > 0
+        ? options.filters
+        : [{ name: 'All files', extensions: ['*'] }];
+    const result = await dialog.showOpenDialog(parent, {
+      properties: ['openFile'],
+      filters,
+      defaultPath: defaultOpenFileDialogPath(),
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];

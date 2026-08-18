@@ -316,6 +316,7 @@ declare global {
     onTtsStreamPacket: (callback: (packet: TtsStreamPacket) => void) => void;
     transcribe: (audio: ArrayBuffer) => Promise<string>;
     openDirectoryDialog: () => Promise<string | null>;
+    openFileDialog: (options?: { filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
     readDirectory: (dirPath: string) => Promise<FileEntry[]>;
     readDirectoryRecursive: (dirPath: string) => Promise<string>;
     workspacePathIsDirectory: (absolutePath: string) => Promise<boolean>;

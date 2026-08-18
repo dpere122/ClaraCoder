@@ -121,11 +121,10 @@ export {
   SecretValue,
   unwrapSecret,
 } from './types/app-config';
-export { GEMMA4_CHAT_TEMPLATE_FILENAME } from './gemma-template';
-export { QWEN_INFERENCE_CHAT_TEMPLATE_FILENAME } from './qwen-template';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export {
   appendChatTemplateFileFlags,
+  appendJinjaFlagToManagedChatCommand,
   appendQwenChatTemplateFlagsToManagedChatCommand,
   argvToShellCommandLine,
   buildLlamaServerArgv,
@@ -133,10 +132,13 @@ export {
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   isLegacyLlamaCppManagedShape,
+  managedLlamaCommandHasJinja,
   migrateLegacyLlamaCppManagedToCommands,
   parseHostFromLlamaCommand,
+  parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
   shellQuoteArg,
+  syncChatTemplateFileInManagedChatCommand,
 } from './llama-cpp-managed';
 export {
   countLlmModels,

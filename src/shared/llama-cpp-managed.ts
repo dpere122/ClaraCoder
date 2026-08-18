@@ -67,7 +67,25 @@ export function defaultLlamaCppManaged(): LlamaCppManaged {
 const PORT_TOKEN = '{{PORT}}';
 /** Baseline managed chat command template used in defaults and Settings placeholders. */
 export const DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND =
-  'llama-server --host 127.0.0.1 --port {{PORT}} -hf org/model:Q4_0';
+  'llama-server --host 127.0.0.1 --port {{PORT}} --jinja -hf org/model:Q4_0';
+
+/** True when a managed chat command already includes ``--jinja``. */
+export function managedLlamaCommandHasJinja(command: string): boolean {
+  // ``\b`` is unreliable before ``--`` (hyphen is not ``\w``), so match long options as tokens.
+  return /(?:^|[\s"'])--jinja(?:\s|$)/i.test(command);
+}
+
+/**
+ * Append ``--jinja`` for managed ``llama-server`` when the command does not already have it.
+ * Does not rewrite saved Settings text; callers apply this at generate/start time.
+ */
+export function appendJinjaFlagToManagedChatCommand(chatRunCommand: string): string {
+  const cmd = chatRunCommand.trim();
+  if (!cmd || managedLlamaCommandHasJinja(cmd)) {
+    return chatRunCommand;
+  }
+  return `${cmd} --jinja`;
+}
 
 /**
  * True when persisted JSON still uses nested chat/embedding (or executable-only) managed blocks.
@@ -277,7 +295,7 @@ export function buildLlamaServerArgv(
 
   argv.push('-c', String(Math.max(256, c.ctxSize || 4096)));
 
-  argv.push('--host', (c.host || '127.0.0.1').trim() || '127.0.0.1', '--port', portStr);
+  argv.push('--host', (c.host || '127.0.0.1').trim() || '127.0.0.1', '--port', portStr, '--jinja');
 
   if (c.loadKind === 'hf') {
     const hf = (c.hfModel || '').trim();
@@ -340,9 +358,68 @@ export function parseHostFromLlamaCommand(command: string): string {
   return h || '127.0.0.1';
 }
 
+function unquoteChatTemplatePath(raw: string): string {
+  const t = raw.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+const CHAT_TEMPLATE_FILE_RE =
+  /(?:^|[\s"'])--chat-template-file(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const CHAT_TEMPLATE_FILE_REPLACE_RE =
+  /(^|[\s"'])(--chat-template-file(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+const CHAT_TEMPLATE_FILE_STRIP_RE =
+  /\s*--chat-template-file(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi;
+
+/** Parse ``--chat-template-file`` from a managed chat command. Empty / absent → ``null`` (use GGUF). */
+export function parseManagedLlamaChatTemplateFile(cmd: string): string | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = CHAT_TEMPLATE_FILE_RE.exec(t);
+  if (!m) {
+    return null;
+  }
+  const filePath = unquoteChatTemplatePath(m[1] ?? m[2] ?? m[3] ?? '');
+  return filePath || null;
+}
+
+/**
+ * Set or strip ``--chat-template-file`` on a managed chat command.
+ * ``null`` / empty path removes the flag (GGUF template). Paths with spaces are quoted.
+ */
+export function syncChatTemplateFileInManagedChatCommand(
+  cmd: string,
+  templatePath: string | null,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const filePath = (templatePath || '').trim();
+  if (!filePath) {
+    CHAT_TEMPLATE_FILE_STRIP_RE.lastIndex = 0;
+    return trimmed.replace(CHAT_TEMPLATE_FILE_STRIP_RE, '').replace(/\s{2,}/g, ' ').trim();
+  }
+  const quoted = shellQuoteArg(filePath, platform);
+  const replaced = trimmed.replace(
+    CHAT_TEMPLATE_FILE_REPLACE_RE,
+    (_full, lead: string) => `${lead}--chat-template-file ${quoted}`,
+  );
+  if (replaced !== trimmed) {
+    return replaced;
+  }
+  return `${trimmed} --chat-template-file ${quoted}`;
+}
+
 /**
  * Append ``--jinja`` and ``--chat-template-file`` for managed ``llama-server``.
- * Skips if the user command already contains ``--chat-template-file``.
+ * Skips the file flag if the user command already contains ``--chat-template-file``.
+ * ``--jinja`` is still ensured (managed llama-server always defaults it).
  */
 export function appendChatTemplateFileFlags(
   chatRunCommand: string,
@@ -352,11 +429,12 @@ export function appendChatTemplateFileFlags(
   const cmd = chatRunCommand.trim();
   // ``\b`` is unreliable before ``--`` (hyphen is not ``\w``), so match long options as tokens.
   if (/(?:^|[\s"'])--chat-template-file(?:\s|=|$)/i.test(cmd)) {
-    return chatRunCommand;
+    return appendJinjaFlagToManagedChatCommand(chatRunCommand);
   }
   const quoted = shellQuoteArg(templatePath, platform);
-  const hasJinja = /(?:^|[\s"'])--jinja(?:\s|$)/i.test(cmd);
-  const tail = hasJinja ? `--chat-template-file ${quoted}` : `--jinja --chat-template-file ${quoted}`;
+  const tail = managedLlamaCommandHasJinja(cmd)
+    ? `--chat-template-file ${quoted}`
+    : `--jinja --chat-template-file ${quoted}`;
   return `${cmd} ${tail}`;
 }
 

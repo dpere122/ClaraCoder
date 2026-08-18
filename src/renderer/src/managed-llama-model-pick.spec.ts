@@ -71,6 +71,8 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('{{PORT}}');
     expect(cmd).toContain('-m /models/a.gguf');
     expect(cmd).toContain('-c 32768');
+    expect(cmd).toContain('--jinja');
+    expect(cmd).not.toContain('--chat-template-file');
     expect(cmd).not.toContain('--ctx-checkpoints');
     expect(cmd).not.toContain('--checkpoint-every-n-tokens');
   });

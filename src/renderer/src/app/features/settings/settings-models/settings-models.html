@@ -544,7 +544,7 @@
                         rows='4'
                         [ngModel]='s.selectedLlamaCppManaged().chatRunCommand'
                         (ngModelChange)='s.patchLlamaCppManaged({ chatRunCommand: $event })'
-                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' -hf org/model:Q4_0'"
+                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' --jinja -hf org/model:Q4_0'"
                       ></textarea>
                     </label>
                     <label class='field field--full'>
@@ -693,26 +693,39 @@
                       <div class='form-grid sampling-compact'>
                         <div class='field'>
                           <span class='sampling-label'>
-                            --no-host
+                            Chat template
                             <span
                               class='field-help'
                               tabindex='0'
-                              aria-label='Skip CUDA pinned host buffers for CPU tensors so CPU extra buffers can be used. Does not keep weights in VRAM.'
+                              aria-label='Leave empty to use the GGUF template. Browse sets --chat-template-file on the chat command.'
                             >
                               ?
                               <span class='field-help__popup' role='tooltip'>
-                                Skip CUDA pinned host buffers for CPU tensors so CPU extra buffers (repacking) can be used. This does not keep model weights in VRAM.
+                                Leave empty to use the GGUF chat template (--jinja). Browse adds --chat-template-file on the chat command.
                               </span>
                             </span>
                           </span>
-                          <label class='toggle-row'>
+                          <div class='chat-template-row'>
                             <input
-                              type='checkbox'
-                              [ngModel]='s.managedNoHostEnabled()'
-                              (ngModelChange)='s.onManagedNoHostChange($event)'
+                              type='text'
+                              autocomplete='off'
+                              spellcheck='false'
+                              placeholder='GGUF (in model)'
+                              [ngModel]='s.managedChatTemplateFile()'
+                              (ngModelChange)='s.onManagedChatTemplateFileChange($event)'
                             />
-                            <span>{{ s.managedNoHostEnabled() ? 'On' : 'Off' }}</span>
-                          </label>
+                            <button type='button' class='action-button action-button--compact' (click)='s.pickManagedChatTemplateFile()'>
+                              Browse
+                            </button>
+                            <button
+                              type='button'
+                              class='action-button action-button--compact'
+                              [disabled]='!s.managedChatTemplateFile()'
+                              (click)='s.clearManagedChatTemplateFile()'
+                            >
+                              Clear
+                            </button>
+                          </div>
                         </div>
                         <label class='field'>
                           <span class='sampling-label'>

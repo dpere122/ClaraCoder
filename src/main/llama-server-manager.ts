@@ -16,11 +16,12 @@ import type {
   ManagedServerHealthState,
 } from '../shared';
 import {
-  appendChatTemplateFileFlags,
+  appendJinjaFlagToManagedChatCommand,
   detectShellQuotingPlatform,
   findLlmModelLocation,
   looksLikeLlamaModelDownload,
   managedLlamaCmdUsesHfRemoteModel,
+  parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
   promoteManagedSentinelNglToAuto,
 } from '../shared';
@@ -28,12 +29,7 @@ import { loadConfigSync } from './config/load-save';
 import { SecretValue, unwrapSecret } from '../shared/types/app-config';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
-import {
-  getGemma4ChatTemplatePath,
-  getManagedLlamaServerPath,
-  getQwenInferenceChatTemplatePath,
-  getRuntimeBinDir,
-} from './paths';
+import { getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -694,26 +690,13 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     };
   }
 
-  if (loc.model.optimizationPreset === 'qwen') {
-    const tplPath = getQwenInferenceChatTemplatePath();
-    if (!existsSync(tplPath)) {
-      return {
-        ok: false,
-        error: `Qwen optimization is enabled but the chat template was not found at ${tplPath}. Set CLARA_QWEN_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/qwen_inference_template.jinja is present (packaged builds ship it under resources).`,
-      };
-    }
-    chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());
-  }
-
-  if (loc.model.optimizationPreset === 'gemma') {
-    const tplPath = getGemma4ChatTemplatePath();
-    if (!existsSync(tplPath)) {
-      return {
-        ok: false,
-        error: `Gemma optimization is enabled but the chat template was not found at ${tplPath}. Set CLARA_GEMMA4_CHAT_TEMPLATE_PATH to a valid .jinja file, or ensure LLM_Templates/gemma4_12b_chat_template.jinja is present (packaged builds ship it under resources).`,
-      };
-    }
-    chatCmd = appendChatTemplateFileFlags(chatCmd, tplPath, detectShellQuotingPlatform());
+  chatCmd = appendJinjaFlagToManagedChatCommand(chatCmd);
+  const chatTemplateFile = parseManagedLlamaChatTemplateFile(chatCmd);
+  if (chatTemplateFile && !existsSync(chatTemplateFile)) {
+    return {
+      ok: false,
+      error: `Chat template file was not found at ${chatTemplateFile}. Clear Chat template in Settings to use the GGUF template, or pick a valid .jinja file.`,
+    };
   }
 
   const embedCmd = rewriteManagedLlamaCommand((managed.embeddingRunCommand || '').trim(), managedLlamaBin);

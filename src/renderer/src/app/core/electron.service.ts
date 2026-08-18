@@ -3,7 +3,7 @@
  * Runs listener setup once in the constructor; all methods no-op or resolve empty when not in Electron.
  */
 import { Injectable, NgZone } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subject, BehaviorSubject } from 'rxjs';
 import { mergeStreamBatchQueue, type StreamBatchItem } from './stream-batch';
 import type {
   AcceptCommandPayload,
@@ -27,6 +27,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   LlamacppManagedListModelsResult,
+  ChatTemplateReasoningCaps,
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
@@ -364,6 +365,9 @@ export class ElectronService {
   private readonly llamaServerOutputSubject = new Subject<LlamaServerOutputEvent>();
   private readonly llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
   private readonly llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
+  private readonly chatTemplateReasoningSubject = new BehaviorSubject<
+    Readonly<Record<string, ChatTemplateReasoningCaps>>
+  >({});
   private readonly hfDownloadProgressSubject = new Subject<HfDownloadProgressEvent>();
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
@@ -414,6 +418,8 @@ export class ElectronService {
   readonly llamaServerOutput$ = this.llamaServerOutputSubject.asObservable();
   readonly llamaServerProcessExit$ = this.llamaServerProcessExitSubject.asObservable();
   readonly llamaServerLifecycle$ = this.llamaServerLifecycleSubject.asObservable();
+  /** Live Jinja reasoning caps keyed by model preset id (from ``GET /props``). */
+  readonly chatTemplateReasoning$ = this.chatTemplateReasoningSubject.asObservable();
   /** Hugging Face GGUF download progress events (queued/progress/done/error/cancelled). */
   readonly hfDownloadProgress$ = this.hfDownloadProgressSubject.asObservable();
   /** TTS MP3 packets from the main process (filter by `seq` in the app). */
@@ -666,7 +672,15 @@ export class ElectronService {
       this.zone.run(() => this.llamaServerProcessExitSubject.next(data as LlamaServerProcessExitEvent));
     });
     this.api?.onLlamaServerLifecycle?.((_event, data) => {
-      this.zone.run(() => this.llamaServerLifecycleSubject.next(data as LlamaServerLifecycleEvent));
+      this.zone.run(() => {
+        const ev = data as LlamaServerLifecycleEvent;
+        if (ev.phase === 'running' && ev.chatTemplateReasoning) {
+          this.patchChatTemplateReasoning(ev.modelId, ev.chatTemplateReasoning);
+        } else if (ev.phase === 'stopped') {
+          this.patchChatTemplateReasoning(ev.modelId, undefined);
+        }
+        this.llamaServerLifecycleSubject.next(ev);
+      });
     });
     this.api?.onModelManagerHfDownloadProgress?.((_event, data) => {
       this.zone.run(() => this.hfDownloadProgressSubject.next(data as HfDownloadProgressEvent));
@@ -1303,8 +1317,53 @@ export class ElectronService {
     return this.api?.llamaServerStop(payload) ?? Promise.resolve({ ok: true });
   }
 
-  llamaServerStatus(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStatusResult> {
-    return this.api?.llamaServerStatus(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  async llamaServerStatus(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStatusResult> {
+    const result =
+      (await this.api?.llamaServerStatus(payload)) ?? ({ ok: false, error: 'API not available' } as const);
+    if (result.ok) {
+      this.ingestStatusReasoning(result);
+    }
+    return result;
+  }
+
+  async refreshChatTemplateReasoning(modelId: string): Promise<ChatTemplateReasoningCaps | null> {
+    const id = modelId.trim();
+    if (!id) {
+      return null;
+    }
+    const result = await this.api?.llamaServerChatTemplateReasoning({ modelId: id });
+    if (!result || !result.ok) {
+      return this.chatTemplateReasoningSubject.value[id] ?? null;
+    }
+    this.patchChatTemplateReasoning(id, result.chatTemplateReasoning ?? undefined);
+    return result.chatTemplateReasoning;
+  }
+
+  private ingestStatusReasoning(result: Extract<LlamaServerStatusResult, { ok: true }>): void {
+    if (result.chatTemplateReasoning) {
+      this.patchChatTemplateReasoning(result.modelId, result.chatTemplateReasoning);
+      return;
+    }
+    if (result.starting) {
+      return;
+    }
+    if (result.chat.health === 'stopped' || result.chat.health === 'error') {
+      this.patchChatTemplateReasoning(result.modelId, undefined);
+    }
+  }
+
+  private patchChatTemplateReasoning(modelId: string, caps: ChatTemplateReasoningCaps | undefined): void {
+    const prev = this.chatTemplateReasoningSubject.value;
+    if (!caps) {
+      if (!(modelId in prev)) {
+        return;
+      }
+      const next = { ...prev };
+      delete next[modelId];
+      this.chatTemplateReasoningSubject.next(next);
+      return;
+    }
+    this.chatTemplateReasoningSubject.next({ ...prev, [modelId]: caps });
   }
 
   llamacppManagedListModels(payload: {

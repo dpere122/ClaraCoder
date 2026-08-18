@@ -293,6 +293,8 @@ class RuntimeConnection:
     repeat_penalty: float | None = None
     #: Main context window for this connection (from Settings); used for checkpoint compaction budgets.
     context_window_tokens: int = 0
+    #: Live llama-server Jinja scan: ``{enableThinking, reasoningEffortValues}`` or None when unknown.
+    chat_template_reasoning: dict[str, Any] | None = None
 
     def __repr__(self) -> str:
         masked_key = '***' if self.api_key else ''

@@ -50,3 +50,41 @@ export function resolveActiveLlmConnection(config: AppConfig): LlmConnectionConf
   }
   return mergeLlmProviderModel(loc.provider, loc.model);
 }
+
+/**
+ * Return a new providers tree with ``changes`` applied to the model preset ``modelId``.
+ * Unknown ids leave ``providers`` unchanged. ``undefined`` values delete the field.
+ */
+export function patchLlmModelProfile(
+  providers: LlmProviderConfig[],
+  modelId: string,
+  changes: Partial<LlmModelProfile>,
+): LlmProviderConfig[] {
+  const loc = findLlmModelLocation(providers, modelId);
+  if (!loc) {
+    return providers;
+  }
+  return providers.map((p, pi) => {
+    if (pi !== loc.providerIndex) {
+      return p;
+    }
+    return {
+      ...p,
+      models: p.models.map((m, mi) => {
+        if (mi !== loc.modelIndex) {
+          return m;
+        }
+        const next: LlmModelProfile = { ...m };
+        const draft = next as unknown as Record<string, unknown>;
+        for (const [key, val] of Object.entries(changes) as [keyof LlmModelProfile, unknown][]) {
+          if (val === undefined) {
+            delete draft[key as string];
+          } else {
+            draft[key as string] = val;
+          }
+        }
+        return next;
+      }),
+    };
+  });
+}

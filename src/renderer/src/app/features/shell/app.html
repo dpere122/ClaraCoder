@@ -317,6 +317,7 @@
                 [remainingTokens]='contextCapacity().remainingTokens'
                 [usedPercentage]='contextCapacity().usedPercentage'
                 [(autoApplyMode)]='autoApplyMode'
+                (reasoningEffortChange)='onReasoningEffortChange($event)'
               />
               @if (creatingConversation()) {
                 <div
@@ -422,6 +423,7 @@
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
         [(autoApplyMode)]='autoApplyMode'
+        (reasoningEffortChange)='onReasoningEffortChange($event)'
       />
     </div>
   </div>

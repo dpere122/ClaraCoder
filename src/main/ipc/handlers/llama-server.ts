@@ -9,6 +9,7 @@ import {
   stopManagedLlamaServers,
   syncWithManagedLlamaOverrides,
 } from '../../llama-server-manager';
+import { getCachedChatTemplateReasoning } from '../../chat-template-reasoning-cache';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
@@ -63,6 +64,23 @@ export function registerLlamaServerIpc(): void {
       return { ok: false as const, error: 'Missing model id.' };
     }
     return getManagedLlamaStatus(modelId, payload.config);
+  });
+
+  ipcMain.handle('llama-server:chat-template-reasoning', async (event, payload: { modelId?: string }) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    const modelId = normalizeLlamaModelId(payload?.modelId);
+    if (!modelId) {
+      return { ok: false as const, error: 'Missing model id.' };
+    }
+    return {
+      ok: true as const,
+      modelId,
+      chatTemplateReasoning: getCachedChatTemplateReasoning(modelId) ?? null,
+    };
   });
 
   ipcMain.handle('llamacpp-managed:list-models', async (event, payload: LlamaServerIpcPayload) => {

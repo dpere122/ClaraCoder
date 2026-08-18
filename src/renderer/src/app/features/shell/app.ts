@@ -13,6 +13,7 @@ import type {
   Workspace,
   WorkspaceFilesChangedMessage,
   LspEditorDiagnostic,
+  LlmReasoningSettingChange,
 } from '@shared/index';
 import {
   DEFAULT_COMPOSER_RUN_MODE,
@@ -21,6 +22,7 @@ import {
   DEFAULT_TTS_PROVIDER,
   composerApplyMode,
   composerModeForBackend,
+  patchLlmModelProfile,
   resolveActiveLlmConnection,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
@@ -838,6 +840,34 @@ export class App implements OnInit, OnDestroy {
       });
     } catch (err) {
       console.error('[App] persist chatSidebarWidthPercent failed', err);
+    }
+  }
+
+  async onReasoningEffortChange(change: LlmReasoningSettingChange): Promise<void> {
+    const config = this.appConfig();
+    if (!config) {
+      return;
+    }
+    const current = resolveActiveLlmConnection(config);
+    if (!current) {
+      return;
+    }
+    const unchanged =
+      change.field === 'thinkingMode'
+        ? current.thinkingMode === change.value
+        : (current.reasoningEffort || '') === change.value;
+    if (unchanged) {
+      return;
+    }
+    try {
+      await this.electron.saveConfig({
+        ...config,
+        llmProviders: patchLlmModelProfile(config.llmProviders, config.activeLlmModelId, {
+          [change.field]: change.value,
+        }),
+      });
+    } catch (err) {
+      console.error(`[App] persist ${change.field} failed`, err);
     }
   }
 

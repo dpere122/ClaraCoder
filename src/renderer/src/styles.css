@@ -1495,6 +1495,7 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-reasoning,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .composer-mode-select,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .form-control,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .composer-prompt,
@@ -1510,6 +1511,7 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice:hover,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-reasoning:hover,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .composer-mode-select:hover,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .composer-prompt:hover,
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn:hover {
@@ -1518,7 +1520,8 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
 }
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice--active,
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-reasoning--active {
   border: none;
   box-shadow: none;
   background-color: color-mix(in srgb, var(--t-tui-user-frame) 20%, transparent);
@@ -1526,14 +1529,16 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
 }
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice--active:hover,
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active:hover {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active:hover,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-reasoning--active:hover {
   border: none;
   background-color: color-mix(in srgb, var(--t-tui-user-frame) 28%, transparent);
   color: color-mix(in srgb, var(--t-tui-user-frame) 70%, white);
 }
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-entry-row .btn-voice--active .voice-mic-icon,
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active .voice-mic-icon {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-voice--active .voice-mic-icon,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-message-box .composer-options-row .btn-reasoning--active .composer-reasoning-icon {
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--t-tui-user-frame) 55%, transparent));
 }
 

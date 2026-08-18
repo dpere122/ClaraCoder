@@ -435,34 +435,29 @@
                     </select>
                   </label>
 
-                  @if (connection.optimizationPreset === 'gemma') {
+                  @if (thinkingVisible()) {
                     <label class='field'>
                       <span>Thinking</span>
                       <select
                         [ngModel]='connection.thinkingMode'
                         (ngModelChange)='s.updateSelectedModel({ thinkingMode: $event })'
                       >
-                        <option value='default'>Default</option>
-                        <option value='on'>On</option>
-                        <option value='off'>Off</option>
+                        @for (opt of thinkingModeOptions; track opt.value) {
+                          <option [value]='opt.value'>{{ opt.label }}</option>
+                        }
                       </select>
                     </label>
-                  } @else {
+                  }
+                  @if (effortVisible()) {
                     <label class='field'>
                       <span>Reasoning</span>
                       <select
                         [ngModel]='connection.reasoningEffort || ""'
                         (ngModelChange)='s.updateSelectedModel({ reasoningEffort: $event })'
                       >
-                        <option value=''>Default</option>
-                        <option value='on'>On (medium)</option>
-                        <option value='off'>Off (none)</option>
-                        <option value='none'>none</option>
-                        <option value='minimal'>minimal</option>
-                        <option value='low'>low</option>
-                        <option value='medium'>medium</option>
-                        <option value='high'>high</option>
-                        <option value='xhigh'>xhigh</option>
+                        @for (opt of reasoningEffortOptions(); track opt.value) {
+                          <option [value]='opt.value'>{{ opt.label }}</option>
+                        }
                       </select>
                     </label>
                   }

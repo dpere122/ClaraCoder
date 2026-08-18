@@ -75,3 +75,16 @@ def test_legacy_capable_optimization_preset_maps_to_generic() -> None:
     conn = {**_CONN, 'optimizationPreset': 'capable'}
     r = RuntimeConnectionRequest.model_validate(conn)
     assert r.optimizationPreset == 'generic'
+
+
+def test_chat_template_reasoning_caps_optional() -> None:
+    r = RuntimeConnectionRequest.model_validate(_CONN)
+    assert r.chatTemplateReasoning is None
+    conn = {
+        **_CONN,
+        'chatTemplateReasoning': {'enableThinking': True, 'reasoningEffortValues': ['low', 'medium']},
+    }
+    r2 = RuntimeConnectionRequest.model_validate(conn)
+    assert r2.chatTemplateReasoning is not None
+    assert r2.chatTemplateReasoning.enableThinking is True
+    assert r2.chatTemplateReasoning.reasoningEffortValues == ['low', 'medium']

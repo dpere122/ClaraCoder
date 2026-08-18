@@ -91,6 +91,14 @@ export type {
   LlamaServerStreamKind,
   ManagedServerHealthState,
 } from './types/llama-server-ipc';
+export type { ChatTemplateReasoningCaps } from './chat-template-reasoning';
+export {
+  GENERIC_REASONING_EFFORT_VALUES,
+  QWEN_REASONING_EFFORT_VALUES,
+  formatChatTemplateReasoningSummary,
+  parseChatTemplateReasoning,
+  parseLlamaServerPropsReasoning,
+} from './chat-template-reasoning';
 export type {
   LlamaCppManaged,
   LlamaManagedRuntimeEndpoints,
@@ -101,6 +109,8 @@ export type {
   GemmaArchitectureHint,
   GemmaSamplingPreset,
   GemmaThinkingMode,
+  LlmReasoningEffort,
+  LlmReasoningSettingChange,
   AudioTranscriptionConfig,
   AppConfig,
   ChatContainerSize,
@@ -118,6 +128,15 @@ export type {
 } from './types/app-config';
 export {
   CHAT_CONTAINER_SIZE_OPTIONS,
+  LLM_REASONING_EFFORT_OPTIONS,
+  LLM_QWEN_REASONING_EFFORT_OPTIONS,
+  LLM_THINKING_MODE_OPTIONS,
+  llmEffortControlVisible,
+  llmEffortSelectOptionsFromCaps,
+  llmReasoningSelectChange,
+  llmReasoningSelectOptions,
+  llmReasoningSelectValue,
+  llmThinkingControlVisible,
   CODE_FONT_FAMILY_OPTIONS,
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_KOKORO_TTS_VOICE,
@@ -166,6 +185,7 @@ export {
   findLlmModelLocation,
   flattenLlmProvidersToConnections,
   mergeLlmProviderModel,
+  patchLlmModelProfile,
   resolveActiveLlmConnection,
 } from './llm-providers';
 export type { LlmOptimizationPresetMeta } from './types/llm-presets';

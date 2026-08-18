@@ -9,7 +9,7 @@ import {
   stopManagedLlamaServers,
   syncWithManagedLlamaOverrides,
 } from '../../llama-server-manager';
-import { getCachedChatTemplateReasoning } from '../../chat-template-reasoning-cache';
+import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
@@ -80,6 +80,7 @@ export function registerLlamaServerIpc(): void {
       ok: true as const,
       modelId,
       chatTemplateReasoning: getCachedChatTemplateReasoning(modelId) ?? null,
+      nCtx: getCachedLlamaServerNctx(modelId) ?? null,
     };
   });
 

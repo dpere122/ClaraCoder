@@ -97,6 +97,7 @@ export {
   QWEN_REASONING_EFFORT_VALUES,
   formatChatTemplateReasoningSummary,
   parseChatTemplateReasoning,
+  parseLlamaServerPropsNctx,
   parseLlamaServerPropsReasoning,
 } from './chat-template-reasoning';
 export type {
@@ -207,6 +208,7 @@ export {
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
 export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
+export { coerceLmStudioContextTokens, effectiveLmStudioContextTokens } from './lm-studio-ipc';
 export type {
   ChatStructuredContentPart,
   ConversationMeta,

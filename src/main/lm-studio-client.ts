@@ -1,4 +1,5 @@
 import type { LmStudioListModelsResult, LmStudioModelCard, LmStudioMutationResult } from '../shared/lm-studio-ipc';
+import { coerceLmStudioContextTokens } from '../shared/lm-studio-ipc';
 import { lmStudioOpenAiBaseUrlToRestOrigin } from '../shared/lm-studio-url';
 
 function authHeaders(apiKey: string): Record<string, string> {
@@ -14,7 +15,20 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
-function normalizeV1Entry(raw: unknown): LmStudioModelCard | null {
+function instanceContextLength(inst: Record<string, unknown> | null): number {
+  if (!inst) {
+    return 0;
+  }
+  const cfg = asRecord(inst.config) ?? inst;
+  return (
+    coerceLmStudioContextTokens(cfg['context_length']) ||
+    coerceLmStudioContextTokens(cfg['contextLength']) ||
+    coerceLmStudioContextTokens(inst['loaded_context_length']) ||
+    coerceLmStudioContextTokens(inst['context_length'])
+  );
+}
+
+export function normalizeLmStudioV1Entry(raw: unknown): LmStudioModelCard | null {
   const m = asRecord(raw);
   if (!m) {
     return null;
@@ -29,6 +43,8 @@ function normalizeV1Entry(raw: unknown): LmStudioModelCard | null {
   const quant = asRecord(m.quantization);
   const quantName = quant && typeof quant.name === 'string' ? quant.name : '';
   const instanceId = firstInst ? String(firstInst.id ?? id).trim() || id : loaded ? id : undefined;
+  const maxCtx = coerceLmStudioContextTokens(m.max_context_length);
+  const loadedCtx = loaded ? instanceContextLength(firstInst) : 0;
   return {
     id,
     type: String(m.type ?? ''),
@@ -37,12 +53,13 @@ function normalizeV1Entry(raw: unknown): LmStudioModelCard | null {
     compatibility_type: String(m.format ?? m.compatibility_type ?? ''),
     quantization: quantName,
     state: loaded ? 'loaded' : 'not-loaded',
-    max_context_length: typeof m.max_context_length === 'number' ? m.max_context_length : Number(m.max_context_length) || 0,
+    max_context_length: maxCtx,
+    loaded_context_length: loadedCtx,
     instanceId: loaded ? instanceId : undefined,
   };
 }
 
-function normalizeV0Entry(raw: unknown): LmStudioModelCard | null {
+export function normalizeLmStudioV0Entry(raw: unknown): LmStudioModelCard | null {
   const m = asRecord(raw);
   if (!m) {
     return null;
@@ -61,7 +78,8 @@ function normalizeV0Entry(raw: unknown): LmStudioModelCard | null {
     compatibility_type: String(m.compatibility_type ?? ''),
     quantization: String(m.quantization ?? ''),
     state,
-    max_context_length: typeof m.max_context_length === 'number' ? m.max_context_length : Number(m.max_context_length) || 0,
+    max_context_length: coerceLmStudioContextTokens(m.max_context_length),
+    loaded_context_length: loaded ? coerceLmStudioContextTokens(m.loaded_context_length) : 0,
     instanceId: loaded ? id : undefined,
   };
 }
@@ -83,7 +101,7 @@ export async function lmStudioListModels(baseUrl: string, apiKey: string): Promi
       return null;
     }
     const list = Array.isArray(body.models) ? body.models : [];
-    const models = list.map(normalizeV1Entry).filter((x): x is LmStudioModelCard => x != null);
+    const models = list.map(normalizeLmStudioV1Entry).filter((x): x is LmStudioModelCard => x != null);
     return models;
   };
 
@@ -97,7 +115,7 @@ export async function lmStudioListModels(baseUrl: string, apiKey: string): Promi
       return null;
     }
     const list = Array.isArray(body.data) ? body.data : [];
-    const models = list.map(normalizeV0Entry).filter((x): x is LmStudioModelCard => x != null);
+    const models = list.map(normalizeLmStudioV0Entry).filter((x): x is LmStudioModelCard => x != null);
     return models;
   };
 

@@ -3,7 +3,7 @@
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
 import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
   ChatStructuredContentPart,
@@ -13,6 +13,7 @@ import type {
   Workspace,
   WorkspaceFilesChangedMessage,
   LspEditorDiagnostic,
+  LlmConnectionConfig,
   LlmReasoningSettingChange,
 } from '@shared/index';
 import {
@@ -22,11 +23,13 @@ import {
   DEFAULT_TTS_PROVIDER,
   composerApplyMode,
   composerModeForBackend,
+  effectiveLmStudioContextTokens,
   patchLlmModelProfile,
   resolveActiveLlmConnection,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
+  unwrapSecret,
 } from '@shared/index';
 import { ChatActiveStackComponent } from '../chat/chat-active-stack/chat-active-stack';
 import { ChatConversationHubComponent } from '../chat/chat-conversation-hub/chat-conversation-hub';
@@ -436,14 +439,25 @@ export class App implements OnInit, OnDestroy {
     }
     return resolveActiveLlmConnection(config);
   });
-  protected readonly contextCapacity = computed(() => buildContextCapacitySnapshot({
-    connection: this.activeLlmConnection(),
-    messages: this.messages(),
-    streamingParts: this.streamingParts(),
-    workspaceContextText: this.workspaceContextText(),
-    measuredPromptTokens: this.activeMeasuredPromptTokens(),
-    measuredBaselineFallbackTokens: this.activeMeasuredBaselineFallbackTokens(),
-  }));
+  private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
+    initialValue: {} as Readonly<Record<string, number>>,
+  });
+  protected readonly contextCapacity = computed(() => {
+    const conn = this.activeLlmConnection();
+    const liveNctx = conn ? this.llamaServerNctxByModel()[conn.id] : undefined;
+    const connection =
+      conn && typeof liveNctx === 'number' && liveNctx > 0
+        ? { ...conn, contextWindowTokens: liveNctx }
+        : conn;
+    return buildContextCapacitySnapshot({
+      connection,
+      messages: this.messages(),
+      streamingParts: this.streamingParts(),
+      workspaceContextText: this.workspaceContextText(),
+      measuredPromptTokens: this.activeMeasuredPromptTokens(),
+      measuredBaselineFallbackTokens: this.activeMeasuredBaselineFallbackTokens(),
+    });
+  });
   protected readonly contextChatBlocked = computed(
     () => this.contextCapacity().usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT,
   );
@@ -475,6 +489,9 @@ export class App implements OnInit, OnDestroy {
   private sidebarWidthSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSidebarWidthPercent: number | null = null;
   private workspaceSyncToken = 0;
+  private lmStudioContextPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private lmStudioContextPollGen = 0;
+  private static readonly LM_STUDIO_CONTEXT_POLL_MS = 12_000;
 
   constructor(
     protected readonly electron: ElectronService,
@@ -509,6 +526,15 @@ export class App implements OnInit, OnDestroy {
 
     effect(() => {
       this.electron.setAlwaysOnTop(this.pinned());
+    });
+
+    effect(() => {
+      const conn = this.activeLlmConnection();
+      if (conn?.provider !== 'lmstudio') {
+        untracked(() => this.stopLmStudioContextPoll());
+        return;
+      }
+      untracked(() => this.startLmStudioContextPoll(conn));
     });
 
     effect(() => {
@@ -730,11 +756,48 @@ export class App implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.shellDestroyed = true;
+    this.stopLmStudioContextPoll();
     void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
     void this.tts.invalidateSpeechPipeline();
     window.removeEventListener('resize', this.boundOnWindowResize);
     this.flushSidebarWidthPersist();
     this.onResizeEnd();
+  }
+
+  private startLmStudioContextPoll(conn: LlmConnectionConfig): void {
+    this.stopLmStudioContextPoll();
+    const gen = ++this.lmStudioContextPollGen;
+    const run = async (): Promise<void> => {
+      await this.refreshLmStudioLiveContext(conn);
+      if (this.shellDestroyed || gen !== this.lmStudioContextPollGen) {
+        return;
+      }
+      this.lmStudioContextPollTimer = window.setTimeout(() => {
+        void run();
+      }, App.LM_STUDIO_CONTEXT_POLL_MS);
+    };
+    void run();
+  }
+
+  private stopLmStudioContextPoll(): void {
+    this.lmStudioContextPollGen += 1;
+    if (this.lmStudioContextPollTimer != null) {
+      window.clearTimeout(this.lmStudioContextPollTimer);
+      this.lmStudioContextPollTimer = null;
+    }
+  }
+
+  private async refreshLmStudioLiveContext(conn: LlmConnectionConfig): Promise<void> {
+    const res = await this.electron.lmStudioListModels({
+      baseUrl: conn.baseUrl,
+      apiKey: unwrapSecret(conn.apiKey),
+    });
+    if (!res.ok) {
+      return;
+    }
+    const card = res.models.find((c) => c.id === conn.model);
+    const n = card ? effectiveLmStudioContextTokens(card) : 0;
+    this.electron.applyLiveContextWindow(conn.id, n > 0 ? n : undefined);
   }
 
   private scheduleNewConvExpandedSpinnerSync(show: boolean): void {

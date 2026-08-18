@@ -368,6 +368,7 @@ export class ElectronService {
   private readonly chatTemplateReasoningSubject = new BehaviorSubject<
     Readonly<Record<string, ChatTemplateReasoningCaps>>
   >({});
+  private readonly llamaServerNctxSubject = new BehaviorSubject<Readonly<Record<string, number>>>({});
   private readonly hfDownloadProgressSubject = new Subject<HfDownloadProgressEvent>();
   private readonly ttsStreamSubject = new Subject<TtsStreamPacket>();
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
@@ -420,6 +421,8 @@ export class ElectronService {
   readonly llamaServerLifecycle$ = this.llamaServerLifecycleSubject.asObservable();
   /** Live Jinja reasoning caps keyed by model preset id (from ``GET /props``). */
   readonly chatTemplateReasoning$ = this.chatTemplateReasoningSubject.asObservable();
+  /** Loaded llama-server ``n_ctx`` keyed by model preset id (from ``GET /props``). */
+  readonly llamaServerNctx$ = this.llamaServerNctxSubject.asObservable();
   /** Hugging Face GGUF download progress events (queued/progress/done/error/cancelled). */
   readonly hfDownloadProgress$ = this.hfDownloadProgressSubject.asObservable();
   /** TTS MP3 packets from the main process (filter by `seq` in the app). */
@@ -674,10 +677,14 @@ export class ElectronService {
     this.api?.onLlamaServerLifecycle?.((_event, data) => {
       this.zone.run(() => {
         const ev = data as LlamaServerLifecycleEvent;
-        if (ev.phase === 'running' && ev.chatTemplateReasoning) {
-          this.patchChatTemplateReasoning(ev.modelId, ev.chatTemplateReasoning);
+        if (ev.phase === 'running') {
+          if (ev.chatTemplateReasoning) {
+            this.patchChatTemplateReasoning(ev.modelId, ev.chatTemplateReasoning);
+          }
+          this.patchLlamaServerNctx(ev.modelId, ev.nCtx);
         } else if (ev.phase === 'stopped') {
           this.patchChatTemplateReasoning(ev.modelId, undefined);
+          this.patchLlamaServerNctx(ev.modelId, undefined);
         }
         this.llamaServerLifecycleSubject.next(ev);
       });
@@ -1336,19 +1343,20 @@ export class ElectronService {
       return this.chatTemplateReasoningSubject.value[id] ?? null;
     }
     this.patchChatTemplateReasoning(id, result.chatTemplateReasoning ?? undefined);
+    this.patchLlamaServerNctx(id, result.nCtx ?? undefined);
     return result.chatTemplateReasoning;
   }
 
   private ingestStatusReasoning(result: Extract<LlamaServerStatusResult, { ok: true }>): void {
     if (result.chatTemplateReasoning) {
       this.patchChatTemplateReasoning(result.modelId, result.chatTemplateReasoning);
-      return;
-    }
-    if (result.starting) {
-      return;
-    }
-    if (result.chat.health === 'stopped' || result.chat.health === 'error') {
+    } else if (!result.starting && (result.chat.health === 'stopped' || result.chat.health === 'error')) {
       this.patchChatTemplateReasoning(result.modelId, undefined);
+    }
+    if (result.nCtx != null && result.nCtx > 0) {
+      this.patchLlamaServerNctx(result.modelId, result.nCtx);
+    } else if (!result.starting && (result.chat.health === 'stopped' || result.chat.health === 'error')) {
+      this.patchLlamaServerNctx(result.modelId, undefined);
     }
   }
 
@@ -1364,6 +1372,28 @@ export class ElectronService {
       return;
     }
     this.chatTemplateReasoningSubject.next({ ...prev, [modelId]: caps });
+  }
+
+  private patchLlamaServerNctx(modelId: string, nCtx: number | undefined): void {
+    const prev = this.llamaServerNctxSubject.value;
+    if (nCtx == null || nCtx < 1) {
+      if (!(modelId in prev)) {
+        return;
+      }
+      const next = { ...prev };
+      delete next[modelId];
+      this.llamaServerNctxSubject.next(next);
+      return;
+    }
+    if (prev[modelId] === nCtx) {
+      return;
+    }
+    this.llamaServerNctxSubject.next({ ...prev, [modelId]: nCtx });
+  }
+
+  /** Overlay a live context window (llama.cpp ``n_ctx`` or LM Studio loaded context) for the context meter. */
+  applyLiveContextWindow(modelId: string, nCtx: number | null | undefined): void {
+    this.patchLlamaServerNctx(modelId, nCtx != null && nCtx > 0 ? nCtx : undefined);
   }
 
   llamacppManagedListModels(payload: {

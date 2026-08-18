@@ -74,6 +74,18 @@ describe('inferContextWindowTokens (Llama models)', () => {
   });
 });
 
+describe('inferContextWindowTokens (Qwen models)', () => {
+  it('uses native 32k for Qwen 2/3 (not YaRN 128k)', () => {
+    expect(inferContextWindowTokens('qwen2.5-7b', 'llamacpp')).toBe(32_768);
+    expect(inferContextWindowTokens('Qwen2.5-14B-Instruct', 'lmstudio')).toBe(32_768);
+    expect(inferContextWindowTokens('qwen3-32b', 'llamacpp')).toBe(32_768);
+  });
+
+  it('uses 1M for Qwen 2.5-1M', () => {
+    expect(inferContextWindowTokens('qwen-instruct-1m', 'llamacpp')).toBe(1_000_000);
+  });
+});
+
 describe('inferContextWindowTokens (Gemma LM Studio)', () => {
   it('uses 256k for 31B dense Gemma 4', () => {
     expect(inferContextWindowTokens('google/gemma-4-31b-it', 'lmstudio')).toBe(256_000);
@@ -95,6 +107,10 @@ describe('inferContextWindowTokens (Gemma LM Studio)', () => {
 
   it('uses 128k for Gemma 3 12B', () => {
     expect(inferContextWindowTokens('google/gemma-3-12b-it', 'llamacpp')).toBe(128_000);
+  });
+
+  it('uses 8k for Gemma 2', () => {
+    expect(inferContextWindowTokens('google/gemma-2-9b-it', 'llamacpp')).toBe(8_192);
   });
 
   it('falls back for unknown LM Studio model', () => {

@@ -24,6 +24,7 @@ import {
   formatChatTemplateReasoningSummary,
   looksLikeLlamaModelDownload,
   managedLlamaCmdUsesHfRemoteModel,
+  parseLlamaServerPropsNctx,
   parseLlamaServerPropsReasoning,
   parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
@@ -40,7 +41,9 @@ import { syncRuntimeConfigToPython } from './python/workspace-sync';
 import {
   clearCachedChatTemplateReasoning,
   getCachedChatTemplateReasoning,
+  getCachedLlamaServerNctx,
   setCachedChatTemplateReasoning,
+  setCachedLlamaServerNctx,
 } from './chat-template-reasoning-cache';
 
 const LLAMA_LOGGER = 'clara.electron.llama';
@@ -101,6 +104,13 @@ function sendToRenderer(channel: string, payload: unknown): void {
     mainState.mainWindow?.webContents.send(channel, payload);
   } catch {
     /* window gone */
+  }
+  if (channel === 'llama-server-lifecycle') {
+    try {
+      mainState.settingsWindow?.webContents.send(channel, payload);
+    } catch {
+      /* window gone */
+    }
   }
 }
 
@@ -915,6 +925,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       phase: 'running',
       modelId,
       chatTemplateReasoning: getCachedChatTemplateReasoning(modelId),
+      nCtx: getCachedLlamaServerNctx(modelId),
     });
     logLlamaLifecycle(
       'INFO',
@@ -936,10 +947,10 @@ function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBu
   return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for stdout; stderr is not mirrored to app logs.${hfWarmHintFromLogs(logBuf, kind)}`;
 }
 
-function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), ms);
-  return fetch(url, { signal: ac.signal }).finally(() => clearTimeout(t));
+  return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(t));
 }
 
 const PROPS_FETCH_TIMEOUT_MS = 2000;
@@ -951,21 +962,47 @@ function attachCachedReasoning(
   payload: LlamaServerStatusPayload,
 ): LlamaServerStatusPayload {
   const caps = getCachedChatTemplateReasoning(payload.modelId);
-  if (!caps) {
-    return payload;
+  const nCtx = getCachedLlamaServerNctx(payload.modelId);
+  return {
+    ...payload,
+    ...(caps ? { chatTemplateReasoning: caps } : {}),
+    ...(nCtx != null ? { nCtx } : {}),
+  };
+}
+
+type LlamaPropsFetchOpts = {
+  /** Full llama-server origin (preserves http/https). Used for remote URL-only rows. */
+  serverRoot?: string;
+  apiKey?: string;
+};
+
+function llamaPropsUrl(host: string, port: number, serverRoot?: string): string {
+  const root = (serverRoot || '').trim().replace(/\/+$/, '');
+  if (root) {
+    return `${root}/props`;
   }
-  return { ...payload, chatTemplateReasoning: caps };
+  return `http://${host}:${port}/props`;
+}
+
+function llamaAuthHeaders(apiKey?: string): Record<string, string> | undefined {
+  const key = (apiKey || '').trim();
+  if (!key) {
+    return undefined;
+  }
+  return { Authorization: `Bearer ${key}` };
 }
 
 async function fetchChatTemplateReasoningOnce(
   modelId: string,
   host: string,
   port: number,
+  opts?: LlamaPropsFetchOpts,
 ): Promise<ChatTemplateReasoningCaps | undefined> {
-  const url = `http://${host}:${port}/props`;
+  const url = llamaPropsUrl(host, port, opts?.serverRoot);
+  const headers = llamaAuthHeaders(opts?.apiKey);
   logLlamaLifecycle('INFO', `fetching chat template modelId=${modelId} url=${url}`);
   try {
-    const res = await fetchWithTimeout(url, PROPS_FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(url, PROPS_FETCH_TIMEOUT_MS, headers ? { headers } : undefined);
     if (!res.ok) {
       logLlamaLifecycle(
         'WARNING',
@@ -975,10 +1012,22 @@ async function fetchChatTemplateReasoningOnce(
       return undefined;
     }
     const body: unknown = await res.json();
+    const nCtx = parseLlamaServerPropsNctx(body);
+    if (nCtx != null) {
+      setCachedLlamaServerNctx(modelId, nCtx);
+      logLlamaLifecycle('INFO', `loaded n_ctx modelId=${modelId} n_ctx=${nCtx}`);
+    }
     const parsed = parseLlamaServerPropsReasoning(body);
     if (parsed.missingTemplate) {
       logLlamaLifecycle('WARNING', `chat template missing modelId=${modelId}`);
       propsFetchFailedAt.set(modelId, Date.now());
+      if (nCtx != null) {
+        try {
+          void syncWithManagedLlamaOverrides(loadConfigSync());
+        } catch {
+          /* config unavailable */
+        }
+      }
       return undefined;
     }
     setCachedChatTemplateReasoning(modelId, parsed.caps);
@@ -990,7 +1039,8 @@ async function fetchChatTemplateReasoningOnce(
     }
     logLlamaLifecycle(
       'INFO',
-      `chat template reasoning modelId=${modelId} ${formatChatTemplateReasoningSummary(parsed.caps)} bytes=${parsed.templateBytes}`,
+      `chat template reasoning modelId=${modelId} ${formatChatTemplateReasoningSummary(parsed.caps)} bytes=${parsed.templateBytes}` +
+        (nCtx != null ? ` n_ctx=${nCtx}` : ''),
     );
     return parsed.caps;
   } catch (e) {
@@ -1005,6 +1055,7 @@ async function ensureChatTemplateReasoning(
   modelId: string,
   host: string,
   port: number,
+  opts?: LlamaPropsFetchOpts,
 ): Promise<ChatTemplateReasoningCaps | undefined> {
   const cached = getCachedChatTemplateReasoning(modelId);
   if (cached) {
@@ -1018,18 +1069,23 @@ async function ensureChatTemplateReasoning(
   if (inflight) {
     return inflight;
   }
-  const p = fetchChatTemplateReasoningOnce(modelId, host, port).finally(() => {
+  const p = fetchChatTemplateReasoningOnce(modelId, host, port, opts).finally(() => {
     propsFetchInFlight.delete(modelId);
   });
   propsFetchInFlight.set(modelId, p);
   return p;
 }
 
-function kickChatTemplateReasoningIfMissing(modelId: string, host: string, port: number): void {
+function kickChatTemplateReasoningIfMissing(
+  modelId: string,
+  host: string,
+  port: number,
+  opts?: LlamaPropsFetchOpts,
+): void {
   if (getCachedChatTemplateReasoning(modelId) || propsFetchInFlight.has(modelId)) {
     return;
   }
-  void ensureChatTemplateReasoning(modelId, host, port).then(() => {
+  void ensureChatTemplateReasoning(modelId, host, port, opts).then(() => {
     invalidateManagedStatusCache(modelId);
   });
 }
@@ -1250,6 +1306,7 @@ async function getRemoteLlamacppUrlStatus(
   modelId: string,
   openAiV1BaseUrl: string,
   embeddingsOpenAiV1BaseUrl?: string,
+  apiKey?: string,
 ): Promise<LlamaServerStatusResult> {
   const root = openAiV1BaseToServerRoot(openAiV1BaseUrl);
   if (!root) {
@@ -1263,10 +1320,11 @@ async function getRemoteLlamacppUrlStatus(
   }
   const embIn = (embeddingsOpenAiV1BaseUrl ?? '').trim();
   const embRoot = embIn ? openAiV1BaseToServerRoot(embIn) : '';
+  const headers = llamaAuthHeaders(apiKey);
 
   const probeHttpHealth = async (baseRoot: string): Promise<ManagedServerHealthState> => {
     try {
-      const res = await fetchWithTimeout(`${baseRoot}/health`, 2000);
+      const res = await fetchWithTimeout(`${baseRoot}/health`, 2000, headers ? { headers } : undefined);
       return res.ok ? 'ok' : 'error';
     } catch {
       return 'error';
@@ -1288,7 +1346,7 @@ async function getRemoteLlamacppUrlStatus(
     const u = new URL(root);
     const host = managedLlamaHealthHost(u.hostname);
     if (chatHealth === 'ok' && host && port > 0) {
-      await ensureChatTemplateReasoning(modelId, host, port);
+      await ensureChatTemplateReasoning(modelId, host, port, { serverRoot: root, apiKey });
     } else {
       clearCachedChatTemplateReasoning(modelId);
       propsFetchFailedAt.delete(modelId);
@@ -1324,7 +1382,12 @@ export async function getManagedLlamaStatus(
   if (!st) {
     invalidateManagedStatusCache(modelId);
     if (!(managed?.chatRunCommand ?? '').trim()) {
-      return getRemoteLlamacppUrlStatus(modelId, loc.provider.baseUrl, loc.provider.embeddingsBaseUrl);
+      return getRemoteLlamacppUrlStatus(
+        modelId,
+        loc.provider.baseUrl,
+        loc.provider.embeddingsBaseUrl,
+        unwrapSecret(loc.provider.apiKey),
+      );
     }
     return {
       ok: true,

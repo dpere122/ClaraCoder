@@ -121,6 +121,34 @@ export function parseLlamaServerPropsReasoning(body: unknown): {
   };
 }
 
+const PROPS_NCTX_MAX = 10_000_000;
+
+function finitePositiveInt(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isFinite(n) || n < 1) {
+    return null;
+  }
+  return Math.min(PROPS_NCTX_MAX, Math.floor(n));
+}
+
+/**
+ * Loaded slot context from llama-server ``GET /props``.
+ * Same value as the log line ``n_ctx_slot`` / ``n_ctx`` (after ``-c 0`` and ``--fit``).
+ */
+export function parseLlamaServerPropsNctx(body: unknown): number | null {
+  const obj = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const settingsRaw = obj['default_generation_settings'];
+  const settings =
+    settingsRaw && typeof settingsRaw === 'object' ? (settingsRaw as Record<string, unknown>) : {};
+  const paramsRaw = settings['params'];
+  const params = paramsRaw && typeof paramsRaw === 'object' ? (paramsRaw as Record<string, unknown>) : {};
+  return (
+    finitePositiveInt(settings['n_ctx']) ??
+    finitePositiveInt(params['n_ctx']) ??
+    finitePositiveInt(obj['n_ctx'])
+  );
+}
+
 /** Compact Health-log summary (never dumps the Jinja body). */
 export function formatChatTemplateReasoningSummary(caps: ChatTemplateReasoningCaps): string {
   const effort =

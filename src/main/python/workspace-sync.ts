@@ -5,12 +5,22 @@ import type {
   LlmConnectionConfig,
   WorkspaceContextSyncExtras,
 } from '../../shared';
-import { flattenLlmProvidersToConnections } from '../../shared';
+import {
+  effectiveLmStudioContextTokens,
+  flattenLlmProvidersToConnections,
+  lmStudioOpenAiBaseUrlToRestOrigin,
+} from '../../shared';
+import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
 import { getHostOsInfo } from '../utils/host-os';
 import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
-import { getAllCachedChatTemplateReasoning } from '../chat-template-reasoning-cache';
+import {
+  getAllCachedChatTemplateReasoning,
+  getAllCachedLlamaServerNctx,
+  setCachedLlamaServerNctx,
+} from '../chat-template-reasoning-cache';
+import { lmStudioListModels } from '../lm-studio-client';
 
 function hasUrlScheme(s: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
@@ -142,6 +152,7 @@ function connectionToRuntimeWire(
   c: LlmConnectionConfig,
   llamaOverride: LlamaManagedRuntimeEndpoints | undefined,
   reasoningCaps: ChatTemplateReasoningCaps | undefined,
+  liveNctx: number | undefined,
 ): Record<string, unknown> {
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const baseUrl = normalizeBindAllHostToLocalhost(resolvedBase);
@@ -155,6 +166,10 @@ function connectionToRuntimeWire(
       : rawEmbeddingsBase;
   const embeddingsBaseUrl = normalizeBindAllHostToLocalhost(alignedEmb);
   const chatTemplateReasoning = chatTemplateReasoningWire(reasoningCaps);
+  const contextWindowTokens =
+    typeof liveNctx === 'number' && Number.isFinite(liveNctx) && liveNctx > 0
+      ? Math.floor(liveNctx)
+      : c.contextWindowTokens;
   return {
     id: c.id,
     name: c.name,
@@ -178,7 +193,7 @@ function connectionToRuntimeWire(
     embeddingsBaseUrl,
     embeddingsModel: (c.embeddingsModel ?? '').trim(),
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
-    contextWindowTokens: c.contextWindowTokens,
+    contextWindowTokens,
     ...(chatTemplateReasoning ? { chatTemplateReasoning } : {}),
   };
 }
@@ -215,18 +230,65 @@ export async function syncRuntimeConfigToPython(
   await runtimeSyncChain;
 }
 
+async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
+  const groups = new Map<string, { apiKey: string; rows: Array<{ id: string; model: string }> }>();
+  for (const p of config.llmProviders) {
+    if (p.provider !== 'lmstudio') {
+      continue;
+    }
+    const origin = lmStudioOpenAiBaseUrlToRestOrigin(p.baseUrl) || p.baseUrl.trim();
+    if (!origin) {
+      continue;
+    }
+    let g = groups.get(origin);
+    if (!g) {
+      g = { apiKey: unwrapSecret(p.apiKey), rows: [] };
+      groups.set(origin, g);
+    }
+    for (const m of p.models) {
+      const model = (m.model || '').trim();
+      if (model) {
+        g.rows.push({ id: m.id, model });
+      }
+    }
+  }
+  await Promise.all(
+    [...groups.entries()].map(async ([origin, g]) => {
+      try {
+        const res = await lmStudioListModels(origin, g.apiKey);
+        if (!res.ok) {
+          return;
+        }
+        const byId = new Map(res.models.map((card) => [card.id, card]));
+        for (const row of g.rows) {
+          const card = byId.get(row.model);
+          const n = card ? effectiveLmStudioContextTokens(card) : 0;
+          if (n > 0) {
+            setCachedLlamaServerNctx(row.id, n);
+          }
+        }
+      } catch {
+        /* LM Studio unreachable — keep persisted contextWindowTokens */
+      }
+    }),
+  );
+}
+
 async function postRuntimeConfigToPython(
   config: AppConfig,
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
 ): Promise<void> {
   try {
+    await refreshLmStudioLiveNctx(config);
     const flat = flattenLlmProvidersToConnections(config.llmProviders);
     const reasoningById = getAllCachedChatTemplateReasoning();
+    const nCtxById = getAllCachedLlamaServerNctx();
     const connections = flat.map((c) =>
       connectionToRuntimeWire(
         c,
         c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined,
         reasoningById[c.id],
+        nCtxById[c.id],
       ),
     );
     const response = await pythonControlFetch('/runtime-config', {

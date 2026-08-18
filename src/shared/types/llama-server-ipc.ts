@@ -17,6 +17,8 @@ export interface LlamaServerStatusPayload {
   remote?: boolean;
   /** Live Jinja scan from chat ``GET /props`` (omitted until fetched). */
   chatTemplateReasoning?: ChatTemplateReasoningCaps;
+  /** Loaded slot context from chat ``GET /props`` ``n_ctx`` (omitted until fetched). */
+  nCtx?: number;
 }
 
 export type LlamaServerStatusResult = LlamaServerStatusPayload | { ok: false; error: string };
@@ -48,5 +50,5 @@ export type LlamaServerLifecycleEvent =
   /** Remote weights are being fetched (e.g. ``-hf`` first run); UI may show fast crystal spin. */
   | { phase: 'downloading'; modelId: string }
   /** Chat (and embedding if configured) passed ``/health``; managed servers are ready. */
-  | { phase: 'running'; modelId: string; chatTemplateReasoning?: ChatTemplateReasoningCaps }
+  | { phase: 'running'; modelId: string; chatTemplateReasoning?: ChatTemplateReasoningCaps; nCtx?: number }
   | { phase: 'stopped'; modelId: string };

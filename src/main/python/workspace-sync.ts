@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  ChatTemplateReasoningCaps,
   LlamaManagedRuntimeEndpoints,
   LlmConnectionConfig,
   WorkspaceContextSyncExtras,
@@ -9,6 +10,7 @@ import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
 import { getHostOsInfo } from '../utils/host-os';
 import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
+import { getAllCachedChatTemplateReasoning } from '../chat-template-reasoning-cache';
 
 function hasUrlScheme(s: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
@@ -123,10 +125,23 @@ export function embeddingsEnabledForWire(
   return false;
 }
 
+function chatTemplateReasoningWire(
+  caps: ChatTemplateReasoningCaps | undefined,
+): Record<string, unknown> | undefined {
+  if (!caps) {
+    return undefined;
+  }
+  return {
+    enableThinking: caps.enableThinking,
+    reasoningEffortValues: caps.reasoningEffortValues == null ? null : [...caps.reasoningEffortValues],
+  };
+}
+
 /** One row for ``POST /runtime-config`` (camelCase keys match Pydantic). */
 function connectionToRuntimeWire(
   c: LlmConnectionConfig,
   llamaOverride: LlamaManagedRuntimeEndpoints | undefined,
+  reasoningCaps: ChatTemplateReasoningCaps | undefined,
 ): Record<string, unknown> {
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const baseUrl = normalizeBindAllHostToLocalhost(resolvedBase);
@@ -139,6 +154,7 @@ function connectionToRuntimeWire(
       ? alignLlamaEmbeddingsBaseUrlWithChatHost(baseUrl, rawEmbeddingsBase)
       : rawEmbeddingsBase;
   const embeddingsBaseUrl = normalizeBindAllHostToLocalhost(alignedEmb);
+  const chatTemplateReasoning = chatTemplateReasoningWire(reasoningCaps);
   return {
     id: c.id,
     name: c.name,
@@ -163,6 +179,7 @@ function connectionToRuntimeWire(
     embeddingsModel: (c.embeddingsModel ?? '').trim(),
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
     contextWindowTokens: c.contextWindowTokens,
+    ...(chatTemplateReasoning ? { chatTemplateReasoning } : {}),
   };
 }
 
@@ -204,8 +221,13 @@ async function postRuntimeConfigToPython(
 ): Promise<void> {
   try {
     const flat = flattenLlmProvidersToConnections(config.llmProviders);
+    const reasoningById = getAllCachedChatTemplateReasoning();
     const connections = flat.map((c) =>
-      connectionToRuntimeWire(c, c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined),
+      connectionToRuntimeWire(
+        c,
+        c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined,
+        reasoningById[c.id],
+      ),
     );
     const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',

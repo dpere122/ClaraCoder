@@ -90,7 +90,8 @@
 }
 
 .composer-entry-row .btn-voice,
-.composer-options-row .btn-voice {
+.composer-options-row .btn-voice,
+.composer-options-row .btn-reasoning {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -146,6 +147,45 @@
   color: var(--t-input-fg, var(--t-fg));
 }
 
+.composer-reasoning-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.composer-options-row .btn-reasoning {
+  min-width: 1.85rem;
+  padding: 0.2rem 0.3rem;
+}
+
+.composer-reasoning-icon {
+  flex-shrink: 0;
+  color: inherit;
+}
+
+:host ::ng-deep .composer-reasoning-icon svg {
+  stroke: currentColor;
+  fill: none;
+}
+
+.composer-reasoning-select {
+  width: 5rem;
+  min-width: 5rem;
+  max-width: 5rem;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.composer-reasoning-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-reasoning-wrap:has(.composer-reasoning-select:disabled) .composer-mode-chevron {
+  opacity: 0.4;
+}
+
 .composer-mode-chevron {
   position: absolute;
   right: 0.35rem;
@@ -162,13 +202,15 @@
 }
 
 .composer-entry-row .btn-voice:hover,
-.composer-options-row .btn-voice:hover {
+.composer-options-row .btn-voice:hover,
+.composer-options-row .btn-reasoning:hover {
   background-color: var(--t-hover-bg);
   color: var(--t-fg);
 }
 
 .composer-entry-row .btn-voice--active,
-.composer-options-row .btn-voice--active {
+.composer-options-row .btn-voice--active,
+.composer-options-row .btn-reasoning--active {
   color: var(--t-primary);
   border-color: var(--t-primary);
   box-shadow: 0 0 0 1px var(--t-primary);
@@ -176,7 +218,8 @@
 }
 
 .composer-entry-row .btn-voice:focus-visible,
-.composer-options-row .btn-voice:focus-visible {
+.composer-options-row .btn-voice:focus-visible,
+.composer-options-row .btn-reasoning:focus-visible {
   outline: 2px solid var(--t-primary);
   outline-offset: 1px;
 }

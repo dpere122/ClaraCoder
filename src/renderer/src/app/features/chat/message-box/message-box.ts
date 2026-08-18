@@ -1,14 +1,24 @@
-import { afterNextRender, Component, ElementRef, inject, Injector, input, model, output, signal, viewChild } from '@angular/core';
+import { afterNextRender, Component, computed, effect, ElementRef, inject, Injector, input, model, output, signal, viewChild } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import {
   COMPOSER_RUN_MODES,
   COMPOSER_RUN_MODE_LABELS,
   DEFAULT_COMPOSER_RUN_MODE,
+  llmEffortControlVisible,
+  llmEffortSelectOptionsFromCaps,
+  llmThinkingControlVisible,
+  resolveActiveLlmConnection,
   type AppConfig,
+  type ChatTemplateReasoningCaps,
   type ComposerRunMode,
+  type GemmaThinkingMode,
+  type LlmReasoningEffort,
+  type LlmReasoningSettingChange,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 
+import { ElectronService } from '../../../core/electron.service';
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
 
 type ComposerField = HTMLInputElement | HTMLTextAreaElement;
@@ -20,10 +30,10 @@ type ComposerField = HTMLInputElement | HTMLTextAreaElement;
   styleUrl: './message-box.css'
 })
 /**
- * Bottom composer: text input, run-mode selector, voice toggle, and send/abort controls.
+ * Bottom composer: text input, reasoning effort, run-mode selector, voice toggle, and send/abort controls.
  *
  * Parent owns streaming state and talk capture; this component emits user actions upward
- * via {@link messageSent}, {@link abortRequested}, and {@link voiceToggle}.
+ * via {@link messageSent}, {@link abortRequested}, {@link voiceToggle}, and {@link reasoningEffortChange}.
  */
 export class MessageBox {
   /** Two-way run mode for the next turn (Agent, Ask, or Plan). */
@@ -51,6 +61,35 @@ export class MessageBox {
   readonly autoApplyMode = model(false);
   /** Active app config — drives model/embeddings status beside the context meter. */
   readonly appConfig = input<AppConfig | null>(null);
+  /** User changed Reasoning/Thinking; parent persists onto the active model profile. */
+  readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
+  private readonly electron = inject(ElectronService);
+  private readonly capsByModel = toSignal(this.electron.chatTemplateReasoning$, {
+    initialValue: {} as Readonly<Record<string, ChatTemplateReasoningCaps>>,
+  });
+  /** Active chat connection, or null when config has no resolvable model. */
+  protected readonly activeConnection = computed(() => {
+    const cfg = this.appConfig();
+    return cfg ? resolveActiveLlmConnection(cfg) : null;
+  });
+  private readonly liveCaps = computed(() => {
+    const id = this.activeConnection()?.id;
+    return id ? this.capsByModel()[id] : undefined;
+  });
+  protected readonly thinkingVisible = computed(() =>
+    llmThinkingControlVisible(this.activeConnection()?.optimizationPreset, this.liveCaps()),
+  );
+  protected readonly effortVisible = computed(() =>
+    llmEffortControlVisible(this.activeConnection()?.optimizationPreset, this.liveCaps()),
+  );
+  protected readonly showReasoningCluster = computed(() => this.thinkingVisible() || this.effortVisible());
+  protected readonly reasoningEffortOptions = computed(() =>
+    llmEffortSelectOptionsFromCaps(this.liveCaps(), this.activeConnection()?.optimizationPreset),
+  );
+  protected readonly thinkingMode = computed(() => this.activeConnection()?.thinkingMode || 'default');
+  /** Brain toggle: anything except explicit ``off`` counts as reasoning enabled. */
+  protected readonly reasoningEnabled = computed(() => this.thinkingMode() !== 'off');
+  protected readonly reasoningEffort = computed(() => this.activeConnection()?.reasoningEffort || '');
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
@@ -67,9 +106,31 @@ export class MessageBox {
   private readonly messageInputEl = viewChild<ElementRef<ComposerField>>('messageInput');
   private readonly injector = inject(Injector);
 
+  constructor() {
+    effect(() => {
+      const id = this.activeConnection()?.id;
+      if (id) {
+        void this.electron.refreshChatTemplateReasoning(id);
+      }
+    });
+  }
+
   /** Forwards the voice button click to {@link voiceToggle}. */
   onVoiceButtonClick(): void {
     this.voiceToggle.emit();
+  }
+
+  /** Brain button: toggle thinking on/off; on unlocks the effort dropdown. */
+  onReasoningToggle(): void {
+    const next: GemmaThinkingMode = this.reasoningEnabled() ? 'off' : 'on';
+    this.reasoningEffortChange.emit({ field: 'thinkingMode', value: next });
+  }
+
+  /** Forwards the composer Reasoning dropdown to {@link reasoningEffortChange}. */
+  onReasoningEffortChange(value: string): void {
+    const allowed = new Set(this.reasoningEffortOptions().map((o) => o.value));
+    const effort = (allowed.has(value) ? value : '') as LlmReasoningEffort;
+    this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: effort });
   }
 
   /**

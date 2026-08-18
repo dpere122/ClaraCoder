@@ -20,6 +20,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   LlamacppManagedListModelsResult,
+  ChatTemplateReasoningCaps,
   LlmStatus,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
@@ -358,6 +359,9 @@ declare global {
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
+    llamaServerChatTemplateReasoning: (payload: {
+      modelId: string;
+    }) => Promise<{ ok: true; modelId: string; chatTemplateReasoning: ChatTemplateReasoningCaps | null } | { ok: false; error: string }>;
     llamacppManagedListModels: (payload: {
       modelId: string;
       config: AppConfig;

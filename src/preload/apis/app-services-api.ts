@@ -32,6 +32,8 @@ export const appServicesApi = {
   llamaServerStop: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llama-server:stop', payload),
   llamaServerStatus: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llama-server:status', payload),
+  llamaServerChatTemplateReasoning: (payload: { modelId: string }) =>
+    ipcRenderer.invoke('llama-server:chat-template-reasoning', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llamacpp-managed:list-models', payload),
   llamacppOpenAiListModels: (payload: { baseUrl: string; apiKey: string }) =>

@@ -14,8 +14,8 @@ are mapped to ``medium`` / ``none`` so the wire value is always API-valid.
 ``clara_coder_backend.llm.model_tuning`` may add ``max_tokens`` for the Qwen or Gemma **optimization templates**
 when selected, optional per-preset sampling from Settings (``top_p``, ``top_k``, ``min_p``, ``presence_penalty``,
 ``repeat_penalty``), and Gemma-specific ``top_p`` / ``top_k`` via the Gemma sampling preset (merging ``extra_body``
-for locals such as LM Studio / ``llama-server``). OpenAI-style ``reasoning_effort`` is omitted when the Gemma
-template is active (use Gemma thinking settings instead).
+for locals such as LM Studio / ``llama-server``). OpenAI-style ``reasoning_effort`` is omitted when live
+Jinja caps omit it, or when the Gemma template is active without caps (use thinking settings instead).
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ from langchain_openai import ChatOpenAI
 from clara_coder_backend.config import env_clara, DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_connection_settings
 from clara_coder_backend.llm.model_tuning import (
+    connection_exposes_reasoning_effort,
     connection_user_sampling_kwargs_for_llm,
     gemma_enable_thinking_for_llm,
-    gemma_optimize_profile_active,
     gemma_sampling_kwargs_for_llm,
     llm_optional_kwargs,
 )
@@ -122,8 +122,9 @@ def build_llm() -> ChatOpenAI:
         kwargs['api_key'] = api_key
 
     # Per-connection UI setting, with env fallback for headless/dev use.
-    # Gemma template uses boolean thinking via LM Studio / chat template, not OpenAI-style reasoning_effort.
-    if not gemma_optimize_profile_active(connection):
+    # Live Jinja caps (when present) decide whether effort is sent; otherwise Gemma omits it.
+    thinking_off = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower() == 'off'
+    if connection_exposes_reasoning_effort(connection) and not thinking_off:
         effort_raw = (connection.reasoning_effort or '').strip().lower()
         if not effort_raw:
             effort_raw = (env_clara('CLARA_REASONING_EFFORT', '') or '').strip().lower()
@@ -150,10 +151,16 @@ def build_llm() -> ChatOpenAI:
     kwargs.update(gemma_sampling)
 
     enable_thinking = gemma_enable_thinking_for_llm(connection)
+    ctk_updates: dict[str, Any] = {}
     if enable_thinking is not None:
+        ctk_updates['enable_thinking'] = enable_thinking
+    caps = getattr(connection, 'chat_template_reasoning', None)
+    if isinstance(caps, dict) and 'reasoning_effort' in kwargs:
+        ctk_updates['reasoning_effort'] = kwargs['reasoning_effort']
+    if ctk_updates:
         base_eb = dict(kwargs.get('extra_body') or {})
         ctk = dict(base_eb.get('chat_template_kwargs') or {})
-        ctk['enable_thinking'] = enable_thinking
+        ctk.update(ctk_updates)
         base_eb['chat_template_kwargs'] = ctk
         kwargs['extra_body'] = base_eb
 

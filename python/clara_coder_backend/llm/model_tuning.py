@@ -59,8 +59,26 @@ def gemma_output_parsing_active(connection: RuntimeConnection) -> bool:
 
 
 def gemma_enable_thinking_for_llm(connection: RuntimeConnection) -> bool | None:
-    """Map Settings ``thinking_mode`` to llama-server ``chat_template_kwargs.enable_thinking``."""
-    if not gemma_optimize_profile_active(connection):
+    """Map Settings ``thinking_mode`` to llama-server ``chat_template_kwargs.enable_thinking``.
+
+    Live Jinja caps win when present. Without caps, Gemma and Qwen presets send boolean thinking.
+    """
+    return enable_thinking_kwarg_for_llm(connection)
+
+
+def _connection_exposes_enable_thinking(connection: RuntimeConnection) -> bool:
+    """True when ``enable_thinking`` should be sent for this connection."""
+    caps = getattr(connection, 'chat_template_reasoning', None)
+    if isinstance(caps, dict):
+        if caps.get('enableThinking'):
+            return True
+        return optimization_preset(connection) == 'qwen' and caps.get('reasoningEffortValues') is not None
+    return gemma_optimize_profile_active(connection) or qwen_optimize_profile_active(connection)
+
+
+def enable_thinking_kwarg_for_llm(connection: RuntimeConnection) -> bool | None:
+    """Return ``enable_thinking`` for ``chat_template_kwargs``, or ``None`` to omit it."""
+    if not _connection_exposes_enable_thinking(connection):
         return None
     mode = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower()
     if mode == 'on':
@@ -68,6 +86,14 @@ def gemma_enable_thinking_for_llm(connection: RuntimeConnection) -> bool | None:
     if mode == 'off':
         return False
     return None
+
+
+def connection_exposes_reasoning_effort(connection: RuntimeConnection) -> bool:
+    """True when OpenAI-style ``reasoning_effort`` should be sent for this connection."""
+    caps = getattr(connection, 'chat_template_reasoning', None)
+    if isinstance(caps, dict):
+        return caps.get('reasoningEffortValues') is not None
+    return not gemma_optimize_profile_active(connection)
 
 
 def sparse_expert_variant_for_prompts(connection: RuntimeConnection) -> bool:
@@ -80,9 +106,7 @@ def sparse_expert_variant_for_prompts(connection: RuntimeConnection) -> bool:
 
 
 def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
-    """Parallel tool calls: disabled under Qwen optimize profile (more stable on many OpenAI-compatible stacks)."""
-    if qwen_optimize_profile_active(connection):
-        return False
+    """Whether the API request should allow multiple tool calls in one completion."""
     return bool(connection.parallel_tool_calls)
 
 
@@ -191,10 +215,9 @@ def parallel_batching_prompt_suffix() -> str:
 
 
 def qwen_specific_prompt_suffix() -> str:
-    """Qwen-family stability hint (single tool per turn); use with :func:`tool_calling_and_edit_semantics_suffix`."""
+    """Qwen-family staging/transfer discipline; use with :func:`tool_calling_and_edit_semantics_suffix`."""
     return (
-        '\nModel note (Qwen): Prefer one tool call per assistant turn when you can; wait for the tool result '
-        'before issuing the next call. When staging review applies, land approved drafts with '
+        '\nModel note (Qwen): When staging review applies, land approved drafts with '
         '**`land_in_workspace=true`** on your final stage/LSP call, or `transfer_staged_file_to_workspace` for '
         'already-staged paths—do not ask the user to approve or apply the diff in the UI instead of using the tool.\n'
     )
@@ -203,8 +226,7 @@ def qwen_specific_prompt_suffix() -> str:
 def gemma_specific_prompt_suffix() -> str:
     """Gemma-family staging/transfer discipline; use with :func:`tool_calling_and_edit_semantics_suffix`."""
     return (
-        '\nModel note (Gemma): Prefer one tool call per assistant turn when you can; wait for the tool result '
-        'before issuing the next call. After review, land approved work with **`land_in_workspace=true`** on your '
+        '\nModel note (Gemma): After review, land approved work with **`land_in_workspace=true`** on your '
         'final `stage_*` or LSP staging mutation, or call `transfer_staged_file_to_workspace` (`relative_paths` for '
         'multiple already-staged files)—staging alone is not finished work. When Auto-apply is off, either path '
         'queues the diff card; do not ask the user to approve in chat instead.\n'

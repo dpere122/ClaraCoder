@@ -8,6 +8,7 @@ import path = require('path');
 
 import type {
   AppConfig,
+  ChatTemplateReasoningCaps,
   LlamaCppManaged,
   LlamaManagedRuntimeEndpoints,
   LlmModelProfile,
@@ -20,8 +21,10 @@ import {
   detectShellQuotingPlatform,
   ensureManagedLlamaDefaultServerFlags,
   findLlmModelLocation,
+  formatChatTemplateReasoningSummary,
   looksLikeLlamaModelDownload,
   managedLlamaCmdUsesHfRemoteModel,
+  parseLlamaServerPropsReasoning,
   parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
   promoteManagedSentinelNglToAuto,
@@ -34,6 +37,11 @@ import { getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
+import {
+  clearCachedChatTemplateReasoning,
+  getCachedChatTemplateReasoning,
+  setCachedChatTemplateReasoning,
+} from './chat-template-reasoning-cache';
 
 const LLAMA_LOGGER = 'clara.electron.llama';
 
@@ -828,6 +836,10 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
 
     st.chatReady = true;
     invalidateManagedStatusCache(modelId);
+    await ensureChatTemplateReasoning(modelId, st.chatHealthHost, chatPort);
+    if (slotMissingOrAborted(modelId, generation)) {
+      return { ok: false, error: STOPPED_DURING_START };
+    }
     await syncWithManagedLlamaOverrides(config);
     if (slotMissingOrAborted(modelId, generation)) {
       return { ok: false, error: STOPPED_DURING_START };
@@ -899,7 +911,11 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     if (slotMissingOrAborted(modelId, generation)) {
       return { ok: false, error: STOPPED_DURING_START };
     }
-    sendToRenderer('llama-server-lifecycle', { phase: 'running', modelId });
+    sendToRenderer('llama-server-lifecycle', {
+      phase: 'running',
+      modelId,
+      chatTemplateReasoning: getCachedChatTemplateReasoning(modelId),
+    });
     logLlamaLifecycle(
       'INFO',
       `running managed llama-server modelId=${modelId} chat=${stDone.chatHealthHost}:${stDone.chatPort}` +
@@ -926,6 +942,91 @@ function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   return fetch(url, { signal: ac.signal }).finally(() => clearTimeout(t));
 }
 
+const PROPS_FETCH_TIMEOUT_MS = 2000;
+const PROPS_RETRY_MS = 15_000;
+const propsFetchInFlight = new Map<string, Promise<ChatTemplateReasoningCaps | undefined>>();
+const propsFetchFailedAt = new Map<string, number>();
+
+function attachCachedReasoning(
+  payload: LlamaServerStatusPayload,
+): LlamaServerStatusPayload {
+  const caps = getCachedChatTemplateReasoning(payload.modelId);
+  if (!caps) {
+    return payload;
+  }
+  return { ...payload, chatTemplateReasoning: caps };
+}
+
+async function fetchChatTemplateReasoningOnce(
+  modelId: string,
+  host: string,
+  port: number,
+): Promise<ChatTemplateReasoningCaps | undefined> {
+  const url = `http://${host}:${port}/props`;
+  logLlamaLifecycle('INFO', `fetching chat template modelId=${modelId} url=${url}`);
+  try {
+    const res = await fetchWithTimeout(url, PROPS_FETCH_TIMEOUT_MS);
+    if (!res.ok) {
+      logLlamaLifecycle(
+        'WARNING',
+        `chat template fetch failed modelId=${modelId} error=HTTP ${res.status}`,
+      );
+      propsFetchFailedAt.set(modelId, Date.now());
+      return undefined;
+    }
+    const body: unknown = await res.json();
+    const parsed = parseLlamaServerPropsReasoning(body);
+    if (parsed.missingTemplate) {
+      logLlamaLifecycle('WARNING', `chat template missing modelId=${modelId}`);
+    }
+    setCachedChatTemplateReasoning(modelId, parsed.caps);
+    propsFetchFailedAt.delete(modelId);
+    logLlamaLifecycle(
+      'INFO',
+      `chat template reasoning modelId=${modelId} ${formatChatTemplateReasoningSummary(parsed.caps)} bytes=${parsed.templateBytes}`,
+    );
+    return parsed.caps;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logLlamaLifecycle('WARNING', `chat template fetch failed modelId=${modelId} error=${msg}`);
+    propsFetchFailedAt.set(modelId, Date.now());
+    return undefined;
+  }
+}
+
+async function ensureChatTemplateReasoning(
+  modelId: string,
+  host: string,
+  port: number,
+): Promise<ChatTemplateReasoningCaps | undefined> {
+  const cached = getCachedChatTemplateReasoning(modelId);
+  if (cached) {
+    return cached;
+  }
+  const failedAt = propsFetchFailedAt.get(modelId);
+  if (failedAt != null && Date.now() - failedAt < PROPS_RETRY_MS) {
+    return undefined;
+  }
+  const inflight = propsFetchInFlight.get(modelId);
+  if (inflight) {
+    return inflight;
+  }
+  const p = fetchChatTemplateReasoningOnce(modelId, host, port).finally(() => {
+    propsFetchInFlight.delete(modelId);
+  });
+  propsFetchInFlight.set(modelId, p);
+  return p;
+}
+
+function kickChatTemplateReasoningIfMissing(modelId: string, host: string, port: number): void {
+  if (getCachedChatTemplateReasoning(modelId) || propsFetchInFlight.has(modelId)) {
+    return;
+  }
+  void ensureChatTemplateReasoning(modelId, host, port).then(() => {
+    invalidateManagedStatusCache(modelId);
+  });
+}
+
 type HealthWait = 'ok' | 'timeout' | 'exited' | 'spawn_error' | 'aborted';
 
 interface HealthWaitContext {
@@ -938,8 +1039,8 @@ interface HealthWaitContext {
 }
 
 const HEALTH_POLL_MS = 500;
-/** Default wait when the command does not look like a remote HF pull. */
-const HEALTH_WAIT_DEFAULT_MS = 120_000;
+/** Default wait when the command does not look like a remote HF pull (local GGUF load). */
+const HEALTH_WAIT_DEFAULT_MS = 600_000;
 /** First-time ``-hf`` pulls can take a long time; keep polling until ready or hard cap. */
 const HEALTH_WAIT_HF_CMD_MS = 50 * 60 * 1000;
 /** Never block longer than this from ``start`` even if logs keep matching download heuristics. */
@@ -1012,6 +1113,8 @@ export function stopManagedLlamaServers(modelId: string): void {
   invalidateManagedStatusCache(modelId);
   // Remove before kill so the chat ``exit`` handler does not double-emit lifecycle.
   running.delete(modelId);
+  clearCachedChatTemplateReasoning(modelId);
+  propsFetchFailedAt.delete(modelId);
   sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
   logLlamaLifecycle('INFO', `stopped managed llama-server modelId=${modelId}`);
   killProcessTree(st.embedProc);
@@ -1174,6 +1277,19 @@ async function getRemoteLlamacppUrlStatus(
 
   const [chatHealth, embedBlock] = await Promise.all([chatP, embedP]);
   const port = httpPortForDisplay(root);
+  try {
+    const u = new URL(root);
+    const host = managedLlamaHealthHost(u.hostname);
+    if (chatHealth === 'ok' && host && port > 0) {
+      await ensureChatTemplateReasoning(modelId, host, port);
+    } else {
+      clearCachedChatTemplateReasoning(modelId);
+      propsFetchFailedAt.delete(modelId);
+    }
+  } catch {
+    clearCachedChatTemplateReasoning(modelId);
+    propsFetchFailedAt.delete(modelId);
+  }
   const out: LlamaServerStatusPayload = {
     ok: true,
     remote: true,
@@ -1184,7 +1300,7 @@ async function getRemoteLlamacppUrlStatus(
   if (embedBlock) {
     out.embed = embedBlock;
   }
-  return out;
+  return attachCachedReasoning(out);
 }
 
 export async function getManagedLlamaStatus(
@@ -1230,13 +1346,15 @@ export async function getManagedLlamaStatus(
     };
   }
 
+  kickChatTemplateReasoningIfMissing(modelId, st.chatHealthHost, st.chatPort);
+
   const now = Date.now();
   if (
     statusCache &&
     statusCache.modelId === modelId &&
     now - statusCache.at < STATUS_CACHE_TTL_MS
   ) {
-    return statusCache.result;
+    return attachCachedReasoning(statusCache.result);
   }
 
   const ch = await probeOnce(st.chatHealthHost, st.chatPort);
@@ -1246,14 +1364,14 @@ export async function getManagedLlamaStatus(
     emb = { port: st.embedPort, health: eh };
   }
 
-  const out: LlamaServerStatusPayload = {
+  const out: LlamaServerStatusPayload = attachCachedReasoning({
     ok: true,
     running: st.ready,
     starting: !st.ready,
     modelId,
     chat: { port: st.chatPort, health: ch },
     embed: emb,
-  };
+  });
   statusCache = { modelId, at: Date.now(), result: out };
   return out;
 }

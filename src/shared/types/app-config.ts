@@ -1,4 +1,8 @@
 import type { Workspace } from './workspace';
+import {
+  QWEN_REASONING_EFFORT_VALUES,
+  type ChatTemplateReasoningCaps,
+} from '../chat-template-reasoning';
 
 const SECRET_OPAQUE = Symbol('SecretValue');
 const SECRET_REDACTED = '[REDACTED]';
@@ -110,6 +114,37 @@ export type LlmOptimizationPreset = 'generic' | 'qwen' | 'gemma';
 /** Gemma 4 / LM Studio thinking: boolean-style control (not OpenAI reasoning_effort tiers). */
 export type GemmaThinkingMode = 'default' | 'on' | 'off';
 
+/**
+ * Chat Completions ``reasoning_effort``; empty = omit parameter.
+ * UI aliases ``on`` / ``off`` map to medium / none in the backend.
+ */
+export type LlmReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'on' | 'off';
+
+/** Ordered options for Settings and the composer Reasoning dropdown (generic / Qwen). */
+export const LLM_REASONING_EFFORT_OPTIONS: readonly { value: LlmReasoningEffort; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: 'on', label: 'On (medium)' },
+  { value: 'off', label: 'Off (none)' },
+  { value: 'none', label: 'none' },
+  { value: 'minimal', label: 'minimal' },
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'xhigh', label: 'xhigh' },
+];
+
+/** Ordered options for Settings and the composer Thinking dropdown (Gemma). */
+export const LLM_THINKING_MODE_OPTIONS: readonly { value: GemmaThinkingMode; label: string }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+/** Composer / settings change for the active model's thinking or reasoning control. */
+export type LlmReasoningSettingChange =
+  | { field: 'reasoningEffort'; value: LlmReasoningEffort }
+  | { field: 'thinkingMode'; value: GemmaThinkingMode };
+
 /** How sampling (temperature/top_p/top_k) is chosen for Gemma-class models. */
 export type GemmaSamplingPreset = 'provider-default' | 'gemma-recommended' | 'custom';
 
@@ -143,7 +178,7 @@ export interface LlmModelProfile {
    * API values: none, minimal, low, medium, high, xhigh. UI aliases ``on`` / ``off`` map to medium / none in the backend.
    * For Gemma-family models the backend omits this parameter; use ``thinkingMode`` instead.
    */
-  reasoningEffort?: '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'on' | 'off';
+  reasoningEffort?: LlmReasoningEffort;
   /** Gemma / LM Studio boolean thinking guidance (not OpenAI-style reasoning tiers). */
   thinkingMode: GemmaThinkingMode;
   /** Gemma sampling profile (Google recommends temperature=1, top_p=0.95, top_k=64). */
@@ -209,6 +244,109 @@ export interface LlamaManagedRuntimeEndpoints {
 /** Single resolved row for Python / UI (provider endpoint + one model preset). `id` is the model preset id. */
 export type LlmConnectionConfig = LlmModelProfile &
   Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>;
+
+const GEMMA_THINKING_MODE_VALUES = new Set<string>(LLM_THINKING_MODE_OPTIONS.map((o) => o.value));
+const REASONING_EFFORT_VALUES = new Set<string>(LLM_REASONING_EFFORT_OPTIONS.map((o) => o.value));
+
+function effortOptionsFromValues(values: readonly string[]): { value: string; label: string }[] {
+  const byValue = new Map<string, { value: string; label: string }>(
+    LLM_REASONING_EFFORT_OPTIONS.map((o) => [o.value, o]),
+  );
+  const opts: { value: string; label: string }[] = [{ value: '', label: 'Default' }];
+  for (const v of values) {
+    if (!v) {
+      continue;
+    }
+    opts.push(byValue.get(v) ?? { value: v, label: v });
+  }
+  return opts;
+}
+
+/** Qwen 3.8-style effort list (low / medium / xhigh). No on/off aliases. */
+export const LLM_QWEN_REASONING_EFFORT_OPTIONS: readonly { value: string; label: string }[] =
+  effortOptionsFromValues(QWEN_REASONING_EFFORT_VALUES);
+
+/** Gemma uses boolean thinking; generic uses the full effort list; Qwen uses low/medium/xhigh. */
+export function llmReasoningSelectOptions(
+  preset: LlmOptimizationPreset | string | undefined,
+): readonly { value: string; label: string }[] {
+  const p = preset || 'generic';
+  if (p === 'gemma') {
+    return LLM_THINKING_MODE_OPTIONS;
+  }
+  if (p === 'qwen') {
+    return LLM_QWEN_REASONING_EFFORT_OPTIONS;
+  }
+  return LLM_REASONING_EFFORT_OPTIONS;
+}
+
+/** Current composer/settings select value for the active connection's preset. */
+export function llmReasoningSelectValue(
+  connection:
+    | Pick<LlmModelProfile, 'optimizationPreset' | 'reasoningEffort' | 'thinkingMode'>
+    | null
+    | undefined,
+): string {
+  if (!connection) {
+    return '';
+  }
+  if (connection.optimizationPreset === 'gemma') {
+    return connection.thinkingMode || 'default';
+  }
+  return connection.reasoningEffort || '';
+}
+
+/** Map a select change to the profile field that preset actually consumes. */
+export function llmReasoningSelectChange(
+  preset: LlmOptimizationPreset | string | undefined,
+  value: string,
+): LlmReasoningSettingChange {
+  if ((preset || 'generic') === 'gemma') {
+    const mode = GEMMA_THINKING_MODE_VALUES.has(value) ? (value as GemmaThinkingMode) : 'default';
+    return { field: 'thinkingMode', value: mode };
+  }
+  const effort = REASONING_EFFORT_VALUES.has(value) ? (value as LlmReasoningEffort) : '';
+  return { field: 'reasoningEffort', value: effort };
+}
+
+/** Thinking (on/off) control: live scan wins; otherwise Gemma or Qwen preset. */
+export function llmThinkingControlVisible(
+  preset: LlmOptimizationPreset | string | undefined,
+  caps: ChatTemplateReasoningCaps | null | undefined,
+): boolean {
+  const p = preset || 'generic';
+  if (caps) {
+    if (caps.enableThinking) {
+      return true;
+    }
+    // Qwen 3.8 templates pair enable_thinking with an effort allow-list; keep the brain
+    // when the scan found effort but missed the boolean knob.
+    return p === 'qwen' && caps.reasoningEffortValues != null;
+  }
+  return p === 'gemma' || p === 'qwen';
+}
+
+/** Reasoning effort control: live scan wins; otherwise non-Gemma presets. */
+export function llmEffortControlVisible(
+  preset: LlmOptimizationPreset | string | undefined,
+  caps: ChatTemplateReasoningCaps | null | undefined,
+): boolean {
+  if (caps) {
+    return caps.reasoningEffortValues != null;
+  }
+  return (preset || 'generic') !== 'gemma';
+}
+
+/** Effort dropdown options: scanned allow-list plus Default, else Qwen or generic fallback. */
+export function llmEffortSelectOptionsFromCaps(
+  caps: ChatTemplateReasoningCaps | null | undefined,
+  preset?: LlmOptimizationPreset | string,
+): readonly { value: string; label: string }[] {
+  if (caps?.reasoningEffortValues) {
+    return effortOptionsFromValues(caps.reasoningEffortValues);
+  }
+  return llmReasoningSelectOptions(preset === 'gemma' ? 'generic' : preset);
+}
 
 /** Default Kokoro voice when assistant speech is enabled (American English). */
 export const DEFAULT_KOKORO_TTS_VOICE = 'af_heart';

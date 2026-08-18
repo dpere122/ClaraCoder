@@ -67,6 +67,40 @@
     >
       <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
     </button>
+    @if (showReasoningCluster()) {
+      <div class="composer-reasoning-cluster">
+        @if (thinkingVisible()) {
+          <button
+            type="button"
+            class="btn btn-reasoning"
+            [class.btn-reasoning--active]="reasoningEnabled()"
+            [attr.aria-pressed]="reasoningEnabled()"
+            (click)="onReasoningToggle()"
+            title="{{ reasoningEnabled() ? 'Reasoning on — click to turn off' : 'Reasoning off — click to turn on' }}"
+            aria-label="Toggle reasoning"
+          >
+            <lucide-icon name="brain" [size]="16" class="composer-reasoning-icon" aria-hidden="true"></lucide-icon>
+          </button>
+        }
+        @if (effortVisible()) {
+          <div class="composer-mode-wrap composer-reasoning-wrap">
+            <select
+              class="composer-mode-select composer-reasoning-select"
+              [ngModel]="reasoningEffort()"
+              (ngModelChange)="onReasoningEffortChange($event)"
+              [disabled]="thinkingVisible() && !reasoningEnabled()"
+              title="Reasoning effort"
+              aria-label="Reasoning effort"
+            >
+              @for (opt of reasoningEffortOptions(); track opt.value) {
+                <option [value]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+            <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
+          </div>
+        }
+      </div>
+    }
     <div class="composer-mode-wrap">
       <select
         class="composer-mode-select"

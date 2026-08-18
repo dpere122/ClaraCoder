@@ -10,7 +10,7 @@ import {
   output,
   untracked,
 } from '@angular/core';
-import type { AppConfig, ComposerRunMode, ConversationMeta, PlannerProgress, StreamPart } from '@shared/index';
+import type { AppConfig, ComposerRunMode, ConversationMeta, LlmReasoningSettingChange, PlannerProgress, StreamPart } from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
@@ -141,6 +141,7 @@ export class ChatConversationHubComponent implements OnDestroy {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly autoApplyMode = model(false);
+  readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
 
   constructor() {
     effect(() => {

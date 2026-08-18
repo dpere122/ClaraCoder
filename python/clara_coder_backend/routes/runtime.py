@@ -16,12 +16,25 @@ from clara_coder_backend.domain import (
     RuntimeToolsConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
-from clara_coder_backend.session.schemas import RuntimeConfigRequest
+from clara_coder_backend.session.schemas import ChatTemplateReasoningCapsRequest, RuntimeConfigRequest
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 from clara_coder_backend.session import state
 logger = logging.getLogger('clara.http.routes')
 
 router = APIRouter()
+
+
+def _chat_template_reasoning_dict(
+    caps: ChatTemplateReasoningCapsRequest | None,
+) -> dict[str, object] | None:
+    if caps is None:
+        return None
+    return {
+        'enableThinking': bool(caps.enableThinking),
+        'reasoningEffortValues': (
+            list(caps.reasoningEffortValues) if caps.reasoningEffortValues is not None else None
+        ),
+    }
 
 
 def _sidecar_marker() -> str:
@@ -72,6 +85,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             embeddings_enabled=bool(item.embeddingsEnabled),
             embeddings_model=(item.embeddingsModel or '').strip(),
             context_window_tokens=int(item.contextWindowTokens),
+            chat_template_reasoning=_chat_template_reasoning_dict(item.chatTemplateReasoning),
         )
         for item in request.connections
     ]

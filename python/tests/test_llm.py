@@ -273,3 +273,144 @@ def test_build_llm_gemma_thinking_mode_default_omits_kwarg(
     build_llm()
     eb = mock_ctor.call_args.kwargs.get('extra_body') or {}
     assert 'chat_template_kwargs' not in eb
+
+
+def _qwen_conn(**kwargs: object) -> RuntimeConnection:
+    base = dict(
+        id='q',
+        name='q',
+        provider='llamacpp',
+        base_url='http://127.0.0.1:8080/v1',
+        model='qwen3-8b',
+        api_key='not-needed',
+        reasoning_effort='',
+        temperature=0.6,
+        parallel_tool_calls=False,
+        optimization_preset='qwen',
+        max_output_tokens=0,
+        thinking_mode='default',
+    )
+    base.update(kwargs)
+    return RuntimeConnection(**base)
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_qwen_caps_enable_thinking_on(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(
+        thinking_mode='on',
+        chat_template_reasoning={'enableThinking': True, 'reasoningEffortValues': None},
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is True
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_qwen_caps_effort_allow_list(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(
+        reasoning_effort='low',
+        chat_template_reasoning={'enableThinking': False, 'reasoningEffortValues': ['xhigh', 'medium', 'low']},
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert kwargs.get('reasoning_effort') == 'low'
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('reasoning_effort') == 'low'
+    assert 'enable_thinking' not in ctk
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_caps_neither_knob_omits_both(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(
+        reasoning_effort='high',
+        thinking_mode='on',
+        chat_template_reasoning={'enableThinking': False, 'reasoningEffortValues': None},
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    eb = kwargs.get('extra_body') or {}
+    assert 'chat_template_kwargs' not in eb
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_caps_thinking_off_skips_effort(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(
+        reasoning_effort='xhigh',
+        thinking_mode='off',
+        chat_template_reasoning={'enableThinking': True, 'reasoningEffortValues': ['xhigh', 'medium', 'low']},
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is False
+    assert 'reasoning_effort' not in ctk
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_qwen_no_caps_thinking_off(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(thinking_mode='off', reasoning_effort='medium')
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is False
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_qwen_no_caps_thinking_on(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(thinking_mode='on')
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    ctk = (mock_ctor.call_args.kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is True

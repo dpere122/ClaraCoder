@@ -258,6 +258,13 @@ class TtsRequest(BaseModel):
         return v
 
 
+class ChatTemplateReasoningCapsRequest(BaseModel):
+    """Live llama-server Jinja scan (Electron ``GET /props``), not a persisted setting."""
+
+    enableThinking: bool = False
+    reasoningEffortValues: list[str] | None = None
+
+
 class RuntimeConnectionRequest(BaseModel):
     """One connection entry inside RuntimeConfigRequest."""
 
@@ -297,6 +304,10 @@ class RuntimeConnectionRequest(BaseModel):
         ge=0,
         le=10_000_000,
         validation_alias=AliasChoices('contextWindowTokens', 'context_window_tokens'),
+    )
+    chatTemplateReasoning: ChatTemplateReasoningCapsRequest | None = Field(
+        default=None,
+        validation_alias=AliasChoices('chatTemplateReasoning', 'chat_template_reasoning'),
     )
 
     @field_validator('optimizationPreset', mode='before')

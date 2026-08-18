@@ -83,6 +83,7 @@
         [attachmentCount]="attachmentCount() || chatContextFiles().length"
         (messageSent)="messageSent.emit($event)"
         (abortRequested)="abortRequested.emit()"
+        (reasoningEffortChange)="reasoningEffortChange.emit($event)"
       />
     </div>
     </div>

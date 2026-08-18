@@ -124,6 +124,7 @@
           [remainingTokens]="remainingTokens()"
           [usedPercentage]="usedPercentage()"
           [(autoApplyMode)]="autoApplyMode"
+          (reasoningEffortChange)="reasoningEffortChange.emit($event)"
         />
       }
       @if (creatingConversation()) {

@@ -92,6 +92,7 @@ def test_combined_suffix_gemma_thinking_on() -> None:
     assert '<|channel>thought' in s
     assert 'Model note (Gemma):' in s
     assert 'transfer_staged_file_to_workspace' in s
+    assert 'one tool call per assistant turn' not in s
 
 
 def test_combined_suffix_gemma_sparse_expert_hint() -> None:
@@ -206,10 +207,12 @@ def test_llm_optional_max_tokens_for_gemma_template() -> None:
                 os.environ[key] = val
 
 
-def test_parallel_disabled_when_qwen_template_selected() -> None:
-    c = _conn(model='local-model', parallel=True, optimization_preset='qwen')
-    assert qwen_optimize_profile_active(c)
-    assert not effective_parallel_tool_calls(c)
+def test_parallel_follows_connection_when_qwen_template_selected() -> None:
+    on = _conn(model='local-model', parallel=True, optimization_preset='qwen')
+    assert qwen_optimize_profile_active(on)
+    assert effective_parallel_tool_calls(on)
+    off = _conn(model='local-model', parallel=False, optimization_preset='qwen')
+    assert not effective_parallel_tool_calls(off)
 
 
 def test_parallel_respects_connection_for_generic_with_qwen_model_id() -> None:
@@ -221,7 +224,6 @@ def test_parallel_respects_connection_for_generic_with_qwen_model_id() -> None:
 def test_qwen_preset_without_qwen_model_id() -> None:
     c = _conn(model='local-model', parallel=True, optimization_preset='qwen')
     assert qwen_optimize_profile_active(c)
-    assert not effective_parallel_tool_calls(c)
 
 
 def test_connection_max_output_tokens_override() -> None:
@@ -257,6 +259,7 @@ def test_combined_suffix_qwen_extra_when_qwen_preset() -> None:
     s = combined_model_prompt_suffix(c)
     assert 'Model note (Qwen)' in s
     assert 'Model note (tools)' in s
+    assert 'one tool call per assistant turn' not in s
     assert '**Edit semantics' not in s
 
 
@@ -264,6 +267,7 @@ def test_qwen_system_prompt_suffix_backward_compat() -> None:
     s = qwen_system_prompt_suffix()
     assert 'Model note (tools)' in s
     assert 'Model note (Qwen)' in s
+    assert 'one tool call per assistant turn' not in s
     assert '**Edit semantics' not in s
 
 

@@ -3,6 +3,7 @@ import type {
   AppConfig,
   ComposerRunMode,
   HitlTrailArtifact,
+  LlmReasoningSettingChange,
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
@@ -118,6 +119,7 @@ export class ChatActiveStackComponent {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly autoApplyMode = model(false);
+  readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
 
   protected readonly resolvedContainerSize = computed(() =>
     normalizeChatContainerSize(this.appConfig()?.chatContainerSize),

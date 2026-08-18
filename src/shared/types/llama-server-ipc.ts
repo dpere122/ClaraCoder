@@ -1,4 +1,6 @@
 /** Health probe result for managed llama-server subprocess (renderer + IPC). */
+import type { ChatTemplateReasoningCaps } from '../chat-template-reasoning';
+
 export type ManagedServerHealthState = 'ok' | 'loading' | 'stopped' | 'error';
 
 export type LlamaServerStartResult = { ok: true } | { ok: false; error: string };
@@ -13,6 +15,8 @@ export interface LlamaServerStatusPayload {
   embed?: { port: number; health: ManagedServerHealthState; lastLog?: string };
   /** Set when the preset has no Start command: ``baseUrl`` in settings is probed; no local Stop. */
   remote?: boolean;
+  /** Live Jinja scan from chat ``GET /props`` (omitted until fetched). */
+  chatTemplateReasoning?: ChatTemplateReasoningCaps;
 }
 
 export type LlamaServerStatusResult = LlamaServerStatusPayload | { ok: false; error: string };
@@ -44,5 +48,5 @@ export type LlamaServerLifecycleEvent =
   /** Remote weights are being fetched (e.g. ``-hf`` first run); UI may show fast crystal spin. */
   | { phase: 'downloading'; modelId: string }
   /** Chat (and embedding if configured) passed ``/health``; managed servers are ready. */
-  | { phase: 'running'; modelId: string }
+  | { phase: 'running'; modelId: string; chatTemplateReasoning?: ChatTemplateReasoningCaps }
   | { phase: 'stopped'; modelId: string };

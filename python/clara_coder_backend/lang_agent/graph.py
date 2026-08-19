@@ -22,6 +22,7 @@ from clara_coder_backend.lang_agent.streaming import sse_line, status_event
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.hitl.accept_command import accept_command_sse_payload
 from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from clara_coder_backend.middleware.briefing_disable_thinking_middleware import ClaraBriefingDisableThinkingMiddleware
 from clara_coder_backend.middleware.context_pack_activation_middleware import ContextPackActivationMiddleware
 from clara_coder_backend.hitl.command_risk_assess import maybe_enrich_pending_command_risk
 from clara_coder_backend.staging.materializations import rollback_test_run_materializations
@@ -109,6 +110,7 @@ def build_clara_single_outer_graph(
         UserEventInjectionMiddleware(),
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
+        ClaraBriefingDisableThinkingMiddleware(),
         PseudoToolXmlMiddleware(),
         EmptyResponseNudgeMiddleware(),
         VisionImageInjectionMiddleware(),

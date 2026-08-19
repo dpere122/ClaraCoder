@@ -78,12 +78,30 @@ def _resolve_reasoning_effort(raw: str) -> str | None:
     return None
 
 
-def build_llm() -> ChatOpenAI:
+def _off_reasoning_effort(allowed: list[str] | None) -> str | None:
+    """Lowest/off OpenAI-style effort value, or ``None`` when the allow-list forbids it."""
+    if allowed is None:
+        return 'none'
+    if 'none' in allowed:
+        return 'none'
+    if 'minimal' in allowed:
+        return 'minimal'
+    return None
+
+
+def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
     """Build a ChatOpenAI instance for the agent (tools bound separately).
 
     Streaming is enabled so :meth:`~langchain_core.language_models.chat_models.BaseChatModel.astream`
     yields token chunks; the agent loop forwards them as SSE while still assembling full turns
     for tool calling.
+
+    ``disable_thinking=True`` pins thinking/reasoning off for this client only (title
+    suggestion, Clara's first-turn briefing, and similar one-shot calls), for known
+    and unknown models. Local
+    OpenAI-compatible servers get ``chat_template_kwargs.enable_thinking=false`` even
+    when live Jinja caps are missing; OpenAI-style ``reasoning_effort`` is set to
+    ``none`` (or ``minimal``) when that knob is exposed.
     """
     connection = get_active_connection()
     base_url = connection.base_url
@@ -102,6 +120,7 @@ def build_llm() -> ChatOpenAI:
         logger.error('Unsupported LLM provider: %s', connection.provider)
         raise HTTPException(status_code=500, detail=f'Unsupported LLM provider: {connection.provider}')
 
+    idle_sec = llm_idle_timeout_sec()
     kwargs: dict[str, Any] = {
         'model': connection.model,
         'temperature': float(connection.temperature),
@@ -112,7 +131,11 @@ def build_llm() -> ChatOpenAI:
         'stream_usage': True,
         # Idle read timeout: a stalled stream (socket open, no tokens) raises httpx.ReadTimeout instead
         # of hanging the SSE stream forever. ``read`` is per-chunk, so long generations are unaffected.
-        'timeout': httpx.Timeout(connect=30.0, read=llm_idle_timeout_sec(), write=60.0, pool=30.0),
+        'timeout': httpx.Timeout(connect=30.0, read=idle_sec, write=60.0, pool=30.0),
+        # langchain-openai defaults ``stream_chunk_timeout`` to 120s. Local llama.cpp often emits one
+        # SSE opening chunk, then stays silent through prompt eval / thinking after a tool result —
+        # that is not a dead connection. Keep this aligned with the httpx idle read timeout.
+        'stream_chunk_timeout': idle_sec,
         # Fail fast on a stalled/timed-out stream rather than silently re-attempting in the background.
         'max_retries': 0,
     }
@@ -123,17 +146,24 @@ def build_llm() -> ChatOpenAI:
 
     # Per-connection UI setting, with env fallback for headless/dev use.
     # Live Jinja caps (when present) decide whether effort is sent; otherwise Gemma omits it.
-    thinking_off = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower() == 'off'
-    if connection_exposes_reasoning_effort(connection) and not thinking_off:
+    thinking_off = disable_thinking or (
+        (getattr(connection, 'thinking_mode', None) or 'default').strip().lower() == 'off'
+    )
+    effort_caps = getattr(connection, 'chat_template_reasoning', None)
+    allowed = effort_caps.get('reasoningEffortValues') if isinstance(effort_caps, dict) else None
+    if not isinstance(allowed, list):
+        allowed = None
+    if connection_exposes_reasoning_effort(connection) and disable_thinking:
+        off_effort = _off_reasoning_effort(allowed)
+        if off_effort is not None:
+            kwargs['reasoning_effort'] = off_effort
+    elif connection_exposes_reasoning_effort(connection) and not thinking_off:
         effort_raw = (connection.reasoning_effort or '').strip().lower()
         if not effort_raw:
             effort_raw = (env_clara('CLARA_REASONING_EFFORT', '') or '').strip().lower()
         resolved = _resolve_reasoning_effort(effort_raw)
-        if resolved is not None:
-            effort_caps = getattr(connection, 'chat_template_reasoning', None)
-            allowed = effort_caps.get('reasoningEffortValues') if isinstance(effort_caps, dict) else None
-            if not isinstance(allowed, list) or resolved in allowed:
-                kwargs['reasoning_effort'] = resolved
+        if resolved is not None and (allowed is None or resolved in allowed):
+            kwargs['reasoning_effort'] = resolved
 
     kwargs.update(llm_optional_kwargs(connection))
 
@@ -153,10 +183,16 @@ def build_llm() -> ChatOpenAI:
         kwargs['extra_body'] = base_eb
     kwargs.update(gemma_sampling)
 
-    enable_thinking = gemma_enable_thinking_for_llm(connection)
     ctk_updates: dict[str, Any] = {}
-    if enable_thinking is not None:
-        ctk_updates['enable_thinking'] = enable_thinking
+    if disable_thinking:
+        # Always pin boolean thinking off for llama.cpp / LM Studio / unknown templates.
+        # Skip OpenAI's strict Chat Completions schema (unknown extra_body fields 400).
+        if connection.provider != 'openai':
+            ctk_updates['enable_thinking'] = False
+    else:
+        enable_thinking = gemma_enable_thinking_for_llm(connection)
+        if enable_thinking is not None:
+            ctk_updates['enable_thinking'] = enable_thinking
     caps = getattr(connection, 'chat_template_reasoning', None)
     if isinstance(caps, dict) and 'reasoning_effort' in kwargs:
         ctk_updates['reasoning_effort'] = kwargs['reasoning_effort']
@@ -180,8 +216,19 @@ def build_llm() -> ChatOpenAI:
     timeout_obj = kwargs.get('timeout')
     if isinstance(timeout_obj, httpx.Timeout):
         safe['idle_read_timeout_sec'] = timeout_obj.read
+    if 'stream_chunk_timeout' in kwargs:
+        safe['stream_chunk_timeout_sec'] = kwargs['stream_chunk_timeout']
     for k, v in kwargs.items():
-        if k in ('api_key', 'model', 'temperature', 'streaming', 'base_url', 'reasoning_effort', 'timeout'):
+        if k in (
+            'api_key',
+            'model',
+            'temperature',
+            'streaming',
+            'base_url',
+            'reasoning_effort',
+            'timeout',
+            'stream_chunk_timeout',
+        ):
             continue
         safe[k] = v
     log_llm_connection_settings(safe)

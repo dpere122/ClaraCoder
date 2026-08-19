@@ -193,9 +193,11 @@ def _on_chat_model_stream(
     reasoning_ok = is_meaningful_stream_delta(reason_delta)
     if not main_ok and not reasoning_ok:
         return []
+    state.stream_chunks += 1
     if main_ok:
-        state.stream_chunks += 1
         state.stream_chars += len(delta)
+    if reasoning_ok:
+        state.stream_chars += len(reason_delta)
     if emit_model_token_sse and main_ok:
         state.partial_stream_text += delta
         state.deferred_agent_text += delta

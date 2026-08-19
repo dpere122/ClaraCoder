@@ -11,7 +11,7 @@ from typing import AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from clara_coder_backend.audio.transcribe import get_openai_client, transcribe_google_web
+from clara_coder_backend.audio.transcribe import get_openai_client, transcribe_whisper
 from clara_coder_backend.tts.kokoro import synthesize_wav_bytes, validate_voice_name
 from clara_coder_backend.session.schemas import TtsRequest
 from clara_coder_backend.session import state
@@ -38,8 +38,17 @@ async def transcribe(request: Request) -> dict[str, str]:
         temp_path = temp_file.name
 
     try:
-        if provider == 'google':
-            text = await asyncio.to_thread(transcribe_google_web, temp_path)
+        if provider == 'whisper':
+            try:
+                text = await asyncio.to_thread(transcribe_whisper, temp_path)
+            except RuntimeError as exc:
+                logger.warning('Whisper transcription unavailable: %s', exc)
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except Exception as exc:
+                logger.warning('Whisper transcription failed: %s', exc)
+                raise HTTPException(
+                    status_code=502, detail=f'Transcription failed: {exc}'
+                ) from exc
             return {'text': text}
         if provider == 'openai':
             client = get_openai_client()

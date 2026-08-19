@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         '--variant',
         default=None,
-        help='llama-server build variant override (cpu|cuda-12|cuda-13|vulkan|cuda-compiled)',
+        help='llama-server build variant, or Whisper size (tiny|base|small|medium|distil-large-v3|large-v3-turbo)',
     )
     args = parser.parse_args(argv)
 

@@ -337,12 +337,14 @@ class RuntimeAudioConfig:
     base_url: str
     model: str
     api_key: str = ''
+    custom_models_dir: str = ''
 
     def __repr__(self) -> str:
         masked_key = '***' if self.api_key else ''
         return (
             f'RuntimeAudioConfig(provider={self.provider!r}, base_url={self.base_url!r}, '
-            f'model={self.model!r}, api_key={masked_key!r})'
+            f'model={self.model!r}, api_key={masked_key!r}, '
+            f'custom_models_dir={self.custom_models_dir!r})'
         )
 
     def __str__(self) -> str:

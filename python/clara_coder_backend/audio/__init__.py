@@ -2,5 +2,5 @@
 
 Modules
 -------
-``transcribe`` — Google Web + OpenAI STT helpers
+``transcribe`` — local Whisper + OpenAI STT helpers
 """

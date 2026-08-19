@@ -39,7 +39,7 @@
               } @else if (tab.id === 'tools') {
                 {{ s.editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
               } @else if (tab.id === 'audio') {
-                {{ s.audioProvider() === 'disabled' ? 'Disabled' : s.audioProvider() === 'google' ? 'Google (free)' : 'OpenAI transcription' }}
+                {{ s.audioProvider() === 'disabled' ? 'Disabled' : s.audioProvider() === 'whisper' ? 'Whisper (local)' : 'OpenAI transcription' }}
               } @else if (tab.id === 'monaco') {
                 {{ s.monacoEditorThemeLabel(s.monacoWorkspaceEditor().theme) }} · {{ s.monacoWorkspaceEditor().fontSize }}px
               } @else {

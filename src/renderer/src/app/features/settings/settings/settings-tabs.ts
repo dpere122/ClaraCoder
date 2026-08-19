@@ -119,12 +119,12 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
     {
       id: 'provider',
       label: 'Provider',
-      description: 'Enable transcription or turn it off completely.',
+      description: 'Local Whisper or OpenAI-compatible transcription, or turn it off.',
     },
     {
       id: 'endpoint',
       label: 'Endpoint',
-      description: 'OpenAI-compatible transcription base URL, model name, and API key.',
+      description: 'Remote transcription base URL and API key (OpenAI-compatible provider).',
     },
     {
       id: 'capture',

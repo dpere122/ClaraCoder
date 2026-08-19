@@ -15,6 +15,7 @@ DEPENDENCY_IDS = (
     'llama-server',
     'java-lsp',
     'kokoro',
+    'whisper',
 )
 
 
@@ -24,6 +25,7 @@ def _providers():
         kokoro,
         llama_server,
         python_runtime,
+        whisper,
     )
 
     return {
@@ -31,6 +33,7 @@ def _providers():
         'llama-server': llama_server,
         'java-lsp': java_lsp,
         'kokoro': kokoro,
+        'whisper': whisper,
     }
 
 # Track in-flight installs for status overlay

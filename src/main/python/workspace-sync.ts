@@ -219,6 +219,12 @@ export async function syncRuntimeConfigToPython(
   const send = async (): Promise<void> => {
     const overrides =
       typeof llamaManagedEndpoints === 'function' ? llamaManagedEndpoints() : llamaManagedEndpoints;
+    const modelsDir = config.modelManager?.customModelsDir?.trim();
+    if (modelsDir) {
+      process.env.CLARA_CUSTOM_MODELS_DIR = modelsDir;
+    } else {
+      delete process.env.CLARA_CUSTOM_MODELS_DIR;
+    }
     await postRuntimeConfigToPython(config, overrides);
   };
   runtimeSyncChain = runtimeSyncChain
@@ -297,7 +303,10 @@ async function postRuntimeConfigToPython(
       body: JSON.stringify({
         activeConnectionId: config.activeLlmModelId,
         connections,
-        audio: config.audioTranscription,
+        audio: {
+          ...config.audioTranscription,
+          customModelsDir: config.modelManager?.customModelsDir?.trim() ?? '',
+        },
         host: getHostOsInfo(),
         tools: {
           editToolsStrict: config.workspaceTools.editToolsMode === 'strict',
@@ -320,6 +329,7 @@ async function postRuntimeConfigToPython(
           oldToolBodyMaxChars: config.contextCompression.oldToolBodyMaxChars,
           systemReserveRatio: config.contextCompression.systemReserveRatio,
         },
+        huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
       }),
     });
 

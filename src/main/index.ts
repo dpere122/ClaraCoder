@@ -77,6 +77,7 @@ app
     // Ensure the Model Manager library root exists (default: ~/ClaraCoder/models).
     const modelsDir = config.modelManager?.customModelsDir?.trim();
     if (modelsDir) {
+      process.env.CLARA_CUSTOM_MODELS_DIR = modelsDir;
       try {
         await mkdir(modelsDir, { recursive: true });
       } catch (err) {

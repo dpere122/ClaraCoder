@@ -68,3 +68,15 @@ def requirements_txt() -> Path:
 
 def requirements_kokoro_pypi() -> Path:
     return python_package_root() / 'requirements-kokoro-pypi.txt'
+
+
+def requirements_whisper_pypi() -> Path:
+    return python_package_root() / 'requirements-whisper-pypi.txt'
+
+
+def whisper_models_dir(custom_models_dir: str = '') -> Path:
+    """Directory for faster-whisper Hub weights (``{customModelsDir}/whisper``)."""
+    raw = (custom_models_dir or env_clara('CLARA_CUSTOM_MODELS_DIR', '')).strip()
+    if not raw:
+        raw = str(Path.home() / 'ClaraCoder' / 'models')
+    return Path(raw).expanduser().resolve() / 'whisper'

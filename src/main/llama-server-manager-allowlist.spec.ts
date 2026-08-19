@@ -9,6 +9,7 @@ import * as os from 'os';
 
 vi.mock('./python/workspace-sync', () => ({ syncRuntimeConfigToPython: vi.fn() }));
 vi.mock('./runtime/dependency-manager', () => ({ rewriteManagedLlamaCommand: vi.fn() }));
+vi.mock('./log-ingest', () => ({ ingestElectronLog: vi.fn() }));
 
 let tempBinDir = '';
 vi.mock('./paths', async () => {

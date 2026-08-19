@@ -35,6 +35,7 @@ export {
   MANAGED_LLAMA_NGL_MIN,
   buildManagedLlamaChatCommand,
   ensureManagedLlamaDefaultServerFlags,
+  ensureManagedLlamaGemmaReasoningFormat,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   inferModelFamilyFromHint,

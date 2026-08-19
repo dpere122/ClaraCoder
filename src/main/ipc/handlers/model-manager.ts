@@ -15,6 +15,7 @@ import type {
   ModelManagerMutationResult,
 } from '../../../shared';
 import { mainState } from '../../state';
+import { isBlobLikeFileName, looksLikeHubRepoLayout } from '../../utils/hub-repo-layout';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 import { downloadHfGgufToHubCache } from './hf-hub-download';
 
@@ -138,14 +139,6 @@ function pathKey(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p;
 }
 
-function isBlobLikeFileName(fileName: string): boolean {
-  const ext = path.extname(fileName);
-  if (ext) {
-    return false;
-  }
-  return /^[a-f0-9]{32,}$/i.test(fileName) || /^sha256[-_][a-f0-9]{32,}$/i.test(fileName);
-}
-
 function sanitizeModelFileName(name: string): string {
   const base = path.basename(String(name || '').trim());
   if (!base || base === '.' || base === '..') {
@@ -237,16 +230,12 @@ async function childEntryKind(parent: string, baseName: string): Promise<'dir' |
   }
 }
 
-/** True for Hugging Face Hub repo dirs (`models--org--repo`) or trees with blobs/refs/snapshots. */
+/** True for Hugging Face Hub repo dirs (`models--org--repo`) or trees with blobs/snapshots (refs optional). */
 async function isHubRepoLayoutDir(dirPath: string): Promise<boolean> {
-  const base = path.basename(dirPath);
-  if (base.toLowerCase().startsWith('models--')) {
-    return true;
-  }
   const blobs = (await childEntryKind(dirPath, 'blobs')) === 'dir';
   const refs = (await childEntryKind(dirPath, 'refs')) === 'dir';
   const snapshots = (await childEntryKind(dirPath, 'snapshots')) === 'dir';
-  return blobs && refs && snapshots;
+  return looksLikeHubRepoLayout(path.basename(dirPath), { blobs, refs, snapshots });
 }
 
 async function computeHubFolderStats(dirPath: string): Promise<{ sizeBytes: number; modifiedMs: number }> {
@@ -452,6 +441,9 @@ async function walkModelFiles(
         if (!followed.isFile()) {
           continue;
         }
+        if (isBlobLikeFileName(name)) {
+          continue;
+        }
         if (!(await isRecognizedGgufFile(full, followed.size))) {
           continue;
         }
@@ -489,6 +481,9 @@ async function walkModelFiles(
         } catch {
           continue;
         }
+      }
+      if (isBlobLikeFileName(name)) {
+        continue;
       }
       if (!(await isRecognizedGgufFile(full, fileSize))) {
         continue;

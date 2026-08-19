@@ -8,7 +8,7 @@ export interface ModelManagerFileEntry {
   source: 'custom' | 'cache';
   sourceRoot?: string;
   suggestedFileName?: string;
-  /** Hugging Face hub-style repo folder (`models--*` plus blobs/refs/snapshots layout). Omit means a single file. */
+  /** Hugging Face hub-style repo folder (`models--*` or blobs/snapshots layout). Omit means a single file. */
   entryKind?: ModelManagerEntryKind;
   /**
    * Snapshot GGUF path inside a hub repo folder when exactly one model file is present.

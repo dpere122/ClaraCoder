@@ -12,6 +12,7 @@ import type {
   DependencyProgressEvent,
 } from '../../shared';
 import { DEPENDENCY_IDS, defaultDependencyCatalog } from '../../shared';
+import { listDownloadedWhisperModels, mergeWhisperDownloadedModels } from './whisper-downloaded';
 import { ingestElectronLog } from '../log-ingest';
 import { pythonControlFetch, pythonLongFetch, pythonSseGet } from '../python/http-client';
 import { isPythonHealthy, restartPythonServer } from '../python/server';
@@ -25,6 +26,9 @@ import {
   getRuntimePythonDir,
 } from '../paths';
 import { mainState } from '../state';
+import { getDefaultCustomModelsDir } from '../config/defaults';
+import { loadConfigSync } from '../config/load-save';
+import { unwrapSecret } from '../../shared';
 import { envForChildProcess } from '../utils/filter-sensitive-env';
 
 const DEPS_LOGGER = 'clara.electron.deps';
@@ -55,6 +59,24 @@ function ensureRuntimeDirs(): void {
   // python-venv is created by the python-runtime provider on install (not an empty stub dir).
 }
 
+function modelManagerHfToken(): string {
+  try {
+    return unwrapSecret(loadConfigSync().modelManager.huggingFaceToken).trim();
+  } catch {
+    return '';
+  }
+}
+
+function customModelsRoot(): string {
+  try {
+    const dir = loadConfigSync().modelManager?.customModelsDir?.trim();
+    if (dir) return dir;
+  } catch {
+    /* fall through */
+  }
+  return process.env.CLARA_CUSTOM_MODELS_DIR || getDefaultCustomModelsDir();
+}
+
 function runtimeEnv(): NodeJS.ProcessEnv {
   const scrubbed = envForChildProcess();
   const env: NodeJS.ProcessEnv = {};
@@ -63,6 +85,7 @@ function runtimeEnv(): NodeJS.ProcessEnv {
       env[key] = value;
     }
   }
+  const hfToken = modelManagerHfToken();
   return {
     ...env,
     PYTHONUNBUFFERED: '1',
@@ -72,7 +95,20 @@ function runtimeEnv(): NodeJS.ProcessEnv {
     // Same resolver as the sidecar (includes legacy → runtime migrate).
     CLARA_JAVA_LSP_CACHE_DIR: getJavaLspCacheDir(),
     CLARA_LOG_DIR: getLogsDir(),
+    CLARA_CUSTOM_MODELS_DIR: customModelsRoot(),
+    ...(hfToken ? { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken } : {}),
   };
+}
+
+function withWhisperDownloads(dependencies: DependencyInfo[]): DependencyInfo[] {
+  const fromDisk = listDownloadedWhisperModels(customModelsRoot());
+  return dependencies.map((dep) => {
+    if (dep.id !== 'whisper') return dep;
+    return {
+      ...dep,
+      downloadedModels: mergeWhisperDownloadedModels(dep.downloadedModels, fromDisk),
+    };
+  });
 }
 
 function logDeps(level: string, message: string): void {
@@ -86,7 +122,7 @@ function logDeps(level: string, message: string): void {
 }
 
 /** Deps that change the interpreter / site-packages the FastAPI sidecar must reload. */
-const SIDECAR_RESTART_DEPS = new Set<DependencyId>(['python-runtime', 'kokoro']);
+const SIDECAR_RESTART_DEPS = new Set<DependencyId>(['python-runtime', 'kokoro', 'whisper']);
 
 async function maybeRestartSidecar(depId: DependencyId, ok: boolean): Promise<void> {
   if (!ok || !SIDECAR_RESTART_DEPS.has(depId)) return;
@@ -350,18 +386,18 @@ export async function listDependencies(): Promise<{
     '/runtime/deps/list',
   );
   if (http?.ok && Array.isArray(http.dependencies) && http.dependencies.length > 0) {
-    return { dependencies: http.dependencies };
+    return { dependencies: withWhisperDownloads(http.dependencies) };
   }
   const cli = await runDepsCli('list');
   if (cli.ok && Array.isArray(cli.dependencies) && cli.dependencies.length > 0) {
-    return { dependencies: cli.dependencies };
+    return { dependencies: withWhisperDownloads(cli.dependencies) };
   }
   const err =
     cli.error ||
     (http && !http.ok ? http.error : undefined) ||
     'Could not query dependency status; showing catalog defaults.';
   logDeps('WARNING', `list falling back to catalog: ${err}`);
-  return { dependencies: defaultDependencyCatalog(), error: err };
+  return { dependencies: withWhisperDownloads(defaultDependencyCatalog()), error: err };
 }
 
 export async function installDependency(

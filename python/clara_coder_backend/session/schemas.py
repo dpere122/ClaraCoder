@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
-from clara_coder_backend.config import DEFAULT_TRANSCRIBE_MODEL
+from clara_coder_backend.config import DEFAULT_TRANSCRIBE_MODEL, DEFAULT_WHISPER_MODEL
 
 
 class ChatRequest(BaseModel):
@@ -328,10 +328,21 @@ class RuntimeConnectionRequest(BaseModel):
 class RuntimeAudioRequest(BaseModel):
     """Transcription provider and credentials from the app settings."""
 
-    provider: Literal['openai', 'disabled', 'google'] = 'openai'
+    provider: Literal['openai', 'disabled', 'whisper'] = 'whisper'
     baseUrl: str = ''
-    model: str = DEFAULT_TRANSCRIBE_MODEL
+    model: str = ''
     apiKey: str = ''
+    customModelsDir: str = ''
+
+    @model_validator(mode='after')
+    def _default_model_for_provider(self) -> RuntimeAudioRequest:
+        if (self.model or '').strip():
+            return self
+        if self.provider == 'whisper':
+            self.model = DEFAULT_WHISPER_MODEL
+        else:
+            self.model = DEFAULT_TRANSCRIBE_MODEL
+        return self
 
 
 class RuntimeHostRequest(BaseModel):
@@ -442,6 +453,7 @@ class RuntimeConfigRequest(BaseModel):
     host: RuntimeHostRequest | None = None
     tools: RuntimeToolsRequest | None = None
     contextCompression: RuntimeContextCompressionRequest | None = None
+    huggingFaceToken: str = ''
 
 
 class LogLevelRequest(BaseModel):

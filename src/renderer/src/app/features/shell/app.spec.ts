@@ -56,9 +56,9 @@ function stubElectronApi(): StubRefs {
       },
     ],
     audioTranscription: {
-      provider: 'openai',
+      provider: 'whisper',
       baseUrl: '',
-      model: 'gpt-4o-mini-transcribe',
+      model: 'small',
       apiKey: '',
       ttsVoice: 'af_heart',
       ttsSpeechSpeed: 1,

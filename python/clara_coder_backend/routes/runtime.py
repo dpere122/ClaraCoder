@@ -135,6 +135,20 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     else:
         context_compression_cfg = prev_cc
 
+    token = (request.huggingFaceToken or '').strip()
+    if token:
+        os.environ['HF_TOKEN'] = token
+        os.environ['HUGGING_FACE_HUB_TOKEN'] = token
+    else:
+        os.environ.pop('HF_TOKEN', None)
+        os.environ.pop('HUGGING_FACE_HUB_TOKEN', None)
+
+    models_dir = (request.audio.customModelsDir or '').strip()
+    if models_dir:
+        os.environ['CLARA_CUSTOM_MODELS_DIR'] = models_dir
+    else:
+        os.environ.pop('CLARA_CUSTOM_MODELS_DIR', None)
+
     # Mutate in place so modules that imported ``runtime_config`` keep seeing live values.
     cfg = state.runtime_config
     cfg.active_connection_id = active_connection_id
@@ -144,6 +158,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         base_url=normalize_bind_all_host_url(request.audio.baseUrl),
         model=request.audio.model,
         api_key=request.audio.apiKey,
+        custom_models_dir=(request.audio.customModelsDir or '').strip(),
     )
     cfg.host = RuntimeHostConfig(
         platform=request.host.platform if request.host else '',

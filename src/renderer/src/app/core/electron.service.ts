@@ -66,9 +66,9 @@ const FALLBACK_APP_CONFIG: AppConfig = {
   activeLlmModelId: 'default-lmstudio',
   llmProviders: [],
   audioTranscription: {
-    provider: 'openai',
+    provider: 'whisper',
     baseUrl: '',
-    model: 'gpt-4o-mini-transcribe',
+    model: 'small',
     apiKey: SecretValue.of(''),
   },
   workspaceTools: {

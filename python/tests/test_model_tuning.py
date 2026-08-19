@@ -9,7 +9,6 @@ from clara_coder_backend.llm.model_tuning import (
     combined_model_prompt_suffix,
     connection_user_sampling_kwargs_for_llm,
     effective_parallel_tool_calls,
-    gemma_sparse_expert_workspace_suffix,
     gemma_optimize_profile_active,
     gemma_sampling_kwargs_for_llm,
     is_gemma_family,
@@ -85,32 +84,14 @@ def test_gemma_sampling_kwargs_always_empty() -> None:
     assert gemma_sampling_kwargs_for_llm(c) == {}
 
 
-def test_combined_suffix_gemma_thinking_on() -> None:
+def test_combined_suffix_gemma_has_no_family_prompt_notes() -> None:
     c = _conn(model='google/gemma-4-it', parallel=False, optimization_preset='gemma', thinking_mode='on')
     s = combined_model_prompt_suffix(c)
-    assert 'Model note (Gemma thinking)' in s
-    assert '<|channel>thought' in s
-    assert 'Model note (Gemma):' in s
-    assert 'transfer_staged_file_to_workspace' in s
+    assert 'Model note (tools)' in s
+    assert 'Model note (Gemma' not in s
+    assert '<|channel>thought' not in s
+    assert 'sparse experts' not in s
     assert 'one tool call per assistant turn' not in s
-
-
-def test_combined_suffix_gemma_sparse_expert_hint() -> None:
-    c = _conn(
-        model='google/gemma-4-26b-a4b-it',
-        parallel=False,
-        optimization_preset='gemma',
-        thinking_mode='default',
-        architecture_hint='auto',
-    )
-    s = combined_model_prompt_suffix(c)
-    assert 'Model note (Gemma sparse experts)' in s
-    assert 'Gemma sparse experts — workspace edits' in s
-    assert 'Single-purpose mutations' in s
-    assert 'Review synthesis' in s
-    # Staging/draft policy lives in edit_semantics_block, not the MoE suffix.
-    assert 'read_staged_edit' not in s
-    assert '**Edit semantics' not in s
 
 
 def test_combined_suffix_does_not_restate_edit_semantics() -> None:
@@ -121,37 +102,6 @@ def test_combined_suffix_does_not_restate_edit_semantics() -> None:
     assert '**Edit semantics' not in s
     assert '**Workspace edits:**' not in s
     assert 'land_in_workspace=true' not in s
-
-
-def test_gemma_sparse_expert_workspace_suffix_only_when_gemma_preset_and_sparse_model() -> None:
-    dense = _conn(
-        model='google/gemma-4-it',
-        parallel=False,
-        optimization_preset='gemma',
-        architecture_hint='dense',
-    )
-    assert gemma_sparse_expert_workspace_suffix(dense) == ''
-
-    sparse_model = _conn(
-        model='google/gemma-4-26b-a4b-it',
-        parallel=False,
-        optimization_preset='gemma',
-        architecture_hint='auto',
-    )
-    g = gemma_sparse_expert_workspace_suffix(sparse_model)
-    assert 'workspace edits' in g
-    assert 'Single-purpose mutations' in g
-    assert 'Review synthesis' in g
-    assert 'stage_snippet_edit' not in g
-    assert 'stage_line_range_edit' not in g
-
-    generic = _conn(
-        model='google/gemma-4-26b-a4b-it',
-        parallel=False,
-        optimization_preset='generic',
-        architecture_hint='auto',
-    )
-    assert gemma_sparse_expert_workspace_suffix(generic) == ''
 
 
 def test_connection_user_sampling_generic_top_p_top_k() -> None:

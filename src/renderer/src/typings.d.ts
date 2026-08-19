@@ -188,6 +188,7 @@ declare global {
       workspaceId?: string | null,
       composerMode?: 'agent' | 'plan',
       speechEnabled?: boolean,
+      ttsProvider?: import('@shared/index').TtsProvider,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;

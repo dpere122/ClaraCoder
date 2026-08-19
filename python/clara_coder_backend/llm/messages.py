@@ -40,23 +40,6 @@ _RE_PARAMETER_EQ_TAG = re.compile(
 )
 _RE_JSON_LIKE = re.compile(r'^\s*[\[{"]')
 
-# Matches a trailing sentence/line that *announces* a next step ("I'll now read the file...", "Let me
-# search for...") rather than answering. Anchored to the start of the (last) sentence so we don't flag
-# incidental "I will" phrasing buried mid-explanation.
-_RE_ACTION_COMMITMENT = re.compile(
-    r"^(?:so[, ]+|now[, ]+|first[, ]+|next[, ]+)?"
-    r"(?:i['\u2019]ll|i will|i['\u2019]m going to|i am going to|let['\u2019]s|"
-    r"let me(?!\s+know\b))\b",
-    re.IGNORECASE,
-)
-# Sentence must reference doing something (not just intent) to avoid flagging plain conversational asides.
-_RE_ACTION_COMMITMENT_VERB = re.compile(
-    r'\b(check|look|read|open|search|find|inspect|fetch|verify|run|call|use|try|stage|write|create|'
-    r'update|edit|modify|change|fix|implement|add|remove|delete|install|test|explore|dig|start|proceed|'
-    r'go (?:ahead|through)|take a look|grep|scan)\b',
-    re.IGNORECASE,
-)
-
 
 def session_to_messages(session: SessionState) -> list[BaseMessage]:
     """Map session.history entries to LangChain message objects for the LLM."""
@@ -222,32 +205,6 @@ def text_uses_pseudo_tool_markup(text: str) -> bool:
     if _RE_PSEUDO_PARAMETER_TAG.search(text):
         return True
     return False
-
-
-def text_ends_with_unfulfilled_action_commitment(text: str) -> bool:
-    """True when the model's last sentence announces a next step instead of taking it.
-
-    Catches turns where the model writes something like "I'll now check the config file for the
-    setting." and then ends the completion with **no** tool call at all (a plain-prose commitment,
-    distinct from :func:`text_uses_pseudo_tool_markup` which catches XML tool syntax). Seen most often
-    with Gemma-family stacks that narrate the next step and then stop short of emitting the matching
-    tool call. Only the final sentence/line is checked so mid-explanation "I will" phrasing that is
-    followed by an actual answer does not trigger a false positive.
-    """
-    stripped = (text or '').strip()
-    if not stripped:
-        return False
-    # Split on sentence terminators and newlines, keep the last non-empty chunk.
-    pieces = [p.strip() for p in re.split(r'(?<=[.!?:])\s+|\n+', stripped) if p.strip()]
-    if not pieces:
-        return False
-    last = pieces[-1]
-    if len(last) > 240:
-        # A long trailing paragraph is a real answer, not a bare commitment.
-        return False
-    if not _RE_ACTION_COMMITMENT.match(last):
-        return False
-    return bool(_RE_ACTION_COMMITMENT_VERB.search(last))
 
 
 def _normalize_pseudo_tool_xml(text: str) -> str:
@@ -598,6 +555,6 @@ def build_system_prompt(
     )
     if workspace_system:
         body = f'{body}\n\n{workspace_system}'
-    if session.last_stream_speech_enabled:
+    if session.last_stream_speech_enabled and session.last_stream_tts_provider == 'openai-compatible':
         body = f'{body}\n\n{speech_tts_mood_block()}'
     return f'{body}{_model_prompt_suffix(session, apply_mode)}'

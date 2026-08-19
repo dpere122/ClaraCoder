@@ -966,6 +966,9 @@ export class App implements OnInit, OnDestroy {
         workspaceId,
         composerModeForBackend(mode),
         this.speechEnabled(),
+        this.appConfig()?.audioTranscription?.ttsProvider === 'openai-compatible'
+          ? 'openai-compatible'
+          : DEFAULT_TTS_PROVIDER,
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {

@@ -7,6 +7,7 @@ which profile is active. Model ids alone do **not** enable Qwen or Gemma profile
 **Gemma** (LM Studio / OpenAI-compatible): use the **gemma** template. Thinking is boolean (``thinking_mode``),
 not OpenAI ``reasoning_effort`` tiers. Recommended ``temperature`` / ``top_p`` / ``top_k`` are written onto
 the connection when the template is selected; inference uses those connection fields directly.
+Gemma does not add extra system-prompt notes.
 
 ``max_output_tokens`` on the connection sets API ``max_tokens`` when positive; otherwise preset/env
 defaults apply. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models.
@@ -94,15 +95,6 @@ def connection_exposes_reasoning_effort(connection: RuntimeConnection) -> bool:
     if isinstance(caps, dict):
         return caps.get('reasoningEffortValues') is not None
     return not gemma_optimize_profile_active(connection)
-
-
-def sparse_expert_variant_for_prompts(connection: RuntimeConnection) -> bool:
-    """True when Gemma-style sparse-expert layout notes should apply (model id only; not a separate agent graph)."""
-    h = (getattr(connection, 'architecture_hint', None) or 'auto').strip().lower()
-    if h == 'dense':
-        return False
-    m = (connection.model or '').lower()
-    return 'a4b' in m or ('26b' in m and 'moe' in m)
 
 
 def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
@@ -223,16 +215,6 @@ def qwen_specific_prompt_suffix() -> str:
     )
 
 
-def gemma_specific_prompt_suffix() -> str:
-    """Gemma-family staging/transfer discipline; use with :func:`tool_calling_and_edit_semantics_suffix`."""
-    return (
-        '\nModel note (Gemma): After review, land approved work with **`land_in_workspace=true`** on your '
-        'final `stage_*` or LSP staging mutation, or call `transfer_staged_file_to_workspace` (`relative_paths` for '
-        'multiple already-staged files)—staging alone is not finished work. When Auto-apply is off, either path '
-        'queues the diff card; do not ask the user to approve in chat instead.\n'
-    )
-
-
 def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
     """Hint to use ``read_workspace_image`` when Qwen preset is active on a Qwen3.5 vision model."""
     if not qwen_optimize_profile_active(connection):
@@ -248,46 +230,6 @@ def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
     )
 
 
-def gemma_thinking_prompt_suffix(connection: RuntimeConnection) -> str:
-    """Gemma thinking and sparse-expert layout hints when Gemma optimize profile is active."""
-    if not gemma_optimize_profile_active(connection):
-        return ''
-    mode = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower()
-    parts: list[str] = []
-    if mode == 'on':
-        parts.append(
-            '\nModel note (Gemma thinking): Use structured reasoning for harder tasks when helpful. '
-            'The local server chat template opens a `<|channel>thought` block when thinking is enabled.\n'
-        )
-    elif mode == 'off':
-        parts.append(
-            '\nModel note (Gemma thinking): Prefer direct answers; avoid long scratchpad-style reasoning '
-            'unless the user explicitly asks for step-by-step work.\n'
-        )
-    if sparse_expert_variant_for_prompts(connection):
-        parts.append(
-            '\nModel note (Gemma sparse experts): Sparse mixture-of-experts layout (many total parameters, few active '
-            'per token); keep each assistant turn focused.\n'
-        )
-    return ''.join(parts)
-
-
-def gemma_sparse_expert_workspace_suffix(connection: RuntimeConnection) -> str:
-    """Gemma preset + sparse-expert model id: MoE pacing only (edit semantics live elsewhere)."""
-    if not gemma_optimize_profile_active(connection):
-        return ''
-    if not sparse_expert_variant_for_prompts(connection):
-        return ''
-    return (
-        '\nModel note (Gemma sparse experts — workspace edits):\n'
-        '- **Single-purpose mutations:** Do not bundle refactoring, new features, and bug fixes into one huge step '
-        'for the same file. Prefer a **linear sequence** of small staging calls; do not assume parallel '
-        'writes to the same path are safe.\n'
-        '- **Review synthesis:** When code review rejects staged work, deconstruct each issue, locate the exact '
-        'region, apply minimal surgical fixes, then re-check diagnostics on touched paths.\n'
-    )
-
-
 def qwen_system_prompt_suffix(connection: RuntimeConnection | None = None) -> str:
     """Backward-compatible name: full Qwen block equals universal semantics plus Qwen-only lines."""
     return tool_calling_and_edit_semantics_suffix(connection) + qwen_specific_prompt_suffix()
@@ -299,8 +241,9 @@ def combined_model_prompt_suffix(
     session: object | None = None,
     apply_mode: bool = False,
 ) -> str:
-    """Tool-channel reminder plus optional parallel / Qwen / Gemma notes.
+    """Tool-channel reminder plus optional parallel / Qwen notes.
 
+    Gemma uses inference settings and chat-template parsing only—no extra prompt notes.
     ``session`` / ``apply_mode`` are kept for call-site compatibility; edit semantics are
     assembled once in ``build_system_prompt`` operational guidance.
     """
@@ -311,8 +254,4 @@ def combined_model_prompt_suffix(
     if qwen_optimize_profile_active(connection):
         parts.append(qwen_specific_prompt_suffix())
         parts.append(qwen_vision_prompt_suffix(connection))
-    if gemma_optimize_profile_active(connection):
-        parts.append(gemma_specific_prompt_suffix())
-    parts.append(gemma_thinking_prompt_suffix(connection))
-    parts.append(gemma_sparse_expert_workspace_suffix(connection))
     return ''.join(parts)

@@ -102,18 +102,6 @@ try:
 except ValueError:
     MAX_AGENT_STAGING_CONTINUATION_NUDGES = 2
 
-# When the model's visible text ends by *announcing* an action ("I'll now check the file...", "Let me
-# search for...") but the completion registers no API tool_calls, re-prompt instead of treating the
-# announcement as the final answer. Seen with some Gemma stacks: the model commits to a next step in
-# plain text and then ends the turn early instead of emitting the matching tool call. 0 = disable.
-try:
-    MAX_AGENT_ACTION_COMMITMENT_NUDGES = max(
-        0,
-        min(int(env_clara('CLARA_MAX_AGENT_ACTION_COMMITMENT_NUDGES', '2') or '2'), 20),
-    )
-except ValueError:
-    MAX_AGENT_ACTION_COMMITMENT_NUDGES = 2
-
 # ---------------------------------------------------------------------------
 # Workspace tool limits
 # ---------------------------------------------------------------------------

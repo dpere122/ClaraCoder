@@ -35,10 +35,15 @@ class ChatRequest(BaseModel):
         default='agent',
         validation_alias=AliasChoices('composer_mode', 'composerMode'),
     )
-    #: When True, assistant replies are spoken aloud; inject TTS mood-tag guidance into the system prompt.
+    #: When True, assistant replies are spoken aloud. Mood-tag prompt guidance is added only for openai-compatible TTS.
     speech_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices('speech_enabled', 'speechEnabled'),
+    )
+    #: TTS backend for this turn (``kokoro`` | ``openai-compatible``). Independent of the LLM provider.
+    tts_provider: Literal['kokoro', 'openai-compatible'] = Field(
+        default='kokoro',
+        validation_alias=AliasChoices('tts_provider', 'ttsProvider'),
     )
 
     @field_validator('structured_content')

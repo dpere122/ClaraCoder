@@ -47,6 +47,7 @@ async def stream_agent_reply(
     resume_checkpoint_id: str | None = None,
     composer_mode: str = 'agent',
     speech_enabled: bool = False,
+    tts_provider: str = 'kokoro',
 ) -> AsyncIterator[str]:
     """Run one user turn and yield SSE lines until ``data: [DONE]``.
 
@@ -66,6 +67,8 @@ async def stream_agent_reply(
         ``'agent'`` (default ReAct) or ``'plan'`` (plan-and-execute pipeline).
     speech_enabled:
         Stored on the session for TTS-aware UI; does not change graph topology here.
+    tts_provider:
+        TTS backend for this turn (``kokoro`` or ``openai-compatible``); mood-tag prompt is OpenAI-only.
     """
     session = get_session(session_id)
     touch_session(session)
@@ -80,6 +83,9 @@ async def stream_agent_reply(
     session.last_stream_apply_mode = apply_mode
     session.last_stream_auto_apply_mode = auto_apply_mode
     session.last_stream_speech_enabled = bool(speech_enabled)
+    session.last_stream_tts_provider = (
+        'openai-compatible' if tts_provider == 'openai-compatible' else 'kokoro'
+    )
 
     # ContextVar so tools/middleware can resolve the active session without threading ids.
     token = current_session_id.set(session_id)

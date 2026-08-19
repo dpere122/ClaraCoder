@@ -148,7 +148,7 @@ export type LlmReasoningSettingChange =
 /** How sampling (temperature/top_p/top_k) is chosen for Gemma-class models. */
 export type GemmaSamplingPreset = 'provider-default' | 'gemma-recommended' | 'custom';
 
-/** Hint for dense vs sparse-expert Gemma layouts (affects defaults and prompt notes only). */
+/** Hint for dense vs sparse-expert Gemma layouts (legacy; no longer drives prompts). */
 export type GemmaArchitectureHint = 'auto' | 'dense';
 
 /**
@@ -195,7 +195,7 @@ export interface LlmModelProfile {
    * Optional llama.cpp-style repeat penalty; sent as ``repeat_penalty`` in ``extra_body`` (not OpenAI’s frequency_penalty).
    */
   repeatPenalty?: number;
-  /** Dense vs sparse-expert hint for Gemma 4 (e.g. 26B A4B); ``auto`` infers from the model id. */
+  /** Dense vs sparse-expert hint for Gemma 4 (legacy; unused for prompts). */
   architectureHint: GemmaArchitectureHint;
   /** Sampling temperature for chat completions (0–1). */
   temperature: number;

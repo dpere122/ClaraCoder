@@ -5,6 +5,7 @@ import type {
   DeleteConfirmPayload,
   FileDiffPayload,
   StagedTransferBatchPayload,
+  TtsProvider,
   TtsStreamPacket,
 } from '../../shared';
 
@@ -122,6 +123,7 @@ export const chatApi = {
     workspaceId?: string | null,
     composerMode?: 'agent' | 'plan',
     speechEnabled?: boolean,
+    ttsProvider?: TtsProvider,
   ) =>
     ipcRenderer.send(
       'message',
@@ -133,6 +135,7 @@ export const chatApi = {
       workspaceId ?? null,
       composerMode ?? 'agent',
       speechEnabled ?? false,
+      ttsProvider ?? 'kokoro',
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>

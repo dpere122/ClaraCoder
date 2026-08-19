@@ -52,12 +52,28 @@ def test_build_system_prompt_omits_empty_workspace_system_prompt(mock_conn: Magi
 
 
 @patch('clara_coder_backend.llm.messages.get_active_connection')
-def test_build_system_prompt_includes_tts_mood_when_speech_enabled(mock_conn: MagicMock) -> None:
+def test_build_system_prompt_omits_tts_mood_when_speech_enabled_kokoro(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn()
     session = SessionState(
         workspace_path='/tmp/project',
         workspace_context='.\n  src/',
         last_stream_speech_enabled=True,
+    )
+    prompt = build_system_prompt(session, apply_mode=False)
+    assert '[[tts_mood:' not in prompt
+    assert 'TTS is on' not in prompt
+
+
+@patch('clara_coder_backend.llm.messages.get_active_connection')
+def test_build_system_prompt_includes_tts_mood_when_speech_openai_compatible(
+    mock_conn: MagicMock,
+) -> None:
+    mock_conn.return_value = _conn()
+    session = SessionState(
+        workspace_path='/tmp/project',
+        workspace_context='.\n  src/',
+        last_stream_speech_enabled=True,
+        last_stream_tts_provider='openai-compatible',
     )
     prompt = build_system_prompt(session, apply_mode=False)
     assert '[[tts_mood:' in prompt
@@ -71,6 +87,7 @@ def test_build_system_prompt_omits_tts_mood_when_speech_disabled(mock_conn: Magi
         workspace_path='/tmp/project',
         workspace_context='.\n  src/',
         last_stream_speech_enabled=False,
+        last_stream_tts_provider='openai-compatible',
     )
     prompt = build_system_prompt(session, apply_mode=False)
     assert '[[tts_mood:' not in prompt

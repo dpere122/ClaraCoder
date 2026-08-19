@@ -17,9 +17,11 @@ import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
+  DEFAULT_OPENAI_TRANSCRIBE_MODEL,
   DEFAULT_OPENAI_TTS_BASE_URL,
   DEFAULT_OPENAI_TTS_VOICE,
   DEFAULT_TTS_PROVIDER,
+  DEFAULT_WHISPER_MODEL,
   findLlmModelLocation,
   inferContextWindowTokens,
   isLegacyLlamaCppManagedShape,
@@ -915,7 +917,23 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   } else {
     const audio = newConfig.audioTranscription;
-    if (!audio.provider) {
+    const rawProvider = audio.provider as string | undefined;
+    if (rawProvider === 'google') {
+      audio.provider = 'whisper';
+      audio.baseUrl = '';
+      audio.apiKey = SecretValue.of('');
+      if (!audio.model || audio.model === 'google-web-speech') {
+        audio.model = DEFAULT_WHISPER_MODEL;
+      }
+      migrated = true;
+    } else if (!audio.provider) {
+      audio.provider = 'openai';
+      migrated = true;
+    } else if (
+      audio.provider !== 'openai' &&
+      audio.provider !== 'disabled' &&
+      audio.provider !== 'whisper'
+    ) {
       audio.provider = 'openai';
       migrated = true;
     }
@@ -923,8 +941,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
       audio.baseUrl = '';
       migrated = true;
     }
+    if (audio.model === 'google-web-speech') {
+      audio.model = DEFAULT_WHISPER_MODEL;
+      migrated = true;
+    }
     if (!audio.model) {
-      audio.model = 'gpt-4o-mini-transcribe';
+      audio.model =
+        audio.provider === 'whisper' ? DEFAULT_WHISPER_MODEL : DEFAULT_OPENAI_TRANSCRIBE_MODEL;
       migrated = true;
     }
     if (audio.apiKey === undefined) {

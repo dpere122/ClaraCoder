@@ -362,6 +362,74 @@ export type TtsProvider = 'kokoro' | 'openai-compatible';
 
 export const DEFAULT_TTS_PROVIDER: TtsProvider = 'kokoro';
 
+/** Speech-to-text backend chosen in Settings → Audio. */
+export type AudioTranscriptionProvider = 'openai' | 'disabled' | 'whisper';
+
+/** Default faster-whisper size for local STT (CPU). */
+export const DEFAULT_WHISPER_MODEL = 'small';
+
+/** Default OpenAI / OpenAI-compatible transcription model id. */
+export const DEFAULT_OPENAI_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
+
+/** Size picker for Settings → Audio when provider is local Whisper. */
+export const WHISPER_MODEL_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'tiny', label: 'tiny — fastest' },
+  { value: 'base', label: 'base' },
+  { value: 'small', label: 'small — recommended' },
+  { value: 'medium', label: 'medium' },
+  { value: 'distil-large-v3', label: 'distil-large-v3' },
+  { value: 'large-v3-turbo', label: 'large-v3-turbo' },
+];
+
+/** faster-whisper size alias → Hugging Face repo (same map as the Python dep provider). */
+export const WHISPER_SIZE_REPOS: Readonly<Record<string, string>> = {
+  tiny: 'Systran/faster-whisper-tiny',
+  base: 'Systran/faster-whisper-base',
+  small: 'Systran/faster-whisper-small',
+  medium: 'Systran/faster-whisper-medium',
+  'distil-large-v3': 'Systran/faster-distil-whisper-large-v3',
+  'large-v3-turbo': 'mobiuslabsgmbh/faster-whisper-large-v3-turbo',
+};
+
+const WHISPER_MODEL_IDS = new Set<string>(WHISPER_MODEL_OPTIONS.map((o) => o.value));
+
+/** Hugging Face Hub cache folder for ``org/name`` (``models--org--name``). */
+export function whisperHubCacheDirname(repoId: string): string {
+  return 'models--' + repoId.replace(/\//g, '--');
+}
+
+/** True when ``model`` is a known faster-whisper size id. */
+export function isWhisperModelId(model: string): boolean {
+  return WHISPER_MODEL_IDS.has(model);
+}
+
+/** Settings / Dependencies size picker limited to Hub weights already on disk. */
+export function filterDownloadedWhisperModels(
+  downloaded: readonly string[],
+): readonly { value: string; label: string }[] {
+  const set = new Set(downloaded);
+  return WHISPER_MODEL_OPTIONS.filter((o) => set.has(o.value));
+}
+
+/**
+ * Settings Audio model: keep the persisted size when it is on disk; otherwise the first
+ * downloaded size in {@link WHISPER_MODEL_OPTIONS} order. Empty download list leaves ``persisted``.
+ */
+export function pickWhisperSettingsModel(
+  persisted: string,
+  downloaded: readonly string[],
+): string {
+  if (downloaded.includes(persisted)) {
+    return persisted;
+  }
+  return filterDownloadedWhisperModels(downloaded)[0]?.value ?? persisted;
+}
+
+/** Default model name for the given STT provider. */
+export function defaultModelForAudioProvider(provider: AudioTranscriptionProvider): string {
+  return provider === 'whisper' ? DEFAULT_WHISPER_MODEL : DEFAULT_OPENAI_TRANSCRIBE_MODEL;
+}
+
 /** Bounds for Settings → Audio → assistant speech speed (sent to Kokoro ``speed``). */
 export const TTS_SPEECH_SPEED_MIN = 0.5;
 export const TTS_SPEECH_SPEED_MAX = 2;
@@ -404,7 +472,7 @@ export function normalizeChatContainerSize(value: unknown): ChatContainerSize {
 
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
-  provider: 'openai' | 'disabled' | 'google';
+  provider: AudioTranscriptionProvider;
   baseUrl: string;
   model: string;
   apiKey: SecretValue<string>;

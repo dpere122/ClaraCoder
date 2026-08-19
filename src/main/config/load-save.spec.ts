@@ -9,7 +9,7 @@ vi.mock('../paths', () => ({
   getConfigPath: () => join(process.env.CLARA_TEST_CONFIG_DIR ?? '', 'config.json'),
 }));
 
-import { loadConfig, mergeSettingsConfigSave, updateConfig } from './load-save';
+import { loadConfig, mergeSettingsConfigSave, migrateConfig, updateConfig } from './load-save';
 
 function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const base = createDefaultConfig();
@@ -102,5 +102,22 @@ describe('updateConfig serialization', () => {
     const loaded = await loadConfig();
     expect(loaded.workspaces).toHaveLength(1);
     expect(loaded.workspaces[0]?.id).toBe('ws-a');
+  });
+});
+
+describe('migrateConfig audio', () => {
+  it('defaults new audio to local whisper', () => {
+    const cfg = createDefaultConfig();
+    expect(cfg.audioTranscription.provider).toBe('whisper');
+    expect(cfg.audioTranscription.model).toBe('small');
+  });
+
+  it('migrates google STT to local whisper', () => {
+    const cfg = sampleConfig();
+    (cfg.audioTranscription as { provider: string }).provider = 'google';
+    cfg.audioTranscription.model = 'google-web-speech';
+    const migrated = migrateConfig(cfg);
+    expect(migrated.audioTranscription.provider).toBe('whisper');
+    expect(migrated.audioTranscription.model).toBe('small');
   });
 });

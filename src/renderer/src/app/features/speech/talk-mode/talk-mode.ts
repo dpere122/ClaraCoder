@@ -215,6 +215,9 @@ export class TalkMode implements OnDestroy {
       this.zone.run(() =>
         this.statusMessage.set(msg.length > 160 ? `${msg.slice(0, 157)}…` : msg),
       );
+      if (msg.includes('Dependencies')) {
+        this.electron.openDependenciesWindow();
+      }
     } finally {
       this.transcribing = false;
       const captured = hadSpeech;

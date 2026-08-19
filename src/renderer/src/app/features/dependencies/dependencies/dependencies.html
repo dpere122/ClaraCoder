@@ -4,7 +4,7 @@
       <p class='deps-eyebrow'>Runtime</p>
       <h2>Dependencies</h2>
       <p class='deps-copy'>
-        Download and manage Clara’s runtime pieces: Python packages, llama-server, Java LSP, and Kokoro TTS.
+        Download and manage Clara’s runtime pieces: Python packages, llama-server, Java LSP, Kokoro TTS, and Whisper STT.
       </p>
     </div>
     <button type='button' class='deps-close-btn' (click)='closeWindow()'>Close</button>
@@ -31,6 +31,11 @@
           @if (isLlamaServer(dep)) {
             <div class='deps-variant'>
               <span class='deps-variant__label'>Build variant: {{ variantLabels[variantFor(dep)] }}</span>
+            </div>
+          }
+          @if (isWhisper(dep)) {
+            <div class='deps-variant'>
+              <span class='deps-variant__label'>Model size: {{ whisperSizeFor(dep) }}</span>
             </div>
           }
 
@@ -132,10 +137,38 @@
                   </p>
                 </div>
               }
+              @if (isWhisper(dep)) {
+                <div class='deps-variant'>
+                  <label class='deps-variant__label' [attr.for]="'whisper-size-' + dep.id">Model size</label>
+                  <select
+                    class='deps-variant__select'
+                    [id]="'whisper-size-' + dep.id"
+                    [disabled]='isBusy(dep.id)'
+                    [value]='whisperSizeFor(dep)'
+                    (change)='setWhisperSize(dep, $any($event.target).value)'
+                  >
+                    @for (opt of whisperSizeOptions; track opt.value) {
+                      <option [value]='opt.value'>{{ opt.label }}</option>
+                    }
+                  </select>
+                  @if (dep.downloadedModels?.length) {
+                    <p class='deps-variant__hint'>
+                      Downloaded:
+                      @for (size of dep.downloadedModels; track size) {
+                        <span class='deps-pill'>{{ size }}</span>
+                      }
+                    </p>
+                  } @else {
+                    <p class='deps-variant__hint'>
+                      Download a size to use it in Settings → Audio. Talk mode never fetches weights itself.
+                    </p>
+                  }
+                </div>
+              }
             </div>
 
             <div class='deps-card__actions'>
-              @if (dep.state === 'missing' || dep.state === 'error') {
+              @if (showDownload(dep)) {
                 <button
                   type='button'
                   class='deps-btn deps-btn--primary'

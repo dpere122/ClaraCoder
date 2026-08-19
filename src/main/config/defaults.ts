@@ -11,13 +11,13 @@ import type {
   Workspace,
   WorkspaceToolsConfig,
 } from '../../shared';
-import { envClara } from '../env-clara';
 import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_BASE_URL,
   DEFAULT_TTS_PROVIDER,
+  DEFAULT_WHISPER_MODEL,
   defaultLlamaCppManaged,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
@@ -143,9 +143,9 @@ export function getDefaultLlmProviders(): LlmProviderConfig[] {
 
 export function getDefaultAudioTranscription(): AudioTranscriptionConfig {
   return {
-    provider: 'openai',
+    provider: 'whisper',
     baseUrl: process.env.OPENAI_BASE_URL || '',
-    model: envClara('TRANSCRIBE_MODEL') || 'gpt-4o-mini-transcribe',
+    model: DEFAULT_WHISPER_MODEL,
     apiKey: SecretValue.of(''),
     talkInputDeviceId: 'default',
     talkSilenceThresholdSeconds: 2,

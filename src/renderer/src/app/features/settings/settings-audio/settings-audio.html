@@ -6,31 +6,67 @@
               <label class='field'>
                 <span>Provider</span>
                 <select [ngModel]='s.audioProvider()' (ngModelChange)='s.onAudioProviderChange($event)'>
-                  <option value='openai'>OpenAI (API key)</option>
-                  <option value='google'>Google Web Speech (free, online)</option>
+                  <option value='whisper'>Whisper (local)</option>
+                  <option value='openai'>OpenAI-compatible</option>
                   <option value='disabled'>Disabled</option>
                 </select>
               </label>
               <label class='field'>
-                <span>Model</span>
-                <input
-                  type='text'
-                  [ngModel]='s.audioModel()'
-                  [disabled]='s.audioProvider() === &quot;disabled&quot; || s.audioProvider() === &quot;google&quot;'
-                  (ngModelChange)='s.updateAudioSettings({ model: $event })'
-                />
+                <span class='local-model-label'>
+                  Model
+                  <span
+                    class='cache-location-loading cache-location-loading--inline'
+                    [class.is-active]='s.audioProvider() === "whisper" && s.whisperModelsLoading()'
+                    role='status'
+                    aria-live='polite'
+                    [attr.aria-hidden]='s.audioProvider() === "whisper" && s.whisperModelsLoading() ? null : "true"'
+                    [attr.aria-label]='s.audioProvider() === "whisper" && s.whisperModelsLoading() ? "Loading downloaded Whisper models" : null'
+                  >
+                    <span class='cache-location-loading__spinner-host' aria-hidden='true'>
+                      <ngx-spinner
+                        [name]='s.whisperModelDropdownSpinnerName'
+                        [type]='s.cacheDetectSpinnerType'
+                        [fullScreen]='false'
+                        bdColor='rgba(0,0,0,0)'
+                        size='small'
+                        color='var(--t-primary)'
+                      ></ngx-spinner>
+                    </span>
+                  </span>
+                </span>
+                @if (s.audioProvider() === 'whisper') {
+                  <select
+                    [ngModel]='s.audioModel()'
+                    [disabled]='s.whisperModelsLoading() || s.whisperModelOptions().length === 0'
+                    (ngModelChange)='s.updateAudioSettings({ model: $event })'
+                  >
+                    @for (opt of s.whisperModelOptions(); track opt.value) {
+                      <option [value]='opt.value'>{{ opt.label }}</option>
+                    }
+                  </select>
+                } @else {
+                  <input
+                    type='text'
+                    [ngModel]='s.audioModel()'
+                    [disabled]='s.audioProvider() === &quot;disabled&quot;'
+                    (ngModelChange)='s.updateAudioSettings({ model: $event })'
+                  />
+                }
               </label>
             </div>
-            @if (s.audioProvider() === 'google') {
+            @if (s.audioProvider() === 'whisper') {
               <p class='settings-field-hint'>
-                No API key needed. Requires internet; audio is sent to Google's speech service. For offline use, run a
-                local Whisper server and point OpenAI mode at it.
+                Local faster-whisper on CPU. Audio stays on this machine. Download a size from
+                File → Dependencies; only downloaded sizes appear here.
               </p>
             }
             <div class='callout'>
               <p>
                 @if (s.audioProvider() === 'disabled') {
                   Voice transcription is currently disabled. Text chat still works normally.
+                } @else if (s.audioProvider() === 'whisper') {
+                  Talk mode sends each utterance to the Python sidecar. Weights live under your Model Manager folder in a
+                  <code>whisper</code> subdirectory.
                 } @else {
                   Audio transcription supports OpenAI-compatible endpoints. These settings are stored alongside your LLM connections.
                 }
@@ -47,7 +83,7 @@
                 <input
                   type='text'
                   [ngModel]='s.audioBaseUrl()'
-                  [disabled]='s.audioProvider() === &quot;disabled&quot; || s.audioProvider() === &quot;google&quot;'
+                  [disabled]='s.audioProvider() !== &quot;openai&quot;'
                   (ngModelChange)='s.updateAudioSettings({ baseUrl: $event })'
                 />
               </label>
@@ -56,7 +92,7 @@
                 <input
                   type='password'
                   [ngModel]='s.audioApiKey()'
-                  [disabled]='s.audioProvider() === &quot;disabled&quot; || s.audioProvider() === &quot;google&quot;'
+                  [disabled]='s.audioProvider() !== &quot;openai&quot;'
                   (ngModelChange)='s.updateAudioSettings({ apiKey: $event })'
                 />
               </label>

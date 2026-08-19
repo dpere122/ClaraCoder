@@ -40,6 +40,15 @@ const pythonControlHttpAgent = new Agent({
   headersTimeout: 60_000,
 });
 
+/**
+ * Log ingest must not share the control agent: a wedged sidecar would otherwise queue
+ * 60s header waits and starve ``/runtime/deps/list`` / health probes (``fetch failed``).
+ */
+const pythonLogIngestHttpAgent = new Agent({
+  bodyTimeout: 2_000,
+  headersTimeout: 2_000,
+});
+
 /** Long installs (deps / pip) — no body or headers timeout (Kokoro/pip can exceed minutes). */
 const pythonLongHttpAgent = new Agent({
   bodyTimeout: 0,
@@ -53,6 +62,14 @@ export async function pythonControlFetch(urlPath: string, init?: RequestInit): P
   return undiciFetch(joinPythonUrl(urlPath), {
     ...withSidecarAuth(init),
     dispatcher: pythonControlHttpAgent,
+  } as never);
+}
+
+/** Short-timeout POST used by Electron → Python log ingest. */
+export async function pythonLogIngestFetch(urlPath: string, init?: RequestInit): Promise<WebResponse> {
+  return undiciFetch(joinPythonUrl(urlPath), {
+    ...withSidecarAuth(init),
+    dispatcher: pythonLogIngestHttpAgent,
   } as never);
 }
 

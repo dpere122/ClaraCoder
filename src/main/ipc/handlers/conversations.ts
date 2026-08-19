@@ -248,21 +248,14 @@ export function registerConversationsIpc(): void {
     }
     upsertConversation(conv);
 
-    try {
-      await pythonControlFetch('/clear', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: id }),
-      });
-    } catch (err) {
-      console.error('Failed to clear Python history:', err);
-    }
-
-    try {
-      await syncConversationWorkspaceContext(conv);
-    } catch (err) {
+    // Persist first and return so the renderer spinner is not gated on Python.
+    // After managed llama-server starts, the sidecar can sit on control routes until
+    // undici's 60s headers timeout (`Failed to clear Python history` / New Conversation
+    // overlay never clears). Skip POST /clear: this id is new (`get_session` creates an
+    // empty session), and a late /clear can race the first chat turn and wipe it.
+    void syncConversationWorkspaceContext(conv).catch((err) => {
       console.error('Failed to sync workspace context for new conversation:', err);
-    }
+    });
 
     return conv;
   });

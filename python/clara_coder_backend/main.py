@@ -12,14 +12,14 @@ from __future__ import annotations
 import hmac
 import logging
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from clara_coder_backend.logging.app_logging import configure_logging
 from clara_coder_backend.config import env_clara
@@ -66,8 +66,23 @@ def _allowed_cors_origins() -> list[str]:
     return [part.strip() for part in raw.split(',') if part.strip()]
 
 
-class SidecarBearerAuthMiddleware(BaseHTTPMiddleware):
+def _scope_header(scope: Scope, name: str) -> str:
+    """Read one HTTP header from an ASGI scope (header names are lower-case bytes)."""
+    target = name.lower().encode('latin-1')
+    for key, value in scope.get('headers') or ():
+        if key == target:
+            return value.decode('latin-1')
+    return ''
+
+
+class SidecarBearerAuthMiddleware:
     """Require ``Authorization: Bearer <CLARA_SIDECAR_TOKEN>`` on every route except ``/health``.
+
+    Pure ASGI (not Starlette ``BaseHTTPMiddleware``): long-lived SSE (``/chat/stream``,
+    ``/logs/stream``) must not serialize other HTTP requests. ``BaseHTTPMiddleware`` wraps
+    ``call_next`` in a task group that can hold the rest of the sidecar until the stream
+    ends, so Electron ``POST /clear`` never got response headers (undici
+    ``UND_ERR_HEADERS_TIMEOUT``) and New Conversation stayed on the loading spinner.
 
     Auth is fail-closed: an empty ``CLARA_SIDECAR_TOKEN`` rejects requests unless
     ``CLARA_SIDECAR_AUTH_OPTIONAL=1`` is set (pytest / bare uvicorn). Electron always
@@ -76,31 +91,47 @@ class SidecarBearerAuthMiddleware(BaseHTTPMiddleware):
     CORSMiddleware can answer; bare OPTIONS does not.
     """
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip auth only for real CORS preflight, not every OPTIONS.
-        if request.method == 'OPTIONS':
-            origin = request.headers.get('origin') or ''
-            acrm = request.headers.get('access-control-request-method')
-            if acrm and origin in _allowed_cors_origins():
-                return await call_next(request)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-        path = request.url.path.rstrip('/') or '/'
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope['type'] != 'http':
+            await self.app(scope, receive, send)
+            return
+
+        method = str(scope.get('method') or 'GET')
+        if method == 'OPTIONS':
+            origin = _scope_header(scope, 'origin')
+            acrm = _scope_header(scope, 'access-control-request-method')
+            if acrm and origin in _allowed_cors_origins():
+                await self.app(scope, receive, send)
+                return
+
+        path = str(scope.get('path') or '/').rstrip('/') or '/'
         if path in _AUTH_EXEMPT_PATHS:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         expected = os.getenv('CLARA_SIDECAR_TOKEN', '') or ''
         if not expected:
             # Fail closed unless explicitly opted out for local/test runs.
             if (os.getenv('CLARA_SIDECAR_AUTH_OPTIONAL', '') or '').strip() == '1':
-                return await call_next(request)
-            return JSONResponse({'detail': 'Unauthorized'}, status_code=401)
+                await self.app(scope, receive, send)
+                return
+            await JSONResponse({'detail': 'Unauthorized'}, status_code=401)(scope, receive, send)
+            return
 
-        auth = request.headers.get('authorization') or ''
+        auth = _scope_header(scope, 'authorization')
         scheme, _, credential = auth.partition(' ')
         provided = credential.strip() if scheme.lower() == 'bearer' else ''
-        if not provided or not hmac.compare_digest(provided, expected):
-            return JSONResponse({'detail': 'Unauthorized'}, status_code=401)
-        return await call_next(request)
+        if (
+            not provided
+            or len(provided) != len(expected)
+            or not hmac.compare_digest(provided, expected)
+        ):
+            await JSONResponse({'detail': 'Unauthorized'}, status_code=401)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 @asynccontextmanager

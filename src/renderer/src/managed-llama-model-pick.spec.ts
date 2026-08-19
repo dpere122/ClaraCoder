@@ -1,6 +1,7 @@
 import {
   buildManagedLlamaChatCommand,
   ensureManagedLlamaDefaultServerFlags,
+  ensureManagedLlamaGemmaReasoningFormat,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   inferOptimizationPresetFromModelHint,
@@ -343,6 +344,19 @@ describe('ensureManagedLlamaDefaultServerFlags', () => {
     expect(ensureManagedLlamaDefaultServerFlags('llama-server --no-ui --port {{PORT}}')).toBe(
       'llama-server --no-ui --port {{PORT}} -np 1',
     );
+  });
+});
+
+describe('ensureManagedLlamaGemmaReasoningFormat', () => {
+  it('appends --reasoning-format none when missing', () => {
+    expect(ensureManagedLlamaGemmaReasoningFormat('llama-server --jinja --port {{PORT}}')).toBe(
+      'llama-server --jinja --port {{PORT}} --reasoning-format none',
+    );
+  });
+
+  it('does not override an existing --reasoning-format', () => {
+    const cmd = 'llama-server --jinja --reasoning-format deepseek --port {{PORT}}';
+    expect(ensureManagedLlamaGemmaReasoningFormat(cmd)).toBe(cmd);
   });
 });
 

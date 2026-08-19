@@ -20,6 +20,7 @@ import {
   appendJinjaFlagToManagedChatCommand,
   detectShellQuotingPlatform,
   ensureManagedLlamaDefaultServerFlags,
+  ensureManagedLlamaGemmaReasoningFormat,
   findLlmModelLocation,
   formatChatTemplateReasoningSummary,
   looksLikeLlamaModelDownload,
@@ -55,6 +56,50 @@ function logLlamaLifecycle(level: string, message: string): void {
     console.log(`[llama] ${message}`);
   }
   void ingestElectronLog(level, LLAMA_LOGGER, message, 'electron');
+}
+
+const STREAM_LOG_LINE_MAX = 2_000;
+
+/**
+ * Split mixed newline / CR process output into complete lines.
+ * Holds a trailing partial line until the next chunk or ``flush``.
+ */
+export function createLineBuffer(onLine: (line: string) => void): {
+  push(chunk: string): void;
+  flush(): void;
+} {
+  let pending = '';
+  const emit = (raw: string): void => {
+    const line = raw.replace(/\s+$/u, '');
+    if (line) {
+      onLine(line);
+    }
+  };
+  return {
+    push(chunk: string): void {
+      if (!chunk) {
+        return;
+      }
+      pending += chunk;
+      const parts = pending.split(/\r\n|\n|\r/);
+      pending = parts.pop() ?? '';
+      for (const part of parts) {
+        emit(part);
+      }
+    },
+    flush(): void {
+      if (!pending) {
+        return;
+      }
+      emit(pending);
+      pending = '';
+    },
+  };
+}
+
+function logLlamaStreamLine(which: StreamKind, fd: 'stdout' | 'stderr', line: string): void {
+  const clipped = line.length > STREAM_LOG_LINE_MAX ? `${line.slice(0, STREAM_LOG_LINE_MAX)}…` : line;
+  logLlamaLifecycle('INFO', `${which} ${fd}: ${clipped}`);
 }
 
 type StreamKind = 'chat' | 'embed';
@@ -580,12 +625,15 @@ function attachLlamaStreams(
   acquireRedactSecret(hfToken);
   const stdoutRedact = createSecretChunkRedactor(hfToken);
   const stderrRedact = createSecretChunkRedactor(hfToken);
+  const stdoutLines = createLineBuffer((line) => logLlamaStreamLine(which, 'stdout', line));
+  const stderrLines = createLineBuffer((line) => logLlamaStreamLine(which, 'stderr', line));
   proc.stdout?.on('data', (d: Buffer) => {
     const s = stdoutRedact.push(d.toString());
     if (!s) {
       return;
     }
     appendStdout(bucket, which, s);
+    stdoutLines.push(s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: s });
   });
   proc.stderr?.on('data', (d: Buffer) => {
@@ -594,20 +642,40 @@ function attachLlamaStreams(
       return;
     }
     appendStderrQuiet(bucket, which, s);
+    stderrLines.push(s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: s });
+  });
+  proc.on('error', (err: Error) => {
+    logLlamaLifecycle(
+      'ERROR',
+      `${which} llama-server spawn error modelId=${modelId} pid=${proc.pid ?? '?'} error=${err.message}`,
+    );
   });
   proc.on('exit', (code, signal) => {
     const flushedOut = stdoutRedact.flush();
     if (flushedOut) {
       appendStdout(bucket, which, flushedOut);
+      stdoutLines.push(flushedOut);
       sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: flushedOut });
     }
     const flushedErr = stderrRedact.flush();
     if (flushedErr) {
       appendStderrQuiet(bucket, which, flushedErr);
+      stderrLines.push(flushedErr);
       sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: flushedErr });
     }
+    stdoutLines.flush();
+    stderrLines.flush();
     releaseRedactSecret(hfToken);
+    const st = running.get(modelId);
+    const unexpected =
+      which === 'chat' ? !!(st && st.chatProc === proc) : !!(st && st.embedProc === proc);
+    const level = unexpected && code !== 0 ? 'WARNING' : 'INFO';
+    logLlamaLifecycle(
+      level,
+      `${which} llama-server process exited modelId=${modelId} pid=${proc.pid ?? '?'} ` +
+        `code=${code} signal=${signal ?? ''} unexpected=${unexpected}`,
+    );
     sendToRenderer('llama-server-process-exit', {
       modelId,
       stream: which,
@@ -617,18 +685,12 @@ function attachLlamaStreams(
     // Chat death ends the managed pair. Intentional stop deletes from ``running`` first
     // so this path only runs on unexpected exit (or a race after stop).
     if (which === 'chat') {
-      const st = running.get(modelId);
-      if (st && st.chatProc === proc) {
-        logLlamaLifecycle(
-          'WARNING',
-          `chat llama-server exited modelId=${modelId} code=${code} signal=${signal ?? ''}`,
-        );
+      if (unexpected) {
         stopManagedLlamaServers(modelId);
       }
       return;
     }
-    const st = running.get(modelId);
-    if (!st || st.embedProc !== proc) {
+    if (!unexpected || !st) {
       return;
     }
     st.embedProc = undefined;
@@ -710,6 +772,9 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   }
 
   chatCmd = ensureManagedLlamaDefaultServerFlags(appendJinjaFlagToManagedChatCommand(chatCmd));
+  if ((loc.model.optimizationPreset || '').trim().toLowerCase() === 'gemma') {
+    chatCmd = ensureManagedLlamaGemmaReasoningFormat(chatCmd);
+  }
   const chatTemplateFile = parseManagedLlamaChatTemplateFile(chatCmd);
   if (chatTemplateFile && !existsSync(chatTemplateFile)) {
     return {
@@ -807,6 +872,10 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     });
     st.chatProc = chatProc;
     attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
+    logLlamaLifecycle(
+      'INFO',
+      `spawned chat llama-server modelId=${modelId} pid=${chatProc.pid ?? '?'} port=${chatPort}`,
+    );
     chatProc.on('error', (err: Error) => {
       const cur = running.get(modelId);
       if (cur && cur.generation === generation && cur.chatProc === chatProc) {
@@ -871,6 +940,10 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       });
       stEmbed.embedProc = embedProc;
       attachLlamaStreams(modelId, 'embed', embedProc, stEmbed.logBuf, hfToken);
+      logLlamaLifecycle(
+        'INFO',
+        `spawned embed llama-server modelId=${modelId} pid=${embedProc.pid ?? '?'} port=${embedPort}`,
+      );
       embedProc.on('error', (err: Error) => {
         const cur = running.get(modelId);
         if (cur && cur.generation === generation && cur.embedProc === embedProc) {
@@ -944,7 +1017,7 @@ function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBu
   const sig = proc.signalCode;
   const why =
     code !== null ? `exit ${code}` : sig != null ? `signal ${sig}` : 'exited unexpectedly';
-  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for stdout; stderr is not mirrored to app logs.${hfWarmHintFromLogs(logBuf, kind)}`;
+  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab and app logs (clara.electron.llama) for process output.${hfWarmHintFromLogs(logBuf, kind)}`;
 }
 
 function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
@@ -1174,12 +1247,15 @@ export function stopManagedLlamaServers(modelId: string): void {
   }
   st.abort = true;
   invalidateManagedStatusCache(modelId);
-  // Remove before kill so the chat ``exit`` handler does not double-emit lifecycle.
+  // Remove before kill so the chat ``exit`` handler does not treat this as unexpected death.
   running.delete(modelId);
   clearCachedChatTemplateReasoning(modelId);
   propsFetchFailedAt.delete(modelId);
   sendToRenderer('llama-server-lifecycle', { phase: 'stopped', modelId });
-  logLlamaLifecycle('INFO', `stopped managed llama-server modelId=${modelId}`);
+  logLlamaLifecycle(
+    'INFO',
+    `stopped managed llama-server modelId=${modelId} chatPid=${st.chatProc?.pid ?? ''} embedPid=${st.embedProc?.pid ?? ''}`,
+  );
   killProcessTree(st.embedProc);
   killProcessTree(st.chatProc);
   // Retract the published runtime overrides so Python stops targeting a dead URL.

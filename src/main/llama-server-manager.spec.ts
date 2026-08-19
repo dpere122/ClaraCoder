@@ -6,6 +6,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('./python/workspace-sync', () => ({ syncRuntimeConfigToPython: vi.fn() }));
 vi.mock('./runtime/dependency-manager', () => ({ rewriteManagedLlamaCommand: vi.fn() }));
+vi.mock('./log-ingest', () => ({ ingestElectronLog: vi.fn() }));
 
 import {
   tokenizeManagedLlamaCommand,
@@ -15,6 +16,7 @@ import {
   releaseRedactSecret,
   MANAGED_LLAMA_SHELL_METACHAR_RE,
   createSecretChunkRedactor,
+  createLineBuffer,
   managedLlamaHealthHost,
 } from './llama-server-manager';
 
@@ -181,6 +183,34 @@ describe('createSecretChunkRedactor', () => {
     const r = createSecretChunkRedactor('');
     expect(r.push('visible')).toBe('visible');
     expect(r.flush()).toBe('');
+  });
+});
+
+describe('createLineBuffer', () => {
+  it('emits complete lines and holds a trailing partial', () => {
+    const lines: string[] = [];
+    const buf = createLineBuffer((line) => lines.push(line));
+    buf.push('hello\nwor');
+    buf.push('ld\n');
+    expect(lines).toEqual(['hello', 'world']);
+    buf.push('partial');
+    expect(lines).toEqual(['hello', 'world']);
+    buf.flush();
+    expect(lines).toEqual(['hello', 'world', 'partial']);
+  });
+
+  it('treats CR progress updates as separate lines', () => {
+    const lines: string[] = [];
+    const buf = createLineBuffer((line) => lines.push(line));
+    buf.push('prompt eval 10%\rprompt eval 20%\n');
+    expect(lines).toEqual(['prompt eval 10%', 'prompt eval 20%']);
+  });
+
+  it('skips empty lines', () => {
+    const lines: string[] = [];
+    const buf = createLineBuffer((line) => lines.push(line));
+    buf.push('\n\n  \nreal\n');
+    expect(lines).toEqual(['real']);
   });
 });
 

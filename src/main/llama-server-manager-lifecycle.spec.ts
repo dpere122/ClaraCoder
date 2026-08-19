@@ -104,6 +104,7 @@ import {
   getLlamaManagedRuntimeOverrides,
   isManagedLlamaRunningForActivePreset,
 } from './llama-server-manager';
+import { ingestElectronLog } from './log-ingest';
 
 type FakeProc = EventEmitter & {
   pid: number;
@@ -171,6 +172,7 @@ describe('managed llama-server lifecycle', () => {
     spawnSyncMock.mockReset();
     spawnSyncMock.mockReturnValue({ status: 0 });
     spawnMock.mockReset();
+    vi.mocked(ingestElectronLog).mockReset();
     spawnMock.mockImplementation(() => {
       const p = fakeProc(2000 + procs.length);
       procs.push(p);
@@ -269,6 +271,85 @@ describe('managed llama-server lifecycle', () => {
     expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(true);
   });
 
+  it('logs unexpected chat exit and stops the managed pair', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true })),
+    );
+    const cfg = makeConfig();
+    const result = await startManagedLlamaServers('m1', cfg);
+    expect(result.ok).toBe(true);
+    vi.mocked(ingestElectronLog).mockClear();
+
+    const chat = procs[0];
+    chat.exitCode = 1;
+    chat.emit('exit', 1, null);
+    await Promise.resolve();
+
+    expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(false);
+    const messages = vi.mocked(ingestElectronLog).mock.calls.map((c) => String(c[2]));
+    expect(messages.some((m) => /chat llama-server process exited/.test(m) && /unexpected=true/.test(m))).toBe(
+      true,
+    );
+    expect(messages.some((m) => /stopped managed llama-server/.test(m))).toBe(true);
+  });
+
+  it('logs embed process exit without stopping chat', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true })),
+    );
+    const cfg = makeConfig({ embed: true });
+    const result = await startManagedLlamaServers('m1', cfg);
+    expect(result.ok).toBe(true);
+    vi.mocked(ingestElectronLog).mockClear();
+
+    const embed = procs[1];
+    embed.exitCode = 1;
+    embed.emit('exit', 1, null);
+    await Promise.resolve();
+
+    expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(true);
+    const messages = vi.mocked(ingestElectronLog).mock.calls.map((c) => String(c[2]));
+    expect(messages.some((m) => /embed llama-server process exited/.test(m) && /unexpected=true/.test(m))).toBe(
+      true,
+    );
+  });
+
+  it('forwards llama-server stderr lines into app logs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true })),
+    );
+    const cfg = makeConfig();
+    const result = await startManagedLlamaServers('m1', cfg);
+    expect(result.ok).toBe(true);
+    vi.mocked(ingestElectronLog).mockClear();
+
+    procs[0].stderr.emit('data', Buffer.from('slot 0 is busy processing\n'));
+    await Promise.resolve();
+
+    expect(vi.mocked(ingestElectronLog)).toHaveBeenCalledWith(
+      'INFO',
+      'clara.electron.llama',
+      expect.stringMatching(/chat stderr: slot 0 is busy processing/),
+      'electron',
+    );
+  });
+
+  it('logs spawn errors to the llama logger', async () => {
+    spawnMock.mockImplementation(() => {
+      const p = fakeProc(3001);
+      procs.push(p);
+      queueMicrotask(() => p.emit('error', new Error('ENOENT')));
+      return p;
+    });
+    const cfg = makeConfig();
+    await startManagedLlamaServers('m1', cfg);
+    const messages = vi.mocked(ingestElectronLog).mock.calls.map((c) => String(c[2]));
+    expect(messages.some((m) => /chat llama-server spawn error/.test(m) && /ENOENT/.test(m))).toBe(true);
+  });
+
   it('does not require a bundled chat template for the gemma preset', async () => {
     const cfg = makeConfig();
     cfg.llmProviders[0].models[0].optimizationPreset = 'gemma';
@@ -300,6 +381,29 @@ describe('managed llama-server lifecycle', () => {
     const npAt = args.indexOf('-np');
     expect(npAt).toBeGreaterThanOrEqual(0);
     expect(args[npAt + 1]).toBe('1');
+    stopManagedLlamaServers('m1');
+    await startP;
+  });
+
+  it('injects --reasoning-format none for the gemma preset so thought streams in content', async () => {
+    const cfg = makeConfig();
+    cfg.llmProviders[0].models[0].optimizationPreset = 'gemma';
+    const startP = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    const fmtAt = args.indexOf('--reasoning-format');
+    expect(fmtAt).toBeGreaterThanOrEqual(0);
+    expect(args[fmtAt + 1]).toBe('none');
+    stopManagedLlamaServers('m1');
+    await startP;
+  });
+
+  it('does not inject --reasoning-format for a non-gemma preset', async () => {
+    const cfg = makeConfig();
+    const startP = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(args).not.toContain('--reasoning-format');
     stopManagedLlamaServers('m1');
     await startP;
   });

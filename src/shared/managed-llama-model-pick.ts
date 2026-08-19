@@ -457,6 +457,7 @@ const NO_MMPROJ_TOKEN_RE = /(?:^|[\s"'])--no-mmproj(?:\s|=|$)/i;
 const NO_WEBUI_TOKEN_RE = /(?:^|[\s"'])--no-(?:web)?ui(?:\s|=|$)/i;
 const PARALLEL_FLAG_RE =
   /(?:^|[\s"'])(?:--parallel|-np)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
+const REASONING_FORMAT_FLAG_RE = /(?:^|[\s"'])--reasoning-format(?:\s|=|$)/i;
 const BATCH_PARSE_RE =
   /(?:^|[\s"'])(?:--batch-size|-b)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
 const BATCH_REPLACE_RE =
@@ -698,6 +699,25 @@ export function managedLlamaCommandHasNoWebui(cmd: string): boolean {
 
 export function managedLlamaCommandHasParallel(cmd: string): boolean {
   return PARALLEL_FLAG_RE.test((cmd || '').trim());
+}
+
+export function managedLlamaCommandHasReasoningFormat(cmd: string): boolean {
+  return REASONING_FORMAT_FLAG_RE.test((cmd || '').trim());
+}
+
+/**
+ * Gemma 4 thought lives in ``<|channel>thought`` tags. llama-server's default
+ * ``--reasoning-format deepseek`` often buffers that entire block (or parks it in
+ * ``reasoning_content``, which the OpenAI Python SDK drops), so the UI shows no
+ * reasoning while tokens are still being generated. ``none`` leaves tags in
+ * ``content`` so Clara can split them live. Does not override a user-set flag.
+ */
+export function ensureManagedLlamaGemmaReasoningFormat(cmd: string): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed || managedLlamaCommandHasReasoningFormat(trimmed)) {
+    return cmd;
+  }
+  return `${trimmed} --reasoning-format none`;
 }
 
 /**

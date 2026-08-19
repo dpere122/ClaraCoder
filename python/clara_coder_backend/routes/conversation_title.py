@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.llm.gemma_output import gemma_content_needs_parsing, split_gemma_channels
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.schemas import SuggestConversationTitleRequest
 from clara_coder_backend.session.state import get_session
@@ -26,8 +27,32 @@ _MAX_TRANSCRIPT_CHARS = 12_000
 _TITLE_SYSTEM = (
     'You output a single very short title for a chat thread. '
     'Rules: maximum 8 words; no quotation marks; no newlines; '
-    'concise topic label. Output only the title text, nothing else.'
+    'concise topic label. Output only the title text, nothing else. '
+    'Do not reason aloud or emit special tokens.'
 )
+
+_THINK_BLOCK_RE = re.compile(r'<think>.*?</think>', re.DOTALL | re.IGNORECASE)
+_CONTROL_LINE_RE = re.compile(r'^(?:<\|\S+|<(?:channel|think)\b)', re.IGNORECASE)
+
+
+def sanitize_suggested_title(raw: str) -> str:
+    """Take the first visible title line; drop thinking channels and control tokens."""
+    text = stringify_content(raw)
+    if gemma_content_needs_parsing(text):
+        text, _ = split_gemma_channels(text)
+    text = _THINK_BLOCK_RE.sub('', text)
+    first = ''
+    for line in (text.strip().splitlines() if text.strip() else []):
+        candidate = line.strip()
+        if not candidate or _CONTROL_LINE_RE.match(candidate):
+            continue
+        first = candidate
+        break
+    first = re.sub(r'^["\'\[\(]+|["\'\]\)]+$', '', first.strip())
+    safe = ' '.join(first.split())[:120]
+    if not safe or safe.startswith('<|') or safe.startswith('<channel'):
+        return ''
+    return safe
 
 
 def history_transcript_for_title(history: list[dict[str, Any]]) -> str:
@@ -58,7 +83,7 @@ async def suggest_conversation_title(request: SuggestConversationTitleRequest) -
         return JSONResponse({'title': ''})
 
     try:
-        llm = build_llm()
+        llm = build_llm(disable_thinking=True)
     except Exception as exc:
         logger.warning('suggest-title: build_llm failed: %s', exc)
         return JSONResponse({'title': ''})
@@ -78,10 +103,7 @@ async def suggest_conversation_title(request: SuggestConversationTitleRequest) -
     else:
         raw = str(getattr(resp, 'content', '') or '')
 
-    stripped = raw.strip()
-    raw = stripped.splitlines()[0] if stripped else ''
-    raw = re.sub(r'^["\'\[\(]+|["\'\]\)]+$', '', raw.strip())
-    safe = ' '.join(raw.split())[:120]
+    safe = sanitize_suggested_title(raw)
     if not safe:
         return JSONResponse({'title': ''})
     return JSONResponse({'title': safe})

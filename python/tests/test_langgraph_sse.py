@@ -327,6 +327,8 @@ def test_chat_model_stream_emits_reasoning_tag_for_reasoning_chunk() -> None:
     assert '"delta": "think"' in lines[1]
     assert '"stream_tag": "reasoning"' in lines[1]
     assert state.deferred_agent_text == 'Hi'
+    assert state.stream_chunks == 1
+    assert state.stream_chars == len('Hi') + len('think')
     assert state.reasoning_emitted_this_step is True
 
 

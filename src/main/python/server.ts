@@ -131,6 +131,24 @@ export async function ensurePythonServer(): Promise<void> {
 }
 
 /**
+ * After a sidecar restart the new process boots with in-memory defaults.
+ * Re-push Settings so STT/LLM config (and managed llama URLs) survive dependency installs that reload the venv.
+ */
+async function resyncRuntimeConfigAfterSidecarRestart(): Promise<void> {
+  try {
+    const { loadConfigSync } = await import('../config/load-save');
+    const { syncRuntimeConfigToPython } = await import('./workspace-sync');
+    const { getLlamaManagedRuntimeOverrides } = await import('../llama-server-manager');
+    const config = loadConfigSync();
+    await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
+  } catch (err) {
+    const msg = `Runtime config re-sync after restart failed: ${err instanceof Error ? err.message : err}`;
+    console.error(`[Python] ${msg}`);
+    void ingestElectronLog('WARNING', 'clara.electron.python', msg, 'electron');
+  }
+}
+
+/**
  * Kill the managed sidecar (if any) and start a fresh process using the current
  * ``getPythonExecutable()`` (so post-install runtime venv / Kokoro is picked up).
  */
@@ -163,6 +181,7 @@ export async function restartPythonServer(): Promise<void> {
   }
   const next = startPythonServer();
   await waitForPython(next);
+  await resyncRuntimeConfigAfterSidecarRestart();
 }
 
 /**
@@ -192,7 +211,7 @@ export function startPythonServer(): ChildProcess {
   mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
   console.log(`[Python] Spawning sidecar: ${pythonCmd}`);
-  mainState.pythonProcess = spawn(pythonCmd, ['-u', scriptPath], {
+  const child = spawn(pythonCmd, ['-u', scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
@@ -212,20 +231,32 @@ export function startPythonServer(): ChildProcess {
       CLARA_VTSLS_BUNDLED_ENTRY: getBundledVtslsEntry() ?? '',
     },
   });
+  mainState.pythonProcess = child;
 
-  mainState.pythonProcess.stdout?.on('data', (data: Buffer) => {
+  child.stdout?.on('data', (data: Buffer) => {
     console.log(`[Python] ${data.toString().trim()}`);
   });
 
-  mainState.pythonProcess.stderr?.on('data', (data: Buffer) => {
+  child.stderr?.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     console.log(`[Python] ${text}`);
     void ingestElectronLog('INFO', 'clara.electron.python.stderr', text, 'electron');
   });
 
-  mainState.pythonProcess.on('close', (code) => {
-    console.log(`[Python] Process exited with code ${code}`);
-    mainState.pythonProcess = null;
+  child.on('error', (err: Error) => {
+    const msg = `Python sidecar error pid=${child.pid ?? '?'} ${err.message}`;
+    console.error(`[Python] ${msg}`);
+    void ingestElectronLog('ERROR', 'clara.electron.python', msg, 'electron');
+  });
+
+  child.on('close', (code, signal) => {
+    const level = code === 0 ? 'INFO' : 'ERROR';
+    const msg = `Python sidecar exited pid=${child.pid ?? '?'} code=${code} signal=${signal ?? ''}`;
+    console.log(`[Python] ${msg}`);
+    void ingestElectronLog(level, 'clara.electron.python', msg, 'electron');
+    if (mainState.pythonProcess === child) {
+      mainState.pythonProcess = null;
+    }
     if (code !== 0) {
       void isPythonHealthy().then((healthy) => {
         if (healthy) {
@@ -235,7 +266,7 @@ export function startPythonServer(): ChildProcess {
     }
   });
 
-  return mainState.pythonProcess;
+  return child;
 }
 
 /** Poll `/health` until the FastAPI (or similar) stack is accepting requests. */

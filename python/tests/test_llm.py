@@ -148,6 +148,7 @@ def test_build_llm_sets_idle_read_timeout_and_no_retries(
     assert isinstance(timeout, httpx.Timeout)
     assert timeout.read == _DEFAULT_LLM_IDLE_TIMEOUT_SEC
     assert kwargs.get('max_retries') == 0
+    assert kwargs.get('stream_chunk_timeout') == _DEFAULT_LLM_IDLE_TIMEOUT_SEC
 
 
 @patch('clara_coder_backend.llm.factory.ChatOpenAI')
@@ -167,6 +168,7 @@ def test_build_llm_idle_timeout_env_override(
     timeout = mock_ctor.call_args.kwargs.get('timeout')
     assert isinstance(timeout, httpx.Timeout)
     assert timeout.read == 45.0
+    assert mock_ctor.call_args.kwargs.get('stream_chunk_timeout') == 45.0
 
 
 @patch('clara_coder_backend.llm.factory.ChatOpenAI')
@@ -435,3 +437,93 @@ def test_build_llm_qwen_no_caps_thinking_on(
     build_llm()
     ctk = (mock_ctor.call_args.kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
     assert ctk.get('enable_thinking') is True
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_disable_thinking_overrides_gemma_on(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _gemma_conn(thinking_mode='on')
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm(disable_thinking=True)
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is False
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_disable_thinking_unknown_generic_local(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = RuntimeConnection(
+        id='u',
+        name='u',
+        provider='llamacpp',
+        base_url='http://127.0.0.1:8080/v1',
+        model='mystery-reasoner-7b',
+        api_key='not-needed',
+        reasoning_effort='high',
+        temperature=0.7,
+        parallel_tool_calls=False,
+        optimization_preset='generic',
+        max_output_tokens=0,
+        thinking_mode='on',
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm(disable_thinking=True)
+    kwargs = mock_ctor.call_args.kwargs
+    assert kwargs.get('reasoning_effort') == 'none'
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is False
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_disable_thinking_openai_uses_none_effort(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _openai_conn()
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm(disable_thinking=True)
+    kwargs = mock_ctor.call_args.kwargs
+    assert kwargs.get('reasoning_effort') == 'none'
+    eb = kwargs.get('extra_body') or {}
+    assert 'chat_template_kwargs' not in eb
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_disable_thinking_qwen_caps_effort_allow_list(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _qwen_conn(
+        thinking_mode='on',
+        reasoning_effort='low',
+        chat_template_reasoning={'enableThinking': True, 'reasoningEffortValues': ['xhigh', 'medium', 'low', 'none']},
+    )
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm(disable_thinking=True)
+    kwargs = mock_ctor.call_args.kwargs
+    assert kwargs.get('reasoning_effort') == 'none'
+    ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
+    assert ctk.get('enable_thinking') is False
+    assert ctk.get('reasoning_effort') == 'none'

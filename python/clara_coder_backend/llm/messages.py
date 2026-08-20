@@ -198,6 +198,8 @@ def text_uses_pseudo_tool_markup(text: str) -> bool:
     """True when the model wrote tool usage as prose/XML but sent no structured tool_calls."""
     if not text or not text.strip():
         return False
+    if '<|tool_call>' in text:
+        return True
     if '<tool_call' in text and '</tool_call>' in text:
         return True
     if _RE_PSEUDO_FUNCTION_TAG.search(text):

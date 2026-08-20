@@ -83,6 +83,21 @@ async def test_pseudo_tool_markup_in_text_nudges_without_api_tool_calls() -> Non
     assert result.get('empty_response_nudge_streak') == 0
 
 
+async def test_leftover_gemma_native_markup_nudges_without_api_tool_calls() -> None:
+    middleware = EmptyResponseNudgeMiddleware()
+    leftover = '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}'
+    result = await middleware.aafter_model(
+        {
+            'messages': [AIMessage(content=leftover)],
+            'empty_response_nudge_streak': 0,
+        },
+        MagicMock(),
+    )
+    assert result is not None
+    assert result.get('jump_to') == 'model'
+    assert result.get('pseudo_tool_markup_nudge_streak') == 1
+
+
 @patch('clara_coder_backend.middleware.empty_response_middleware.MAX_AGENT_PSEUDO_TOOL_NUDGES', 2)
 async def test_pseudo_tool_markup_nudge_stops_at_cap() -> None:
     middleware = EmptyResponseNudgeMiddleware()

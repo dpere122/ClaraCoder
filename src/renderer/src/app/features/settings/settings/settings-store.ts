@@ -257,7 +257,7 @@ export class SettingsStore {
   readonly llmProviders = signal<LlmProviderConfig[]>([]);
   readonly activeLlmModelId = signal('default-lmstudio');
   readonly selectedModelId = signal<string | null>(null);
-  readonly audioProvider = signal<'openai' | 'disabled' | 'google'>('openai');
+  readonly audioProvider = signal<'openai' | 'disabled' | 'google' | 'whisper'>('openai');
   readonly audioBaseUrl = signal('');
   readonly audioModel = signal('gpt-4o-mini-transcribe');
   readonly audioApiKey = signal('');
@@ -2760,7 +2760,7 @@ export class SettingsStore {
     return Number.isNaN(n) ? fallback : n;
   }
 
-  onAudioProviderChange(provider: 'openai' | 'disabled' | 'google'): void {
+  onAudioProviderChange(provider: 'openai' | 'disabled' | 'google' | 'whisper'): void {
     if (provider === 'disabled') {
       this.audioProvider.set('disabled');
       this.markSettingsDirty();
@@ -2772,6 +2772,12 @@ export class SettingsStore {
       this.audioBaseUrl.set('');
       this.audioModel.set('google-web-speech');
       this.audioApiKey.set('');
+      this.markSettingsDirty();
+      return;
+    }
+
+    if (provider === 'whisper') {
+      this.audioProvider.set('whisper');
       this.markSettingsDirty();
       return;
     }

@@ -58,8 +58,16 @@ from clara_coder_backend.plan.build_plan_store import (
 from clara_coder_backend.hitl.deferred_tool_hitl import deferred_tool_hitl_bypass
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.llm.gemma_output import (
+    GemmaStreamSplitter,
+    extract_gemma_native_tool_calls,
+    gemma_content_needs_parsing,
+    split_gemma_channels,
+)
+from clara_coder_backend.llm.model_tuning import gemma_output_parsing_active
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
 from clara_coder_backend.llm.messages import build_system_prompt, stringify_content
+from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.plan.plan_confirm import plan_confirm_sse_payload, stage_plan_confirm_request
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
@@ -242,6 +250,67 @@ def _resolved_answers_preamble(resolved_answers: str) -> str:
     )
 
 
+def _plan_has_action_steps(plan: BuildPlanModel | None) -> bool:
+    if plan is None:
+        return False
+    return any(str(getattr(step, 'goal', '') or '').strip() for step in (plan.action_steps or []))
+
+
+def _markdown_looks_like_build_plan(text: str) -> bool:
+    return '# Build Plan' in (text or '')
+
+
+def _planner_markdown_from_channels(visible: str, reasoning: str) -> str:
+    """Prefer visible markdown; recover a plan the model wrote only in the thought channel."""
+    vis = (visible or '').strip()
+    reason = (reasoning or '').strip()
+    if _markdown_looks_like_build_plan(vis):
+        return vis
+    if _markdown_looks_like_build_plan(reason):
+        return reason
+    return vis
+
+
+def _coerce_planner_model(raw: Any) -> BuildPlanModel | None:
+    """Turn structured output, Gemma native tool markup, or markdown into a plan with steps."""
+    if isinstance(raw, BuildPlanModel):
+        return raw if _plan_has_action_steps(raw) else None
+    text = stringify_content(getattr(raw, 'content', None) or raw)
+    extra = str(getattr(raw, 'text', None) or '')
+    if extra.strip() and extra not in text:
+        text = f'{text}\n{extra}' if text.strip() else extra
+    if not text.strip():
+        return None
+    for call in extract_gemma_native_tool_calls(text):
+        args = call.get('args')
+        if not isinstance(args, dict):
+            continue
+        try:
+            parsed = BuildPlanModel.model_validate(args)
+        except Exception:
+            continue
+        if _plan_has_action_steps(parsed):
+            return parsed
+    visible, reasoning = split_gemma_channels(text)
+    md = _planner_markdown_from_channels(visible, reasoning) or visible or text
+    try:
+        parsed = parse_build_plan_md(md)
+    except Exception:
+        return None
+    return parsed if _plan_has_action_steps(parsed) else None
+
+
+def _gemma_planner_split_enabled(delta: str, *, already: bool) -> bool:
+    if already:
+        return True
+    try:
+        if gemma_output_parsing_active(get_active_connection()):
+            return True
+    except Exception:
+        pass
+    return gemma_content_needs_parsing(delta)
+
+
 def _grounding_gap_questions(plan_model: BuildPlanModel, discovery_summary: str) -> list[OpenQuestion]:
     """Surface open questions for modify/delete files_to_change entries not grounded by discovery.
 
@@ -338,14 +407,28 @@ def _resolved_questions_for_confirm(
     return out
 
 
-def _planner_markdown_chain(planner_context: str, *, discovery_summary: str = ''):
+def _planner_markdown_chain(
+    planner_context: str,
+    *,
+    discovery_summary: str = '',
+    resolved_answers: str = '',
+):
     discovery_block = _build_discovery_preamble(discovery_summary)
+    answers_block = _resolved_answers_preamble(resolved_answers)
+    refinement_directive = (
+        '\n\nYou are producing the FINAL build plan after the user answered clarifying questions. '
+        'Incorporate the resolved answers below into the plan; do not emit an Open Questions section.\n'
+        if resolved_answers
+        else ''
+    )
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 'system',
                 f'{_escape_prompt_template_braces(planner_context)}'
-                f'{_escape_prompt_template_braces(discovery_block)}\n\n'
+                f'{_escape_prompt_template_braces(discovery_block)}'
+                f'{_escape_prompt_template_braces(answers_block)}'
+                f'{_escape_prompt_template_braces(refinement_directive)}\n\n'
                 f'{_escape_prompt_template_braces(PLAN_MARKDOWN_STREAM_INSTRUCTIONS)}',
             ),
             ('placeholder', '{messages}'),
@@ -490,13 +573,17 @@ async def _stream_planner_md(
     """
 
     accumulated = ''
+    reason_acc = ''
     last_disk_write = 0.0
     workspace_root = (session.workspace_path or '').strip()
     relative_path = record.relative_path
 
     for attempt in range(2):
         accumulated = ''
+        reason_acc = ''
         last_disk_write = 0.0
+        splitter = GemmaStreamSplitter()
+        gemma_split = False
         chain = _planner_markdown_chain(
             build_planner_context_block(
                 session,
@@ -516,9 +603,15 @@ async def _stream_planner_md(
             # Mirror langgraph_sse: main deltas draft the build plan; reasoning goes to the
             # chat auxiliary trail (overflow reveal / autoscroll) like agent mode.
             reason_delta = aimessage_chunk_reasoning_delta(chunk)
-            if is_meaningful_stream_delta(reason_delta):
-                yield model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG)
             delta = aimessage_chunk_sse_delta(chunk)
+            if not reason_delta.strip() and delta and _gemma_planner_split_enabled(delta, already=gemma_split):
+                gemma_split = True
+                delta, split_reason = splitter.feed(delta)
+                if split_reason:
+                    reason_delta = f'{reason_delta}{split_reason}'
+            if is_meaningful_stream_delta(reason_delta):
+                reason_acc += reason_delta
+                yield model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG)
             if not is_meaningful_stream_delta(delta):
                 continue
             accumulated += delta
@@ -528,12 +621,25 @@ async def _stream_planner_md(
                 write_build_plan_draft_content(workspace_root, record, accumulated)
                 last_disk_write = now
 
-        if workspace_root and accumulated:
+        if gemma_split:
+            flush_main, flush_reason = splitter.flush()
+            if flush_reason:
+                reason_acc += flush_reason
+                if is_meaningful_stream_delta(flush_reason):
+                    yield model_chunk_sse_line(flush_reason, REASONING_AUXILIARY_STREAM_TAG)
+            if flush_main:
+                accumulated += flush_main
+        recovered = _planner_markdown_from_channels(accumulated, reason_acc)
+        if recovered.strip() and recovered.strip() != accumulated.strip():
+            accumulated = recovered if recovered.endswith('\n') else recovered + '\n'
+            yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
+
+        if workspace_root and _markdown_looks_like_build_plan(accumulated):
             write_build_plan_draft_content(workspace_root, record, accumulated)
 
-        # Accept the stream if it produced a real plan document; otherwise retry once when the
-        # model emitted a tool call / garbage instead of markdown.
-        if '# Build Plan' in accumulated or not accumulated.strip():
+        # Accept a real plan document. Do not treat empty output as success — that used to
+        # finalize an empty file over a draft the user already saw.
+        if _markdown_looks_like_build_plan(accumulated):
             break
         if attempt == 0:
             logger.warning(
@@ -542,8 +648,6 @@ async def _stream_planner_md(
                 len(accumulated),
                 accumulated[-400:],
             )
-            # Clear the preview so the retry's first chunk doesn't append to the garbage.
-            yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=''))
 
     md_out.clear()
     md_out.append(accumulated)
@@ -575,12 +679,36 @@ async def _invoke_planner(
     resolved_answers: str = '',
     for_initial_plan: bool = True,
 ) -> BuildPlanModel:
+    messages = {'messages': [HumanMessage(content=user_input)]}
     chain = _planner_chain(
         build_planner_context_block(session, apply_mode, for_initial_plan=for_initial_plan),
         discovery_summary=discovery_summary,
         resolved_answers=resolved_answers,
     )
-    return await chain.ainvoke({'messages': [HumanMessage(content=user_input)]})
+    try:
+        structured = await chain.ainvoke(messages)
+        parsed = _coerce_planner_model(structured)
+        if parsed is not None:
+            return parsed
+        logger.warning('Structured planner returned no action steps; falling back to markdown')
+    except Exception:
+        logger.exception('Structured planner failed; falling back to markdown')
+
+    md_chain = _planner_markdown_chain(
+        build_planner_context_block(
+            session,
+            apply_mode,
+            for_initial_plan=for_initial_plan,
+            with_tools_catalog=False,
+        ),
+        discovery_summary=discovery_summary,
+        resolved_answers=resolved_answers,
+    )
+    raw = await md_chain.ainvoke(messages)
+    parsed = _coerce_planner_model(raw)
+    if parsed is None:
+        raise ValueError('Planner fallback did not produce a build plan with action steps')
+    return parsed
 
 
 async def _stream_plan_discovery_phase(
@@ -858,6 +986,7 @@ async def stream_plan_execute_langgraph(
         session.question_answers = None
         resolved_questions = _resolved_questions_for_confirm(plan_model.open_questions, answers)
         resolved_answers_text = _format_resolved_answers(plan_model.open_questions, answers)
+        prior_md = md_text
         try:
             refined = await _invoke_planner(
                 user_input,
@@ -868,27 +997,35 @@ async def stream_plan_execute_langgraph(
                 for_initial_plan=False,
             )
         except Exception as exc:
-            logger.exception('Plan refinement failed')
+            logger.exception('Plan refinement failed; keeping the draft the user already saw')
             log_llm_failure(exc, context='plan:refine', agent_role=None)
-            cancel_build_plan(session, record.id)
             yield sse_line(
                 status_event(
                     'plan-refine-error',
-                    'Planning failed',
-                    detail=str(exc).replace('\n', ' ')[:200],
+                    'Plan kept',
+                    detail='Could not rewrite the plan from your answers; keeping the current draft.',
                     state='error',
                     stream_tag=PLANNER_STREAM_TAG,
                 )
             )
-            outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
-            return
-        refined_md = render_build_plan_md(refined)
-        write_build_plan_draft_content(session.workspace_path, record, refined_md)
-        record = finalize_build_plan_draft(session.workspace_path, record, refined_md)
-        plan_model = parse_build_plan_md(refined_md)
-        # Refresh the preview tab with the finalized plan.
-        yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=refined_md))
-        yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+            refined = None
+        if refined is not None and _plan_has_action_steps(refined):
+            refined.open_questions = []
+            refined_md = render_build_plan_md(refined)
+            write_build_plan_draft_content(session.workspace_path, record, refined_md)
+            record = finalize_build_plan_draft(session.workspace_path, record, refined_md)
+            plan_model = parse_build_plan_md(refined_md)
+            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=refined_md))
+            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+        else:
+            logger.warning(
+                'Plan refinement produced no action steps; keeping prior draft at %s',
+                record.relative_path,
+            )
+            if prior_md.strip():
+                write_build_plan_draft_content(session.workspace_path, record, prior_md)
+                yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=prior_md))
+                yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
     action_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
     if not action_step_goals:

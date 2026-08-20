@@ -404,7 +404,7 @@ export function normalizeChatContainerSize(value: unknown): ChatContainerSize {
 
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
-  provider: 'openai' | 'disabled' | 'google';
+  provider: 'openai' | 'disabled' | 'google' | 'whisper';
   baseUrl: string;
   model: string;
   apiKey: SecretValue<string>;

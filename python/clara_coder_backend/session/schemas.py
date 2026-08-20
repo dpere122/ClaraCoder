@@ -333,10 +333,21 @@ class RuntimeConnectionRequest(BaseModel):
 class RuntimeAudioRequest(BaseModel):
     """Transcription provider and credentials from the app settings."""
 
-    provider: Literal['openai', 'disabled', 'google'] = 'openai'
+    provider: Literal['openai', 'disabled', 'google', 'whisper'] = 'openai'
     baseUrl: str = ''
     model: str = DEFAULT_TRANSCRIBE_MODEL
     apiKey: str = ''
+
+    @field_validator('provider', mode='before')
+    @classmethod
+    def _normalize_audio_provider(cls, v: object) -> object:
+        """Keep unknown persisted providers from 422-ing the whole runtime-config (LLM URLs included)."""
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ('openai', 'disabled', 'google', 'whisper'):
+                return s
+            return 'disabled'
+        return v
 
 
 class RuntimeHostRequest(BaseModel):

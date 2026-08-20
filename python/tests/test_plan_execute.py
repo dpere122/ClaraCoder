@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -24,6 +25,7 @@ from clara_coder_backend.plan.plan_execute import (
     PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
     _build_discovery_preamble,
+    _coerce_planner_model,
     _grounding_gap_questions,
     _invoke_planner,
     _planner_chain,
@@ -144,7 +146,8 @@ async def test_stream_planner_md_retries_when_model_emits_tool_call(tmp_path: Pa
                 yield AIMessageChunk(content=plan_md)
             call['n'] += 1
 
-    def _fake_chain(_ctx: str, *, discovery_summary: str = '') -> _FakeChain:
+    def _fake_chain(_ctx: str, *, discovery_summary: str = '', **_kwargs: Any) -> _FakeChain:
+        return _FakeChain()
         return _FakeChain()
 
     session = SessionState(workspace_path=str(tmp_path))
@@ -208,6 +211,77 @@ async def test_stream_planner_md_emits_reasoning_chunks(tmp_path: Path) -> None:
         for line in lines
     )
     assert any('"type": "build_plan_chunk"' in line for line in lines)
+
+
+def test_stream_planner_md_strips_gemma_thought_from_document(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content="<|channel>thought\nI will draft the plan.\n<channel|>")
+            yield AIMessageChunk(content=plan_md)
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-gemma-split', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        lines = asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert '<|channel>' not in md_out[0]
+    assert any('"stream_tag": "reasoning"' in line and 'I will draft the plan' in line for line in lines)
+
+
+def test_stream_planner_md_recovers_plan_written_in_thought_channel(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content="<|channel>thought\n" + plan_md + "<channel|>")
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-gemma-thought-plan', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert '# Build Plan' in (md_out[0] or '')
+    assert 'Implement change' in (md_out[0] or '')
+    assert '<|channel>' not in (md_out[0] or '')
 
 
 def test_build_discovery_preamble_includes_findings() -> None:
@@ -568,3 +642,84 @@ async def test_stream_plan_execute_question_cancel_aborts(
     assert any('"type": "agent_question"' in line for line in lines)
     assert not any('"type": "plan_confirm"' in line for line in lines)
     assert outcome.state == AgentLoopOutcome.ABORTED
+
+
+def test_coerce_planner_model_from_gemma_native_tool_call() -> None:
+    raw = (
+        '<|channel>thought\nNeed a structured plan.\n<channel|>'
+        '<|tool_call>call:BuildPlanModel{'
+        'title:<|"|>Feature plan<|"|>,'
+        'task:<|"|>Build the feature<|"|>,'
+        'current_implementation:<|"|>Legacy handler<|"|>,'
+        'action_steps:[{id:<|"|>step-1<|"|>,goal:<|"|>Implement REST handler<|"|>}]'
+        '}<tool_call|>'
+    )
+    parsed = _coerce_planner_model(raw)
+    assert parsed is not None
+    assert parsed.title == 'Feature plan'
+    assert parsed.action_steps[0].goal == 'Implement REST handler'
+
+
+def test_coerce_planner_model_from_thought_wrapped_markdown() -> None:
+    md = _sample_plan_md()
+    parsed = _coerce_planner_model(f'<|channel>thought\n{md}<channel|>')
+    assert parsed is not None
+    assert any(step.goal == 'Implement change' for step in parsed.action_steps)
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+@patch('clara_coder_backend.plan.plan_execute._invoke_planner')
+def test_stream_plan_execute_keeps_plan_when_refine_fails(
+    mock_refine: AsyncMock,
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        md_out: list[str] = kwargs['md_out']
+        md_out.clear()
+        md_out.append(_sample_plan_with_open_questions_md())
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    mock_planner.side_effect = _fake_planner_md
+
+    async def _fake_exec(*_args: Any, **_kwargs: Any):
+        outcome: LangGraphWorkerOutcome = _kwargs['outcome']
+        outcome.mark_completed(final_text='Discovery confirmed src/app.ts handler.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
+    mock_question_pause.return_value = [
+        {'question_id': 'q-1', 'option_id': 'q-1-opt-1', 'other_text': None},
+    ]
+    mock_refine.side_effect = RuntimeError('Gemma structured output failed')
+    mock_pause.return_value = None
+
+    session = SessionState(workspace_path=str(tmp_path))
+    outcome = LangGraphWorkerOutcome()
+
+    lines = asyncio.run(
+        _collect_lines(
+            stream_plan_execute_langgraph(
+                session,
+                'Build feature',
+                True,
+                session_id='sess-plan-refine-fail',
+                outcome=outcome,
+            )
+        )
+    )
+
+    assert any('"type": "agent_question"' in line for line in lines)
+    assert any('"type": "plan_confirm"' in line for line in lines)
+    assert any('Plan kept' in line for line in lines)
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+    plan_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
+    assert plan_files
+    assert 'Feature plan' in plan_files[0].read_text(encoding='utf-8')
+    assert 'Implement change' in plan_files[0].read_text(encoding='utf-8')

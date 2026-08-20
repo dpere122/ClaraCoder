@@ -1,4 +1,5 @@
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { isViewableImagePath } from './image-viewer-formats';
 
 export type WorkspaceImageAssetUrlOptions = {
   /** Request a downscaled static PNG from the main-process protocol handler. */
@@ -22,7 +23,7 @@ export function buildWorkspaceImageAssetUrl(
     return '';
   }
   const norm = normalizePathSlashes(rel).replace(/^\/+/, '');
-  if (!norm) {
+  if (!norm || !isViewableImagePath(norm)) {
     return '';
   }
   let url =

@@ -342,6 +342,14 @@ export class App implements OnInit, OnDestroy {
     return !!p && isViewableImagePath(p);
   });
 
+  /**
+   * Bound into the image viewer. Null for text tabs so the still-mounted
+   * (CSS-hidden) viewer does not fetch `nemo-asset://` for non-images.
+   */
+  protected readonly imageViewerRelativePath = computed(() =>
+    this.activeFileIsImage() ? this.activeFileRelativePath() : null,
+  );
+
   /** Active file path for Monaco only — image tabs are routed to the image viewer instead. */
   protected readonly monacoActiveModelKey = computed(() =>
     this.activeFileIsImage() ? null : this.activeModelKey(),

@@ -29,6 +29,11 @@ describe('buildWorkspaceImageAssetUrl', () => {
       'nemo-asset://workspace/?root=%2Fws&path=a.png&thumb=1&w=96',
     );
   });
+
+  it('returns empty for non-image paths so hidden viewer tabs do not 404', () => {
+    expect(buildWorkspaceImageAssetUrl('/ws', '.project')).toBe('');
+    expect(buildWorkspaceImageAssetUrl('/ws', 'src/Main.java')).toBe('');
+  });
 });
 
 describe('parseThumbMaxEdge / computeThumbDimensions (protocol contract)', () => {

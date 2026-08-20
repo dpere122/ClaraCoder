@@ -5,6 +5,7 @@ import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 describe('planOpenWorkspaceImageTab', () => {
   it('returns null for non-image paths', () => {
     expect(planOpenWorkspaceImageTab([], 'src/a.ts')).toBeNull();
+    expect(planOpenWorkspaceImageTab([], '.project')).toBeNull();
   });
 
   it('opens a new tab when no same-folder image tab exists', () => {

@@ -259,7 +259,7 @@
             <app-image-viewer
               class='chat-area__panel-host'
               [workspacePath]='currentWorkspacePath()'
-              [relativePath]='activeFileRelativePath()'
+              [relativePath]='imageViewerRelativePath()'
               [active]='activeFileIsImage() && !chatExpanded()'
               (navigateTo)='onImageViewerNavigate($event)'
             />

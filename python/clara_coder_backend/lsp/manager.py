@@ -45,12 +45,39 @@ __all__ = [
     'sync_session_document',
     'close_session_document',
     'LspServerKind',
+    'java_workspace_is_ready',
 ]
 
 _MANAGERS_LOCK = threading.RLock()
 # Keyed by (session_id, server_id, scope) so workspace + staging managers can coexist.
 _SESSION_MANAGERS: dict[tuple[str, str, str], SessionWorkspaceLspManager] = {}
 _VALID_LSP_SCOPES = frozenset({'workspace', 'staging'})
+_JAVA_WAIT_READY_TIMEOUT_S = 8.0
+_JAVA_STARTING_GRACE_S = 5.0
+_JAVA_NO_STATUS_GRACE_S = 3.0
+
+
+def java_workspace_is_ready(status: str, message: str = '') -> bool:
+    """True when JDT ``language/status`` means completions can be served."""
+
+    st = (status or '').strip().lower()
+    msg = (message or '').strip().lower()
+    if st in {'started', 'serviceready'}:
+        return True
+    if st == 'projectstatus' and msg in {'ok', 'ready'}:
+        return True
+    return False
+
+
+_LIFECYCLE_PHASE_RANK = {
+    'idle': 0,
+    'running': 10,
+    'crashed': 20,
+    'indexing': 30,
+    'initializing': 40,
+    'starting': 50,
+    'shuttingDown': 60,
+}
 
 
 def _normalize_lsp_scope(scope: str | None) -> str:
@@ -229,6 +256,10 @@ class SessionWorkspaceLspManager:
         self._last_synced_digest: dict[str, bytes] = {}
         self._semantic_tokens_legend: dict[str, list[str]] | None = None
         self._server_capabilities: dict[str, Any] = {}
+        self._language_status: str = ''
+        self._language_status_message: str = ''
+        self._lifecycle_phase: str = 'idle'
+        self._lifecycle_error: str = ''
 
     def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
         """True when legend prefetch must not spawn this server before any document seed."""
@@ -257,6 +288,11 @@ class SessionWorkspaceLspManager:
         self._client = None
         self._semantic_tokens_legend = None
         self._server_capabilities = {}
+        self._language_status = ''
+        self._language_status_message = ''
+        self._lifecycle_phase = 'crashed'
+        if not (self._lifecycle_error or '').strip():
+            self._lifecycle_error = 'Language server process exited.'
         tracked = list(self._doc_versions.keys())
         self._doc_versions.clear()
         self._diag_generation.clear()
@@ -291,39 +327,80 @@ class SessionWorkspaceLspManager:
                 self._forget_dead_client_locked()
             if self._client is not None:
                 return
-            bundle = self._plugin.compute_start_params(
-                session=self.session,
-                workspace_root=self.workspace_root,
-                state=self._plugin_state,
-            )
+            self._lifecycle_phase = 'starting'
+            self._lifecycle_error = ''
+            try:
+                bundle = self._plugin.compute_start_params(
+                    session=self.session,
+                    workspace_root=self.workspace_root,
+                    state=self._plugin_state,
+                    session_id=self.session_id,
+                    scope=self.scope,
+                )
+            except Exception:
+                self._lifecycle_phase = 'crashed'
+                self._lifecycle_error = 'Failed to resolve language-server command.'
+                raise
             lsp_cwd = bundle.lsp_cwd
             command = bundle.command
             init_opts = dict(bundle.init_options or {})
             spawn_env = bundle.env
+            startup_timeout_s = bundle.startup_timeout_s
             factory = self._client_factory or (
                 lambda *, command, workspace_root, notification_handler, env=None: JsonRpcLspClient(
                     command,
                     workspace_root=workspace_root,
                     notification_handler=notification_handler,
                     env=env,
+                    startup_timeout_s=startup_timeout_s or 20.0,
                 )
             )
-            client = factory(
-                command=command,
-                workspace_root=lsp_cwd,
-                notification_handler=self._handle_notification,
-                env=spawn_env,
-            )
-            init_result = client.initialize(
-                root_uri=_path_to_uri(lsp_cwd),
-                process_id=os.getpid(),
-                capabilities=_workspace_capabilities(),
-                initialization_options=init_opts,
-            )
+            try:
+                client = factory(
+                    command=command,
+                    workspace_root=lsp_cwd,
+                    notification_handler=self._handle_notification,
+                    env=spawn_env,
+                )
+            except Exception:
+                self._lifecycle_phase = 'crashed'
+                self._lifecycle_error = 'Failed to spawn language-server subprocess.'
+                raise
+            self._lifecycle_phase = 'initializing'
+            try:
+                init_result = client.initialize(
+                    root_uri=_path_to_uri(lsp_cwd),
+                    process_id=os.getpid(),
+                    capabilities=_workspace_capabilities(),
+                    initialization_options=init_opts,
+                )
+            except Exception as exc:
+                self._lifecycle_phase = 'crashed'
+                self._lifecycle_error = str(exc).strip()[:400]
+                closer = getattr(client, 'close', None)
+                if callable(closer):
+                    try:
+                        closer()
+                    except Exception as close_exc:
+                        logger.debug(
+                            '%s LSP initialize-failure close failed session=%s scope=%s err=%s',
+                            self.server_kind,
+                            self.session_id,
+                            self.scope,
+                            close_exc,
+                        )
+                logger.warning(
+                    '%s LSP initialize failed; subprocess closed session=%s scope=%s',
+                    self.server_kind,
+                    self.session_id,
+                    self.scope,
+                )
+                raise
             self._semantic_tokens_legend = _extract_semantic_tokens_legend(init_result)
             caps = init_result.get('capabilities') if isinstance(init_result, dict) else None
             self._server_capabilities = caps if isinstance(caps, dict) else {}
             self._client = client
+            self._set_running_or_indexing_locked()
             self._plugin.on_after_client_started(
                 session=self.session,
                 workspace_root=self.workspace_root,
@@ -345,10 +422,13 @@ class SessionWorkspaceLspManager:
 
     def shutdown(self) -> None:
         with self._lock:
+            self._lifecycle_phase = 'shuttingDown'
             client = self._client
             self._client = None
             self._semantic_tokens_legend = None
             self._server_capabilities = {}
+            self._language_status = ''
+            self._language_status_message = ''
             tracked = list(self._doc_versions.keys())
             self._doc_versions.clear()
             self._diag_generation.clear()
@@ -583,7 +663,9 @@ class SessionWorkspaceLspManager:
             'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
             'context': ctx,
         }
-        return self._require_client().request('textDocument/completion', params, timeout_s=15.0)
+        self._wait_for_java_workspace_ready()
+        timeout_s = 25.0 if self.server_kind == 'java' else 15.0
+        return self._require_client().request('textDocument/completion', params, timeout_s=timeout_s)
 
     def rename(self, relative_path: str, line: int, character: int, new_name: str) -> Any:
         rel = self._ensure_workspace_synced(relative_path)
@@ -804,7 +886,72 @@ class SessionWorkspaceLspManager:
             self.ensure_started()
         return rel
 
+    def _wait_for_java_workspace_ready(self, timeout_s: float = _JAVA_WAIT_READY_TIMEOUT_S) -> None:
+        """Block briefly until JDT LS reports a usable workspace.
+
+        Completions before project import return an empty list. Custom
+        ``CLARA_JAVA_LSP_COMMAND`` servers that never send ``language/status``
+        proceed after 3s so IntelliSense is not stuck. ``Starting`` is not
+        treated as ready, but we do not hold the HTTP worker for a full minute.
+        """
+
+        if self.server_kind != 'java':
+            return
+        deadline = time.monotonic() + max(1.0, float(timeout_s))
+        no_status_deadline = time.monotonic() + _JAVA_NO_STATUS_GRACE_S
+        starting_deadline = time.monotonic() + _JAVA_STARTING_GRACE_S
+        with self._lock:
+            while True:
+                st = (self._language_status or '').strip()
+                msg = (self._language_status_message or '').strip()
+                if java_workspace_is_ready(st, msg):
+                    return
+                now = time.monotonic()
+                if now >= deadline:
+                    logger.warning(
+                        'java LSP workspace not Ready after %.1fs (status=%s message=%s) session=%s',
+                        timeout_s,
+                        self._language_status or '(none)',
+                        self._language_status_message or '(none)',
+                        self.session_id,
+                    )
+                    return
+                if not st and now >= no_status_deadline:
+                    return
+                if st and now >= starting_deadline:
+                    return
+                wait_for = min(0.4, deadline - now)
+                if not st:
+                    wait_for = min(wait_for, no_status_deadline - now)
+                else:
+                    wait_for = min(wait_for, starting_deadline - now)
+                if wait_for <= 0:
+                    continue
+                self._diag_cond.wait(timeout=wait_for)
+
     def _handle_notification(self, method: str, params: dict[str, Any]) -> None:
+        if method == 'language/status':
+            status_type = str(params.get('type') or params.get('Status') or '')
+            message = str(params.get('message') or '')
+            with self._lock:
+                self._language_status = status_type
+                self._language_status_message = message
+                if (
+                    self.server_kind == 'java'
+                    and self._lifecycle_phase not in {'idle', 'shuttingDown', 'crashed', 'starting'}
+                    and java_workspace_is_ready(status_type, message)
+                ):
+                    self._lifecycle_phase = 'running'
+                self._diag_cond.notify_all()
+            logger.info(
+                '%s LSP language/status session=%s scope=%s type=%s message=%s',
+                self.server_kind,
+                self.session_id,
+                self.scope,
+                status_type,
+                message,
+            )
+            return
         if method != 'textDocument/publishDiagnostics':
             return
         uri = str(params.get('uri') or '')
@@ -859,6 +1006,47 @@ class SessionWorkspaceLspManager:
         if client is None:
             return False
         return self._client_process_alive(client)
+
+    def lifecycle_phase(self) -> str:
+        """Current subprocess lifecycle phase (read-only; lock-free like ``is_client_running``)."""
+
+        return self._lifecycle_phase
+
+    def _set_running_or_indexing_locked(self) -> None:
+        if self.server_kind == 'java' and not java_workspace_is_ready(
+            self._language_status, self._language_status_message
+        ):
+            self._lifecycle_phase = 'indexing'
+            return
+        self._lifecycle_phase = 'running'
+
+    def dashboard_entry(self) -> dict[str, Any]:
+        """Status payload for ``GET /lsp/status`` without starting a subprocess."""
+
+        running = self.is_client_running()
+        phase = self._lifecycle_phase
+        if phase != 'shuttingDown' and self._client is not None and not running:
+            phase = 'crashed'
+        st = (self._language_status or '').strip()
+        msg = (self._language_status_message or '').strip()
+        language_status = ''
+        if st and msg:
+            language_status = f'{st}: {msg}'
+        elif st or msg:
+            language_status = st or msg
+        entry: dict[str, Any] = {
+            'initialized': running,
+            'phase': phase,
+            'scope': self.scope,
+        }
+        if language_status:
+            entry['languageStatus'] = language_status
+        err = (self._lifecycle_error or '').strip()
+        if phase == 'crashed' and not err:
+            err = 'Language server process exited.'
+        if err and phase == 'crashed':
+            entry['lastError'] = err
+        return entry
 
 
 PythonLspManager = SessionWorkspaceLspManager
@@ -925,6 +1113,18 @@ def get_session_lsp_manager(
         return manager
 
 
+def _shutdown_and_forget_managers(
+    pairs: list[tuple[tuple[str, str, str], SessionWorkspaceLspManager]],
+) -> None:
+    """Shut down managers while they remain visible, then drop each map entry."""
+
+    for key, manager in pairs:
+        manager.shutdown()
+        with _MANAGERS_LOCK:
+            if _SESSION_MANAGERS.get(key) is manager:
+                _SESSION_MANAGERS.pop(key, None)
+
+
 def shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
     """Stop language-server managers for one server id on this session (all scopes)."""
 
@@ -933,10 +1133,8 @@ def shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
         return
     srv = (server_id or '').strip()
     with _MANAGERS_LOCK:
-        keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == sid and k[1] == srv]
-        managers = [_SESSION_MANAGERS.pop(k) for k in keys]
-    for manager in managers:
-        manager.shutdown()
+        pairs = [(k, mgr) for k, mgr in _SESSION_MANAGERS.items() if k[0] == sid and k[1] == srv]
+    _shutdown_and_forget_managers(pairs)
 
 
 def shutdown_session_python_lsp(session_id: str) -> None:
@@ -947,10 +1145,8 @@ def shutdown_session_python_lsp(session_id: str) -> None:
 
 def shutdown_session_lsp(session_id: str) -> None:
     with _MANAGERS_LOCK:
-        keys = [k for k in list(_SESSION_MANAGERS.keys()) if k[0] == session_id]
-        managers = [_SESSION_MANAGERS.pop(k) for k in keys]
-    for mgr in managers:
-        mgr.shutdown()
+        pairs = [(k, mgr) for k, mgr in _SESSION_MANAGERS.items() if k[0] == session_id]
+    _shutdown_and_forget_managers(pairs)
     try:
         session = get_session(session_id)
         clear_diagnostics_caches(session)
@@ -961,11 +1157,10 @@ def shutdown_session_lsp(session_id: str) -> None:
 
 def shutdown_all_lsp_managers() -> None:
     with _MANAGERS_LOCK:
-        items = list(_SESSION_MANAGERS.items())
-        _SESSION_MANAGERS.clear()
+        pairs = list(_SESSION_MANAGERS.items())
+    _shutdown_and_forget_managers(pairs)
     cleared_sessions: set[str] = set()
-    for _key, manager in items:
-        manager.shutdown()
+    for _key, manager in pairs:
         sid = manager.session_id
         if sid not in cleared_sessions:
             cleared_sessions.add(sid)
@@ -999,13 +1194,35 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
 
     sid, session, workspace_root = _resolve_session_and_root(session_id)
     with _MANAGERS_LOCK:
-        servers_payload: dict[str, dict[str, bool]] = {}
+        servers_payload: dict[str, dict[str, Any]] = {}
         for srv_id in iter_registered_lsp_server_ids():
-            running = any(
-                k[0] == sid and k[1] == srv_id and mgr.is_client_running()
-                for k, mgr in _SESSION_MANAGERS.items()
-            )
-            servers_payload[srv_id] = {'initialized': running}
+            best: dict[str, Any] | None = None
+            best_rank = -1
+            for k, mgr in _SESSION_MANAGERS.items():
+                if k[0] != sid or k[1] != srv_id:
+                    continue
+                entry = mgr.dashboard_entry()
+                rank = _LIFECYCLE_PHASE_RANK.get(str(entry.get('phase') or 'idle'), 0)
+                if rank > best_rank:
+                    best = entry
+                    best_rank = rank
+            if best is None:
+                servers_payload[srv_id] = {'initialized': False, 'phase': 'idle'}
+            else:
+                payload: dict[str, Any] = {
+                    'initialized': bool(best.get('initialized')),
+                    'phase': str(best.get('phase') or 'idle'),
+                }
+                lang = str(best.get('languageStatus') or '').strip()
+                if lang:
+                    payload['languageStatus'] = lang
+                scope = str(best.get('scope') or '').strip()
+                if scope:
+                    payload['scope'] = scope
+                last_err = str(best.get('lastError') or '').strip()
+                if last_err:
+                    payload['lastError'] = last_err
+                servers_payload[srv_id] = payload
     diag_count = sum(
         len(rows)
         for cache in session.lsp.lsp_diagnostics_by_scope.values()

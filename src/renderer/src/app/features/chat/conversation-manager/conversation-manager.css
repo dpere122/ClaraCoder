@@ -164,9 +164,3 @@ app-conversation-manager .empty-hint {
   padding: 1rem 0.5rem;
   margin: 0;
 }
-
-app-conversation-manager .conv-lsp-footer {
-  flex-shrink: 0;
-  padding: 0.45rem 0.6rem 0.55rem;
-  border-top: 1px solid var(--t-border-subtle);
-}

@@ -75,6 +75,7 @@ import {
   CONTEXT_CHAT_BLOCKED_PERCENT,
   estimateTranscriptContextTokens,
 } from '../status/context-capacity/context-capacity.utils';
+import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
@@ -121,6 +122,7 @@ function parentRelativePath(relativePath: string): string {
   imports: [
     ChatActiveStackComponent,
     ChatConversationHubComponent,
+    EditorLspStatusComponent,
     MainPanelEmptyStateComponent,
     LucideAngularModule,
     WorkspaceComponent,

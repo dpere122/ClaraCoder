@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import type { LspDashboardStatus } from '../../../shared';
 import { isSemanticLegendServerId } from '../../../shared/lsp-registry';
-import { pythonControlFetch } from '../../python/http-client';
+import { pythonControlFetch, pythonLongFetch } from '../../python/http-client';
 
 interface LspEditorIRangeWire {
   startLineNumber: number;
@@ -49,6 +49,7 @@ interface LspEditorCompletionItemWire {
   insertTextFormat?: number;
   textEdit?: LspEditorTextEditWire;
   additionalTextEdits?: LspEditorTextEditWire[];
+  data?: unknown;
 }
 
 interface LspSemanticTokensLegendWire {
@@ -89,6 +90,19 @@ async function postLspEditorJson<T>(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
+  }
+}
+
+export async function shutdownAllLspManagersBestEffort(): Promise<void> {
+  try {
+    const res = await pythonControlFetch('/lsp/shutdown-all', { method: 'POST' });
+    if (!res.ok) {
+      const detail = (await res.text()).trim() || `HTTP ${res.status}`;
+      console.warn('[lsp] shutdown-all failed:', detail);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('[lsp] shutdown-all skipped:', msg);
   }
 }
 
@@ -154,7 +168,7 @@ export function registerLspStatusIpc(): void {
           refresh_active_document: 'true',
           encoding: enc,
         });
-        const res = await pythonControlFetch(`/lsp/diagnostics?${params.toString()}`);
+        const res = await pythonLongFetch(`/lsp/diagnostics?${params.toString()}`);
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
@@ -187,7 +201,7 @@ export function registerLspStatusIpc(): void {
       }
       try {
         const params = new URLSearchParams({ session_id: sid, server: srv });
-        const res = await pythonControlFetch(`/lsp/warm-server?${params.toString()}`, { method: 'POST' });
+        const res = await pythonLongFetch(`/lsp/warm-server?${params.toString()}`, { method: 'POST' });
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };

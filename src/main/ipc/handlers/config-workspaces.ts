@@ -24,6 +24,7 @@ import {
 } from '../../python/workspace-sync';
 import { applyWorkspaceExposeAllFromConfig } from '../../workspace/watcher';
 import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
+import { shutdownAllLspManagersBestEffort } from './lsp-status';
 import {
   clearWorkspaceSystemPromptFile,
   copyWorkspaceSystemPromptFromPath,
@@ -593,6 +594,7 @@ export function registerConfigWorkspacesIpc(): void {
     const config = await updateConfig((cfg) => {
       cfg.currentWorkspaceId = id;
     });
+    await shutdownAllLspManagersBestEffort();
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     sendToWindowIfAlive(mainState.mainWindow, 'workspace-changed', id);

@@ -42,15 +42,6 @@
     }
   </div>
 
-  @if (electron.isElectron && hasWorkspace()) {
-    <div class="conv-lsp-footer">
-      <app-editor-lsp-status
-        [conversationId]="activeId()"
-        [activeFileRelativePath]="activeFileRelativePath()"
-      />
-    </div>
-  }
-
   @if (contextMenuVisible()) {
     <div
       class="conv-context-menu"

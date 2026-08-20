@@ -16,8 +16,6 @@ import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import { EditorLspStatusComponent } from '../../shell/editor-lsp-status/editor-lsp-status';
-import { ElectronService } from '../../../core/electron.service';
 
 const CONV_PENDING_SPINNER = {
   fullScreen: false as const,
@@ -29,13 +27,12 @@ const CONV_PENDING_SPINNER = {
 
 @Component({
   selector: 'app-conversation-manager',
-  imports: [FormsModule, LucideAngularModule, EditorLspStatusComponent, NgxSpinnerComponent],
+  imports: [FormsModule, LucideAngularModule, NgxSpinnerComponent],
   templateUrl: './conversation-manager.html',
   styleUrl: './conversation-manager.css',
   encapsulation: ViewEncapsulation.None,
 })
 export class ConversationManager implements OnDestroy {
-  protected readonly electron = inject(ElectronService);
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
   private destroyed = false;
@@ -43,9 +40,6 @@ export class ConversationManager implements OnDestroy {
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeId = input<string | null>(null);
   readonly pendingIds = input<Set<string>>(new Set());
-  readonly activeFileRelativePath = input<string | null>(null);
-  /** When false (default no-workspace bucket), hide the language server footer. */
-  readonly hasWorkspace = input(false);
 
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();

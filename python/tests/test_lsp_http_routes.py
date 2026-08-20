@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from clara_coder_backend.domain import RuntimeToolsConfig
-from clara_coder_backend.lsp.manager import get_session_lsp_manager, shutdown_all_lsp_managers
+from clara_coder_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, shutdown_all_lsp_managers
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
@@ -405,20 +405,19 @@ def test_lsp_semantic_tokens_legend_gdscript_after_disk_sync_uses_injected_clien
 
 
 def test_get_lsp_dashboard_status_includes_builtin_servers(lsp_http_env) -> None:
-    from clara_coder_backend.lsp.manager import get_lsp_dashboard_status
-
     st = get_lsp_dashboard_status(lsp_http_env.session_id)
     servers = st.get('servers') or {}
     assert servers.get('python', {}).get('initialized') is False
+    assert servers.get('python', {}).get('phase') == 'idle'
     assert servers.get('typescript', {}).get('initialized') is False
+    assert servers.get('typescript', {}).get('phase') == 'idle'
     assert servers.get('gdscript', {}).get('initialized') is False
+    assert servers.get('gdscript', {}).get('phase') == 'idle'
     assert servers.get('java', {}).get('initialized') is False
+    assert servers.get('java', {}).get('phase') == 'idle'
 
 
 def test_get_lsp_dashboard_status_uses_cached_ts_root_only(lsp_http_env, tmp_path) -> None:
-    from clara_coder_backend.lsp.manager import get_lsp_dashboard_status
-    from clara_coder_backend.session.state import get_session
-
     session = get_session(lsp_http_env.session_id)
     session.typescript_lsp_resolved_root = ''
 
@@ -437,9 +436,34 @@ def test_get_lsp_dashboard_status_uses_cached_ts_root_only(lsp_http_env, tmp_pat
     assert st2.get('nodeModulesPresent') is True
 
 
+def test_lsp_shutdown_all_http_route(lsp_http_env) -> None:
+    from clara_coder_backend.lsp import manager as lsp_manager
+    from clara_coder_backend.lsp.manager import SessionWorkspaceLspManager
+
+    session = get_session(lsp_http_env.session_id)
+    mgr = SessionWorkspaceLspManager(
+        session_id=lsp_http_env.session_id,
+        session=session,
+        workspace_root=Path(session.workspace_path),
+        scope='workspace',
+        server_kind='python',
+        client_factory=lambda **kwargs: (_ for _ in ()).throw(AssertionError('should not spawn')),
+    )
+    mgr._lifecycle_phase = 'running'
+    lsp_manager._SESSION_MANAGERS[(lsp_http_env.session_id, 'python', 'workspace')] = mgr
+    with TestClient(lsp_http_env.app) as client:
+        r = client.post('/lsp/shutdown-all')
+    assert r.status_code == 200
+    assert r.json().get('ok') is True
+    assert lsp_manager._SESSION_MANAGERS == {}
+
+
 def test_lsp_warm_server_http_route(lsp_http_env) -> None:
     with TestClient(lsp_http_env.app) as client:
         r = client.post(f'/lsp/warm-server?session_id={lsp_http_env.session_id}&server=python')
     assert r.status_code == 200
     body = r.json()
     assert body.get('server') == 'python'
+    st = get_lsp_dashboard_status(lsp_http_env.session_id)
+    assert st['servers']['python']['initialized'] is True
+    assert st['servers']['python']['phase'] == 'running'

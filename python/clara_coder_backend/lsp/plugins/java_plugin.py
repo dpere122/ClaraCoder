@@ -35,6 +35,8 @@ class JavaLspPlugin(LspServerPlugin):
         session: SessionState,
         workspace_root: Path,
         state: Any,
+        session_id: str = '',
+        scope: str = 'workspace',
     ) -> LspStartParams:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
         cached = (session.lsp.java_lsp_resolved_root or '').strip()
@@ -54,8 +56,12 @@ class JavaLspPlugin(LspServerPlugin):
         st.project_root = root
         return LspStartParams(
             lsp_cwd=root,
-            command=build_java_lsp_command(root),
+            command=build_java_lsp_command(
+                root,
+                instance_key=f'{session_id}:{scope}',
+            ),
             init_options=build_java_initialization_options(),
+            startup_timeout_s=180.0,
         )
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:

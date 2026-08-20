@@ -32,6 +32,7 @@ from clara_coder_backend.lsp.manager import (
     get_lsp_dashboard_status,
     get_session_lsp_manager,
     list_session_diagnostics,
+    shutdown_all_lsp_managers,
 )
 from clara_coder_backend.lsp.registry import lsp_server_id_is_registered
 from clara_coder_backend.runtime.python_env import ensure_session_python_workspace_env
@@ -705,7 +706,7 @@ async def lsp_status(session_id: str) -> dict[str, object]:
     """Return workspace root and whether each LSP subprocess has been started (Python / TypeScript)."""
 
     try:
-        return get_lsp_dashboard_status(session_id)
+        return await asyncio.to_thread(get_lsp_dashboard_status, session_id)
     except Exception as exc:
         raise _lsp_http_400(exc) from exc
 
@@ -715,6 +716,14 @@ async def lsp_sessions() -> dict[str, object]:
     """Lightweight count of active LSP session managers (Health aggregation)."""
 
     return {'ok': True, **count_active_lsp_sessions()}
+
+
+@router.post('/lsp/shutdown-all')
+async def lsp_shutdown_all() -> dict[str, bool]:
+    """Stop every language-server subprocess (workspace switch / leave)."""
+
+    await asyncio.to_thread(shutdown_all_lsp_managers)
+    return {'ok': True}
 
 
 def _lsp_warm_server_sync(session_id: str, server: str) -> dict[str, str]:

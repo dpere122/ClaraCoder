@@ -161,6 +161,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
         sess.npm_project_hints = None
         sess.npm_discovery_at = None
         sess.typescript_lsp_resolved_root = ''
+        sess.java_lsp_resolved_root = ''
 
     sess.workspace_path = request.workspace_path
     sess.workspace_context = request.workspace_context

@@ -628,6 +628,8 @@ def test_diagnostics_route_refresh_alias_refresh_from_workspace(lsp_env) -> None
 
 def test_workspace_context_change_clears_lsp_session(lsp_env, tmp_path: Path) -> None:
     lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    lsp_env.session.typescript_lsp_resolved_root = '/old/ts'
+    lsp_env.session.java_lsp_resolved_root = '/old/java'
     next_workspace = tmp_path / 'next-ws'
     next_workspace.mkdir()
     asyncio.run(
@@ -641,6 +643,8 @@ def test_workspace_context_change_clears_lsp_session(lsp_env, tmp_path: Path) ->
     )
     assert lsp_env.session.lsp_diagnostics_by_scope == {'workspace': {}, 'staging': {}}
     assert lsp_env.session.lsp_workspace_root == ''
+    assert lsp_env.session.typescript_lsp_resolved_root == ''
+    assert lsp_env.session.java_lsp_resolved_root == ''
 
 
 def test_clear_session_shuts_down_lsp_state(lsp_env) -> None:

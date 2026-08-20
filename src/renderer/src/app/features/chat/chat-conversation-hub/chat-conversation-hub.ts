@@ -48,9 +48,7 @@ export class ChatConversationHubComponent implements OnDestroy {
 
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeConversationId = input<string | null>(null);
-  readonly activeFileRelativePath = input<string | null>(null);
   readonly pendingIds = input<Set<string>>(new Set());
-  readonly hasWorkspace = input(false);
   readonly creatingConversation = input(false);
 
   protected readonly newConvSpinnerName = 'new-conv-hub';

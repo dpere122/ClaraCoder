@@ -329,7 +329,7 @@ export {
   mergeHitlTrailIntoAuxiliaryTimeline,
 } from './hitl-trail';
 export type { HitlTrailArtifact, HitlTrailItem, HitlTrailKind } from './hitl-trail';
-export type { LspDashboardServerEntry, LspDashboardStatus } from './types/lsp-dashboard';
+export type { LspDashboardServerEntry, LspDashboardStatus, LspLifecyclePhase } from './types/lsp-dashboard';
 export type { LspEditorDiagnostic, LspEditorDiagnosticsPayload } from './types/lsp-editor-diagnostics';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
 export type { LspServerKind } from './lsp-file-policy';

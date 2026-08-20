@@ -1,7 +1,24 @@
 /** Shape of ``GET /lsp/status`` from the Python backend (`get_lsp_dashboard_status`). */
 
+/** Subprocess lifecycle for one registered language server. */
+export type LspLifecyclePhase =
+  | 'idle'
+  | 'starting'
+  | 'initializing'
+  | 'indexing'
+  | 'running'
+  | 'shuttingDown'
+  | 'crashed';
+
 export interface LspDashboardServerEntry {
   initialized: boolean;
+  phase: LspLifecyclePhase;
+  /** Java ``language/status`` type + message, when present. */
+  languageStatus?: string | null;
+  /** Winning manager scope when workspace and staging both exist. */
+  scope?: string;
+  /** Latched initialize/process failure text while ``phase`` is ``crashed``. */
+  lastError?: string | null;
 }
 
 export interface LspDashboardStatus {

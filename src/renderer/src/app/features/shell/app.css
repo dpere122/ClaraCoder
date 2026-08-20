@@ -184,6 +184,14 @@
   overflow: hidden;
 }
 
+.app-lsp-footer {
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  border-top: 1px solid var(--t-border-subtle);
+  background: var(--t-bg);
+}
+
 .workspace-panel {
   flex-shrink: 0;
   display: flex;

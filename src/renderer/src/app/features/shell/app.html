@@ -372,9 +372,7 @@
         [(collapsed)]='chatCollapsed'
         [conversations]='conversations()'
         [activeConversationId]='activeConversationId()'
-        [activeFileRelativePath]='activeFileRelativePath()'
         [pendingIds]='pendingIds()'
-        [hasWorkspace]='!!currentWorkspaceId()'
         [creatingConversation]='creatingConversation()'
         (newConversation)='onNewConversation()'
         (selectConversation)='onSelectConversation($event)'
@@ -427,6 +425,15 @@
       />
     </div>
   </div>
+
+  @if (electron.isElectron) {
+    <footer class="app-lsp-footer">
+      <app-editor-lsp-status
+        [conversationId]="activeConversationId()"
+        [activeFileRelativePath]="activeFileRelativePath()"
+      />
+    </footer>
+  }
 
   <app-themed-confirm-dialog />
   <app-themed-prompt-dialog />

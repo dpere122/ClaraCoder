@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -103,4 +104,53 @@ def test_requirements_current_false_until_hash_written(
     assert pr._requirements_current(venv) is True
     req.write_text('basedpyright>=1.29,<1.40\nblack\n', encoding='utf-8')
     assert pr._requirements_current(venv) is False
+
+
+def test_status_reports_error_when_requirements_hash_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv = tmp_path / 'python-venv'
+    venv.mkdir()
+    py = venv / ('Scripts' if sys.platform.startswith('win') else 'bin') / (
+        'python.exe' if sys.platform.startswith('win') else 'python'
+    )
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+
+    req = tmp_path / 'requirements.txt'
+    req.write_text('fastapi\nbasedpyright\n', encoding='utf-8')
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
+    monkeypatch.setattr(pr, 'venv_python', lambda _venv: py)
+    monkeypatch.setattr(pr, 'read_ready_marker', lambda _venv: '3.12.0')
+    monkeypatch.setattr(pr, 'requirements_txt', lambda: req)
+    monkeypatch.setattr(pr, '_core_packages_importable', lambda _py: True)
+
+    st = pr.status()
+    assert st['state'] == 'error'
+    assert 'requirements.txt changed' in (st.get('error') or '')
+
+
+def test_status_installed_when_core_packages_and_hash_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv = tmp_path / 'python-venv'
+    venv.mkdir()
+    py = venv / ('Scripts' if sys.platform.startswith('win') else 'bin') / (
+        'python.exe' if sys.platform.startswith('win') else 'python'
+    )
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+
+    req = tmp_path / 'requirements.txt'
+    req.write_text('fastapi\n', encoding='utf-8')
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
+    monkeypatch.setattr(pr, 'venv_python', lambda _venv: py)
+    monkeypatch.setattr(pr, 'read_ready_marker', lambda _venv: '3.12.0')
+    monkeypatch.setattr(pr, 'requirements_txt', lambda: req)
+    monkeypatch.setattr(pr, '_core_packages_importable', lambda _py: True)
+    pr._write_requirements_hash(venv)
+
+    st = pr.status()
+    assert st['state'] == 'installed'
+    assert st.get('error') is None
 

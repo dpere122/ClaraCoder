@@ -150,19 +150,39 @@ def _base_python(target_venv: Path) -> str:
     )
 
 
+def _core_packages_importable(python_exe: Path) -> bool:
+    """True when ``fastapi`` and ``uvicorn`` import in the runtime venv."""
+
+    try:
+        subprocess.run(
+            [str(python_exe), '-c', 'import fastapi, uvicorn'],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        return True
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def status() -> dict:
     venv = get_runtime_python_dir()
     py = venv_python(venv)
     version = read_ready_marker(venv)
     if py and version:
-        # Verify a core import
-        try:
-            subprocess.run(
-                [str(py), '-c', 'import fastapi, uvicorn'],
-                check=True,
-                capture_output=True,
-                timeout=30,
-            )
+        if _core_packages_importable(py):
+            if not _requirements_current(venv):
+                return {
+                    'id': DEP_ID,
+                    'label': 'Python runtime',
+                    'description': 'App-managed virtualenv with Clara backend packages.',
+                    'version': version,
+                    'state': 'error',
+                    'path': str(py),
+                    'sizeHint': SIZE_HINT,
+                    'canDelete': True,
+                    'error': 'requirements.txt changed; use Download to update packages.',
+                }
             return {
                 'id': DEP_ID,
                 'label': 'Python runtime',
@@ -174,18 +194,17 @@ def status() -> dict:
                 'canDelete': True,
                 'error': None,
             }
-        except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired) as exc:
-            return {
-                'id': DEP_ID,
-                'label': 'Python runtime',
-                'description': 'App-managed virtualenv with Clara backend packages.',
-                'version': version,
-                'state': 'error',
-                'path': str(py),
-                'sizeHint': SIZE_HINT,
-                'canDelete': True,
-                'error': f'Venv present but core packages missing: {exc}',
-            }
+        return {
+            'id': DEP_ID,
+            'label': 'Python runtime',
+            'description': 'App-managed virtualenv with Clara backend packages.',
+            'version': version,
+            'state': 'error',
+            'path': str(py),
+            'sizeHint': SIZE_HINT,
+            'canDelete': True,
+            'error': 'Venv present but core packages missing.',
+        }
     return {
         'id': DEP_ID,
         'label': 'Python runtime',
@@ -211,23 +230,22 @@ def install(*, force: bool = False) -> dict:
         shutil.rmtree(venv, ignore_errors=True)
 
     existing = venv_python(venv)
-    if existing and not force and read_ready_marker(venv):
-        st = status()
-        if st['state'] == 'installed':
-            if _requirements_current(venv):
-                logger.info(
-                    'python-runtime already installed path=%s version=%s',
-                    st.get('path'),
-                    st.get('version'),
-                )
-                PROGRESS.emit(DEP_ID, 'done', message='Already installed')
-                return st
-            logger.info('python-runtime requirements.txt changed; updating packages path=%s', existing)
-            PROGRESS.emit(DEP_ID, 'installing', message='Updating Python packages…')
-            _pip_install_requirements(existing)
-            _write_requirements_hash(venv)
-            PROGRESS.emit(DEP_ID, 'done', message='Python runtime packages updated')
-            return status()
+    if existing and not force and read_ready_marker(venv) and _core_packages_importable(existing):
+        if _requirements_current(venv):
+            st = status()
+            logger.info(
+                'python-runtime already installed path=%s version=%s',
+                st.get('path'),
+                st.get('version'),
+            )
+            PROGRESS.emit(DEP_ID, 'done', message='Already installed')
+            return st
+        logger.info('python-runtime requirements.txt changed; updating packages path=%s', existing)
+        PROGRESS.emit(DEP_ID, 'installing', message='Updating Python packages…')
+        _pip_install_requirements(existing)
+        _write_requirements_hash(venv)
+        PROGRESS.emit(DEP_ID, 'done', message='Python runtime packages updated')
+        return status()
 
     venv.mkdir(parents=True, exist_ok=True)
     r = subprocess.run([base, '-m', 'venv', str(venv)], capture_output=True, text=True)

@@ -316,7 +316,7 @@ describe('managed llama-server lifecycle', () => {
     );
   });
 
-  it('forwards llama-server stderr lines into app logs', async () => {
+  it('does not ingest llama-server stdout or stderr into app logs', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: true })),
@@ -326,14 +326,14 @@ describe('managed llama-server lifecycle', () => {
     expect(result.ok).toBe(true);
     vi.mocked(ingestElectronLog).mockClear();
 
+    procs[0].stdout.emit('data', Buffer.from('print_info: n_ctx = 8192\n'));
     procs[0].stderr.emit('data', Buffer.from('slot 0 is busy processing\n'));
     await Promise.resolve();
 
-    expect(vi.mocked(ingestElectronLog)).toHaveBeenCalledWith(
-      'INFO',
-      'clara.electron.llama',
-      expect.stringMatching(/chat stderr: slot 0 is busy processing/),
-      'electron',
+    expect(vi.mocked(ingestElectronLog)).not.toHaveBeenCalled();
+    expect(sendMock).toHaveBeenCalledWith(
+      'llama-server-output',
+      expect.objectContaining({ stream: 'chat', fd: 'stderr', data: 'slot 0 is busy processing\n' }),
     );
   });
 

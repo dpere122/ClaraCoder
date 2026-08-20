@@ -58,8 +58,6 @@ function logLlamaLifecycle(level: string, message: string): void {
   void ingestElectronLog(level, LLAMA_LOGGER, message, 'electron');
 }
 
-const STREAM_LOG_LINE_MAX = 2_000;
-
 /**
  * Split mixed newline / CR process output into complete lines.
  * Holds a trailing partial line until the next chunk or ``flush``.
@@ -95,11 +93,6 @@ export function createLineBuffer(onLine: (line: string) => void): {
       pending = '';
     },
   };
-}
-
-function logLlamaStreamLine(which: StreamKind, fd: 'stdout' | 'stderr', line: string): void {
-  const clipped = line.length > STREAM_LOG_LINE_MAX ? `${line.slice(0, STREAM_LOG_LINE_MAX)}…` : line;
-  logLlamaLifecycle('INFO', `${which} ${fd}: ${clipped}`);
 }
 
 type StreamKind = 'chat' | 'embed';
@@ -625,15 +618,12 @@ function attachLlamaStreams(
   acquireRedactSecret(hfToken);
   const stdoutRedact = createSecretChunkRedactor(hfToken);
   const stderrRedact = createSecretChunkRedactor(hfToken);
-  const stdoutLines = createLineBuffer((line) => logLlamaStreamLine(which, 'stdout', line));
-  const stderrLines = createLineBuffer((line) => logLlamaStreamLine(which, 'stderr', line));
   proc.stdout?.on('data', (d: Buffer) => {
     const s = stdoutRedact.push(d.toString());
     if (!s) {
       return;
     }
     appendStdout(bucket, which, s);
-    stdoutLines.push(s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: s });
   });
   proc.stderr?.on('data', (d: Buffer) => {
@@ -642,7 +632,6 @@ function attachLlamaStreams(
       return;
     }
     appendStderrQuiet(bucket, which, s);
-    stderrLines.push(s);
     sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: s });
   });
   proc.on('error', (err: Error) => {
@@ -655,17 +644,13 @@ function attachLlamaStreams(
     const flushedOut = stdoutRedact.flush();
     if (flushedOut) {
       appendStdout(bucket, which, flushedOut);
-      stdoutLines.push(flushedOut);
       sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stdout', data: flushedOut });
     }
     const flushedErr = stderrRedact.flush();
     if (flushedErr) {
       appendStderrQuiet(bucket, which, flushedErr);
-      stderrLines.push(flushedErr);
       sendToRenderer('llama-server-output', { modelId, stream: which, fd: 'stderr', data: flushedErr });
     }
-    stdoutLines.flush();
-    stderrLines.flush();
     releaseRedactSecret(hfToken);
     const st = running.get(modelId);
     const unexpected =
@@ -1017,7 +1002,7 @@ function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBu
   const sig = proc.signalCode;
   const why =
     code !== null ? `exit ${code}` : sig != null ? `signal ${sig}` : 'exited unexpectedly';
-  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab and app logs (clara.electron.llama) for process output.${hfWarmHintFromLogs(logBuf, kind)}`;
+  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for process output.${hfWarmHintFromLogs(logBuf, kind)}`;
 }
 
 function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {

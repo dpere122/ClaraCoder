@@ -71,6 +71,7 @@ from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.plan.plan_confirm import plan_confirm_sse_payload, stage_plan_confirm_request
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
+    build_followup_discovery_prompt,
     build_freeform_discovery_prompt,
 )
 from clara_coder_backend.stream_tags import PLANNER_STREAM_TAG, REASONING_AUXILIARY_STREAM_TAG
@@ -240,7 +241,7 @@ def _escape_prompt_template_braces(text: str) -> str:
 
 
 def _resolved_answers_preamble(resolved_answers: str) -> str:
-    """Format user answers to open questions for injection into the refinement prompt."""
+    """Format user answers to open questions for injection into the rewrite prompt."""
     text = (resolved_answers or '').strip()
     if not text:
         return ''
@@ -248,6 +249,87 @@ def _resolved_answers_preamble(resolved_answers: str) -> str:
         f'\n\nResolved clarifying questions (authoritative — incorporate into the plan):\n'
         f'{text}\n'
     )
+
+
+def _prior_plan_preamble(prior_plan_md: str) -> str:
+    """Previous draft to rewrite after the user answered clarifying questions."""
+    text = (prior_plan_md or '').strip()
+    if not text:
+        return ''
+    return (
+        '\n\nPrevious build-plan draft (rewrite the whole document; incorporate resolved answers '
+        'and new discovery; do not copy or emit an Open Questions section):\n'
+        f'{text}\n'
+    )
+
+
+def _combine_discovery_summaries(original: str, followup: str) -> str:
+    orig = (original or '').strip()
+    extra = (followup or '').strip()
+    if orig and extra:
+        return f'{orig}\n\nFollow-up discovery (after user answers):\n{extra}'
+    return orig or extra
+
+
+def _resolved_answers_as_assumptions(resolved_answers: str) -> list[str]:
+    """Turn a Q/A block into assumption lines the executor will actually see."""
+    lines = [ln.strip() for ln in (resolved_answers or '').splitlines() if ln.strip()]
+    out: list[str] = []
+    pending_q = ''
+    for ln in lines:
+        if ln.startswith('Q:'):
+            pending_q = ln[2:].strip()
+            continue
+        if ln.startswith('A:') and pending_q:
+            out.append(f'{pending_q} → {ln[2:].strip()}')
+            pending_q = ''
+            continue
+        out.append(ln)
+    if pending_q:
+        out.append(pending_q)
+    return out
+
+
+def _bind_answers_into_prior_plan(plan: BuildPlanModel, resolved_answers: str) -> BuildPlanModel:
+    """Keep the draft the user already saw, but bind answers and drop Open Questions."""
+    extra = _resolved_answers_as_assumptions(resolved_answers)
+    assumptions = [str(a).strip() for a in (plan.assumptions or []) if str(a).strip()]
+    for line in extra:
+        if line not in assumptions:
+            assumptions.append(line)
+    plan.assumptions = assumptions
+    plan.open_questions = []
+    return plan
+
+
+def _finalize_rewritten_plan(plan: BuildPlanModel, discovery_summary: str) -> BuildPlanModel:
+    """Never ask again after answers: strip questions; leftover grounding gaps become assumptions."""
+    gaps = _grounding_gap_questions(plan, discovery_summary)
+    assumptions = [str(a).strip() for a in (plan.assumptions or []) if str(a).strip()]
+    for gap in gaps:
+        prompt = str(getattr(gap, 'prompt', '') or '').strip()
+        if not prompt:
+            continue
+        line = f'Proceeding despite discovery gap: {prompt}'
+        if line not in assumptions:
+            assumptions.append(line)
+    plan.assumptions = assumptions
+    plan.open_questions = []
+    return plan
+
+
+def _plan_from_rewrite_output(md_text: str) -> BuildPlanModel | None:
+    """Parse streamed rewrite markdown; fall back to Gemma native / thought-channel coercion."""
+    text = (md_text or '').strip()
+    if not text:
+        return None
+    try:
+        parsed = parse_build_plan_md(text)
+        if _plan_has_action_steps(parsed):
+            return parsed
+    except Exception:
+        pass
+    return _coerce_planner_model(text)
 
 
 def _plan_has_action_steps(plan: BuildPlanModel | None) -> bool:
@@ -412,13 +494,16 @@ def _planner_markdown_chain(
     *,
     discovery_summary: str = '',
     resolved_answers: str = '',
+    prior_plan_md: str = '',
 ):
     discovery_block = _build_discovery_preamble(discovery_summary)
     answers_block = _resolved_answers_preamble(resolved_answers)
+    prior_block = _prior_plan_preamble(prior_plan_md)
     refinement_directive = (
         '\n\nYou are producing the FINAL build plan after the user answered clarifying questions. '
-        'Incorporate the resolved answers below into the plan; do not emit an Open Questions section.\n'
-        if resolved_answers
+        'Rewrite the whole document from the prior draft, resolved answers, and discovery. '
+        'Do not emit an Open Questions section.\n'
+        if resolved_answers or prior_plan_md
         else ''
     )
     prompt = ChatPromptTemplate.from_messages(
@@ -428,6 +513,7 @@ def _planner_markdown_chain(
                 f'{_escape_prompt_template_braces(planner_context)}'
                 f'{_escape_prompt_template_braces(discovery_block)}'
                 f'{_escape_prompt_template_braces(answers_block)}'
+                f'{_escape_prompt_template_braces(prior_block)}'
                 f'{_escape_prompt_template_braces(refinement_directive)}\n\n'
                 f'{_escape_prompt_template_braces(PLAN_MARKDOWN_STREAM_INSTRUCTIONS)}',
             ),
@@ -435,44 +521,6 @@ def _planner_markdown_chain(
         ]
     )
     return prompt | build_llm()
-
-
-def _planner_chain(planner_context: str, *, discovery_summary: str = '', resolved_answers: str = ''):
-    discovery_block = _build_discovery_preamble(discovery_summary)
-    answers_block = _resolved_answers_preamble(resolved_answers)
-    refinement_directive = (
-        '\n\nYou are producing the FINAL build plan after the user answered clarifying questions. '
-        'Incorporate the resolved answers below into the plan; do not emit an Open Questions section.\n'
-        if resolved_answers
-        else ''
-    )
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                'system',
-                f'{_escape_prompt_template_braces(planner_context)}'
-                f'{_escape_prompt_template_braces(discovery_block)}'
-                f'{_escape_prompt_template_braces(answers_block)}'
-                f'{_escape_prompt_template_braces(refinement_directive)}\n\n'
-                'You are in plan mode. Produce a build plan as a structured object with these fields:\n'
-                '- title: short document title\n'
-                '- task: user goal in plain language\n'
-                '- current_implementation: relevant existing behavior from discovery\n'
-                '- files_to_change: list of objects (path, operation create|modify|delete, rationale)\n'
-                '- assumptions: explicit assumptions the planner made\n'
-                '- open_questions: list of objects (id, prompt, options list) — only questions that block '
-                'the plan and only the user can answer; empty if you have enough context\n'
-                '- rollback_notes: how to revert the changes\n'
-                '- definition_of_done: plan-level outcomes that prove the objective is met\n'
-                '- action_steps: list of objects (id, goal, files_touched list, approach, '
-                'acceptance_criteria list, verification, risks list) — ordered, verifiable milestones '
-                '(mutating/delivering work only)\n\n'
-                f'{_escape_prompt_template_braces(PLAN_AUTHORING_GUIDELINES)}',
-            ),
-            ('placeholder', '{messages}'),
-        ]
-    )
-    return prompt | build_llm().with_structured_output(BuildPlanModel)
 
 
 def _planner_progress_payload(
@@ -564,6 +612,8 @@ async def _stream_planner_md(
     discovery_summary: str,
     record: BuildPlanRecord,
     md_out: list[str],
+    resolved_answers: str = '',
+    prior_plan_md: str = '',
 ) -> AsyncIterator[str]:
     """Stream planner markdown into SSE chunks and throttled disk writes.
 
@@ -592,6 +642,8 @@ async def _stream_planner_md(
                 with_tools_catalog=False,
             ),
             discovery_summary=discovery_summary,
+            resolved_answers=resolved_answers,
+            prior_plan_md=prior_plan_md,
         )
         async for chunk in chain.astream({'messages': [HumanMessage(content=user_input)]}):
             if session.abort_event.is_set():
@@ -670,53 +722,19 @@ async def _stream_planner_md(
         logger.info('Planner markdown stream finished for %s (len=%d)', relative_path, len(accumulated))
 
 
-async def _invoke_planner(
-    user_input: str,
-    *,
-    session: SessionState,
-    apply_mode: bool,
-    discovery_summary: str = '',
-    resolved_answers: str = '',
-    for_initial_plan: bool = True,
-) -> BuildPlanModel:
-    messages = {'messages': [HumanMessage(content=user_input)]}
-    chain = _planner_chain(
-        build_planner_context_block(session, apply_mode, for_initial_plan=for_initial_plan),
-        discovery_summary=discovery_summary,
-        resolved_answers=resolved_answers,
-    )
-    try:
-        structured = await chain.ainvoke(messages)
-        parsed = _coerce_planner_model(structured)
-        if parsed is not None:
-            return parsed
-        logger.warning('Structured planner returned no action steps; falling back to markdown')
-    except Exception:
-        logger.exception('Structured planner failed; falling back to markdown')
-
-    md_chain = _planner_markdown_chain(
-        build_planner_context_block(
-            session,
-            apply_mode,
-            for_initial_plan=for_initial_plan,
-            with_tools_catalog=False,
-        ),
-        discovery_summary=discovery_summary,
-        resolved_answers=resolved_answers,
-    )
-    raw = await md_chain.ainvoke(messages)
-    parsed = _coerce_planner_model(raw)
-    if parsed is None:
-        raise ValueError('Planner fallback did not produce a build plan with action steps')
-    return parsed
-
-
 async def _stream_plan_discovery_phase(
     session: SessionState,
     user_input: str,
     *,
     session_id: str,
     summary_out: list[str],
+    prompt: str | None = None,
+    checkpoint_session_key: str | None = None,
+    graph_name: str = 'plan_discover',
+    thread_kind: str = 'plan_discover',
+    status_detail: str = 'Exploring the workspace (read-only).',
+    llm_event_prefix: str = 'discover',
+    event_id_prefix: str = 'plan-discover',
 ) -> AsyncIterator[str]:
     """Run a single free-form read-only discovery pass before planning."""
 
@@ -736,29 +754,30 @@ async def _stream_plan_discovery_phase(
         status_event(
             exec_status_id,
             PLAN_DISCOVERY_EXECUTE_LABEL,
-            detail='Exploring the workspace (read-only).',
+            detail=status_detail,
             state='running',
             source='tool',
             stream_tag=PLANNER_STREAM_TAG,
         )
     )
 
-    discovery_prompt = build_freeform_discovery_prompt(user_input)
+    discovery_prompt = prompt or build_freeform_discovery_prompt(user_input)
+    thread_key = checkpoint_session_key or f'{session_id}:plan_discover'
     discover_outcome = LangGraphWorkerOutcome()
     discover_cfg = AgentGraphConfig(
         session_id=session_id,
-        checkpoint_session_key=f'{session_id}:plan_discover',
-        graph_name='plan_discover',
+        checkpoint_session_key=thread_key,
+        graph_name=graph_name,
         agent_role=None,
         status_label='Discover',
-        llm_event_prefix='discover',
-        config_error_event_id='plan-discover-graph',
-        run_error_event_id='plan-discover-graph-error',
-        done_event_id='plan-discover-done',
+        llm_event_prefix=llm_event_prefix,
+        config_error_event_id=f'{event_id_prefix}-graph',
+        run_error_event_id=f'{event_id_prefix}-graph-error',
+        done_event_id=f'{event_id_prefix}-done',
         empty_final_user_hint='Discovery finished without a summary.',
         failed_start_message='Discovery failed: {exc}',
         failed_run_message='Discovery error: {exc}',
-        thread_kind='plan_discover',
+        thread_kind=thread_kind,
         done_detail='Discovery complete',
     )
 
@@ -956,7 +975,7 @@ async def stream_plan_execute_langgraph(
 
     yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
-    # Open-questions HITL: ask the user, then refine the plan with the resolved answers.
+    # Open-questions HITL: ask once, follow-up discovery, then stream a full rewrite (no more questions).
     resolved_questions: list[dict[str, str]] = []
     if plan_model.open_questions:
         # Show the draft steps in the plan panel while the user answers questions.
@@ -977,55 +996,107 @@ async def stream_plan_execute_langgraph(
             build_plan_path=record.relative_path,
         )
         yield sse_line(agent_question_event(agent_question_sse_payload(question_pending)))
-        await await_question_answers(session_id)
+        answers = list(await await_question_answers(session_id))
         if session.question_aborted or session.abort_event.is_set():
             cancel_build_plan(session, record.id)
             outcome.mark_aborted()
             return
-        answers = list(session.question_answers or [])
         session.question_answers = None
         resolved_questions = _resolved_questions_for_confirm(plan_model.open_questions, answers)
         resolved_answers_text = _format_resolved_answers(plan_model.open_questions, answers)
         prior_md = md_text
+        prior_plan = plan_model
+
+        followup_box: list[str] = ['']
         try:
-            refined = await _invoke_planner(
+            async for line in _stream_plan_discovery_phase(
+                session,
+                user_input,
+                session_id=session_id,
+                summary_out=followup_box,
+                prompt=build_followup_discovery_prompt(
+                    user_input,
+                    resolved_answers=resolved_answers_text,
+                    prior_summary=discovery_summary,
+                ),
+                checkpoint_session_key=f'{session_id}:plan_discover_followup',
+                graph_name='plan_discover_followup',
+                thread_kind='plan_discover_followup',
+                status_detail='Follow-up discovery from your answers (read-only).',
+                llm_event_prefix='discover_followup',
+                event_id_prefix='plan-discover-followup',
+            ):
+                if session.abort_event.is_set():
+                    outcome.mark_aborted()
+                    return
+                yield line
+        except Exception:
+            logger.exception('Follow-up discovery failed; continuing with the original summary')
+            followup_box = ['']
+
+        if session.abort_event.is_set():
+            outcome.mark_aborted()
+            return
+
+        combined_summary = _combine_discovery_summaries(
+            discovery_summary,
+            followup_box[0] if followup_box else '',
+        )
+        yield sse_line(
+            planner_progress_event(
+                _planner_progress_payload(phase='planning', steps=[], plan_ready=False),
+            )
+        )
+        rewrite_box: list[str] = ['']
+        try:
+            async for line in _stream_planner_md(
                 user_input,
                 session=session,
                 apply_mode=tool_apply_mode,
-                discovery_summary=discovery_summary,
+                discovery_summary=combined_summary,
+                record=record,
+                md_out=rewrite_box,
                 resolved_answers=resolved_answers_text,
-                for_initial_plan=False,
-            )
+                prior_plan_md=prior_md,
+            ):
+                if session.abort_event.is_set():
+                    outcome.mark_aborted()
+                    return
+                yield line
         except Exception as exc:
-            logger.exception('Plan refinement failed; keeping the draft the user already saw')
-            log_llm_failure(exc, context='plan:refine', agent_role=None)
+            logger.exception('Plan rewrite failed; binding answers into the prior draft')
+            log_llm_failure(exc, context='plan:rewrite', agent_role=None)
+            rewrite_box = ['']
+
+        rewritten = _plan_from_rewrite_output(rewrite_box[0] if rewrite_box else '')
+        if rewritten is not None and _plan_has_action_steps(rewritten):
+            rewritten = _finalize_rewritten_plan(rewritten, combined_summary)
+            rewritten_md = render_build_plan_md(rewritten)
+            write_build_plan_draft_content(session.workspace_path, record, rewritten_md)
+            record = finalize_build_plan_draft(session.workspace_path, record, rewritten_md)
+            plan_model = rewritten
+            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=rewritten_md))
+            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+        else:
+            logger.warning(
+                'Plan rewrite produced no action steps; binding answers into prior draft at %s',
+                record.relative_path,
+            )
+            plan_model = _bind_answers_into_prior_plan(prior_plan, resolved_answers_text)
+            bound_md = render_build_plan_md(plan_model)
+            write_build_plan_draft_content(session.workspace_path, record, bound_md)
+            record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
             yield sse_line(
                 status_event(
-                    'plan-refine-error',
+                    'plan-rewrite-fallback',
                     'Plan kept',
-                    detail='Could not rewrite the plan from your answers; keeping the current draft.',
+                    detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
                     state='error',
                     stream_tag=PLANNER_STREAM_TAG,
                 )
             )
-            refined = None
-        if refined is not None and _plan_has_action_steps(refined):
-            refined.open_questions = []
-            refined_md = render_build_plan_md(refined)
-            write_build_plan_draft_content(session.workspace_path, record, refined_md)
-            record = finalize_build_plan_draft(session.workspace_path, record, refined_md)
-            plan_model = parse_build_plan_md(refined_md)
-            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=refined_md))
+            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
             yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
-        else:
-            logger.warning(
-                'Plan refinement produced no action steps; keeping prior draft at %s',
-                record.relative_path,
-            )
-            if prior_md.strip():
-                write_build_plan_draft_content(session.workspace_path, record, prior_md)
-                yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=prior_md))
-                yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
     action_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
     if not action_step_goals:

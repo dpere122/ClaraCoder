@@ -24,11 +24,11 @@ from clara_coder_backend.plan.plan_confirm import (
 from clara_coder_backend.plan.plan_execute import (
     PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
+    _bind_answers_into_prior_plan,
     _build_discovery_preamble,
     _coerce_planner_model,
+    _finalize_rewritten_plan,
     _grounding_gap_questions,
-    _invoke_planner,
-    _planner_chain,
     _planner_markdown_chain,
     build_build_plan_executor_prompt,
     build_planner_context_block,
@@ -352,13 +352,20 @@ def test_planner_markdown_chain_prompt_requires_markdown_template(mock_llm: Magi
 
 
 @patch('clara_coder_backend.plan.plan_execute.build_llm')
-def test_planner_chain_prompt_requires_build_plan_sections(mock_llm: MagicMock) -> None:
-    mock_llm.return_value.with_structured_output.return_value = MagicMock()
-    chain = _planner_chain('planner-context', discovery_summary='')
+def test_planner_markdown_chain_rewrite_includes_answers_and_prior_draft(mock_llm: MagicMock) -> None:
+    mock_llm.return_value = MagicMock()
+    chain = _planner_markdown_chain(
+        'planner-context',
+        discovery_summary='Auth in middleware',
+        resolved_answers='Q: Use REST or gRPC?\nA: REST',
+        prior_plan_md='# Build Plan: Feature plan\n',
+    )
     system = chain.first.format_messages(messages=[])[0].content
-    assert 'action_steps' in system.lower()
-    assert 'current_implementation' in system.lower()
-    assert 'create|modify|delete' in system.lower() or 'operation create|modify|delete' in system
+    assert 'FINAL build plan' in system
+    assert 'do not emit an Open Questions section' in system.lower() or 'Open Questions' in system
+    assert 'REST' in system
+    assert 'Previous build-plan draft' in system
+    assert '# Build Plan: Feature plan' in system
 
 
 def test_plan_confirm_sse_payload_includes_build_plan_path() -> None:
@@ -523,29 +530,52 @@ def _sample_plan_with_open_questions_md() -> str:
     )
 
 
+def _sample_rewritten_plan_md() -> str:
+    return render_build_plan_md(
+        BuildPlanModel(
+            title='Feature plan',
+            task='Build the feature',
+            current_implementation='Legacy handler in place',
+            files_to_change=[
+                FileChangeEntry(path='src/app.ts', operation='modify', rationale='update handler'),
+            ],
+            assumptions=['Use REST or gRPC? → REST'],
+            action_steps=[ActionStep(id='step-1', goal='Implement REST handler')],
+        )
+    )
+
+
 @patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
 @patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
 @patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
 @patch('clara_coder_backend.plan.plan_execute.await_question_answers')
-@patch('clara_coder_backend.plan.plan_execute._invoke_planner')
-@pytest.mark.asyncio(loop_scope='function')
-async def test_stream_plan_execute_asks_open_questions_then_refines(
-    mock_refine: AsyncMock,
+def test_stream_plan_execute_asks_open_questions_then_rewrites(
     mock_question_pause: AsyncMock,
     mock_pause: AsyncMock,
     mock_planner: AsyncMock,
     mock_exec: AsyncMock,
     tmp_path: Path,
 ) -> None:
+    planner_calls: list[dict[str, Any]] = []
+
     async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        planner_calls.append(kwargs)
         md_out: list[str] = kwargs['md_out']
         md_out.clear()
-        md_out.append(_sample_plan_with_open_questions_md())
+        if len(planner_calls) == 1:
+            md_out.append(_sample_plan_with_open_questions_md())
+        else:
+            md_out.append(_sample_rewritten_plan_md())
         yield 'data: {"type":"build_plan_chunk"}\n\n'
 
     mock_planner.side_effect = _fake_planner_md
 
+    checkpoint_keys: list[str] = []
+
     async def _fake_exec(*_args: Any, **_kwargs: Any):
+        cfg = _kwargs.get('cfg')
+        if cfg is not None:
+            checkpoint_keys.append(str(getattr(cfg, 'checkpoint_session_key', '') or ''))
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
         outcome.mark_completed(final_text='Discovery confirmed src/app.ts handler.')
         yield 'data: {"type":"chunk"}\n\n'
@@ -555,38 +585,41 @@ async def test_stream_plan_execute_asks_open_questions_then_refines(
     mock_question_pause.return_value = [
         {'question_id': 'q-1', 'option_id': 'q-1-opt-1', 'other_text': None},
     ]
-    mock_refine.return_value = BuildPlanModel(
-        title='Feature plan',
-        task='Build the feature',
-        current_implementation='Legacy handler in place',
-        files_to_change=[
-            FileChangeEntry(path='src/app.ts', operation='modify', rationale='update handler'),
-        ],
-        action_steps=[ActionStep(id='step-1', goal='Implement REST handler')],
-    )
     mock_pause.return_value = None
 
     session = SessionState(workspace_path=str(tmp_path))
     outcome = LangGraphWorkerOutcome()
 
-    lines = await _collect_lines(
-        stream_plan_execute_langgraph(
-            session,
-            'Build feature',
-            True,
-            session_id='sess-plan-q',
-            outcome=outcome,
+    lines = asyncio.run(
+        _collect_lines(
+            stream_plan_execute_langgraph(
+                session,
+                'Build feature',
+                True,
+                session_id='sess-plan-q',
+                outcome=outcome,
+            )
         )
     )
 
     assert any('"type": "agent_question"' in line for line in lines)
+    assert sum('"type": "agent_question"' in line for line in lines) == 1
     assert any('"type": "plan_confirm"' in line for line in lines)
-    # The resolved answer (REST) should be carried into the confirm payload.
     confirm_line = next(line for line in lines if '"type": "plan_confirm"' in line)
     assert 'resolvedQuestions' in confirm_line
     assert 'REST' in confirm_line
-    assert mock_refine.await_count == 1
+    assert len(planner_calls) == 2
+    assert 'REST' in (planner_calls[1].get('resolved_answers') or '')
+    assert '# Build Plan' in (planner_calls[1].get('prior_plan_md') or '')
+    assert any(key.endswith(':plan_discover') for key in checkpoint_keys)
+    assert any(key.endswith(':plan_discover_followup') for key in checkpoint_keys)
     assert outcome.state == AgentLoopOutcome.COMPLETED
+    plan_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
+    assert plan_files
+    disk = plan_files[0].read_text(encoding='utf-8')
+    assert 'REST' in disk
+    assert '## Open Questions' not in disk
+    assert 'Implement REST handler' in disk
 
 
 @patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
@@ -667,23 +700,66 @@ def test_coerce_planner_model_from_thought_wrapped_markdown() -> None:
     assert any(step.goal == 'Implement change' for step in parsed.action_steps)
 
 
+def test_bind_answers_into_prior_plan_strips_questions_and_adds_assumptions() -> None:
+    plan = BuildPlanModel(
+        title='Feature plan',
+        task='Build the feature',
+        current_implementation='Legacy handler',
+        files_to_change=[
+            FileChangeEntry(path='src/app.ts', operation='modify', rationale='update handler'),
+        ],
+        open_questions=[
+            OpenQuestion(id='q-1', prompt='Use REST or gRPC?', options=['REST', 'gRPC']),
+        ],
+        action_steps=[ActionStep(id='step-1', goal='Implement change')],
+    )
+    bound = _bind_answers_into_prior_plan(plan, 'Q: Use REST or gRPC?\nA: REST')
+    assert bound.open_questions == []
+    assert any('REST' in a for a in bound.assumptions)
+    md = render_build_plan_md(bound)
+    assert '## Open Questions' not in md
+    assert 'REST' in md
+
+
+def test_finalize_rewritten_plan_converts_grounding_gaps_to_assumptions() -> None:
+    plan = BuildPlanModel(
+        title='Feature plan',
+        task='Build the feature',
+        current_implementation='Legacy handler',
+        files_to_change=[
+            FileChangeEntry(path='src/missing.ts', operation='modify', rationale='maybe'),
+        ],
+        open_questions=[
+            OpenQuestion(id='q-1', prompt='Should not be asked again?', options=['Yes', 'No']),
+        ],
+        action_steps=[ActionStep(id='step-1', goal='Implement change')],
+    )
+    finalized = _finalize_rewritten_plan(plan, 'Discovery looked at src/app.ts only.')
+    assert finalized.open_questions == []
+    assert any('src/missing.ts' in a for a in finalized.assumptions)
+
+
 @patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
 @patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
 @patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
 @patch('clara_coder_backend.plan.plan_execute.await_question_answers')
-@patch('clara_coder_backend.plan.plan_execute._invoke_planner')
-def test_stream_plan_execute_keeps_plan_when_refine_fails(
-    mock_refine: AsyncMock,
+def test_stream_plan_execute_binds_answers_when_rewrite_has_no_steps(
     mock_question_pause: AsyncMock,
     mock_pause: AsyncMock,
     mock_planner: AsyncMock,
     mock_exec: AsyncMock,
     tmp_path: Path,
 ) -> None:
+    planner_calls = {'n': 0}
+
     async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        planner_calls['n'] += 1
         md_out: list[str] = kwargs['md_out']
         md_out.clear()
-        md_out.append(_sample_plan_with_open_questions_md())
+        if planner_calls['n'] == 1:
+            md_out.append(_sample_plan_with_open_questions_md())
+        else:
+            md_out.append('not a build plan')
         yield 'data: {"type":"build_plan_chunk"}\n\n'
 
     mock_planner.side_effect = _fake_planner_md
@@ -697,7 +773,6 @@ def test_stream_plan_execute_keeps_plan_when_refine_fails(
     mock_question_pause.return_value = [
         {'question_id': 'q-1', 'option_id': 'q-1-opt-1', 'other_text': None},
     ]
-    mock_refine.side_effect = RuntimeError('Gemma structured output failed')
     mock_pause.return_value = None
 
     session = SessionState(workspace_path=str(tmp_path))
@@ -709,17 +784,21 @@ def test_stream_plan_execute_keeps_plan_when_refine_fails(
                 session,
                 'Build feature',
                 True,
-                session_id='sess-plan-refine-fail',
+                session_id='sess-plan-rewrite-fail',
                 outcome=outcome,
             )
         )
     )
 
-    assert any('"type": "agent_question"' in line for line in lines)
+    assert sum('"type": "agent_question"' in line for line in lines) == 1
     assert any('"type": "plan_confirm"' in line for line in lines)
     assert any('Plan kept' in line for line in lines)
+    assert planner_calls['n'] == 2
     assert outcome.state == AgentLoopOutcome.COMPLETED
     plan_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
     assert plan_files
-    assert 'Feature plan' in plan_files[0].read_text(encoding='utf-8')
-    assert 'Implement change' in plan_files[0].read_text(encoding='utf-8')
+    disk = plan_files[0].read_text(encoding='utf-8')
+    assert 'Feature plan' in disk
+    assert 'Implement change' in disk
+    assert 'REST' in disk
+    assert '## Open Questions' not in disk

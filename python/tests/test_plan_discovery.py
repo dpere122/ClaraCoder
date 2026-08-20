@@ -10,6 +10,7 @@ from clara_coder_backend.plan.build_plan_store import ActionStep, BuildPlanModel
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
+    build_followup_discovery_prompt,
     build_freeform_discovery_prompt,
 )
 from clara_coder_backend.plan.plan_execute import (
@@ -24,6 +25,22 @@ def test_build_freeform_discovery_prompt_is_read_only_and_unplanned() -> None:
     assert 'read-only' in prompt.lower()
     assert 'do not' in prompt.lower()
     assert 'checklist' in prompt.lower()
+
+
+def test_build_followup_discovery_prompt_uses_answers_and_stays_read_only() -> None:
+    prompt = build_followup_discovery_prompt(
+        'Add an auth middleware',
+        resolved_answers='Q: Use REST or gRPC?\nA: REST',
+        prior_summary='Found src/auth.ts handler.',
+    )
+    assert 'Add an auth middleware' in prompt
+    assert 'REST' in prompt
+    assert 'Found src/auth.ts handler.' in prompt
+    assert 'follow-up discovery' in prompt.lower()
+    assert 'read-only' in prompt.lower()
+    assert 'do not' in prompt.lower()
+    assert 'checklist' in prompt.lower()
+    assert 'NEW findings' in prompt
 
 
 async def _collect_lines(generator: Any) -> list[str]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -282,6 +283,94 @@ def test_stream_planner_md_recovers_plan_written_in_thought_channel(tmp_path: Pa
     assert '# Build Plan' in (md_out[0] or '')
     assert 'Implement change' in (md_out[0] or '')
     assert '<|channel>' not in (md_out[0] or '')
+
+
+def _sample_gemma_native_plan_markup(*, in_thought_channel: bool = False) -> str:
+    call = (
+        '<|tool_call>call:BuildPlanModel{'
+        'title:<|"|>Feature plan<|"|>,'
+        'task:<|"|>Build the feature<|"|>,'
+        'current_implementation:<|"|>Legacy handler<|"|>,'
+        'action_steps:[{id:<|"|>step-1<|"|>,goal:<|"|>Implement REST handler<|"|>}]'
+        '}<tool_call|>'
+    )
+    if in_thought_channel:
+        return f'<|channel>thought\n{call}\n<channel|>Visible briefing'
+    return '<|channel>thought\nNeed a structured plan.\n<channel|>' + call
+
+
+@patch('clara_coder_backend.plan.plan_execute.gemma_output_parsing_active', return_value=True)
+def test_stream_planner_md_recovers_gemma_native_tool_call_plan(
+    _active: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content=_sample_gemma_native_plan_markup())
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-gemma-native-plan', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert '# Build Plan' in (md_out[0] or '')
+    assert 'Implement REST handler' in (md_out[0] or '')
+    assert '<|tool_call>' not in (md_out[0] or '')
+
+
+@patch('clara_coder_backend.plan.plan_execute.gemma_output_parsing_active', return_value=True)
+def test_stream_planner_md_recovers_native_tool_call_in_thought_channel(
+    _active: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content=_sample_gemma_native_plan_markup(in_thought_channel=True))
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-gemma-thought-native', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert '# Build Plan' in (md_out[0] or '')
+    assert 'Implement REST handler' in (md_out[0] or '')
+    assert '<|tool_call>' not in (md_out[0] or '')
 
 
 def test_build_discovery_preamble_includes_findings() -> None:
@@ -613,6 +702,22 @@ def test_stream_plan_execute_asks_open_questions_then_rewrites(
     assert '# Build Plan' in (planner_calls[1].get('prior_plan_md') or '')
     assert any(key.endswith(':plan_discover') for key in checkpoint_keys)
     assert any(key.endswith(':plan_discover_followup') for key in checkpoint_keys)
+    assert any('Rewriting plan' in line for line in lines)
+    question_idx = next(i for i, line in enumerate(lines) if '"type": "agent_question"' in line)
+    rewrite_progress = None
+    for line in lines[question_idx:]:
+        if '"type": "planner_progress"' not in line:
+            continue
+        payload = json.loads(line[len('data: '):].strip())
+        planner = payload.get('planner') or {}
+        if planner.get('phase') == 'planning' and planner.get('planReady') is False and planner.get('steps'):
+            rewrite_progress = planner
+            break
+    assert rewrite_progress is not None
+    assert rewrite_progress['steps'][0]['text'] == 'Implement change'
+    stub_idx = next(i for i, line in enumerate(lines) if '_Rewriting plan' in line)
+    rewritten_idx = next(i for i, line in enumerate(lines) if 'Implement REST handler' in line)
+    assert stub_idx < rewritten_idx
     assert outcome.state == AgentLoopOutcome.COMPLETED
     plan_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
     assert plan_files
@@ -678,16 +783,7 @@ async def test_stream_plan_execute_question_cancel_aborts(
 
 
 def test_coerce_planner_model_from_gemma_native_tool_call() -> None:
-    raw = (
-        '<|channel>thought\nNeed a structured plan.\n<channel|>'
-        '<|tool_call>call:BuildPlanModel{'
-        'title:<|"|>Feature plan<|"|>,'
-        'task:<|"|>Build the feature<|"|>,'
-        'current_implementation:<|"|>Legacy handler<|"|>,'
-        'action_steps:[{id:<|"|>step-1<|"|>,goal:<|"|>Implement REST handler<|"|>}]'
-        '}<tool_call|>'
-    )
-    parsed = _coerce_planner_model(raw)
+    parsed = _coerce_planner_model(_sample_gemma_native_plan_markup())
     assert parsed is not None
     assert parsed.title == 'Feature plan'
     assert parsed.action_steps[0].goal == 'Implement REST handler'

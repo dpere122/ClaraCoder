@@ -37,7 +37,8 @@ app-planner-checklist .plan-panel--awaiting {
   background: color-mix(in srgb, var(--t-primary) 7%, var(--t-bg-surface));
 }
 
-app-planner-checklist .plan-panel--discovering {
+app-planner-checklist .plan-panel--discovering,
+app-planner-checklist .plan-panel--writing {
   background: color-mix(in srgb, var(--plan-accent) 7%, var(--t-bg-surface));
 }
 
@@ -172,6 +173,7 @@ app-planner-checklist .plan-panel__phase {
 }
 
 app-planner-checklist .plan-panel__phase--discovering,
+app-planner-checklist .plan-panel__phase--writing,
 app-planner-checklist .plan-panel__phase--executing {
   color: var(--plan-accent);
   background: color-mix(in srgb, var(--plan-accent) 12%, transparent);

@@ -26,6 +26,7 @@ import { normalizePlanConfirmFilesToChange } from '@shared/index';
 import { planPanelCompleteCount } from '../chat-box-display';
 import { ElectronService } from '../../../../core/electron.service';
 import { AgentQuestionComponent } from '../../../diff/agent-question/agent-question';
+import { frameDisplayLabel, phaseDisplayLabel } from './planner-checklist-labels';
 
 const PLAN_PROGRESS_SPINNER_TYPE = 'line-spin-fade' as const;
 
@@ -87,7 +88,9 @@ export class PlannerChecklistComponent implements OnDestroy {
   readonly busy = signal(false);
   private continueSent = false;
 
-  readonly phaseLabel = computed(() => phaseDisplayLabel(this.planner().phase));
+  readonly phaseLabel = computed(() =>
+    phaseDisplayLabel(this.planner().phase, this.planner().planReady === true),
+  );
   readonly completeCount = computed(() => planPanelCompleteCount(this.planner()));
   readonly totalSteps = computed(() => this.planner().steps.length);
   /** Structured file ops; tolerates legacy string entries on persisted plan_confirm artifacts. */
@@ -104,6 +107,7 @@ export class PlannerChecklistComponent implements OnDestroy {
     if (!this.live()) return false;
     const phase = this.planner().phase;
     if (phase === 'discovery') return true;
+    if (phase === 'planning' && this.planner().planReady !== true) return true;
     return phase === 'executing' && this.completeCount() < this.totalSteps();
   });
 
@@ -134,7 +138,9 @@ export class PlannerChecklistComponent implements OnDestroy {
       this.agentQuestionReviewStatus() === 'pending',
   );
 
-  readonly frameLabel = computed(() => frameDisplayLabel(this.planner().phase, this.showApprovalActions()));
+  readonly frameLabel = computed(() =>
+    frameDisplayLabel(this.planner().phase, this.showApprovalActions(), this.planner().planReady === true),
+  );
 
   /** Continuous rail progress: completed steps + half-credit for the active step. */
   readonly railPct = computed(() => {
@@ -307,40 +313,5 @@ export class PlannerChecklistComponent implements OnDestroy {
     );
     this.busy.set(false);
     this.planConfirmFinished.emit({ requestId: req, status: 'cancelled', summary: 'Plan cancelled.' });
-  }
-}
-
-function phaseDisplayLabel(phase: PlannerProgress['phase']): string {
-  switch (phase) {
-    case 'planning':
-      return 'Ready for review';
-    case 'executing':
-      return 'Running';
-    case 'complete':
-      return 'Complete';
-    case 'error':
-      return 'Failed';
-    case 'discovery':
-      return 'Discovering';
-    default:
-      return phase;
-  }
-}
-
-function frameDisplayLabel(phase: PlannerProgress['phase'], awaitingApproval: boolean): string {
-  if (awaitingApproval) return 'PLAN · REVIEW';
-  switch (phase) {
-    case 'discovery':
-      return 'PLAN · DISCOVER';
-    case 'planning':
-      return 'PLAN · REVIEW';
-    case 'executing':
-      return 'PLAN · RUN';
-    case 'complete':
-      return 'PLAN · DONE';
-    case 'error':
-      return 'PLAN · FAIL';
-    default:
-      return 'PLAN';
   }
 }

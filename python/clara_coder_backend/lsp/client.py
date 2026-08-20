@@ -17,7 +17,40 @@ logger = logging.getLogger('clara.lsp.protocol')
 
 NotificationHandler = Callable[[str, dict[str, Any]], None]
 
-__all__ = ['JsonRpcLspClient']
+__all__ = ['JsonRpcLspClient', 'configuration_values_for_items', 'lookup_nested_section']
+
+
+def lookup_nested_section(options: dict[str, Any], section: str) -> Any:
+    """Return a nested value from ``options`` for a dotted LSP configuration section.
+
+    An empty ``section`` returns the full mapping (LSP ``workspace/configuration``).
+    Missing keys return ``None``.
+    """
+
+    if not section:
+        return dict(options)
+    current: Any = options
+    for part in section.split('.'):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def configuration_values_for_items(options: dict[str, Any], params: Any) -> list[Any]:
+    """Map ``workspace/configuration`` ``items`` to values from stored init options."""
+
+    items = params.get('items') if isinstance(params, dict) else None
+    if not isinstance(items, list):
+        return []
+    results: list[Any] = []
+    for item in items:
+        if not isinstance(item, dict):
+            results.append(None)
+            continue
+        section = str(item.get('section') or '')
+        results.append(lookup_nested_section(options, section))
+    return results
 
 
 class JsonRpcLspClient:
@@ -50,6 +83,7 @@ class JsonRpcLspClient:
         self._next_id = 0
         self._closed = False
         self._initialized = False
+        self._initialization_options: dict[str, Any] = {}
         self._stderr_tail: deque[str] = deque(maxlen=10)
 
     def start(self) -> None:
@@ -90,6 +124,7 @@ class JsonRpcLspClient:
         initialization_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.start()
+        self._initialization_options = dict(initialization_options or {})
         result = self.request(
             'initialize',
             {
@@ -98,12 +133,13 @@ class JsonRpcLspClient:
                 'rootUri': root_uri,
                 'workspaceFolders': [{'uri': root_uri, 'name': self._workspace_root.name}],
                 'capabilities': capabilities,
-                'initializationOptions': dict(initialization_options or {}),
+                'initializationOptions': dict(self._initialization_options),
                 'trace': 'off',
             },
             timeout_s=self._startup_timeout_s,
         )
         self.notify('initialized', {})
+        self.notify('workspace/didChangeConfiguration', {'settings': dict(self._initialization_options)})
         self._initialized = True
         logger.info('lsp initialize complete workspace=%s', self._workspace_root)
         return result
@@ -341,6 +377,8 @@ class JsonRpcLspClient:
         result: Any = None
         if method == 'workspace/semanticTokens/refresh':
             result = None
+        elif method == 'workspace/configuration':
+            result = configuration_values_for_items(self._initialization_options, payload.get('params'))
         else:
             logger.debug('lsp unhandled server request workspace=%s method=%s', self._workspace_root, method)
         try:

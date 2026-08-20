@@ -75,3 +75,32 @@ def test_base_python_errors_when_only_target_venv_exists(tmp_path: Path, monkeyp
 
     with pytest.raises(RuntimeError, match='durable Python'):
         pr._base_python(target)
+
+
+def test_requirements_fingerprint_changes_with_file_contents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    req = tmp_path / 'requirements.txt'
+    req.write_text('fastapi\n', encoding='utf-8')
+    monkeypatch.setattr(pr, 'requirements_txt', lambda: req)
+    first = pr._requirements_fingerprint()
+    req.write_text('fastapi\nbasedpyright\n', encoding='utf-8')
+    second = pr._requirements_fingerprint()
+    assert first != second
+    assert len(first) == 64
+
+
+def test_requirements_current_false_until_hash_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    req = tmp_path / 'requirements.txt'
+    req.write_text('basedpyright>=1.29,<1.40\n', encoding='utf-8')
+    monkeypatch.setattr(pr, 'requirements_txt', lambda: req)
+    venv = tmp_path / 'python-venv'
+    venv.mkdir()
+    assert pr._requirements_current(venv) is False
+    pr._write_requirements_hash(venv)
+    assert pr._requirements_current(venv) is True
+    req.write_text('basedpyright>=1.29,<1.40\nblack\n', encoding='utf-8')
+    assert pr._requirements_current(venv) is False
+

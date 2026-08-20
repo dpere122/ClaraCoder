@@ -276,7 +276,7 @@ def test_lsp_completion_skip_document_sync_avoids_second_buffer_sync(lsp_http_en
 
 
 def test_lsp_semantic_tokens_legend_python_deferred_without_seed(lsp_http_env) -> None:
-    """Jedi is not started for legend prefetch until a ``.py`` file has been synced (seed)."""
+    """Python is not started for legend prefetch until a ``.py`` file has been synced (seed)."""
 
     with TestClient(lsp_http_env.app) as client:
         r = client.get(

@@ -2,4 +2,4 @@
 testpaths = ["tests"]
 
 [tool.deptry.per_rule_ignores]
-DEP002 = ["jedi-language-server"]
+DEP002 = ["basedpyright"]

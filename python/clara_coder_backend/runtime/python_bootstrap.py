@@ -1,4 +1,4 @@
-"""Install workspace requirements and LSP helpers into the active session venv."""
+"""Install workspace requirements into the active session venv."""
 
 from __future__ import annotations
 
@@ -7,13 +7,11 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from clara_coder_backend.runtime.python_env import (
-    _python_module_available,
     _run_subprocess_with_output,
 )
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.workspace.paths import truncate_text
 
-_JEDI_LANGUAGE_SERVER_REQUIREMENT = 'jedi-language-server>=0.46,<0.47'
 _MAX_BOOTSTRAP_OUTPUT_CHARS = 80_000
 
 __all__ = [
@@ -71,7 +69,7 @@ async def bootstrap_session_python_dependencies(
     *,
     emit_chunk: Callable[[str], Awaitable[None]] | None = None,
 ) -> PythonBootstrapResult | None:
-    """Install workspace requirements and Jedi LSP into the active session venv."""
+    """Install workspace requirements into the active session venv."""
 
     context = _workspace_context_from_session(session)
     if context is None:
@@ -106,29 +104,6 @@ async def bootstrap_session_python_dependencies(
                 installed_packages=installed_packages,
             )
         installed_requirements.append(requirement_file)
-
-    if not await _python_module_available(python_executable, 'jedi_language_server', cwd=project_root):
-        code, output = await _run_subprocess_with_output(
-            [str(python_executable), '-m', 'pip', 'install', _JEDI_LANGUAGE_SERVER_REQUIREMENT],
-            cwd=project_root,
-            emit_chunk=emit_chunk,
-        )
-        output_chunks.append(output)
-        if code != 0:
-            return PythonBootstrapResult(
-                ok=False,
-                summary=truncate_text(
-                    (
-                        f'Tool error: could not install `{_JEDI_LANGUAGE_SERVER_REQUIREMENT}` into '
-                        f'`{session.python_workspace_venv_path}`.\n\n'
-                        f'{output.strip() or "`pip install jedi-language-server` failed."}'
-                    ),
-                    _MAX_BOOTSTRAP_OUTPUT_CHARS,
-                ),
-                installed_requirements=installed_requirements,
-                installed_packages=installed_packages,
-            )
-        installed_packages.append('jedi-language-server')
 
     return PythonBootstrapResult(
         ok=True,

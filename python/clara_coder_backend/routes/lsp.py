@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -42,10 +43,20 @@ from clara_coder_backend.tools.lsp_tools import _format_hover_contents
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 
 router = APIRouter()
+_logger = logging.getLogger('clara.lsp.http')
+
+
+def _lsp_http_400(exc: BaseException) -> HTTPException:
+    """Turn route failures into HTTP 400 and log the real reason (uvicorn only shows status)."""
+
+    if isinstance(exc, HTTPException):
+        return exc
+    _logger.warning('lsp request failed: %s', exc)
+    return HTTPException(status_code=400, detail=str(exc))
 
 
 async def _bootstrap_python_env_if_needed(session_id: str, *, server: str | None = None) -> None:
-    """Ensure workspace Python env is resolved before starting Jedi (deferred from workspace attach)."""
+    """Ensure workspace Python env is resolved before starting basedpyright (deferred from workspace attach)."""
 
     if server is not None and server != 'python':
         return
@@ -672,7 +683,7 @@ async def lsp_diagnostics(
                 await _bootstrap_python_env_if_needed(session_id, server=server)
         return await asyncio.to_thread(_lsp_diagnostics_sync, session_id, enc, rel, refresh_disk)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.get('/lsp/semantic-tokens-legend')
@@ -686,7 +697,7 @@ async def lsp_semantic_tokens_legend(session_id: str, server: str) -> dict[str, 
         await _bootstrap_python_env_if_needed(session_id, server=srv)
         return await asyncio.to_thread(_lsp_semantic_tokens_legend_sync, session_id, srv)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.get('/lsp/status')
@@ -696,7 +707,7 @@ async def lsp_status(session_id: str) -> dict[str, object]:
     try:
         return get_lsp_dashboard_status(session_id)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.get('/lsp/sessions')
@@ -723,7 +734,7 @@ async def lsp_warm_server(session_id: str, server: str) -> dict[str, str]:
         await _bootstrap_python_env_if_needed(session_id, server=server)
         return await asyncio.to_thread(_lsp_warm_server_sync, session_id, server)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/hover')
@@ -751,7 +762,7 @@ async def lsp_editor_hover(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/definition')
@@ -775,7 +786,7 @@ async def lsp_editor_definition(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/references')
@@ -800,7 +811,7 @@ async def lsp_editor_references(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/document-symbols')
@@ -822,7 +833,7 @@ async def lsp_editor_document_symbols(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/completion')
@@ -848,7 +859,7 @@ async def lsp_editor_completion(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/rename')
@@ -873,7 +884,7 @@ async def lsp_editor_rename(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/semantic-tokens/full')
@@ -895,7 +906,7 @@ async def lsp_semantic_tokens_full(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/editor/diagnostics')
@@ -917,7 +928,7 @@ async def lsp_editor_diagnostics(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.get('/lsp/diagnostics-generation')
@@ -939,7 +950,7 @@ async def lsp_diagnostics_generation(
             raise ValueError('relative_path is required.')
         return await asyncio.to_thread(_lsp_diagnostics_generation_sync, session_id, rel)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/signature-help')
@@ -963,7 +974,7 @@ async def lsp_editor_signature_help(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/document-highlight')
@@ -985,7 +996,7 @@ async def lsp_editor_document_highlight(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/completion-resolve')
@@ -1004,7 +1015,7 @@ async def lsp_editor_completion_resolve(
             body.item,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/code-action')
@@ -1029,7 +1040,7 @@ async def lsp_editor_code_action(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/formatting')
@@ -1051,7 +1062,7 @@ async def lsp_editor_formatting(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/range-formatting')
@@ -1077,7 +1088,7 @@ async def lsp_editor_range_formatting(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/on-type-formatting')
@@ -1102,7 +1113,7 @@ async def lsp_editor_on_type_formatting(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/inlay-hints')
@@ -1126,7 +1137,7 @@ async def lsp_editor_inlay_hints(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/code-lens')
@@ -1146,7 +1157,7 @@ async def lsp_editor_code_lens(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/code-lens/resolve')
@@ -1165,7 +1176,7 @@ async def lsp_editor_code_lens_resolve(
             body.lens,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc
 
 
 @router.post('/lsp/semantic-tokens/full/delta')
@@ -1186,4 +1197,4 @@ async def lsp_semantic_tokens_full_delta(
             skip_document_sync=body.skip_document_sync,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lsp_http_400(exc) from exc

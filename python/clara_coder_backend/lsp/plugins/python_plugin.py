@@ -1,4 +1,4 @@
-"""Python LSP plugin (jedi-language-server)."""
+"""Python LSP plugin (basedpyright)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from clara_coder_backend.lsp.jedi_init_options import build_jedi_initialization_options
+from clara_coder_backend.lsp.python_init_options import build_python_initialization_options
 from clara_coder_backend.lsp.python_server import build_python_lsp_command
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
 
@@ -37,7 +37,7 @@ class PythonLspPlugin(LspServerPlugin):
         return LspStartParams(
             lsp_cwd=workspace_root,
             command=build_python_lsp_command(workspace_root),
-            init_options=build_jedi_initialization_options(session, workspace_root),
+            init_options=build_python_initialization_options(session, workspace_root),
         )
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:

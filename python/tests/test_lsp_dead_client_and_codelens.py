@@ -29,7 +29,7 @@ class _FakeLspClient:
     def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
         del root_uri, process_id, capabilities, initialization_options
         self.initialized = True
-        return {'capabilities': {}}
+        return {'capabilities': {'codeLensProvider': {'resolveProvider': True}}}
 
     def request(self, method, params, *, timeout_s=10.0):
         del timeout_s
@@ -264,5 +264,43 @@ def test_code_lens_resolve_forwards_converted_payload_with_data(tmp_path: Path) 
             }
         ]
         assert result['command']['command'] == 'java.show.references'
+    finally:
+        current_session_id.reset(token)
+
+
+def test_code_lens_returns_empty_when_server_omits_provider(tmp_path: Path) -> None:
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    (workspace / 'pkg').mkdir()
+    (workspace / 'pkg' / 'mod.py').write_text('value = 1\n', encoding='utf-8')
+
+    session_id = 'codelens-unsupported'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.workspace_path = str(workspace.resolve())
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
+    try:
+        def factory(**kwargs):
+            client = _FakeLspClient(**kwargs)
+            orig = client.initialize
+
+            def initialize(**kw):
+                orig(**kw)
+                return {'capabilities': {}}
+
+            client.initialize = initialize  # type: ignore[method-assign]
+            return client
+
+        mgr = SessionWorkspaceLspManager(
+            session_id=session_id,
+            session=session,
+            workspace_root=workspace,
+            scope='workspace',
+            server_kind='python',
+            client_factory=factory,
+        )
+        mgr.ensure_started()
+        mgr._doc_versions['pkg/mod.py'] = 1
+        assert mgr.code_lens('pkg/mod.py') == []
     finally:
         current_session_id.reset(token)

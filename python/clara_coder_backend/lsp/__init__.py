@@ -2,7 +2,7 @@
 
 Keep this package init lightweight so bootstrap tools (e.g. the deps CLI on a
 bare portable Python) can import ``clara_coder_backend.lsp.java_server`` without
-pulling LangChain / Jedi manager dependencies.
+pulling LangChain / Python LSP manager dependencies.
 """
 
 from __future__ import annotations

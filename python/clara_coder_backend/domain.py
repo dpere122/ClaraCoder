@@ -77,7 +77,7 @@ class SessionWorkspaceState:
     python_workspace_bin_path: str = ''
     # Most recent workspace Python environment status summary.
     python_workspace_env_summary: str = ''
-    # Selected interpreter id from discovery (``app-backend``, ``dot-venv``, …); drives Jedi env + LSP metadata.
+    # Selected interpreter id from discovery (``app-backend``, ``dot-venv``, …); drives Python LSP analysis env.
     python_interpreter_choice_id: str = ''
 
 

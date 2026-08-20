@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
@@ -22,6 +23,51 @@ logger = logging.getLogger('clara.runtime.deps.python_runtime')
 
 DEP_ID = 'python-runtime'
 SIZE_HINT = '~150 MB (venv + core packages)'
+REQ_HASH_MARKER = '.clara-requirements-hash'
+
+
+def _requirements_fingerprint() -> str:
+    """SHA-256 of ``python/requirements.txt`` so existing venvs pick up new deps."""
+
+    req = requirements_txt()
+    try:
+        data = req.read_bytes()
+    except OSError:
+        return ''
+    return hashlib.sha256(data).hexdigest()
+
+
+def _write_requirements_hash(venv: Path) -> None:
+    digest = _requirements_fingerprint()
+    if not digest:
+        return
+    venv.mkdir(parents=True, exist_ok=True)
+    (venv / REQ_HASH_MARKER).write_text(digest + '\n', encoding='utf-8')
+
+
+def _requirements_current(venv: Path) -> bool:
+    marker = venv / REQ_HASH_MARKER
+    try:
+        stored = marker.read_text(encoding='utf-8').strip()
+    except OSError:
+        return False
+    digest = _requirements_fingerprint()
+    return bool(stored) and stored == digest
+
+
+def _pip_install_requirements(python_exe: Path) -> None:
+    req = requirements_txt()
+    if not req.is_file():
+        raise RuntimeError(f'Missing requirements file: {req}')
+    pip = subprocess.run(
+        [str(python_exe), '-m', 'pip', 'install', '-r', str(req)],
+        capture_output=True,
+        text=True,
+    )
+    if pip.returncode != 0:
+        logger.error('python-runtime pip install failed')
+        raise RuntimeError(f'pip install failed:\n{pip.stderr or pip.stdout}')
+
 
 
 def _path_is_under(path: Path, root: Path) -> bool:
@@ -168,9 +214,20 @@ def install(*, force: bool = False) -> dict:
     if existing and not force and read_ready_marker(venv):
         st = status()
         if st['state'] == 'installed':
-            logger.info('python-runtime already installed path=%s version=%s', st.get('path'), st.get('version'))
-            PROGRESS.emit(DEP_ID, 'done', message='Already installed')
-            return st
+            if _requirements_current(venv):
+                logger.info(
+                    'python-runtime already installed path=%s version=%s',
+                    st.get('path'),
+                    st.get('version'),
+                )
+                PROGRESS.emit(DEP_ID, 'done', message='Already installed')
+                return st
+            logger.info('python-runtime requirements.txt changed; updating packages path=%s', existing)
+            PROGRESS.emit(DEP_ID, 'installing', message='Updating Python packages…')
+            _pip_install_requirements(existing)
+            _write_requirements_hash(venv)
+            PROGRESS.emit(DEP_ID, 'done', message='Python runtime packages updated')
+            return status()
 
     venv.mkdir(parents=True, exist_ok=True)
     r = subprocess.run([base, '-m', 'venv', str(venv)], capture_output=True, text=True)
@@ -185,23 +242,13 @@ def install(*, force: bool = False) -> dict:
     PROGRESS.emit(DEP_ID, 'installing', message='Bootstrapping pip…')
     subprocess.run([str(py), '-m', 'ensurepip', '--upgrade'], check=False, capture_output=True)
 
-    req = requirements_txt()
-    if not req.is_file():
-        raise RuntimeError(f'Missing requirements file: {req}')
-
     PROGRESS.emit(DEP_ID, 'installing', message='Installing core packages…')
-    pip = subprocess.run(
-        [str(py), '-m', 'pip', 'install', '-r', str(req)],
-        capture_output=True,
-        text=True,
-    )
-    if pip.returncode != 0:
-        logger.error('python-runtime pip install failed')
-        raise RuntimeError(f'pip install failed:\n{pip.stderr or pip.stdout}')
+    _pip_install_requirements(py)
 
     # Version of the venv interpreter (matches ``base``), not the possibly-different sidecar.
     ver = _interpreter_version(str(py))
     write_ready_marker(venv, ver)
+    _write_requirements_hash(venv)
     logger.info('python-runtime ready path=%s version=%s', py, ver)
     PROGRESS.emit(DEP_ID, 'done', message='Python runtime ready')
     return status()

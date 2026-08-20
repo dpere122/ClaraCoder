@@ -95,31 +95,33 @@ async def test_run_subprocess_with_output_uses_isolated_session_and_devnull(tmp_
     assert captured.get('start_new_session') is True
 
 
-def _assert_backend_jedi_lsp_command(command: list[str], *, workspace_adjacent: Path | None = None) -> None:
-    """Backend interpreter (or its adjacent console script), never a workspace-local jedi."""
+def _assert_backend_basedpyright_lsp_command(command: list[str], *, workspace_adjacent: Path | None = None) -> None:
+    """Backend interpreter (or its adjacent console script), never a workspace-local basedpyright."""
     backend = Path(sys.executable)
     if workspace_adjacent is not None:
         assert command[0] != str(workspace_adjacent)
-    adjacent = backend.parent / ('jedi-language-server.exe' if sys.platform.startswith('win') else 'jedi-language-server')
+    adjacent = backend.parent / (
+        'basedpyright-langserver.exe' if sys.platform.startswith('win') else 'basedpyright-langserver'
+    )
     if adjacent.is_file():
-        assert command == [str(adjacent)]
+        assert command == [str(adjacent), '--stdio']
     else:
         assert command[0] == str(backend)
-        assert command[1:] == ['-u', '-c', 'from jedi_language_server.cli import cli; cli()']
+        assert command[1:] == ['-u', '-c', 'from basedpyright.langserver import main; main()', '--stdio']
 
 
 def test_build_python_lsp_command_uses_backend_interpreter(tmp_path: Path) -> None:
-    """LSP subprocess always uses the Nemo backend Python so the server survives workspace removal."""
+    """LSP subprocess always uses the Clara backend Python so the server survives workspace removal."""
 
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
 
     command = build_python_lsp_command(workspace_root)
 
-    _assert_backend_jedi_lsp_command(command)
+    _assert_backend_basedpyright_lsp_command(command)
 
 
-def test_build_python_lsp_command_falls_back_to_backend_when_workspace_has_no_jedi(tmp_path: Path) -> None:
+def test_build_python_lsp_command_falls_back_to_backend_when_workspace_has_no_basedpyright(tmp_path: Path) -> None:
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
     python_executable = workspace_python_executable(workspace_root)
@@ -128,10 +130,10 @@ def test_build_python_lsp_command_falls_back_to_backend_when_workspace_has_no_je
 
     command = build_python_lsp_command(workspace_root)
 
-    _assert_backend_jedi_lsp_command(command)
+    _assert_backend_basedpyright_lsp_command(command)
 
 
-def test_build_python_lsp_command_ignores_workspace_adjacent_jedi(tmp_path: Path) -> None:
+def test_build_python_lsp_command_ignores_workspace_adjacent_basedpyright(tmp_path: Path) -> None:
     workspace_root = tmp_path / 'workspace'
     workspace_root.mkdir()
     python_executable = workspace_python_executable(workspace_root)
@@ -139,16 +141,28 @@ def test_build_python_lsp_command_ignores_workspace_adjacent_jedi(tmp_path: Path
     python_executable.write_text('', encoding='utf-8')
 
     if sys.platform.startswith('win'):
-        script_path = python_executable.parent / 'jedi-language-server.exe'
+        script_path = python_executable.parent / 'basedpyright-langserver.exe'
         script_path.write_text('', encoding='utf-8')
     else:
-        script_path = python_executable.parent / 'jedi-language-server'
+        script_path = python_executable.parent / 'basedpyright-langserver'
         script_path.write_text('#!/bin/sh\n', encoding='utf-8')
         script_path.chmod(0o755)
 
     command = build_python_lsp_command(workspace_root)
 
-    _assert_backend_jedi_lsp_command(command, workspace_adjacent=script_path)
+    _assert_backend_basedpyright_lsp_command(command, workspace_adjacent=script_path)
+
+
+def test_build_python_lsp_command_raises_when_basedpyright_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import clara_coder_backend.lsp.python_server as ps
+
+    monkeypatch.setattr(ps, '_resolve_basedpyright_command_for_interpreter', lambda _exe: None)
+    monkeypatch.setattr(ps, 'env_clara', lambda *_a, **_k: '')
+
+    with pytest.raises(RuntimeError, match='basedpyright is not installed'):
+        build_python_lsp_command(tmp_path / 'workspace')
 
 
 def test_resolve_python_workspace_root_accepts_simple_python_workspace(tmp_path: Path) -> None:
@@ -224,7 +238,7 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
             ok=True,
             summary='deps-ready',
             installed_requirements=['requirements.txt', 'requirements-dev.txt'],
-            installed_packages=['jedi-language-server'],
+            installed_packages=[],
         )
 
     monkeypatch.setattr('clara_coder_backend.runtime.python_env.ensure_python_workspace_env', _fake_ensure)
@@ -242,7 +256,7 @@ def test_ensure_session_python_workspace_env_bootstraps_dependencies_when_reques
     assert result is not None
     assert result.ok is True
     assert result.installed_requirements == ['requirements.txt', 'requirements-dev.txt']
-    assert result.installed_packages == ['jedi-language-server']
+    assert result.installed_packages == []
     assert 'env-ready' in result.summary
     assert 'deps-ready' in result.summary
 

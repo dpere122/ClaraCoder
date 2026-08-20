@@ -162,7 +162,7 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly pendingCreate = signal<{ kind: 'file' | 'folder'; parentDir: string } | null>(null);
   protected readonly pendingCreateDraft = signal<string>('');
 
-  /** Python interpreter choices for Jedi/LSP (workspace discovery). */
+  /** Python interpreter choices for Python LSP (workspace discovery). */
   protected readonly pythonInterpreterRows = signal<PythonInterpreterListItem[]>([]);
   protected readonly pythonInterpreterSelectedId = signal('');
   protected readonly pythonInterpreterLoading = signal(false);
@@ -184,14 +184,14 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly systemPromptEditorSaving = signal(false);
   protected readonly systemPromptEditorError = signal('');
 
-  /** From ``GET /lsp/status`` — whether the Jedi subprocess for this session is running. */
+  /** From ``GET /lsp/status`` — whether the Python LSP subprocess for this session is running. */
   protected readonly lspPythonServerRunning = signal(false);
   /** From bounded workspace tree text (same scan as LLM context) — typical Python project markers / ``.py`` files. */
   protected readonly pythonWorkspaceTreeHints = signal(false);
   private interpreterChromeRequestId = 0;
   private lastInterpreterChromeWorkspaceRoot = '';
 
-  /** Show / enable Python env controls only when the workspace looks Python-related or Jedi is already up. */
+  /** Show / enable Python env controls only when the workspace looks Python-related or the Python LSP is already up. */
   protected readonly pythonInterpreterControlsActive = computed(() => {
     return this.lspPythonServerRunning() || this.pythonWorkspaceTreeHints();
   });

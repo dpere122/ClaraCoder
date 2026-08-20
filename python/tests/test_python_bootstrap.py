@@ -84,16 +84,8 @@ async def test_bootstrap_session_python_dependencies_uses_workspace_python_env(
     assert result is not None
     assert result.ok is True
     assert result.installed_requirements == ['requirements.txt', 'requirements-dev.txt']
-    assert result.installed_packages == ['jedi-language-server']
+    assert result.installed_packages == []
     assert 'Python workspace dependency bootstrap' in result.summary
     assert commands[0] == (str(python_executable), '-m', 'pip', 'install', '-r', 'requirements.txt')
     assert commands[1] == (str(python_executable), '-m', 'pip', 'install', '-r', 'requirements-dev.txt')
-    assert commands[2][0] == str(python_executable)
-    assert commands[2][1] == '-c'
-    assert commands[3] == (
-        str(python_executable),
-        '-m',
-        'pip',
-        'install',
-        'jedi-language-server>=0.46,<0.47',
-    )
+    assert len(commands) == 2

@@ -211,7 +211,7 @@ def _format_lsp_tool_error(
     if (
         'lsp client closed' in lowered
         or 'initialize' in lowered
-        or 'jedi_language_server' in lowered
+        or 'basedpyright' in lowered
         or 'vtsls' in lowered
         or '@vtsls/language-server' in lowered
     ):

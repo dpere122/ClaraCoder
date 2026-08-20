@@ -13,7 +13,7 @@ export interface LspDashboardStatus {
   activeLspScope?: string;
   cachedDiagnostics?: number;
   diagnosticsCacheNote?: string;
-  /** Jedi ``workspace.environmentPath``: venv root used for library hover/docs. */
+  /** Workspace venv root (dashboard). Analysis uses ``python.pythonPath`` (the interpreter). */
   pythonEnvironmentPath?: string | null;
   /** Workspace Python interpreter when resolved by env bootstrap. */
   pythonInterpreterPath?: string | null;

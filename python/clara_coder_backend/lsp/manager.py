@@ -15,7 +15,7 @@ from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.client import JsonRpcLspClient
 from clara_coder_backend.lsp.diagnostics import normalize_lsp_diagnostics
 from clara_coder_backend.lsp.file_policy import get_lsp_file_policy, lsp_server_for_path, normalize_relative_posix_path
-from clara_coder_backend.lsp.jedi_init_options import jedi_environment_path_for_workspace
+from clara_coder_backend.lsp.python_init_options import python_environment_path_for_workspace
 from clara_coder_backend.lsp.registry import (
     LspServerKind,
     get_lsp_server_plugin,
@@ -169,6 +169,7 @@ def _workspace_capabilities() -> dict[str, Any]:
         },
         'workspace': {
             'workspaceFolders': True,
+            'configuration': True,
             'didChangeWatchedFiles': {'dynamicRegistration': False},
             'semanticTokens': {'refreshSupport': True},
         },
@@ -227,6 +228,7 @@ class SessionWorkspaceLspManager:
         self._diag_generation: dict[str, int] = {}
         self._last_synced_digest: dict[str, bytes] = {}
         self._semantic_tokens_legend: dict[str, list[str]] | None = None
+        self._server_capabilities: dict[str, Any] = {}
 
     def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
         """True when legend prefetch must not spawn this server before any document seed."""
@@ -254,6 +256,7 @@ class SessionWorkspaceLspManager:
         client = self._client
         self._client = None
         self._semantic_tokens_legend = None
+        self._server_capabilities = {}
         tracked = list(self._doc_versions.keys())
         self._doc_versions.clear()
         self._diag_generation.clear()
@@ -318,6 +321,8 @@ class SessionWorkspaceLspManager:
                 initialization_options=init_opts,
             )
             self._semantic_tokens_legend = _extract_semantic_tokens_legend(init_result)
+            caps = init_result.get('capabilities') if isinstance(init_result, dict) else None
+            self._server_capabilities = caps if isinstance(caps, dict) else {}
             self._client = client
             self._plugin.on_after_client_started(
                 session=self.session,
@@ -343,6 +348,7 @@ class SessionWorkspaceLspManager:
             client = self._client
             self._client = None
             self._semantic_tokens_legend = None
+            self._server_capabilities = {}
             tracked = list(self._doc_versions.keys())
             self._doc_versions.clear()
             self._diag_generation.clear()
@@ -752,6 +758,8 @@ class SessionWorkspaceLspManager:
 
     def code_lens(self, relative_path: str) -> Any:
         rel = self._ensure_workspace_synced(relative_path)
+        if not self._has_provider('codeLensProvider'):
+            return []
         params = {'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))}}
         return self._require_client().request('textDocument/codeLens', params, timeout_s=15.0)
 
@@ -766,11 +774,19 @@ class SessionWorkspaceLspManager:
         if lsp_lens.get('data') is None:
             return lsp_lens
         self.ensure_started()
+        if not self._has_provider('codeLensProvider'):
+            return lsp_lens
         return self._require_client().request('codeLens/resolve', lsp_lens, timeout_s=8.0)
 
     @property
     def semantic_tokens_legend(self) -> dict[str, list[str]] | None:
         return self._semantic_tokens_legend
+
+    def _has_provider(self, capability_name: str) -> bool:
+        """True when initialize advertised this provider (bool or options object)."""
+
+        val = self._server_capabilities.get(capability_name)
+        return val is True or isinstance(val, dict)
 
     def _policy(self, rel: str) -> Any:
         policy = get_lsp_file_policy(rel)
@@ -1003,7 +1019,7 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
     node_modules_present = False
     if ts_root_str:
         node_modules_present = (Path(ts_root_str).resolve() / 'node_modules').is_dir()
-    py_env_path = jedi_environment_path_for_workspace(session, workspace_root)
+    py_env_path = python_environment_path_for_workspace(session, workspace_root)
     py_interp = (session.workspace.python_workspace_python_executable or '').strip() or None
 
     return {

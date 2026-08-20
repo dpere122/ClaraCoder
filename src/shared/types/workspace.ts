@@ -11,7 +11,7 @@ export interface Workspace {
   createdAt: string;
   /**
    * Stable id from Python discovery (`runtime-venv`, `app-backend`, `dot-venv`, …);
-   * drives Jedi/LSP analysis env. Empty/unset → app default (`runtime-venv` when installed).
+   * drives Python LSP analysis env. Empty/unset → app default (`runtime-venv` when installed).
    */
   pythonInterpreterId?: string;
   /**

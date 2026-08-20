@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.lsp.client import JsonRpcLspClient
+from clara_coder_backend.lsp.client import JsonRpcLspClient, configuration_values_for_items, lookup_nested_section
 
 
 class _BrokenStdin:
@@ -208,3 +208,73 @@ def test_stdout_loop_handles_partial_reads_without_json_error() -> None:
     assert seen[0]['params']['message'] == large_msg
     # Loop ends after EOF following the one message; client should close cleanly.
     assert client.is_running() is False
+
+
+def test_lookup_nested_section_walks_dotted_keys() -> None:
+    opts = {
+        'python': {'pythonPath': '/venv/bin/python'},
+        'basedpyright': {'analysis': {'diagnosticMode': 'openFilesOnly'}},
+    }
+    assert lookup_nested_section(opts, '') == opts
+    assert lookup_nested_section(opts, 'python') == {'pythonPath': '/venv/bin/python'}
+    assert lookup_nested_section(opts, 'python.pythonPath') == '/venv/bin/python'
+    assert lookup_nested_section(opts, 'basedpyright.analysis.diagnosticMode') == 'openFilesOnly'
+    assert lookup_nested_section(opts, 'missing') is None
+    assert lookup_nested_section(opts, 'python.missing') is None
+
+
+def test_configuration_values_for_items_maps_sections() -> None:
+    opts = {
+        'python': {'pythonPath': '/venv/bin/python'},
+        'basedpyright': {'analysis': {'typeCheckingMode': 'standard'}},
+    }
+    result = configuration_values_for_items(
+        opts,
+        {
+            'items': [
+                {'section': 'python'},
+                {'section': 'basedpyright.analysis'},
+                {'section': 'unknown'},
+            ]
+        },
+    )
+    assert result == [
+        {'pythonPath': '/venv/bin/python'},
+        {'typeCheckingMode': 'standard'},
+        None,
+    ]
+
+
+def test_reply_to_workspace_configuration_uses_stored_init_options() -> None:
+    client = JsonRpcLspClient(['unused'], workspace_root=Path.cwd())
+    client._initialization_options = {'python': {'pythonPath': '/py'}}
+    sent: list[dict] = []
+    client._send_message = lambda payload: sent.append(payload)  # type: ignore[method-assign]
+    client._reply_to_server_request(
+        {
+            'id': 7,
+            'method': 'workspace/configuration',
+            'params': {'items': [{'section': 'python'}, {'section': 'missing'}]},
+        }
+    )
+    assert sent == [{'jsonrpc': '2.0', 'id': 7, 'result': [{'pythonPath': '/py'}, None]}]
+
+
+def test_initialize_notifies_did_change_configuration() -> None:
+    client = JsonRpcLspClient(['unused'], workspace_root=Path.cwd())
+    notified: list[tuple[str, dict]] = []
+    opts = {'python': {'pythonPath': '/py'}}
+    client.start = lambda: None  # type: ignore[method-assign]
+    client.request = lambda *a, **k: {'capabilities': {}}  # type: ignore[method-assign]
+    client.notify = lambda method, params: notified.append((method, params))  # type: ignore[method-assign]
+
+    client.initialize(
+        root_uri='file:///tmp',
+        process_id=1,
+        capabilities={},
+        initialization_options=opts,
+    )
+
+    assert client._initialization_options == opts
+    assert notified[0] == ('initialized', {})
+    assert notified[1] == ('workspace/didChangeConfiguration', {'settings': opts})

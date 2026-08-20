@@ -249,6 +249,8 @@ class SessionWorkspaceLspManager:
         self._plugin_state: Any = self._plugin.create_state()
         self._client_factory = client_factory
         self._client: JsonRpcLspClient | None = None
+        # Client currently in ``initialize``; not yet published as ``_client``.
+        self._inflight_client: JsonRpcLspClient | None = None
         self._lock = threading.RLock()
         self._diag_cond = threading.Condition(self._lock)
         self._doc_versions: dict[str, int] = {}
@@ -302,18 +304,12 @@ class SessionWorkspaceLspManager:
             cache.pop(rel, None)
         if client is None:
             return
-        close = getattr(client, 'close', None)
-        if callable(close):
-            try:
-                close()
-            except Exception as exc:
-                logger.debug(
-                    '%s LSP dead-client close failed session=%s scope=%s err=%s',
-                    self.server_kind,
-                    self.session_id,
-                    self.scope,
-                    exc,
-                )
+        self._close_client_best_effort(
+            client,
+            session_id=self.session_id,
+            server_kind=self.server_kind,
+            scope=self.scope,
+        )
         logger.warning(
             '%s LSP subprocess died; cleared client for restart session=%s scope=%s',
             self.server_kind,
@@ -321,81 +317,135 @@ class SessionWorkspaceLspManager:
             self.scope,
         )
 
-    def ensure_started(self) -> None:
-        with self._lock:
-            if self._client is not None and not self._client_process_alive(self._client):
-                self._forget_dead_client_locked()
-            if self._client is not None:
-                return
-            self._lifecycle_phase = 'starting'
-            self._lifecycle_error = ''
-            try:
-                bundle = self._plugin.compute_start_params(
-                    session=self.session,
-                    workspace_root=self.workspace_root,
-                    state=self._plugin_state,
-                    session_id=self.session_id,
-                    scope=self.scope,
-                )
-            except Exception:
-                self._lifecycle_phase = 'crashed'
-                self._lifecycle_error = 'Failed to resolve language-server command.'
-                raise
-            lsp_cwd = bundle.lsp_cwd
-            command = bundle.command
-            init_opts = dict(bundle.init_options or {})
-            spawn_env = bundle.env
-            startup_timeout_s = bundle.startup_timeout_s
-            factory = self._client_factory or (
-                lambda *, command, workspace_root, notification_handler, env=None: JsonRpcLspClient(
-                    command,
-                    workspace_root=workspace_root,
-                    notification_handler=notification_handler,
-                    env=env,
-                    startup_timeout_s=startup_timeout_s or 20.0,
-                )
+    @staticmethod
+    def _close_client_best_effort(client: Any, *, session_id: str, server_kind: str, scope: str) -> None:
+        closer = getattr(client, 'close', None)
+        if not callable(closer):
+            return
+        try:
+            closer()
+        except Exception as close_exc:
+            logger.debug(
+                '%s LSP client close failed session=%s scope=%s err=%s',
+                server_kind,
+                session_id,
+                scope,
+                close_exc,
             )
-            try:
-                client = factory(
-                    command=command,
-                    workspace_root=lsp_cwd,
-                    notification_handler=self._handle_notification,
-                    env=spawn_env,
+
+    def ensure_started(self) -> None:
+        """Spawn + ``initialize`` the language server if needed.
+
+        Must not hold ``_lock`` during ``initialize``: JDT LS (and others) emit
+        ``language/status`` from the stdout reader before the initialize result,
+        and that handler needs the same lock. Holding it deadlocks the reader,
+        so initialize never completes and Monaco editor fetches time out
+        (``fetch failed``).
+        """
+
+        client: Any | None = None
+        lsp_cwd: Path | None = None
+        init_opts: dict[str, Any] = {}
+        while True:
+            with self._lock:
+                if self._client is not None and not self._client_process_alive(self._client):
+                    self._forget_dead_client_locked()
+                if self._client is not None:
+                    return
+                if self._lifecycle_phase == 'shuttingDown':
+                    raise RuntimeError(f'{self.server_kind} LSP client is shutting down.')
+                if self._lifecycle_phase in {'starting', 'initializing'}:
+                    self._diag_cond.wait(timeout=0.5)
+                    continue
+                self._lifecycle_phase = 'starting'
+                self._lifecycle_error = ''
+                try:
+                    bundle = self._plugin.compute_start_params(
+                        session=self.session,
+                        workspace_root=self.workspace_root,
+                        state=self._plugin_state,
+                        session_id=self.session_id,
+                        scope=self.scope,
+                    )
+                except Exception:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = 'Failed to resolve language-server command.'
+                    self._diag_cond.notify_all()
+                    raise
+                lsp_cwd = bundle.lsp_cwd
+                command = bundle.command
+                init_opts = dict(bundle.init_options or {})
+                spawn_env = bundle.env
+                startup_timeout_s = bundle.startup_timeout_s
+                factory = self._client_factory or (
+                    lambda *, command, workspace_root, notification_handler, env=None: JsonRpcLspClient(
+                        command,
+                        workspace_root=workspace_root,
+                        notification_handler=notification_handler,
+                        env=env,
+                        startup_timeout_s=startup_timeout_s or 20.0,
+                    )
                 )
-            except Exception:
-                self._lifecycle_phase = 'crashed'
-                self._lifecycle_error = 'Failed to spawn language-server subprocess.'
-                raise
-            self._lifecycle_phase = 'initializing'
-            try:
-                init_result = client.initialize(
-                    root_uri=_path_to_uri(lsp_cwd),
-                    process_id=os.getpid(),
-                    capabilities=_workspace_capabilities(),
-                    initialization_options=init_opts,
-                )
-            except Exception as exc:
-                self._lifecycle_phase = 'crashed'
-                self._lifecycle_error = str(exc).strip()[:400]
-                closer = getattr(client, 'close', None)
-                if callable(closer):
-                    try:
-                        closer()
-                    except Exception as close_exc:
-                        logger.debug(
-                            '%s LSP initialize-failure close failed session=%s scope=%s err=%s',
-                            self.server_kind,
-                            self.session_id,
-                            self.scope,
-                            close_exc,
-                        )
+                try:
+                    client = factory(
+                        command=command,
+                        workspace_root=lsp_cwd,
+                        notification_handler=self._handle_notification,
+                        env=spawn_env,
+                    )
+                except Exception:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = 'Failed to spawn language-server subprocess.'
+                    self._diag_cond.notify_all()
+                    raise
+                self._inflight_client = client
+                self._lifecycle_phase = 'initializing'
+                self._diag_cond.notify_all()
+            break
+
+        assert client is not None and lsp_cwd is not None
+        try:
+            init_result = client.initialize(
+                root_uri=_path_to_uri(lsp_cwd),
+                process_id=os.getpid(),
+                capabilities=_workspace_capabilities(),
+                initialization_options=init_opts,
+            )
+        except Exception as exc:
+            with self._lock:
+                if self._inflight_client is client:
+                    self._inflight_client = None
+                already_shutting = self._lifecycle_phase == 'shuttingDown'
+                if not already_shutting:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = str(exc).strip()[:400]
+                    self._close_client_best_effort(
+                        client,
+                        session_id=self.session_id,
+                        server_kind=self.server_kind,
+                        scope=self.scope,
+                    )
+                self._diag_cond.notify_all()
+            if not already_shutting:
                 logger.warning(
                     '%s LSP initialize failed; subprocess closed session=%s scope=%s',
                     self.server_kind,
                     self.session_id,
                     self.scope,
                 )
-                raise
+            raise
+        with self._lock:
+            if self._inflight_client is client:
+                self._inflight_client = None
+            if self._lifecycle_phase == 'shuttingDown':
+                self._close_client_best_effort(
+                    client,
+                    session_id=self.session_id,
+                    server_kind=self.server_kind,
+                    scope=self.scope,
+                )
+                self._diag_cond.notify_all()
+                raise RuntimeError(f'{self.server_kind} LSP client is shutting down.')
             self._semantic_tokens_legend = _extract_semantic_tokens_legend(init_result)
             caps = init_result.get('capabilities') if isinstance(init_result, dict) else None
             self._server_capabilities = caps if isinstance(caps, dict) else {}
@@ -408,6 +458,7 @@ class SessionWorkspaceLspManager:
                 lsp_cwd=lsp_cwd,
             )
             self.session.lsp.lsp_workspace_root = str(self.workspace_root)
+            self._diag_cond.notify_all()
             logger.info(
                 '%s LSP session ready session=%s scope=%s workspace=%s lsp_cwd=%s',
                 self.server_kind,
@@ -424,7 +475,9 @@ class SessionWorkspaceLspManager:
         with self._lock:
             self._lifecycle_phase = 'shuttingDown'
             client = self._client
+            inflight = self._inflight_client
             self._client = None
+            self._inflight_client = None
             self._semantic_tokens_legend = None
             self._server_capabilities = {}
             self._language_status = ''
@@ -436,6 +489,14 @@ class SessionWorkspaceLspManager:
             cache = self._diag_cache()
             for rel in tracked:
                 cache.pop(rel, None)
+            self._diag_cond.notify_all()
+        if inflight is not None and inflight is not client:
+            self._close_client_best_effort(
+                inflight,
+                session_id=self.session_id,
+                server_kind=self.server_kind,
+                scope=self.scope,
+            )
         if client is not None:
             try:
                 client.shutdown()

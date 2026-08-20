@@ -33,6 +33,8 @@ class PythonLspPlugin(LspServerPlugin):
         session: SessionState,
         workspace_root: Path,
         state: Any,
+        session_id: str = '',
+        scope: str = 'workspace',
     ) -> LspStartParams:
         return LspStartParams(
             lsp_cwd=workspace_root,

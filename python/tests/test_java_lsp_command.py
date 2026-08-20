@@ -69,10 +69,67 @@ def test_build_java_lsp_command_uses_cached_product(
     assert str(launcher) in cmd
     assert '-configuration' in cmd
     assert '-data' in cmd
+    assert '-Dosgi.checkConfiguration=true' in cmd
+    assert '-Dosgi.configuration.cascaded=true' in cmd
+    assert f'-Dosgi.sharedConfiguration.area={config.resolve()}' in cmd
     data_idx = cmd.index('-data')
     assert Path(cmd[data_idx + 1]).is_dir()
     cfg_idx = cmd.index('-configuration')
-    assert Path(cmd[cfg_idx + 1]).is_dir()
+    writable_cfg = Path(cmd[cfg_idx + 1])
+    assert writable_cfg.is_dir()
+    assert writable_cfg.resolve() != config.resolve()
+
+
+def test_build_java_lsp_command_isolates_data_dirs_by_instance_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv('CLARA_JAVA_LSP_COMMAND', raising=False)
+    cache = tmp_path / 'java-lsp'
+    monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(cache))
+    monkeypatch.setenv('CLARA_JAVA_LSP_VERSION', '1.60.0')
+
+    product = cache / 'jdtls' / '1.60.0'
+    plugins = product / 'plugins'
+    config = product / 'config_linux'
+    plugins.mkdir(parents=True)
+    config.mkdir(parents=True)
+    launcher = plugins / 'org.eclipse.equinox.launcher_1.6.900.v20240613-2000.jar'
+    launcher.write_bytes(b'jar')
+    (product / '.nemo-ready').write_text('1.60.0\n', encoding='utf-8')
+
+    fake_java = tmp_path / 'jdk' / 'bin' / 'java'
+    fake_java.parent.mkdir(parents=True)
+    fake_java.write_text('#!/bin/sh\n', encoding='utf-8')
+    fake_java.chmod(0o755)
+
+    monkeypatch.setattr(java_server, 'resolve_java_executable', lambda: fake_java.resolve())
+    monkeypatch.setattr(jdtls_product, '_platform_config_dirname', lambda: 'config_linux')
+
+    project = tmp_path / 'proj'
+    project.mkdir()
+    (project / 'pom.xml').write_text('<project/>\n', encoding='utf-8')
+
+    cmd_workspace = build_java_lsp_command(project, instance_key='sess-a:workspace')
+    cmd_staging = build_java_lsp_command(project, instance_key='sess-a:staging')
+    cmd_default = build_java_lsp_command(project)
+
+    def _flag_path(cmd: list[str], flag: str) -> Path:
+        return Path(cmd[cmd.index(flag) + 1])
+
+    data_workspace = _flag_path(cmd_workspace, '-data')
+    data_staging = _flag_path(cmd_staging, '-data')
+    data_default = _flag_path(cmd_default, '-data')
+    assert data_workspace != data_staging
+    assert data_workspace != data_default
+    assert data_staging != data_default
+    assert data_workspace.is_dir()
+    assert data_staging.is_dir()
+
+    cfg_workspace = _flag_path(cmd_workspace, '-configuration')
+    cfg_staging = _flag_path(cmd_staging, '-configuration')
+    assert cfg_workspace != cfg_staging
+    assert cfg_workspace.is_dir()
+    assert cfg_staging.is_dir()
 
 
 def test_build_java_lsp_command_missing_jdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,3 +171,4 @@ def test_build_java_initialization_options_enable_import() -> None:
     java = opts['settings']['java']
     assert java['import']['maven']['enabled'] is True
     assert java['import']['gradle']['enabled'] is True
+    assert opts['extendedClientCapabilities']['classFileContentsSupport'] is False

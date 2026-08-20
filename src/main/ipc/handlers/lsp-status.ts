@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import type { LspDashboardStatus } from '../../../shared';
 import { isSemanticLegendServerId } from '../../../shared/lsp-registry';
-import { pythonControlFetch, pythonLongFetch } from '../../python/http-client';
+import { pythonControlFetch, pythonLongFetch, pythonLspFetch } from '../../python/http-client';
 
 interface LspEditorIRangeWire {
   startLineNumber: number;
@@ -76,7 +76,7 @@ async function postLspEditorJson<T>(
   }
   try {
     const params = new URLSearchParams({ session_id: sessionId.trim() });
-    const res = await pythonControlFetch(`${pathSuffix}?${params.toString()}`, {
+    const res = await pythonLspFetch(`${pathSuffix}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(jsonBody),
@@ -251,7 +251,7 @@ export function registerLspStatusIpc(): void {
         if (!skipSync) {
           jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
         }
-        const res = await pythonControlFetch(`/lsp/hover?${params.toString()}`, {
+        const res = await pythonLspFetch(`/lsp/hover?${params.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(jsonBody),
@@ -562,7 +562,7 @@ export function registerLspStatusIpc(): void {
           session_id: sid,
           server: srv,
         });
-        const res = await pythonControlFetch(`/lsp/semantic-tokens-legend?${params.toString()}`);
+        const res = await pythonLspFetch(`/lsp/semantic-tokens-legend?${params.toString()}`);
         if (!res.ok) {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };

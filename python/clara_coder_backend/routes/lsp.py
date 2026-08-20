@@ -495,7 +495,7 @@ def _lsp_editor_code_lens_sync(
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
     _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.code_lens(rel)
-    return {'lenses': serialize_code_lenses_payload(raw)}
+    return {'lenses': serialize_code_lenses_payload(raw, manager=manager)}
 
 
 def _lsp_editor_code_lens_resolve_sync(
@@ -519,11 +519,11 @@ def _lsp_editor_code_lens_resolve_sync(
         raw = manager.code_lens_resolve(lsp_lens)
     except Exception:
         # Keep the editor usable; unresolved lenses are better than failing the request.
-        resolved = serialize_code_lenses_payload([lsp_lens])
+        resolved = serialize_code_lenses_payload([lsp_lens], manager=manager)
         return {'lens': resolved[0] if resolved else None}
     if not isinstance(raw, dict):
         return {'lens': None}
-    resolved = serialize_code_lenses_payload([raw])
+    resolved = serialize_code_lenses_payload([raw], manager=manager)
     return {'lens': resolved[0] if resolved else None}
 
 

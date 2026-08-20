@@ -10,7 +10,7 @@ import type {
   LspEditorSignatureHelpIpc,
   LspEditorTextEditIpc,
 } from '../../../preload/lsp-types';
-import { pythonControlFetch } from '../../python/http-client';
+import { pythonControlFetch, pythonLspFetch } from '../../python/http-client';
 
 async function postLspEditorJson<T>(
   pathSuffix: string,
@@ -23,7 +23,7 @@ async function postLspEditorJson<T>(
   }
   try {
     const params = new URLSearchParams({ session_id: sid });
-    const res = await pythonControlFetch(`${pathSuffix}?${params.toString()}`, {
+    const res = await pythonLspFetch(`${pathSuffix}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(jsonBody),

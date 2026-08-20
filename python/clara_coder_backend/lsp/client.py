@@ -24,17 +24,28 @@ def lookup_nested_section(options: dict[str, Any], section: str) -> Any:
     """Return a nested value from ``options`` for a dotted LSP configuration section.
 
     An empty ``section`` returns the full mapping (LSP ``workspace/configuration``).
-    Missing keys return ``None``.
+    Missing keys return ``None``. JDT LS asks for ``java`` while Clara stores that
+    object under ``settings.java`` in ``initializationOptions``.
     """
 
     if not section:
         return dict(options)
-    current: Any = options
-    for part in section.split('.'):
-        if not isinstance(current, dict) or part not in current:
-            return None
-        current = current[part]
-    return current
+
+    def walk(root: Any, dotted: str) -> Any:
+        current = root
+        for part in dotted.split('.'):
+            if not isinstance(current, dict) or part not in current:
+                return None
+            current = current[part]
+        return current
+
+    found = walk(options, section)
+    if found is not None:
+        return found
+    settings = options.get('settings')
+    if isinstance(settings, dict):
+        return walk(settings, section)
+    return None
 
 
 def configuration_values_for_items(options: dict[str, Any], params: Any) -> list[Any]:
@@ -125,21 +136,29 @@ class JsonRpcLspClient:
     ) -> dict[str, Any]:
         self.start()
         self._initialization_options = dict(initialization_options or {})
-        result = self.request(
-            'initialize',
-            {
-                'processId': process_id,
-                'clientInfo': {'name': 'nemo-wrapper', 'version': '0.1.0'},
-                'rootUri': root_uri,
-                'workspaceFolders': [{'uri': root_uri, 'name': self._workspace_root.name}],
-                'capabilities': capabilities,
-                'initializationOptions': dict(self._initialization_options),
-                'trace': 'off',
-            },
-            timeout_s=self._startup_timeout_s,
-        )
-        self.notify('initialized', {})
-        self.notify('workspace/didChangeConfiguration', {'settings': dict(self._initialization_options)})
+        try:
+            result = self.request(
+                'initialize',
+                {
+                    'processId': process_id,
+                    'clientInfo': {'name': 'nemo-wrapper', 'version': '0.1.0'},
+                    'rootUri': root_uri,
+                    'workspaceFolders': [{'uri': root_uri, 'name': self._workspace_root.name}],
+                    'capabilities': capabilities,
+                    'initializationOptions': dict(self._initialization_options),
+                    'trace': 'off',
+                },
+                timeout_s=self._startup_timeout_s,
+            )
+            self.notify('initialized', {})
+            self.notify('workspace/didChangeConfiguration', {'settings': dict(self._initialization_options)})
+        except Exception:
+            logger.warning(
+                'lsp initialize failed workspace=%s; closing subprocess',
+                self._workspace_root,
+            )
+            self.close()
+            raise
         self._initialized = True
         logger.info('lsp initialize complete workspace=%s', self._workspace_root)
         return result

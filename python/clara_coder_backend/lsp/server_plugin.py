@@ -33,6 +33,8 @@ class LspStartParams:
     # (e.g. to run a bundled Node LSP via the Electron binary in Node mode with
     # ``ELECTRON_RUN_AS_NODE=1`` while keeping PATH/HOME/SystemRoot intact).
     env: dict[str, str] | None = None
+    # ``initialize`` handshake timeout. JDT LS JVM + OSGi start often exceeds the 20s default.
+    startup_timeout_s: float | None = None
 
 
 class LspServerPlugin(ABC):
@@ -52,6 +54,8 @@ class LspServerPlugin(ABC):
         session: SessionState,
         workspace_root: Path,
         state: Any,
+        session_id: str = '',
+        scope: str = 'workspace',
     ) -> LspStartParams:
         """Return cwd + command + initializationOptions for ``initialize``."""
 

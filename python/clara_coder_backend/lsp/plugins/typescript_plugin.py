@@ -35,6 +35,8 @@ class TypescriptLspPlugin(LspServerPlugin):
         session: SessionState,
         workspace_root: Path,
         state: Any,
+        session_id: str = '',
+        scope: str = 'workspace',
     ) -> LspStartParams:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
         cached = (session.lsp.typescript_lsp_resolved_root or '').strip()

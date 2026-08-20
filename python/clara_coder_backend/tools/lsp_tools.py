@@ -143,10 +143,13 @@ def _format_hover_contents(contents: Any) -> str:
     return str(contents).strip()
 
 
-def _workspace_rel_from_uri(manager: Any, uri: str) -> str:
+def _workspace_rel_from_uri(manager: Any, uri: str) -> str | None:
     from clara_coder_backend.lsp.manager import _uri_to_path  # local import keeps public API small
 
-    target = _uri_to_path(uri)
+    try:
+        target = _uri_to_path(uri)
+    except ValueError:
+        return None
     try:
         return target.relative_to(manager.workspace_root).as_posix()
     except Exception:
@@ -166,6 +169,8 @@ def _format_locations(manager: Any, items: Any) -> str:
         rng = item.get('range') or item.get('targetSelectionRange') or item.get('targetRange') or {}
         start = rng.get('start') if isinstance(rng, dict) else {}
         rel = _workspace_rel_from_uri(manager, uri) if uri else '(unknown)'
+        if not rel:
+            continue
         lines.append(
             f'- `{rel}`:{int(start.get("line", 0)) + 1}:{int(start.get("character", 0)) + 1}'
         )

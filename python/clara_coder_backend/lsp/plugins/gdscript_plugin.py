@@ -60,6 +60,8 @@ class GdscriptLspPlugin(LspServerPlugin):
         session: SessionState,
         workspace_root: Path,
         state: Any,
+        session_id: str = '',
+        scope: str = 'workspace',
     ) -> LspStartParams:
         raw = env_clara('CLARA_GDSCRIPT_LSP_COMMAND', '').strip()
         if raw:

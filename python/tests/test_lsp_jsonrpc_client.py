@@ -223,6 +223,16 @@ def test_lookup_nested_section_walks_dotted_keys() -> None:
     assert lookup_nested_section(opts, 'python.missing') is None
 
 
+def test_lookup_nested_section_falls_back_to_settings_bag() -> None:
+    opts = {
+        'settings': {'java': {'import': {'maven': {'enabled': True}}}},
+        'extendedClientCapabilities': {'classFileContentsSupport': True},
+    }
+    assert lookup_nested_section(opts, 'java') == {'import': {'maven': {'enabled': True}}}
+    assert lookup_nested_section(opts, 'java.import.maven.enabled') is True
+    assert lookup_nested_section(opts, 'extendedClientCapabilities.classFileContentsSupport') is True
+
+
 def test_configuration_values_for_items_maps_sections() -> None:
     opts = {
         'python': {'pythonPath': '/venv/bin/python'},
@@ -278,3 +288,22 @@ def test_initialize_notifies_did_change_configuration() -> None:
     assert client._initialization_options == opts
     assert notified[0] == ('initialized', {})
     assert notified[1] == ('workspace/didChangeConfiguration', {'settings': opts})
+
+
+def test_initialize_closes_subprocess_on_timeout() -> None:
+    client = JsonRpcLspClient(['unused'], workspace_root=Path.cwd())
+    proc = _FakeClosedProcess()
+    client.start = lambda: None  # type: ignore[method-assign]
+    client._proc = proc  # type: ignore[assignment]
+
+    def _timeout(*_a, **_k):
+        raise TimeoutError("LSP request timed out for 'initialize' after 90.0s (process=None).")
+
+    client.request = _timeout  # type: ignore[method-assign]
+
+    with pytest.raises(TimeoutError, match='initialize'):
+        client.initialize(root_uri='file:///tmp', process_id=1, capabilities={})
+
+    assert proc.killed is True
+    assert client._closed is True
+    assert client._initialized is False

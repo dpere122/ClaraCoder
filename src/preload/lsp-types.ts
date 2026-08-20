@@ -46,6 +46,8 @@ export interface LspEditorCompletionItemIpc {
   insertTextFormat?: number;
   textEdit?: LspEditorTextEditIpc;
   additionalTextEdits?: LspEditorTextEditIpc[];
+  /** Original LSP ``data`` — JDT LS NPEs on ``completionItem/resolve`` without it. */
+  data?: unknown;
 }
 
 export interface LspWorkspaceEditIpc {

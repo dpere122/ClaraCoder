@@ -41,6 +41,16 @@ const pythonControlHttpAgent = new Agent({
 });
 
 /**
+ * Editor LSP (hover / completion / didOpen) may wait on JDT ``initialize`` (up to 180s).
+ * Must not share the 60s control agent — that surfaces as ``fetch failed`` when a Java
+ * file is opened in Monaco while the sidecar handshake is still running.
+ */
+const pythonLspHttpAgent = new Agent({
+  bodyTimeout: 300_000,
+  headersTimeout: 210_000,
+});
+
+/**
  * Log ingest must not share the control agent: a wedged sidecar would otherwise queue
  * 60s header waits and starve ``/runtime/deps/list`` / health probes (``fetch failed``).
  */
@@ -62,6 +72,14 @@ export async function pythonControlFetch(urlPath: string, init?: RequestInit): P
   return undiciFetch(joinPythonUrl(urlPath), {
     ...withSidecarAuth(init),
     dispatcher: pythonControlHttpAgent,
+  } as never);
+}
+
+/** Editor LSP JSON (may block on language-server initialize). */
+export async function pythonLspFetch(urlPath: string, init?: RequestInit): Promise<WebResponse> {
+  return undiciFetch(joinPythonUrl(urlPath), {
+    ...withSidecarAuth(init),
+    dispatcher: pythonLspHttpAgent,
   } as never);
 }
 

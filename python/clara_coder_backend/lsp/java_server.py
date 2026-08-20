@@ -100,25 +100,21 @@ def _java_major_version(java_bin: Path) -> int | None:
     return major
 
 
-def _project_hash(project_root: Path) -> str:
-    return hashlib.sha256(str(project_root.resolve()).encode('utf-8')).hexdigest()[:24]
+def _project_hash(project_root: Path, instance_key: str = '') -> str:
+    raw = '\0'.join([str(project_root.resolve()), (instance_key or '').strip()])
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]
 
 
-def _writable_config_dir(product_dir: Path, project_root: Path) -> Path:
-    """Copy the shared platform config into a per-project writable directory."""
+def _instance_config_dir(project_root: Path, instance_key: str = '') -> Path:
+    """Empty writable Equinox configuration area (cascaded from the product config)."""
 
-    src = _resolve_platform_config_dir(product_dir)
-    dest = get_java_lsp_cache_dir() / 'config-work' / _project_hash(project_root)
-    if dest.is_dir() and any(dest.iterdir()):
-        return dest
-    if dest.exists():
-        shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(src, dest)
-    return dest
+    path = get_java_lsp_cache_dir() / 'config-area' / _project_hash(project_root, instance_key)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-def _workspace_data_dir(project_root: Path) -> Path:
-    path = get_java_lsp_cache_dir() / 'workspace-data' / _project_hash(project_root)
+def _workspace_data_dir(project_root: Path, instance_key: str = '') -> Path:
+    path = get_java_lsp_cache_dir() / 'workspace-data' / _project_hash(project_root, instance_key)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -144,17 +140,24 @@ def build_java_initialization_options() -> dict:
         },
         'extendedClientCapabilities': {
             'progressReportProvider': False,
-            'classFileContentsSupport': True,
+            'classFileContentsSupport': False,
             'shouldLanguageServerExitOnShutdown': True,
         },
     }
 
 
-def build_java_lsp_command(project_root: Path) -> list[str]:
+def build_java_lsp_command(project_root: Path, *, instance_key: str = '') -> list[str]:
     """Return argv to run Eclipse JDT LS over stdio for ``project_root``.
 
     ``CLARA_JAVA_LSP_COMMAND`` may override the default. When unset, uses a JDT LS
     product already installed via File → Dependencies (does not auto-download).
+
+    ``instance_key`` isolates ``-configuration`` / ``-data`` dirs so two managers
+    (session, workspace vs staging) do not share one Equinox workspace. Product
+    ``config_linux`` / ``config_mac`` / ``config_win`` is referenced read-only via
+    ``osgi.sharedConfiguration.area`` (same as upstream ``jdtls.py``); copying that
+    tree into ``-configuration`` breaks ``osgi.framework`` / bundle paths and
+    leaves initialize hanging.
     """
 
     root = Path(project_root).resolve()
@@ -174,14 +177,20 @@ def build_java_lsp_command(project_root: Path) -> list[str]:
     launcher = _find_equinox_launcher(product_dir)
     if launcher is None:
         raise JavaLspSetupError(f'No Equinox launcher jar under {product_dir / "plugins"}')
-    config_dir = _writable_config_dir(product_dir, root)
-    data_dir = _workspace_data_dir(root)
+    shared_config = _resolve_platform_config_dir(product_dir)
+    config_dir = _instance_config_dir(root, instance_key)
+    data_dir = _workspace_data_dir(root, instance_key)
 
     cmd = [
         str(java_bin),
         '-Declipse.application=org.eclipse.jdt.ls.core.id1',
         '-Dosgi.bundles.defaultStartLevel=4',
         '-Declipse.product=org.eclipse.jdt.ls.core.product',
+        '-Dosgi.checkConfiguration=true',
+        f'-Dosgi.sharedConfiguration.area={shared_config}',
+        '-Dosgi.sharedConfiguration.area.readOnly=true',
+        '-Dosgi.configuration.cascaded=true',
+        '-Djava.awt.headless=true',
         '-Dlog.level=ERROR',
         '-Xmx1G',
         '--add-modules=ALL-SYSTEM',

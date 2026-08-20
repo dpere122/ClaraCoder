@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -63,7 +64,8 @@ class _FakeLspClient:
 
 
 @pytest.fixture(autouse=True)
-def _reset_lsp_state():
+def _reset_lsp_state(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv('CLARA_PYTHON_LSP_COMMAND', 'fake-python-lsp --stdio')
     saved_tools = runtime_config.tools
     runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
     shutdown_all_lsp_managers()
@@ -304,3 +306,183 @@ def test_code_lens_returns_empty_when_server_omits_provider(tmp_path: Path) -> N
         assert mgr.code_lens('pkg/mod.py') == []
     finally:
         current_session_id.reset(token)
+
+
+def test_ensure_started_closes_client_when_initialize_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('CLARA_PYTHON_LSP_COMMAND', 'fake-python-lsp --stdio')
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    (workspace / 'pkg').mkdir()
+    (workspace / 'pkg' / 'mod.py').write_text('value = 1\n', encoding='utf-8')
+
+    session_id = 'init-fail-close'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.workspace_path = str(workspace.resolve())
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
+    try:
+        clients: list[_FakeLspClient] = []
+        attempts = {'n': 0}
+
+        class _FailOnceClient(_FakeLspClient):
+            def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
+                attempts['n'] += 1
+                if attempts['n'] == 1:
+                    raise TimeoutError("LSP request timed out for 'initialize' after 90.0s (process=None).")
+                return super().initialize(
+                    root_uri=root_uri,
+                    process_id=process_id,
+                    capabilities=capabilities,
+                    initialization_options=initialization_options,
+                )
+
+        def factory(**kwargs):
+            client = _FailOnceClient(**kwargs)
+            clients.append(client)
+            return client
+
+        mgr = SessionWorkspaceLspManager(
+            session_id=session_id,
+            session=session,
+            workspace_root=workspace,
+            scope='workspace',
+            server_kind='python',
+            client_factory=factory,
+        )
+        with pytest.raises(TimeoutError, match='initialize'):
+            mgr.ensure_started()
+        assert len(clients) == 1
+        assert clients[0].closed is True
+        assert mgr._client is None
+        assert mgr.is_client_running() is False
+
+        mgr.ensure_started()
+        assert len(clients) == 2
+        assert mgr.is_client_running() is True
+        assert clients[1].initialized is True
+        assert clients[1].closed is False
+    finally:
+        current_session_id.reset(token)
+
+
+def test_ensure_started_allows_language_status_during_initialize(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JDT emits ``language/status`` before initialize returns; that must not deadlock."""
+
+    monkeypatch.setenv('CLARA_PYTHON_LSP_COMMAND', 'fake-python-lsp --stdio')
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    (workspace / 'pkg').mkdir()
+    (workspace / 'pkg' / 'mod.py').write_text('value = 1\n', encoding='utf-8')
+
+    session_id = 'init-status-notify'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.workspace_path = str(workspace.resolve())
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
+    try:
+        class _NotifyDuringInitClient(_FakeLspClient):
+            def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
+                del root_uri, process_id, capabilities, initialization_options
+                done = threading.Event()
+                handler = self.notification_handler
+
+                def emit() -> None:
+                    handler('language/status', {'type': 'Starting', 'message': 'Init'})
+                    done.set()
+
+                threading.Thread(target=emit, daemon=True).start()
+                if not done.wait(timeout=3.0):
+                    raise TimeoutError(
+                        'language/status notification deadlocked on manager lock during initialize'
+                    )
+                self.initialized = True
+                return {'capabilities': {}}
+
+        mgr = SessionWorkspaceLspManager(
+            session_id=session_id,
+            session=session,
+            workspace_root=workspace,
+            scope='workspace',
+            server_kind='python',
+            client_factory=lambda **kwargs: _NotifyDuringInitClient(**kwargs),
+        )
+        mgr.ensure_started()
+        assert mgr.is_client_running() is True
+        assert mgr._language_status == 'Starting'
+        assert mgr._language_status_message == 'Init'
+    finally:
+        current_session_id.reset(token)
+
+
+def test_concurrent_ensure_started_spawns_one_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('CLARA_PYTHON_LSP_COMMAND', 'fake-python-lsp --stdio')
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    (workspace / 'pkg').mkdir()
+    (workspace / 'pkg' / 'mod.py').write_text('value = 1\n', encoding='utf-8')
+
+    session_id = 'init-concurrent'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.workspace_path = str(workspace.resolve())
+    session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
+    try:
+        clients: list[_FakeLspClient] = []
+        started = threading.Event()
+        release = threading.Event()
+
+        class _SlowInitClient(_FakeLspClient):
+            def initialize(self, *, root_uri, process_id, capabilities, initialization_options=None):
+                started.set()
+                if not release.wait(timeout=3.0):
+                    raise TimeoutError('concurrent ensure_started waiter did not arrive')
+                return super().initialize(
+                    root_uri=root_uri,
+                    process_id=process_id,
+                    capabilities=capabilities,
+                    initialization_options=initialization_options,
+                )
+
+        def factory(**kwargs):
+            client = _SlowInitClient(**kwargs)
+            clients.append(client)
+            return client
+
+        mgr = SessionWorkspaceLspManager(
+            session_id=session_id,
+            session=session,
+            workspace_root=workspace,
+            scope='workspace',
+            server_kind='python',
+            client_factory=factory,
+        )
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                mgr.ensure_started()
+            except BaseException as exc:  # noqa: BLE001 — collect for assertion
+                errors.append(exc)
+
+        t1 = threading.Thread(target=run)
+        t2 = threading.Thread(target=run)
+        t1.start()
+        assert started.wait(timeout=3.0)
+        t2.start()
+        # Give the second caller time to block in ensure_started before finishing init.
+        threading.Event().wait(0.05)
+        release.set()
+        t1.join(timeout=3.0)
+        t2.join(timeout=3.0)
+        assert errors == []
+        assert len(clients) == 1
+        assert mgr.is_client_running() is True
+    finally:
+        current_session_id.reset(token)
+

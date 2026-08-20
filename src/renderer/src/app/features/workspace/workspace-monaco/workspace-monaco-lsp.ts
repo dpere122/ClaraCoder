@@ -8,6 +8,7 @@ import {
   lspServerKindForWorkspaceRelativePath,
 } from '@shared/index';
 import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
+import { registerJavaShowLocationCommands } from './workspace-monaco-java-code-lens';
 
 export interface WorkspaceMonacoLspNavigatePayload {
   readonly relativePath: string;
@@ -67,6 +68,77 @@ function emptyLegend(): Monaco.languages.SemanticTokensLegend {
   return { tokenTypes: [], tokenModifiers: [] };
 }
 
+/**
+ * LSP ``CompletionItemKind`` is 1-based with a different order than Monaco's enum.
+ * Passing the LSP integer through as Monaco kind makes IconLabel look up the wrong
+ * (sometimes missing) icon.
+ */
+function monacoCompletionKindFromLsp(
+  api: typeof Monaco,
+  lspKind: number | undefined,
+): Monaco.languages.CompletionItemKind {
+  const K = api.languages.CompletionItemKind;
+  switch (lspKind) {
+    case 1:
+      return K.Text;
+    case 2:
+      return K.Method;
+    case 3:
+      return K.Function;
+    case 4:
+      return K.Constructor;
+    case 5:
+      return K.Field;
+    case 6:
+      return K.Variable;
+    case 7:
+      return K.Class;
+    case 8:
+      return K.Interface;
+    case 9:
+      return K.Module;
+    case 10:
+      return K.Property;
+    case 11:
+      return K.Unit;
+    case 12:
+      return K.Value;
+    case 13:
+      return K.Enum;
+    case 14:
+      return K.Keyword;
+    case 15:
+      return K.Snippet;
+    case 16:
+      return K.Color;
+    case 17:
+      return K.File;
+    case 18:
+      return K.Reference;
+    case 19:
+      return K.Folder;
+    case 20:
+      return K.EnumMember;
+    case 21:
+      return K.Constant;
+    case 22:
+      return K.Struct;
+    case 23:
+      return K.Event;
+    case 24:
+      return K.Operator;
+    case 25:
+      return K.TypeParameter;
+    default:
+      return K.Text;
+  }
+}
+
+type LspBackedCompletionItem = Monaco.languages.CompletionItem & {
+  data?: unknown;
+  lspKind?: number;
+};
+
 function lspCancelled(token: Monaco.CancellationToken | undefined): boolean {
   return token?.isCancellationRequested === true;
 }
@@ -89,6 +161,14 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     getEditor,
   } = opts;
   const disposables: Monaco.IDisposable[] = [];
+
+  disposables.push(
+    registerJavaShowLocationCommands({
+      monacoApi: api,
+      getEditor,
+      onNavigateToWorkspaceFile,
+    }),
+  );
 
   disposables.push(
     api.editor.registerEditorOpener({
@@ -207,7 +287,8 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
     disposables.push(
       api.languages.registerCompletionItemProvider(lang, {
-        triggerCharacters: ['.', '/', '"', "'", '`', '@', '<', '#'],
+        triggerCharacters:
+          lang === 'java' ? ['.', '@', '#', '*', ' '] : ['.', '/', '"', "'", '`', '@', '<', '#'],
         provideCompletionItems: async (model, position, context, token) => {
           if (!canRun(model)) {
             return { suggestions: [] };
@@ -245,16 +326,30 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           }
           const suggestions: Monaco.languages.CompletionItem[] = [];
           const SnippetRule = api.languages.CompletionItemInsertTextRule.InsertAsSnippet;
+          const word = model.getWordUntilPosition(position);
+          const defaultRange = new api.Range(
+            position.lineNumber,
+            word.startColumn,
+            position.lineNumber,
+            word.endColumn,
+          );
           for (const it of res.items) {
             const insertText = it.textEdit ? it.textEdit.newText : (it.insertText ?? it.label);
-            const item = {
+            const item: LspBackedCompletionItem = {
               label: it.label,
-              kind: (it.kind ?? api.languages.CompletionItemKind.Text) as Monaco.languages.CompletionItemKind,
+              kind: monacoCompletionKindFromLsp(api, it.kind),
               detail: it.detail,
               insertText,
               filterText: it.filterText,
               sortText: it.sortText,
-            } as Monaco.languages.CompletionItem;
+              range: it.textEdit ? wireRange(api, it.textEdit.range) : defaultRange,
+            };
+            if (typeof it.kind === 'number') {
+              item.lspKind = it.kind;
+            }
+            if (it.data !== undefined) {
+              item.data = it.data;
+            }
             const doc = it.documentation;
             if (typeof doc === 'string') {
               item.documentation = doc;
@@ -262,9 +357,9 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               item.documentation = { value: String(doc.value), isTrusted: true };
             }
             if (it.textEdit) {
-              item.range = wireRange(api, it.textEdit.range);
               item.insertText = it.textEdit.newText;
-            } else if (it.insertTextFormat === 2) {
+            }
+            if (it.insertTextFormat === 2) {
               item.insertTextRules = SnippetRule;
             }
             if (it.additionalTextEdits?.length) {
@@ -287,13 +382,17 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (!model || !sid || !rel || !canRun(model)) {
             return item;
           }
-          const resolvePayload = {
-            label: item.label,
-            kind: item.kind,
+          const backed = item as LspBackedCompletionItem;
+          const resolvePayload: Record<string, unknown> = {
+            label: typeof item.label === 'string' ? item.label : String(item.label),
+            kind: backed.lspKind ?? item.kind,
             detail: item.detail,
             insertText: item.insertText,
           };
-          const res = await electron.lspEditorCompletionResolve(sid, rel, resolvePayload as Record<string, unknown>);
+          if (backed.data !== undefined) {
+            resolvePayload['data'] = backed.data;
+          }
+          const res = await electron.lspEditorCompletionResolve(sid, rel, resolvePayload);
           if (!res.ok || !res.item) {
             return item;
           }

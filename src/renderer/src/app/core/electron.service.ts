@@ -306,6 +306,7 @@ export interface LspEditorCompletionItemPayload {
   insertTextFormat?: number;
   textEdit?: LspEditorTextEditPayload;
   additionalTextEdits?: LspEditorTextEditPayload[];
+  data?: unknown;
 }
 
 export interface LspWorkspaceEditPayload {

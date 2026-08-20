@@ -7,8 +7,13 @@ from typing import Any
 from clara_coder_backend.lsp.manager import _uri_to_path
 
 
-def workspace_rel_from_uri(manager: Any, uri: str) -> str:
-    target = _uri_to_path(str(uri))
+def workspace_rel_from_uri(manager: Any, uri: str) -> str | None:
+    """Workspace-relative POSIX path, or None for non-file schemes (e.g. ``jdt://``)."""
+
+    try:
+        target = _uri_to_path(str(uri))
+    except ValueError:
+        return None
     try:
         return target.resolve().relative_to(manager.workspace_root.resolve()).as_posix()
     except Exception:
@@ -47,6 +52,8 @@ def serialize_locations_payload(manager: Any, raw: Any) -> list[dict[str, Any]]:
         if not uri:
             continue
         rel = workspace_rel_from_uri(manager, uri)
+        if not rel:
+            continue
         ir = _lsp_range_to_monaco_irange(rng)
         if ir is None:
             continue
@@ -95,19 +102,40 @@ def _serialize_any_text_edit(edit: Any) -> dict[str, Any] | None:
     return None
 
 
+def _serialize_item_defaults_edit(defaults: dict[str, Any]) -> dict[str, Any] | None:
+    """Apply LSP 3.17 ``CompletionList.itemDefaults.editRange`` as a TextEdit-shaped range."""
+
+    er = defaults.get('editRange')
+    if not isinstance(er, dict):
+        return None
+    if er.get('start') is not None:
+        return _serialize_any_text_edit({'range': er, 'newText': ''})
+    if isinstance(er.get('insert'), dict):
+        return _serialize_any_text_edit({'insert': er['insert'], 'newText': ''})
+    return None
+
+
 def serialize_completion_result(manager: Any, raw: Any) -> dict[str, Any]:
     """Shape ``textDocument/completion`` for the renderer (Monaco ``CompletionList``-like)."""
 
     if raw is None:
         return {'isIncomplete': False, 'items': []}
+    defaults: dict[str, Any] = {}
     if isinstance(raw, list):
         items_src = raw
         incomplete = False
     elif isinstance(raw, dict):
         items_src = raw.get('items') or []
         incomplete = bool(raw.get('isIncomplete'))
+        maybe_defaults = raw.get('itemDefaults')
+        if isinstance(maybe_defaults, dict):
+            defaults = maybe_defaults
     else:
         return {'isIncomplete': False, 'items': []}
+
+    default_edit = _serialize_item_defaults_edit(defaults)
+    default_format = defaults.get('insertTextFormat')
+    default_data = defaults.get('data')
 
     items: list[dict[str, Any]] = []
     for it in items_src[:500]:
@@ -116,17 +144,21 @@ def serialize_completion_result(manager: Any, raw: Any) -> dict[str, Any]:
         label = it.get('label')
         if isinstance(label, dict):
             label = label.get('label') or label.get('detail')
+        label_s = '' if label is None else str(label)
         entry: dict[str, Any] = {
-            'label': '' if label is None else str(label),
+            'label': label_s,
             'kind': it.get('kind'),
             'detail': it.get('detail'),
             'documentation': _format_documentation(it.get('documentation')),
             'filterText': it.get('filterText'),
             'sortText': it.get('sortText'),
             'insertText': it.get('insertText'),
-            'insertTextFormat': it.get('insertTextFormat'),
+            'insertTextFormat': it.get('insertTextFormat', default_format),
         }
         te = _serialize_any_text_edit(it.get('textEdit'))
+        if te is None and default_edit is not None:
+            insert = it.get('insertText')
+            te = {**default_edit, 'newText': label_s if insert is None else str(insert)}
         if te is not None:
             entry['textEdit'] = te
         ate = it.get('additionalTextEdits')
@@ -134,6 +166,11 @@ def serialize_completion_result(manager: Any, raw: Any) -> dict[str, Any]:
             extra = [x for x in (_serialize_any_text_edit(x) for x in ate) if x is not None]
             if extra:
                 entry['additionalTextEdits'] = extra
+        data = it.get('data')
+        if data is None:
+            data = default_data
+        if data is not None:
+            entry['data'] = data
         items.append(entry)
 
     return {'isIncomplete': incomplete, 'items': items}
@@ -146,7 +183,7 @@ def _collect_workspace_edit_changes(manager: Any, raw: dict[str, Any]) -> dict[s
     if isinstance(legacy, dict):
         for uri, edits in legacy.items():
             rel = workspace_rel_from_uri(manager, str(uri))
-            if not isinstance(edits, list):
+            if not rel or not isinstance(edits, list):
                 continue
             bucket = changes.setdefault(rel, [])
             for e in edits:
@@ -168,6 +205,8 @@ def _collect_workspace_edit_changes(manager: Any, raw: dict[str, Any]) -> dict[s
             if not uri:
                 continue
             rel = workspace_rel_from_uri(manager, uri)
+            if not rel:
+                continue
             bucket = changes.setdefault(rel, [])
             for e in block.get('edits') or []:
                 se = _serialize_text_edit(e)
@@ -233,7 +272,7 @@ def serialize_document_symbols_payload(manager: Any, raw: Any) -> dict[str, Any]
                 rng = loc.get('range')
                 ir = _lsp_range_to_monaco_irange(rng)
                 rel = workspace_rel_from_uri(manager, uri) if uri else ''
-                if ir is not None:
+                if ir is not None and rel:
                     flat.append(
                         {
                             'name': str(item.get('name') or ''),
@@ -427,7 +466,42 @@ def serialize_inlay_hints_payload(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def serialize_code_lenses_payload(raw: Any) -> list[dict[str, Any]]:
+_JAVA_SHOW_LOCATION_COMMANDS = frozenset({'java.show.references', 'java.show.implementations'})
+
+
+def _rewrite_java_show_command(manager: Any | None, cmd: dict[str, Any]) -> dict[str, Any]:
+    """Keep JDT command ids; rewrite ``[fileUri, position, Location[]]`` to Clara locations.
+
+    Monaco has no VS Code Java extension, so the renderer registers these ids and
+    peeks/navigates using workspace-relative paths (``jdt://`` items are dropped).
+    """
+
+    name = str(cmd.get('command') or '')
+    title = str(cmd.get('title') or '')
+    args = cmd.get('arguments')
+    if manager is None or name not in _JAVA_SHOW_LOCATION_COMMANDS or not isinstance(args, list):
+        return {'title': title, 'command': name, 'arguments': args}
+    uri = args[0] if len(args) > 0 else None
+    position = args[1] if len(args) > 1 else None
+    locations = args[2] if len(args) > 2 else []
+    origin: dict[str, Any] | None = None
+    rel = workspace_rel_from_uri(manager, str(uri)) if uri else None
+    if rel and isinstance(position, dict) and 'line' in position:
+        origin = {
+            'relativePath': rel,
+            'position': {
+                'lineNumber': int(position.get('line', 0)) + 1,
+                'column': int(position.get('character', 0)) + 1,
+            },
+        }
+    return {
+        'title': title,
+        'command': name,
+        'arguments': [origin, serialize_locations_payload(manager, locations)],
+    }
+
+
+def serialize_code_lenses_payload(raw: Any, *, manager: Any | None = None) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
     out: list[dict[str, Any]] = []
@@ -440,11 +514,7 @@ def serialize_code_lenses_payload(raw: Any) -> list[dict[str, Any]]:
         row: dict[str, Any] = {'range': rng}
         cmd = lens.get('command')
         if isinstance(cmd, dict) and cmd.get('command'):
-            row['command'] = {
-                'title': str(cmd.get('title') or ''),
-                'command': str(cmd.get('command')),
-                'arguments': cmd.get('arguments'),
-            }
+            row['command'] = _rewrite_java_show_command(manager, cmd)
         if lens.get('data') is not None:
             row['data'] = lens.get('data')
         out.append(row)

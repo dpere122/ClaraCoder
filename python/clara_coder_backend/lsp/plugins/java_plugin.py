@@ -17,6 +17,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger('clara.lsp.plugins.java')
 
 
+def _path_under_workspace(path: Path, workspace_root: Path) -> Path | None:
+    """Return ``path`` resolved when it is inside ``workspace_root``; else None."""
+
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(workspace_root.resolve())
+        return resolved
+    except (OSError, ValueError):
+        return None
+
+
 @dataclass
 class JavaPluginState:
     last_seed: str = ''
@@ -39,17 +50,21 @@ class JavaLspPlugin(LspServerPlugin):
         scope: str = 'workspace',
     ) -> LspStartParams:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
-        cached = (session.lsp.java_lsp_resolved_root or '').strip()
-        if cached:
-            root = Path(cached).resolve()
-        elif st.last_seed:
+        ws = Path(workspace_root).resolve()
+
+        root = _path_under_workspace(st.project_root, ws) if st.project_root is not None else None
+        if root is None and (st.last_seed or '').strip():
             root = resolve_java_project_root(
-                workspace_root,
+                ws,
                 seed_relative_path=st.last_seed,
             )
-        else:
+        if root is None:
+            cached = (session.lsp.java_lsp_resolved_root or '').strip()
+            if cached:
+                root = _path_under_workspace(Path(cached), ws)
+        if root is None:
             root = resolve_java_project_root(
-                workspace_root,
+                ws,
                 seed_relative_path=None,
                 allow_workspace_walk=False,
             )

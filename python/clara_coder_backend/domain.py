@@ -180,8 +180,10 @@ class SessionStreamState:
     # Last ``POST /chat/stream`` apply/auto-apply flags (conversation turn; set by :mod:`clara_coder_backend.composer`).
     last_stream_apply_mode: bool | None = None
     last_stream_auto_apply_mode: bool | None = None
-    #: Last ``POST /chat/stream`` speech/TTS flag (drives mood-tag prompt guidance).
+    #: Last ``POST /chat/stream`` speech/TTS flag (spoken replies; mood tag only with openai-compatible TTS).
     last_stream_speech_enabled: bool = False
+    #: Last ``POST /chat/stream`` TTS backend (``kokoro`` | ``openai-compatible``).
+    last_stream_tts_provider: str = 'kokoro'
     #: Context pack ids activated this session (inject-once playbooks).
     activated_context_packs: set[str] = field(default_factory=set)
 
@@ -277,7 +279,7 @@ class RuntimeConnection:
     top_p: float | None = None
     #: Optional ``top_k`` via ``extra_body`` for local OpenAI-compatible servers (else ``None`` / omit).
     top_k: int | None = None
-    #: ``auto`` | ``dense`` — sparse-expert Gemma notes are inferred from the model id when ``auto``.
+    #: Unused legacy field kept for config compatibility (no longer drives prompts).
     architecture_hint: str = 'auto'
     #: OpenAI-compatible embeddings API base (managed embedding ``llama-server``); empty = use env / chat URL.
     embeddings_base_url: str = ''

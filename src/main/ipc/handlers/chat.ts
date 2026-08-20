@@ -74,6 +74,7 @@ export function registerChatIpc(): void {
       workspaceId?: string | null,
       composerMode = 'agent',
       speechEnabled = false,
+      ttsProvider = 'kokoro',
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
@@ -89,6 +90,7 @@ export function registerChatIpc(): void {
         auto_apply_mode: autoApplyMode,
         composer_mode: composerMode,
         speech_enabled: !!speechEnabled,
+        tts_provider: ttsProvider === 'openai-compatible' ? 'openai-compatible' : 'kokoro',
       };
       if (Array.isArray(structuredContent) && structuredContent.length > 0) {
         const ok = structuredContent.every((p) => p !== null && typeof p === 'object' && !Array.isArray(p));

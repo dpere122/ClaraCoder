@@ -77,6 +77,26 @@ def test_legacy_capable_optimization_preset_maps_to_generic() -> None:
     assert r.optimizationPreset == 'generic'
 
 
+def test_audio_provider_whisper_is_accepted() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'whisper', 'baseUrl': '', 'model': 'small', 'apiKey': ''},
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.audio.provider == 'whisper'
+
+
+def test_audio_provider_unknown_maps_to_disabled() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'not-a-real-stt', 'baseUrl': '', 'model': 'x', 'apiKey': ''},
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.audio.provider == 'disabled'
+
+
 def test_chat_template_reasoning_caps_optional() -> None:
     r = RuntimeConnectionRequest.model_validate(_CONN)
     assert r.chatTemplateReasoning is None

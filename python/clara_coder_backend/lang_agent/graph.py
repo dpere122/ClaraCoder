@@ -34,6 +34,7 @@ from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from clara_coder_backend.middleware.diff_review_middleware import DiffReviewAfterToolMiddleware
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
 from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
@@ -111,6 +112,7 @@ def build_clara_single_outer_graph(
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
         ClaraBriefingDisableThinkingMiddleware(),
+        GemmaNativeToolMiddleware(),
         PseudoToolXmlMiddleware(),
         EmptyResponseNudgeMiddleware(),
         VisionImageInjectionMiddleware(),

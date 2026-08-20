@@ -35,10 +35,15 @@ class ChatRequest(BaseModel):
         default='agent',
         validation_alias=AliasChoices('composer_mode', 'composerMode'),
     )
-    #: When True, assistant replies are spoken aloud; inject TTS mood-tag guidance into the system prompt.
+    #: When True, assistant replies are spoken aloud. Mood-tag prompt guidance is added only for openai-compatible TTS.
     speech_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices('speech_enabled', 'speechEnabled'),
+    )
+    #: TTS backend for this turn (``kokoro`` | ``openai-compatible``). Independent of the LLM provider.
+    tts_provider: Literal['kokoro', 'openai-compatible'] = Field(
+        default='kokoro',
+        validation_alias=AliasChoices('tts_provider', 'ttsProvider'),
     )
 
     @field_validator('structured_content')
@@ -328,10 +333,21 @@ class RuntimeConnectionRequest(BaseModel):
 class RuntimeAudioRequest(BaseModel):
     """Transcription provider and credentials from the app settings."""
 
-    provider: Literal['openai', 'disabled', 'google'] = 'openai'
+    provider: Literal['openai', 'disabled', 'google', 'whisper'] = 'openai'
     baseUrl: str = ''
     model: str = DEFAULT_TRANSCRIBE_MODEL
     apiKey: str = ''
+
+    @field_validator('provider', mode='before')
+    @classmethod
+    def _normalize_audio_provider(cls, v: object) -> object:
+        """Keep unknown persisted providers from 422-ing the whole runtime-config (LLM URLs included)."""
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ('openai', 'disabled', 'google', 'whisper'):
+                return s
+            return 'disabled'
+        return v
 
 
 class RuntimeHostRequest(BaseModel):

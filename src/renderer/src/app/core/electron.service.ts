@@ -48,6 +48,7 @@ import type {
   StagedTransferBatchPayload,
   PythonInterpreterListItem,
   SystemFontInfo,
+  TtsProvider,
   TtsStreamPacket,
   Workspace,
   WorkspaceContextSyncExtras,
@@ -719,6 +720,7 @@ export class ElectronService {
     workspaceId?: string | null,
     composerMode: 'agent' | 'plan' = 'agent',
     speechEnabled = false,
+    ttsProvider: TtsProvider = 'kokoro',
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -729,6 +731,7 @@ export class ElectronService {
       workspaceId ?? null,
       composerMode,
       speechEnabled,
+      ttsProvider,
     );
   }
 

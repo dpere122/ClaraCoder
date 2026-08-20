@@ -39,6 +39,7 @@ from clara_coder_backend.lang_agent.streaming import (
     status_event,
 )
 from clara_coder_backend.plan.build_plan_store import (
+    BUILD_PLAN_REWRITE_STUB,
     ActionStep,
     BuildPlanModel,
     BuildPlanRecord,
@@ -83,6 +84,7 @@ logger = logging.getLogger('clara.plan_execute')
 
 RECORD_PLAN_LABEL = 'record_plan'
 EXECUTE_BUILD_PLAN_LABEL = 'execute_build_plan'
+REWRITE_PLAN_LABEL = 'Rewriting plan'
 
 # Plan mode always binds the full outer-agent tool surface (staging, transfer, deps, tests, …)
 # regardless of the toolbar Editor toggle for this HTTP request.
@@ -318,8 +320,8 @@ def _finalize_rewritten_plan(plan: BuildPlanModel, discovery_summary: str) -> Bu
     return plan
 
 
-def _plan_from_rewrite_output(md_text: str) -> BuildPlanModel | None:
-    """Parse streamed rewrite markdown; fall back to Gemma native / thought-channel coercion."""
+def _plan_from_planner_output(md_text: str) -> BuildPlanModel | None:
+    """Parse streamed planner markdown; fall back to Gemma native / thought-channel coercion."""
     text = (md_text or '').strip()
     if not text:
         return None
@@ -631,6 +633,7 @@ async def _stream_planner_md(
     for attempt in range(2):
         accumulated = ''
         reason_acc = ''
+        raw_acc = ''
         last_disk_write = 0.0
         splitter = GemmaStreamSplitter()
         gemma_split = False
@@ -656,6 +659,8 @@ async def _stream_planner_md(
             # chat auxiliary trail (overflow reveal / autoscroll) like agent mode.
             reason_delta = aimessage_chunk_reasoning_delta(chunk)
             delta = aimessage_chunk_sse_delta(chunk)
+            if delta:
+                raw_acc += delta
             if not reason_delta.strip() and delta and _gemma_planner_split_enabled(delta, already=gemma_split):
                 gemma_split = True
                 delta, split_reason = splitter.feed(delta)
@@ -682,9 +687,17 @@ async def _stream_planner_md(
             if flush_main:
                 accumulated += flush_main
         recovered = _planner_markdown_from_channels(accumulated, reason_acc)
-        if recovered.strip() and recovered.strip() != accumulated.strip():
-            accumulated = recovered if recovered.endswith('\n') else recovered + '\n'
-            yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
+        if _markdown_looks_like_build_plan(recovered):
+            if recovered.strip() != accumulated.strip():
+                accumulated = recovered if recovered.endswith('\n') else recovered + '\n'
+                yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
+        else:
+            coerced = _coerce_planner_model(raw_acc) or _coerce_planner_model(reason_acc)
+            if coerced is not None:
+                accumulated = render_build_plan_md(coerced)
+                if not accumulated.endswith('\n'):
+                    accumulated += '\n'
+                yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
 
         if workspace_root and _markdown_looks_like_build_plan(accumulated):
             write_build_plan_draft_content(workspace_root, record, accumulated)
@@ -953,7 +966,9 @@ async def stream_plan_execute_langgraph(
 
     md_text = md_box[0] if md_box else ''
     try:
-        plan_model = parse_build_plan_md(md_text)
+        plan_model = _plan_from_planner_output(md_text) or parse_build_plan_md(md_text)
+        if _plan_has_action_steps(plan_model) and not _markdown_looks_like_build_plan(md_text):
+            md_text = render_build_plan_md(plan_model)
         grounding_gaps = _grounding_gap_questions(plan_model, discovery_summary)
         if grounding_gaps:
             plan_model.open_questions = list(plan_model.open_questions) + grounding_gaps
@@ -1044,8 +1059,23 @@ async def stream_plan_execute_langgraph(
         )
         yield sse_line(
             planner_progress_event(
-                _planner_progress_payload(phase='planning', steps=[], plan_ready=False),
+                _planner_progress_payload(phase='planning', steps=draft_step_rows, plan_ready=False),
             )
+        )
+        rewrite_status_id = f'plan-rewrite-{uuid.uuid4().hex[:10]}'
+        yield sse_line(
+            status_event(
+                rewrite_status_id,
+                REWRITE_PLAN_LABEL,
+                detail='Incorporating your answers.',
+                state='running',
+                source='tool',
+                stream_tag=PLANNER_STREAM_TAG,
+            )
+        )
+        write_build_plan_draft_content(session.workspace_path, record, BUILD_PLAN_REWRITE_STUB)
+        yield sse_line(
+            build_plan_chunk_event(relative_path=record.relative_path, content=BUILD_PLAN_REWRITE_STUB)
         )
         rewrite_box: list[str] = ['']
         try:
@@ -1068,13 +1098,23 @@ async def stream_plan_execute_langgraph(
             log_llm_failure(exc, context='plan:rewrite', agent_role=None)
             rewrite_box = ['']
 
-        rewritten = _plan_from_rewrite_output(rewrite_box[0] if rewrite_box else '')
+        rewritten = _plan_from_planner_output(rewrite_box[0] if rewrite_box else '')
         if rewritten is not None and _plan_has_action_steps(rewritten):
             rewritten = _finalize_rewritten_plan(rewritten, combined_summary)
             rewritten_md = render_build_plan_md(rewritten)
             write_build_plan_draft_content(session.workspace_path, record, rewritten_md)
             record = finalize_build_plan_draft(session.workspace_path, record, rewritten_md)
             plan_model = rewritten
+            yield sse_line(
+                status_event(
+                    rewrite_status_id,
+                    REWRITE_PLAN_LABEL,
+                    detail='Plan updated.',
+                    state='complete',
+                    source='tool',
+                    stream_tag=PLANNER_STREAM_TAG,
+                )
+            )
             yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=rewritten_md))
             yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
         else:
@@ -1086,6 +1126,16 @@ async def stream_plan_execute_langgraph(
             bound_md = render_build_plan_md(plan_model)
             write_build_plan_draft_content(session.workspace_path, record, bound_md)
             record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
+            yield sse_line(
+                status_event(
+                    rewrite_status_id,
+                    REWRITE_PLAN_LABEL,
+                    detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
+                    state='error',
+                    source='tool',
+                    stream_tag=PLANNER_STREAM_TAG,
+                )
+            )
             yield sse_line(
                 status_event(
                     'plan-rewrite-fallback',
@@ -1289,6 +1339,7 @@ __all__ = [
     'PLAN_AUTHORING_GUIDELINES',
     'PLAN_EXECUTE_APPLY_MODE',
     'RECORD_PLAN_LABEL',
+    'REWRITE_PLAN_LABEL',
     'build_build_plan_executor_prompt',
     'build_planner_context_block',
     'emit_planner_progress_from_md',

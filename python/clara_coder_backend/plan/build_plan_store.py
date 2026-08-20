@@ -28,6 +28,7 @@ FILE_CHANGE_OP_RE = re.compile(
 )
 
 BUILD_PLAN_DRAFT_STUB = '# Build Plan\n\n_Generating plan…_\n'
+BUILD_PLAN_REWRITE_STUB = '# Build Plan\n\n_Rewriting plan…_\n'
 
 FileOperation = Literal['create', 'modify', 'delete']
 _FILE_OPERATIONS: frozenset[str] = frozenset({'create', 'modify', 'delete'})
@@ -933,6 +934,7 @@ def cancel_build_plan(session: SessionState, plan_id: str) -> bool:
 __all__ = [
     'BUILD_PLANS_REL_DIR',
     'BUILD_PLAN_DRAFT_STUB',
+    'BUILD_PLAN_REWRITE_STUB',
     'ActionStep',
     'BuildPlanModel',
     'BuildPlanRecord',

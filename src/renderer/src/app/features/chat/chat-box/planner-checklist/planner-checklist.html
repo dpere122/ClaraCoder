@@ -4,6 +4,7 @@
     [class.plan-panel--live]="live()"
     [class.plan-panel--awaiting]="showApprovalActions()"
     [class.plan-panel--discovering]="planner().phase === 'discovery'"
+    [class.plan-panel--writing]="planner().phase === 'planning' && planner().planReady !== true"
     [class.plan-panel--complete]="planner().phase === 'complete'"
     [class.plan-panel--error]="planner().phase === 'error'"
     role="region"
@@ -40,6 +41,7 @@
             <span
               class="plan-panel__phase"
               [class.plan-panel__phase--discovering]="planner().phase === 'discovery'"
+              [class.plan-panel__phase--writing]="planner().phase === 'planning' && planner().planReady !== true"
               [class.plan-panel__phase--executing]="planner().phase === 'executing'"
               [class.plan-panel__phase--complete]="planner().phase === 'complete'"
               [class.plan-panel__phase--error]="planner().phase === 'error'"

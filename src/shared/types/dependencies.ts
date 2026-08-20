@@ -1,9 +1,9 @@
 /**
  * Shared types for the runtime dependency download framework
- * (Python runtime, llama-server, Java LSP, Kokoro).
+ * (Python runtime, llama-server, Java LSP, Kokoro, Whisper).
  */
 
-export type DependencyId = 'python-runtime' | 'llama-server' | 'java-lsp' | 'kokoro';
+export type DependencyId = 'python-runtime' | 'llama-server' | 'java-lsp' | 'kokoro' | 'whisper';
 
 export type DependencyState = 'missing' | 'installed' | 'updating' | 'error';
 
@@ -64,6 +64,8 @@ export interface DependencyInfo {
   /** Whether Delete is allowed for this dependency. */
   canDelete: boolean;
   error?: string | null;
+  /** Whisper size ids already on disk under ``{customModelsDir}/whisper`` (Hub cache). */
+  downloadedModels?: string[];
 }
 
 export interface DependencyProgressEvent {
@@ -85,6 +87,7 @@ export const DEPENDENCY_IDS: readonly DependencyId[] = [
   'llama-server',
   'java-lsp',
   'kokoro',
+  'whisper',
 ] as const;
 
 export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
@@ -92,6 +95,7 @@ export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
   'llama-server': 'llama-server',
   'java-lsp': 'Java LSP (JDT LS)',
   kokoro: 'Kokoro TTS',
+  whisper: 'Whisper STT',
 };
 
 export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
@@ -99,6 +103,7 @@ export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
   'llama-server': 'llama.cpp server binary for managed local models.',
   'java-lsp': 'Eclipse JDT Language Server for Java diagnostics and navigation.',
   kokoro: 'Local neural TTS (CPU PyTorch + kokoro).',
+  whisper: 'Local speech-to-text (faster-whisper, CPU CTranslate2).',
 };
 
 export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
@@ -106,6 +111,7 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
   'llama-server': '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)',
   'java-lsp': '~50–80 MB',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
+  whisper: '~80–500 MB (CTranslate2 + small model)',
 };
 
 /** Catalog rows shown when status probing fails (all marked missing). */

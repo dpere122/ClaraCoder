@@ -19,6 +19,9 @@ import {
   getBundledVtslsEntry,
 } from '../paths';
 import { ingestElectronLog } from '../log-ingest';
+import { getDefaultCustomModelsDir } from '../config/defaults';
+import { loadConfigSync } from '../config/load-save';
+import { unwrapSecret } from '../../shared';
 
 export { PYTHON_URL, PYTHON_PORT };
 
@@ -210,6 +213,12 @@ export function startPythonServer(): ChildProcess {
   // Do not mkdir python-venv here — an empty dir can confuse install/status; deps install creates it.
   mkdirSync(path.dirname(checkpointDb), { recursive: true });
 
+  let hfToken = '';
+  try {
+    hfToken = unwrapSecret(loadConfigSync().modelManager.huggingFaceToken).trim();
+  } catch {
+    hfToken = '';
+  }
   console.log(`[Python] Spawning sidecar: ${pythonCmd}`);
   const child = spawn(pythonCmd, ['-u', scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -225,10 +234,12 @@ export function startPythonServer(): ChildProcess {
       CLARA_RUNTIME_DIR: runtimeDir,
       CLARA_RUNTIME_PYTHON_DIR: getRuntimePythonDir(),
       CLARA_RUNTIME_BIN_DIR: getRuntimeBinDir(),
+      CLARA_CUSTOM_MODELS_DIR: process.env.CLARA_CUSTOM_MODELS_DIR || getDefaultCustomModelsDir(),
       // Lets the Python sidecar run the bundled vtsls LSP via the Electron binary in
       // Node mode (ELECTRON_RUN_AS_NODE=1) without requiring a system Node install.
       CLARA_ELECTRON_EXEC_PATH: process.execPath,
       CLARA_VTSLS_BUNDLED_ENTRY: getBundledVtslsEntry() ?? '',
+      ...(hfToken ? { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken } : {}),
     },
   });
   mainState.pythonProcess = child;

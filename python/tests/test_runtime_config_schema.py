@@ -108,3 +108,47 @@ def test_chat_template_reasoning_caps_optional() -> None:
     assert r2.chatTemplateReasoning is not None
     assert r2.chatTemplateReasoning.enableThinking is True
     assert r2.chatTemplateReasoning.reasoningEffortValues == ['low', 'medium']
+
+
+def test_whisper_audio_provider_and_custom_models_dir() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {
+            'provider': 'whisper',
+            'baseUrl': '',
+            'model': 'small',
+            'apiKey': '',
+            'customModelsDir': 'C:/models',
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.audio.provider == 'whisper'
+    assert r.audio.model == 'small'
+    assert r.audio.customModelsDir == 'C:/models'
+
+
+def test_openai_audio_omitted_model_uses_transcribe_default() -> None:
+    from clara_coder_backend.config import DEFAULT_TRANSCRIBE_MODEL
+
+    r = RuntimeConfigRequest.model_validate(
+        {
+            'activeConnectionId': 'x',
+            'connections': [_CONN],
+            'audio': {'provider': 'openai', 'baseUrl': '', 'apiKey': 'sk'},
+        }
+    )
+    assert r.audio.model == DEFAULT_TRANSCRIBE_MODEL
+
+
+def test_whisper_audio_omitted_model_uses_whisper_default() -> None:
+    from clara_coder_backend.config import DEFAULT_WHISPER_MODEL
+
+    r = RuntimeConfigRequest.model_validate(
+        {
+            'activeConnectionId': 'x',
+            'connections': [_CONN],
+            'audio': {'provider': 'whisper', 'baseUrl': '', 'apiKey': ''},
+        }
+    )
+    assert r.audio.model == DEFAULT_WHISPER_MODEL

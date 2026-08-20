@@ -1,4 +1,4 @@
-"""Managed runtime dependency downloads (Python venv, llama-server, JDT LS, Kokoro).
+"""Managed runtime dependency downloads (Python venv, llama-server, JDT LS, Kokoro, Whisper).
 
 Keep this package init empty so ``python -m clara_coder_backend.runtime.deps`` can
 load ``__main__`` without eagerly importing every provider.

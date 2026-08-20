@@ -14,7 +14,7 @@ For how this sidecar fits with Electron main (IPC, conversations SQLite, LangGra
 - **Workspace mirror** — Optional per-session snapshot under `.nemo/staging` (`staging_snapshot_session`) seeds an ignored-aware copy of the workspace for LSP overlays and read/search against staged peers; cleaned up after each outer agent turn.
 - **Sessions** — `POST /clear`, `POST /load`, and `POST /workspace-context` sync chat history and workspace metadata from the renderer.
 - **Runtime config (`POST /runtime-config`)** — LLM connections, active connection, transcription provider, and optional host OS hints for the system prompt.
-- **Transcription (`POST /transcribe`)** — WAV upload; **OpenAI** speech API, **Google Web Speech** (no key, network required), or **disabled**.
+- **Transcription (`POST /transcribe`)** — WAV upload; local **faster-whisper**, **OpenAI**-compatible speech API, or **disabled**.
 - **TTS (`POST /tts`)** — Streams **WAV** audio from local **[Kokoro-82M](https://pypi.org/project/kokoro/)** (`kokoro` package). Requires PyTorch and related deps from `requirements.txt`. For English OOD fallback, install **espeak-ng** (see Kokoro README; Windows users can use the espeak-ng MSI).
 - **Health (`GET /health`)** — Process liveness and current model id.
 
@@ -133,4 +133,4 @@ Staged code review does not run pytest; use `run_command` on the outer agent whe
 
 ## Dependencies
 
-See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, kokoro (+ torch), soundfile, SpeechRecognition, diff-match-patch, pypdf, pillow, Black, basedpyright.
+See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, kokoro (+ torch), soundfile, faster-whisper (optional, File → Dependencies), diff-match-patch, pypdf, pillow, Black, basedpyright.

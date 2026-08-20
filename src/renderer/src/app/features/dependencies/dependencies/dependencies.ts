@@ -19,8 +19,10 @@ import type {
   LlamaServerVariant,
 } from '@shared/index';
 import {
+  DEFAULT_WHISPER_MODEL,
   LLAMA_SERVER_VARIANTS,
   LLAMA_SERVER_VARIANT_LABELS,
+  WHISPER_MODEL_OPTIONS,
 } from '@shared/index';
 import { THEMES } from '../../layout/theme-selector/theme-selector';
 import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme';
@@ -34,6 +36,7 @@ interface LogEntry {
 
 const LOG_MAX_LINES = 1000;
 const LLAMA_SERVER_ID = 'llama-server';
+const WHISPER_ID = 'whisper';
 
 @Component({
   selector: 'app-dependencies',
@@ -56,6 +59,7 @@ export class Dependencies implements OnInit, OnDestroy {
   protected readonly progressById = signal<Partial<Record<DependencyId, DependencyProgressEvent>>>({});
   protected readonly logById = signal<Partial<Record<DependencyId, LogEntry[]>>>({});
   protected readonly variantById = signal<Partial<Record<DependencyId, LlamaServerVariant>>>({});
+  protected readonly whisperSizeById = signal<Partial<Record<DependencyId, string>>>({});
 
   /**
    * When set, the window switches from the full list to a focused view showing
@@ -65,6 +69,7 @@ export class Dependencies implements OnInit, OnDestroy {
 
   protected readonly variantOptions = LLAMA_SERVER_VARIANTS;
   protected readonly variantLabels = LLAMA_SERVER_VARIANT_LABELS;
+  protected readonly whisperSizeOptions = WHISPER_MODEL_OPTIONS;
 
   private readonly logBodies = viewChildren<ElementRef<HTMLElement>>('logBody');
 
@@ -132,6 +137,33 @@ export class Dependencies implements OnInit, OnDestroy {
 
   protected isLlamaServer(dep: DependencyInfo): boolean {
     return dep.id === LLAMA_SERVER_ID;
+  }
+
+  protected isWhisper(dep: DependencyInfo): boolean {
+    return dep.id === WHISPER_ID;
+  }
+
+  protected whisperSizeFor(dep: DependencyInfo): string {
+    return this.whisperSizeById()[dep.id] ?? DEFAULT_WHISPER_MODEL;
+  }
+
+  protected setWhisperSize(dep: DependencyInfo, size: string): void {
+    this.whisperSizeById.update((m) => ({ ...m, [dep.id]: size }));
+  }
+
+  protected whisperSizeDownloaded(dep: DependencyInfo): boolean {
+    return (dep.downloadedModels ?? []).includes(this.whisperSizeFor(dep));
+  }
+
+  protected showDownload(dep: DependencyInfo): boolean {
+    if (dep.state === 'missing' || dep.state === 'error') return true;
+    return this.isWhisper(dep) && !this.whisperSizeDownloaded(dep);
+  }
+
+  protected installVariant(dep: DependencyInfo): string | null {
+    if (this.isWhisper(dep)) return this.whisperSizeFor(dep);
+    if (this.isLlamaServer(dep)) return this.variantFor(dep);
+    return null;
   }
 
   protected isInstalling(): boolean {
@@ -291,13 +323,13 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   protected async download(dep: DependencyInfo): Promise<void> {
-    await this.runAction(dep.id, () => this.electron.depsInstall(dep.id, this.variantFor(dep)), 'Downloaded', {
+    await this.runAction(dep.id, () => this.electron.depsInstall(dep.id, this.installVariant(dep)), 'Downloaded', {
       focus: true,
     });
   }
 
   protected async reinstall(dep: DependencyInfo): Promise<void> {
-    await this.runAction(dep.id, () => this.electron.depsReinstall(dep.id, this.variantFor(dep)), 'Reinstalled', {
+    await this.runAction(dep.id, () => this.electron.depsReinstall(dep.id, this.installVariant(dep)), 'Reinstalled', {
       focus: true,
     });
   }

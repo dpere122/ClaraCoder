@@ -8,6 +8,11 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../log-ingest', () => ({ ingestElectronLog: vi.fn() }));
+vi.mock('../config/load-save', () => ({
+  loadConfigSync: vi.fn(() => ({
+    modelManager: { huggingFaceToken: '' },
+  })),
+}));
 vi.mock('../python/http-client', () => ({
   pythonControlFetch: vi.fn(),
   pythonLongFetch: vi.fn(),
@@ -78,7 +83,7 @@ describe('depId allowlist gates', () => {
   });
 
   it('isKnownDependencyId is true for a real id and false for an unknown one', () => {
-    // Pick a real id from the allowlist if any is exported; otherwise just assert the negative branch.
+    expect(isKnownDependencyId('whisper')).toBe(true);
     expect(isKnownDependencyId(unknown as string)).toBe(false);
   });
 });

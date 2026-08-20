@@ -5,6 +5,7 @@ import { Subscription } from 'rxjs';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
+  AudioTranscriptionProvider,
   ChatContainerSize,
   FontFamilyOption,
   HuggingFaceModelFile,
@@ -35,13 +36,18 @@ import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
+  DEFAULT_OPENAI_TRANSCRIBE_MODEL,
   DEFAULT_OPENAI_TTS_BASE_URL,
   DEFAULT_OPENAI_TTS_VOICE,
   DEFAULT_TTS_PROVIDER,
+  DEFAULT_WHISPER_MODEL,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
+  filterDownloadedWhisperModels,
+  isWhisperModelId,
+  pickWhisperSettingsModel,
   UI_FONT_FAMILY_OPTIONS,
   UI_FONT_SIZE_REM_DEFAULT,
   UI_FONT_SIZE_REM_MAX,
@@ -222,8 +228,11 @@ export class SettingsStore {
   readonly localModelsSpinnerName = `settings-local-models-${Math.random().toString(36).slice(2, 10)}`;
   readonly localModelDropdownSpinnerName = `settings-local-model-dropdown-${Math.random().toString(36).slice(2, 10)}`;
   readonly hfSearchSpinnerName = `settings-hf-search-${Math.random().toString(36).slice(2, 10)}`;
+  readonly whisperModelDropdownSpinnerName = `settings-whisper-model-dropdown-${Math.random().toString(36).slice(2, 10)}`;
   readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
   readonly modelManagerLocalLoading = signal(false);
+  readonly whisperModelsLoading = signal(false);
+  private whisperRefreshInflight = 0;
   /**
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
@@ -257,10 +266,14 @@ export class SettingsStore {
   readonly llmProviders = signal<LlmProviderConfig[]>([]);
   readonly activeLlmModelId = signal('default-lmstudio');
   readonly selectedModelId = signal<string | null>(null);
-  readonly audioProvider = signal<'openai' | 'disabled' | 'google' | 'whisper'>('openai');
+  readonly audioProvider = signal<AudioTranscriptionProvider>('whisper');
   readonly audioBaseUrl = signal('');
-  readonly audioModel = signal('gpt-4o-mini-transcribe');
+  readonly audioModel = signal(DEFAULT_WHISPER_MODEL);
   readonly audioApiKey = signal('');
+  readonly whisperDownloadedModels = signal<string[]>([]);
+  readonly whisperModelOptions = computed(() =>
+    filterDownloadedWhisperModels(this.whisperDownloadedModels()),
+  );
   readonly talkInputDeviceId = signal('default');
   readonly talkSilenceThresholdSeconds = signal(2);
   readonly talkAudioInputDevices = signal<TalkAudioInputDevice[]>([]);
@@ -627,6 +640,10 @@ export class SettingsStore {
       const loading = this.modelManagerHfBusy();
       untracked(() => this.scheduleNamedSpinnerSync(this.hfSearchSpinnerName, loading));
     });
+    effect(() => {
+      const loading = this.whisperModelsLoading();
+      untracked(() => this.scheduleNamedSpinnerSync(this.whisperModelDropdownSpinnerName, loading));
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -683,6 +700,7 @@ export class SettingsStore {
     void this.ngxSpinner.hide(this.localModelsSpinnerName);
     void this.ngxSpinner.hide(this.localModelDropdownSpinnerName);
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
+    void this.ngxSpinner.hide(this.whisperModelDropdownSpinnerName);
     this.subscription?.unsubscribe();
     this.hfDownloadSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
@@ -744,7 +762,7 @@ export class SettingsStore {
         if (id === 'provider') {
           const p = this.audioProvider();
           if (p === 'disabled') return 'Disabled';
-          if (p === 'google') return 'Google';
+          if (p === 'whisper') return 'Whisper';
           return 'OpenAI';
         }
         if (id === 'endpoint') {
@@ -777,6 +795,9 @@ export class SettingsStore {
     this.selectedSettingsTab.set(tab);
     if (tab === 'audio') {
       void this.refreshTalkAudioInputs();
+      void this.refreshWhisperDownloadedModels();
+      // Audio pane mounts after this tab switch; re-show so ngx-spinner is in the DOM.
+      this.scheduleNamedSpinnerSync(this.whisperModelDropdownSpinnerName, this.whisperModelsLoading());
     } else if (tab === 'modelManager') {
       void this.refreshModelManagerData();
     } else if (tab === 'models') {
@@ -2372,6 +2393,36 @@ export class SettingsStore {
     this.modelManagerHfQuery.set(value);
   }
 
+  async refreshWhisperDownloadedModels(): Promise<void> {
+    this.whisperRefreshInflight++;
+    this.whisperModelsLoading.set(true);
+    try {
+      const res = await this.electron.depsList();
+      const whisper = (res.dependencies ?? []).find((d) => d.id === 'whisper');
+      const raw = whisper?.downloadedModels;
+      const downloaded = Array.isArray(raw) ? raw.filter((id) => typeof id === 'string') : [];
+      this.whisperDownloadedModels.set(downloaded);
+      this.snapWhisperModelToDownloaded(downloaded);
+    } catch {
+      this.whisperDownloadedModels.set([]);
+    } finally {
+      this.whisperRefreshInflight = Math.max(0, this.whisperRefreshInflight - 1);
+      if (this.whisperRefreshInflight === 0) {
+        this.whisperModelsLoading.set(false);
+      }
+    }
+  }
+
+  private snapWhisperModelToDownloaded(downloaded: string[]): void {
+    if (this.audioProvider() !== 'whisper') return;
+    const next = pickWhisperSettingsModel(this.audioModel(), downloaded);
+    if (next !== this.audioModel()) {
+      // Align the dropdown with sizes on disk without marking dirty. Closing
+      // Settings auto-persists dirty state; snapping here must not rewrite config.json.
+      this.audioModel.set(next);
+    }
+  }
+
   updateAudioSettings(changes: Partial<AudioTranscriptionConfig>): void {
     if (changes.provider !== undefined) {
       this.audioProvider.set(changes.provider);
@@ -2760,32 +2811,29 @@ export class SettingsStore {
     return Number.isNaN(n) ? fallback : n;
   }
 
-  onAudioProviderChange(provider: 'openai' | 'disabled' | 'google' | 'whisper'): void {
+  onAudioProviderChange(provider: AudioTranscriptionProvider): void {
     if (provider === 'disabled') {
       this.audioProvider.set('disabled');
       this.markSettingsDirty();
       return;
     }
 
-    if (provider === 'google') {
-      this.audioProvider.set('google');
-      this.audioBaseUrl.set('');
-      this.audioModel.set('google-web-speech');
-      this.audioApiKey.set('');
-      this.markSettingsDirty();
-      return;
-    }
-
     if (provider === 'whisper') {
       this.audioProvider.set('whisper');
+      const downloaded = this.whisperDownloadedModels();
+      const persisted = isWhisperModelId(this.audioModel())
+        ? this.audioModel()
+        : DEFAULT_WHISPER_MODEL;
+      this.audioModel.set(pickWhisperSettingsModel(persisted, downloaded));
       this.markSettingsDirty();
+      void this.refreshWhisperDownloadedModels();
       return;
     }
 
     this.audioProvider.set('openai');
-    this.audioBaseUrl.set(this.audioBaseUrl() || '');
-    this.audioModel.set(this.audioModel() || 'gpt-4o-mini-transcribe');
-    this.audioApiKey.set(this.audioApiKey());
+    if (isWhisperModelId(this.audioModel()) || !this.audioModel()) {
+      this.audioModel.set(DEFAULT_OPENAI_TRANSCRIBE_MODEL);
+    }
     this.markSettingsDirty();
   }
 
@@ -3034,6 +3082,7 @@ export class SettingsStore {
     this.audioBaseUrl.set(config.audioTranscription.baseUrl);
     this.audioModel.set(config.audioTranscription.model);
     this.audioApiKey.set(unwrapSecret(config.audioTranscription.apiKey));
+    void this.refreshWhisperDownloadedModels();
     const at = config.audioTranscription;
     this.talkInputDeviceId.set(at.talkInputDeviceId ?? 'default');
     const thr = at.talkSilenceThresholdSeconds;
@@ -3131,6 +3180,8 @@ export class SettingsStore {
 
     if (this.selectedSettingsTab() === 'modelManager') {
       void this.refreshModelManagerData();
+    } else if (this.selectedSettingsTab() === 'audio') {
+      void this.refreshWhisperDownloadedModels();
     } else if (forceFull && this.selectedSettingsTab() === 'models') {
       // The models tab opens by default; selectTab() is never invoked on first
       // load, so the local model inventory would otherwise stay empty until the

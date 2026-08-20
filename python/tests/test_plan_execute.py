@@ -35,6 +35,7 @@ from clara_coder_backend.plan.plan_execute import (
     build_planner_context_block,
     stream_plan_execute_langgraph,
 )
+from clara_coder_backend.hitl.deferred_tool_hitl import deferred_tool_hitl_bypass
 from clara_coder_backend.hitl.tool_registry import format_tools_catalog, worker_tools_and_map
 from clara_coder_backend.plan.plan_tools_registry import plan_execute_tools_and_map
 from clara_coder_backend.plan.build_plan_tools import read_build_plan
@@ -567,11 +568,13 @@ async def test_stream_plan_execute_single_executor_after_confirm(
     mock_pause.return_value = None
 
     exec_calls: list[str] = []
+    hitl_bypass_by_call: list[bool] = []
     call_count = {'n': 0}
 
     async def _fake_exec(*_args: Any, **_kwargs: Any):
         prompt = _args[2] if len(_args) > 2 else _kwargs.get('user_message', '')
         exec_calls.append(str(prompt))
+        hitl_bypass_by_call.append(bool(deferred_tool_hitl_bypass.get()))
         outcome: LangGraphWorkerOutcome = _kwargs['outcome']
         call_count['n'] += 1
         if call_count['n'] == 1:
@@ -598,6 +601,8 @@ async def test_stream_plan_execute_single_executor_after_confirm(
     assert any('"type": "planner_progress"' in line for line in lines)
     assert mock_exec.call_count == 2
     assert 'mark_build_plan_steps_complete' in exec_calls[1]
+    # Discovery may skip accept-command HITL; the executor must not (run_command, etc.).
+    assert hitl_bypass_by_call == [True, False]
     assert outcome.state == AgentLoopOutcome.COMPLETED
     assert outcome.final_text == 'Plan execution finished.'
 

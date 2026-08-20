@@ -794,6 +794,8 @@ async def _stream_plan_discovery_phase(
         done_detail='Discovery complete',
     )
 
+    # Read-only discovery: skip accept-command HITL so optional web tools cannot stall
+    # this phase. ``run_command`` is not bound here (apply_mode=False).
     hitl_bypass_token = deferred_tool_hitl_bypass.set(True)
     try:
         async for line in _stream_langgraph_tool_agent(
@@ -1262,22 +1264,20 @@ async def stream_plan_execute_langgraph(
         done_detail='Plan execution complete',
     )
 
-    hitl_bypass_token = deferred_tool_hitl_bypass.set(True)
-    try:
-        async for line in _stream_langgraph_tool_agent(
-            session,
-            tool_apply_mode,
-            exec_prompt,
-            cfg=exec_cfg,
-            outcome=exec_outcome,
-            outer_graph_builder=_plan_execute_outer_graph_builder,
-        ):
-            if session.abort_event.is_set():
-                exec_outcome.mark_aborted()
-                break
-            yield line
-    finally:
-        deferred_tool_hitl_bypass.reset(hitl_bypass_token)
+    # Keep deferred-tool HITL active (``run_command``, staging overlay, web tools) so
+    # auto-apply-off still pauses for accept-command during execution.
+    async for line in _stream_langgraph_tool_agent(
+        session,
+        tool_apply_mode,
+        exec_prompt,
+        cfg=exec_cfg,
+        outcome=exec_outcome,
+        outer_graph_builder=_plan_execute_outer_graph_builder,
+    ):
+        if session.abort_event.is_set():
+            exec_outcome.mark_aborted()
+            break
+        yield line
 
     exec_result = exec_outcome.best_available_text()
     exec_ok = exec_outcome.state == AgentLoopOutcome.COMPLETED

@@ -138,6 +138,32 @@ def test_connection_user_sampling_presence_and_repeat_penalty() -> None:
     assert kw.get('extra_body', {}).get('repeat_penalty') == 1.1
 
 
+def test_llm_optional_max_tokens_omitted_when_zero() -> None:
+    prev_global = os.environ.get('CLARA_CHAT_MAX_OUTPUT_TOKENS')
+    prev_qwen = os.environ.get('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS')
+    prev_gemma = os.environ.get('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS')
+    try:
+        os.environ.pop('CLARA_CHAT_MAX_OUTPUT_TOKENS', None)
+        os.environ.pop('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', None)
+        os.environ.pop('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS', None)
+        qwen = _conn(model='local-model', optimization_preset='qwen', max_output_tokens=0)
+        gemma = _conn(model='local-model', optimization_preset='gemma', max_output_tokens=0)
+        generic = _conn(model='gpt-4', optimization_preset='generic', max_output_tokens=0)
+        assert llm_optional_kwargs(qwen) == {}
+        assert llm_optional_kwargs(gemma) == {}
+        assert llm_optional_kwargs(generic) == {}
+    finally:
+        for key, val in (
+            ('CLARA_CHAT_MAX_OUTPUT_TOKENS', prev_global),
+            ('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', prev_qwen),
+            ('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS', prev_gemma),
+        ):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+
 def test_llm_optional_max_tokens_for_gemma_template() -> None:
     prev_global = os.environ.get('CLARA_CHAT_MAX_OUTPUT_TOKENS')
     prev_gemma = os.environ.get('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS')

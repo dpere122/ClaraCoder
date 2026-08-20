@@ -39,8 +39,9 @@ def _env_int(name: str, default: int, lo: int, hi: int) -> int:
 # ---------------------------------------------------------------------------
 # Agent architecture (single outer Clara agent with staging + specialist tools when Editor is on)
 # ---------------------------------------------------------------------------
-# Qwen / Gemma template defaults (see :mod:`clara_coder_backend.llm.model_tuning`): ``CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS``,
-# ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS``, ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` (applies to any model when set).
+# Optional output caps (see :mod:`clara_coder_backend.llm.model_tuning`): ``CLARA_CHAT_MAX_OUTPUT_TOKENS``
+# (any model when set and positive). ``CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS`` /
+# ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS`` apply only when explicitly set; Settings 0 omits max_tokens.
 # Max characters returned from the worker to the manager (truncation with notice).
 try:
     CLARA_WORKER_RESULT_MAX_CHARS = max(

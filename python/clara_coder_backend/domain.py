@@ -269,7 +269,7 @@ class RuntimeConnection:
     parallel_tool_calls: bool = False
     #: ``generic`` | ``qwen`` | ``gemma`` — from Settings optimization template.
     optimization_preset: str = 'generic'
-    #: Chat max_tokens when > 0; 0 means use preset/env defaults.
+    #: Chat max_tokens when > 0; 0 omits the cap (server context still limits).
     max_output_tokens: int = 0
     #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
     thinking_mode: str = 'default'

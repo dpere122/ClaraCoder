@@ -207,7 +207,7 @@ export interface LlmModelProfile {
    */
   optimizationPreset: LlmOptimizationPreset;
   /**
-   * Hard cap on completion length sent to the API (max_tokens). 0 = let the backend choose (preset/env defaults).
+   * Hard cap on completion length sent to the API (max_tokens). 0 = omit max_tokens (no Clara-side limit).
    */
   maxOutputTokens: number;
   /** Managed ``llama-server`` launch profile (``llamacpp`` provider). */

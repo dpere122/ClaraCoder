@@ -9,8 +9,11 @@ not OpenAI ``reasoning_effort`` tiers. Recommended ``temperature`` / ``top_p`` /
 the connection when the template is selected; inference uses those connection fields directly.
 Gemma does not add extra system-prompt notes.
 
-``max_output_tokens`` on the connection sets API ``max_tokens`` when positive; otherwise preset/env
-defaults apply. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models.
+``max_output_tokens`` on the connection sets API ``max_tokens`` when positive. ``0`` omits
+``max_tokens`` (no Clara-side cap; the server context window still limits prompt plus completion).
+Optional env ``CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS`` / ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS``
+only apply when explicitly set. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models
+when set and positive.
 """
 
 from __future__ import annotations
@@ -159,23 +162,20 @@ def llm_optional_kwargs(connection: RuntimeConnection) -> dict[str, Any]:
     if conn_max > 0:
         out['max_tokens'] = conn_max
         return out
+    # Settings 0 = no max_tokens. Preset env caps apply only when explicitly set.
     if qwen_optimize_profile_active(connection):
-        raw = env_clara('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', '8192').strip() or '8192'
-        try:
+        raw = env_clara('CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS', '').strip()
+        if raw.isdigit():
             default_max = int(raw)
-        except ValueError:
-            default_max = 8192
-        if default_max > 0:
-            out['max_tokens'] = default_max
+            if default_max > 0:
+                out['max_tokens'] = default_max
         return out
     if gemma_optimize_profile_active(connection):
-        raw = env_clara('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS', '16384').strip() or '16384'
-        try:
+        raw = env_clara('CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS', '').strip()
+        if raw.isdigit():
             default_max = int(raw)
-        except ValueError:
-            default_max = 16384
-        if default_max > 0:
-            out['max_tokens'] = default_max
+            if default_max > 0:
+                out['max_tokens'] = default_max
         return out
     return out
 

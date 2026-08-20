@@ -11,8 +11,8 @@ enabled for token-by-token :meth:`~langchain_core.language_models.chat_models.Ba
 Optional ``reasoning_effort`` is passed through for models that support it
 (``none|minimal|low|medium|high|xhigh`` on current OpenAI-style APIs). UI values ``on`` / ``off``
 are mapped to ``medium`` / ``none`` so the wire value is always API-valid.
-``clara_coder_backend.llm.model_tuning`` may add ``max_tokens`` for the Qwen or Gemma **optimization templates**
-when selected, optional per-preset sampling from Settings (``top_p``, ``top_k``, ``min_p``, ``presence_penalty``,
+``clara_coder_backend.llm.model_tuning`` may add ``max_tokens`` when Settings max output is positive
+(or an explicit env cap is set), optional per-preset sampling from Settings (``top_p``, ``top_k``, ``min_p``, ``presence_penalty``,
 ``repeat_penalty``), and Gemma-specific ``top_p`` / ``top_k`` via the Gemma sampling preset (merging ``extra_body``
 for locals such as LM Studio / ``llama-server``). OpenAI-style ``reasoning_effort`` is omitted when live
 Jinja caps omit it, or when the Gemma template is active without caps (use thinking settings instead).

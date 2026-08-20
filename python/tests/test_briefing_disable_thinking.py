@@ -50,11 +50,11 @@ class _Req:
         return nxt
 
 
-@patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware._gemma_honors_thinking_mode', return_value=False)
+@patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware._honors_thinking_on_briefing', return_value=False)
 @patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware.build_llm')
 def test_middleware_disables_thinking_on_first_briefing_call(
     mock_build: MagicMock,
-    _mock_gemma: MagicMock,
+    _mock_honors: MagicMock,
 ) -> None:
     mock_build.return_value = 'no-think-llm'
     mw = ClaraBriefingDisableThinkingMiddleware()
@@ -82,9 +82,9 @@ def test_middleware_disables_thinking_on_first_briefing_call(
     assert seen[1].model == 'orig'
 
 
-@patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware._gemma_honors_thinking_mode', return_value=False)
+@patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware._honors_thinking_on_briefing', return_value=False)
 @patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware.build_llm')
-def test_middleware_skips_resume_mid_tools(mock_build: MagicMock, _mock_gemma: MagicMock) -> None:
+def test_middleware_skips_resume_mid_tools(mock_build: MagicMock, _mock_honors: MagicMock) -> None:
     mw = ClaraBriefingDisableThinkingMiddleware()
     req = _Req(
         [
@@ -120,31 +120,54 @@ def _gemma_conn() -> RuntimeConnection:
     )
 
 
-@patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware.build_llm')
-@patch('clara_coder_backend.session.state.get_active_connection')
-def test_middleware_keeps_thinking_on_gemma_briefing_and_tool_loop(
-    mock_conn: MagicMock,
-    mock_build: MagicMock,
-) -> None:
-    mock_conn.return_value = _gemma_conn()
-    mw = ClaraBriefingDisableThinkingMiddleware()
-    seen: list[Any] = []
-
-    def _handler(r: Any) -> str:
-        seen.append(r)
-        return 'ok'
-
-    briefing = _Req([HumanMessage(content='hello')])
-    assert mw.wrap_model_call(briefing, _handler) == 'ok'
-
-    later = _Req(
-        [
-            HumanMessage(content='hello'),
-            AIMessage(content='ok', tool_calls=[{'name': 'search_workspace', 'id': '1', 'args': {}}]),
-            ToolMessage(content='hits', tool_call_id='1'),
-        ]
+def _qwen_conn() -> RuntimeConnection:
+    return RuntimeConnection(
+        id='q',
+        name='q',
+        provider='llamacpp',
+        base_url='http://127.0.0.1:8080/v1',
+        model='qwen3.5-9b',
+        api_key='',
+        reasoning_effort='medium',
+        temperature=0.6,
+        parallel_tool_calls=True,
+        optimization_preset='qwen',
+        max_output_tokens=0,
+        thinking_mode='on',
     )
-    assert mw.wrap_model_call(later, _handler) == 'ok'
-    mock_build.assert_not_called()
-    assert seen[0].model == 'orig'
-    assert seen[1].model == 'orig'
+
+
+def _assert_keeps_thinking_on_briefing_and_tool_loop(conn: RuntimeConnection) -> None:
+    with (
+        patch('clara_coder_backend.middleware.briefing_disable_thinking_middleware.build_llm') as mock_build,
+        patch('clara_coder_backend.session.state.get_active_connection', return_value=conn),
+    ):
+        mw = ClaraBriefingDisableThinkingMiddleware()
+        seen: list[Any] = []
+
+        def _handler(r: Any) -> str:
+            seen.append(r)
+            return 'ok'
+
+        briefing = _Req([HumanMessage(content='hello')])
+        assert mw.wrap_model_call(briefing, _handler) == 'ok'
+
+        later = _Req(
+            [
+                HumanMessage(content='hello'),
+                AIMessage(content='ok', tool_calls=[{'name': 'search_workspace', 'id': '1', 'args': {}}]),
+                ToolMessage(content='hits', tool_call_id='1'),
+            ]
+        )
+        assert mw.wrap_model_call(later, _handler) == 'ok'
+        mock_build.assert_not_called()
+        assert seen[0].model == 'orig'
+        assert seen[1].model == 'orig'
+
+
+def test_middleware_keeps_thinking_on_gemma_briefing_and_tool_loop() -> None:
+    _assert_keeps_thinking_on_briefing_and_tool_loop(_gemma_conn())
+
+
+def test_middleware_keeps_thinking_on_qwen_briefing_and_tool_loop() -> None:
+    _assert_keeps_thinking_on_briefing_and_tool_loop(_qwen_conn())

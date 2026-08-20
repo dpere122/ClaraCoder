@@ -1,8 +1,8 @@
 """Disable thinking on Clara's first model call of a turn (the pre-tool briefing).
 
-Gemma skips this pin entirely: ``thinkingMode`` applies on the briefing and on
-every later tool-loop call so ``<|channel>thought`` can stream into the reasoning
-pane. Native ``<|tool_call>`` markup is promoted separately.
+Gemma and Qwen skip this pin entirely: their thinking settings apply on the
+briefing and on every later tool-loop call so thought tokens can stream into
+the reasoning pane. Gemma native ``<|tool_call>`` markup is promoted separately.
 """
 
 from __future__ import annotations
@@ -26,13 +26,17 @@ def is_clara_briefing_model_call(messages: list[Any]) -> bool:
     return not any(isinstance(msg, ToolMessage) for msg in tail)
 
 
-def _gemma_honors_thinking_mode() -> bool:
-    """True when the Gemma optimization preset is active on the current connection."""
+def _honors_thinking_on_briefing() -> bool:
+    """True when Gemma or Qwen should keep thinking on the briefing call."""
     try:
-        from clara_coder_backend.llm.model_tuning import gemma_optimize_profile_active
+        from clara_coder_backend.llm.model_tuning import (
+            gemma_optimize_profile_active,
+            qwen_optimize_profile_active,
+        )
         from clara_coder_backend.session.state import get_active_connection
 
-        return bool(gemma_optimize_profile_active(get_active_connection()))
+        conn = get_active_connection()
+        return bool(gemma_optimize_profile_active(conn) or qwen_optimize_profile_active(conn))
     except Exception:
         return False
 
@@ -47,8 +51,9 @@ def _disable_thinking(request: Any) -> Any:
 class ClaraBriefingDisableThinkingMiddleware(AgentMiddleware):
     """Pin thinking off for the first model call of a stream that is still a briefing.
 
-    Later tool-loop calls keep the connection's normal thinking settings. Gemma is
-    excluded: native tool promotion handles ``<|tool_call>`` whether or not a thought
+    Later tool-loop calls keep the connection's normal thinking settings. Gemma
+    and Qwen are excluded so their thinking settings apply on the briefing too.
+    Gemma native tool promotion handles ``<|tool_call>`` whether or not a thought
     channel preceded it. HITL pauses stay on the same middleware instance, so a
     continue after tools does not re-apply the briefing-only override.
     """
@@ -58,7 +63,7 @@ class ClaraBriefingDisableThinkingMiddleware(AgentMiddleware):
         self._briefing_done = False
 
     def _maybe_disable(self, request: Any) -> Any:
-        if _gemma_honors_thinking_mode():
+        if _honors_thinking_on_briefing():
             return request
         if self._briefing_done:
             return request

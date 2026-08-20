@@ -32,7 +32,7 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     label: 'Gemma (local)',
     summary: 'Thinking on/off and recommended sampling.',
     description:
-      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, applies recommended sampling onto the connection (temp 1 / top_p 0.95 / top_k 64), max output left automatic (0), managed llama-server uses the GGUF Jinja chat template (--jinja) and --reasoning-format none unless you set those in Advanced (so <|channel>thought streams live into the reasoning panel instead of buffering), and channel output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
+      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, applies recommended sampling onto the connection (temp 1 / top_p 0.95 / top_k 64), max output 0 means no Clara-side cap, managed llama-server uses the GGUF Jinja chat template (--jinja) and --reasoning-format none unless you set those in Advanced (so <|channel>thought streams live into the reasoning panel instead of buffering), and channel output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
     providers: ['lmstudio', 'llamacpp'],
   },
 ] as const;

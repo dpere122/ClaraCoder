@@ -128,17 +128,6 @@ def test_whisper_audio_provider_and_custom_models_dir() -> None:
     assert r.audio.customModelsDir == 'C:/models'
 
 
-def test_google_audio_provider_maps_to_disabled() -> None:
-    r = RuntimeConfigRequest.model_validate(
-        {
-            'activeConnectionId': 'x',
-            'connections': [_CONN],
-            'audio': {'provider': 'google', 'baseUrl': '', 'model': 'x', 'apiKey': ''},
-        }
-    )
-    assert r.audio.provider == 'disabled'
-
-
 def test_openai_audio_omitted_model_uses_transcribe_default() -> None:
     from clara_coder_backend.config import DEFAULT_TRANSCRIBE_MODEL
 

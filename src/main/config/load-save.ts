@@ -917,6 +917,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   } else {
     const audio = newConfig.audioTranscription;
+    // Retired persisted value from Google web STT; not a live AudioTranscriptionProvider.
     const rawProvider = audio.provider as string | undefined;
     if (rawProvider === 'google') {
       audio.provider = 'whisper';

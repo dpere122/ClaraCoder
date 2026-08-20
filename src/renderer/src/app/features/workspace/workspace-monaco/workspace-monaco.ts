@@ -1348,7 +1348,9 @@ export class WorkspaceMonacoComponent {
   private async bootstrapEditor(): Promise<void> {
     const monacoApi = await import('monaco-editor');
     const { ensureMonacoFindWidgetSafe } = await import('../../../../monaco-find-safety');
+    const { ensureMonacoHoverDelegateSafe } = await import('../../../../monaco-hover-delegate-safety');
     await ensureMonacoFindWidgetSafe();
+    await ensureMonacoHoverDelegateSafe();
     this.monaco = monacoApi;
     // Monaco's in-worker TS/JS service has no workspace fs/tsconfig; semantic rules
     // clash with the real project. TS/JS IntelliSense and checks come from the LSP bridge.
@@ -1392,6 +1394,7 @@ export class WorkspaceMonacoComponent {
       'semanticHighlighting.enabled'?: boolean;
     };
     this.editor = monacoApi.editor.create(host, editorOptions);
+    await ensureMonacoHoverDelegateSafe();
     this.editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
       void this.saveCurrent();
     });
@@ -1803,6 +1806,7 @@ export class WorkspaceMonacoComponent {
 
   private disposeDiffSurface(): void {
     this.diffEditor?.dispose();
+    void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
     this.diffEditor = null;
     if (this.diffOriginalModel && !this.diffOriginalModel.isDisposed()) {
       this.diffOriginalModel.dispose();
@@ -1850,6 +1854,7 @@ export class WorkspaceMonacoComponent {
         readOnly: true,
         renderSideBySide: true,
       });
+      void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
       if (settings.theme === 'clara-monaco') {
         this.defineClaraTheme(monacoApi);
       }

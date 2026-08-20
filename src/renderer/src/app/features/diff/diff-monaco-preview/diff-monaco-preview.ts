@@ -23,7 +23,9 @@ let monacoLoadPromise: Promise<typeof import('monaco-editor')> | null = null;
 function loadMonaco(): Promise<typeof import('monaco-editor')> {
   monacoLoadPromise ??= import('monaco-editor').then(async (monacoApi) => {
     const { ensureMonacoFindWidgetSafe } = await import('../../../../monaco-find-safety');
+    const { ensureMonacoHoverDelegateSafe } = await import('../../../../monaco-hover-delegate-safety');
     await ensureMonacoFindWidgetSafe();
+    await ensureMonacoHoverDelegateSafe();
     return monacoApi;
   });
   return monacoLoadPromise;
@@ -147,6 +149,8 @@ export class DiffMonacoPreviewComponent implements OnDestroy {
         ...this.diffEditorOptions(this.stacked()),
         theme,
       });
+      const { ensureMonacoHoverDelegateSafe } = await import('../../../../monaco-hover-delegate-safety');
+      await ensureMonacoHoverDelegateSafe();
 
       const path = payload.relativePath;
       this.originalModel = monacoApi.editor.createModel(
@@ -206,6 +210,7 @@ export class DiffMonacoPreviewComponent implements OnDestroy {
   private disposeEditor(): void {
     this.diffEditor?.dispose();
     this.diffEditor = null;
+    void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
     if (this.originalModel && !this.originalModel.isDisposed()) {
       this.originalModel.dispose();
     }

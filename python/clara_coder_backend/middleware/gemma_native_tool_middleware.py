@@ -18,6 +18,17 @@ from clara_coder_backend.llm.messages import reasoning_sidecar_text, stringify_c
 logger = logging.getLogger('clara.agent.langgraph')
 
 
+def _gemma_native_tools_active() -> bool:
+    """True when the Gemma optimization preset should promote native ``<|tool_call>`` markup."""
+    try:
+        from clara_coder_backend.llm.model_tuning import gemma_output_parsing_active
+        from clara_coder_backend.session.state import get_active_connection
+
+        return bool(gemma_output_parsing_active(get_active_connection()))
+    except Exception:
+        return False
+
+
 def _candidate_texts(message: AIMessage) -> list[str]:
     texts: list[str] = []
     raw = stringify_content(message.content)
@@ -42,6 +53,8 @@ class GemmaNativeToolMiddleware(AgentMiddleware):
         runtime: Runtime[ContextT],
     ) -> dict[str, Any] | None:
         del runtime  # API contract; unused
+        if not _gemma_native_tools_active():
+            return None
         msgs = state.get('messages') or []
         if not msgs:
             return None

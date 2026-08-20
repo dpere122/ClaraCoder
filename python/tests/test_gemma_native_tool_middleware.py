@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -10,9 +10,11 @@ from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNat
 
 
 _GOOGLE_TEMPERATURE = '<|tool_call>call:get_current_temperature{location:<|"|>London<|"|>}<tool_call|>'
+_ACTIVE = 'clara_coder_backend.middleware.gemma_native_tool_middleware._gemma_native_tools_active'
 
 
-def test_gemma_native_middleware_promotes_tool_call() -> None:
+@patch(_ACTIVE, return_value=True)
+def test_gemma_native_middleware_promotes_tool_call(_active: MagicMock) -> None:
     middleware = GemmaNativeToolMiddleware()
     result = asyncio.run(
         middleware.aafter_model(
@@ -29,7 +31,8 @@ def test_gemma_native_middleware_promotes_tool_call() -> None:
     assert promoted.tool_calls[0]['args'] == {'location': 'London'}
 
 
-def test_gemma_native_middleware_promotes_tool_call_after_thought() -> None:
+@patch(_ACTIVE, return_value=True)
+def test_gemma_native_middleware_promotes_tool_call_after_thought(_active: MagicMock) -> None:
     middleware = GemmaNativeToolMiddleware()
     raw = (
         "<|channel>thought\nNeed the file.\n<channel|>"
@@ -46,13 +49,26 @@ def test_gemma_native_middleware_promotes_tool_call_after_thought() -> None:
     assert promoted.tool_calls[0]['name'] == 'get_current_temperature'
 
 
-def test_gemma_native_middleware_promotes_from_reasoning_sidecar() -> None:
+@patch(_ACTIVE, return_value=True)
+def test_gemma_native_middleware_promotes_from_reasoning_sidecar(_active: MagicMock) -> None:
     middleware = GemmaNativeToolMiddleware()
     msg = AIMessage(content='Visible briefing')
     msg.additional_kwargs['reasoning_content'] = _GOOGLE_TEMPERATURE
     result = asyncio.run(middleware.aafter_model({'messages': [msg]}, MagicMock()))
     assert result is not None
     assert result['messages'][0].tool_calls[0]['name'] == 'get_current_temperature'
+
+
+@patch(_ACTIVE, return_value=False)
+def test_gemma_native_middleware_skips_when_gemma_preset_off(_active: MagicMock) -> None:
+    middleware = GemmaNativeToolMiddleware()
+    result = asyncio.run(
+        middleware.aafter_model(
+            {'messages': [AIMessage(content=_GOOGLE_TEMPERATURE)]},
+            MagicMock(),
+        )
+    )
+    assert result is None
 
 
 def test_gemma_native_middleware_ignores_existing_api_tool_calls() -> None:

@@ -131,6 +131,30 @@ def test_extract_gemma_native_unclosed_block_returns_empty() -> None:
     assert extract_gemma_native_tool_calls(raw) == []
 
 
+def test_extract_gemma_native_skips_truncated_first_keeps_later_complete() -> None:
+    raw = (
+        '<|tool_call>call:list_workspace_directory{relative_path:<|"|>src'
+        '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}<tool_call|>'
+    )
+    got = extract_gemma_native_tool_calls(raw)
+    assert len(got) == 1
+    assert got[0]['name'] == 'read_workspace_file'
+    assert got[0]['args'] == {'path': 'a.py'}
+    assert got[0]['id'] == 'gemma-tool-1'
+
+
+def test_extract_gemma_native_skips_unclosed_first_keeps_later_complete() -> None:
+    raw = (
+        '<|tool_call>call:list_workspace_directory{relative_path:<|"|>src<|"|>}'
+        '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}<tool_call|>'
+    )
+    got = extract_gemma_native_tool_calls(raw)
+    assert len(got) == 1
+    assert got[0]['name'] == 'read_workspace_file'
+    assert got[0]['args'] == {'path': 'a.py'}
+    assert got[0]['id'] == 'gemma-tool-1'
+
+
 def test_extract_gemma_native_after_thought_channel() -> None:
     raw = (
         "<|channel>thought\nI should read a.py next.\n<channel|>"

@@ -229,10 +229,12 @@ def extract_gemma_native_tool_calls(text: str) -> list[dict[str, Any]]:
         try:
             args, after = _parse_gemma_mapping(text, brace)
         except _IncompleteGemmaValue:
-            break
+            i = start + 1
+            continue
         after = _skip_ws(text, after)
         if not text.startswith(_TOOL_CALL_CLOSE, after):
-            break
+            i = start + 1
+            continue
         out.append(
             {
                 'name': name,

@@ -1,3 +1,4 @@
+import { isPinnedLlamaServerUrlProviderId } from './llm-provider-ids';
 import type { AppConfig, LlmConnectionConfig, LlmModelProfile, LlmProviderConfig } from './types/app-config';
 
 /** Merge provider endpoint + model preset into the wire shape used by Python and context helpers. */
@@ -49,6 +50,24 @@ export function resolveActiveLlmConnection(config: AppConfig): LlmConnectionConf
     return null;
   }
   return mergeLlmProviderModel(loc.provider, loc.model);
+}
+
+/**
+ * Active managed local ``llama-server`` (Start/Stop eligible).
+ * Excludes the pinned URL-only remote row, which connects to an already-running server.
+ */
+export function findManagedLocalLlamaLocation(
+  config: AppConfig,
+): { providerIndex: number; modelIndex: number; provider: LlmProviderConfig; model: LlmModelProfile } | null {
+  const mid = config.activeLlmModelId?.trim();
+  if (!mid) {
+    return null;
+  }
+  const loc = findLlmModelLocation(config.llmProviders, mid);
+  if (!loc || loc.provider.provider !== 'llamacpp' || isPinnedLlamaServerUrlProviderId(loc.provider.id)) {
+    return null;
+  }
+  return loc;
 }
 
 /**

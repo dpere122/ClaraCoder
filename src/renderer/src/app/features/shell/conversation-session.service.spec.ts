@@ -1,11 +1,49 @@
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Conversation, ConversationMeta } from '@shared/index';
+import type {
+  AppConfig,
+  Conversation,
+  ConversationMeta,
+  LlamaServerLifecycleEvent,
+  LlamaServerProcessExitEvent,
+} from '@shared/index';
+import { PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, SecretValue } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ConversationSessionService } from './conversation-session.service';
 import { STALE_HITL_SUMMARY } from './abandon-stale-hitl';
+
+function localLlamaConfig(modelId = 'local-model'): AppConfig {
+  return {
+    activeLlmModelId: modelId,
+    llmProviders: [
+      {
+        id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+        name: 'Local llama.cpp',
+        provider: 'llamacpp',
+        baseUrl: '',
+        apiKey: SecretValue.of(''),
+        models: [
+          {
+            id: modelId,
+            name: 'Local',
+            model: 'local',
+            contextWindowTokens: 8192,
+            thinkingMode: 'default',
+            samplingPreset: 'provider-default',
+            architectureHint: 'auto',
+            temperature: 0,
+            parallelToolCalls: false,
+            optimizationPreset: 'generic',
+            maxOutputTokens: 0,
+            llamaCppManaged: { chatRunCommand: 'llama-server --port {{PORT}}', embeddingRunCommand: '' },
+          },
+        ],
+      },
+    ],
+  } as unknown as AppConfig;
+}
 
 function mockElectron(overrides: Partial<{
   loadConversation: ElectronService['loadConversation'];
@@ -15,6 +53,10 @@ function mockElectron(overrides: Partial<{
   getConversations: ElectronService['getConversations'];
 }> = {}) {
   const doneSubject = new Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error' }>();
+  const configSubject = new Subject<AppConfig>();
+  const llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
+  const llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
+  const abortMessage = vi.fn(async () => ({ ok: true }));
   const saveConversation = overrides.saveConversation ?? vi.fn(async () => undefined);
   const convMeta: ConversationMeta = {
     id: 'test-conv',
@@ -41,6 +83,9 @@ function mockElectron(overrides: Partial<{
     finalText$: new Subject().asObservable(),
     clearPrimaryStream$: new Subject().asObservable(),
     done$: doneSubject.asObservable(),
+    config$: configSubject.asObservable(),
+    llamaServerLifecycle$: llamaServerLifecycleSubject.asObservable(),
+    llamaServerProcessExit$: llamaServerProcessExitSubject.asObservable(),
     loadConversation:
       overrides.loadConversation ??
       (async () =>
@@ -86,9 +131,17 @@ function mockElectron(overrides: Partial<{
       (async () => ({ ...convMeta, messages: [], themeId: 'woodland' })),
     getConversations: overrides.getConversations ?? (async () => [convMeta]),
     maybeAutoTitleConversation: async () => ({ ok: false as const, reason: 'not_due' as const }),
-    abortMessage: async () => undefined,
+    abortMessage,
   } as unknown as ElectronService;
-  return { electron, doneSubject, saveConversation };
+  return {
+    electron,
+    doneSubject,
+    configSubject,
+    llamaServerLifecycleSubject,
+    llamaServerProcessExitSubject,
+    abortMessage,
+    saveConversation,
+  };
 }
 
 describe('ConversationSessionService', () => {
@@ -99,9 +152,21 @@ describe('ConversationSessionService', () => {
   function setup(overrides?: Parameters<typeof mockElectron>[0]): {
     service: ConversationSessionService;
     doneSubject: Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error' }>;
+    configSubject: Subject<AppConfig>;
+    llamaServerLifecycleSubject: Subject<LlamaServerLifecycleEvent>;
+    llamaServerProcessExitSubject: Subject<LlamaServerProcessExitEvent>;
+    abortMessage: ReturnType<typeof vi.fn>;
     saveConversation: ReturnType<typeof vi.fn>;
   } {
-    const { electron, doneSubject, saveConversation } = mockElectron(overrides);
+    const {
+      electron,
+      doneSubject,
+      configSubject,
+      llamaServerLifecycleSubject,
+      llamaServerProcessExitSubject,
+      abortMessage,
+      saveConversation,
+    } = mockElectron(overrides);
     TestBed.configureTestingModule({
       providers: [
         ConversationSessionService,
@@ -120,7 +185,15 @@ describe('ConversationSessionService', () => {
       getCurrentWorkspaceId: () => 'ws-1',
       getSpeechSettings: () => ({ enabled: false, voice: '', speed: 1 }),
     });
-    return { service, doneSubject, saveConversation };
+    return {
+      service,
+      doneSubject,
+      configSubject,
+      llamaServerLifecycleSubject,
+      llamaServerProcessExitSubject,
+      abortMessage,
+      saveConversation,
+    };
   }
 
   it('abandons stale HITL on load when not streaming and persists cancelled status', async () => {
@@ -243,5 +316,51 @@ describe('ConversationSessionService', () => {
     await first;
     expect(service.creatingConversation()).toBe(false);
     expect(service.activeConversationId()).toBe('conv-b');
+  });
+
+  it('aborts pending streams and clears loading when the active llama-server stops', async () => {
+    const { service, configSubject, llamaServerLifecycleSubject, abortMessage } = setup();
+    service.activeConversationId.set('test-conv');
+    service.addPending('test-conv');
+    service.streamingParts.set([{ streamTag: 'primary', label: '', text: 'partial' }]);
+    configSubject.next(localLlamaConfig());
+
+    llamaServerLifecycleSubject.next({ phase: 'stopped', modelId: 'local-model' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(abortMessage).toHaveBeenCalledWith('test-conv');
+    expect(service.pendingIds().has('test-conv')).toBe(false);
+    expect(service.loading()).toBe(false);
+    expect(service.streamingParts()).toEqual([]);
+  });
+
+  it('aborts pending streams when the active llama chat process exits', async () => {
+    const { service, configSubject, llamaServerProcessExitSubject, abortMessage } = setup();
+    service.activeConversationId.set('test-conv');
+    service.addPending('test-conv');
+    configSubject.next(localLlamaConfig());
+
+    llamaServerProcessExitSubject.next({
+      modelId: 'local-model',
+      stream: 'chat',
+      code: 1,
+      signal: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(abortMessage).toHaveBeenCalledWith('test-conv');
+    expect(service.pendingIds().has('test-conv')).toBe(false);
+  });
+
+  it('does not abort pending streams when a different llama model stops', async () => {
+    const { service, configSubject, llamaServerLifecycleSubject, abortMessage } = setup();
+    service.addPending('test-conv');
+    configSubject.next(localLlamaConfig('local-model'));
+
+    llamaServerLifecycleSubject.next({ phase: 'stopped', modelId: 'other-model' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(abortMessage).not.toHaveBeenCalled();
+    expect(service.pendingIds().has('test-conv')).toBe(true);
   });
 });

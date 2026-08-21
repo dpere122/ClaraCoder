@@ -5,16 +5,20 @@
 import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
+  AppConfig,
   ChatStructuredContentPart,
   Conversation,
   ConversationMeta,
   HitlTrailArtifact,
+  LlamaServerLifecycleEvent,
+  LlamaServerProcessExitEvent,
   LlmStatus,
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
 import {
   clearPrimaryStreamParts,
+  findManagedLocalLlamaLocation,
   mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
@@ -40,7 +44,7 @@ import {
 } from './app-stream-parts';
 import { applyAppTheme, resolveAppThemeId } from './app-theme';
 import { abandonStaleHitlMessages } from './abandon-stale-hitl';
-
+import { filter, merge } from 'rxjs';
 /** Choose text for end-of-turn TTS flush (see App for rationale). */
 export function pickTtsFlushText(streamedPrimary: string, finalText: string): string {
   const a = streamedPrimary.trim();
@@ -107,6 +111,8 @@ export class ConversationSessionService {
     getCurrentWorkspaceId: () => null,
     getSpeechSettings: () => ({ enabled: false, voice: '', speed: 1 }),
   };
+  /** Latest config so llama stop events can match the active managed local source. */
+  private lastConfig: AppConfig | null = null;
 
   constructor() {
     effect(() => {
@@ -328,6 +334,19 @@ export class ConversationSessionService {
         }
       }
     });
+
+    this.electron.config$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((config) => {
+      this.lastConfig = config;
+    });
+
+    merge(this.electron.llamaServerLifecycle$, this.electron.llamaServerProcessExit$)
+      .pipe(
+        filter((e) => this.isActiveManagedLlamaStopEvent(e)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => {
+        this.abortPendingBecauseLlamaStopped();
+      });
   }
 
   bindHooks(hooks: ConversationSessionHooks): void {
@@ -541,6 +560,53 @@ export class ConversationSessionService {
 
   resetStreamUiOnSendFailure(conversationId: string): void {
     this.removePending(conversationId);
+  }
+
+  /**
+   * True when a lifecycle/process-exit event means the active managed local llama chat server is down.
+   * Embed-only exits are ignored; generation can continue on chat.
+   */
+  private isActiveManagedLlamaStopEvent(
+    e: LlamaServerLifecycleEvent | LlamaServerProcessExitEvent,
+  ): boolean {
+    const loc = this.lastConfig ? findManagedLocalLlamaLocation(this.lastConfig) : null;
+    const activeId = loc?.model.id;
+    if (!activeId || e.modelId !== activeId) {
+      return false;
+    }
+    if ('phase' in e) {
+      return e.phase === 'stopped';
+    }
+    return e.stream === 'chat';
+  }
+
+  /**
+   * Llama chat died or was stopped: cancel in-flight turns and reset the composer Stop button
+   * even if the SSE `done` event never arrives (hung Python/llama HTTP).
+   */
+  private abortPendingBecauseLlamaStopped(): void {
+    const ids = [...this.pendingIds()];
+    if (ids.length === 0) {
+      return;
+    }
+    for (const id of ids) {
+      void this.electron.abortMessage(id);
+      this.settleInFlightAsAborted(id);
+    }
+  }
+
+  private settleInFlightAsAborted(conversationId: string): void {
+    this.removePending(conversationId);
+    this.pendingFinalText.delete(conversationId);
+    this.backgroundStreamPlanner.delete(conversationId);
+    this.backgroundStreamParts.delete(conversationId);
+    if (conversationId === this.activeConversationId()) {
+      this.toolRunIds.set(new Set());
+      this.toolPhaseEngaged.set(false);
+      this.streamingParts.set([]);
+      this.streamingPlanner.set(null);
+      this.streamingFinalText.set(undefined);
+    }
   }
 
   private async flushSaveCurrentConversation(): Promise<void> {

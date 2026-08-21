@@ -1,10 +1,11 @@
-import { afterNextRender, Component, computed, effect, ElementRef, inject, Injector, input, model, output, signal, viewChild } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { afterNextRender, Component, computed, DestroyRef, effect, ElementRef, inject, Injector, input, model, output, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import {
   COMPOSER_RUN_MODES,
   COMPOSER_RUN_MODE_LABELS,
   DEFAULT_COMPOSER_RUN_MODE,
+  findManagedLocalLlamaLocation,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
@@ -13,10 +14,13 @@ import {
   type ChatTemplateReasoningCaps,
   type ComposerRunMode,
   type GemmaThinkingMode,
+  type LlamaServerLifecycleEvent,
+  type LlamaServerProcessExitEvent,
   type LlmReasoningEffort,
   type LlmReasoningSettingChange,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
+import { filter, merge } from 'rxjs';
 
 import { ElectronService } from '../../../core/electron.service';
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
@@ -64,6 +68,7 @@ export class MessageBox {
   /** User changed Reasoning/Thinking; parent persists onto the active model profile. */
   readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
   private readonly electron = inject(ElectronService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly capsByModel = toSignal(this.electron.chatTemplateReasoning$, {
     initialValue: {} as Readonly<Record<string, ChatTemplateReasoningCaps>>,
   });
@@ -71,6 +76,42 @@ export class MessageBox {
   protected readonly activeConnection = computed(() => {
     const cfg = this.appConfig();
     return cfg ? resolveActiveLlmConnection(cfg) : null;
+  });
+  /** Managed local llama.cpp source (Start/Stop eligible); null for URL/LM Studio/OpenAI. */
+  private readonly managedLocalLlama = computed(() => {
+    const cfg = this.appConfig();
+    return cfg ? findManagedLocalLlamaLocation(cfg) : null;
+  });
+  /** True while the managed local llama-server is accepting traffic. */
+  private readonly llamaLive = signal(false);
+  private llamaStatusProbeId = 0;
+  /**
+   * Send is allowed when a chat source is selected and, for local llama.cpp, the server is running.
+   * Remote / LM Studio / OpenAI sources are treated as active once a connection is resolvable.
+   */
+  protected readonly sourceActive = computed(() => {
+    if (!this.activeConnection()) {
+      return false;
+    }
+    if (this.managedLocalLlama()) {
+      return this.llamaLive();
+    }
+    return true;
+  });
+  /** Composer send is blocked by a full context window or an inactive LLM source. */
+  protected readonly sendDisabled = computed(() => this.contextBlocked() || !this.sourceActive());
+  /** Tooltip for the Send button when it is disabled. */
+  protected readonly sendTitle = computed(() => {
+    if (this.contextBlocked()) {
+      return 'Context full — start a new conversation to continue';
+    }
+    if (!this.activeConnection()) {
+      return 'No LLM source selected';
+    }
+    if (this.managedLocalLlama() && !this.llamaLive()) {
+      return 'Start the local llama-server to send';
+    }
+    return 'Send message';
   });
   private readonly liveCaps = computed(() => {
     const id = this.activeConnection()?.id;
@@ -112,6 +153,28 @@ export class MessageBox {
       if (id) {
         void this.electron.refreshChatTemplateReasoning(id);
       }
+    });
+
+    merge(this.electron.llamaServerLifecycle$, this.electron.llamaServerProcessExit$)
+      .pipe(
+        filter((e) => {
+          const id = this.managedLocalLlama()?.model.id;
+          return !!id && e.modelId === id;
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((e) => {
+        this.applyLlamaLifecycleEvent(e);
+      });
+
+    effect(() => {
+      const cfg = this.appConfig();
+      const loc = this.managedLocalLlama();
+      if (!cfg || !loc) {
+        this.llamaLive.set(false);
+        return;
+      }
+      void this.probeLlamaLive(cfg, loc.model.id);
     });
   }
 
@@ -229,10 +292,10 @@ export class MessageBox {
   /**
    * Validates draft text (or attachments), emits {@link messageSent}, and clears input.
    * Resets multiline mode so the next draft starts in single-line entry.
-   * No-op while {@link loading} or {@link contextBlocked}.
+   * No-op while {@link loading}, {@link contextBlocked}, or the current LLM source is inactive.
    */
   send(): void {
-    if (this.loading() || this.contextBlocked()) return;
+    if (this.loading() || this.sendDisabled()) return;
     const msg = this.userInput().trim();
     if (!msg && this.attachmentCount() === 0) return;
     this.messageSent.emit(msg);
@@ -339,5 +402,43 @@ export class MessageBox {
     const caret = cursor ?? el.value.length;
     el.setSelectionRange(caret, caret);
     this.syncComposerFieldLayout();
+  }
+
+  /**
+   * Mirrors llama Start/Stop into Send availability. If a turn is in flight when the
+   * chat server dies, emit abort so the parent can drop the hung Stop button.
+   */
+  private applyLlamaLifecycleEvent(e: LlamaServerLifecycleEvent | LlamaServerProcessExitEvent): void {
+    if ('phase' in e) {
+      this.llamaLive.set(e.phase === 'running');
+      if (e.phase === 'stopped' && this.loading()) {
+        this.abort();
+      }
+      return;
+    }
+    if (e.stream !== 'chat') {
+      return;
+    }
+    this.llamaLive.set(false);
+    if (this.loading()) {
+      this.abort();
+    }
+  }
+
+  /** Probe whether the managed local llama-server is currently running. */
+  private async probeLlamaLive(cfg: AppConfig, modelId: string): Promise<void> {
+    const req = ++this.llamaStatusProbeId;
+    try {
+      const res = await this.electron.llamaServerStatus({ modelId, config: cfg });
+      if (req !== this.llamaStatusProbeId) {
+        return;
+      }
+      this.llamaLive.set(!!(res.ok && res.running));
+    } catch {
+      if (req !== this.llamaStatusProbeId) {
+        return;
+      }
+      this.llamaLive.set(false);
+    }
   }
 }

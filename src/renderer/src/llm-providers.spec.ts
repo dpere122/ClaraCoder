@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   LLM_REASONING_EFFORT_OPTIONS,
   LLM_THINKING_MODE_OPTIONS,
+  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   SecretValue,
+  findManagedLocalLlamaLocation,
   llmReasoningSelectChange,
   llmReasoningSelectOptions,
   llmReasoningSelectValue,
   patchLlmModelProfile,
+  type AppConfig,
   type LlmModelProfile,
   type LlmProviderConfig,
 } from '@shared/index';
@@ -114,5 +118,50 @@ describe('patchLlmModelProfile', () => {
     const next = patchLlmModelProfile(original, 'model-b', { reasoningEffort: undefined });
     expect(next[0].models[1].reasoningEffort).toBeUndefined();
     expect(next[0].models[0].reasoningEffort).toBe('');
+  });
+});
+
+describe('findManagedLocalLlamaLocation', () => {
+  function llamacppProvider(id: string, modelId: string): LlmProviderConfig {
+    return {
+      id,
+      name: 'llama',
+      provider: 'llamacpp',
+      baseUrl: '',
+      apiKey: SecretValue.of(''),
+      models: [profile({ id: modelId, name: 'Local', model: 'local' })],
+    };
+  }
+
+  it('returns the active managed local llamacpp source', () => {
+    const cfg = {
+      activeLlmModelId: 'local-1',
+      llmProviders: [llamacppProvider(PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, 'local-1')],
+    } as unknown as AppConfig;
+    expect(findManagedLocalLlamaLocation(cfg)?.model.id).toBe('local-1');
+  });
+
+  it('returns a user-added llamacpp source (not only the pinned local row)', () => {
+    const cfg = {
+      activeLlmModelId: 'custom-1',
+      llmProviders: [llamacppProvider('my-llama', 'custom-1')],
+    } as unknown as AppConfig;
+    expect(findManagedLocalLlamaLocation(cfg)?.provider.id).toBe('my-llama');
+  });
+
+  it('excludes the pinned URL-only llama-server row', () => {
+    const cfg = {
+      activeLlmModelId: 'url-1',
+      llmProviders: [llamacppProvider(PINNED_LLAMA_SERVER_URL_PROVIDER_ID, 'url-1')],
+    } as unknown as AppConfig;
+    expect(findManagedLocalLlamaLocation(cfg)).toBeNull();
+  });
+
+  it('returns null when the active source is not llamacpp', () => {
+    const cfg = {
+      activeLlmModelId: 'model-a',
+      llmProviders: providers(),
+    } as unknown as AppConfig;
+    expect(findManagedLocalLlamaLocation(cfg)).toBeNull();
   });
 });

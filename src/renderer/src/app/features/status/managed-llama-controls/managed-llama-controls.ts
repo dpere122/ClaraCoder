@@ -24,6 +24,7 @@ import type {
 } from '@shared/index';
 import {
   findLlmModelLocation,
+  findManagedLocalLlamaLocation,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedLmStudioProviderId,
@@ -126,21 +127,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   /** Active model location; null when the active source is not a managed local llama server. */
   private readonly activeLocation = computed(() => {
     const cfg = this.appConfig();
-    if (!cfg) {
-      return null;
-    }
-    const mid = cfg.activeLlmModelId?.trim();
-    if (!mid) {
-      return null;
-    }
-    const loc = findLlmModelLocation(cfg.llmProviders, mid);
-    // Any managed (non-URL-only) llamacpp provider gets Start/Stop: the pinned
-    // local default plus user-added custom llamacpp sources. The pinned URL-only
-    // remote row is excluded (it Connects to an already-running server).
-    if (!loc || loc.provider.provider !== 'llamacpp' || isPinnedLlamaServerUrlProviderId(loc.provider.id)) {
-      return null;
-    }
-    return loc;
+    return cfg ? findManagedLocalLlamaLocation(cfg) : null;
   });
 
   /** Whether the active source is a local llama server (Start/Stop eligible). */
@@ -189,8 +176,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
             this.phase.set('idle');
           }
         } else {
-          // process exit while not transitioning to running -> back to idle
-          if (this.phase() !== 'running') {
+          const ev = e as LlamaServerProcessExitEvent;
+          if (ev.stream === 'chat' || this.phase() !== 'running') {
             this.phase.set('idle');
           }
         }

@@ -195,6 +195,7 @@ export {
 export {
   countLlmModels,
   findLlmModelLocation,
+  findManagedLocalLlamaLocation,
   flattenLlmProvidersToConnections,
   mergeLlmProviderModel,
   patchLlmModelProfile,

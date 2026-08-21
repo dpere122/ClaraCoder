@@ -489,6 +489,24 @@ describe('WorkspaceTerminalDockComponent', () => {
       component.onResizeHandleDown(mockEvent);
 
       expect(mockEvent.preventDefault).toHaveBeenCalled();
+      expect(component.panelResizing()).toBe(true);
+    });
+
+    it('places the resize handle on the top edge of the tab strip', () => {
+      component.expanded.set(true);
+      component.addTab();
+      fixture.detectChanges();
+
+      const toolbar = fixture.nativeElement.querySelector(
+        '.workspace-terminal-dock__toolbar',
+      ) as HTMLElement | null;
+      const handle = toolbar?.querySelector(
+        '.workspace-terminal-dock__resize-handle',
+      ) as HTMLElement | null;
+
+      expect(toolbar).toBeTruthy();
+      expect(handle).toBeTruthy();
+      expect(toolbar?.firstElementChild).toBe(handle);
     });
 
     it('does not start drag when collapsed', () => {

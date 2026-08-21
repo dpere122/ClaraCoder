@@ -1,4 +1,8 @@
-<div class="workspace-terminal-dock" [class.workspace-terminal-dock--expanded]="expanded()">
+<div
+  class="workspace-terminal-dock"
+  [class.workspace-terminal-dock--expanded]="expanded()"
+  [class.workspace-terminal-dock--resizing]="panelResizing()"
+>
   <button
     type="button"
     class="workspace-terminal-dock__bar"
@@ -18,17 +22,22 @@
     [style.height.px]="expanded() ? panelHeightPx() : 0"
     [attr.inert]="expanded() ? null : ''"
   >
-    <div
-      class="workspace-terminal-dock__resize-handle"
-      (mousedown)="onResizeHandleDown($event)"
-      title="Drag to resize"
-    ></div>
     @if (!hasDockPanelContent()) {
+      <div
+        class="workspace-terminal-dock__resize-handle"
+        (mousedown)="onResizeHandleDown($event)"
+        title="Drag to resize"
+      ></div>
       <div class="workspace-terminal-dock__empty">
         Open a workspace for shell terminals, select a llama.cpp model to view managed server output, or run an agent command to see its output here.
       </div>
     } @else {
       <div class="workspace-terminal-dock__toolbar">
+        <div
+          class="workspace-terminal-dock__resize-handle"
+          (mousedown)="onResizeHandleDown($event)"
+          title="Drag to resize"
+        ></div>
         <div class="workspace-terminal-dock__tabs" role="tablist">
           @if (showProblemsTab()) {
             <div

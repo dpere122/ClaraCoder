@@ -133,6 +133,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   readonly revealEditorDiagnostic = output<LspEditorDiagnostic>();
 
   readonly expanded = signal(false);
+  readonly panelResizing = signal(false);
   readonly panelHeightPx = signal(260);
   readonly ptyTabs = signal<PtyTerminalTab[]>([]);
   readonly agentCommandTabs = signal<AgentCommandTab[]>([]);
@@ -490,6 +491,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     window.removeEventListener('mouseup', this.boundPanelDragUp);
     this.panelDragListenersActive = false;
     this.panelDrag = null;
+    this.panelResizing.set(false);
     if (!this.destroyed) {
       this.fitActive();
     }
@@ -637,6 +639,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     this.endPanelDrag();
     this.panelDrag = { startY: ev.clientY, startH: this.panelHeightPx() };
     this.panelDragListenersActive = true;
+    this.panelResizing.set(true);
     window.addEventListener('mousemove', this.boundPanelDragMove);
     window.addEventListener('mouseup', this.boundPanelDragUp);
   }

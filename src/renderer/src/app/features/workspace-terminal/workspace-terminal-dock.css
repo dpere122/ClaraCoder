@@ -62,6 +62,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
   border: none;
   border-radius: 0;
   overflow: hidden;
@@ -80,15 +81,33 @@
 }
 
 .workspace-terminal-dock__resize-handle {
-  height: 5px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 6;
   cursor: ns-resize;
-  flex-shrink: 0;
   background: transparent;
 }
 
-.workspace-terminal-dock__resize-handle:hover {
+.workspace-terminal-dock__resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 8px;
+}
+
+.workspace-terminal-dock__resize-handle:hover,
+.workspace-terminal-dock--resizing .workspace-terminal-dock__resize-handle {
   background: var(--t-primary);
-  opacity: 0.35;
+  opacity: 0.55;
+}
+
+.workspace-terminal-dock--resizing .workspace-terminal-dock__panel {
+  transition: none;
 }
 
 .workspace-terminal-dock__empty {
@@ -98,6 +117,7 @@
 }
 
 .workspace-terminal-dock__toolbar {
+  position: relative;
   flex-shrink: 0;
   border-bottom: 1px solid var(--t-border-subtle);
   padding: 0 0.25rem;

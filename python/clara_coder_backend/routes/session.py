@@ -184,7 +184,6 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
 
     if not new_path:
         sess.semantic_index_pending.clear()
-        sess.workspace_system_prompt = ''
         clear_session_python_workspace_env(sess)
         sess.npm_project_hints = None
         sess.npm_discovery_at = None

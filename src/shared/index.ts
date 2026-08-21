@@ -4,6 +4,11 @@
  */
 export type { Workspace } from './types/workspace';
 export {
+  NO_WORKSPACE_SYSTEM_PROMPT_ID,
+  isNoWorkspaceSystemPromptId,
+  resolveSystemPromptStorageId,
+} from './types/workspace';
+export {
   APP_BACKEND_INTERPRETER_ID,
   RUNTIME_VENV_INTERPRETER_ID,
 } from './python-interpreter-ids';

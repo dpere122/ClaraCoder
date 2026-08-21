@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { AppConfig, PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
-import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
+import { lspServerKindForWorkspaceRelativePath, resolveSystemPromptStorageId, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
@@ -297,7 +297,7 @@ export class WorkspaceComponent implements OnDestroy {
     effect(() => {
       const wid = this.currentWorkspaceId();
       const wss = this.workspaces();
-      if (!this.electron.isElectron || !wid) {
+      if (!this.electron.isElectron) {
         untracked(() => {
           this.systemPromptHasFile.set(false);
           this.systemPromptSourceName.set('');
@@ -305,8 +305,7 @@ export class WorkspaceComponent implements OnDestroy {
         });
         return;
       }
-      // Prefer live config field when present; still confirm managed file exists via IPC.
-      void this.refreshSystemPromptStatus(wid, wss);
+      void this.refreshSystemPromptStatus(resolveSystemPromptStorageId(wid), wss);
     });
 
     effect(() => {
@@ -441,8 +440,8 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   protected async onClearSystemPrompt(): Promise<void> {
-    const wid = this.currentWorkspaceId();
-    if (!wid || this.systemPromptBusy()) {
+    const wid = resolveSystemPromptStorageId(this.currentWorkspaceId());
+    if (this.systemPromptBusy()) {
       return;
     }
     const confirmed =
@@ -477,8 +476,8 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   protected async onOpenSystemPromptEditor(): Promise<void> {
-    const wid = this.currentWorkspaceId();
-    if (!wid || this.systemPromptBusy() || this.systemPromptEditorOpen()) {
+    const wid = resolveSystemPromptStorageId(this.currentWorkspaceId());
+    if (this.systemPromptBusy() || this.systemPromptEditorOpen()) {
       return;
     }
     this.systemPromptBusy.set(true);
@@ -532,8 +531,8 @@ export class WorkspaceComponent implements OnDestroy {
   }
 
   protected async onSaveSystemPromptEditor(): Promise<void> {
-    const wid = this.currentWorkspaceId();
-    if (!wid || this.systemPromptEditorSaving()) {
+    const wid = resolveSystemPromptStorageId(this.currentWorkspaceId());
+    if (this.systemPromptEditorSaving()) {
       return;
     }
     this.systemPromptEditorSaving.set(true);

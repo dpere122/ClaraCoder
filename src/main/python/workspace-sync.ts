@@ -9,6 +9,7 @@ import {
   effectiveLmStudioContextTokens,
   flattenLlmProvidersToConnections,
   lmStudioOpenAiBaseUrlToRestOrigin,
+  resolveSystemPromptStorageId,
 } from '../../shared';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
@@ -376,11 +377,11 @@ export async function syncWorkspaceContextToPython(
     body.skip_env_bootstrap = true;
   }
   const workspaceId = (extras?.workspaceId ?? '').trim();
-  if (workspaceId && (workspacePath || '').trim()) {
-    body.workspace_system_prompt = await readWorkspaceSystemPromptText(workspaceId);
-  } else {
-    body.workspace_system_prompt = '';
-  }
+  const promptId =
+    workspaceId && (workspacePath || '').trim()
+      ? workspaceId
+      : resolveSystemPromptStorageId(null);
+  body.workspace_system_prompt = await readWorkspaceSystemPromptText(promptId);
   // Window opens before the sidecar finishes booting; wait instead of failing the IPC.
   await ensurePythonReady();
   const res = await pythonControlFetch('/workspace-context', {
@@ -408,8 +409,7 @@ export async function syncWorkspaceSystemPromptToPython(
   if (!sid) {
     return;
   }
-  const wid = (workspaceId || '').trim();
-  const text = wid ? await readWorkspaceSystemPromptText(wid) : '';
+  const text = await readWorkspaceSystemPromptText(resolveSystemPromptStorageId(workspaceId));
   await pythonControlFetch('/workspace-system-prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

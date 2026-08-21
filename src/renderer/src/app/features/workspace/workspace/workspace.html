@@ -146,28 +146,30 @@
     }
   </div>
 
-  @if (electron.isElectron && currentWorkspaceId()) {
+  @if (electron.isElectron) {
     <div class='workspace-interpreter-footer'>
-      <app-workspace-outline-dock
-        [symbols]='outlineSymbols()'
-        [relativePath]='outlineRelativePath()'
-        [visible]='outlinePanelVisible()'
-        (revealSymbol)='onOutlineSymbolReveal($event)'
-      />
-      @if (pythonInterpreterControlsActive()) {
-        <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
-        <select
-          id='workspace-python-interpreter'
-          class='workspace-interpreter-select'
-          [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
-          (change)='onPythonInterpreterChange($event)'
-        >
-          @for (opt of pythonInterpreterRows(); track opt.id) {
-            <option [value]='opt.id' [selected]='opt.id === pythonInterpreterSelectedId()'>{{ opt.label }}</option>
+      @if (currentWorkspaceId()) {
+        <app-workspace-outline-dock
+          [symbols]='outlineSymbols()'
+          [relativePath]='outlineRelativePath()'
+          [visible]='outlinePanelVisible()'
+          (revealSymbol)='onOutlineSymbolReveal($event)'
+        />
+        @if (pythonInterpreterControlsActive()) {
+          <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
+          <select
+            id='workspace-python-interpreter'
+            class='workspace-interpreter-select'
+            [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
+            (change)='onPythonInterpreterChange($event)'
+          >
+            @for (opt of pythonInterpreterRows(); track opt.id) {
+              <option [value]='opt.id' [selected]='opt.id === pythonInterpreterSelectedId()'>{{ opt.label }}</option>
+            }
+          </select>
+          @if (pythonInterpreterError()) {
+            <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
           }
-        </select>
-        @if (pythonInterpreterError()) {
-          <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
         }
       }
       <div class='workspace-system-prompt-row'>

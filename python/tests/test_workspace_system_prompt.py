@@ -113,3 +113,28 @@ def test_workspace_system_prompt_route_updates_session_without_tree() -> None:
     assert res.json() == {'ok': True}
     assert state.get_session(sid).workspace_system_prompt == 'Live inject now.'
     assert state.get_session(sid).workspace_context == 'tree stays'
+
+
+def test_workspace_context_without_path_keeps_system_prompt() -> None:
+    from clara_coder_backend.session import state
+    from clara_coder_backend.main import app
+
+    sid = 'no-ws-sys-prompt-test'
+    sess = state.get_session(sid)
+    sess.workspace_path = ''
+    sess.workspace_system_prompt = 'old leftover'
+
+    client = TestClient(app)
+    res = client.post(
+        '/workspace-context',
+        json={
+            'session_id': sid,
+            'workspace_path': '',
+            'workspace_context': '',
+            'workspace_system_prompt': 'No-workspace instructions.',
+        },
+    )
+    assert res.status_code == 200
+    assert res.json() == {'ok': True}
+    assert state.get_session(sid).workspace_path == ''
+    assert state.get_session(sid).workspace_system_prompt == 'No-workspace instructions.'

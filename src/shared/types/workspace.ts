@@ -1,4 +1,21 @@
 /**
+ * Reserved app-data id for the no-workspace (general) system prompt.
+ * Not a real workspace — storage lives under `workspaces/{id}/system-prompt.md`.
+ */
+export const NO_WORKSPACE_SYSTEM_PROMPT_ID = '__no_workspace__';
+
+export function isNoWorkspaceSystemPromptId(workspaceId: string | null | undefined): boolean {
+  const wid = (workspaceId ?? '').trim();
+  return !wid || wid === NO_WORKSPACE_SYSTEM_PROMPT_ID;
+}
+
+/** Map a real workspace id, or empty/null (no workspace), to the managed prompt storage id. */
+export function resolveSystemPromptStorageId(workspaceId: string | null | undefined): string {
+  const wid = (workspaceId ?? '').trim();
+  return wid || NO_WORKSPACE_SYSTEM_PROMPT_ID;
+}
+
+/**
  * Workspace record persisted in app config and used for filesystem roots.
  * Shared between main process, preload bridge typings, and the Angular renderer.
  *

@@ -10,7 +10,11 @@ import type {
   WorkspaceSystemPromptMutationResult,
   WorkspaceSystemPromptStatus,
 } from '../../../shared';
-import { findLlmModelLocation } from '../../../shared';
+import {
+  findLlmModelLocation,
+  isNoWorkspaceSystemPromptId,
+  resolveSystemPromptStorageId,
+} from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
 import { loadConfig, mergeSettingsConfigSave, updateConfig } from '../../config/load-save';
@@ -50,18 +54,31 @@ async function resyncActiveSessionSystemPrompt(
   if (!sessionId) {
     return;
   }
+  const promptId = resolveSystemPromptStorageId(workspaceId);
+  const noWorkspacePrompt = isNoWorkspaceSystemPromptId(workspaceId);
   const convWs = mainState.activeConversationWorkspaceId;
-  if (convWs && convWs !== workspaceId) {
+  if (noWorkspacePrompt) {
+    if (convWs) {
+      return;
+    }
+  } else if (convWs && convWs !== promptId) {
     return;
   }
   try {
-    await syncWorkspaceSystemPromptToPython(sessionId, workspaceId);
-    if (!mainState.activeConversationWorkspaceId) {
-      mainState.activeConversationWorkspaceId = workspaceId;
+    await syncWorkspaceSystemPromptToPython(sessionId, promptId);
+    if (!noWorkspacePrompt && !mainState.activeConversationWorkspaceId) {
+      mainState.activeConversationWorkspaceId = promptId;
     }
   } catch (err) {
     console.error('Failed to re-sync workspace system prompt:', err);
   }
+}
+
+function systemPromptSourceNameFromConfig(config: AppConfig, promptId: string): string | undefined {
+  if (isNoWorkspaceSystemPromptId(promptId)) {
+    return undefined;
+  }
+  return config.workspaces.find((w) => w.id === promptId)?.systemPromptSourceName;
 }
 
 function sendToWindowIfAlive(win: BrowserWindow | null | undefined, channel: string, payload: unknown): void {
@@ -273,13 +290,9 @@ export function registerConfigWorkspacesIpc(): void {
       } catch {
         return { hasFile: false, sourceName: '' };
       }
-      const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
-      if (!wid) {
-        return { hasFile: false, sourceName: '' };
-      }
+      const wid = resolveSystemPromptStorageId(typeof workspaceId === 'string' ? workspaceId : '');
       const config = await loadConfig();
-      const workspace = config.workspaces.find((w) => w.id === wid);
-      return getWorkspaceSystemPromptStatus(wid, workspace?.systemPromptSourceName);
+      return getWorkspaceSystemPromptStatus(wid, systemPromptSourceNameFromConfig(config, wid));
     },
   );
 
@@ -295,13 +308,11 @@ export function registerConfigWorkspacesIpc(): void {
       } catch {
         return { ok: false, error: 'Untrusted IPC sender', hasFile: false, sourceName: '' };
       }
-      const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
-      if (!wid) {
-        return { ok: false, error: 'Workspace id is required.', hasFile: false, sourceName: '' };
-      }
+      const wid = resolveSystemPromptStorageId(typeof workspaceId === 'string' ? workspaceId : '');
+      const noWorkspacePrompt = isNoWorkspaceSystemPromptId(wid);
       const config = await loadConfig();
-      const workspace = config.workspaces.find((w) => w.id === wid);
-      if (!workspace) {
+      const workspace = noWorkspacePrompt ? undefined : config.workspaces.find((w) => w.id === wid);
+      if (!noWorkspacePrompt && !workspace) {
         return { ok: false, error: 'Workspace not found.', hasFile: false, sourceName: '' };
       }
       const parent = mainState.mainWindow;
@@ -310,36 +321,44 @@ export function registerConfigWorkspacesIpc(): void {
           ok: false,
           error: 'Main window unavailable.',
           hasFile: false,
-          sourceName: workspace.systemPromptSourceName ?? '',
+          sourceName: workspace?.systemPromptSourceName ?? '',
         };
       }
       const result = await dialog.showOpenDialog(parent, {
         properties: ['openFile'],
-        defaultPath: workspace.path,
+        ...(workspace?.path ? { defaultPath: workspace.path } : {}),
         filters: [
           { name: 'Text', extensions: ['md', 'txt'] },
           { name: 'All files', extensions: ['*'] },
         ],
       });
       if (result.canceled || result.filePaths.length === 0) {
-        const status = await getWorkspaceSystemPromptStatus(wid, workspace.systemPromptSourceName);
+        const status = await getWorkspaceSystemPromptStatus(
+          wid,
+          systemPromptSourceNameFromConfig(config, wid),
+        );
         return { ok: true, ...status };
       }
       try {
         const { sourceName } = await copyWorkspaceSystemPromptFromPath(wid, result.filePaths[0]!);
-        const next = await updateConfig((cfg) => {
-          const ws = cfg.workspaces.find((w) => w.id === wid);
-          if (!ws) {
-            throw new Error('Workspace not found in config.');
-          }
-          ws.systemPromptSourceName = sourceName;
-        });
-        broadcastConfig(next);
+        if (!noWorkspacePrompt) {
+          const next = await updateConfig((cfg) => {
+            const ws = cfg.workspaces.find((w) => w.id === wid);
+            if (!ws) {
+              throw new Error('Workspace not found in config.');
+            }
+            ws.systemPromptSourceName = sourceName;
+          });
+          broadcastConfig(next);
+        }
         await resyncActiveSessionSystemPrompt(wid, sessionId);
         return { ok: true, hasFile: true, sourceName };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const status = await getWorkspaceSystemPromptStatus(wid, workspace.systemPromptSourceName);
+        const status = await getWorkspaceSystemPromptStatus(
+          wid,
+          systemPromptSourceNameFromConfig(config, wid),
+        );
         return { ok: false, error: msg, ...status };
       }
     },
@@ -356,10 +375,7 @@ export function registerConfigWorkspacesIpc(): void {
       } catch {
         return { ok: false, error: 'Untrusted IPC sender', text: '' };
       }
-      const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
-      if (!wid) {
-        return { ok: false, error: 'Workspace id is required.', text: '' };
-      }
+      const wid = resolveSystemPromptStorageId(typeof workspaceId === 'string' ? workspaceId : '');
       try {
         const text = await readWorkspaceSystemPromptText(wid);
         return { ok: true, text };
@@ -381,30 +397,34 @@ export function registerConfigWorkspacesIpc(): void {
       } catch {
         return { ok: false, error: 'Untrusted IPC sender', hasFile: false, sourceName: '' };
       }
-      const wid = typeof payload?.workspaceId === 'string' ? payload.workspaceId.trim() : '';
-      if (!wid) {
-        return { ok: false, error: 'Workspace id is required.', hasFile: false, sourceName: '' };
-      }
+      const wid = resolveSystemPromptStorageId(
+        typeof payload?.workspaceId === 'string' ? payload.workspaceId : '',
+      );
+      const noWorkspacePrompt = isNoWorkspaceSystemPromptId(wid);
       try {
         await writeWorkspaceSystemPromptText(wid, typeof payload.text === 'string' ? payload.text : '');
         const config = await loadConfig();
-        const existing = config.workspaces.find((w) => w.id === wid);
+        const existing = noWorkspacePrompt ? undefined : config.workspaces.find((w) => w.id === wid);
         const sourceName = (existing?.systemPromptSourceName || '').trim() || 'system-prompt.md';
-        const next = await updateConfig((cfg) => {
-          const ws = cfg.workspaces.find((w) => w.id === wid);
-          if (!ws) {
-            throw new Error('Workspace not found in config.');
-          }
-          ws.systemPromptSourceName = sourceName;
-        });
-        broadcastConfig(next);
+        if (!noWorkspacePrompt) {
+          const next = await updateConfig((cfg) => {
+            const ws = cfg.workspaces.find((w) => w.id === wid);
+            if (!ws) {
+              throw new Error('Workspace not found in config.');
+            }
+            ws.systemPromptSourceName = sourceName;
+          });
+          broadcastConfig(next);
+        }
         await resyncActiveSessionSystemPrompt(wid, payload.sessionId);
         return { ok: true, hasFile: true, sourceName };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const config = await loadConfig();
-        const workspace = config.workspaces.find((w) => w.id === wid);
-        const status = await getWorkspaceSystemPromptStatus(wid, workspace?.systemPromptSourceName);
+        const status = await getWorkspaceSystemPromptStatus(
+          wid,
+          systemPromptSourceNameFromConfig(config, wid),
+        );
         return { ok: false, error: msg, ...status };
       }
     },
@@ -422,27 +442,29 @@ export function registerConfigWorkspacesIpc(): void {
       } catch {
         return { ok: false, error: 'Untrusted IPC sender', hasFile: false, sourceName: '' };
       }
-      const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
-      if (!wid) {
-        return { ok: false, error: 'Workspace id is required.', hasFile: false, sourceName: '' };
-      }
+      const wid = resolveSystemPromptStorageId(typeof workspaceId === 'string' ? workspaceId : '');
+      const noWorkspacePrompt = isNoWorkspaceSystemPromptId(wid);
       try {
         await clearWorkspaceSystemPromptFile(wid);
-        const next = await updateConfig((cfg) => {
-          const ws = cfg.workspaces.find((w) => w.id === wid);
-          if (!ws) {
-            throw new Error('Workspace not found in config.');
-          }
-          delete ws.systemPromptSourceName;
-        });
-        broadcastConfig(next);
+        if (!noWorkspacePrompt) {
+          const next = await updateConfig((cfg) => {
+            const ws = cfg.workspaces.find((w) => w.id === wid);
+            if (!ws) {
+              throw new Error('Workspace not found in config.');
+            }
+            delete ws.systemPromptSourceName;
+          });
+          broadcastConfig(next);
+        }
         await resyncActiveSessionSystemPrompt(wid, sessionId);
         return { ok: true, hasFile: false, sourceName: '' };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const config = await loadConfig();
-        const workspace = config.workspaces.find((w) => w.id === wid);
-        const status = await getWorkspaceSystemPromptStatus(wid, workspace?.systemPromptSourceName);
+        const status = await getWorkspaceSystemPromptStatus(
+          wid,
+          systemPromptSourceNameFromConfig(config, wid),
+        );
         return { ok: false, error: msg, ...status };
       }
     },

@@ -86,4 +86,13 @@ describe('workspace system-prompt storage', () => {
     const status = await getWorkspaceSystemPromptStatus('ws-1');
     expect(status.hasFile).toBe(true);
   });
+
+  it('stores the no-workspace prompt under the reserved storage id', async () => {
+    await writeWorkspaceSystemPromptText('__no_workspace__', 'General chat instructions.');
+    await expect(readWorkspaceSystemPromptText('__no_workspace__')).resolves.toBe(
+      'General chat instructions.',
+    );
+    const managed = join(testRoot.dir, 'workspaces', '__no_workspace__', 'system-prompt.md');
+    expect(existsSync(managed)).toBe(true);
+  });
 });

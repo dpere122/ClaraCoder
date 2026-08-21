@@ -106,7 +106,12 @@
                 }
                 <span class='node-name'>{{ node.name }}</span>
                 @if (isTreeNodeDiskOpPending(node)) {
-                  <span class='tree-node-pending-spinner' aria-label='Updating'></span>
+                  <span
+                    class='tree-node-pending-spinner'
+                    role='status'
+                    aria-live='polite'
+                    aria-label='Updating'
+                  ><span></span><span></span><span></span></span>
                 }
               }
             </div>

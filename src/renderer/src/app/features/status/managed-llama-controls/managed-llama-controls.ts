@@ -33,7 +33,6 @@ import {
 } from '@shared/index';
 import { filter, merge } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
-import { LlamaStatusIndicator } from '../llama-status-indicator/llama-status-indicator';
 
 type ManagedLlamaPhase = 'idle' | 'starting' | 'downloading' | 'running';
 
@@ -51,14 +50,12 @@ const INVENTORY_SPINNER = {
  * the workspace panel below the system prompt area. A dropdown lists every
  * LLM source and switches the active one; the Start/Stop button is enabled
  * only for a managed (non-URL-only) llamacpp source — i.e. the local llama
- * server — and disabled for everything else. The model + embeddings health
- * dots ({@link LlamaStatusIndicator}) sit beside the button. An inline
- * loading spinner shows while the local model inventory (source labels) is
- * being fetched.
+ * server — and disabled for everything else. An inline loading spinner shows
+ * while the local model inventory (source labels) is being fetched.
  */
 @Component({
   selector: 'app-managed-llama-controls',
-  imports: [FormsModule, LlamaStatusIndicator, NgxSpinnerComponent],
+  imports: [FormsModule, NgxSpinnerComponent],
   templateUrl: './managed-llama-controls.html',
   styleUrl: './managed-llama-controls.css',
 })

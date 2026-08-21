@@ -1,10 +1,10 @@
 <div class='app-layout'>
-  <div class='app-top-bar px-4 pt-3'>
+  <div class='app-top-bar'>
     @if (electron.isElectron) {
       <div class='window-chrome'>
         <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHelpMenu($event)'>Help</button>
-        <h1 class='title-glow chrome-title' (dblclick)='onWindowToggleMaximize()'>&gt; Clara Coder_</h1>
+        <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>Clara Coder</h1>
         <button
           type='button'
           class='chrome-win-btn chrome-pin-btn'
@@ -14,7 +14,7 @@
           [attr.aria-label]='pinned() ? "Unpin window" : "Pin window on top"'
           title='Pin window on top'
         >
-          <lucide-icon name='pin' [size]='16' class='chrome-pin-icon'></lucide-icon>
+          <lucide-icon name='pin' [size]='12' class='chrome-pin-icon'></lucide-icon>
         </button>
         <button type='button' class='chrome-win-btn' (click)='onWindowMinimize()' aria-label='Minimize'>&#8722;</button>
         <button type='button' class='chrome-win-btn' (click)='onWindowToggleMaximize()' [attr.aria-label]='windowMaximized() ? "Restore" : "Maximize"'>
@@ -91,7 +91,7 @@
       <p class='browser-only-hint'>
         This tab is a browser preview only — close it and use the <strong>Clara Coder</strong> Electron window from <code>npm run dev</code> for File/Help menus, window controls, and workspaces.
       </p>
-      <h1 class='title-glow title-glow--solo'>&gt; Clara Coder_</h1>
+      <h1 class='chrome-title chrome-title--solo'>Clara Coder</h1>
     }
   </div>
 
@@ -427,12 +427,17 @@
   </div>
 
   @if (electron.isElectron) {
-    <footer class="app-lsp-footer">
-      <app-editor-lsp-status
-        [conversationId]="activeConversationId()"
-        [workspacePath]="currentWorkspacePath()"
-        [activeFileRelativePath]="activeFileRelativePath()"
-      />
+    <footer class="app-status-footer">
+      <div class="app-status-footer__start">
+        <app-llama-status-indicator [appConfig]="appConfig()" />
+      </div>
+      <div class="app-status-footer__end">
+        <app-editor-lsp-status
+          [conversationId]="activeConversationId()"
+          [workspacePath]="currentWorkspacePath()"
+          [activeFileRelativePath]="activeFileRelativePath()"
+        />
+      </div>
     </footer>
   }
 

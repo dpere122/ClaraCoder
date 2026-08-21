@@ -76,6 +76,7 @@ import {
   estimateTranscriptContextTokens,
 } from '../status/context-capacity/context-capacity.utils';
 import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
+import { LlamaStatusIndicator } from '../status/llama-status-indicator/llama-status-indicator';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
@@ -123,6 +124,7 @@ function parentRelativePath(relativePath: string): string {
     ChatActiveStackComponent,
     ChatConversationHubComponent,
     EditorLspStatusComponent,
+    LlamaStatusIndicator,
     MainPanelEmptyStateComponent,
     LucideAngularModule,
     WorkspaceComponent,

@@ -12,7 +12,6 @@
   margin-top: 0.35rem;
 }
 
-/* Dropdown + Start button stay on one line; the status indicator can wrap below. */
 .managed-llama-controls__row {
   display: flex;
   flex-wrap: nowrap;

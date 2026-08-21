@@ -404,20 +404,45 @@ app-workspace .tree-node.is-disk-op-pending {
 }
 
 app-workspace .tree-node-pending-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   flex-shrink: 0;
-  width: 0.7rem;
-  height: 0.7rem;
   margin-left: auto;
-  border: 2px solid var(--t-border);
-  border-top-color: var(--t-primary);
-  border-radius: 50%;
   pointer-events: none;
-  animation: workspace-tree-pending-spin 0.7s linear infinite;
 }
 
-@keyframes workspace-tree-pending-spin {
-  to {
-    transform: rotate(360deg);
+app-workspace .tree-node-pending-spinner > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--t-primary);
+  animation: workspace-tree-pending-pulse 0.75s ease-in-out infinite;
+}
+
+app-workspace .tree-node-pending-spinner > span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+app-workspace .tree-node-pending-spinner > span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes workspace-tree-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  app-workspace .tree-node-pending-spinner > span {
+    animation: none;
   }
 }
 

@@ -26,15 +26,18 @@
 .app-top-bar {
   flex-shrink: 0;
   border-bottom: 1px solid var(--t-border-subtle);
-  padding: 0.75rem 1.5rem 1rem;
+  padding: 0;
+  background: linear-gradient(180deg, var(--t-titlebar-start), var(--t-titlebar-end));
 }
 
-/* Frameless window: drag strip + menus + traffic controls (Electron only). */
+/* Frameless window: thin drag handle + menus + traffic controls (Electron only). */
 .window-chrome {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  margin-bottom: 0.65rem;
+  gap: 0.15rem;
+  height: 1.7rem;
+  padding: 0 0.3rem;
+  margin: 0;
   -webkit-app-region: drag;
   app-region: drag;
 }
@@ -48,13 +51,15 @@
 .chrome-menu-btn {
   flex-shrink: 0;
   margin: 0;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--t-border);
-  background: var(--t-bg-surface);
-  color: var(--t-fg);
+  padding: 0 0.4rem;
+  height: 1.3rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t-titlebar-text);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   letter-spacing: 0.04em;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -109,13 +114,20 @@
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
+  overflow: hidden;
+  color: var(--t-titlebar-text);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: default;
 }
 
 .browser-only-hint {
-  margin: 0 0 0.5rem;
-  padding: 0.45rem 0.65rem;
+  margin: 0.35rem 0.5rem 0;
+  padding: 0.35rem 0.55rem;
   border: 1px solid var(--t-border);
   border-radius: 0.35rem;
   background: var(--t-bg-surface);
@@ -129,20 +141,20 @@
   font-size: 0.95em;
 }
 
-.title-glow--solo {
-  margin: 0 0 0.5rem;
+.chrome-title--solo {
+  padding: 0.15rem 0.5rem;
 }
 
 .chrome-win-btn {
   flex-shrink: 0;
-  width: 2rem;
-  height: 1.65rem;
+  width: 1.45rem;
+  height: 1.3rem;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--t-border);
+  border: 1px solid transparent;
   background: transparent;
-  color: var(--t-fg);
-  font-size: 0.95rem;
+  color: var(--t-titlebar-text);
+  font-size: 0.78rem;
   line-height: 1;
   cursor: pointer;
 }
@@ -166,7 +178,7 @@
 
 .chrome-pin-btn .chrome-pin-icon {
   display: flex;
-  color: var(--t-text-muted);
+  color: color-mix(in srgb, var(--t-titlebar-text) 70%, transparent);
 }
 
 .chrome-pin-btn.chrome-pin-btn--active .chrome-pin-icon {
@@ -184,12 +196,31 @@
   overflow: hidden;
 }
 
-.app-lsp-footer {
+.app-status-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex-shrink: 0;
   width: 100%;
   min-width: 0;
   border-top: 1px solid var(--t-border-subtle);
   background: var(--t-bg);
+}
+
+.app-status-footer__start {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-left: 0.35rem;
+}
+
+.app-status-footer__end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .workspace-panel {
@@ -545,7 +576,3 @@
   margin: 0 0 0.5rem;
 }
 
-.window-chrome .title-glow {
-  margin-bottom: 0;
-  font-size: 1.15rem;
-}

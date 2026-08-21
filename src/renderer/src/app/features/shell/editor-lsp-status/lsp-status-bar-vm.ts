@@ -13,6 +13,18 @@ export interface LspStatusBarVm {
   chips: LspStatusChip[];
   idleText: string;
   title: string;
+  /** False when the chat has no workspace — hide the status chip instead of showing an error. */
+  visible: boolean;
+}
+
+const NO_WORKSPACE_ERROR_MARKER = 'does not have a workspace attached';
+
+export function isMissingWorkspaceLspError(fetchError: string): boolean {
+  return fetchError.trim().toLowerCase().includes(NO_WORKSPACE_ERROR_MARKER);
+}
+
+function hiddenVm(): LspStatusBarVm {
+  return { chips: [], idleText: '', title: '', visible: false };
 }
 
 export const LSP_DASHBOARD_SERVER_ORDER = ['python', 'typescript', 'gdscript', 'java'] as const;
@@ -87,7 +99,11 @@ export function buildLspStatusBarVm(
   fetchError: string,
   loading: boolean,
   warmingServerId: string | null = null,
+  workspaceAttached = true,
 ): LspStatusBarVm {
+  if (!workspaceAttached || isMissingWorkspaceLspError(fetchError)) {
+    return hiddenVm();
+  }
   if (fetchError.trim()) {
     const err = fetchError.trim();
     return {
@@ -101,6 +117,7 @@ export function buildLspStatusBarVm(
       ],
       idleText: 'LSP idle',
       title: err,
+      visible: true,
     };
   }
   if (!dashboard && loading) {
@@ -108,6 +125,7 @@ export function buildLspStatusBarVm(
       chips: [],
       idleText: 'LSP · …',
       title: 'Loading language server status…',
+      visible: true,
     };
   }
   if (!dashboard) {
@@ -115,6 +133,7 @@ export function buildLspStatusBarVm(
       chips: [],
       idleText: 'LSP idle',
       title: 'Language server status unavailable.',
+      visible: true,
     };
   }
 
@@ -185,6 +204,7 @@ export function buildLspStatusBarVm(
       chips: [],
       idleText: 'LSP idle',
       title: hints ? `${base}\n\n${hints}` : base,
+      visible: true,
     };
   }
 
@@ -192,5 +212,6 @@ export function buildLspStatusBarVm(
     chips,
     idleText: 'LSP idle',
     title: chips.map((chip) => chip.title.split('\n')[0]).join(' · '),
+    visible: true,
   };
 }

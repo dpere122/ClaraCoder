@@ -167,7 +167,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       || this.agentCommandTabs().length > 0,
   );
 
-  readonly showProblemsTab = computed(() => this.hasDockPanelContent());
+  readonly showProblemsTab = computed(() => this.hasWorkspace());
 
   readonly problemsTabCount = computed(() => (this.editorDiagnostics().length > 0 ? this.editorDiagnostics().length : null));
 

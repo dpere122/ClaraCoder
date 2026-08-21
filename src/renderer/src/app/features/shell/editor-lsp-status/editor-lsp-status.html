@@ -1,26 +1,28 @@
 @if (electron.isElectron) {
   <div class="editor-lsp-status__bar" role="status" aria-label="Language server status">
-    @if (vm().chips.length === 0) {
-      <span
-        class="editor-lsp-status editor-lsp-status--muted"
-        [class.editor-lsp-status--pending]="vm().idleText === 'LSP · …'"
-        [attr.title]="vm().title"
-      >
-        <span class="editor-lsp-status__label">{{ vm().idleText }}</span>
-      </span>
-    } @else {
-      @for (chip of vm().chips; track chip.id) {
+    @if (vm().visible) {
+      @if (vm().chips.length === 0) {
         <span
-          class="editor-lsp-status"
-          [class.editor-lsp-status--ok]="chip.tone === 'ok'"
-          [class.editor-lsp-status--warn]="chip.tone === 'warn'"
-          [class.editor-lsp-status--error]="chip.tone === 'error'"
-          [class.editor-lsp-status--muted]="chip.tone === 'muted'"
-          [class.editor-lsp-status--pending]="chip.tone === 'pending'"
-          [attr.title]="chip.title"
+          class="editor-lsp-status editor-lsp-status--muted"
+          [class.editor-lsp-status--pending]="vm().idleText === 'LSP · …'"
+          [attr.title]="vm().title"
         >
-          <span class="editor-lsp-status__label">{{ chip.text }}</span>
+          <span class="editor-lsp-status__label">{{ vm().idleText }}</span>
         </span>
+      } @else {
+        @for (chip of vm().chips; track chip.id) {
+          <span
+            class="editor-lsp-status"
+            [class.editor-lsp-status--ok]="chip.tone === 'ok'"
+            [class.editor-lsp-status--warn]="chip.tone === 'warn'"
+            [class.editor-lsp-status--error]="chip.tone === 'error'"
+            [class.editor-lsp-status--muted]="chip.tone === 'muted'"
+            [class.editor-lsp-status--pending]="chip.tone === 'pending'"
+            [attr.title]="chip.title"
+          >
+            <span class="editor-lsp-status__label">{{ chip.text }}</span>
+          </span>
+        }
       }
     }
   </div>

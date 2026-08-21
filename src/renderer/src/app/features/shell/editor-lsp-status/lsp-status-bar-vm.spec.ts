@@ -20,6 +20,7 @@ describe('buildLspStatusBarVm', () => {
     const vm = buildLspStatusBarVm(dashboard(), '', false);
     expect(vm.chips).toEqual([]);
     expect(vm.idleText).toBe('LSP idle');
+    expect(vm.visible).toBe(true);
   });
 
   it('shows indexing and running chips only', () => {
@@ -68,6 +69,23 @@ describe('buildLspStatusBarVm', () => {
     expect(vm.chips).toHaveLength(1);
     expect(vm.chips[0].tone).toBe('error');
     expect(vm.chips[0].text).toContain('backend down');
+    expect(vm.visible).toBe(true);
+  });
+
+  it('hides the indicator when the chat has no workspace', () => {
+    const vm = buildLspStatusBarVm(null, '', false, null, false);
+    expect(vm.visible).toBe(false);
+    expect(vm.chips).toEqual([]);
+  });
+
+  it('hides instead of showing a no-workspace fetch error', () => {
+    const vm = buildLspStatusBarVm(
+      null,
+      '{"detail":"This conversation does not have a workspace attached."}',
+      false,
+    );
+    expect(vm.visible).toBe(false);
+    expect(vm.chips).toEqual([]);
   });
 
   it('shows a starting chip while warming an idle server', () => {

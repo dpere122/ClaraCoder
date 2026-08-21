@@ -284,6 +284,22 @@ describe('WorkspaceTerminalDockComponent', () => {
     });
   });
 
+  describe('Problems tab', () => {
+    it('shows Problems when a workspace is attached', () => {
+      fixture.componentRef.setInput('workspacePath', '/test/workspace');
+      fixture.detectChanges();
+
+      expect(component.showProblemsTab()).toBe(true);
+    });
+
+    it('hides Problems when there is no workspace', () => {
+      fixture.componentRef.setInput('workspacePath', '');
+      fixture.detectChanges();
+
+      expect(component.showProblemsTab()).toBe(false);
+    });
+  });
+
   describe('PTY data handling', () => {
     beforeEach(() => {
       fixture.componentRef.setInput('workspacePath', '/test/workspace');

@@ -24,6 +24,8 @@ export class EditorLspStatusComponent {
 
   /** Active conversation (maps to Python ``session_id`` for LSP). */
   readonly conversationId = input<string | null>(null);
+  /** Workspace root for the active chat; empty means LSP is not applicable. */
+  readonly workspacePath = input<string | null>(null);
   /** When set, warms the integrated LSP for this path (``.py`` / TS/JS / ``.gd`` / ``.java``). */
   readonly activeFileRelativePath = input<string | null>(null);
 
@@ -48,7 +50,7 @@ export class EditorLspStatusComponent {
   constructor() {
     effect(() => {
       const conv = this.conversationId();
-      if (!this.electron.isElectron || !conv?.trim()) {
+      if (!this.electron.isElectron || !conv?.trim() || !this.hasWorkspace()) {
         this.dashboard.set(null);
         this.fetchError.set('');
         this.lastWarmConversationPath = '';
@@ -63,7 +65,7 @@ export class EditorLspStatusComponent {
       const path = this.activeFileRelativePath()?.trim().replace(/\\/g, '/') ?? null;
       const dash = this.dashboard();
       const warming = Boolean(this.warmingServerId());
-      if (!this.electron.isElectron || !conv) {
+      if (!this.electron.isElectron || !conv || !this.hasWorkspace()) {
         return;
       }
       const envPoll = needsEnvPoll(dash, path);
@@ -90,7 +92,7 @@ export class EditorLspStatusComponent {
     });
 
     this.workspaceFilesChangedSubscription = this.electron.workspaceFilesChanged$.subscribe((event) => {
-      if (!envRelevantWorkspaceChange(event.paths)) {
+      if (!this.hasWorkspace() || !envRelevantWorkspaceChange(event.paths)) {
         return;
       }
       void this.refreshDashboard();
@@ -99,6 +101,11 @@ export class EditorLspStatusComponent {
     this.workspaceChangedSubscription = this.electron.workspaceChanged$.subscribe(() => {
       this.lastWarmConversationPath = '';
       this.warmingServerId.set(null);
+      if (!this.hasWorkspace()) {
+        this.dashboard.set(null);
+        this.fetchError.set('');
+        return;
+      }
       void this.refreshDashboard();
     });
 
@@ -106,7 +113,7 @@ export class EditorLspStatusComponent {
     effect(() => {
       const conv = this.conversationId()?.trim();
       const path = this.activeFileRelativePath()?.trim();
-      if (!this.electron.isElectron || !conv || !path) {
+      if (!this.electron.isElectron || !conv || !path || !this.hasWorkspace()) {
         this.warmingServerId.set(null);
         return;
       }
@@ -135,10 +142,14 @@ export class EditorLspStatusComponent {
     });
   }
 
+  private hasWorkspace(): boolean {
+    return Boolean(this.workspacePath()?.trim());
+  }
+
   private refreshDashboard(): Promise<void> {
     const next = this.dashboardRefreshChain.then(async () => {
       const conv = this.conversationId()?.trim();
-      if (!conv) {
+      if (!conv || !this.hasWorkspace()) {
         return;
       }
       this.loading.set(true);
@@ -160,6 +171,12 @@ export class EditorLspStatusComponent {
   }
 
   protected readonly vm = computed(() =>
-    buildLspStatusBarVm(this.dashboard(), this.fetchError(), this.loading(), this.warmingServerId()),
+    buildLspStatusBarVm(
+      this.dashboard(),
+      this.fetchError(),
+      this.loading(),
+      this.warmingServerId(),
+      this.hasWorkspace(),
+    ),
   );
 }

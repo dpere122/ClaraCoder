@@ -41,7 +41,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
 async def chat_abort(request: AbortRequest) -> dict[str, bool]:
     """Stop the in-flight stream and disconnect llama-server token generation."""
     sess = state.get_session(request.session_id)
-    await abort_in_flight_generation(sess)
+    await abort_in_flight_generation(sess, request.session_id)
     return {'ok': True}
 
 

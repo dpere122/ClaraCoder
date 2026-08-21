@@ -27,5 +27,5 @@ async def build_plan_cancel(body: BuildPlanCancelRequest) -> dict[str, bool]:
     removed = cancel_build_plan(session, plan_id)
     if not removed:
         logger.info('build-plan cancel: plan %s not found for session %s', plan_id, body.session_id)
-    await abort_in_flight_generation(session)
+    await abort_in_flight_generation(session, body.session_id)
     return {'ok': True}

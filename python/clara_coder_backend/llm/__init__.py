@@ -3,7 +3,7 @@
 Modules
 -------
 ``factory`` — ``ChatOpenAI`` / connection factory (``build_llm``)
-``http_transport`` — owned httpx clients so Stop can cancel the in-flight generation request
+``http_transport`` — owned httpx clients so Stop can cancel that session's in-flight generation request
 ``model_tuning`` — Qwen-style presets, max tokens, parallel tool heuristics
 ``messages`` — history → LangChain messages, system prompt, text helpers
 ``langchain_compat`` — patches for ``reasoning_content`` on some gateways

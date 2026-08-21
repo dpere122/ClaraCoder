@@ -3,36 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from clara_coder_backend.domain import RuntimeConnection, SessionState
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm import http_transport as transport
+from clara_coder_backend.session.state import current_session_id
 
 
-def _llamacpp_conn(**kwargs: object) -> RuntimeConnection:
-    base = dict(
-        id='l',
-        name='l',
-        provider='llamacpp',
-        base_url='http://127.0.0.1:8080/v1',
-        model='local',
-        api_key='not-needed',
-        temperature=0.0,
-        parallel_tool_calls=False,
-        optimization_preset='generic',
-        max_output_tokens=0,
-    )
-    base.update(kwargs)
-    return RuntimeConnection(**base)
+def _run_reset() -> None:
+    asyncio.run(transport.reset_llm_http_clients())
 
 
-def test_openai_v1_to_server_root_strips_v1() -> None:
-    assert transport.openai_v1_to_server_root('http://127.0.0.1:8080/v1') == 'http://127.0.0.1:8080'
-    assert transport.openai_v1_to_server_root('http://127.0.0.1:8080/v1/') == 'http://127.0.0.1:8080'
-    assert transport.openai_v1_to_server_root('http://127.0.0.1:8080') == 'http://127.0.0.1:8080'
+@pytest.fixture(autouse=True)
+def _reset_http_transport() -> Iterator[None]:
+    _run_reset()
+    yield
+    _run_reset()
+
+
+def _async_gen_response(session_id: str) -> tuple[MagicMock, AsyncMock]:
+    response = MagicMock()
+    response.is_closed = False
+    response.request.url.path = '/v1/chat/completions'
+    response.request.extensions = {'clara_session_id': session_id}
+    aclose = AsyncMock()
+    response.aclose = aclose
+    response.close = MagicMock()
+    return response, aclose
 
 
 def test_is_llm_generation_request_matches_chat_completions() -> None:
@@ -44,74 +45,88 @@ def test_is_llm_generation_request_matches_chat_completions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_abort_closes_generation_response_not_the_http_client() -> None:
+async def test_async_request_hook_stamps_current_session_id() -> None:
+    token = current_session_id.set('conv-9')
+    try:
+        request = httpx.Request('POST', 'http://127.0.0.1:8080/v1/chat/completions')
+        await transport._on_async_request(request)
+        assert request.extensions['clara_session_id'] == 'conv-9'
+    finally:
+        current_session_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_abort_session_b_does_not_close_session_a() -> None:
     timeout = httpx.Timeout(1.0)
     _sync, client = transport.acquire_llm_http_clients(timeout)
-    response = MagicMock()
-    response.is_closed = False
-    response.aclose = AsyncMock()
-    transport._in_flight_async.add(response)
+    resp_a, aclose_a = _async_gen_response('A')
+    resp_b, aclose_b = _async_gen_response('B')
+    await transport._on_async_response(resp_a)
+    await transport._on_async_response(resp_b)
 
-    await transport.abort_in_flight_llm_requests()
+    await transport.abort_in_flight_llm_requests('B')
 
-    response.aclose.assert_awaited_once()
+    aclose_b.assert_awaited_once()
+    aclose_a.assert_not_awaited()
     assert client.is_closed is False
     assert transport._async_client is client
 
 
 @pytest.mark.asyncio
-async def test_cancel_llama_server_slots_posts_cancel_for_busy_slots() -> None:
-    slots = [
-        {'id': 0, 'is_processing': True},
-        {'id': 1, 'is_processing': False},
-        {'id': 2, 'next_token': {'has_next_token': True}},
-    ]
-    get_res = MagicMock()
-    get_res.status_code = 200
-    get_res.json.return_value = slots
-    post_res = MagicMock()
-    post_res.status_code = 200
-    fake_client = AsyncMock()
-    fake_client.get = AsyncMock(return_value=get_res)
-    fake_client.post = AsyncMock(return_value=post_res)
-    fake_client.__aenter__.return_value = fake_client
-    fake_client.__aexit__.return_value = False
-
-    with patch('clara_coder_backend.llm.http_transport.httpx.AsyncClient', return_value=fake_client):
-        await transport.cancel_llama_server_slots('http://127.0.0.1:8080/v1', 'not-needed')
-
-    fake_client.get.assert_awaited_once()
-    assert fake_client.get.await_args.args[0] == 'http://127.0.0.1:8080/slots'
-    posted = [call.args[0] for call in fake_client.post.await_args_list]
-    assert posted == [
-        'http://127.0.0.1:8080/slots/0?action=cancel',
-        'http://127.0.0.1:8080/slots/2?action=cancel',
-    ]
+async def test_abort_empty_session_id_is_noop() -> None:
+    resp_a, aclose_a = _async_gen_response('A')
+    await transport._on_async_response(resp_a)
+    await transport.abort_in_flight_llm_requests('')
+    await transport.abort_in_flight_llm_requests('   ')
+    aclose_a.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_abort_in_flight_generation_sets_event_cancels_request_and_slots() -> None:
+async def test_finished_stream_unregisters_from_in_flight_map() -> None:
+    resp, aclose = _async_gen_response('s1')
+    await transport._on_async_response(resp)
+    assert resp in transport._in_flight_async.get('s1', set())
+    await resp.aclose()
+    aclose.assert_awaited_once()
+    assert resp not in transport._in_flight_async.get('s1', set())
+
+
+@pytest.mark.asyncio
+async def test_abort_in_flight_generation_sets_events_and_session_abort() -> None:
     session = SessionState()
     pause = asyncio.Event()
     session.agent_pause_event = pause
 
-    with (
-        patch(
-            'clara_coder_backend.llm.http_transport.abort_in_flight_llm_requests',
-            new_callable=AsyncMock,
-        ) as mock_abort_req,
-        patch(
-            'clara_coder_backend.llm.http_transport.cancel_llama_server_slots',
-            new_callable=AsyncMock,
-        ) as mock_slots,
-        patch(
-            'clara_coder_backend.session.state.get_active_connection',
-            return_value=_llamacpp_conn(),
-        ),
-    ):
-        await transport.abort_in_flight_generation(session)
+    with patch(
+        'clara_coder_backend.llm.http_transport.abort_in_flight_llm_requests',
+        new_callable=AsyncMock,
+    ) as mock_abort_req:
+        await transport.abort_in_flight_generation(session, 'sess-1')
 
     assert session.abort_event.is_set()
     assert pause.is_set()
-    mock_abort_req.assert_awaited_once()
-    mock_slots.assert_awaited_once_with('http://127.0.0.1:8080/v1', 'not-needed')
+    mock_abort_req.assert_awaited_once_with('sess-1')
+
+
+@pytest.mark.asyncio
+async def test_client_close_is_noop_until_reset() -> None:
+    timeout = httpx.Timeout(1.0)
+    sync, async_c = transport.acquire_llm_http_clients(timeout)
+    sync.close()
+    assert sync.is_closed is False
+    await async_c.aclose()
+    assert async_c.is_closed is False
+    await transport.reset_llm_http_clients()
+    assert sync.is_closed is True
+    assert async_c.is_closed is True
+
+
+@pytest.mark.asyncio
+async def test_acquire_recreates_clients_when_timeout_changes() -> None:
+    first = httpx.Timeout(1.0)
+    second = httpx.Timeout(5.0)
+    _sync1, async1 = transport.acquire_llm_http_clients(first)
+    _sync2, async2 = transport.acquire_llm_http_clients(second)
+    assert async1 is not async2
+    _sync3, async3 = transport.acquire_llm_http_clients(second)
+    assert async3 is async2

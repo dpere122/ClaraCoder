@@ -179,10 +179,10 @@ async def _cancel_pending_waiters(tasks: list[asyncio.Task[Any]]) -> None:
             pass
 
 
-async def _stop_llm_pump(pump_task: asyncio.Task[Any]) -> None:
-    """Cancel ``astream_events`` and close the in-flight generation response stream."""
+async def _stop_llm_pump(pump_task: asyncio.Task[Any], session_id: str) -> None:
+    """Cancel ``astream_events`` and close this session's in-flight generation stream."""
     try:
-        await abort_in_flight_llm_requests()
+        await abort_in_flight_llm_requests(session_id)
     except asyncio.CancelledError:
         raise
     if not pump_task.done():
@@ -549,7 +549,7 @@ async def _stream_langgraph_tool_agent(
             # ``astream_events`` (e.g. a hung model call); cancel rather than await it forever.
             # Close the in-flight Chat Completions response so llama-server stops decode.
             if outcome.state in (AgentLoopOutcome.ABORTED, AgentLoopOutcome.FAILED_RUNTIME):
-                await _stop_llm_pump(pump_task)
+                await _stop_llm_pump(pump_task, cfg.session_id)
             else:
                 await pump_task
         except Exception as exc:
@@ -604,7 +604,7 @@ async def _stream_langgraph_tool_agent(
             session.hitl_sse_queue = None
             session.planning_nested_events_q = None
         if not pump_task.done():
-            await _stop_llm_pump(pump_task)
+            await _stop_llm_pump(pump_task, cfg.session_id)
 
 
 async def stream_single_agent_langgraph(

@@ -6,36 +6,70 @@ stream is closed. Cooperative ``abort_event`` checks stop Clara's SSE loop but d
 close that response, so GPU/CPU decode continues.
 
 This module owns the httpx clients passed into ChatOpenAI and records live responses
-via event hooks. Abort closes those response bodies only. The llama-server process,
-loaded model, and reusable httpx client stay up for the next turn.
+via event hooks, keyed by ``current_session_id``. Abort closes that session's response
+bodies only. The llama-server process, loaded model, and reusable httpx client stay up
+for the next turn. ChatOpenAI must not dispose the shared clients; ``close`` / ``aclose``
+on the wrappers are no-ops.
 """
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+import threading
 from typing import Any
 
 import httpx
-from fastapi import HTTPException
 
-from clara_coder_backend.config import DEFAULT_LLAMACPP_BASE_URL
 from clara_coder_backend.domain import SessionState
 
 logger = logging.getLogger('clara.llm.http_transport')
 
-_sync_client: httpx.Client | None = None
-_async_client: httpx.AsyncClient | None = None
-_in_flight_sync: set[httpx.Response] = set()
-_in_flight_async: set[httpx.Response] = set()
+_SESSION_EXT_KEY = 'clara_session_id'
 
 
-def openai_v1_to_server_root(base_url: str) -> str:
-    """Strip a trailing ``/v1`` so native llama-server routes (``/slots``, ``/health``) resolve."""
-    url = (base_url or '').strip().rstrip('/')
-    if url.lower().endswith('/v1'):
-        return url[:-3]
-    return url
+class _OwnedSyncClient(httpx.Client):
+    """Process-wide client; ChatOpenAI ``close()`` must not dispose it."""
+
+    def close(self) -> None:
+        return
+
+    def _dispose(self) -> None:
+        super().close()
+
+
+class _OwnedAsyncClient(httpx.AsyncClient):
+    """Process-wide async client; ChatOpenAI ``aclose()`` must not dispose it."""
+
+    async def aclose(self) -> None:
+        return
+
+    async def _dispose(self) -> None:
+        await super().aclose()
+
+
+_lock = threading.Lock()
+_sync_client: _OwnedSyncClient | None = None
+_async_client: _OwnedAsyncClient | None = None
+_client_timeout: httpx.Timeout | None = None
+_in_flight_sync: dict[str, set[httpx.Response]] = {}
+_in_flight_async: dict[str, set[httpx.Response]] = {}
+_wrapped_response_ids: set[int] = set()
+
+
+def _stamp_session_id(request: httpx.Request) -> None:
+    from clara_coder_backend.session.state import current_session_id
+
+    request.extensions[_SESSION_EXT_KEY] = current_session_id.get() or ''
+
+
+def _on_sync_request(request: httpx.Request) -> None:
+    _stamp_session_id(request)
+
+
+async def _on_async_request(request: httpx.Request) -> None:
+    _stamp_session_id(request)
 
 
 def _is_llm_generation_request(response: httpx.Response) -> bool:
@@ -51,42 +85,172 @@ def _is_llm_generation_request(response: httpx.Response) -> bool:
     )
 
 
+def _session_id_from_response(response: httpx.Response) -> str:
+    try:
+        sid = response.request.extensions.get(_SESSION_EXT_KEY)
+        if isinstance(sid, str):
+            return sid
+    except Exception:
+        pass
+    from clara_coder_backend.session.state import current_session_id
+
+    return current_session_id.get() or ''
+
+
+def _unregister(response: httpx.Response) -> None:
+    with _lock:
+        for bucket in (_in_flight_sync, _in_flight_async):
+            empty_keys: list[str] = []
+            for sid, resps in bucket.items():
+                resps.discard(response)
+                if not resps:
+                    empty_keys.append(sid)
+            for sid in empty_keys:
+                bucket.pop(sid, None)
+
+
+def _wrap_response_close(response: httpx.Response) -> None:
+    rid = id(response)
+    if rid in _wrapped_response_ids:
+        return
+    _wrapped_response_ids.add(rid)
+    orig_close = response.close
+    orig_aclose = response.aclose
+
+    def close(*args: Any, **kwargs: Any) -> Any:
+        _unregister(response)
+        return orig_close(*args, **kwargs)
+
+    async def aclose(*args: Any, **kwargs: Any) -> Any:
+        _unregister(response)
+        result = orig_aclose(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    response.close = close  # type: ignore[method-assign]
+    response.aclose = aclose  # type: ignore[method-assign]
+
+
+def _register(response: httpx.Response, *, is_async: bool) -> None:
+    if not _is_llm_generation_request(response):
+        return
+    session_id = _session_id_from_response(response)
+    with _lock:
+        bucket = _in_flight_async if is_async else _in_flight_sync
+        bucket.setdefault(session_id, set()).add(response)
+    _wrap_response_close(response)
+
+
 def _on_sync_response(response: httpx.Response) -> None:
-    if _is_llm_generation_request(response):
-        _in_flight_sync.add(response)
+    _register(response, is_async=False)
 
 
 async def _on_async_response(response: httpx.Response) -> None:
-    if _is_llm_generation_request(response):
-        _in_flight_async.add(response)
+    _register(response, is_async=True)
+
+
+def _dispose_sync_client(client: httpx.Client | None) -> None:
+    if client is None:
+        return
+    try:
+        if isinstance(client, _OwnedSyncClient):
+            client._dispose()
+        elif not client.is_closed:
+            client.close()
+    except Exception:
+        logger.debug('sync LLM httpx client dispose failed', exc_info=True)
+
+
+async def _dispose_async_client(client: httpx.AsyncClient | None) -> None:
+    if client is None:
+        return
+    try:
+        if isinstance(client, _OwnedAsyncClient):
+            await client._dispose()
+        elif not client.is_closed:
+            await client.aclose()
+    except Exception:
+        logger.debug('async LLM httpx client dispose failed', exc_info=True)
+
+
+def _dispose_async_client_soon(client: httpx.AsyncClient | None) -> None:
+    """Dispose an async client from sync ``acquire`` (timeout rebuild)."""
+    if client is None:
+        return
+
+    async def _go() -> None:
+        await _dispose_async_client(client)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(_go())
+        return
+    loop.create_task(_go())
 
 
 def acquire_llm_http_clients(timeout: httpx.Timeout) -> tuple[httpx.Client, httpx.AsyncClient]:
-    """Return process-wide httpx clients for ChatOpenAI, creating them on first use."""
-    global _sync_client, _async_client
-    if _sync_client is None or _sync_client.is_closed:
-        _sync_client = httpx.Client(
-            timeout=timeout,
-            event_hooks={'response': [_on_sync_response]},
-        )
-    if _async_client is None or _async_client.is_closed:
-        _async_client = httpx.AsyncClient(
-            timeout=timeout,
-            event_hooks={'response': [_on_async_response]},
-        )
+    """Return process-wide httpx clients for ChatOpenAI, creating them on first use.
+
+    Recreates the pair when the previous clients were disposed or ``timeout`` changed.
+    ``close`` / ``aclose`` on the returned objects are no-ops so ChatOpenAI cannot
+    tear down the shared pool; call :func:`reset_llm_http_clients` to dispose.
+    """
+    global _sync_client, _async_client, _client_timeout
+    if (
+        _sync_client is not None
+        and _async_client is not None
+        and not _sync_client.is_closed
+        and not _async_client.is_closed
+        and _client_timeout == timeout
+    ):
+        return _sync_client, _async_client
+
+    old_sync, old_async = _sync_client, _async_client
+    _sync_client = _OwnedSyncClient(
+        timeout=timeout,
+        event_hooks={'request': [_on_sync_request], 'response': [_on_sync_response]},
+    )
+    _async_client = _OwnedAsyncClient(
+        timeout=timeout,
+        event_hooks={'request': [_on_async_request], 'response': [_on_async_response]},
+    )
+    _client_timeout = timeout
+    _dispose_sync_client(old_sync)
+    _dispose_async_client_soon(old_async)
     return _sync_client, _async_client
 
 
-async def abort_in_flight_llm_requests() -> None:
-    """Close in-flight generation response streams only.
+async def reset_llm_http_clients() -> None:
+    """Dispose owned clients and clear in-flight maps (tests and timeout rebuilds)."""
+    global _sync_client, _async_client, _client_timeout
+    with _lock:
+        _in_flight_sync.clear()
+        _in_flight_async.clear()
+        _wrapped_response_ids.clear()
+        sync = _sync_client
+        async_c = _async_client
+        _sync_client = None
+        _async_client = None
+        _client_timeout = None
+    _dispose_sync_client(sync)
+    await _dispose_async_client(async_c)
 
-    Does not stop llama-server, unload the model, or dispose the httpx client.
-    Closing the streamed Chat Completions body is what llama-server treats as cancel.
+
+async def abort_in_flight_llm_requests(session_id: str) -> None:
+    """Close in-flight generation response streams for ``session_id`` only.
+
+    Empty / unknown ids are a no-op for HTTP close. Does not stop llama-server,
+    unload the model, or dispose the httpx client. Closing the streamed Chat
+    Completions body is what llama-server treats as cancel.
     """
-    sync_resps = [r for r in _in_flight_sync]
-    async_resps = [r for r in _in_flight_async]
-    _in_flight_sync.clear()
-    _in_flight_async.clear()
+    sid = (session_id or '').strip()
+    if not sid:
+        return
+    with _lock:
+        sync_resps = list(_in_flight_sync.pop(sid, set()))
+        async_resps = list(_in_flight_async.pop(sid, set()))
     for response in sync_resps:
         if response.is_closed:
             continue
@@ -105,63 +269,10 @@ async def abort_in_flight_llm_requests() -> None:
             logger.debug('async LLM generation response aclose failed', exc_info=True)
 
 
-def _slot_is_processing(slot: Any) -> bool:
-    if not isinstance(slot, dict):
-        return False
-    if slot.get('is_processing') is True:
-        return True
-    next_token = slot.get('next_token')
-    return isinstance(next_token, dict) and next_token.get('has_next_token') is True
-
-
-async def cancel_llama_server_slots(base_url: str, api_key: str = '') -> None:
-    """Best-effort ``POST /slots/{id}?action=cancel`` for busy llama-server slots.
-
-    Uses a short-lived client so this control call never shares the ChatOpenAI stream.
-    Failures are ignored when the build does not expose slot cancel.
-    """
-    root = openai_v1_to_server_root(base_url)
-    if not root:
-        return
-    headers: dict[str, str] = {'Accept': 'application/json'}
-    key = (api_key or '').strip()
-    if key:
-        headers['Authorization'] = f'Bearer {key}'
-    timeout = httpx.Timeout(connect=1.0, read=2.0, write=2.0, pool=1.0)
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            res = await client.get(f'{root}/slots', headers=headers)
-            if res.status_code != 200:
-                return
-            payload = res.json()
-            slots = payload if isinstance(payload, list) else []
-            for slot in slots:
-                if not _slot_is_processing(slot):
-                    continue
-                slot_id = slot.get('id')
-                if slot_id is None:
-                    continue
-                await client.post(f'{root}/slots/{slot_id}?action=cancel', headers=headers)
-    except Exception:
-        logger.debug('llama-server slot cancel failed', exc_info=True)
-
-
-async def abort_in_flight_generation(session: SessionState) -> None:
-    """Signal the agent loop to stop and cancel the current LLM generation request."""
+async def abort_in_flight_generation(session: SessionState, session_id: str) -> None:
+    """Signal the agent loop to stop and cancel that session's LLM generation request."""
     session.abort_event.set()
     pause = session.agent_pause_event
     if pause is not None:
         pause.set()
-    await abort_in_flight_llm_requests()
-    try:
-        from clara_coder_backend.session.state import get_active_connection
-
-        connection = get_active_connection()
-    except HTTPException:
-        return
-    if connection.provider != 'llamacpp':
-        return
-    await cancel_llama_server_slots(
-        connection.base_url or DEFAULT_LLAMACPP_BASE_URL,
-        connection.api_key,
-    )
+    await abort_in_flight_llm_requests(session_id)

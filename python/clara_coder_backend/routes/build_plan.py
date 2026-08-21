@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from clara_coder_backend.llm.http_transport import abort_in_flight_generation
 from clara_coder_backend.plan.build_plan_store import cancel_build_plan
 from clara_coder_backend.session.schemas import BuildPlanCancelRequest
 from clara_coder_backend.session.state import get_session
@@ -26,5 +27,5 @@ async def build_plan_cancel(body: BuildPlanCancelRequest) -> dict[str, bool]:
     removed = cancel_build_plan(session, plan_id)
     if not removed:
         logger.info('build-plan cancel: plan %s not found for session %s', plan_id, body.session_id)
-    session.abort_event.set()
+    await abort_in_flight_generation(session)
     return {'ok': True}

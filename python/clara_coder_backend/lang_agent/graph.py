@@ -50,6 +50,7 @@ from clara_coder_backend.lang_agent.langgraph_sse import (
     sse_lines_for_graph_event,
 )
 from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.llm.http_transport import abort_in_flight_llm_requests
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
 from clara_coder_backend.llm.messages import (
     build_system_prompt,
@@ -176,6 +177,20 @@ async def _cancel_pending_waiters(tasks: list[asyncio.Task[Any]]) -> None:
             await task
         except asyncio.CancelledError:
             pass
+
+
+async def _stop_llm_pump(pump_task: asyncio.Task[Any]) -> None:
+    """Cancel ``astream_events`` and close the in-flight generation response stream."""
+    try:
+        await abort_in_flight_llm_requests()
+    except asyncio.CancelledError:
+        raise
+    if not pump_task.done():
+        pump_task.cancel()
+    try:
+        await pump_task
+    except (asyncio.CancelledError, Exception):
+        pass
 
 
 async def _race_stream_inputs(
@@ -532,13 +547,9 @@ async def _stream_langgraph_tool_agent(
                 outcome.partial_text = main_state.partial_stream_text
             # Aborts and the stall watchdog break out while ``pump_task`` is still blocked inside
             # ``astream_events`` (e.g. a hung model call); cancel rather than await it forever.
+            # Close the in-flight Chat Completions response so llama-server stops decode.
             if outcome.state in (AgentLoopOutcome.ABORTED, AgentLoopOutcome.FAILED_RUNTIME):
-                if not pump_task.done():
-                    pump_task.cancel()
-                try:
-                    await pump_task
-                except asyncio.CancelledError:
-                    pass
+                await _stop_llm_pump(pump_task)
             else:
                 await pump_task
         except Exception as exc:
@@ -593,11 +604,7 @@ async def _stream_langgraph_tool_agent(
             session.hitl_sse_queue = None
             session.planning_nested_events_q = None
         if not pump_task.done():
-            pump_task.cancel()
-            try:
-                await pump_task
-            except asyncio.CancelledError:
-                pass
+            await _stop_llm_pump(pump_task)
 
 
 async def stream_single_agent_langgraph(

@@ -30,6 +30,7 @@ from langchain_openai import ChatOpenAI
 
 from clara_coder_backend.config import env_clara, DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_connection_settings
+from clara_coder_backend.llm.http_transport import acquire_llm_http_clients
 from clara_coder_backend.llm.model_tuning import (
     connection_exposes_reasoning_effort,
     connection_user_sampling_kwargs_for_llm,
@@ -121,6 +122,8 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
         raise HTTPException(status_code=500, detail=f'Unsupported LLM provider: {connection.provider}')
 
     idle_sec = llm_idle_timeout_sec()
+    timeout = httpx.Timeout(connect=30.0, read=idle_sec, write=60.0, pool=30.0)
+    http_client, http_async_client = acquire_llm_http_clients(timeout)
     kwargs: dict[str, Any] = {
         'model': connection.model,
         'temperature': float(connection.temperature),
@@ -131,7 +134,11 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
         'stream_usage': True,
         # Idle read timeout: a stalled stream (socket open, no tokens) raises httpx.ReadTimeout instead
         # of hanging the SSE stream forever. ``read`` is per-chunk, so long generations are unaffected.
-        'timeout': httpx.Timeout(connect=30.0, read=idle_sec, write=60.0, pool=30.0),
+        'timeout': timeout,
+        # Owned clients with response hooks so Stop can cancel the in-flight generation
+        # request without disposing the client or stopping llama-server.
+        'http_client': http_client,
+        'http_async_client': http_async_client,
         # langchain-openai defaults ``stream_chunk_timeout`` to 120s. Local llama.cpp often emits one
         # SSE opening chunk, then stays silent through prompt eval / thinking after a tool result —
         # that is not a dead connection. Keep this aligned with the httpx idle read timeout.
@@ -228,6 +235,8 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
             'reasoning_effort',
             'timeout',
             'stream_chunk_timeout',
+            'http_client',
+            'http_async_client',
         ):
             continue
         safe[k] = v

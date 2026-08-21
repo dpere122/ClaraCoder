@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from clara_coder_backend.composer import stream_agent_reply
+from clara_coder_backend.llm.http_transport import abort_in_flight_generation
 from clara_coder_backend.session.chat_input import effective_user_message_content
 from clara_coder_backend.session.schemas import (
     AbortRequest,
@@ -38,13 +39,9 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
 
 @router.post('/chat/abort')
 async def chat_abort(request: AbortRequest) -> dict[str, bool]:
-    """Signal the in-flight stream for a session to stop as soon as possible."""
+    """Stop the in-flight stream and disconnect llama-server token generation."""
     sess = state.get_session(request.session_id)
-    sess.abort_event.set()
-    # Also unblock any HITL pause so the generator can exit.
-    ev = sess.agent_pause_event
-    if ev is not None:
-        ev.set()
+    await abort_in_flight_generation(sess)
     return {'ok': True}
 
 

@@ -94,6 +94,8 @@ def test_build_llm_llamacpp_defaults_base_url(
     assert kwargs.get('base_url') == 'http://127.0.0.1:8080/v1'
     assert kwargs.get('api_key') == 'not-needed'
     assert kwargs.get('stream_usage') is True
+    assert isinstance(kwargs.get('http_client'), httpx.Client)
+    assert isinstance(kwargs.get('http_async_client'), httpx.AsyncClient)
 
 
 @patch('clara_coder_backend.llm.factory.ChatOpenAI')

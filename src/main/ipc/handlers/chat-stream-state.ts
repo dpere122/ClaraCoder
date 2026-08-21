@@ -43,16 +43,18 @@ export async function abortChatStream(conversationId: string): Promise<{ ok: boo
     controller.abort();
     streamAbortControllers.delete(conversationId);
     streamWorkspaceByConversationId.delete(conversationId);
-    try {
-      await pythonControlFetch('/chat/abort', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: conversationId }),
-      });
-    } catch {
-      // Best-effort: Python abort may fail if stream already ended.
-    }
-    return { ok: true };
   }
-  return { ok: false, error: 'No active stream' };
+  try {
+    await pythonControlFetch('/chat/abort', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: conversationId }),
+    });
+  } catch {
+    // Best-effort: Python abort may fail if stream already ended.
+    if (!controller) {
+      return { ok: false, error: 'No active stream' };
+    }
+  }
+  return { ok: true };
 }

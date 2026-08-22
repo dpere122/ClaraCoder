@@ -64,7 +64,7 @@ def _staging_edit_preamble(
     *,
     disk_encoding: str,
     newline_mode: NewlineMode,
-) -> tuple[SessionState, str, str, str, DiskNewline] | str:
+) -> tuple[SessionState, str, str, str, DiskNewline, bool] | str:
     session_id = current_session_id.get()
     if not session_id:
         return 'Tool error: no active session.'
@@ -81,6 +81,7 @@ def _staging_edit_preamble(
     root = get_active_workspace_root()
     target = normalize_relative_path(root, relative_path)
     rel_display = target.relative_to(root).as_posix()
+    before_existed = target.is_file()
 
     source_root = _edit_staging.get_active_staging_snapshot_root(session) or root
     source = normalize_relative_path(source_root, rel_display)
@@ -97,7 +98,7 @@ def _staging_edit_preamble(
             return f'Tool error: could not read file ({exc}).'
 
     disk_nl = resolve_newline_for_write(newline_mode, path=source, raw_existing=raw_existing)
-    return session, rel_display, old_text, disk_encoding, disk_nl
+    return session, rel_display, old_text, disk_encoding, disk_nl, before_existed
 
 
 def _staging_after_merge(
@@ -109,6 +110,7 @@ def _staging_after_merge(
     disk_encoding: str,
     disk_newline: DiskNewline,
     *,
+    before_existed: bool,
     staging_seed_text: str | None = None,
     land_in_workspace: bool = False,
 ) -> str:
@@ -123,6 +125,7 @@ def _staging_after_merge(
             mode,
             disk_encoding,
             disk_newline,
+            before_existed=before_existed,
         )
 
     had_prior_staging = rel_display in session.pending_edit_stagings
@@ -184,6 +187,7 @@ def _staging_after_merge(
         disk_newline=disk_newline,
         edit_mode=mode,
         workspace_applied=False,
+        before_existed=before_existed,
     )
 
     diagnostics_note = ''
@@ -269,7 +273,7 @@ def _run_staging_tool(
     pre = _staging_edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
-    session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
+    session, rel_display, workspace_old_text, disk_enc, disk_nl, before_existed = pre
     prior = _existing_staging_entry(session, rel_display)
     base_text = workspace_old_text
     original_old_text = workspace_old_text
@@ -279,6 +283,7 @@ def _run_staging_tool(
         except OSError as exc:
             return f'Tool error: could not read existing staged draft ({exc}).'
         original_old_text = prior.old_text
+        before_existed = prior.before_existed
         disk_enc = prior.disk_encoding
         disk_nl = 'crlf' if prior.disk_newline == 'crlf' else 'lf'
 
@@ -320,6 +325,7 @@ def _run_staging_tool(
         mode,
         disk_enc,
         disk_nl,
+        before_existed=before_existed,
         staging_seed_text=workspace_old_text,
         land_in_workspace=land_in_workspace,
     )
@@ -381,7 +387,7 @@ def stage_workspace_file_overwrite(
     pre = _staging_edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
-    session, rel_display, workspace_old_text, disk_enc, disk_nl = pre
+    session, rel_display, workspace_old_text, disk_enc, disk_nl, before_existed = pre
     prior = _existing_staging_entry(session, rel_display)
     if not target.is_file() and prior is None:
         return (
@@ -392,6 +398,7 @@ def stage_workspace_file_overwrite(
         disk_enc = prior.disk_encoding
         disk_nl = 'crlf' if prior.disk_newline == 'crlf' else 'lf'
         original_old_text = prior.old_text
+        before_existed = prior.before_existed
         staging_seed_text = prior.merged_text
     else:
         original_old_text = workspace_old_text
@@ -404,6 +411,7 @@ def stage_workspace_file_overwrite(
         'full-file',
         disk_enc,
         disk_nl,
+        before_existed=before_existed,
         staging_seed_text=staging_seed_text,
         land_in_workspace=land_in_workspace,
     )

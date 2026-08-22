@@ -139,8 +139,8 @@ export class MessageBox {
   readonly messageSent = output<string>();
   /** User clicked Stop while {@link loading} is true. */
   readonly abortRequested = output<void>();
-  /** Draft text bound to the composer input. */
-  protected readonly userInput = signal('');
+  /** Draft text bound to the composer input (parent may restore a prior user prompt here). */
+  readonly composerDraft = model('');
   /** Session-scoped multiline composer toggle (prompt button). */
   protected readonly multilineMode = signal(false);
   /** `#messageInput` in template; used to restore focus after send. */
@@ -175,6 +175,12 @@ export class MessageBox {
         return;
       }
       void this.probeLlamaLive(cfg, loc.model.id);
+    });
+
+    effect(() => {
+      if (this.composerDraft().includes('\n') && !this.multilineMode()) {
+        this.multilineMode.set(true);
+      }
     });
   }
 
@@ -242,12 +248,12 @@ export class MessageBox {
     if (this.multilineMode()) {
       return;
     }
-    const current = this.userInput();
+    const current = this.composerDraft();
     const wasEmpty = current.length === 0;
     if (wasEmpty) {
-      this.userInput.set('\n');
+      this.composerDraft.set('\n');
     } else if (!current.endsWith('\n')) {
-      this.userInput.set(`${current}\n`);
+      this.composerDraft.set(`${current}\n`);
     }
     this.multilineMode.set(true);
     this.focusComposerAfterRender(wasEmpty ? 0 : undefined);
@@ -258,9 +264,9 @@ export class MessageBox {
     if (!this.multilineMode()) {
       return;
     }
-    const text = this.userInput();
+    const text = this.composerDraft();
     if (text.includes('\n')) {
-      this.userInput.set(text.replace(/\n+/g, ' ').trim());
+      this.composerDraft.set(text.replace(/\n+/g, ' ').trim());
     }
     this.multilineMode.set(false);
     this.focusComposerAfterRender();
@@ -296,10 +302,10 @@ export class MessageBox {
    */
   send(): void {
     if (this.loading() || this.sendDisabled()) return;
-    const msg = this.userInput().trim();
+    const msg = this.composerDraft().trim();
     if (!msg && this.attachmentCount() === 0) return;
     this.messageSent.emit(msg);
-    this.userInput.set('');
+    this.composerDraft.set('');
     if (this.multilineMode()) {
       this.multilineMode.set(false);
       this.focusComposerAfterRender();

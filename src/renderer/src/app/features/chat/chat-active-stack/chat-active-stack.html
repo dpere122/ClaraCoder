@@ -23,6 +23,7 @@
     [streamingFinalText]="streamingFinalText()"
     [streamingPlanner]="streamingPlanner()"
     [fontSize]="fontSize()"
+    (restoreConversation)="restoreConversation.emit($event)"
     (sendResponse)="sendResponse.emit($event)"
     (planConfirmFinished)="planConfirmFinished.emit($event)"
     (agentQuestionFinished)="agentQuestionFinished.emit($event)"
@@ -68,6 +69,7 @@
       />
       <app-message-box
         [(composerMode)]="composerMode"
+        [(composerDraft)]="composerDraft"
         [(autoApplyMode)]="autoApplyMode"
         [appConfig]="appConfig()"
         [usedTokens]="usedTokens()"

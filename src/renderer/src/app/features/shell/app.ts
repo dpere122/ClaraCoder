@@ -7,6 +7,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
   ChatStructuredContentPart,
+  ConversationFileJournalEntry,
   ComposerRunMode,
   FileDiffPayload,
   StagedTransferBatchPayload,
@@ -17,6 +18,11 @@ import type {
   LlmReasoningSettingChange,
 } from '@shared/index';
 import {
+  fallbackJournalFromMessages,
+  invertJournalEntries,
+  journalPreviewPaths,
+  journalUserIdsToInvert,
+  resolveRestoreUserIndex,
   DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_VOICE,
@@ -48,6 +54,8 @@ import {
 } from '../chat/chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat/chat-context-bar/chat-context-drop';
 import { ConversationSessionService, pickTtsFlushText } from './conversation-session.service';
+import { abandonStaleHitlMessages } from './abandon-stale-hitl';
+import { conversationRestorePrompt } from '../../shared/themed-confirm-dialog/format-restore-prompt';
 
 export { pickTtsFlushText };
 import {
@@ -175,6 +183,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly autoApplyMode = model(false);
   /** Composer run mode: agent (ReAct), ask (read-only), or plan (plan-and-execute). */
   protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
+  /** Shared composer draft (restore puts the selected user prompt back here). */
+  protected readonly composerDraft = model('');
   /** Live build-plan markdown streamed from the planner before finalize. */
   protected readonly buildPlanLiveContent = signal<{ relativePath: string; content: string } | null>(null);
   /** Monaco model keys currently receiving live build-plan chunks (skip disk reload). */
@@ -1012,7 +1022,15 @@ export class App implements OnInit, OnDestroy {
     try {
       const structuredContent = await this.buildStructuredContent(normalized, attachments);
       this.clearChatContextFiles();
-      this.conversationSession.pushMessage('user', normalized, undefined, undefined, undefined, undefined, structuredContent);
+      const userMessageId = this.conversationSession.pushMessage(
+        'user',
+        normalized,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        structuredContent,
+      );
       const workspaceId = this.conversationSession.getActiveConversation()?.workspaceId ?? this.currentWorkspaceId();
       const mode = this.composerMode();
       this.electron.sendMessage(
@@ -1027,6 +1045,7 @@ export class App implements OnInit, OnDestroy {
         this.appConfig()?.audioTranscription?.ttsProvider === 'openai-compatible'
           ? 'openai-compatible'
           : DEFAULT_TTS_PROVIDER,
+        userMessageId,
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {
@@ -1077,6 +1096,56 @@ export class App implements OnInit, OnDestroy {
     const convId = this.activeConversationId();
     if (!convId || !this.pendingIds().has(convId)) return;
     void this.electron.abortMessage(convId);
+  }
+
+  async onRestoreConversation(target: { userMessageId?: string; userMessageIndex: number }): Promise<void> {
+    const convId = this.activeConversationId();
+    if (!convId) {
+      return;
+    }
+    const messages = this.messages();
+    const keepThrough = resolveRestoreUserIndex(messages, target);
+    if (keepThrough < 0) {
+      return;
+    }
+    const invertIds = journalUserIdsToInvert(messages, keepThrough);
+    const selected = messages[keepThrough];
+    const fallbackId = (selected?.role === 'user' && selected.id) || `restore-${keepThrough}`;
+    let journal: ConversationFileJournalEntry[] = [];
+    try {
+      journal = await this.electron.listConversationFileJournal(convId);
+    } catch {
+      journal = [];
+    }
+    const fromDb = journal.filter((e) => invertIds.has(e.userMessageId));
+    const fromCards =
+      fromDb.length === 0 ? fallbackJournalFromMessages(messages, keepThrough, fallbackId) : [];
+    const preview = journalPreviewPaths(
+      invertJournalEntries([...fromDb, ...fromCards], new Set([...invertIds, fallbackId])),
+    );
+    const choice = await this.themedConfirm.open(
+      conversationRestorePrompt({ fileCount: preview.length, samplePaths: preview }),
+    );
+    if (choice !== 'confirm') {
+      return;
+    }
+    if (this.pendingIds().has(convId)) {
+      await this.electron.abortMessage(convId);
+    }
+    const result = await this.electron.restoreConversationTimeline({
+      conversationId: convId,
+      userMessageId: target.userMessageId,
+      userMessageIndex: target.userMessageIndex,
+    });
+    if (!result.ok) {
+      console.error('[App] restore conversation failed:', result.error);
+      return;
+    }
+    const draft = selected?.role === 'user' ? selected.text : '';
+    this.conversationSession.applyRestoredMessages(abandonStaleHitlMessages(result.messages));
+    this.conversationSession.removePending(convId);
+    this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
+    this.composerDraft.set(draft);
   }
 
   onSendResponse(text: string): void {

@@ -70,5 +70,7 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-agent-question', conversationId, parsed.agentQuestion);
   } else if (parsed.type === 'staged_transfer_batch') {
     event.reply('message-staged-transfer-batch', conversationId, parsed.stagedTransferBatch);
+  } else if (parsed.type === 'file_journal') {
+    event.reply('message-file-journal', conversationId, parsed.fileJournal);
   }
 }

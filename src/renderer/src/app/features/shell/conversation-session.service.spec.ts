@@ -71,6 +71,10 @@ function mockElectron(overrides: Partial<{
     toolReadChunk$: new Subject().asObservable(),
     toolExecChunk$: new Subject().asObservable(),
     toolExecComplete$: new Subject().asObservable(),
+    fileJournal$: new Subject().asObservable(),
+    appendConversationFileJournal: vi.fn(async () => ({ ok: true })),
+    restoreConversationTimeline: vi.fn(async () => ({ ok: false, error: 'not mocked' })),
+    listConversationFileJournal: vi.fn(async () => []),
     diff$: new Subject().asObservable(),
     stagedTransferBatch$: new Subject().asObservable(),
     acceptCommand$: new Subject().asObservable(),
@@ -362,5 +366,26 @@ describe('ConversationSessionService', () => {
 
     expect(abortMessage).not.toHaveBeenCalled();
     expect(service.pendingIds().has('test-conv')).toBe(true);
+  });
+
+  it('assigns an id on user messages and applyRestoredMessages drops the restored user row', async () => {
+    const { service } = setup();
+    service.activeConversationId.set('test-conv');
+    service.addPending('test-conv');
+    service.pushMessage('user', 'first');
+    service.pushMessage('assistant', 'reply');
+    service.pushMessage('user', 'second');
+    const first = service.messages()[0];
+    expect(first?.role).toBe('user');
+    if (first?.role === 'user') {
+      expect(first.id).toBeTruthy();
+    }
+    service.applyRestoredMessages(service.messages().slice(0, 2));
+    service.removePending('test-conv');
+    expect(service.messages()).toHaveLength(2);
+    expect(service.messages()[0]).toMatchObject({ role: 'user', text: 'first' });
+    expect(service.messages()[1]).toMatchObject({ role: 'assistant', text: 'reply' });
+    expect(service.pendingIds().has('test-conv')).toBe(false);
+    expect(service.streamingParts()).toEqual([]);
   });
 });

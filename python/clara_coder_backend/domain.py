@@ -27,6 +27,8 @@ class EditStagingEntry:
     edit_mode: str
     #: True once the approved staged draft has been materialized into the real workspace for the current chain.
     workspace_applied: bool = False
+    #: Whether the workspace file existed on disk before this staged edit (empty files count as existed).
+    before_existed: bool = True
 
 
 @dataclass
@@ -186,6 +188,8 @@ class SessionStreamState:
     last_stream_tts_provider: str = 'kokoro'
     #: Context pack ids activated this session (inject-once playbooks).
     activated_context_packs: set[str] = field(default_factory=set)
+    #: Electron user-message id for the in-flight turn (conversation timeline journal).
+    current_user_message_id: str = ''
 
 
 @dataclass

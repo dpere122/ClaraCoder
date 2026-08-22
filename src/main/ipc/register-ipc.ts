@@ -3,6 +3,7 @@ import { registerConfigWorkspacesIpc } from './handlers/config-workspaces';
 import { registerAudioTtsIpc } from './handlers/audio-tts';
 import { openConversationsDb } from '../conversations-db';
 import { registerConversationsIpc } from './handlers/conversations';
+import { registerConversationTimelineIpc } from './handlers/conversation-timeline';
 import { registerFsIpc } from './handlers/fs-handlers';
 import { registerScriptsIpc } from './handlers/scripts';
 import { registerWorkspacePtyIpc } from './handlers/workspace-pty';
@@ -36,6 +37,7 @@ export function registerAllIpc(): void {
   registerConfigWorkspacesIpc();
   registerAudioTtsIpc();
   registerConversationsIpc();
+  registerConversationTimelineIpc();
   registerFsIpc();
   registerScriptsIpc();
   registerWorkspacePtyIpc();

@@ -125,6 +125,32 @@ describe('parseAgentStreamPayload', () => {
     expect(
       parseAgentStreamPayload(
         JSON.stringify({
+          type: 'file_journal',
+          fileJournal: {
+            userMessageId: 'u1',
+            op: 'modify',
+            relativePath: 'src/a.ts',
+            beforeContent: 'old',
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'file_journal',
+      fileJournal: {
+        userMessageId: 'u1',
+        op: 'modify',
+        relativePath: 'src/a.ts',
+        beforeContent: 'old',
+        beforeEncoding: undefined,
+        beforeNewline: undefined,
+        destRelativePath: undefined,
+        treeEntries: undefined,
+      },
+    });
+
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
           type: 'diff',
           diff: {
             version: 1,

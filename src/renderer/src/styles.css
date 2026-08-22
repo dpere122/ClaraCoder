@@ -1198,6 +1198,7 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
   min-height: 1em;
   overflow: hidden;
   color: inherit;
+  pointer-events: none;
 }
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar__fill::before {
@@ -1338,7 +1339,8 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
   gap: 0.1rem;
 }
 
-html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--top.tui-frame-bar--clara.tui-frame-bar--has-details {
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--top.tui-frame-bar--clara.tui-frame-bar--has-details,
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) .tui-frame-bar--bottom.tui-frame-bar--user.tui-frame-bar--has-restore {
   grid-template-columns: auto auto minmax(0, 1fr) auto;
 }
 
@@ -1364,6 +1366,16 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
   color: var(--t-tui-clara-frame);
   font-weight: 600;
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group {
+  color: var(--t-tui-user-frame);
+  font-weight: 600;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-user-frame) 45%, transparent);
+}
+
+html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group .tui-frame-bar__label {
+  letter-spacing: 0.06em;
 }
 
 html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classical, .theme-woodland) app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group .tui-frame-bar__label {
@@ -1599,6 +1611,7 @@ html:is(.theme-clara-tui, .theme-mae-tui, .theme-classical, .theme-dark-classica
 
 /* Light Classical: skip glow on ASCII labels; native light dropdowns in composer. */
 html.theme-classical app-chat-box .tui-frame-bar--user .tui-frame-bar__label,
+html.theme-classical app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group,
 html.theme-classical app-chat-box .tui-frame-bar--clara .tui-frame-bar__label,
 html.theme-classical app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group,
 html.theme-classical app-message-box .composer-prompt {

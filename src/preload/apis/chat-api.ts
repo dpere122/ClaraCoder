@@ -4,6 +4,7 @@ import type {
   CopyConfirmPayload,
   DeleteConfirmPayload,
   FileDiffPayload,
+  AppendConversationFileJournalRequest,
   StagedTransferBatchPayload,
   TtsProvider,
   TtsStreamPacket,
@@ -114,6 +115,13 @@ export const chatApi = {
   onMessageStagedTransferBatch: (
     callback: (event: unknown, conversationId: string, payload: StagedTransferBatchPayload) => void,
   ) => ipcRenderer.on('message-staged-transfer-batch', callback),
+  onMessageFileJournal: (
+    callback: (
+      event: unknown,
+      conversationId: string,
+      payload: Omit<AppendConversationFileJournalRequest, 'conversationId'>,
+    ) => void,
+  ) => ipcRenderer.on('message-file-journal', callback),
   sendMessage: (
     conversationId: string,
     msg: string,
@@ -124,6 +132,7 @@ export const chatApi = {
     composerMode?: 'agent' | 'plan',
     speechEnabled?: boolean,
     ttsProvider?: TtsProvider,
+    userMessageId?: string,
   ) =>
     ipcRenderer.send(
       'message',
@@ -136,6 +145,7 @@ export const chatApi = {
       composerMode ?? 'agent',
       speechEnabled ?? false,
       ttsProvider ?? 'kokoro',
+      userMessageId ?? '',
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>

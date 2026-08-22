@@ -88,6 +88,22 @@ app-chat-box .tts-loading-label {
   letter-spacing: 0.02em;
 }
 
+app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+}
+
 app-chat-box .user-bubble {
   background-color: var(--t-user-bg);
   color: var(--t-user-fg, var(--t-primary));

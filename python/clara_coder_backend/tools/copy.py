@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.file_journal import emit_copy_journal, snapshot_text_file
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
@@ -120,10 +121,29 @@ def _perform_copy(root: Path, copies: list[CopyWorkspaceFileItem | dict], overwr
             rel_dest = dest.relative_to(root.resolve()).as_posix()
             return False, f'Destination already exists: `{rel_dest}`. Pass `overwrite=true` to replace it.'
 
+    session = None
+    sid = current_session_id.get()
+    if sid:
+        try:
+            session = get_session(sid)
+        except Exception:
+            session = None
+    root_resolved = root.resolve()
     try:
         for src, dest in copy_pairs:
+            dest_existed = dest.exists()
+            rel_dest = dest.relative_to(root_resolved).as_posix()
+            snap = snapshot_text_file(dest) if dest_existed else None
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
+            if session is not None:
+                emit_copy_journal(
+                    session,
+                    rel_dest,
+                    before_content=snap['content'] if snap else None,
+                    before_encoding=snap['encoding'] if snap else None,
+                    before_newline=snap['newline'] if snap else None,
+                )
     except OSError as exc:
         logger.warning('copy failed err=%s', exc)
         return False, f'Copy failed: {exc}'

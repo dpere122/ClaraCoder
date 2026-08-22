@@ -185,8 +185,9 @@ export class App implements OnInit, OnDestroy {
   >();
   /**
    * Last measured prompt token count per conversation (from API usage metadata, or that
-   * value adjusted by a mid/post-turn compaction delta). Cleared when switching to a
-   * conversation so the meter uses transcript estimate until the next token_usage.
+   * value adjusted by a mid/post-turn compaction delta). Kept across chat switches in this
+   * session — the UI transcript heuristic can dwarf the real prompt after compaction / HITL
+   * cards, and falling back to it on reload falsely reports 100% and locks the composer.
    */
   protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
   /**
@@ -617,7 +618,6 @@ export class App implements OnInit, OnDestroy {
         speed: this.ttsSpeechSpeed(),
       }),
       onPlannerComplete: (conversationId) => this.setBuildPlanTabInactive(conversationId),
-      onConversationLoaded: (conversationId) => this.removeContextMetricsForConversation(conversationId),
     });
 
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {

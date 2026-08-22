@@ -2,17 +2,18 @@ import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { promises as fs, type WriteStream } from 'fs';
 import { homedir } from 'os';
 import path = require('path');
-import type {
-  HfDownloadId,
-  HfDownloadProgressEvent,
-  HuggingFaceModelFile,
-  HuggingFaceModelSearchItem,
-  ModelManagerDownloadHfResult,
-  ModelManagerFileEntry,
-  ModelManagerHfFilesResult,
-  ModelManagerHfSearchResult,
-  ModelManagerListModelsResult,
-  ModelManagerMutationResult,
+import {
+  hubSnapshotManagedPaths,
+  type HfDownloadId,
+  type HfDownloadProgressEvent,
+  type HuggingFaceModelFile,
+  type HuggingFaceModelSearchItem,
+  type ModelManagerDownloadHfResult,
+  type ModelManagerFileEntry,
+  type ModelManagerHfFilesResult,
+  type ModelManagerHfSearchResult,
+  type ModelManagerListModelsResult,
+  type ModelManagerMutationResult,
 } from '../../../shared';
 import { mainState } from '../../state';
 import { isBlobLikeFileName, looksLikeHubRepoLayout } from '../../utils/hub-repo-layout';
@@ -291,14 +292,27 @@ async function computeHubFolderStats(dirPath: string): Promise<{ sizeBytes: numb
   return { sizeBytes, modifiedMs };
 }
 
-/** GGUF/GGML files under ``snapshots/`` (follows snapshot → blob symlinks). */
-async function findHubSnapshotGgufPaths(hubDir: string): Promise<string[]> {
-  const snapshotsRoot = path.join(hubDir, 'snapshots');
-  if (!(await pathExistsDir(snapshotsRoot))) {
-    return [];
+function isHubBlobsDir(hubDir: string, dirPath: string): boolean {
+  return pathKey(path.resolve(dirPath)) === pathKey(path.resolve(hubDir, 'blobs'));
+}
+
+function preferHubGgufPath(candidate: string, current: string): boolean {
+  const cSnap = /(^|[/\\])snapshots[/\\]/i.test(candidate);
+  const eSnap = /(^|[/\\])snapshots[/\\]/i.test(current);
+  if (cSnap !== eSnap) {
+    return cSnap;
   }
-  const out: string[] = [];
-  const stack: string[] = [snapshotsRoot];
+  return candidate.length < current.length;
+}
+
+/**
+ * Language + mmproj GGUFs in a hub folder. Walks the whole tree (repo-root files
+ * and ``snapshots/``) and skips ``blobs/`` hash names. Snapshot pointers win
+ * when they resolve to the same bytes as a root copy.
+ */
+async function findHubModelGgufPaths(hubDir: string): Promise<string[]> {
+  const byReal = new Map<string, string>();
+  const stack: string[] = [hubDir];
   const visited = new Set<string>();
   while (stack.length > 0) {
     const current = stack.pop()!;
@@ -323,13 +337,21 @@ async function findHubSnapshotGgufPaths(hubDir: string): Promise<string[]> {
         continue;
       }
       if (st.isDirectory()) {
+        if (isHubBlobsDir(hubDir, full)) {
+          continue;
+        }
         stack.push(full);
-      } else if (st.isFile() && hasModelExtension(full)) {
-        out.push(full);
+      } else if (st.isFile() && hasModelExtension(full) && !isBlobLikeFileName(name)) {
+        const realFile = await fs.realpath(full).catch(() => full);
+        const realKey = pathKey(realFile);
+        const existing = byReal.get(realKey);
+        if (!existing || preferHubGgufPath(full, existing)) {
+          byReal.set(realKey, full);
+        }
       }
     }
   }
-  return out;
+  return [...byReal.values()];
 }
 
 async function listHubRepoFoldersAtDepthOne(
@@ -372,7 +394,7 @@ async function listHubRepoFoldersAtDepthOne(
       continue;
     }
     const { sizeBytes, modifiedMs } = await computeHubFolderStats(full);
-    const snapshotGgufs = await findHubSnapshotGgufPaths(full);
+    const snapshotGgufs = await findHubModelGgufPaths(full);
     out.push({
       fileName: name,
       absolutePath: full,
@@ -382,7 +404,7 @@ async function listHubRepoFoldersAtDepthOne(
       entryKind: 'hubRepo',
       suggestedFileName: name,
       ...(sourceRoot ? { sourceRoot } : {}),
-      ...(snapshotGgufs.length === 1 ? { ggufAbsolutePath: snapshotGgufs[0] } : {}),
+      ...hubSnapshotManagedPaths(snapshotGgufs),
     });
   }
   out.sort((a, b) => b.modifiedMs - a.modifiedMs || a.fileName.localeCompare(b.fileName));

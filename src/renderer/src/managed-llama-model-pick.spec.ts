@@ -1,10 +1,13 @@
 import {
   buildManagedLlamaChatCommand,
+  classifyHubSnapshotGgufPaths,
   ensureManagedLlamaDefaultServerFlags,
   ensureManagedLlamaGemmaReasoningFormat,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
+  hubSnapshotManagedPaths,
   inferOptimizationPresetFromModelHint,
+  isMmprojGgufFileName,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   optimizationPresetDefaultsPatch,
@@ -14,9 +17,13 @@ import {
   parseManagedLlamaCacheTypeV,
   parseManagedLlamaContextSize,
   parseManagedLlamaFlashAttn,
+  parseManagedLlamaMmproj,
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   parseManagedLlamaUbatchSize,
+  pickPreferredMmprojPath,
+  resolveMmprojPathForManagedGguf,
+  resolveMmprojPathForManagedSelection,
   managedPickerValueForCmd,
   promoteManagedSentinelNglToAuto,
   suggestContextWindowTokens,
@@ -25,6 +32,8 @@ import {
   syncCacheTypeVInManagedChatCommand,
   syncContextFlagInManagedChatCommand,
   syncFlashAttnInManagedChatCommand,
+  syncManagedVisionProjectorInChatCommand,
+  syncMmprojFlagInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
   syncNoMmprojFlagInManagedChatCommand,
@@ -74,6 +83,173 @@ describe('parseManagedLlamaContextSize', () => {
   });
 });
 
+describe('hub snapshot mmproj detection', () => {
+  it('recognizes mmproj GGUF names used by llama.cpp and Nemotron VL', () => {
+    expect(isMmprojGgufFileName('mmproj-F16.gguf')).toBe(true);
+    expect(isMmprojGgufFileName('NVIDIA-Nemotron-Nano-12B-v2-VL-mmproj-F16.gguf')).toBe(true);
+    expect(isMmprojGgufFileName('/cache/snapshots/abc/mmproj-Q8_0.gguf')).toBe(true);
+    expect(isMmprojGgufFileName('model-Q4_K_M.gguf')).toBe(false);
+  });
+
+  it('pins -m when a hub folder has one language GGUF plus an mmproj', () => {
+    const language = '/cache/models--org--vl/snapshots/abc/nano-Q4_K_M.gguf';
+    const mmproj = '/cache/models--org--vl/snapshots/abc/mmproj-F16.gguf';
+    expect(hubSnapshotManagedPaths([language, mmproj])).toEqual({
+      ggufAbsolutePath: language,
+      mmprojAbsolutePath: mmproj,
+    });
+    expect(classifyHubSnapshotGgufPaths([language, mmproj]).languagePaths).toEqual([language]);
+  });
+
+  it('does not treat a lone mmproj as the language model', () => {
+    const mmproj = '/cache/hub/snapshots/abc/mmproj-F16.gguf';
+    expect(hubSnapshotManagedPaths([mmproj])).toEqual({ mmprojAbsolutePath: mmproj });
+  });
+
+  it('keeps mmproj when several language quants exist, without pinning -m', () => {
+    const q4 = '/cache/hub/snapshots/abc/model-Q4_K_M.gguf';
+    const q5 = '/cache/hub/snapshots/abc/model-Q5_K_M.gguf';
+    const mmproj = '/cache/hub/snapshots/abc/mmproj-F16.gguf';
+    expect(hubSnapshotManagedPaths([q4, q5, mmproj])).toEqual({ mmprojAbsolutePath: mmproj });
+  });
+
+  it('prefers F16 over Q8_0 when several projectors are present', () => {
+    expect(
+      pickPreferredMmprojPath([
+        '/hub/mmproj-Q8_0.gguf',
+        '/hub/mmproj-F16.gguf',
+      ]),
+    ).toBe('/hub/mmproj-F16.gguf');
+  });
+
+  it('resolves a hub mmproj for a -m snapshot path', () => {
+    const snap = '/cache/models--org--vl/snapshots/abc/nano-Q4_K_M.gguf';
+    const mmproj = '/cache/models--org--vl/snapshots/abc/mmproj-F16.gguf';
+    expect(
+      resolveMmprojPathForManagedGguf(snap, [
+        {
+          fileName: 'models--org--vl',
+          absolutePath: '/cache/models--org--vl',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+          entryKind: 'hubRepo',
+          ggufAbsolutePath: snap,
+          mmprojAbsolutePath: mmproj,
+        },
+      ]),
+    ).toBe(mmproj);
+  });
+
+  it('resolves a hub mmproj for an -hf command matching the cache folder', () => {
+    const mmproj = '/cache/models--org--vl/snapshots/abc/mmproj-F16.gguf';
+    expect(
+      resolveMmprojPathForManagedSelection(
+        { kind: 'hf', hfId: 'org/vl:Q4_K_M' },
+        [
+          {
+            fileName: 'models--org--vl',
+            absolutePath: '/cache/models--org--vl',
+            sizeBytes: 1,
+            modifiedMs: 0,
+            source: 'custom',
+            entryKind: 'hubRepo',
+            mmprojAbsolutePath: mmproj,
+          },
+        ],
+      ),
+    ).toBe(mmproj);
+  });
+
+  it('resolves a sibling loose mmproj next to a -m GGUF', () => {
+    expect(
+      resolveMmprojPathForManagedGguf('/models/nano-Q4_K_M.gguf', [
+        {
+          fileName: 'nano-Q4_K_M.gguf',
+          absolutePath: '/models/nano-Q4_K_M.gguf',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+        },
+        {
+          fileName: 'mmproj-F16.gguf',
+          absolutePath: '/models/mmproj-F16.gguf',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+        },
+      ]),
+    ).toBe('/models/mmproj-F16.gguf');
+  });
+
+  it('does not attach a generic mmproj from a shared dump to Nemotron Lightning', () => {
+    const dump = [
+      {
+        fileName: 'NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q8_K_XL.gguf',
+        absolutePath: '/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q8_K_XL.gguf',
+        sizeBytes: 1,
+        modifiedMs: 0,
+        source: 'custom' as const,
+      },
+      {
+        fileName: 'gemma_4_12b_CLARA.gguf',
+        absolutePath: '/models/gemma_4_12b_CLARA.gguf',
+        sizeBytes: 1,
+        modifiedMs: 0,
+        source: 'custom' as const,
+      },
+      {
+        fileName: 'mmproj-BF16.gguf',
+        absolutePath: '/models/mmproj-BF16.gguf',
+        sizeBytes: 1,
+        modifiedMs: 0,
+        source: 'custom' as const,
+      },
+      {
+        fileName: 'mmproj-Qwen3.6-27B-f16.gguf',
+        absolutePath: '/models/mmproj-Qwen3.6-27B-f16.gguf',
+        sizeBytes: 1,
+        modifiedMs: 0,
+        source: 'custom' as const,
+      },
+    ];
+    expect(
+      resolveMmprojPathForManagedGguf(
+        '/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q8_K_XL.gguf',
+        dump,
+      ),
+    ).toBeNull();
+  });
+
+  it('pairs a filename-matched mmproj in a shared dump', () => {
+    expect(
+      resolveMmprojPathForManagedGguf('/models/Qwen3.6-27B-Q4_K_M.gguf', [
+        {
+          fileName: 'Qwen3.6-27B-Q4_K_M.gguf',
+          absolutePath: '/models/Qwen3.6-27B-Q4_K_M.gguf',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+        },
+        {
+          fileName: 'NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q8_K_XL.gguf',
+          absolutePath: '/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q8_K_XL.gguf',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+        },
+        {
+          fileName: 'mmproj-Qwen3.6-27B-f16.gguf',
+          absolutePath: '/models/mmproj-Qwen3.6-27B-f16.gguf',
+          sizeBytes: 1,
+          modifiedMs: 0,
+          source: 'custom',
+        },
+      ]),
+    ).toBe('/models/mmproj-Qwen3.6-27B-f16.gguf');
+  });
+});
+
 describe('buildManagedLlamaChatCommand', () => {
   it('builds a GGUF -m command with context', () => {
     const cmd = buildManagedLlamaChatCommand(
@@ -115,6 +291,20 @@ describe('buildManagedLlamaChatCommand', () => {
     );
     expect(cmd).toContain('-c 0');
     expect(cmd).not.toContain('-c 256');
+  });
+
+  it('attaches --mmproj on a local -m command when a projector path is known', () => {
+    const cmd = buildManagedLlamaChatCommand(
+      {
+        kind: 'gguf',
+        absolutePath: '/cache/hub/snapshots/abc/nano-Q4_K_M.gguf',
+        mmprojAbsolutePath: '/cache/hub/snapshots/abc/mmproj-F16.gguf',
+      },
+      0,
+      'posix',
+    );
+    expect(cmd).toContain('-m /cache/hub/snapshots/abc/nano-Q4_K_M.gguf');
+    expect(cmd).toContain('--mmproj /cache/hub/snapshots/abc/mmproj-F16.gguf');
   });
 });
 
@@ -307,6 +497,52 @@ describe('flash attn / mmproj / batch / cache flags', () => {
     expect(
       syncNoMmprojFlagInManagedChatCommand('llama-server --port {{PORT}} --no-mmproj -ngl auto', false),
     ).toBe('llama-server --port {{PORT}} -ngl auto');
+  });
+
+  it('parses and syncs --mmproj without matching --mmproj-auto or --no-mmproj', () => {
+    expect(parseManagedLlamaMmproj('llama-server --mmproj-auto --port {{PORT}}')).toBeNull();
+    expect(parseManagedLlamaMmproj('llama-server --no-mmproj --port {{PORT}}')).toBeNull();
+    expect(parseManagedLlamaMmproj('llama-server --mmproj /hub/mmproj-F16.gguf -m /hub/a.gguf')).toBe(
+      '/hub/mmproj-F16.gguf',
+    );
+    expect(syncMmprojFlagInManagedChatCommand('llama-server --port {{PORT}} -m /a.gguf', '/hub/mmproj.gguf', 'posix')).toBe(
+      'llama-server --port {{PORT}} -m /a.gguf --mmproj /hub/mmproj.gguf',
+    );
+    expect(
+      syncMmprojFlagInManagedChatCommand(
+        'llama-server --mmproj /old.gguf --port {{PORT}}',
+        '/new.gguf',
+        'posix',
+      ),
+    ).toBe('llama-server --port {{PORT}} --mmproj /new.gguf');
+    expect(syncMmprojFlagInManagedChatCommand('llama-server --mmproj /hub/p.gguf -m /a.gguf', null, 'posix')).toBe(
+      'llama-server -m /a.gguf',
+    );
+    expect(
+      syncMmprojFlagInManagedChatCommand(
+        'llama-server --mmproj /old.gguf --port {{PORT}} --mmproj /also.gguf -m /a.gguf',
+        '/hub/mmproj.gguf',
+        'posix',
+      ),
+    ).toBe('llama-server --port {{PORT}} -m /a.gguf --mmproj /hub/mmproj.gguf');
+  });
+
+  it('Auto pins --mmproj on -m and Off strips it for --no-mmproj', () => {
+    const cmd = 'llama-server --port {{PORT}} -m /hub/a.gguf -c 0';
+    expect(
+      syncManagedVisionProjectorInChatCommand(
+        cmd,
+        { noMmproj: false, mmprojPath: '/hub/mmproj-F16.gguf' },
+        'posix',
+      ),
+    ).toBe('llama-server --port {{PORT}} -m /hub/a.gguf -c 0 --mmproj /hub/mmproj-F16.gguf');
+    expect(
+      syncManagedVisionProjectorInChatCommand(
+        `${cmd} --mmproj /hub/mmproj-F16.gguf`,
+        { noMmproj: true, mmprojPath: '/hub/mmproj-F16.gguf' },
+        'posix',
+      ),
+    ).toBe('llama-server --port {{PORT}} -m /hub/a.gguf -c 0 --no-mmproj');
   });
 
   it('treats batch 0 as omit and writes positive -b / -ub', () => {

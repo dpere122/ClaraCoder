@@ -11,10 +11,16 @@ export interface ModelManagerFileEntry {
   /** Hugging Face hub-style repo folder (`models--*` or blobs/snapshots layout). Omit means a single file. */
   entryKind?: ModelManagerEntryKind;
   /**
-   * Snapshot GGUF path inside a hub repo folder when exactly one model file is present.
-   * Used so Settings can emit ``-m`` instead of ``-hf``.
+   * Snapshot language GGUF inside a hub repo folder when exactly one non-mmproj
+   * model file is present. Used so Settings can emit ``-m`` instead of ``-hf``.
+   * Projector files named ``*mmproj*`` do not count against this.
    */
   ggufAbsolutePath?: string;
+  /**
+   * Snapshot multimodal projector GGUF when the hub folder has one (or a preferred
+   * pick among several). Auto writes this as ``--mmproj`` on ``-m`` commands.
+   */
+  mmprojAbsolutePath?: string;
 }
 
 export type ModelManagerListModelsResult =

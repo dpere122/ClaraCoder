@@ -5,8 +5,19 @@ import { NgxSpinnerModule } from 'ngx-spinner';
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { lucideAppProviders } from '../../lucide-setup';
 import { App } from './app';
+import {
+  CONTEXT_CHAT_BLOCKED_PERCENT,
+  estimateTranscriptContextTokens,
+} from '../status/context-capacity/context-capacity.utils';
 
 type DeleteConfirmHandler = (event: unknown, conversationId: string, payload: unknown) => void;
+
+interface StubConversationFixture {
+  id: string;
+  title?: string;
+  workspaceId?: string | null;
+  messages?: Array<Record<string, unknown>>;
+}
 
 interface StubRefs {
   /** Captured `onMessageDeleteConfirm` callback so tests can simulate a backend delete-confirm event. */
@@ -17,7 +28,7 @@ interface StubRefs {
 }
 
 /** Minimal `window.electronAPI` so `App.ngOnInit` does not reject (no real Electron in unit tests). */
-function stubElectronApi(): StubRefs {
+function stubElectronApi(fixtures?: StubConversationFixture[]): StubRefs {
   const noop = (): void => {};
   const refs: StubRefs = {
     deleteConfirmHandler: null,
@@ -92,13 +103,32 @@ function stubElectronApi(): StubRefs {
       huggingFaceToken: '',
     },
   };
-  const convMeta = {
-    id: 'test-conv',
-    title: 'Test',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    workspaceId: null as string | null,
+  const now = new Date().toISOString();
+  const conversationFixtures: StubConversationFixture[] = fixtures?.length
+    ? fixtures
+    : [{ id: 'test-conv', title: 'Test', workspaceId: null, messages: [] }];
+  const conversationMetas = conversationFixtures.map((fixture) => ({
+    id: fixture.id,
+    title: fixture.title ?? fixture.id,
+    createdAt: now,
+    updatedAt: now,
+    workspaceId: fixture.workspaceId ?? null,
     customTitle: false,
+  }));
+  const conversationById = new Map(
+    conversationFixtures.map((fixture, index) => [
+      fixture.id,
+      {
+        ...conversationMetas[index],
+        messages: fixture.messages ?? [],
+        themeId: 'woodland',
+      },
+    ]),
+  );
+  const fallbackConv = {
+    ...conversationMetas[0],
+    messages: conversationFixtures[0]?.messages ?? [],
+    themeId: 'woodland',
   };
   (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
     onMessageChunk: noop,
@@ -142,17 +172,9 @@ function stubElectronApi(): StubRefs {
       ...defaultConfig,
       healthMonitor: { ...defaultConfig.healthMonitor, ...patch },
     }),
-    getConversations: async () => [convMeta],
-    readConversationFromDisk: async () => ({
-      ...convMeta,
-      messages: [],
-      themeId: 'woodland',
-    }),
-    loadConversation: async () => ({
-      ...convMeta,
-      messages: [],
-      themeId: 'woodland',
-    }),
+    getConversations: async () => conversationMetas,
+    readConversationFromDisk: async (id: string) => conversationById.get(id) ?? fallbackConv,
+    loadConversation: async (id: string) => conversationById.get(id) ?? fallbackConv,
     saveConversation: refs.saveConversation,
     onMessageDeleteConfirm: (cb: DeleteConfirmHandler) => {
       refs.deleteConfirmHandler = cb;
@@ -281,5 +303,75 @@ describe('App', () => {
     refs.tokenUsageHandler!({}, convId, { inputTokens: 120_000 });
     await fixture.whenStable();
     expect(app.contextCapacity().usedTokens).toBe(120_000);
+  });
+
+  it('does not lock the composer when switching away and back to a chat with leftover context', async () => {
+    const fatToolBody = 'x'.repeat(500_000);
+    refs = stubElectronApi([
+      {
+        id: 'conv-fat',
+        title: 'Fat',
+        messages: [
+          {
+            role: 'chain',
+            label: 'read',
+            text: fatToolBody,
+            state: 'complete',
+            source: 'tool',
+            statusId: 'read-1',
+          },
+        ],
+      },
+      { id: 'conv-other', title: 'Other', messages: [] },
+    ]);
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    expect(refs.tokenUsageHandler).toBeTruthy();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => {
+        usedTokens: number;
+        usedPercentage: number;
+        measuredFromApi: boolean;
+      };
+      contextChatBlocked: () => boolean;
+      activeConversationId: () => string | null;
+      onSelectConversation: (id: string) => Promise<void>;
+    };
+
+    expect(app.activeConversationId()).toBe('conv-fat');
+    const heuristicTokens = estimateTranscriptContextTokens({
+      messages: [
+        {
+          role: 'chain',
+          label: 'read',
+          text: fatToolBody,
+          state: 'complete',
+          source: 'tool',
+          statusId: 'read-1',
+        },
+      ],
+      streamingParts: [],
+      workspaceContextText: '',
+    });
+    expect((heuristicTokens / 128_000) * 100).toBeGreaterThanOrEqual(CONTEXT_CHAT_BLOCKED_PERCENT);
+
+    refs.tokenUsageHandler!({}, 'conv-fat', { inputTokens: 64_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(64_000);
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+    expect(app.contextChatBlocked()).toBe(false);
+
+    await app.onSelectConversation('conv-other');
+    await fixture.whenStable();
+    expect(app.activeConversationId()).toBe('conv-other');
+
+    await app.onSelectConversation('conv-fat');
+    await fixture.whenStable();
+    expect(app.activeConversationId()).toBe('conv-fat');
+    expect(app.contextCapacity().usedTokens).toBe(64_000);
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+    expect(app.contextChatBlocked()).toBe(false);
   });
 });

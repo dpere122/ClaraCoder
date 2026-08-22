@@ -749,11 +749,11 @@
                               <span
                                 class='field-help'
                                 tabindex='0'
-                                aria-label='Off writes --no-mmproj so llama.cpp does not load a multimodal projector. Auto lets -hf pull mmproj when present.'
+                                aria-label='Off writes --no-mmproj so llama.cpp does not load a multimodal projector. Auto writes --mmproj only for a projector that belongs with this model (hub folder or matching filename).'
                               >
                                 ?
                                 <span class='field-help__popup' role='tooltip'>
-                                  Off writes --no-mmproj. Auto (unchecked) lets llama.cpp load a multimodal projector, including auto-download with -hf.
+                                  Off writes --no-mmproj. Auto (unchecked) writes one --mmproj when a projector is in the same hub folder or its filename matches this model. A generic mmproj-BF16.gguf in a shared models folder is not attached. If none is local, -hf can still auto-download one.
                                 </span>
                               </span>
                             </span>

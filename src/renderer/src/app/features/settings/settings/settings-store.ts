@@ -88,11 +88,15 @@ import {
   parseManagedLlamaCacheTypeV,
   parseManagedLlamaContextSize,
   parseManagedLlamaFlashAttn,
+  parseManagedLlamaMmproj,
   parseManagedLlamaNgl,
   parseManagedLlamaModelSelection,
   parseManagedLlamaGpuOffload,
   parseManagedLlamaChatTemplateFile,
   parseManagedLlamaUbatchSize,
+  mmprojNameMatchesLanguage,
+  resolveMmprojPathForManagedSelection,
+  resolveMmprojPathForManagedSource,
   promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
   formatGpuVramGb,
@@ -104,7 +108,7 @@ import {
   syncFlashAttnInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
-  syncNoMmprojFlagInManagedChatCommand,
+  syncManagedVisionProjectorInChatCommand,
   syncChatTemplateFileInManagedChatCommand,
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
@@ -1609,8 +1613,18 @@ export class SettingsStore {
     if (!cmd.trim()) {
       return;
     }
+    const noMmproj = enabled === true || enabled === 'true';
+    const sel = parseManagedLlamaModelSelection(cmd);
+    const mmprojPath =
+      !noMmproj && sel
+        ? resolveMmprojPathForManagedSelection(sel, this.modelManagerCustomModels())
+        : null;
     this.patchLlamaCppManaged({
-      chatRunCommand: syncNoMmprojFlagInManagedChatCommand(cmd, enabled === true || enabled === 'true'),
+      chatRunCommand: syncManagedVisionProjectorInChatCommand(
+        cmd,
+        { noMmproj, mmprojPath },
+        detectShellQuotingPlatform(),
+      ),
     });
   }
 
@@ -1963,7 +1977,12 @@ export class SettingsStore {
     const ctxForProfile =
       ctxForCmd > 0 ? ctxForCmd : inferContextWindowTokens(hint, 'llamacpp');
     const platform = detectShellQuotingPlatform();
-    let chatRunCommand = buildManagedLlamaChatCommand(source, ctxForCmd, platform);
+    const resolvedMmproj = resolveMmprojPathForManagedSource(source, this.modelManagerCustomModels());
+    const sourceForCmd =
+      source.kind === 'gguf'
+        ? { ...source, mmprojAbsolutePath: resolvedMmproj ?? undefined }
+        : source;
+    let chatRunCommand = buildManagedLlamaChatCommand(sourceForCmd, ctxForCmd, platform);
     if (!chatRunCommand) {
       return;
     }
@@ -1988,9 +2007,12 @@ export class SettingsStore {
     if (prevFa !== null) {
       chatRunCommand = syncFlashAttnInManagedChatCommand(chatRunCommand, prevFa, platform);
     }
-    chatRunCommand = syncNoMmprojFlagInManagedChatCommand(
+    const noMmproj = managedLlamaCommandHasNoMmproj(prevCmd);
+    const mmprojPath = noMmproj ? null : resolvedMmproj;
+    chatRunCommand = syncManagedVisionProjectorInChatCommand(
       chatRunCommand,
-      managedLlamaCommandHasNoMmproj(prevCmd),
+      { noMmproj, mmprojPath },
+      platform,
     );
     const prevBatch = parseManagedLlamaBatchSize(prevCmd);
     if (prevBatch !== null && prevBatch > 0) {
@@ -2098,6 +2120,42 @@ export class SettingsStore {
     await this.refreshCustomModelCards();
   }
 
+  /**
+   * When Vision projector is Auto, pin ``--mmproj`` on the current ``-m`` / ``-hf``
+   * command once inventory has a local projector. No-ops if Off or already pinned.
+   */
+  private syncManagedMmprojFromInventory(): void {
+    if (this.isUrlOnlyLlamacpp()) {
+      return;
+    }
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    if (!cmd.trim() || managedLlamaCommandHasNoMmproj(cmd)) {
+      return;
+    }
+    const sel = parseManagedLlamaModelSelection(cmd);
+    if (!sel) {
+      return;
+    }
+    const mmprojPath = resolveMmprojPathForManagedSelection(sel, this.modelManagerCustomModels());
+    const current = parseManagedLlamaMmproj(cmd);
+    if (mmprojPath) {
+      if (current === mmprojPath) {
+        return;
+      }
+    } else if (!current) {
+      return;
+    } else if (sel.kind !== 'gguf' || mmprojNameMatchesLanguage(current, sel.absolutePath)) {
+      return;
+    }
+    this.patchLlamaCppManaged({
+      chatRunCommand: syncManagedVisionProjectorInChatCommand(
+        cmd,
+        { noMmproj: false, mmprojPath },
+        detectShellQuotingPlatform(),
+      ),
+    });
+  }
+
   async refreshCustomModelCards(): Promise<void> {
     const dir = this.modelManagerCustomDir().trim();
     if (!dir) {
@@ -2110,6 +2168,7 @@ export class SettingsStore {
       const res = await this.electron.modelManagerListCustomModels({ customDir: dir });
       if (res.ok) {
         this.modelManagerCustomModels.set(res.models);
+        this.syncManagedMmprojFromInventory();
         if (res.directoryMissing) {
           this.modelManagerStatus.set(
             `Custom model directory does not exist (${res.resolvedDir ?? dir}). Create the folder or fix the path.`,

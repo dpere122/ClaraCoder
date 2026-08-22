@@ -5,6 +5,7 @@
 import {
   argvToShellCommandLine,
   detectShellQuotingPlatform,
+  shellQuoteArg,
   type ShellQuotingPlatform,
 } from './llama-cpp-managed';
 import { inferContextWindowTokens } from './model-context';
@@ -14,7 +15,7 @@ import type { ModelManagerFileEntry } from './types/model-manager';
 import { isPinnedLlamaServerUrlProviderId } from './llm-provider-ids';
 
 export type ManagedLlamaModelSource =
-  | { kind: 'gguf'; absolutePath: string; displayName?: string }
+  | { kind: 'gguf'; absolutePath: string; displayName?: string; mmprojAbsolutePath?: string }
   | { kind: 'hf'; hfId: string; displayName?: string }
   | { kind: 'hubRepo'; absolutePath: string; folderName: string; displayName?: string };
 
@@ -49,6 +50,233 @@ export const CONTEXT_FIT_PRESET_LIST: readonly ContextFitPresetMeta[] = [
 /** True when the hint looks like a Qwen-family model id or filename. */
 export function isQwenFamily(hint: string): boolean {
   return (hint || '').toLowerCase().includes('qwen');
+}
+
+/** Basename of a path without Node ``path`` (shared-safe). */
+function fileNameFromPath(fileNameOrPath: string): string {
+  return (fileNameOrPath || '').split(/[/\\]/).pop() || fileNameOrPath;
+}
+
+/**
+ * True when a GGUF/GGML name is a multimodal projector (``mmproj`` in the basename).
+ * Matches llama.cpp / HF GGUF convention, including Nemotron VL projectors.
+ */
+export function isMmprojGgufFileName(fileNameOrPath: string): boolean {
+  return /mmproj/i.test(fileNameFromPath(fileNameOrPath));
+}
+
+function mmprojQualityRank(fileName: string): number {
+  const n = fileName.toLowerCase();
+  if (/(?:^|[^a-z0-9])f32(?:[^a-z0-9]|$)/.test(n)) {
+    return 0;
+  }
+  if (/(?:^|[^a-z0-9])bf16(?:[^a-z0-9]|$)/.test(n)) {
+    return 1;
+  }
+  if (/(?:^|[^a-z0-9])f16(?:[^a-z0-9]|$)/.test(n)) {
+    return 2;
+  }
+  if (/(?:^|[^a-z0-9])q8_0(?:[^a-z0-9]|$)/.test(n)) {
+    return 3;
+  }
+  return 4;
+}
+
+/** Prefer F16/BF16/F32 projectors when a hub folder ships several quants. */
+export function pickPreferredMmprojPath(paths: readonly string[]): string | null {
+  if (paths.length === 0) {
+    return null;
+  }
+  if (paths.length === 1) {
+    return paths[0] ?? null;
+  }
+  return [...paths].sort((a, b) => {
+    const ra = mmprojQualityRank(fileNameFromPath(a));
+    const rb = mmprojQualityRank(fileNameFromPath(b));
+    return ra - rb || a.localeCompare(b);
+  })[0] ?? null;
+}
+
+export function classifyHubSnapshotGgufPaths(paths: readonly string[]): {
+  languagePaths: string[];
+  mmprojPath: string | null;
+} {
+  const languagePaths: string[] = [];
+  const mmprojPaths: string[] = [];
+  for (const p of paths) {
+    if (isMmprojGgufFileName(p)) {
+      mmprojPaths.push(p);
+    } else {
+      languagePaths.push(p);
+    }
+  }
+  return { languagePaths, mmprojPath: pickPreferredMmprojPath(mmprojPaths) };
+}
+
+/**
+ * Paths Settings can pin on a hub inventory row: ``-m`` when there is exactly one
+ * language GGUF, plus a detected projector even when several language quants exist.
+ */
+export function hubSnapshotManagedPaths(paths: readonly string[]): {
+  ggufAbsolutePath?: string;
+  mmprojAbsolutePath?: string;
+} {
+  const { languagePaths, mmprojPath } = classifyHubSnapshotGgufPaths(paths);
+  return {
+    ...(languagePaths.length === 1 ? { ggufAbsolutePath: languagePaths[0] } : {}),
+    ...(mmprojPath ? { mmprojAbsolutePath: mmprojPath } : {}),
+  };
+}
+
+function normalizeComparablePath(p: string): string {
+  return (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function parentDirFromPath(p: string): string {
+  const n = normalizeComparablePath(p);
+  const i = n.lastIndexOf('/');
+  return i <= 0 ? '' : n.slice(0, i);
+}
+
+/**
+ * Look up a hub-folder projector for a language GGUF used with ``-m``.
+ * Matches the pinned snapshot file, or any GGUF sitting inside that hub folder.
+ */
+export function resolveMmprojPathForManagedGguf(
+  ggufAbsolutePath: string,
+  inventory: readonly ModelManagerFileEntry[],
+): string | null {
+  const path = (ggufAbsolutePath || '').trim();
+  if (!path) {
+    return null;
+  }
+  const needle = normalizeComparablePath(path);
+  for (const m of inventory) {
+    if (m.entryKind !== 'hubRepo') {
+      continue;
+    }
+    const pinned = (m.mmprojAbsolutePath || '').trim();
+    if (!pinned) {
+      continue;
+    }
+    if ((m.ggufAbsolutePath || '').trim() && normalizeComparablePath(m.ggufAbsolutePath || '') === needle) {
+      return pinned;
+    }
+    const hub = normalizeComparablePath(m.absolutePath);
+    if (hub && (needle === hub || needle.startsWith(`${hub}/`))) {
+      return pinned;
+    }
+  }
+  return resolveSiblingMmprojFromInventory(path, inventory);
+}
+
+/** Strip ``.gguf`` / ``.ggml`` and common quant / mmproj tokens for name matching. */
+export function languageGgufStem(fileNameOrPath: string): string {
+  let s = fileNameFromPath(fileNameOrPath).replace(/\.(gguf|ggml)$/i, '');
+  s = s.replace(/[-_.]?mmproj/gi, '');
+  s = s.replace(
+    /(?:[-_.](?:UD|imatrix))*(?:[-_.](?:Q[0-9]+(?:_[K0-9]+(?:_[A-Z]+)?)?|IQ[0-9]+\w*|F16|F32|BF16|FP16|FP32))+$/i,
+    '',
+  );
+  return s.replace(/^[-_.]+|[-_.]+$/g, '').toLowerCase();
+}
+
+/**
+ * True when an mmproj filename shares a model stem with the language GGUF.
+ * Generic names like ``mmproj-BF16.gguf`` do not match (too easy to pair with the wrong model).
+ */
+export function mmprojNameMatchesLanguage(mmprojPath: string, languagePath: string): boolean {
+  const lang = languageGgufStem(languagePath);
+  const proj = languageGgufStem(mmprojPath);
+  if (!lang || !proj || proj.length < 6) {
+    return false;
+  }
+  return lang.includes(proj) || proj.includes(lang);
+}
+
+/** Loose inventory GGUF in the same directory whose name looks like a projector. */
+export function resolveSiblingMmprojFromInventory(
+  ggufAbsolutePath: string,
+  inventory: readonly ModelManagerFileEntry[],
+): string | null {
+  const dir = parentDirFromPath(ggufAbsolutePath);
+  if (!dir) {
+    return null;
+  }
+  const languageInDir: string[] = [];
+  const mmprojInDir: string[] = [];
+  for (const m of inventory) {
+    if (m.entryKind === 'hubRepo') {
+      continue;
+    }
+    if (parentDirFromPath(m.absolutePath) !== dir) {
+      continue;
+    }
+    if (isMmprojGgufFileName(m.fileName || m.absolutePath)) {
+      mmprojInDir.push(m.absolutePath);
+    } else {
+      languageInDir.push(m.absolutePath);
+    }
+  }
+  const named = mmprojInDir.filter((p) => mmprojNameMatchesLanguage(p, ggufAbsolutePath));
+  if (named.length > 0) {
+    return pickPreferredMmprojPath(named);
+  }
+  // Generic ``mmproj-F16.gguf`` only when this directory is a single-model pair,
+  // not a shared dump that also contains Gemma / Qwen / Lightning GGUFs.
+  if (languageInDir.length <= 1) {
+    return pickPreferredMmprojPath(mmprojInDir);
+  }
+  return null;
+}
+
+/**
+ * Projector path for the current ``-m`` / ``-hf`` selection, from hub inventory
+ * or a sibling ``*mmproj*`` GGUF.
+ */
+export function resolveMmprojPathForManagedSelection(
+  sel: { kind: 'gguf'; absolutePath: string } | { kind: 'hf'; hfId: string },
+  inventory: readonly ModelManagerFileEntry[],
+): string | null {
+  if (sel.kind === 'gguf') {
+    return resolveMmprojPathForManagedGguf(sel.absolutePath, inventory);
+  }
+  const hfBase = sel.hfId.split(':')[0] ?? sel.hfId;
+  for (const m of inventory) {
+    if (m.entryKind !== 'hubRepo') {
+      continue;
+    }
+    const pinned = (m.mmprojAbsolutePath || '').trim();
+    if (!pinned) {
+      continue;
+    }
+    const id = hubCacheFolderToHfId(m.fileName) || hubCacheFolderToHfId(m.absolutePath);
+    if (id && (id === sel.hfId || id === hfBase)) {
+      return pinned;
+    }
+  }
+  return null;
+}
+
+export function resolveMmprojPathForManagedSource(
+  source: ManagedLlamaModelSource,
+  inventory: readonly ModelManagerFileEntry[],
+): string | null {
+  if (source.kind === 'gguf') {
+    const explicit = (source.mmprojAbsolutePath || '').trim();
+    if (explicit) {
+      return explicit;
+    }
+    return resolveMmprojPathForManagedSelection(
+      { kind: 'gguf', absolutePath: source.absolutePath },
+      inventory,
+    );
+  }
+  if (source.kind === 'hf') {
+    return resolveMmprojPathForManagedSelection({ kind: 'hf', hfId: source.hfId }, inventory);
+  }
+  const entry = inventory.find((m) => m.absolutePath === source.absolutePath);
+  return (entry?.mmprojAbsolutePath || '').trim() || null;
 }
 
 export function inferModelFamilyFromHint(hint: string): ManagedLlamaModelFamily {
@@ -193,6 +421,10 @@ export function buildManagedLlamaChatCommand(
       return '';
     }
     argv.push('-m', path);
+    const mmproj = (source.mmprojAbsolutePath || '').trim();
+    if (mmproj) {
+      argv.push('--mmproj', mmproj);
+    }
   } else {
     const hf = resolveHfIdForSource(source);
     if (!hf) {
@@ -454,6 +686,10 @@ const FA_FLAG_RE =
 const FA_FLAG_REPLACE_RE =
   /(^|[\s"'])((--flash-attn|-fa)(?:(?:\s+|=)(?:"[^"]+"|'[^']+'|(?:on|off|auto)))?)/i;
 const NO_MMPROJ_TOKEN_RE = /(?:^|[\s"'])--no-mmproj(?:\s|=|$)/i;
+/** ``--mmproj path`` only — does not match ``--mmproj-auto`` / ``--mmproj-offload``. */
+const MMPROJ_FLAG_RE =
+  /(?:^|[\s"'])--mmproj(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+const MMPROJ_FLAG_STRIP_RE = /\s*--mmproj(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi;
 const NO_WEBUI_TOKEN_RE = /(?:^|[\s"'])--no-(?:web)?ui(?:\s|=|$)/i;
 const PARALLEL_FLAG_RE =
   /(?:^|[\s"'])(?:--parallel|-np)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
@@ -597,6 +833,63 @@ export function managedLlamaCommandHasNoMmproj(cmd: string): boolean {
 /** Append or strip ``--no-mmproj``. */
 export function syncNoMmprojFlagInManagedChatCommand(cmd: string, enabled: boolean): string {
   return syncBooleanTokenFlag(cmd, enabled, '--no-mmproj', NO_MMPROJ_TOKEN_RE);
+}
+
+/** Parse ``--mmproj`` from a managed chat command. Absent / empty → ``null``. */
+export function parseManagedLlamaMmproj(cmd: string): string | null {
+  const t = (cmd || '').trim();
+  if (!t) {
+    return null;
+  }
+  const m = MMPROJ_FLAG_RE.exec(t);
+  if (!m) {
+    return null;
+  }
+  const filePath = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
+  return filePath || null;
+}
+
+/**
+ * Set or strip ``--mmproj`` on a managed chat command.
+ * Always removes every existing ``--mmproj`` first so llama.cpp does not see
+ * the flag twice (it warns and keeps only the last value).
+ */
+export function syncMmprojFlagInManagedChatCommand(
+  cmd: string,
+  mmprojPath: string | null,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  MMPROJ_FLAG_STRIP_RE.lastIndex = 0;
+  const stripped = trimmed.replace(MMPROJ_FLAG_STRIP_RE, '').replace(/\s{2,}/g, ' ').trim();
+  const filePath = (mmprojPath || '').trim();
+  if (!filePath) {
+    return stripped;
+  }
+  return `${stripped} ${argvToShellCommandLine(['--mmproj', filePath], platform)}`;
+}
+
+/**
+ * Auto vs Off for the vision projector on a managed command.
+ * Off writes ``--no-mmproj`` and strips ``--mmproj``.
+ * Auto strips ``--no-mmproj`` and pins ``--mmproj`` when a hub-folder path is known.
+ */
+export function syncManagedVisionProjectorInChatCommand(
+  cmd: string,
+  opts: { noMmproj: boolean; mmprojPath: string | null },
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  if (opts.noMmproj) {
+    return syncNoMmprojFlagInManagedChatCommand(syncMmprojFlagInManagedChatCommand(cmd, null, platform), true);
+  }
+  return syncMmprojFlagInManagedChatCommand(
+    syncNoMmprojFlagInManagedChatCommand(cmd, false),
+    opts.mmprojPath,
+    platform,
+  );
 }
 
 export function parseManagedLlamaBatchSize(cmd: string): number | null {

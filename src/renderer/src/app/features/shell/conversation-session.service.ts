@@ -465,7 +465,6 @@ export class ConversationSessionService {
     this.snapshotActiveStreamToBackground();
     this.activeConversation = conv;
     this.activeConversationId.set(conv.id);
-    this.hooks.onConversationLoaded?.(conv.id);
     this.messages.set(conv.messages);
     this.toolRunIds.set(new Set());
     this.toolPhaseEngaged.set(false);
@@ -489,6 +488,9 @@ export class ConversationSessionService {
         this.autoSave();
       }
     }
+    // After transcript + stream signals match this conversation, so load hooks do not
+    // observe the previous chat's messages under the new id.
+    this.hooks.onConversationLoaded?.(conv.id);
 
     const config = await this.electron.loadConfig();
     applyAppTheme(resolveAppThemeId(config));

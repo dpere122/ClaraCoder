@@ -16,6 +16,7 @@ from clara_coder_backend.staging import edit_staging
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path
 from clara_coder_backend.lsp.manager import close_session_document
+from clara_coder_backend.session.file_journal import emit_file_journal, snapshot_delete_payload
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
@@ -138,7 +139,10 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
                 continue
             if not target.exists():
                 continue
+            pending_journal = snapshot_delete_payload(root, rel)
             ok, msg = _perform_delete(root, rel, rec)
+            if ok and pending_journal:
+                emit_file_journal(session, pending_journal)
             if ok:
                 lines.append(msg)
                 if session_id and is_lsp_managed_path(rel):
@@ -157,7 +161,10 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
 
     rel = pending.get('relative_path', '')
     rec = bool(pending.get('recursive'))
+    pending_journal = snapshot_delete_payload(root, rel)
     ok, msg = _perform_delete(root, rel, rec)
+    if ok and pending_journal:
+        emit_file_journal(session, pending_journal)
     if ok and session_id and is_lsp_managed_path(rel):
         try:
             close_session_document(rel, session_id=session_id, scope='workspace')
@@ -210,7 +217,10 @@ def delete_workspace_entry(
     rel_display = target.relative_to(root).as_posix()
 
     if session.auto_apply_mode:
+        pending_journal = snapshot_delete_payload(root, rel_display)
         ok, msg = _perform_delete(root, rel_clean, recursive)
+        if ok and pending_journal:
+            emit_file_journal(session, pending_journal)
         if ok and is_lsp_managed_path(rel_display):
             try:
                 close_session_document(rel_display, session_id=session_id, scope='workspace')
@@ -318,7 +328,10 @@ def batch_delete_workspace_entries(
                 return f'Tool error: {exc}'
             if not target.exists():
                 continue
+            pending_journal = snapshot_delete_payload(root, rel)
             ok, msg = _perform_delete(root, rel, rec)
+            if ok and pending_journal:
+                emit_file_journal(session, pending_journal)
             if ok:
                 lines.append(msg)
                 if is_lsp_managed_path(rel):

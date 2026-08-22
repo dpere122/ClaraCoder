@@ -48,6 +48,7 @@ async def stream_agent_reply(
     composer_mode: str = 'agent',
     speech_enabled: bool = False,
     tts_provider: str = 'kokoro',
+    user_message_id: str = '',
 ) -> AsyncIterator[str]:
     """Run one user turn and yield SSE lines until ``data: [DONE]``.
 
@@ -86,6 +87,7 @@ async def stream_agent_reply(
     session.last_stream_tts_provider = (
         'openai-compatible' if tts_provider == 'openai-compatible' else 'kokoro'
     )
+    session.current_user_message_id = (user_message_id or '').strip()
 
     # ContextVar so tools/middleware can resolve the active session without threading ids.
     token = current_session_id.set(session_id)

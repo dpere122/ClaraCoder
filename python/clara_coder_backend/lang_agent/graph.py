@@ -279,6 +279,11 @@ async def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
         if payload:
             return [sse_line(payload)]
         return []
+    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'file_journal':
+        payload = raw_hitl[1] if len(raw_hitl) > 1 and isinstance(raw_hitl[1], dict) else None
+        if payload:
+            return [sse_line({'type': 'file_journal', 'fileJournal': payload})]
+        return []
     return []
 
 

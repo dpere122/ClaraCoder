@@ -19,6 +19,8 @@ import type { LlmStatusPayload, PlannerProgress } from './types/llm';
 import type { PlanConfirmPayload } from './types/plan-confirm';
 import { normalizePlanConfirmFilesToChange } from './types/plan-confirm';
 import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
+import type { AppendConversationFileJournalRequest } from './types/conversation-timeline';
+import { parseFileJournalSsePayload } from './conversation-timeline';
 
 /**
  * Discriminated union (discriminant: `type`) of every event the agent stream
@@ -67,6 +69,10 @@ export type ParsedAgentStreamPayload =
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
   | { type: 'agent_question'; agentQuestion: AgentQuestionPayload }
   | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
+  | {
+      type: 'file_journal';
+      fileJournal: Omit<AppendConversationFileJournalRequest, 'conversationId'>;
+    }
   | { type: 'final_text'; text: string }
   | { type: 'clear_primary_stream' }
   | {
@@ -116,6 +122,7 @@ type RawAgentStreamPayload = {
   buildPlanChunk?: unknown;
   buildPlanStreamEnd?: unknown;
   stagedTransferBatch?: unknown;
+  fileJournal?: unknown;
 };
 
 /** Returns the trimmed string if non-empty after trimming, else `undefined`. Empty/whitespace values are dropped so consumers can rely on truthy checks. */
@@ -259,6 +266,14 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
         type: 'staged_transfer_batch',
         stagedTransferBatch: parsed.stagedTransferBatch as StagedTransferBatchPayload,
       };
+    }
+
+    if (parsed.type === 'file_journal') {
+      const rawJournal = parsed.fileJournal && typeof parsed.fileJournal === 'object' ? parsed.fileJournal : parsed;
+      const fileJournal = parseFileJournalSsePayload(rawJournal);
+      if (fileJournal) {
+        return { type: 'file_journal', fileJournal };
+      }
     }
 
     if (parsed.type === 'tool_read_chunk' && typeof parsed.delta === 'string') {

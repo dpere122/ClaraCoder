@@ -323,6 +323,27 @@ export type { ToolTrailPillState } from './tool-trail-pill';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { parseAgentStreamPayload } from './stream-payload';
 export type {
+  AppendConversationFileJournalRequest,
+  ConversationFileJournalEntry,
+  ConversationFileJournalOp,
+  ConversationFileJournalTreeEntry,
+  ConversationTimelineInvertAction,
+  RestoreConversationTimelineRequest,
+  RestoreConversationTimelineResult,
+} from './types/conversation-timeline';
+export {
+  canRestoreToUserMessage,
+  fallbackJournalFromMessages,
+  invertJournalEntries,
+  isConversationFileJournalOp,
+  journalPreviewPaths,
+  journalUserIdsToInvert,
+  lastUserMessageId,
+  parseFileJournalSsePayload,
+  resolveRestoreUserIndex,
+  truncateMessagesAfterUserTurn,
+} from './conversation-timeline';
+export type {
   ClaraAgentMode,
   LlmAgentRole,
   LlmStatus,

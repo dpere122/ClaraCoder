@@ -179,6 +179,13 @@ declare global {
         payload: import('@shared/index').StagedTransferBatchPayload,
       ) => void,
     ) => void;
+    onMessageFileJournal?: (
+      callback: (
+        event: unknown,
+        conversationId: string,
+        payload: Omit<import('@shared/index').AppendConversationFileJournalRequest, 'conversationId'>,
+      ) => void,
+    ) => void;
     sendMessage: (
       conversationId: string,
       msg: string,
@@ -189,6 +196,7 @@ declare global {
       composerMode?: 'agent' | 'plan',
       speechEnabled?: boolean,
       ttsProvider?: import('@shared/index').TtsProvider,
+      userMessageId?: string,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -297,6 +305,15 @@ declare global {
       options?: { skipPythonResync?: boolean },
     ) => Promise<Conversation>;
     saveConversation: (conv: Conversation) => Promise<void>;
+    listConversationFileJournal: (
+      conversationId: string,
+    ) => Promise<import('@shared/index').ConversationFileJournalEntry[]>;
+    appendConversationFileJournal: (
+      entry: import('@shared/index').AppendConversationFileJournalRequest,
+    ) => Promise<{ ok: boolean; error?: string }>;
+    restoreConversationTimeline: (
+      request: import('@shared/index').RestoreConversationTimelineRequest,
+    ) => Promise<import('@shared/index').RestoreConversationTimelineResult>;
     deleteConversation: (id: string, workspaceId?: string | null) => Promise<void>;
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
     maybeAutoTitleConversation: (id: string) => Promise<MaybeAutoTitleResult>;

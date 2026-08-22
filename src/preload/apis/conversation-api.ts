@@ -20,4 +20,8 @@ export const conversationApi = {
   onConversationWorkspaceChanged: (callback: (event: unknown, data: { id: string; workspacePath: string }) => void) =>
     ipcRenderer.on('conversation-workspace-changed', callback),
   onOpenConversation: (callback: (event: unknown, id: string) => void) => ipcRenderer.on('open-conversation', callback),
+  listConversationFileJournal: (conversationId: string) =>
+    ipcRenderer.invoke('list-conversation-file-journal', conversationId),
+  appendConversationFileJournal: (entry: unknown) => ipcRenderer.invoke('append-conversation-file-journal', entry),
+  restoreConversationTimeline: (request: unknown) => ipcRenderer.invoke('restore-conversation-timeline', request),
 };

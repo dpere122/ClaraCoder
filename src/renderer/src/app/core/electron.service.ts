@@ -52,6 +52,10 @@ import type {
   TtsStreamPacket,
   Workspace,
   WorkspaceContextSyncExtras,
+  AppendConversationFileJournalRequest,
+  ConversationFileJournalEntry,
+  RestoreConversationTimelineRequest,
+  RestoreConversationTimelineResult,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
   WorkspaceSystemPromptMutationResult,
@@ -171,6 +175,11 @@ export interface DiffMessage {
 export interface StagedTransferBatchMessage {
   conversationId: string;
   payload: StagedTransferBatchPayload;
+}
+
+export interface FileJournalMessage {
+  conversationId: string;
+  fileJournal: Omit<AppendConversationFileJournalRequest, 'conversationId'>;
 }
 
 export interface AcceptCommandMessage {
@@ -344,6 +353,7 @@ export class ElectronService {
   private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
   private readonly stagedTransferBatchSubject = new Subject<StagedTransferBatchMessage>();
+  private readonly fileJournalSubject = new Subject<FileJournalMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
@@ -398,6 +408,7 @@ export class ElectronService {
   readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
   readonly diff$ = this.diffSubject.asObservable();
   readonly stagedTransferBatch$ = this.stagedTransferBatchSubject.asObservable();
+  readonly fileJournal$ = this.fileJournalSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
@@ -585,6 +596,9 @@ export class ElectronService {
     this.api?.onMessageStagedTransferBatch?.((_event, conversationId, payload) => {
       this.zone.run(() => this.stagedTransferBatchSubject.next({ conversationId, payload }));
     });
+    this.api?.onMessageFileJournal?.((_event, conversationId, fileJournal) => {
+      this.zone.run(() => this.fileJournalSubject.next({ conversationId, fileJournal }));
+    });
     this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
       this.zone.run(() => this.acceptCommandSubject.next({ conversationId, payload }));
     });
@@ -724,6 +738,7 @@ export class ElectronService {
     composerMode: 'agent' | 'plan' = 'agent',
     speechEnabled = false,
     ttsProvider: TtsProvider = 'kokoro',
+    userMessageId?: string,
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -735,6 +750,7 @@ export class ElectronService {
       composerMode,
       speechEnabled,
       ttsProvider,
+      userMessageId,
     );
   }
 
@@ -1010,6 +1026,27 @@ export class ElectronService {
 
   saveConversation(conv: Conversation): Promise<void> {
     return this.api?.saveConversation(conv) ?? Promise.resolve();
+  }
+
+  listConversationFileJournal(conversationId: string): Promise<ConversationFileJournalEntry[]> {
+    return this.api?.listConversationFileJournal?.(conversationId) ?? Promise.resolve([]);
+  }
+
+  appendConversationFileJournal(
+    entry: AppendConversationFileJournalRequest,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.appendConversationFileJournal?.(entry) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  restoreConversationTimeline(
+    request: RestoreConversationTimelineRequest,
+  ): Promise<RestoreConversationTimelineResult> {
+    return (
+      this.api?.restoreConversationTimeline?.(request) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
   }
 
   deleteConversation(id: string, workspaceId?: string | null): Promise<void> {

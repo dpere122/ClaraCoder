@@ -44,7 +44,13 @@ export interface ConversationMeta {
 
 /** One message in the chat UI (user/assistant text or tool chain row). */
 export type ConversationMessage =
-  | { role: 'user'; text: string; structuredContent?: readonly ChatStructuredContentPart[] }
+  | {
+      role: 'user';
+      text: string;
+      /** Stable restore-point id (assigned when the user sends). Optional on older transcripts. */
+      id?: string;
+      structuredContent?: readonly ChatStructuredContentPart[];
+    }
   | {
       role: 'assistant';
       text: string;

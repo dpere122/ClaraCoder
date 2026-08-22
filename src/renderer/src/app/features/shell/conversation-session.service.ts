@@ -17,6 +17,7 @@ import type {
   StreamPart,
 } from '@shared/index';
 import {
+  parseFileJournalSsePayload,
   clearPrimaryStreamParts,
   findManagedLocalLlamaLocation,
   mergeHitlTrailIntoAuxiliaryTimeline,
@@ -181,6 +182,14 @@ export class ConversationSessionService {
           markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt, outcome),
         );
       }
+    });
+
+    this.electron.fileJournal$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, fileJournal }) => {
+      const parsed = parseFileJournalSsePayload(fileJournal);
+      if (!parsed) {
+        return;
+      }
+      void this.electron.appendConversationFileJournal({ conversationId, ...parsed });
     });
 
     this.electron.diff$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, diff }) => {
@@ -505,10 +514,16 @@ export class ConversationSessionService {
     auxiliaryStreamTimeline?: StreamPart[],
     planner?: PlannerProgress,
     structuredContent?: readonly ChatStructuredContentPart[],
-  ): void {
+  ): string | undefined {
     let nextMessage: ChatMessage;
     if (role === 'user') {
-      nextMessage = structuredContent?.length ? { role, text, structuredContent } : { role, text };
+      const id =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `user-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      nextMessage = structuredContent?.length
+        ? { role, text, id, structuredContent }
+        : { role, text, id };
     } else {
       const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
       if (toolStreams?.length) assistant.toolStreams = toolStreams;
@@ -522,6 +537,20 @@ export class ConversationSessionService {
       this.activeConversation.messages = [...this.messages()];
       this.pendingSave = true;
     }
+    return nextMessage.role === 'user' ? nextMessage.id : undefined;
+  }
+
+  applyRestoredMessages(messages: ChatMessage[]): void {
+    this.messages.set([...messages]);
+    if (this.activeConversation) {
+      this.activeConversation.messages = [...messages];
+      this.pendingSave = false;
+    }
+    this.streamingParts.set([]);
+    this.streamingPlanner.set(null);
+    this.streamingFinalText.set(undefined);
+    this.toolRunIds.set(new Set());
+    this.toolPhaseEngaged.set(false);
   }
 
   markMessagesDirtyAndAutoSave(): void {

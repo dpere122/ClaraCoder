@@ -15,10 +15,23 @@
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
       >
         @if (slot.row.kind === 'user') {
-          <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user" aria-hidden="true">
-            <span class="tui-frame-bar__corner">┌</span>
-            <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">┐</span>
+          <div
+            class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user"
+            [class.tui-frame-bar--has-restore]="canRestoreUserRow(slot.row.msg)"
+          >
+            <span class="tui-frame-bar__corner" aria-hidden="true">┌</span>
+            @if (canRestoreUserRow(slot.row.msg)) {
+              <button
+                type="button"
+                class="tui-frame-bar__label-group"
+                (click)="onRestoreUserRow(slot.row.msg, $event)"
+                aria-label="Restore conversation to this message"
+              >
+                <span class="tui-frame-bar__label">─ RESTORE</span>
+              </button>
+            }
+            <span class="tui-frame-bar__fill" aria-hidden="true"></span>
+            <span class="tui-frame-bar__corner" aria-hidden="true">┐</span>
           </div>
         } @else {
           <div

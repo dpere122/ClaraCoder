@@ -1,6 +1,8 @@
 import { inject, Injectable, signal } from '@angular/core';
 import type { FileDiffPayload, StagedTransferBatchPayload, StagedTransferFileResolution } from '@shared/index';
+import { lastUserMessageId } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
+import { ConversationSessionService } from '../shell/conversation-session.service';
 import { changeHunkOrderFromRows, rebuildFileWithAcceptedHunks } from './diff-rebuild';
 
 export type DiffReviewFinishedEvent = {
@@ -43,6 +45,7 @@ export interface PendingStagedTransferBatchSession {
 @Injectable({ providedIn: 'root' })
 export class PendingDiffReviewService {
   private readonly electron = inject(ElectronService);
+  private readonly conversationSession = inject(ConversationSessionService);
   private readonly sessions = new Map<string, PendingDiffReviewSession>();
   private readonly batchSessions = new Map<string, PendingStagedTransferBatchSession>();
 
@@ -151,6 +154,20 @@ export class PendingDiffReviewService {
     if (!res.ok) {
       flashMessage(res.error ?? 'Write failed.', 4000);
       return false;
+    }
+    const conversationId = this.conversationSession.activeConversationId();
+    const userMessageId = lastUserMessageId(this.conversationSession.messages());
+    if (conversationId && userMessageId) {
+      const created = typeof payload.fullOriginalContent !== 'string';
+      void this.electron.appendConversationFileJournal({
+        conversationId,
+        userMessageId,
+        op: created ? 'create' : 'modify',
+        relativePath: payload.relativePath,
+        beforeContent: created ? null : payload.fullOriginalContent,
+        beforeEncoding: encoding,
+        beforeNewline: newline,
+      });
     }
     return true;
   }

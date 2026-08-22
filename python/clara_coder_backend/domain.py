@@ -186,6 +186,8 @@ class SessionStreamState:
     last_stream_tts_provider: str = 'kokoro'
     #: Context pack ids activated this session (inject-once playbooks).
     activated_context_packs: set[str] = field(default_factory=set)
+    #: Electron user-message id for the in-flight turn (conversation timeline journal).
+    current_user_message_id: str = ''
 
 
 @dataclass

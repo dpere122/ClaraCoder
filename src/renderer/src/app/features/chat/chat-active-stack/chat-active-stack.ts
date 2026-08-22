@@ -47,6 +47,7 @@ export class ChatActiveStackComponent {
   readonly streamingPlanner = input<PlannerProgress | null>(null);
   readonly fontSize = input(0.9);
 
+  readonly restoreConversation = output<{ userMessageId?: string; userMessageIndex: number }>();
   readonly sendResponse = output<string>();
   readonly diffReviewFinished = output<{
     relativePath: string;
@@ -108,6 +109,7 @@ export class ChatActiveStackComponent {
   readonly talkCaptureFinished = output<{ hadSpeech: boolean; userBargeIn: boolean }>();
 
   readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
+  readonly composerDraft = model('');
   readonly voiceActive = input(false);
   readonly voiceToggle = output<void>();
   readonly contextBlocked = input(false);

@@ -2,7 +2,15 @@ import { mkdirSync, readdirSync, readFileSync, existsSync } from 'fs';
 import path = require('path');
 /** CJS interop: default import compiles to `.default`, which better-sqlite3 does not set. */
 import DatabaseConstructor = require('better-sqlite3');
-import type { ConversationFile, ConversationMeta, ConversationSummary } from '../shared';
+import type {
+  AppendConversationFileJournalRequest,
+  ConversationFile,
+  ConversationFileJournalEntry,
+  ConversationFileJournalOp,
+  ConversationMeta,
+  ConversationSummary,
+} from '../shared';
+import { isConversationFileJournalOp } from '../shared';
 import { FIRST_THEME_ID } from './constants';
 import {
   getAppDataDir,
@@ -74,6 +82,26 @@ function migrateSchema(database: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS idx_conversations_workspace_updated
       ON conversations (workspace_id, updated_at DESC);
+  `);
+}
+
+function migrateFileJournalTable(database: SqliteDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_file_journal (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL,
+      user_message_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      relative_path TEXT NOT NULL,
+      op TEXT NOT NULL,
+      before_content TEXT,
+      before_encoding TEXT,
+      before_newline TEXT,
+      dest_relative_path TEXT,
+      tree_entries_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_journal_conv_seq
+      ON conversation_file_journal (conversation_id, seq);
   `);
 }
 
@@ -181,6 +209,7 @@ export function openConversationsDb(): void {
   database.pragma('journal_mode = WAL');
   migrateSchema(database);
   migrateCustomTitleColumn(database);
+  migrateFileJournalTable(database);
   importLegacyJsonIfNeeded(database);
   db = database;
 }
@@ -276,7 +305,117 @@ export function upsertConversation(conv: ConversationFile): void {
 }
 
 export function deleteConversationById(id: string): void {
-  getDb().prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  const database = getDb();
+  database.prepare('DELETE FROM conversation_file_journal WHERE conversation_id = ?').run(id);
+  database.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+}
+
+interface FileJournalRow {
+  conversation_id: string;
+  user_message_id: string;
+  seq: number;
+  relative_path: string;
+  op: string;
+  before_content: string | null;
+  before_encoding: string | null;
+  before_newline: string | null;
+  dest_relative_path: string | null;
+  tree_entries_json: string | null;
+}
+
+function rowToJournalEntry(row: FileJournalRow): ConversationFileJournalEntry {
+  let treeEntries: ConversationFileJournalEntry['treeEntries'];
+  if (row.tree_entries_json) {
+    try {
+      treeEntries = JSON.parse(row.tree_entries_json) as ConversationFileJournalEntry['treeEntries'];
+    } catch {
+      treeEntries = undefined;
+    }
+  }
+  const op: ConversationFileJournalOp = isConversationFileJournalOp(row.op) ? row.op : 'modify';
+  return {
+    conversationId: row.conversation_id,
+    userMessageId: row.user_message_id,
+    seq: row.seq,
+    relativePath: row.relative_path,
+    op,
+    beforeContent: row.before_content,
+    beforeEncoding: row.before_encoding ?? undefined,
+    beforeNewline: row.before_newline === 'crlf' ? 'crlf' : row.before_newline === 'lf' ? 'lf' : undefined,
+    destRelativePath: row.dest_relative_path ?? undefined,
+    treeEntries,
+  };
+}
+
+export function appendConversationFileJournal(req: AppendConversationFileJournalRequest): ConversationFileJournalEntry {
+  const database = getDb();
+  const next = database
+    .prepare(
+      `SELECT COALESCE(MAX(seq), -1) + 1 AS next_seq
+       FROM conversation_file_journal WHERE conversation_id = ?`,
+    )
+    .get(req.conversationId) as { next_seq: number };
+  const seq = Number(next?.next_seq ?? 0);
+  database
+    .prepare(
+      `INSERT INTO conversation_file_journal
+        (conversation_id, user_message_id, seq, relative_path, op, before_content,
+         before_encoding, before_newline, dest_relative_path, tree_entries_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      req.conversationId,
+      req.userMessageId,
+      seq,
+      req.relativePath,
+      req.op,
+      req.beforeContent ?? null,
+      req.beforeEncoding ?? null,
+      req.beforeNewline ?? null,
+      req.destRelativePath ?? null,
+      req.treeEntries?.length ? JSON.stringify(req.treeEntries) : null,
+    );
+  return {
+    conversationId: req.conversationId,
+    userMessageId: req.userMessageId,
+    seq,
+    relativePath: req.relativePath,
+    op: req.op,
+    beforeContent: req.beforeContent,
+    beforeEncoding: req.beforeEncoding,
+    beforeNewline: req.beforeNewline,
+    destRelativePath: req.destRelativePath,
+    treeEntries: req.treeEntries,
+  };
+}
+
+export function listConversationFileJournal(conversationId: string): ConversationFileJournalEntry[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT conversation_id, user_message_id, seq, relative_path, op, before_content,
+              before_encoding, before_newline, dest_relative_path, tree_entries_json
+       FROM conversation_file_journal
+       WHERE conversation_id = ?
+       ORDER BY seq ASC`,
+    )
+    .all(conversationId) as FileJournalRow[];
+  return rows.map(rowToJournalEntry);
+}
+
+export function deleteConversationFileJournalForUserIds(conversationId: string, userMessageIds: readonly string[]): void {
+  if (userMessageIds.length === 0) {
+    return;
+  }
+  const database = getDb();
+  const stmt = database.prepare(
+    'DELETE FROM conversation_file_journal WHERE conversation_id = ? AND user_message_id = ?',
+  );
+  const tx = database.transaction(() => {
+    for (const id of userMessageIds) {
+      stmt.run(conversationId, id);
+    }
+  });
+  tx();
 }
 
 export function updateConversationTitle(id: string, title: string, updatedAt: string): void {
@@ -306,6 +445,26 @@ export function updateConversationTheme(id: string, themeId: string, updatedAt: 
   getDb()
     .prepare('UPDATE conversations SET theme_id = ?, updated_at = ? WHERE id = ?')
     .run(themeId, updatedAt, id);
+}
+
+/** Close the module DB (tests only). */
+export function closeConversationsDbForTests(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
+}
+
+/** Open a dedicated SQLite file (tests only). */
+export function openConversationsDbForTests(dbPath: string): void {
+  closeConversationsDbForTests();
+  mkdirSync(path.dirname(dbPath), { recursive: true });
+  const database = new DatabaseConstructor(dbPath);
+  database.pragma('journal_mode = WAL');
+  migrateSchema(database);
+  migrateCustomTitleColumn(database);
+  migrateFileJournalTable(database);
+  db = database;
 }
 
 export function getRecentConversationSummaries(limit: number): ConversationSummary[] {

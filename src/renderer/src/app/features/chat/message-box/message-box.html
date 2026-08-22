@@ -25,8 +25,8 @@
           #messageInput
           class="form-control form-control--multiline"
           rows="1"
-          [ngModel]="userInput()"
-          (ngModelChange)="userInput.set($event)"
+          [ngModel]="composerDraft()"
+          (ngModelChange)="composerDraft.set($event)"
           (keydown)="onComposerKeydown($event)"
           (input)="onTextareaInput()"
           [disabled]="contextBlocked()"
@@ -37,8 +37,8 @@
           #messageInput
           type="text"
           class="form-control"
-          [ngModel]="userInput()"
-          (ngModelChange)="userInput.set($event)"
+          [ngModel]="composerDraft()"
+          (ngModelChange)="composerDraft.set($event)"
           (keydown)="onSingleLineKeydown($event)"
           [disabled]="contextBlocked()"
           [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"

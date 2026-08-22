@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import type { FileDiffPayload } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
+import { ConversationSessionService } from '../shell/conversation-session.service';
 import { PendingDiffReviewService } from './pending-diff-review.service';
 
 function minimalDiffPayload(overrides: Partial<FileDiffPayload> = {}): FileDiffPayload {
@@ -26,6 +27,14 @@ describe('PendingDiffReviewService', () => {
             getCurrentWorkspace: async () => ({ path: '/w', id: 'w1', name: 'W' }),
             writeWorkspaceFile: async () => ({ ok: true }),
             notifyAgentContinue: async () => ({ ok: true }),
+            appendConversationFileJournal: async () => ({ ok: true }),
+          },
+        },
+        {
+          provide: ConversationSessionService,
+          useValue: {
+            activeConversationId: () => 'conv-1',
+            messages: () => [{ role: 'user', id: 'u1', text: 'hi' }],
           },
         },
       ],

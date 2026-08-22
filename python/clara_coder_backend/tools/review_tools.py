@@ -61,6 +61,7 @@ from clara_coder_backend.staging.staging_test_overlay import (
 )
 from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
 from clara_coder_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
+from clara_coder_backend.session.file_journal import emit_edit_journal
 from clara_coder_backend.session.state import (
     current_session_id,
     direct_workspace_edits_active,
@@ -416,6 +417,13 @@ def _apply_staged_transfer_confirm(
             str(entry.merged_text),  # type: ignore[attr-defined]
             str(entry.disk_encoding),  # type: ignore[attr-defined]
             'crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
+        )
+        emit_edit_journal(
+            session,
+            rel_key,
+            str(entry.old_text),  # type: ignore[attr-defined]
+            encoding=str(entry.disk_encoding),  # type: ignore[attr-defined]
+            newline='crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
         )
     except OSError as exc:
         return f'Tool error after user confirmation: could not write staged file `{rel_key}` into the workspace ({exc}).'
@@ -1240,6 +1248,13 @@ def _apply_staged_transfer_auto(session: SessionState, rel_key: str, entry: obje
                 str(entry.merged_text),  # type: ignore[attr-defined]
                 str(entry.disk_encoding),  # type: ignore[attr-defined]
                 'crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
+            )
+            emit_edit_journal(
+                session,
+                rel_key,
+                str(entry.old_text),  # type: ignore[attr-defined]
+                encoding=str(entry.disk_encoding),  # type: ignore[attr-defined]
+                newline='crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
             )
         except OSError as exc:
             return f'Tool error: could not write staged file `{rel_key}` into the workspace ({exc}).'

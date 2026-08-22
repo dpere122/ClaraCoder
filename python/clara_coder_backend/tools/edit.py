@@ -26,6 +26,7 @@ from clara_coder_backend.lsp.file_policy import (
 )
 from clara_coder_backend.lsp.manager import sync_session_document
 from clara_coder_backend.staging.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
+from clara_coder_backend.session.file_journal import emit_edit_journal
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason, runtime_config
 from clara_coder_backend.workspace.workspace_text_io import (
     DiskNewline,
@@ -87,6 +88,7 @@ def _finalize_workspace_edit(
             root = get_active_workspace_root()
             target = normalize_relative_path(root, rel_display)
             write_file_resolved(target, merged, disk_encoding, disk_newline)
+            emit_edit_journal(session, rel_display, old_text, encoding=disk_encoding, newline=disk_newline)
         except UnicodeEncodeError as uexc:
             logger.warning('auto-apply encode failed path=%s err=%s', rel_display, uexc)
             session.pending_diff_payload = None

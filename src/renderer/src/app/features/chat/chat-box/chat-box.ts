@@ -33,6 +33,7 @@ import {
 } from '@angular/core';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { StreamPart, PlannerProgress } from '@shared/index';
+import { canRestoreToUserMessage } from '@shared/index';
 import {
   joinPrimaryAssistantStreamText,
   mergeHitlTrailIntoAuxiliaryTimeline,
@@ -158,6 +159,21 @@ export class ChatBox implements OnDestroy {
   readonly userImageUrls = userMessageImageUrls;
   readonly userAttachedFiles = userMessageAttachedFiles;
 
+  canRestoreUserRow(msg: Extract<ChatMessage, { role: 'user' }>): boolean {
+    const messages = this.messages();
+    const idx = messages.indexOf(msg);
+    return canRestoreToUserMessage(messages, idx, { streaming: this.loading() });
+  }
+
+  onRestoreUserRow(msg: Extract<ChatMessage, { role: 'user' }>, event?: Event): void {
+    event?.stopPropagation();
+    const userMessageIndex = this.messages().indexOf(msg);
+    if (userMessageIndex < 0) {
+      return;
+    }
+    this.restoreConversation.emit({ userMessageId: msg.id, userMessageIndex });
+  }
+
   /** Scrollport element (`#chatScroll` in template); drives virtual window + pin detection. */
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
 
@@ -236,6 +252,7 @@ export class ChatBox implements OnDestroy {
   // --- Outputs (HITL completion + composer send) ---
 
   /** User submitted a follow-up from an embedded prompt (via `send-response` DOM event). */
+  readonly restoreConversation = output<{ userMessageId?: string; userMessageIndex: number }>();
   readonly sendResponse = output<string>();
   /** Diff review card completed or dismissed. */
   readonly diffReviewFinished = output<{

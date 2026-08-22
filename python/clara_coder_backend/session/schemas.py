@@ -30,6 +30,11 @@ class ChatRequest(BaseModel):
     auto_apply_mode: bool = False
     #: Optional LangGraph ``checkpoint_id`` to continue or replay from (fork head / time-travel).
     checkpoint_id: str = ''
+    #: Electron user-message id for this turn (conversation timeline / file journal).
+    user_message_id: str = Field(
+        default='',
+        validation_alias=AliasChoices('user_message_id', 'userMessageId'),
+    )
     #: Composer run mode: ``agent`` (ReAct) or ``plan`` (plan-and-execute orchestrator).
     composer_mode: Literal['agent', 'plan'] = Field(
         default='agent',

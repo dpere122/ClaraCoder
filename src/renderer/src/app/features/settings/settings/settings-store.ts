@@ -3096,6 +3096,8 @@ export class SettingsStore {
         this.configSnapshot.workspaces = structuredClone(config.workspaces);
         this.configSnapshot.currentWorkspaceId = config.currentWorkspaceId;
         this.configSnapshot.themeId = config.themeId;
+        this.configSnapshot.chatSidebarCollapsed = config.chatSidebarCollapsed;
+        this.configSnapshot.chatExpandedToMainPanel = config.chatExpandedToMainPanel;
       }
       this.themeId.set(config.themeId || DEFAULT_THEME_ID);
       this.applyTheme(config.themeId || DEFAULT_THEME_ID);

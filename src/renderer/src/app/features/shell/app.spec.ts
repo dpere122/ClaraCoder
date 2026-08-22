@@ -25,15 +25,20 @@ interface StubRefs {
   /** Captured `onMessageTokenUsage` callback so tests can simulate backend token_usage events. */
   tokenUsageHandler: ((_event: unknown, conversationId: string, usage: unknown) => void) | null;
   saveConversation: Mock;
+  saveConfig: Mock;
 }
 
 /** Minimal `window.electronAPI` so `App.ngOnInit` does not reject (no real Electron in unit tests). */
-function stubElectronApi(fixtures?: StubConversationFixture[]): StubRefs {
+function stubElectronApi(
+  fixtures?: StubConversationFixture[],
+  configOverrides?: Record<string, unknown>,
+): StubRefs {
   const noop = (): void => {};
   const refs: StubRefs = {
     deleteConfirmHandler: null,
     tokenUsageHandler: null,
     saveConversation: vi.fn(async () => noop()),
+    saveConfig: vi.fn(async (c: unknown) => c),
   };
   const defaultConfig = {
     currentWorkspaceId: null as string | null,
@@ -163,8 +168,9 @@ function stubElectronApi(fixtures?: StubConversationFixture[]): StubRefs {
     workspacePtyKillAll: async () => ({ success: true }),
     onReady: noop,
     setAlwaysOnTop: noop,
-    loadConfig: async () => ({ ...defaultConfig }),
-    saveConfig: async (c: unknown) => c as typeof defaultConfig,
+    loadConfig: async () => ({ ...defaultConfig, ...configOverrides }),
+    saveConfig: refs.saveConfig,
+    modelManagerListCustomModels: async () => ({ ok: true, models: [] }),
     setLastActiveConversation: async (_workspaceKey: string, _conversationId: string) => ({ ...defaultConfig }),
     patchWorkspaceMonacoScroll: async () => {},
     setActiveLlmModel: async (_modelId: string) => ({ ...defaultConfig }),
@@ -239,6 +245,35 @@ describe('App', () => {
       imports: [App],
       providers: [provideNoopAnimations(), importProvidersFrom(NgxSpinnerModule), ...lucideAppProviders],
     }).compileComponents();
+  });
+
+  it('restores collapsed chat chrome from config and persists later toggles', async () => {
+    refs = stubElectronApi(undefined, {
+      chatSidebarCollapsed: true,
+      chatExpandedToMainPanel: true,
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      chatCollapsed: { (): boolean; set: (value: boolean) => void };
+      chatExpanded: { (): boolean; set: (value: boolean) => void };
+    };
+    expect(app.chatCollapsed()).toBe(true);
+    expect(app.chatExpanded()).toBe(false);
+
+    refs.saveConfig.mockClear();
+    app.chatCollapsed.set(false);
+    app.chatExpanded.set(true);
+    await fixture.whenStable();
+
+    expect(refs.saveConfig).toHaveBeenCalled();
+    const saved = refs.saveConfig.mock.calls.at(-1)?.[0] as {
+      chatSidebarCollapsed?: boolean;
+      chatExpandedToMainPanel?: boolean;
+    };
+    expect(saved.chatSidebarCollapsed).toBe(false);
+    expect(saved.chatExpandedToMainPanel).toBe(true);
   });
 
   it('should create the app', () => {

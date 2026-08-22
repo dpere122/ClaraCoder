@@ -184,6 +184,7 @@ export {
   UI_FONT_SIZE_REM_STEP,
   clampUiFontSizeRem,
   normalizeChatContainerSize,
+  resolveChatWindowState,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,

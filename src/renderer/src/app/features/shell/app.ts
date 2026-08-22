@@ -26,6 +26,7 @@ import {
   effectiveLmStudioContextTokens,
   patchLlmModelProfile,
   resolveActiveLlmConnection,
+  resolveChatWindowState,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
@@ -292,6 +293,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatExpanded = model(false);
   /** When true, the chat sidebar collapses to a thin bar holding only the un-collapse button. */
   protected readonly chatCollapsed = model(false);
+  /** Skip persisting chat chrome until the first config load has hydrated the signals. */
+  private chatLayoutHydrated = false;
 
   /** Width of the sidebar when the chat is collapsed (just the un-collapse button + padding). */
   private static readonly CHAT_COLLAPSED_WIDTH_PX = 48;
@@ -610,6 +613,14 @@ export class App implements OnInit, OnDestroy {
       untracked(() => this.scheduleNewConvExpandedSpinnerSync(creating && expanded));
     });
 
+    effect(() => {
+      this.chatCollapsed();
+      this.chatExpanded();
+      untracked(() => {
+        void this.persistChatWindowStateNow();
+      });
+    });
+
     this.conversationSession.bindHooks({
       getCurrentWorkspaceId: () => this.currentWorkspaceId(),
       getSpeechSettings: () => ({
@@ -683,6 +694,7 @@ export class App implements OnInit, OnDestroy {
       if (this.pendingSidebarWidthPercent == null && this.resizing !== 'sidebar') {
         this.syncSidebarWidthFromEffectivePercent();
       }
+      this.hydrateChatWindowStateFromConfig(config);
     });
 
     this.electron.buildPlanOpen$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, payload }) => {
@@ -754,6 +766,7 @@ export class App implements OnInit, OnDestroy {
     this.currentWorkspaceId.set(config.currentWorkspaceId);
 
     applyAppTheme(resolveAppThemeId(config));
+    this.hydrateChatWindowStateFromConfig(config);
 
     if (this.electron.isElectron) {
       this.windowMaximized.set(await this.electron.windowIsMaximized());
@@ -915,6 +928,39 @@ export class App implements OnInit, OnDestroy {
       });
     } catch (err) {
       console.error('[App] persist chatSidebarWidthPercent failed', err);
+    }
+  }
+
+  private hydrateChatWindowStateFromConfig(config: AppConfig): void {
+    if (this.chatLayoutHydrated) {
+      return;
+    }
+    const { collapsed, expanded } = resolveChatWindowState(config);
+    this.chatCollapsed.set(collapsed);
+    this.chatExpanded.set(expanded);
+    this.chatLayoutHydrated = true;
+  }
+
+  private async persistChatWindowStateNow(): Promise<void> {
+    const config = this.appConfig();
+    if (!config || !this.chatLayoutHydrated) {
+      return;
+    }
+    const collapsed = this.chatCollapsed();
+    const expanded = this.chatExpanded();
+    const current = resolveChatWindowState(config);
+    if (current.collapsed === collapsed && current.expanded === expanded) {
+      return;
+    }
+    try {
+      const saved = await this.electron.saveConfig({
+        ...config,
+        chatSidebarCollapsed: collapsed,
+        chatExpandedToMainPanel: expanded,
+      });
+      this.appConfig.set(saved);
+    } catch (err) {
+      console.error('[App] persist chat window state failed', err);
     }
   }
 

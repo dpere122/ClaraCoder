@@ -1039,6 +1039,21 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const collapsed = (newConfig as AppConfig).chatSidebarCollapsed;
+  if (typeof collapsed !== 'boolean') {
+    (newConfig as AppConfig).chatSidebarCollapsed = false;
+    migrated = true;
+  }
+
+  const expanded = (newConfig as AppConfig).chatExpandedToMainPanel;
+  if (typeof expanded !== 'boolean') {
+    (newConfig as AppConfig).chatExpandedToMainPanel = false;
+    migrated = true;
+  } else if ((newConfig as AppConfig).chatSidebarCollapsed && expanded) {
+    (newConfig as AppConfig).chatExpandedToMainPanel = false;
+    migrated = true;
+  }
+
   const normalizedContainerSize = normalizeChatContainerSize((newConfig as AppConfig).chatContainerSize);
   if ((newConfig as AppConfig).chatContainerSize !== normalizedContainerSize) {
     (newConfig as AppConfig).chatContainerSize = normalizedContainerSize;

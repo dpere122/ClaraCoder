@@ -470,6 +470,17 @@ export function normalizeChatContainerSize(value: unknown): ChatContainerSize {
   return DEFAULT_CHAT_CONTAINER_SIZE;
 }
 
+/** Restore chat sidebar chrome from config. Collapsed wins over the expanded overlay. */
+export function resolveChatWindowState(
+  config: Pick<AppConfig, 'chatSidebarCollapsed' | 'chatExpandedToMainPanel'>,
+): { collapsed: boolean; expanded: boolean } {
+  const collapsed = config.chatSidebarCollapsed === true;
+  return {
+    collapsed,
+    expanded: !collapsed && config.chatExpandedToMainPanel === true,
+  };
+}
+
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
   provider: AudioTranscriptionProvider;
@@ -995,6 +1006,16 @@ export interface AppConfig {
    * Client-only UI preference; default 1/3 (yields a 1:2:1 workspace:chat:sidebar layout).
    */
   chatSidebarWidthPercent?: number;
+  /**
+   * When true, the chat sidebar is collapsed to the chevron bar.
+   * Client-only UI preference; default false.
+   */
+  chatSidebarCollapsed?: boolean;
+  /**
+   * When true, active chat overlays the main editor stage.
+   * Ignored while {@link chatSidebarCollapsed} is true. Client-only; default false.
+   */
+  chatExpandedToMainPanel?: boolean;
   /**
    * Max content width when chat is expanded to the main panel.
    * Sidebar chat is always full width regardless of this setting.

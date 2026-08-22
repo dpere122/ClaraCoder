@@ -105,6 +105,37 @@ describe('updateConfig serialization', () => {
   });
 });
 
+describe('migrateConfig chat window state', () => {
+  it('defaults missing chat chrome flags to false', () => {
+    const cfg = sampleConfig();
+    delete cfg.chatSidebarCollapsed;
+    delete cfg.chatExpandedToMainPanel;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.chatSidebarCollapsed).toBe(false);
+    expect(migrated.chatExpandedToMainPanel).toBe(false);
+  });
+
+  it('clears expanded overlay when the sidebar is collapsed', () => {
+    const cfg = sampleConfig({
+      chatSidebarCollapsed: true,
+      chatExpandedToMainPanel: true,
+    });
+    const migrated = migrateConfig(cfg);
+    expect(migrated.chatSidebarCollapsed).toBe(true);
+    expect(migrated.chatExpandedToMainPanel).toBe(false);
+  });
+
+  it('keeps a valid open + expanded layout', () => {
+    const cfg = sampleConfig({
+      chatSidebarCollapsed: false,
+      chatExpandedToMainPanel: true,
+    });
+    const migrated = migrateConfig(cfg);
+    expect(migrated.chatSidebarCollapsed).toBe(false);
+    expect(migrated.chatExpandedToMainPanel).toBe(true);
+  });
+});
+
 describe('migrateConfig audio', () => {
   it('defaults new audio to local whisper', () => {
     const cfg = createDefaultConfig();

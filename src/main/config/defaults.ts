@@ -217,6 +217,8 @@ export function createDefaultConfig(): AppConfig {
     chatFontSizeRem: 0.9,
     uiFontSizeRem: 1.1,
     chatSidebarWidthPercent: 1 / 3,
+    chatSidebarCollapsed: false,
+    chatExpandedToMainPanel: false,
     chatContainerSize: DEFAULT_CHAT_CONTAINER_SIZE,
     uiFontFamily: '',
     codeFontFamily: '',

@@ -93,6 +93,8 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     huggingFaceToken: SecretValue.of(''),
   },
   chatSidebarWidthPercent: 1 / 3,
+  chatSidebarCollapsed: false,
+  chatExpandedToMainPanel: false,
 };
 
 export interface ChunkMessage {

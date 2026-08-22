@@ -50,7 +50,7 @@ export type RestoreConversationTimelineResult =
       revertedPaths: string[];
       skippedPaths: string[];
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; revertedPaths?: string[]; skippedPaths?: string[] };
 
 /** Disk action produced by inverting journal rows after a restore point. */
 export type ConversationTimelineInvertAction =

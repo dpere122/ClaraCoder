@@ -27,6 +27,8 @@ class EditStagingEntry:
     edit_mode: str
     #: True once the approved staged draft has been materialized into the real workspace for the current chain.
     workspace_applied: bool = False
+    #: Whether the workspace file existed on disk before this staged edit (empty files count as existed).
+    before_existed: bool = True
 
 
 @dataclass

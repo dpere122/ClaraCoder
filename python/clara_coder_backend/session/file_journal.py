@@ -113,8 +113,16 @@ def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
         logger.warning('file journal enqueue failed path=%s err=%s', body.get('relativePath'), exc)
 
 
-def emit_edit_journal(session: SessionState, relative_path: str, old_text: str, *, encoding: str, newline: str) -> None:
-    existed = old_text != ''
+def emit_edit_journal(
+    session: SessionState,
+    relative_path: str,
+    old_text: str,
+    *,
+    before_existed: bool,
+    encoding: str,
+    newline: str,
+) -> None:
+    existed = before_existed
     emit_file_journal(
         session,
         file_journal_payload(

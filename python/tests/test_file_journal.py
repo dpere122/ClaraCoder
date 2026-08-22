@@ -20,13 +20,25 @@ def test_emit_file_journal_requires_user_turn_id() -> None:
     assert session.hitl_sse_queue.empty()
 
     session.current_user_message_id = 'u1'
-    emit_edit_journal(session, 'a.ts', 'old', encoding='utf-8', newline='lf')
+    emit_edit_journal(session, 'a.ts', 'old', before_existed=True, encoding='utf-8', newline='lf')
     kind, payload = session.hitl_sse_queue.get_nowait()
     assert kind == 'file_journal'
     assert payload['userMessageId'] == 'u1'
     assert payload['op'] == 'modify'
     assert payload['relativePath'] == 'a.ts'
     assert payload['beforeContent'] == 'old'
+
+
+def test_emit_edit_journal_empty_existing_file_is_modify() -> None:
+    session = SessionState()
+    session.hitl_sse_queue = asyncio.Queue()
+    session.current_user_message_id = 'u1'
+    emit_edit_journal(session, 'empty.ts', '', before_existed=True, encoding='utf-8', newline='lf')
+    kind, payload = session.hitl_sse_queue.get_nowait()
+    assert kind == 'file_journal'
+    assert payload['op'] == 'modify'
+    assert payload['relativePath'] == 'empty.ts'
+    assert payload['beforeContent'] == ''
 
 
 def test_hitl_sse_lines_file_journal() -> None:
@@ -53,7 +65,9 @@ def test_auto_apply_edit_emits_journal(tmp_path) -> None:
     sessions['s1'] = session
     token = current_session_id.set('s1')
     try:
-        out = _finalize_workspace_edit(session, 'a.ts', 'before', 'after', 'full-file', 'utf-8', 'lf')
+        out = _finalize_workspace_edit(
+            session, 'a.ts', 'before', 'after', 'full-file', 'utf-8', 'lf', before_existed=True
+        )
         assert 'Auto-applied' in out
         kind, payload = session.hitl_sse_queue.get_nowait()
         assert kind == 'file_journal'

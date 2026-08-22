@@ -422,6 +422,7 @@ def _apply_staged_transfer_confirm(
             session,
             rel_key,
             str(entry.old_text),  # type: ignore[attr-defined]
+            before_existed=bool(getattr(entry, 'before_existed', True)),
             encoding=str(entry.disk_encoding),  # type: ignore[attr-defined]
             newline='crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
         )
@@ -1253,6 +1254,7 @@ def _apply_staged_transfer_auto(session: SessionState, rel_key: str, entry: obje
                 session,
                 rel_key,
                 str(entry.old_text),  # type: ignore[attr-defined]
+                before_existed=bool(getattr(entry, 'before_existed', True)),
                 encoding=str(entry.disk_encoding),  # type: ignore[attr-defined]
                 newline='crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
             )

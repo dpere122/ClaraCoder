@@ -139,10 +139,21 @@ export function registerConversationTimelineIpc(): void {
       let revertedPaths: string[] = [];
       let skippedPaths: string[] = [];
       const workspaceRoot = workspacePathForConversation(conv);
+      if (actions.length > 0 && !workspaceRoot) {
+        return { ok: false, error: 'No workspace root for this conversation; cannot revert files.' };
+      }
       if (workspaceRoot && actions.length > 0) {
         const applied = await applyTimelineInvertActions(workspaceRoot, actions);
         revertedPaths = applied.revertedPaths;
         skippedPaths = applied.skippedPaths;
+      }
+      if (skippedPaths.length > 0) {
+        return {
+          ok: false,
+          error: 'Some files could not be reverted.',
+          revertedPaths,
+          skippedPaths,
+        };
       }
 
       const nextMessages = truncateMessagesAfterUserTurn(conv.messages, keepThrough);

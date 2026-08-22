@@ -72,6 +72,8 @@ def _finalize_workspace_edit(
     mode: str,
     disk_encoding: str,
     disk_newline: DiskNewline,
+    *,
+    before_existed: bool,
 ) -> str:
     payload, err = build_file_diff_payload(
         rel_display,
@@ -88,7 +90,14 @@ def _finalize_workspace_edit(
             root = get_active_workspace_root()
             target = normalize_relative_path(root, rel_display)
             write_file_resolved(target, merged, disk_encoding, disk_newline)
-            emit_edit_journal(session, rel_display, old_text, encoding=disk_encoding, newline=disk_newline)
+            emit_edit_journal(
+                session,
+                rel_display,
+                old_text,
+                before_existed=before_existed,
+                encoding=disk_encoding,
+                newline=disk_newline,
+            )
         except UnicodeEncodeError as uexc:
             logger.warning('auto-apply encode failed path=%s err=%s', rel_display, uexc)
             session.pending_diff_payload = None
@@ -133,6 +142,7 @@ def finalize_staged_edit(session: SessionState, rel_display: str, entry: EditSta
         entry.edit_mode,
         entry.disk_encoding,
         nl,
+        before_existed=entry.before_existed,
     )
 
 
@@ -145,6 +155,7 @@ def _after_merge_workspace_edit(
     disk_encoding: str,
     disk_newline: DiskNewline,
     *,
+    before_existed: bool,
     formatter_lines: list[str] | None = None,
 ) -> str:
     """Finalize a workspace edit via diff or auto-apply (staging is handled by dedicated staging tools)."""
@@ -178,7 +189,19 @@ def _after_merge_workspace_edit(
     else:
         diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(fl)
 
-    return _finalize_workspace_edit(session, rel_display, old_text, merged, mode, disk_encoding, disk_newline) + diagnostics_note
+    return (
+        _finalize_workspace_edit(
+            session,
+            rel_display,
+            old_text,
+            merged,
+            mode,
+            disk_encoding,
+            disk_newline,
+            before_existed=before_existed,
+        )
+        + diagnostics_note
+    )
 
 
 def _edit_preamble(
@@ -186,8 +209,8 @@ def _edit_preamble(
     *,
     disk_encoding: str,
     newline_mode: NewlineMode,
-) -> tuple[SessionState, str, str, str, DiskNewline] | str:
-    """Return (session, rel_display, old_text, disk_encoding, resolved_disk_newline) or error string."""
+) -> tuple[SessionState, str, str, str, DiskNewline, bool] | str:
+    """Return (session, rel_display, old_text, disk_encoding, resolved_disk_newline, before_existed) or error string."""
     session_id = current_session_id.get()
     if not session_id:
         return 'Tool error: no active session.'
@@ -199,9 +222,10 @@ def _edit_preamble(
     target = normalize_relative_path(root, relative_path)
     rel_display = target.relative_to(root).as_posix()
 
+    before_existed = target.is_file()
     raw_existing: bytes | None = None
     old_text = ''
-    if target.is_file():
+    if before_existed:
         try:
             raw_existing = target.read_bytes()
             old_text = decode_for_tools(raw_existing, disk_encoding)
@@ -210,7 +234,7 @@ def _edit_preamble(
 
     disk_nl = resolve_newline_for_write(newline_mode, path=target, raw_existing=raw_existing)
 
-    return session, rel_display, old_text, disk_encoding, disk_nl
+    return session, rel_display, old_text, disk_encoding, disk_nl, before_existed
 
 
 def _run_edit_tool(
@@ -238,7 +262,7 @@ def _run_edit_tool(
     pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
     if isinstance(pre, str):
         return pre
-    session, rel_display, old_text, disk_enc, disk_nl = pre
+    session, rel_display, old_text, disk_enc, disk_nl, before_existed = pre
 
     if not (session.worker_apply_mode and session.auto_apply_mode):
         guarded = outer_workspace_edit_guard_error(rel_display)
@@ -285,7 +309,15 @@ def _run_edit_tool(
         )
 
     out = _after_merge_workspace_edit(
-        session, rel_display, old_text, merged, mode, disk_enc, disk_nl, formatter_lines=formatter_lines
+        session,
+        rel_display,
+        old_text,
+        merged,
+        mode,
+        disk_enc,
+        disk_nl,
+        before_existed=before_existed,
+        formatter_lines=formatter_lines,
     )
     if mode == 'line-range' and start_line > 0 and end_line >= start_line:
         out += line_range_edit_tool_feedback(old_text, start_line, end_line, new_snippet)

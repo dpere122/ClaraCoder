@@ -5,7 +5,6 @@
 import {
   argvToShellCommandLine,
   detectShellQuotingPlatform,
-  shellQuoteArg,
   type ShellQuotingPlatform,
 } from './llama-cpp-managed';
 import { inferContextWindowTokens } from './model-context';

@@ -107,12 +107,6 @@ async function applyPublishedConfigRuntime(config: AppConfig): Promise<void> {
   await applyWorkspaceExposeAllFromConfig(config);
 }
 
-async function publishConfig(config: AppConfig): Promise<AppConfig> {
-  await applyPublishedConfigRuntime(config);
-  broadcastConfig(config);
-  return config;
-}
-
 /**
  * Config persistence, workspace CRUD, always-on-top, menu refresh, and workspace context push to Python.
  */

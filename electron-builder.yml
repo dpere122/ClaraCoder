@@ -74,6 +74,8 @@ linux:
     - deb
     - AppImage
   category: Development
+  # Multi-size hicolor PNGs (build/icons/NxN.png) so DEs render the launcher icon.
+  icon: build/icons
   # Required by fpm for .deb (package.json author is empty).
   maintainer: Clara Coder <dev@clara.coder>
   syncDesktopName: true

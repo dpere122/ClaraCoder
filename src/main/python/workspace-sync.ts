@@ -320,6 +320,7 @@ async function postRuntimeConfigToPython(
           exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
           allowWebAccess: config.workspaceTools.allowWebAccess ?? false,
           searxngBaseUrl: (config.workspaceTools.searxngBaseUrl ?? '').trim(),
+          extraUserPath: config.workspaceTools.extraUserPath ?? '',
         },
         contextCompression: {
           enabled: config.contextCompression.enabled,

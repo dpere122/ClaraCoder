@@ -66,11 +66,6 @@ export function createMainWindow(): void {
       win.webContents.send('editor-find-requested');
     }
   });
-  if (DEV_SERVER_URL) {
-    win.once('ready-to-show', () => {
-      win.webContents.openDevTools({ mode: 'detach' });
-    });
-  }
 
   win.webContents.on('preload-error', (_event, failedPreload, error) => {
     console.error('[Main] Preload failed:', failedPreload, error);

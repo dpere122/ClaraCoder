@@ -170,6 +170,7 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     exposeAllWorkspaceFiles: false,
     allowWebAccess: false,
     searxngBaseUrl: '',
+    extraUserPath: '',
   };
 }
 

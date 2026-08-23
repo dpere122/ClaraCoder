@@ -431,6 +431,40 @@ def _prefixed_path(existing_path: str, *prefixes: str) -> str:
     return os.pathsep.join(ordered)
 
 
+def parse_extra_user_path(raw: str | None) -> list[str]:
+    """Split Settings extra PATH (newlines or ``os.pathsep``) into absolute directories."""
+    if not raw:
+        return []
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for line in raw.replace('\r\n', '\n').split('\n'):
+        for piece in line.split(os.pathsep):
+            cleaned = os.path.expanduser(piece.strip())
+            if not cleaned or '=' in cleaned or '\0' in cleaned:
+                continue
+            if not os.path.isabs(cleaned):
+                continue
+            key = os.path.normcase(cleaned) if sys.platform.startswith('win') else cleaned
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(cleaned)
+    return ordered
+
+
+def apply_extra_user_path(raw: str | None) -> None:
+    """Prefix Settings extra dirs onto process PATH (venv bin stays first when active)."""
+    extras = parse_extra_user_path(raw)
+    if not extras:
+        return
+    with _PROCESS_PATH_LOCK:
+        path_value = os.environ.get('PATH', '')
+        merged = _prefixed_path(path_value, *extras)
+        if _ACTIVE_PROCESS_PYTHON_BIN_PATH:
+            merged = _prefixed_path(merged, _ACTIVE_PROCESS_PYTHON_BIN_PATH)
+        os.environ['PATH'] = merged
+
+
 def with_subprocess_color_env(env: dict[str, str] | None = None) -> dict[str, str]:
     """Ensure piped tool subprocesses still emit ANSI colors for the in-app terminal UI."""
     out = dict(env or os.environ)

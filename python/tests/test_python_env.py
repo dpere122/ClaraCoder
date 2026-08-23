@@ -330,3 +330,30 @@ def test_set_workspace_context_applies_default_then_honors_bootstrap_flag(
         )
     )
     assert calls == [str(workspace_root.resolve())]
+
+
+def test_parse_extra_user_path_splits_and_skips_assignments() -> None:
+    from clara_coder_backend.runtime.python_env import parse_extra_user_path
+
+    dirs = parse_extra_user_path('~/tools\nOPENAI_API_KEY=sk\n/opt/extra')
+    assert any(d.endswith('tools') for d in dirs)
+    assert '/opt/extra' in dirs
+    assert all('=' not in d for d in dirs)
+
+
+def test_apply_extra_user_path_prefixes_and_keeps_venv_first(monkeypatch) -> None:
+    import os
+
+    import clara_coder_backend.runtime.python_env as pe
+
+    orig_path = os.environ.get('PATH', '')
+    monkeypatch.setattr(pe, '_ACTIVE_PROCESS_PYTHON_BIN_PATH', '/ws/.venv/bin')
+    monkeypatch.setenv('PATH', '/usr/bin:/bin')
+    try:
+        pe.apply_extra_user_path('/opt/extra')
+        parts = os.environ['PATH'].split(os.pathsep)
+        assert parts[0] == '/ws/.venv/bin'
+        assert '/opt/extra' in parts
+        assert parts.index('/opt/extra') < parts.index('/usr/bin')
+    finally:
+        os.environ['PATH'] = orig_path

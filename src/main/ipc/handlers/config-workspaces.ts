@@ -26,6 +26,7 @@ import {
   fetchPythonInterpretersFromPython,
   postPythonInterpreterSelection,
 } from '../../python/workspace-sync';
+import { applyResolvedUserPath } from '../../runtime/user-path';
 import { applyWorkspaceExposeAllFromConfig } from '../../workspace/watcher';
 import { refreshWorkspaceWatcherForCurrentConfig } from '../../workspace/watcher';
 import { shutdownAllLspManagersBestEffort } from './lsp-status';
@@ -99,6 +100,7 @@ function broadcastConfig(config: AppConfig): void {
 }
 
 async function applyPublishedConfigRuntime(config: AppConfig): Promise<void> {
+  await applyResolvedUserPath({ extraUserPath: config.workspaceTools?.extraUserPath ?? '' });
   await syncPythonLogLevel(config.healthMonitor.logLevel);
   setHealthMetricsEnabled(config.healthMonitor.metricsEnabled);
   // Getter: read managed overrides live at send time so a concurrent start's real ports

@@ -307,6 +307,7 @@ export class SettingsStore {
   readonly exposeAllWorkspaceFiles = signal(false);
   readonly allowWebAccess = signal(false);
   readonly searxngBaseUrl = signal('');
+  readonly extraUserPath = signal('');
   readonly contextCompressionEnabled = signal(true);
   readonly contextCompressionTriggerRatio = signal(0.7);
   readonly contextCompressionTargetRatio = signal(0.55);
@@ -2669,6 +2670,9 @@ export class SettingsStore {
     if (changes.searxngBaseUrl !== undefined) {
       this.searxngBaseUrl.set((changes.searxngBaseUrl || '').trim());
     }
+    if (changes.extraUserPath !== undefined) {
+      this.extraUserPath.set(changes.extraUserPath || '');
+    }
     this.markSettingsDirty();
   }
 
@@ -2731,6 +2735,11 @@ export class SettingsStore {
 
   onSearxngBaseUrlChange(value: string): void {
     this.searxngBaseUrl.set((value || '').trim());
+    this.markSettingsDirty();
+  }
+
+  onExtraUserPathChange(value: string): void {
+    this.extraUserPath.set(value || '');
     this.markSettingsDirty();
   }
 
@@ -3033,6 +3042,7 @@ export class SettingsStore {
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
         allowWebAccess: this.allowWebAccess(),
         searxngBaseUrl: this.searxngBaseUrl(),
+        extraUserPath: this.extraUserPath(),
       },
       contextCompression: {
         enabled: this.contextCompressionEnabled(),
@@ -3196,6 +3206,7 @@ export class SettingsStore {
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
     this.allowWebAccess.set(!!(wt.allowWebAccess ?? false));
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
+    this.extraUserPath.set(wt.extraUserPath ?? '');
 
     const cc = config.contextCompression ?? getDefaultContextCompression();
     this.contextCompressionEnabled.set(!!cc.enabled);

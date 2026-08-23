@@ -71,6 +71,25 @@ def test_allow_web_access_and_searxng_base_url() -> None:
     assert r.tools.searxngBaseUrl == 'http://127.0.0.1:8080'
 
 
+def test_extra_user_path_is_accepted() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'model': 'whisper-1', 'apiKey': ''},
+        'tools': {
+            'editToolsStrict': False,
+            'maxFileReadLines': 400,
+            'maxSearchResults': 40,
+            'defaultWorkspaceEncoding': 'utf-8',
+            'defaultWorkspaceNewline': 'lf',
+            'extra_user_path': '  /opt/extra  ',
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.extraUserPath == '/opt/extra'
+
+
 def test_legacy_capable_optimization_preset_maps_to_generic() -> None:
     conn = {**_CONN, 'optimizationPreset': 'capable'}
     r = RuntimeConnectionRequest.model_validate(conn)

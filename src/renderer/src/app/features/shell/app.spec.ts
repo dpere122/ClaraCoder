@@ -89,6 +89,7 @@ function stubElectronApi(
       exposeAllWorkspaceFiles: false,
       allowWebAccess: false,
       searxngBaseUrl: '',
+      extraUserPath: '',
     },
     contextCompression: {
       enabled: true,

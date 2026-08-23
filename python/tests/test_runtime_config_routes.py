@@ -56,11 +56,14 @@ def _payload(
 
 
 def test_runtime_config_updates_imported_runtime_config_references() -> None:
+    import os
+
     from clara_coder_backend.main import app
     from clara_coder_backend.session import state
     from clara_coder_backend.llm import messages
     from clara_coder_backend.llm import model_tuning
     orig = deepcopy(state.runtime_config)
+    orig_path = os.environ.get('PATH', '')
     try:
         with TestClient(app) as client:
             r = client.post('/runtime-config', json=_payload(allow_overlay=True))
@@ -87,7 +90,15 @@ def test_runtime_config_updates_imported_runtime_config_references() -> None:
             assert state.runtime_config.tools.allow_web_access is True
             assert state.runtime_config.tools.searxng_base_url == 'http://127.0.0.1:8080'
             assert messages.runtime_config.tools.allow_web_access is True
+
+            r4_body = _payload()
+            r4_body['tools']['extraUserPath'] = '/opt/clara-extra'
+            r4 = client.post('/runtime-config', json=r4_body)
+            assert r4.status_code == 200
+            assert state.runtime_config.tools.extra_user_path == '/opt/clara-extra'
+            assert '/opt/clara-extra' in os.environ['PATH'].split(os.pathsep)
     finally:
+        os.environ['PATH'] = orig_path
         state.runtime_config.active_connection_id = orig.active_connection_id
         state.runtime_config.connections = orig.connections
         state.runtime_config.audio = orig.audio

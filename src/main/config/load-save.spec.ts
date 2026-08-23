@@ -152,3 +152,12 @@ describe('migrateConfig audio', () => {
     expect(migrated.audioTranscription.model).toBe('small');
   });
 });
+
+describe('migrateConfig workspace tools extraUserPath', () => {
+  it('defaults missing extraUserPath to empty string', () => {
+    const cfg = sampleConfig();
+    delete cfg.workspaceTools.extraUserPath;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.workspaceTools.extraUserPath).toBe('');
+  });
+});

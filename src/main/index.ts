@@ -8,10 +8,11 @@ import { registerPrivilegedSchemes } from './protocol/register-privileged';
 import { ensurePythonServer } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { registerNemoAssetProtocol } from './protocol/nemo-asset';
-import { loadConfig } from './config/load-save';
+import { loadConfig, loadConfigSync } from './config/load-save';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
 import { getLlamaManagedRuntimeOverrides } from './llama-server-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
+import { applyResolvedUserPath } from './runtime/user-path';
 import { clearWorkspaceWatcher, refreshWorkspaceWatcherForCurrentConfig } from './workspace/watcher';
 import { createMainWindow } from './windows/main-window';
 import { registerAllIpc } from './ipc/register-ipc';
@@ -52,9 +53,29 @@ function applyLinuxDisplayWorkarounds(): void {
 
 applyLinuxDisplayWorkarounds();
 
-app.setName('Clara Coder');
+// Match the binary / .desktop StartupWMClass on Linux so the window manager
+// associates our windows with the `clara-coder` launcher entry (and its icon).
+// macOS keeps the display name for the menu bar; userData is pinned to
+// `clara-coder` separately in configureAppDataDir().
+app.setName(process.platform === 'darwin' ? 'Clara Coder' : 'clara-coder');
 // Pin userData to ``clara-coder`` (and migrate ``nemo-wrapper``) before IPC/SQLite/config.
 configureAppDataDir();
+
+function extraUserPathFromDisk(): string {
+  try {
+    return loadConfigSync().workspaceTools?.extraUserPath ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// Overlap login-shell PATH probe with app ready / window create so the sidecar
+// still inherits the reconstructed PATH without delaying the first paint.
+const userPathReady = applyResolvedUserPath({ extraUserPath: extraUserPathFromDisk() }).catch(
+  (err) => {
+    console.error('[Main] User PATH recovery failed:', err);
+  },
+);
 
 registerPrivilegedSchemes();
 registerAllIpc();
@@ -68,6 +89,7 @@ app
     registerNemoAssetProtocol();
     createMainWindow();
 
+    await userPathReady;
     try {
       await ensurePythonServer();
     } catch (err) {

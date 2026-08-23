@@ -16,6 +16,7 @@ from clara_coder_backend.domain import (
     RuntimeToolsConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
+from clara_coder_backend.runtime.python_env import apply_extra_user_path
 from clara_coder_backend.session.schemas import ChatTemplateReasoningCapsRequest, RuntimeConfigRequest
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 from clara_coder_backend.session import state
@@ -116,6 +117,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             expose_all_workspace_files=request.tools.exposeAllWorkspaceFiles,
             allow_web_access=request.tools.allowWebAccess,
             searxng_base_url=(request.tools.searxngBaseUrl or '').strip().rstrip('/'),
+            extra_user_path=(request.tools.extraUserPath or '').strip(),
         )
     else:
         tools_cfg = prev_tools
@@ -169,6 +171,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     )
     cfg.tools = tools_cfg
     cfg.context_compression = context_compression_cfg
+    apply_extra_user_path(tools_cfg.extra_user_path)
     logger.info(
         'POST /runtime-config applied (tools payload: %s, contextCompression: %s)',
         'yes' if request.tools is not None else 'no',

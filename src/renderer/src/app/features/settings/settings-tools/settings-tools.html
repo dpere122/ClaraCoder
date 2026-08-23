@@ -76,6 +76,21 @@
                   autocomplete='off'
                 />
               </label>
+              <div class='field field--hint field--full'>
+                <span>Extra PATH directories</span>
+                <textarea
+                  rows='3'
+                  [ngModel]='s.extraUserPath()'
+                  (ngModelChange)='s.onExtraUserPathChange($event)'
+                  placeholder='~/.local/bin'
+                  spellcheck='false'
+                ></textarea>
+                <p class='settings-field-hint'>
+                  One directory per line, prepended onto agent <code>run_command</code> PATH. Login-shell PATH and
+                  common user bins (<code>~/.local/bin</code>, <code>~/.cargo/bin</code>, Homebrew, …) are included
+                  automatically when Clara Coder is launched from a desktop menu.
+                </p>
+              </div>
             </div>
             <div class='callout'>
               <p>

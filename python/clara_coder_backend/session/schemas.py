@@ -420,6 +420,11 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('searxngBaseUrl', 'searxng_base_url'),
     )
 
+    extraUserPath: str = Field(
+        default='',
+        validation_alias=AliasChoices('extraUserPath', 'extra_user_path'),
+    )
+
     @field_validator('allowStagingOverlayCommands', mode='before')
     @classmethod
     def _normalize_allow_overlay(cls, v: Any) -> Any:
@@ -446,6 +451,13 @@ class RuntimeToolsRequest(BaseModel):
         if v is None:
             return ''
         return str(v).strip().rstrip('/')
+
+    @field_validator('extraUserPath', mode='before')
+    @classmethod
+    def _normalize_extra_user_path(cls, v: Any) -> Any:
+        if v is None:
+            return ''
+        return str(v).strip()
 
 
 class RuntimeContextCompressionRequest(BaseModel):

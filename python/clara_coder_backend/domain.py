@@ -388,6 +388,8 @@ class RuntimeToolsConfig:
     allow_web_access: bool = False
     #: SearXNG instance base URL for ``web_search`` (e.g. ``http://127.0.0.1:8080``).
     searxng_base_url: str = ''
+    #: Extra directories prepended onto agent ``run_command`` PATH (Settings → Tools).
+    extra_user_path: str = ''
 
 
 @dataclass

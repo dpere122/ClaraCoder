@@ -583,6 +583,12 @@ export interface WorkspaceToolsConfig {
   allowWebAccess?: boolean;
   /** Base URL of a SearXNG instance (e.g. `http://127.0.0.1:8080`). Empty until configured. */
   searxngBaseUrl?: string;
+  /**
+   * Extra directories prepended onto agent `run_command` PATH (one per line).
+   * Login-shell PATH and common user bins (`~/.local/bin`, `~/.cargo/bin`, …) are
+   * included automatically on packaged GUI launches.
+   */
+  extraUserPath?: string;
 }
 
 /** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */

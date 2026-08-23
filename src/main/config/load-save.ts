@@ -1161,6 +1161,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
         migrated = true;
       }
     }
+    const extraPathRaw = (wt as unknown as { extraUserPath?: unknown }).extraUserPath;
+    if (typeof extraPathRaw !== 'string') {
+      wt.extraUserPath = '';
+      migrated = true;
+    } else if (extraPathRaw.length > 16_384) {
+      wt.extraUserPath = extraPathRaw.slice(0, 16_384);
+      migrated = true;
+    }
   }
 
   const ccRaw = (newConfig as AppConfig & { contextCompression?: ContextCompressionConfig }).contextCompression;

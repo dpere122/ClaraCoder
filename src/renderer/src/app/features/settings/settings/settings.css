@@ -1613,12 +1613,14 @@ button.linkish {
 
 .field input,
 .field select,
+.field textarea,
 .action-button {
   font: inherit;
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   padding: 6px 10px;
   min-height: 30px;
@@ -1841,11 +1843,20 @@ button.linkish {
 
 .settings-pane--sectioned .field input:not([type='checkbox']):not([type='range']),
 .settings-pane--sectioned .field select,
+.settings-pane--sectioned .field textarea,
 .settings-pane--monaco .field input:not([type='checkbox']):not([type='range']),
-.settings-pane--monaco .field select {
+.settings-pane--monaco .field select,
+.settings-pane--monaco .field textarea {
   min-height: 28px;
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.settings-pane--sectioned .field textarea,
+.settings-pane--monaco .field textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
 }
 
 .settings-pane--sectioned .field input[type='range'],

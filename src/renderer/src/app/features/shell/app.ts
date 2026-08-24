@@ -1691,7 +1691,7 @@ export class App implements OnInit, OnDestroy {
     this.closeChromeMenu();
     await this.themedConfirm.open({
       title: 'About Clara Coder',
-      message: 'Clara Coder v1.0.0',
+      message: 'Clara Coder v0.1.0',
       detail: 'An AI chat application with speech synthesis and recognition.',
       confirmText: 'OK',
       cancelText: 'Close',

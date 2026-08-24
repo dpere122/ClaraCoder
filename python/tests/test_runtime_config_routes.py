@@ -184,6 +184,29 @@ def test_runtime_config_clears_custom_models_dir_when_empty() -> None:
         state.runtime_config.tools = orig.tools
 
 
+def test_runtime_config_stores_embeddings_configured() -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+
+    orig = deepcopy(state.runtime_config)
+    body = _payload()
+    body['connections'][0]['embeddingsEnabled'] = False
+    body['connections'][0]['embeddingsConfigured'] = True
+    try:
+        with TestClient(app) as client:
+            r = client.post('/runtime-config', json=body)
+        assert r.status_code == 200
+        conn = state.runtime_config.connections[0]
+        assert conn.embeddings_configured is True
+        assert conn.embeddings_enabled is False
+    finally:
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+        state.runtime_config.tools = orig.tools
+
+
 def test_runtime_config_applies_hugging_face_token() -> None:
     import os
 

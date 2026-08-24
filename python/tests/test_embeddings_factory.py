@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import threading
+import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,7 +24,7 @@ def _llamacpp_conn(**kwargs: object) -> RuntimeConnection:
         'parallel_tool_calls': False,
         'optimization_preset': 'generic',
         'max_output_tokens': 0,
-        'embeddings_enabled': True,
+        'embeddings_enabled': False,
     }
     base.update(kwargs)
     return RuntimeConnection(**base)  # type: ignore[arg-type]
@@ -41,224 +43,253 @@ def _lmstudio_conn(**kwargs: object) -> RuntimeConnection:
         'parallel_tool_calls': False,
         'optimization_preset': 'generic',
         'max_output_tokens': 0,
-        'embeddings_enabled': True,
+        'embeddings_enabled': False,
     }
     base.update(kwargs)
     return RuntimeConnection(**base)  # type: ignore[arg-type]
 
 
-def test_build_embedding_model_skips_llamacpp_when_chat_base_uses_port_zero(monkeypatch) -> None:
+def _openai_conn(**kwargs: object) -> RuntimeConnection:
+    base: dict[str, object] = {
+        'id': 'c',
+        'name': 'c',
+        'provider': 'openai',
+        'base_url': 'https://api.openai.com/v1',
+        'model': 'gpt-4o',
+        'api_key': 'sk-test',
+        'reasoning_effort': '',
+        'temperature': 0.0,
+        'parallel_tool_calls': False,
+        'optimization_preset': 'generic',
+        'max_output_tokens': 0,
+        'embeddings_enabled': False,
+    }
+    base.update(kwargs)
+    return RuntimeConnection(**base)  # type: ignore[arg-type]
+
+
+def test_build_embedding_model_uses_cpu_nomic_for_llamacpp(monkeypatch) -> None:
     from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
+    mock_cpu = MagicMock()
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', lambda: (mock_cpu, ''))
+
+    emb, err = ef.build_embedding_model(_llamacpp_conn())
+    assert err == ''
+    assert emb is mock_cpu
+
+
+def test_build_embedding_model_uses_cpu_nomic_for_lmstudio(monkeypatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    mock_cpu = MagicMock()
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', lambda: (mock_cpu, ''))
+
+    emb, err = ef.build_embedding_model(_lmstudio_conn())
+    assert err == ''
+    assert emb is mock_cpu
+
+
+def test_build_embedding_model_uses_cpu_nomic_for_openai(monkeypatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    mock_cpu = MagicMock()
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', lambda: (mock_cpu, ''))
+
+    emb, err = ef.build_embedding_model(_openai_conn())
+    assert err == ''
+    assert emb is mock_cpu
+
+
+def test_build_embedding_model_skips_when_chat_server_not_running(monkeypatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
         called.append(True)
 
-    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', _no)
 
     emb, err = ef.build_embedding_model(
-        _llamacpp_conn(base_url='http://127.0.0.1:0/v1', embeddings_model='emb-model'),
+        _llamacpp_conn(base_url='http://127.0.0.1:0/v1'),
     )
     assert emb is None
-    assert 'unavailable' in err.lower()
+    assert 'not running' in err.lower()
     assert not called
 
 
-def test_build_embedding_model_skips_llamacpp_when_embeddings_disabled(monkeypatch) -> None:
+def test_build_embedding_model_skips_when_no_chat_model(monkeypatch) -> None:
     from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
         called.append(True)
 
-    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', _no)
 
-    emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_enabled=False))
+    emb, err = ef.build_embedding_model(_llamacpp_conn(model=''))
     assert emb is None
-    assert 'disabled' in err.lower()
+    assert 'no chat model' in err.lower()
     assert not called
 
 
-@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
-def test_build_embedding_model_llamacpp_disabled_still_uses_nemo_embeddings_url(mock_ctor: MagicMock, monkeypatch) -> None:
+def test_build_embedding_model_skips_when_cpu_disabled(monkeypatch) -> None:
     from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    mock_inst = MagicMock()
-    mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
-
-    emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_enabled=False))
-    assert err == ''
-    assert emb is mock_inst
-
-
-@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
-def test_build_embedding_model_respects_nemo_embeddings_base_url(mock_ctor: MagicMock, monkeypatch) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-
-    mock_inst = MagicMock()
-    mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
-
-    emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_model='emb-model'))
-    assert err == ''
-    assert emb is mock_inst
-    kwargs = mock_ctor.call_args.kwargs
-    assert kwargs.get('api_base') == 'http://127.0.0.1:9000/v1'
-
-
-@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
-def test_build_embedding_model_per_connection_embeddings_base_url_over_env(mock_ctor: MagicMock, monkeypatch) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-
-    mock_inst = MagicMock()
-    mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:9000')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
-
-    conn = _llamacpp_conn(embeddings_base_url='http://127.0.0.1:7777')
-    emb, err = ef.build_embedding_model(conn)
-    assert err == ''
-    assert emb is mock_inst
-    kwargs = mock_ctor.call_args.kwargs
-    assert kwargs.get('api_base') == 'http://127.0.0.1:7777/v1'
-
-
-@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
-def test_build_embedding_model_respects_nemo_embeddings_api_key(mock_ctor: MagicMock, monkeypatch) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-
-    mock_inst = MagicMock()
-    mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', 'secret-emb')
-
-    emb, err = ef.build_embedding_model(_llamacpp_conn(embeddings_model='emb-model'))
-    assert err == ''
-    assert emb is mock_inst
-    kwargs = mock_ctor.call_args.kwargs
-    assert kwargs.get('api_key') == 'secret-emb'
-
-
-def test_make_chunk_pooling_embedding_llamacpp_allows_hf_style_model_id() -> None:
-    from clara_coder_backend.workspace_index.embeddings_factory import _make_chunk_pooling_embedding
-
-    conn = _llamacpp_conn()
-    emb = _make_chunk_pooling_embedding(
-        conn,
-        model='nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0',
-        api_key='k',
-        api_base='http://127.0.0.1:9/v1',
-        timeout=30.0,
-        max_retries=0,
-    )
-    assert emb._query_engine == 'nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0'
-    assert emb._text_engine == 'nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0'
-    assert emb.model_name == 'nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0'
-
-
-def test_resolve_embedding_model_id_prefers_connection_field() -> None:
-    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
-
-    conn = _llamacpp_conn(embeddings_model='custom-emb-id')
-    assert resolve_embedding_model_id(conn) == 'custom-emb-id'
-
-
-def test_resolve_embedding_model_id_llamacpp_falls_back_to_chat_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
-
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
-    conn = _llamacpp_conn(model='my-gguf', embeddings_model='', embeddings_base_url='')
-    assert resolve_embedding_model_id(conn) == 'my-gguf'
-
-
-def test_resolve_embedding_model_id_uses_env_default_on_dedicated_embeddings_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
-
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', 'http://127.0.0.1:8081')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_MODEL', 'nomic-embed-text')
-    conn = _llamacpp_conn(model='my-chat-gguf', embeddings_model='')
-    assert resolve_embedding_model_id(conn) == 'nomic-embed-text'
-
-
-def test_resolve_embedding_model_id_uses_env_default_on_per_connection_embeddings_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
-
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_MODEL', 'nomic-embed-text')
-    conn = _llamacpp_conn(model='my-chat-gguf', embeddings_model='', embeddings_base_url='http://127.0.0.1:8081')
-    assert resolve_embedding_model_id(conn) == 'nomic-embed-text'
-
-
-@patch('clara_coder_backend.workspace_index.embeddings_factory.ChunkPoolingOpenAIEmbedding')
-def test_build_embedding_model_skips_probe_within_ttl(mock_ctor: MagicMock, monkeypatch) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-
-    ef._embedding_probe_ok_mono.clear()
-    mock_inst = MagicMock()
-    mock_ctor.return_value = mock_inst
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_API_KEY', '')
-
-    conn = _llamacpp_conn(embeddings_model='emb-model')
-    emb1, err1 = ef.build_embedding_model(conn)
-    assert err1 == '' and emb1 is mock_inst
-    emb2, err2 = ef.build_embedding_model(conn)
-    assert err2 == '' and emb2 is mock_inst
-    assert mock_inst.get_query_embedding.call_count == 1
-
-
-def test_chunk_text_for_embedding_splits_long_text() -> None:
-    from clara_coder_backend.workspace_index.embeddings_factory import _chunk_text_for_embedding
-
-    long = ('word ' * 3000).strip()
-    parts = _chunk_text_for_embedding(long, 64)
-    assert len(parts) > 1
-    assert all(p.strip() for p in parts)
-
-
-def test_build_embedding_model_skips_llamacpp_chat_only_without_probe(monkeypatch) -> None:
-    from clara_coder_backend.workspace_index import embeddings_factory as ef
-
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
         called.append(True)
 
-    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', False)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', _no)
 
     emb, err = ef.build_embedding_model(_llamacpp_conn())
     assert emb is None
-    assert 'chat-only' in err.lower()
+    assert 'cpu' in err.lower() or 'disabled' in err.lower()
     assert not called
 
 
-def test_build_embedding_model_skips_lmstudio_without_embeddings_model(monkeypatch) -> None:
+def test_build_embedding_model_skips_unsupported_provider(monkeypatch) -> None:
     from clara_coder_backend.workspace_index import embeddings_factory as ef
 
-    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_BASE_URL', '')
     called: list[object] = []
 
     def _no(*_a: object, **_k: object) -> None:
         called.append(True)
 
-    monkeypatch.setattr(ef, 'ChunkPoolingOpenAIEmbedding', _no)
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'build_fastembed_embedding', _no)
 
-    emb, err = ef.build_embedding_model(_lmstudio_conn())
+    emb, err = ef.build_embedding_model(
+        _llamacpp_conn(provider='python-t2i'),
+    )
     assert emb is None
-    assert 'embeddings model' in err.lower()
+    assert 'unsupported' in err.lower()
     assert not called
+
+
+def test_resolve_embedding_model_id_always_returns_nomic() -> None:
+    from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+
+    conn = _llamacpp_conn(embeddings_model='custom-emb-id')
+    assert resolve_embedding_model_id(conn) == 'nomic-ai/nomic-embed-text-v1.5'
+
+
+def test_embeddings_available_true_when_chat_connected(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    ok, reason = ef.embeddings_available(_llamacpp_conn())
+    assert ok is True
+    assert reason == ''
+
+
+def test_embeddings_available_false_when_chat_not_connected(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    ok, reason = ef.embeddings_available(_llamacpp_conn(model=''))
+    assert ok is False
+    assert 'no chat model' in reason.lower()
+
+
+def test_embeddings_available_false_when_cpu_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', False)
+    ok, reason = ef.embeddings_available(_llamacpp_conn())
+    assert ok is False
+    assert 'disabled' in reason.lower()
+
+
+def test_preload_embedding_model_triggers_background_load(monkeypatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    loaded: list[str] = []
+    event = threading.Event()
+
+    def _fake_engine(_name: str, _cache: object) -> object:
+        loaded.append('loaded')
+        event.set()
+        return MagicMock()
+
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'get_text_embedding_engine', _fake_engine)
+    # Reset preload guard.
+    ef._preloaded_key = None
+    ef._preload_in_flight = None
+
+    ef.preload_embedding_model(_llamacpp_conn())
+    assert event.wait(timeout=5)
+    assert loaded == ['loaded']
+
+
+def test_preload_embedding_model_skips_when_chat_not_connected(monkeypatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    loaded: list[str] = []
+
+    def _no(*_a: object, **_k: object) -> None:
+        loaded.append('loaded')
+
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'get_text_embedding_engine', _no)
+    ef._preloaded_key = None
+    ef._preload_in_flight = None
+
+    ef.preload_embedding_model(_llamacpp_conn(model=''))
+    assert loaded == []
+
+
+def test_preload_embedding_model_retries_after_failure(monkeypatch) -> None:
+    from clara_coder_backend.workspace_index import embeddings_factory as ef
+
+    calls: list[str] = []
+    fail_done = threading.Event()
+    success_done = threading.Event()
+
+    def _fail_then_ok(_name: str, _cache: object) -> object:
+        if not calls:
+            calls.append('fail')
+            fail_done.set()
+            raise RuntimeError('transient preload error')
+        calls.append('ok')
+        success_done.set()
+        return MagicMock()
+
+    monkeypatch.setattr(ef, 'CLARA_EMBEDDINGS_CPU_ENABLED', True)
+    monkeypatch.setattr(ef, 'get_text_embedding_engine', _fail_then_ok)
+    ef._preloaded_key = None
+    ef._preload_in_flight = None
+
+    conn = _llamacpp_conn()
+    ef.preload_embedding_model(conn)
+    assert fail_done.wait(timeout=5)
+    for _ in range(50):
+        if ef._preload_in_flight is None:
+            break
+        time.sleep(0.02)
+    else:
+        raise AssertionError('preload in-flight was not cleared after failure')
+    assert ef._preloaded_key is None
+
+    ef.preload_embedding_model(conn)
+    assert success_done.wait(timeout=5)
+    assert calls == ['fail', 'ok']
+    for _ in range(50):
+        if ef._preloaded_key is not None:
+            break
+        time.sleep(0.02)
+    assert ef._preloaded_key is not None
+
+    ef.preload_embedding_model(conn)
+    time.sleep(0.15)
+    assert calls == ['fail', 'ok']

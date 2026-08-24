@@ -26,6 +26,7 @@ import type {
   LlamaServerProcessExitEvent,
   LlamaServerStartResult,
   LlamaServerStatusResult,
+  EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
   ChatTemplateReasoningCaps,
   LmStudioListModelsResult,
@@ -1376,6 +1377,12 @@ export class ElectronService {
       this.ingestStatusReasoning(result);
     }
     return result;
+  }
+
+  async embeddingsStatus(): Promise<EmbeddingsStatusResult | { ok: false; error: string }> {
+    return (
+      this.api?.embeddingsStatus() ?? Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
   }
 
   async refreshChatTemplateReasoning(modelId: string): Promise<ChatTemplateReasoningCaps | null> {

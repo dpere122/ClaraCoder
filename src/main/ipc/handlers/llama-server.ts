@@ -11,6 +11,7 @@ import {
 } from '../../llama-server-manager';
 import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
+import { pythonControlFetch } from '../../python/http-client';
 import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
 export interface LlamaServerIpcPayload {
@@ -117,5 +118,23 @@ export function registerLlamaServerIpc(): void {
     const base = typeof payload?.baseUrl === 'string' ? payload.baseUrl : '';
     const key = typeof payload?.apiKey === 'string' ? payload.apiKey : '';
     return fetchOpenAiCompatibleModelIds(base, key);
+  });
+
+  ipcMain.handle('embeddings:status', async (event) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    try {
+      const res = await pythonControlFetch('/embeddings/status');
+      if (!res.ok) {
+        return { ok: false as const, error: `Python returned ${res.status}` };
+      }
+      const body = (await res.json()) as { status: string; model: string };
+      return { ok: true as const, status: body.status, model: body.model };
+    } catch (err) {
+      return { ok: false as const, error: String(err) };
+    }
   });
 }

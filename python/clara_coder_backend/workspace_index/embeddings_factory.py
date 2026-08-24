@@ -1,311 +1,142 @@
-"""OpenAI-compatible embeddings from the active :class:`~clara_coder_backend.domain.RuntimeConnection`."""
+"""In-process FastEmbed/ONNX CPU embeddings (Nomic) as the primary embedding backend."""
 
 from __future__ import annotations
 
 import logging
-import math
-import os
-import time
-from typing import Any
+import threading
 
-from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.base.embeddings.base import BaseEmbedding
-from llama_index.embeddings.openai import OpenAIEmbedding
 
-from clara_coder_backend.config import (
-    DEFAULT_LLAMACPP_BASE_URL,
-    DEFAULT_LM_STUDIO_BASE_URL,
-    CLARA_EMBEDDINGS_API_KEY,
-    CLARA_EMBEDDINGS_BASE_URL,
-    CLARA_EMBEDDINGS_MAX_INPUT_TOKENS,
-    CLARA_EMBEDDINGS_MODEL,
-)
+from clara_coder_backend.config import CLARA_EMBEDDINGS_CPU_ENABLED
 from clara_coder_backend.domain import RuntimeConnection
-from clara_coder_backend.runtime.http_url_normalize import normalize_openai_api_base
-from clara_coder_backend.session.state import require_openai_api_key
+from clara_coder_backend.workspace_index.fastembed_backend import (
+    build_fastembed_embedding,
+    fastembed_model_id,
+    get_text_embedding_engine,
+    fastembed_cache_dir,
+)
 
 logger = logging.getLogger('clara.workspace_index.embeddings')
 
-# Skip redundant probe HTTP calls when the same connection signature succeeded recently.
-_EMBEDDING_PROBE_TTL_SEC = 120.0
-_embedding_probe_ok_mono: dict[str, float] = {}
-_EMBEDDING_PROBE_CACHE_MAX = 64
+_CHAT_EMBEDDING_PROVIDERS = frozenset({'openai', 'lmstudio', 'llamacpp'})
+_logged_backend_choice: set[str] = set()
+_preload_lock = threading.Lock()
+_preloaded_key: str | None = None
+_preload_in_flight: str | None = None
 
 
-def _has_dedicated_embeddings_endpoint(connection: RuntimeConnection) -> bool:
-    """True when embeddings HTTP calls should not reuse the chat server's model id."""
-    if CLARA_EMBEDDINGS_BASE_URL:
-        return True
-    return bool((getattr(connection, 'embeddings_base_url', None) or '').strip())
+def _chat_base_is_placeholder(connection: RuntimeConnection) -> bool:
+    """True when managed llama.cpp forwarded a stopped chat server (port 0)."""
+    base = (connection.base_url or '').strip().replace('\\', '/')
+    return ':0/v1' in base
+
+
+def chat_connected(connection: RuntimeConnection) -> tuple[bool, str]:
+    """Whether a chat model is selected and (for managed llama.cpp) actually running."""
+    if connection.provider not in _CHAT_EMBEDDING_PROVIDERS:
+        return False, f'Embeddings unavailable: unsupported provider {connection.provider!r}.'
+    if not (connection.model or '').strip():
+        return False, 'Semantic index skipped: no chat model is selected.'
+    if connection.provider == 'llamacpp' and _chat_base_is_placeholder(connection):
+        return (
+            False,
+            'Semantic index skipped: managed llama.cpp chat server is not running.',
+        )
+    return True, ''
+
+
+def cpu_embeddings_available(connection: RuntimeConnection) -> tuple[bool, str]:
+    """True when in-process FastEmbed/ONNX CPU embeddings should run for *connection*."""
+    if not CLARA_EMBEDDINGS_CPU_ENABLED:
+        return False, 'CPU embeddings are disabled (CLARA_EMBEDDINGS_CPU_ENABLED).'
+    chat_ok, chat_reason = chat_connected(connection)
+    if not chat_ok:
+        return False, chat_reason
+    return True, ''
+
+
+def _log_backend_once(key: str, message: str, *args: object) -> None:
+    if key in _logged_backend_choice:
+        logger.debug(message, *args)
+        return
+    _logged_backend_choice.add(key)
+    logger.info(message, *args)
 
 
 def resolve_embedding_model_id(connection: RuntimeConnection) -> str:
-    """Effective OpenAI-compatible embeddings model id (matches :func:`build_embedding_model`)."""
-    explicit = (getattr(connection, 'embeddings_model', None) or '').strip()
-    if explicit:
-        return explicit
-    # Dedicated embedding server (env or per-connection URL): use embeddings default, not chat GGUF id.
-    if _has_dedicated_embeddings_endpoint(connection):
-        return CLARA_EMBEDDINGS_MODEL
-    # Same-process llama-server: chat and embed often share one loaded model name.
-    if connection.provider == 'llamacpp':
-        chat_model = (connection.model or '').strip()
-        if chat_model:
-            return chat_model
-    return CLARA_EMBEDDINGS_MODEL
-
-
-def _prune_embedding_probe_cache(now: float) -> None:
-    ttl = _EMBEDDING_PROBE_TTL_SEC
-    stale = [k for k, ts in _embedding_probe_ok_mono.items() if (now - ts) >= ttl]
-    for k in stale:
-        _embedding_probe_ok_mono.pop(k, None)
-    while len(_embedding_probe_ok_mono) > _EMBEDDING_PROBE_CACHE_MAX:
-        oldest = min(_embedding_probe_ok_mono.items(), key=lambda kv: kv[1])[0]
-        _embedding_probe_ok_mono.pop(oldest, None)
-
-
-def _embedding_probe_signature(connection: RuntimeConnection, *, model: str, api_base: str | None) -> str:
-    """Stable key for probe skip — must change when embedding endpoint or model identity changes."""
-    ab = (api_base or '').strip()
-    conn_emb = (getattr(connection, 'embeddings_base_url', None) or '').strip()
-    return f'{connection.provider}\0{model}\0{ab}\0{conn_emb}'
-
-
-def _mean_l2_normalize(vectors: list[list[float]]) -> list[float]:
-    """Average embedding vectors and L2-normalize (common pooled-document convention)."""
-    if not vectors:
-        return []
-    dim = len(vectors[0])
-    acc = [0.0] * dim
-    for v in vectors:
-        for i, x in enumerate(v):
-            acc[i] += x
-    n = float(len(vectors))
-    mean = [x / n for x in acc]
-    norm = math.sqrt(sum(x * x for x in mean)) or 1.0
-    return [x / norm for x in mean]
-
-
-def _chunk_text_for_embedding(text: str, max_tokens: int) -> list[str]:
-    """Split *text* into segments with at most *max_tokens* ``cl100k_base`` tokens each."""
-    import tiktoken
-
-    enc = tiktoken.get_encoding('cl100k_base')
-    ids = enc.encode(text, disallowed_special=())
-    if len(ids) <= max_tokens:
-        return [text]
-    return [enc.decode(ids[i : i + max_tokens]) for i in range(0, len(ids), max_tokens)]
-
-
-class ChunkPoolingOpenAIEmbedding(OpenAIEmbedding):
-    """``OpenAIEmbedding`` that splits long inputs and mean-pools chunk vectors.
-
-    Local ``llama-server --embedding`` defaults to a small physical batch (``n_ubatch``, often 512). A single
-    request above that limit returns HTTP 500. Index nodes can also exceed the server's tokenizer count versus
-    LlamaIndex's sentence splitter. Chunking here keeps OpenAI-compatible servers stable.
-    """
-
-    _max_chunk_tokens: int = PrivateAttr()
-
-    def __init__(self, max_input_tokens: int | None = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        cap = int(max_input_tokens) if max_input_tokens is not None else int(CLARA_EMBEDDINGS_MAX_INPUT_TOKENS)
-        self._max_chunk_tokens = max(32, cap)
-
-    def _get_query_embedding(self, query: str) -> list[float]:
-        norm = query.replace('\n', ' ')
-        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
-        if len(chunks) == 1:
-            return super()._get_query_embedding(norm)
-        vecs = [super()._get_query_embedding(c) for c in chunks]
-        return _mean_l2_normalize(vecs)
-
-    async def _aget_query_embedding(self, query: str) -> list[float]:
-        norm = query.replace('\n', ' ')
-        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
-        if len(chunks) == 1:
-            return await super()._aget_query_embedding(norm)
-        vecs = [await super()._aget_query_embedding(c) for c in chunks]
-        return _mean_l2_normalize(vecs)
-
-    def _get_text_embedding(self, text: str) -> list[float]:
-        norm = text.replace('\n', ' ')
-        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
-        if len(chunks) == 1:
-            return super()._get_text_embedding(chunks[0])
-        vecs = [super()._get_text_embedding(c) for c in chunks]
-        return _mean_l2_normalize(vecs)
-
-    async def _aget_text_embedding(self, text: str) -> list[float]:
-        norm = text.replace('\n', ' ')
-        chunks = _chunk_text_for_embedding(norm, self._max_chunk_tokens)
-        if len(chunks) == 1:
-            return await super()._aget_text_embedding(chunks[0])
-        vecs = [await super()._aget_text_embedding(c) for c in chunks]
-        return _mean_l2_normalize(vecs)
-
-    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
-        return [self._get_text_embedding(t) for t in texts]
-
-    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
-        return [await self._aget_text_embedding(t) for t in texts]
-
-
-# LlamaIndex validates ``model`` against ``OpenAIEmbeddingModelType`` (OpenAI ids only). Local servers expose arbitrary ids.
-_LLAMA_INDEX_OPENAI_EMBEDDING_STUB = 'text-embedding-3-small'
-
-
-def _openai_compatible_local_embedding(connection: RuntimeConnection) -> bool:
-    return connection.provider in ('llamacpp', 'lmstudio')
-
-
-def _make_chunk_pooling_embedding(connection: RuntimeConnection, **kwargs: Any) -> ChunkPoolingOpenAIEmbedding:
-    """Build :class:`ChunkPoolingOpenAIEmbedding`, bypassing enum validation for LM Studio / llama.cpp model names."""
-    model = (kwargs.pop('model', None) or '').strip() or _LLAMA_INDEX_OPENAI_EMBEDDING_STUB
-    if not _openai_compatible_local_embedding(connection):
-        kwargs['model'] = model
-        return ChunkPoolingOpenAIEmbedding(**kwargs)
-    real_id = model
-    kwargs['model'] = _LLAMA_INDEX_OPENAI_EMBEDDING_STUB
-    emb = ChunkPoolingOpenAIEmbedding(**kwargs)
-    emb._query_engine = real_id
-    emb._text_engine = real_id
-    emb.model_name = real_id
-    return emb
+    """Effective embeddings model id (matches :func:`build_embedding_model`)."""
+    return fastembed_model_id()
 
 
 def embeddings_available(connection: RuntimeConnection) -> tuple[bool, str]:
-    """Return whether semantic index / embedding HTTP calls should run for *connection*."""
-    enabled = getattr(connection, 'embeddings_enabled', True)
-    conn_emb = (getattr(connection, 'embeddings_base_url', None) or '').strip()
-    emb_model = (getattr(connection, 'embeddings_model', None) or '').strip()
-
-    if not enabled:
-        if CLARA_EMBEDDINGS_BASE_URL or conn_emb:
-            pass
-        elif connection.provider == 'llamacpp':
-            return (
-                False,
-                'Semantic index / embeddings are disabled for this llama.cpp model preset. '
-                'Enable the embedding server in Settings (Models → Embedding), or set CLARA_EMBEDDINGS_BASE_URL '
-                'to a dedicated OpenAI-compatible embeddings API.',
-            )
-        else:
-            return False, 'Semantic index / embeddings are disabled for this connection.'
-
-    if CLARA_EMBEDDINGS_BASE_URL:
+    """Return whether semantic index / embedding calls should run for *connection*."""
+    cpu_ok, cpu_reason = cpu_embeddings_available(connection)
+    if cpu_ok:
         return True, ''
-
-    if connection.provider == 'openai':
-        return True, ''
-
-    if connection.provider == 'lmstudio':
-        if not emb_model:
-            return (
-                False,
-                'Semantic index unavailable: no embeddings model configured in Settings (Models → Embedding).',
-            )
-        return True, ''
-
-    if connection.provider == 'llamacpp':
-        if conn_emb or emb_model:
-            return True, ''
-        return (
-            False,
-            'Semantic index / embeddings are disabled for this llama.cpp preset (chat-only). '
-            'Configure an embeddings model or a dedicated embeddings base URL in Settings, '
-            'or set CLARA_EMBEDDINGS_BASE_URL.',
-        )
-
-    return False, f'Embeddings unavailable: unsupported provider {connection.provider!r}.'
+    return False, cpu_reason
 
 
 def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding | None, str]:
-    """Construct a token-capped ``OpenAIEmbedding`` wrapper from *connection* settings, or ``(None, error_message)``.
+    """Construct CPU FastEmbed (Nomic) embeddings, or ``(None, error_message)``.
 
-    When ``CLARA_EMBEDDINGS_BASE_URL`` is set (see :mod:`clara_coder_backend.config`), embeddings use that OpenAI-compatible
-    base URL instead of the chat connection's ``base_url``—so a dedicated local server (e.g. ``llama-server`` with
-    ``--embedding`` on port 8081) can run alongside the main chat ``llama-server`` on port 8080.
-
-    For **llama.cpp** presets, embeddings are skipped when the UI has no embedding model/server configured
-    (``embeddings_enabled`` is false), unless ``CLARA_EMBEDDINGS_BASE_URL`` or per-connection ``embeddings_base_url``
-    supplies a dedicated endpoint.
+    CPU Nomic is the primary embedding backend. It activates as soon as a chat
+    model is connected — no HTTP embeddings endpoint is used.
     """
-    ok, reason = embeddings_available(connection)
-    if not ok:
-        return None, reason
+    cpu_ok, cpu_reason = cpu_embeddings_available(connection)
+    if not cpu_ok:
+        logger.info(
+            'Semantic index skipped provider=%s chat_model=%s: %s',
+            connection.provider,
+            (connection.model or '').strip() or '(none)',
+            cpu_reason,
+        )
+        return None, cpu_reason
 
-    model = resolve_embedding_model_id(connection)
-    base_url = (connection.base_url or '').strip()
-    api_key = (connection.api_key or '').strip()
+    model_id = fastembed_model_id()
+    _log_backend_once(
+        f'cpu\0{connection.provider}\0{model_id}',
+        'Using CPU Nomic FastEmbed embeddings (primary) provider=%s chat_model=%s embed_model=%s',
+        connection.provider,
+        (connection.model or '').strip() or '(none)',
+        model_id,
+    )
+    return build_fastembed_embedding()
 
-    if connection.provider == 'openai':
-        api_key = api_key or os.getenv('OPENAI_API_KEY', '')
+
+def preload_embedding_model(connection: RuntimeConnection) -> None:
+    """Start loading the CPU Nomic ONNX model in a background thread.
+
+    Called as soon as the chat model is connected (``POST /runtime-config``)
+    so the model is resident in memory before the first semantic tool call.
+    Safe to call repeatedly — only loads once per (model, cache) pair.
+    A failed load clears the in-flight guard so a later ``POST /runtime-config`` can retry.
+    """
+    cpu_ok, _ = cpu_embeddings_available(connection)
+    if not cpu_ok:
+        return
+
+    model_name = fastembed_model_id()
+    cache_dir = fastembed_cache_dir()
+    key = f'{model_name}\0{cache_dir}'
+    global _preloaded_key, _preload_in_flight
+    with _preload_lock:
+        if _preloaded_key == key or _preload_in_flight == key:
+            return
+        _preload_in_flight = key
+
+    def _load() -> None:
+        global _preloaded_key, _preload_in_flight
         try:
-            require_openai_api_key(api_key, 'OpenAI')
+            get_text_embedding_engine(model_name, cache_dir)
+            logger.info('CPU Nomic embeddings preloaded model=%s cache_dir=%s', model_name, cache_dir)
+            with _preload_lock:
+                _preloaded_key = key
         except Exception as exc:
-            return None, f'Embeddings unavailable: {exc}'
-        api_base = normalize_openai_api_base(base_url)
-    elif connection.provider == 'lmstudio':
-        base_url = base_url or DEFAULT_LM_STUDIO_BASE_URL
-        api_key = api_key or os.getenv('LM_STUDIO_API_KEY', 'lm-studio')
-        api_base = normalize_openai_api_base(base_url)
-    elif connection.provider == 'llamacpp':
-        base_url = base_url or DEFAULT_LLAMACPP_BASE_URL
-        api_key = api_key or os.getenv('LLAMACPP_API_KEY', 'not-needed')
-        api_base = normalize_openai_api_base(base_url)
-    else:
-        return None, f'Embeddings unavailable: unsupported provider {connection.provider!r}.'
+            logger.warning('CPU Nomic preload failed model=%s: %s', model_name, exc, exc_info=True)
+        finally:
+            with _preload_lock:
+                if _preload_in_flight == key:
+                    _preload_in_flight = None
 
-    conn_emb = (getattr(connection, 'embeddings_base_url', None) or '').strip()
-    if conn_emb:
-        api_base = normalize_openai_api_base(conn_emb)
-    elif CLARA_EMBEDDINGS_BASE_URL:
-        api_base = normalize_openai_api_base(CLARA_EMBEDDINGS_BASE_URL)
-    if CLARA_EMBEDDINGS_API_KEY:
-        api_key = CLARA_EMBEDDINGS_API_KEY.strip()
-
-    # Managed llama.cpp stopped: Electron forwards chat base URL with port 0. Avoid embedding HTTP calls.
-    if (
-        connection.provider == 'llamacpp'
-        and api_base
-        and ':0/v1' in api_base.replace('\\', '/')
-    ):
-        return (
-            None,
-            'Semantic index / embeddings are unavailable until the managed llama.cpp server is started, '
-            'or set CLARA_EMBEDDINGS_BASE_URL / a per-preset embeddings base URL to a running OpenAI-compatible endpoint.',
-        )
-
-    kwargs: dict[str, Any] = {
-        'model': model,
-        'api_key': api_key,
-        'timeout': 120.0,
-        'max_retries': 2,
-    }
-    if api_base:
-        kwargs['api_base'] = api_base
-
-    probe_key = _embedding_probe_signature(connection, model=model, api_base=api_base)
-    now = time.monotonic()
-    _prune_embedding_probe_cache(now)
-    probe_hit = _embedding_probe_ok_mono.get(probe_key)
-    skip_probe = probe_hit is not None and (now - probe_hit) < _EMBEDDING_PROBE_TTL_SEC
-
-    try:
-        embed = _make_chunk_pooling_embedding(connection, **kwargs)
-        if not skip_probe:
-            embed.get_query_embedding('nemo')
-            _embedding_probe_ok_mono[probe_key] = time.monotonic()
-    except Exception as exc:
-        logger.info('Embedding probe failed: %s', exc)
-        hint = (
-            'The active LLM server rejected or does not implement OpenAI-style POST /v1/embeddings. '
-            'For LM Studio or llama.cpp, either enable embeddings on the chat server, or run a dedicated ``llama-server`` '
-            'with ``--embedding`` and point ``CLARA_EMBEDDINGS_BASE_URL`` / ``CLARA_EMBEDDINGS_MODEL`` at it; '
-            'or use an OpenAI connection for chat/embeddings.'
-        )
-        return None, f'Semantic index unavailable ({type(exc).__name__}: {exc}). {hint}'
-
-    return embed, ''
+    t = threading.Thread(target=_load, name='clara-preload-embeddings', daemon=True)
+    t.start()

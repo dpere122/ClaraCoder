@@ -108,36 +108,21 @@ export function openAiV1BasesEquivalent(a: string, b: string): boolean {
 }
 
 /**
- * When false, Python skips workspace embeddings / semantic index for this connection.
- * OpenAI: always true. LM Studio: requires ``embeddingsModel``. llama.cpp managed: requires a running
- * managed embed URL. llama.cpp URL-only: requires ``embeddingsModel`` or a dedicated ``embeddingsBaseUrl``.
+ * CPU Nomic is the primary embedding backend. HTTP embeddings are no longer used,
+ * so this always returns false. Kept for wire compatibility.
  */
 export function embeddingsEnabledForWire(
-  c: LlmConnectionConfig,
-  llamaOverride: LlamaManagedRuntimeEndpoints | undefined,
+  _c: LlmConnectionConfig,
+  _llamaOverride: LlamaManagedRuntimeEndpoints | undefined,
 ): boolean {
-  if (c.provider === 'openai') {
-    return true;
-  }
-  if (c.provider === 'lmstudio') {
-    return !!(c.embeddingsModel ?? '').trim();
-  }
-  if (c.provider !== 'llamacpp') {
-    return false;
-  }
-  const managedEmb = (llamaOverride?.embeddingsBaseUrl ?? '').trim();
-  const staticEmb = (c.embeddingsBaseUrl ?? '').trim();
-  const chatBase = (c.baseUrl ?? '').trim();
-  const embModel = (c.embeddingsModel ?? '').trim();
-  if ((c.llamaCppManaged?.embeddingRunCommand ?? '').trim()) {
-    return !!managedEmb;
-  }
-  if (embModel) {
-    return !!(chatBase || staticEmb);
-  }
-  if (staticEmb && chatBase && !openAiV1BasesEquivalent(chatBase, staticEmb)) {
-    return true;
-  }
+  return false;
+}
+
+/**
+ * CPU Nomic is the primary embedding backend. No HTTP embeddings are configured,
+ * so this always returns false. Kept for wire compatibility.
+ */
+export function embeddingsConfiguredForWire(_c: LlmConnectionConfig): boolean {
   return false;
 }
 
@@ -203,6 +188,7 @@ function connectionToRuntimeWire(
     embeddingsBaseUrl,
     embeddingsModel: (c.embeddingsModel ?? '').trim(),
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
+    embeddingsConfigured: embeddingsConfiguredForWire(c),
     contextWindowTokens,
     ...(chatTemplateReasoning ? { chatTemplateReasoning } : {}),
   };

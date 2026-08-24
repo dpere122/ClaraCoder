@@ -208,3 +208,23 @@ def test_whisper_audio_omitted_model_uses_whisper_default() -> None:
         }
     )
     assert r.audio.model == DEFAULT_WHISPER_MODEL
+
+
+def test_embeddings_configured_camel_and_default() -> None:
+    defaulted = RuntimeConfigRequest.model_validate(
+        {
+            'activeConnectionId': 'x',
+            'connections': [_CONN],
+            'audio': {'provider': 'openai', 'baseUrl': '', 'apiKey': ''},
+        }
+    )
+    assert defaulted.connections[0].embeddingsConfigured is False
+
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [{**_CONN, 'embeddingsConfigured': True, 'embeddingsEnabled': False}],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'apiKey': ''},
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.connections[0].embeddingsConfigured is True
+    assert r.connections[0].embeddingsEnabled is False

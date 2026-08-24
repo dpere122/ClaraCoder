@@ -88,13 +88,13 @@ def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> N
     conn = get_active_connection()
     ok, reason = embeddings_available(conn)
     if not ok:
-        logger.debug('background semantic index skipped session=%s: %s', session_id, reason)
+        logger.info('background semantic index skipped session=%s: %s', session_id, reason)
         return
 
     mid = resolve_embedding_model_id(conn)
     embed_model, err = build_embedding_model(conn)
     if embed_model is None:
-        logger.debug('background semantic index skipped session=%s: %s', session_id, err)
+        logger.info('background semantic index skipped session=%s: %s', session_id, err)
         return
 
     root = Path(root_s).resolve()
@@ -112,7 +112,7 @@ def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> N
             embedding_model_id=mid,
         )
         if w_err:
-            logger.debug('background semantic corpus build skipped session=%s: %s', session_id, w_err)
+            logger.info('background semantic corpus build skipped session=%s: %s', session_id, w_err)
 
 
 def enqueue_semantic_index_changes(sess: SessionState, paths: list[str], kinds: list[str]) -> None:

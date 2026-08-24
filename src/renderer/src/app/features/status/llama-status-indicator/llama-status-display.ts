@@ -39,3 +39,16 @@ export function healthDotState(health: ManagedServerHealthState | 'off'): LlamaS
       return 'red';
   }
 }
+
+/** Map a CPU Nomic embeddings load status (from Python ``GET /embeddings/status``) to a dot. */
+export function embeddingsStatusDotState(status: string): LlamaStatusDotState {
+  switch (status) {
+    case 'ready':
+      return 'green';
+    case 'loading':
+      return 'yellow';
+    default:
+      // 'idle' | 'error' | 'disabled'
+      return 'red';
+  }
+}

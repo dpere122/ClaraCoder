@@ -90,6 +90,7 @@ function stubElectronApi(
       allowWebAccess: false,
       searxngBaseUrl: '',
       extraUserPath: '',
+      enableAgentFormatters: false,
     },
     contextCompression: {
       enabled: true,

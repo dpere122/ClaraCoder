@@ -217,6 +217,15 @@
   -webkit-app-region: no-drag;
 }
 
+.deps-btn-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.deps-btn-wrap .deps-btn {
+  width: 100%;
+}
+
 .deps-progress {
   margin-top: 6px;
   display: flex;

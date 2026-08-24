@@ -90,16 +90,21 @@ export function alignLlamaEmbeddingsBaseUrlWithChatHost(chatBaseUrl: string, emb
   }
 }
 
+/** Ensure an OpenAI-compatible chat/embeddings base ends with ``/v1``. */
+export function ensureOpenAiV1Base(url: string): string {
+  const s = (url || '').trim().replace(/\/+$/, '');
+  if (!s) {
+    return s;
+  }
+  if (s.toLowerCase().endsWith('/v1')) {
+    return s;
+  }
+  return `${s}/v1`;
+}
+
 /** Compare OpenAI-compatible ``…/v1`` bases for equality (trailing slashes optional). */
 export function openAiV1BasesEquivalent(a: string, b: string): boolean {
-  const norm = (raw: string) => {
-    let s = (raw || '').trim().replace(/\/+$/, '');
-    if (!s.toLowerCase().endsWith('/v1')) {
-      s = `${s}/v1`;
-    }
-    return s.toLowerCase();
-  };
-  return norm(a) === norm(b);
+  return ensureOpenAiV1Base(a).toLowerCase() === ensureOpenAiV1Base(b).toLowerCase();
 }
 
 /**
@@ -156,7 +161,9 @@ function connectionToRuntimeWire(
   liveNctx: number | undefined,
 ): Record<string, unknown> {
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
-  const baseUrl = normalizeBindAllHostToLocalhost(resolvedBase);
+  const normalizedHost = normalizeBindAllHostToLocalhost(resolvedBase);
+  const baseUrl =
+    c.provider === 'lmstudio' || c.provider === 'llamacpp' ? ensureOpenAiV1Base(normalizedHost) : normalizedHost;
   const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
@@ -165,7 +172,9 @@ function connectionToRuntimeWire(
     c.provider === 'llamacpp'
       ? alignLlamaEmbeddingsBaseUrlWithChatHost(baseUrl, rawEmbeddingsBase)
       : rawEmbeddingsBase;
-  const embeddingsBaseUrl = normalizeBindAllHostToLocalhost(alignedEmb);
+  const embeddingsHost = normalizeBindAllHostToLocalhost(alignedEmb);
+  const embeddingsBaseUrl =
+    c.provider === 'lmstudio' || c.provider === 'llamacpp' ? ensureOpenAiV1Base(embeddingsHost) : embeddingsHost;
   const chatTemplateReasoning = chatTemplateReasoningWire(reasoningCaps);
   const contextWindowTokens =
     typeof liveNctx === 'number' && Number.isFinite(liveNctx) && liveNctx > 0
@@ -321,6 +330,7 @@ async function postRuntimeConfigToPython(
           allowWebAccess: config.workspaceTools.allowWebAccess ?? false,
           searxngBaseUrl: (config.workspaceTools.searxngBaseUrl ?? '').trim(),
           extraUserPath: config.workspaceTools.extraUserPath ?? '',
+          enableAgentFormatters: config.workspaceTools.enableAgentFormatters ?? false,
         },
         contextCompression: {
           enabled: config.contextCompression.enabled,

@@ -2,6 +2,8 @@ import type { LmStudioListModelsResult, LmStudioModelCard, LmStudioMutationResul
 import { coerceLmStudioContextTokens } from '../shared/lm-studio-ipc';
 import { lmStudioOpenAiBaseUrlToRestOrigin } from '../shared/lm-studio-url';
 
+const LIST_TIMEOUT_MS = 15_000;
+
 function authHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   const key = (apiKey || '').trim();
@@ -15,6 +17,26 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
+function fetchErrorMessage(e: unknown): string {
+  if (!(e instanceof Error)) {
+    return String(e);
+  }
+  if (e.name === 'AbortError') {
+    return 'LM Studio did not respond in time (is the server running?)';
+  }
+  const cause = e.cause instanceof Error ? e.cause.message : '';
+  if (cause && !e.message.includes(cause)) {
+    return `${e.message} (${cause})`;
+  }
+  return e.message;
+}
+
+function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(t));
+}
+
 function instanceContextLength(inst: Record<string, unknown> | null): number {
   if (!inst) {
     return 0;
@@ -26,6 +48,14 @@ function instanceContextLength(inst: Record<string, unknown> | null): number {
     coerceLmStudioContextTokens(inst['loaded_context_length']) ||
     coerceLmStudioContextTokens(inst['context_length'])
   );
+}
+
+function loadedInstanceId(inst: Record<string, unknown> | null, fallback: string): string {
+  if (!inst) {
+    return fallback;
+  }
+  const raw = String(inst.id ?? inst.instance_id ?? inst.instanceId ?? fallback).trim();
+  return raw || fallback;
 }
 
 export function normalizeLmStudioV1Entry(raw: unknown): LmStudioModelCard | null {
@@ -42,7 +72,7 @@ export function normalizeLmStudioV1Entry(raw: unknown): LmStudioModelCard | null
   const firstInst = loaded ? asRecord(loadedInstances[0]) : null;
   const quant = asRecord(m.quantization);
   const quantName = quant && typeof quant.name === 'string' ? quant.name : '';
-  const instanceId = firstInst ? String(firstInst.id ?? id).trim() || id : loaded ? id : undefined;
+  const instanceId = loaded ? loadedInstanceId(firstInst, id) : undefined;
   const maxCtx = coerceLmStudioContextTokens(m.max_context_length);
   const loadedCtx = loaded ? instanceContextLength(firstInst) : 0;
   return {
@@ -55,7 +85,7 @@ export function normalizeLmStudioV1Entry(raw: unknown): LmStudioModelCard | null
     state: loaded ? 'loaded' : 'not-loaded',
     max_context_length: maxCtx,
     loaded_context_length: loadedCtx,
-    instanceId: loaded ? instanceId : undefined,
+    instanceId,
   };
 }
 
@@ -84,6 +114,11 @@ export function normalizeLmStudioV0Entry(raw: unknown): LmStudioModelCard | null
   };
 }
 
+type ProbeResult =
+  | { kind: 'ok'; models: LmStudioModelCard[] }
+  | { kind: 'skip' }
+  | { kind: 'fail'; error: string };
+
 export async function lmStudioListModels(baseUrl: string, apiKey: string): Promise<LmStudioListModelsResult> {
   const origin = lmStudioOpenAiBaseUrlToRestOrigin(baseUrl);
   if (!origin) {
@@ -91,47 +126,71 @@ export async function lmStudioListModels(baseUrl: string, apiKey: string): Promi
   }
   const headers = authHeaders(apiKey);
 
-  const tryV1 = async (): Promise<LmStudioModelCard[] | null> => {
-    const res = await fetch(`${origin}/api/v1/models`, { headers });
+  const tryV1 = async (): Promise<ProbeResult> => {
+    const url = `${origin}/api/v1/models`;
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(url, { headers }, LIST_TIMEOUT_MS);
+    } catch (e) {
+      return { kind: 'fail', error: fetchErrorMessage(e) || 'Request failed' };
+    }
+    if (res.status === 404) {
+      return { kind: 'skip' };
+    }
     if (!res.ok) {
-      return null;
+      const t = await res.text().catch(() => '');
+      return { kind: 'fail', error: t.trim() || `HTTP ${res.status} from ${url}` };
     }
     const body = asRecord(await res.json().catch(() => null));
-    if (!body) {
-      return null;
+    if (!body || !Array.isArray(body.models)) {
+      return { kind: 'skip' };
     }
-    const list = Array.isArray(body.models) ? body.models : [];
-    const models = list.map(normalizeLmStudioV1Entry).filter((x): x is LmStudioModelCard => x != null);
-    return models;
+    const models = body.models.map(normalizeLmStudioV1Entry).filter((x): x is LmStudioModelCard => x != null);
+    return { kind: 'ok', models };
   };
 
-  const tryV0 = async (): Promise<LmStudioModelCard[] | null> => {
-    const res = await fetch(`${origin}/api/v0/models`, { headers });
+  const tryV0 = async (): Promise<ProbeResult> => {
+    const url = `${origin}/api/v0/models`;
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(url, { headers }, LIST_TIMEOUT_MS);
+    } catch (e) {
+      return { kind: 'fail', error: fetchErrorMessage(e) || 'Request failed' };
+    }
+    if (res.status === 404) {
+      return { kind: 'skip' };
+    }
     if (!res.ok) {
-      return null;
+      const t = await res.text().catch(() => '');
+      return { kind: 'fail', error: t.trim() || `HTTP ${res.status} from ${url}` };
     }
     const body = asRecord(await res.json().catch(() => null));
-    if (!body) {
-      return null;
+    if (!body || !Array.isArray(body.data)) {
+      return { kind: 'skip' };
     }
-    const list = Array.isArray(body.data) ? body.data : [];
-    const models = list.map(normalizeLmStudioV0Entry).filter((x): x is LmStudioModelCard => x != null);
-    return models;
+    const models = body.data.map(normalizeLmStudioV0Entry).filter((x): x is LmStudioModelCard => x != null);
+    return { kind: 'ok', models };
   };
 
   try {
     const v1 = await tryV1();
-    if (v1) {
-      return { ok: true, origin, source: 'v1', models: v1 };
+    if (v1.kind === 'ok') {
+      return { ok: true, origin, source: 'v1', models: v1.models };
+    }
+    if (v1.kind === 'fail' && /did not respond|ECONNREFUSED|ENOTFOUND|ENETUNREACH/i.test(v1.error)) {
+      return { ok: false, error: v1.error };
     }
     const v0 = await tryV0();
-    if (v0) {
-      return { ok: true, origin, source: 'v0', models: v0 };
+    if (v0.kind === 'ok') {
+      return { ok: true, origin, source: 'v0', models: v0.models };
     }
-    return { ok: false, error: 'LM Studio did not return models (check server is running and URL).' };
+    const error =
+      (v0.kind === 'fail' ? v0.error : '') ||
+      (v1.kind === 'fail' ? v1.error : '') ||
+      'LM Studio did not return models (check server is running and URL).';
+    return { ok: false, error };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg || 'Request failed' };
+    return { ok: false, error: fetchErrorMessage(e) || 'Request failed' };
   }
 }
 
@@ -153,8 +212,7 @@ export async function lmStudioLoadModel(
     }
     return { ok: true };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg || 'Load failed' };
+    return { ok: false, error: fetchErrorMessage(e) || 'Load failed' };
   }
 }
 
@@ -176,7 +234,6 @@ export async function lmStudioUnloadModel(
     }
     return { ok: true };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg || 'Unload failed' };
+    return { ok: false, error: fetchErrorMessage(e) || 'Unload failed' };
   }
 }

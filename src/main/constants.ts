@@ -46,4 +46,4 @@ export const WORKSPACE_NODE_MODULES_DIR = 'node_modules';
 export const FIRST_THEME_ID = 'woodland';
 
 /** Allowed app UI theme ids (keep aligned with `THEMES` in theme-selector.ts). */
-export const APP_THEME_IDS = ['woodland', 'classical', 'dark-classical', 'clara-tui', 'mae-tui'] as const;
+export const APP_THEME_IDS = ['woodland', 'classical', 'dark-classical'] as const;

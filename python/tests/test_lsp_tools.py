@@ -658,30 +658,69 @@ def test_clear_session_shuts_down_lsp_state(lsp_env) -> None:
 def test_post_edit_checks_footer_steers_on_indent_diagnostics() -> None:
     from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
 
-    diags = [
-        {
-            'message': 'unexpected indent',
-            'line': 2,
-            'character': 1,
-            'severity': 'error',
-            'severity_value': 1,
-            'code': '',
-            'source': 'Pyright',
-            'end_line': 2,
-            'end_character': 5,
-            'relative_path': 'pkg/x.py',
-        }
-    ]
-    out = post_edit_checks_footer(
-        'pkg/x.py',
-        diags,
-        lsp_scope='staging',
-        server_kind='python',
-        formatter_lines=['Formatter (Black): applied to the staged draft.'],
-    )
-    assert 'Steer (indentation-like diagnostics detected)' in out
-    assert 'format_staging_file_black' in out
-    assert 'refresh_active_document=true' in out
+    saved = runtime_config.tools
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
+    try:
+        diags = [
+            {
+                'message': 'unexpected indent',
+                'line': 2,
+                'character': 1,
+                'severity': 'error',
+                'severity_value': 1,
+                'code': '',
+                'source': 'Pyright',
+                'end_line': 2,
+                'end_character': 5,
+                'relative_path': 'pkg/x.py',
+            }
+        ]
+        out = post_edit_checks_footer(
+            'pkg/x.py',
+            diags,
+            lsp_scope='staging',
+            server_kind='python',
+            formatter_lines=['Formatter (Black): applied to the staged draft.'],
+        )
+        assert 'Steer (indentation-like diagnostics detected)' in out
+        assert 'format_staging_file_black' in out
+        assert 'refresh_active_document=true' in out
+    finally:
+        runtime_config.tools = saved
+
+
+def test_post_edit_checks_footer_omits_format_tools_when_disabled() -> None:
+    from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
+
+    saved = runtime_config.tools
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=False)
+    try:
+        diags = [
+            {
+                'message': 'unexpected indent',
+                'line': 2,
+                'character': 1,
+                'severity': 'error',
+                'severity_value': 1,
+                'code': '',
+                'source': 'Pyright',
+                'end_line': 2,
+                'end_character': 5,
+                'relative_path': 'pkg/x.py',
+            }
+        ]
+        out = post_edit_checks_footer(
+            'pkg/x.py',
+            diags,
+            lsp_scope='staging',
+            server_kind='python',
+            formatter_lines=['Formatter: skipped (Black and Prettier are disabled in Settings → Tools).'],
+        )
+        assert 'format_staging_file_black' not in out
+        assert 'formatters disabled' in out.lower()
+        assert 'Fix whitespace' in out
+    finally:
+        runtime_config.tools = saved
 
 
 def test_python_lsp_events_flow_into_clara_logging(lsp_env, tmp_path: Path) -> None:

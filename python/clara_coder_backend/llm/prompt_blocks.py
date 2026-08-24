@@ -6,7 +6,7 @@ from textwrap import dedent
 
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.file_policy import PRETTIER_MANAGED_SUFFIXES
-from clara_coder_backend.session.state import runtime_config
+from clara_coder_backend.session.state import agent_formatters_enabled, runtime_config
 
 
 def harness_mindset_block() -> str:
@@ -26,12 +26,8 @@ def source_code_formatting_guidance() -> str:
     enc = (runtime_config.tools.default_workspace_encoding or 'utf-8').strip() or 'utf-8'
     nl = (runtime_config.tools.default_workspace_newline or 'lf').strip() or 'lf'
     prettier_exts = ', '.join(sorted(PRETTIER_MANAGED_SUFFIXES))
-    return dedent(
-        f"""
-        **Source formatting & text I/O (apply as soon as you touch source or structured config paths):**
-        - **Tool defaults** when `encoding` / `newline` are omitted: **{enc}** and **{nl}** (Settings → Tools). After
-          `read_workspace_file` / `read_staged_edit`, prefer that file's actual encoding and line endings unless the user
-          or task requires a deliberate change.
+    if agent_formatters_enabled():
+        formatter_bullets = f"""
         - **Automatic formatters** run on merged staged content before diff/LSP review: **Black** on **`.py`**
           (in-memory `format_str`); **Prettier** on **{prettier_exts}** via stdin with `--stdin-filepath <relative-path>`
           so repo config applies (`cwd` = workspace root; CLI from `node_modules/prettier`, global `prettier`, or
@@ -40,7 +36,19 @@ def source_code_formatting_guidance() -> str:
         - **Other extensions** (e.g. `.go`, `.rs`, `.json`, `.yaml`, `.vue`, …): no harness auto-formatter—match
           indentation (tabs vs spaces), width, quotes, and ordering already visible in reads and LSP excerpts.
         - **Authoring:** mirror neighboring patterns in the same file and repo; keep edits small so Black/Prettier
-          produce minimal churn when they run.
+          produce minimal churn when they run."""
+    else:
+        formatter_bullets = """
+        - **Automatic formatters and format tools are off** (Settings → Tools). Do not call `format_staging_file_black`,
+          `format_staging_file_prettier`, `format_workspace_file_black`, or `format_workspace_file_prettier`. Match
+          indentation (tabs vs spaces), width, quotes, and ordering already visible in reads and LSP excerpts.
+        - **Authoring:** mirror neighboring patterns in the same file and repo."""
+    return dedent(
+        f"""
+        **Source formatting & text I/O (apply as soon as you touch source or structured config paths):**
+        - **Tool defaults** when `encoding` / `newline` are omitted: **{enc}** and **{nl}** (Settings → Tools). After
+          `read_workspace_file` / `read_staged_edit`, prefer that file's actual encoding and line endings unless the user
+          or task requires a deliberate change.{formatter_bullets}
         """
     ).strip()
 

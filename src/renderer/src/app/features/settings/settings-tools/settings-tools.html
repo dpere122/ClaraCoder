@@ -14,6 +14,21 @@
                 <label class='toggle-row'>
                   <input
                     type='checkbox'
+                    [ngModel]='s.enableAgentFormatters()'
+                    (ngModelChange)='s.onEnableAgentFormattersChange($event)'
+                  />
+                  <span>Use Black and Prettier in the agent flow</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When on, the agent automatically formats <code>.py</code> (Black) and JS/TS/HTML/CSS (Prettier)
+                  after edits, and can call the format tools. When off, neither automatic formatting nor those
+                  tools are available.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
                     [ngModel]='s.allowStagingOverlayCommands()'
                     (ngModelChange)='s.onAllowStagingOverlayCommandsChange($event)'
                   />

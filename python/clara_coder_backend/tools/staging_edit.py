@@ -24,7 +24,7 @@ from clara_coder_backend.staging.partial_workspace_edit import (
     merge_partial_edit,
     snippet_unique_on_text,
 )
-from clara_coder_backend.session.state import current_session_id, mutation_tools_blocked_reason
+from clara_coder_backend.session.state import agent_formatters_enabled, current_session_id, mutation_tools_blocked_reason
 from clara_coder_backend.workspace.workspace_text_io import (
     DiskNewline,
     NewlineMode,
@@ -146,7 +146,11 @@ def _staging_after_merge(
         return f'Tool error: could not write staging file ({exc}).'
 
     formatter_lines: list[str] = []
-    if rel_display.lower().endswith('.py'):
+    if not agent_formatters_enabled():
+        formatter_lines.append(
+            'Formatter: skipped (Black and Prettier are disabled in Settings → Tools).'
+        )
+    elif rel_display.lower().endswith('.py'):
         ok, detail = _edit_staging.run_black_on_file(temp_path, encoding=disk_encoding, disk_newline=disk_newline)
         logger.info('black path=%s ok=%s detail=%s', rel_display, ok, detail)
         if ok:

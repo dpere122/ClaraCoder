@@ -1,12 +1,20 @@
-      <div class='settings-pane'>
+      <div class='settings-pane settings-pane--models'>
         <div class='models-three-col'>
           <div class='models-sources'>
-            <div class='section-heading'>
-              <div>
-                <p class='settings-eyebrow'>Models</p>
-                <h4>Sources</h4>
+            <div class='models-sources__handle'>
+              <div class='models-sources__handle-title'>
+                <span>Sources</span>
+                <span class='models-sources__count'>{{ s.llmProviders().length }}</span>
               </div>
-              <span class='section-count'>{{ s.llmProviders().length }}</span>
+              <button
+                type='button'
+                class='models-sources__add'
+                (click)='s.addProvider()'
+                title='Add source'
+                aria-label='Add source'
+              >
+                <lucide-icon name='plus' [size]='14' />
+              </button>
             </div>
 
             <div class='sources-list'>
@@ -108,13 +116,6 @@
                           Connect
                         }
                       </button>
-                      @if (s.selectedSourceIsActiveForChat()) {
-                        <span class='lm-studio-status lm-studio-status--ok'>Using for chat</span>
-                      } @else {
-                        <button type='button' class='action-button action-button--compact' (click)='s.activateSelectedSourceForChat()'>
-                          Use for chat
-                        </button>
-                      }
                       @if (s.lmStudioInventoryError(); as err) {
                         <span class='lm-studio-status lm-studio-status--err'>{{ err }}</span>
                       } @else if (s.lmStudioInventory().length) {
@@ -256,13 +257,6 @@
                           Connect
                         }
                       </button>
-                      @if (s.selectedSourceIsActiveForChat()) {
-                        <span class='lm-studio-status lm-studio-status--ok'>Using for chat</span>
-                      } @else {
-                        <button type='button' class='action-button action-button--compact' (click)='s.activateSelectedSourceForChat()'>
-                          Use for chat
-                        </button>
-                      }
                       @if (s.llamacppModelsListError(); as lerr) {
                         <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
                       } @else if (s.llamacppManagedModelIds().length || s.llamacppUrlEmbeddingModelIds().length) {

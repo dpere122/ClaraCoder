@@ -12,6 +12,10 @@ describe('lmStudioOpenAiBaseUrlToRestOrigin', () => {
   it('returns null for empty', () => {
     expect(lmStudioOpenAiBaseUrlToRestOrigin('')).toBeNull();
   });
+
+  it('keeps a reverse-proxy path prefix', () => {
+    expect(lmStudioOpenAiBaseUrlToRestOrigin('http://gateway.local/lms/v1')).toBe('http://gateway.local/lms');
+  });
 });
 
 describe('effectiveLmStudioContextTokens', () => {

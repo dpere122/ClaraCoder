@@ -63,6 +63,7 @@ from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferre
 from clara_coder_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
 from clara_coder_backend.session.file_journal import emit_edit_journal
 from clara_coder_backend.session.state import (
+    agent_formatters_enabled,
     current_session_id,
     direct_workspace_edits_active,
     get_session,
@@ -87,6 +88,10 @@ TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME = 'transfer_staged_file_to_workspace'
 DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME = 'diff_staged_edit_against_baseline'
 RUN_STAGING_OVERLAY_COMMAND_NAME = 'run_staging_overlay_command'
 _OVERLAY_STREAM_TAG = TOOL_OVERLAY_STREAM_TAG
+_FORMATTERS_DISABLED = (
+    'Tool error: Black and Prettier are disabled. Enable **Use Black and Prettier in the agent flow** '
+    'in Settings → Tools, then try again.'
+)
 _OVERLAY_STREAM_LABEL = 'Staging overlay'
 _SUBPROCESS_READ_SIZE = 65_536
 _MAX_OVERLAY_OUTPUT_CHARS = 120_000
@@ -754,6 +759,8 @@ def format_staging_file_black(
     relative_path: Annotated[str, 'workspace-relative POSIX path'],
 ) -> str:
 
+    if not agent_formatters_enabled():
+        return _FORMATTERS_DISABLED
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
         return got
@@ -788,6 +795,8 @@ def format_staging_file_prettier(
     relative_path: Annotated[str, 'workspace-relative POSIX path'],
 ) -> str:
 
+    if not agent_formatters_enabled():
+        return _FORMATTERS_DISABLED
     got = _get_staging_entry(relative_path)
     if isinstance(got, str):
         return got
@@ -860,6 +869,8 @@ def format_workspace_file_black(
     relative_path: Annotated[str, 'workspace-relative POSIX path'],
 ) -> str:
 
+    if not agent_formatters_enabled():
+        return _FORMATTERS_DISABLED
     got = _workspace_file_for_format(relative_path)
     if isinstance(got, str):
         return got
@@ -887,6 +898,8 @@ def format_workspace_file_prettier(
     relative_path: Annotated[str, 'workspace-relative POSIX path'],
 ) -> str:
 
+    if not agent_formatters_enabled():
+        return _FORMATTERS_DISABLED
     got = _workspace_file_for_format(relative_path)
     if isinstance(got, str):
         return got
@@ -1469,13 +1482,12 @@ def discard_staged_edits(
 
 
 def staging_review_tools(*, direct: bool = False) -> tuple[list[object], dict[str, object]]:
+    formatters_on = agent_formatters_enabled()
     if direct:
-        tools: list[object] = [
-            lsp_get_diagnostics,
-            format_workspace_file_black,
-            format_workspace_file_prettier,
-            run_staging_overlay_command,
-        ]
+        tools: list[object] = [lsp_get_diagnostics]
+        if formatters_on:
+            tools.extend([format_workspace_file_black, format_workspace_file_prettier])
+        tools.append(run_staging_overlay_command)
     else:
         tools = [
             list_staged_edits,
@@ -1483,12 +1495,16 @@ def staging_review_tools(*, direct: bool = False) -> tuple[list[object], dict[st
             read_staged_edit,
             search_staged_edits,
             lsp_get_diagnostics,
-            format_staging_file_black,
-            format_staging_file_prettier,
-            run_staging_overlay_command,
-            transfer_staged_file_to_workspace,
-            reject_staged_workspace_edit,
-            discard_staged_edits,
         ]
+        if formatters_on:
+            tools.extend([format_staging_file_black, format_staging_file_prettier])
+        tools.extend(
+            [
+                run_staging_overlay_command,
+                transfer_staged_file_to_workspace,
+                reject_staged_workspace_edit,
+                discard_staged_edits,
+            ]
+        )
     m = {t.name: t for t in tools}
     return tools, m

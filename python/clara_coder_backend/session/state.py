@@ -186,6 +186,11 @@ def direct_workspace_edits_active(session: SessionState, *, apply_mode: bool) ->
     return bool(apply_mode and session.auto_apply_mode)
 
 
+def agent_formatters_enabled() -> bool:
+    """True when Settings → Tools allows Black/Prettier in the agent flow (auto + format tools)."""
+    return bool(getattr(runtime_config.tools, 'enable_agent_formatters', False))
+
+
 def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
     """Return an error when mutation-capable tools are used while Editor mode is off."""
     sid = (session_id or current_session_id.get() or '').strip()

@@ -75,7 +75,7 @@ app-auxiliary-stream-panel .stream-trail-panel__chevron {
 app-auxiliary-stream-panel .stream-trail-panel__viewport {
   margin-top: 0.25rem;
   padding-left: 0.15rem;
-  /* Auto-hide scrollbar until hover/focus (beats global/TUI scrollbar rules). */
+  /* Auto-hide scrollbar until hover/focus (beats global scrollbar rules). */
   scrollbar-width: none;
 }
 

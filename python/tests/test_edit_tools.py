@@ -48,7 +48,7 @@ def _restore_runtime_tools():
 
 
 def test_standard_includes_staging_write_tools() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
     names = [t.name for t in staging_workspace_write_tools(False)]
     assert names == [
         'stage_create_file',
@@ -68,7 +68,7 @@ def test_standard_includes_staging_write_tools() -> None:
 
 
 def test_strict_omits_snippet_tool() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=True)
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=True, enable_agent_formatters=True)
     names = [t.name for t in staging_workspace_write_tools(True)]
     assert names == ['stage_create_file', 'stage_workspace_file_overwrite', 'stage_line_range_edit']
     lsp_mut = _LSP_CREATE_UPDATE_NAMES
@@ -80,7 +80,7 @@ def test_strict_omits_snippet_tool() -> None:
 
 
 def test_hitl_diff_pause_tools_direct_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
     direct_names = {t.name for t in edit_tools_for_strict(False)}
     direct_names |= _LSP_CREATE_UPDATE_NAMES
     direct_names |= {
@@ -121,7 +121,7 @@ def test_replace_workspace_line_range_accepts_new_content_alias(tmp_path) -> Non
 
 
 def test_outer_agent_tools_staging_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
     session = get_session('outer-staging')
     session.auto_apply_mode = False
     read_names = {t.name for t in TOOLS} | {
@@ -162,7 +162,7 @@ def test_outer_agent_tools_staging_mode() -> None:
 
 
 def test_outer_agent_tools_direct_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
     session = get_session('outer-direct')
     session.auto_apply_mode = True
     edit_names = {t.name for t in edit_tools_for_strict(False)}
@@ -180,7 +180,7 @@ def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> 
     from clara_coder_backend.tools.lsp_tools import lsp_get_diagnostics
     from clara_coder_backend.tools.run_command import run_command_tool
 
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
     session = get_session('merge-canonical')
     session.auto_apply_mode = False
     _tools, mapping = worker_tools_and_map(True, session=session)
@@ -237,6 +237,7 @@ def test_apply_workspace_full_file_writes_python_in_direct_mode(tmp_path) -> Non
 
 
 def test_staging_review_tools_staging_mode() -> None:
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
     session = get_session('review-tools-staging')
     session.worker_apply_mode = True
     tools, tool_map = staging_review_tools(direct=False)
@@ -259,6 +260,7 @@ def test_staging_review_tools_staging_mode() -> None:
 
 
 def test_staging_review_tools_direct_mode() -> None:
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
     tools, tool_map = staging_review_tools(direct=True)
     names = {t.name for t in tools}
     assert names == {
@@ -270,3 +272,33 @@ def test_staging_review_tools_direct_mode() -> None:
     assert tool_map.keys() == names
     assert 'transfer_staged_file_to_workspace' not in names
     assert 'discard_staged_edits' not in names
+
+
+def test_source_code_formatting_guidance_follows_settings() -> None:
+    from clara_coder_backend.llm.prompt_blocks import source_code_formatting_guidance
+
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
+    on_text = source_code_formatting_guidance()
+    assert 'Automatic formatters' in on_text
+    assert 'Black' in on_text
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=False)
+    off_text = source_code_formatting_guidance()
+    assert 'format tools are off' in off_text
+    assert 'Do not call `format_staging_file_black`' in off_text
+
+
+def test_agent_formatters_off_omits_format_tools() -> None:
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=False)
+    staging_names = {t.name for t in staging_review_tools(direct=False)[0]}
+    direct_names = {t.name for t in staging_review_tools(direct=True)[0]}
+    assert 'format_staging_file_black' not in staging_names
+    assert 'format_staging_file_prettier' not in staging_names
+    assert 'format_workspace_file_black' not in direct_names
+    assert 'format_workspace_file_prettier' not in direct_names
+    assert 'format_staging_file_black' not in hitl_diff_pause_tools()
+    assert 'format_workspace_file_black' not in hitl_diff_pause_tools(direct=True)
+    session = get_session('outer-formatters-off')
+    session.auto_apply_mode = False
+    bound = {t.name for t in worker_tools_and_map(True, session=session)[0]}
+    assert 'format_staging_file_black' not in bound
+    assert 'format_staging_file_prettier' not in bound

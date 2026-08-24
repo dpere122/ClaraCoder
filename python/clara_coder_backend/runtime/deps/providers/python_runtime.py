@@ -13,6 +13,7 @@ from pathlib import Path
 from clara_coder_backend.runtime.deps.download import read_ready_marker, write_ready_marker
 from clara_coder_backend.runtime.deps.paths import (
     get_runtime_python_dir,
+    is_usable_venv,
     requirements_txt,
     venv_python,
 )
@@ -226,7 +227,10 @@ def install(*, force: bool = False) -> dict:
     base = _base_python(venv)
     logger.info('python-runtime base interpreter=%s', base)
 
-    if force and venv.exists():
+    incomplete = venv.exists() and not is_usable_venv(venv)
+    if venv.exists() and (force or incomplete):
+        if incomplete and not force:
+            logger.warning('removing incomplete runtime venv (missing pyvenv.cfg) path=%s', venv)
         shutil.rmtree(venv, ignore_errors=True)
 
     existing = venv_python(venv)

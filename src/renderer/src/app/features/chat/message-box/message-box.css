@@ -205,11 +205,28 @@
   fill: none;
 }
 
+.composer-voice-wrap {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .composer-entry-row .btn-voice:hover,
 .composer-options-row .btn-voice:hover,
 .composer-options-row .btn-reasoning:hover {
   background-color: var(--t-hover-bg);
   color: var(--t-fg);
+}
+
+.composer-entry-row .btn-voice:disabled,
+.composer-options-row .btn-voice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.composer-entry-row .btn-voice:disabled:hover,
+.composer-options-row .btn-voice:disabled:hover {
+  background-color: transparent;
+  color: var(--t-text-muted);
 }
 
 .composer-entry-row .btn-voice--active,

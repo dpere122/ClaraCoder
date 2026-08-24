@@ -1,4 +1,4 @@
-import { shell, type BrowserWindow } from 'electron';
+import { shell, type BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
 import { DEV_SERVER_URL } from '../constants';
 
 /** Navigation targets the renderer is allowed to load in-place (not opened externally). */
@@ -37,6 +37,16 @@ export function hardenBrowserWindow(win: BrowserWindow): void {
       event.preventDefault();
     }
   });
+}
+
+/**
+ * Frameless window silhouette. Win11 DWM rounds HWNDs by default; Clara chrome is
+ * square (`border-radius: 0`), so keep the OS outline square too. Ignored on Win10.
+ */
+export function framelessWindowShapeOptions(
+  platform: NodeJS.Platform = process.platform,
+): Pick<BrowserWindowConstructorOptions, 'roundedCorners'> {
+  return platform === 'win32' ? { roundedCorners: false } : {};
 }
 
 /** Shared secure defaults for all app BrowserWindows. */

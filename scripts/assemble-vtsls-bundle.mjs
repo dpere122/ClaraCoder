@@ -82,6 +82,7 @@ function main() {
   try {
     execFileSync(npm, ['install', '--prefix', bundleDir, spec], {
       stdio: 'inherit',
+      shell: process.platform === 'win32' ? true : false,
     });
   } catch (err) {
     console.error(`[vtsls-bundle] npm install failed: ${err}`);

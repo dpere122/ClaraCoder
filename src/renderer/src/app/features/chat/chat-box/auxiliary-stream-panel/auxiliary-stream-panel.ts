@@ -55,7 +55,7 @@ export class AuxiliaryStreamPanelComponent {
   readonly planPanelVisible = input(false);
   /** Header text; Clara handoff updates can replace the default reasoning/tools label. */
   readonly title = input(DEFAULT_AUXILIARY_STREAM_PANEL_TITLE);
-  /** Hide the inline “Response details” row; TUI themes drive expand/collapse from the Clara frame chevron. */
+  /** Hide the inline “Response details” row; role-label frames drive expand/collapse from the Clara chevron. */
   readonly hideHeaderToggle = input(false);
   /** Fires once when a live panel first takes layout height (overflow reveal / expand). */
   readonly overflowRevealed = output<void>();

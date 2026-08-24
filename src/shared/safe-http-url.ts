@@ -21,16 +21,20 @@ export function parseAllowedHttpUrl(raw: string): URL | null {
   }
 }
 
-/** OpenAI ``/v1`` base URL → origin for management APIs; null when invalid. */
+/**
+ * OpenAI ``/v1`` base URL → host root for management APIs (``/api/v1``).
+ * Keeps a path prefix after stripping ``/v1`` (e.g. ``http://host/lms/v1`` → ``http://host/lms``).
+ * Returns null when the URL is invalid.
+ */
 export function openAiBaseUrlToOrigin(baseUrl: string): string | null {
   const u = parseAllowedHttpUrl(baseUrl);
   if (!u) {
     return null;
   }
   let path = u.pathname.replace(/\/+$/, '') || '';
-  if (path.endsWith('/v1')) {
+  if (path.toLowerCase().endsWith('/v1')) {
     path = path.slice(0, -3);
   }
-  u.pathname = path || '/';
-  return u.origin;
+  path = path.replace(/\/+$/, '');
+  return `${u.origin}${path}`;
 }

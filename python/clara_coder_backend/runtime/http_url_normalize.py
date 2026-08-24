@@ -5,6 +5,17 @@ from __future__ import annotations
 from urllib.parse import urlsplit, urlunsplit
 
 
+def normalize_openai_api_base(raw: str) -> str | None:
+    """Return ``api_base`` for the OpenAI SDK (``.../v1``) or ``None`` for library defaults."""
+    s = (raw or '').strip()
+    if not s:
+        return None
+    s = s.rstrip('/')
+    if s.endswith('/v1'):
+        return s
+    return f'{s}/v1'
+
+
 def normalize_bind_all_host_url(url: str) -> str:
     """Replace ``0.0.0.0`` / unspecified IPv6 with ``127.0.0.1``.
 

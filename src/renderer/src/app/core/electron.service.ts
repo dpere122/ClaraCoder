@@ -87,6 +87,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     allowWebAccess: false,
     searxngBaseUrl: '',
     extraUserPath: '',
+    enableAgentFormatters: false,
   },
   contextCompression: getDefaultContextCompression(),
   healthMonitor: {

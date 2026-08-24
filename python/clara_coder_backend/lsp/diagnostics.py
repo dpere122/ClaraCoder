@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from clara_coder_backend.lsp.file_policy import is_prettier_managed_path, normalize_relative_posix_path
+from clara_coder_backend.session.state import agent_formatters_enabled
 
 __all__ = [
     'diagnostic_severity_name',
@@ -93,13 +94,14 @@ def indentation_followup_guidance(
         '',
         'Steer (indentation-like diagnostics detected):',
     ]
+    formatters_on = agent_formatters_enabled()
     if scope == 'staging':
-        if rel.endswith('.py'):
+        if formatters_on and rel.endswith('.py'):
             lines.append(
                 '- Call `format_staging_file_black` for this path, then `lsp_get_diagnostics` with '
                 '`refresh_active_document=true` and `scope=staging` on the same path to verify the staged draft.'
             )
-        elif is_prettier_managed_path(rel):
+        elif formatters_on and is_prettier_managed_path(rel):
             lines.append(
                 '- Call `format_staging_file_prettier` for this path, then `lsp_get_diagnostics` with '
                 '`refresh_active_document=true` and `scope=staging` when the TypeScript/JavaScript server applies '
@@ -111,13 +113,13 @@ def indentation_followup_guidance(
                 '- Fix whitespace with another accurate staging edit; refresh LSP for this path if the language '
                 'server is available.'
             )
-    elif rel.endswith('.py'):
+    elif formatters_on and rel.endswith('.py'):
         lines.append(
             '- Black already ran on the merged `.py` text before this listing. If indentation errors remain, '
             'correct the source and retry the workspace edit tool, or route the path through nested staging so '
             '`format_staging_file_black` is available after each stage.'
         )
-    elif is_prettier_managed_path(rel):
+    elif formatters_on and is_prettier_managed_path(rel):
         lines.append(
             '- Prettier already ran on merged text for this extension when the edit path used automatic formatting. '
             'If indentation errors remain, correct the source and retry the workspace edit tool, or route through '
@@ -143,7 +145,11 @@ def post_edit_checks_footer(
 
     head = [
         '\n---',
-        'Post-edit checks (formatter ran first where applicable, then LSP on that result):',
+        (
+            'Post-edit checks (formatter ran first where applicable, then LSP on that result):'
+            if agent_formatters_enabled()
+            else 'Post-edit checks (formatters disabled in Settings → Tools; LSP on the edited result):'
+        ),
         *formatter_lines,
     ]
     if server_kind:

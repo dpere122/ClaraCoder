@@ -171,6 +171,7 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     allowWebAccess: false,
     searxngBaseUrl: '',
     extraUserPath: '',
+    enableAgentFormatters: false,
   };
 }
 

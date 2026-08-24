@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { LlmConnectionConfig } from '../../shared';
-import { embeddingsEnabledForWire } from './workspace-sync';
+import { embeddingsEnabledForWire, ensureOpenAiV1Base } from './workspace-sync';
 
 function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnectionConfig {
   return {
@@ -21,6 +21,14 @@ function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnecti
     ...overrides,
   };
 }
+
+describe('ensureOpenAiV1Base', () => {
+  it('appends /v1 when the user pasted a host-only LM Studio URL', () => {
+    expect(ensureOpenAiV1Base('http://127.0.0.1:1234')).toBe('http://127.0.0.1:1234/v1');
+    expect(ensureOpenAiV1Base('http://127.0.0.1:1234/v1/')).toBe('http://127.0.0.1:1234/v1');
+    expect(ensureOpenAiV1Base('')).toBe('');
+  });
+});
 
 describe('embeddingsEnabledForWire', () => {
   it('returns true for openai regardless of embeddingsModel', () => {

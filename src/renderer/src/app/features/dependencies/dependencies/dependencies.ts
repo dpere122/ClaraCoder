@@ -36,6 +36,7 @@ interface LogEntry {
 
 const LOG_MAX_LINES = 1000;
 const LLAMA_SERVER_ID = 'llama-server';
+const KOKORO_ID = 'kokoro';
 const WHISPER_ID = 'whisper';
 
 @Component({
@@ -141,6 +142,15 @@ export class Dependencies implements OnInit, OnDestroy {
 
   protected isWhisper(dep: DependencyInfo): boolean {
     return dep.id === WHISPER_ID;
+  }
+
+  protected isKokoro(dep: DependencyInfo): boolean {
+    return dep.id === KOKORO_ID;
+  }
+
+  /** Kokoro/Whisper installs are parked while voice chat is unavailable. */
+  protected downloadComingSoon(dep: DependencyInfo): boolean {
+    return this.isKokoro(dep) || this.isWhisper(dep);
   }
 
   protected whisperSizeFor(dep: DependencyInfo): string {
@@ -323,12 +333,14 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   protected async download(dep: DependencyInfo): Promise<void> {
+    if (this.downloadComingSoon(dep)) return;
     await this.runAction(dep.id, () => this.electron.depsInstall(dep.id, this.installVariant(dep)), 'Downloaded', {
       focus: true,
     });
   }
 
   protected async reinstall(dep: DependencyInfo): Promise<void> {
+    if (this.downloadComingSoon(dep)) return;
     await this.runAction(dep.id, () => this.electron.depsReinstall(dep.id, this.installVariant(dep)), 'Reinstalled', {
       focus: true,
     });

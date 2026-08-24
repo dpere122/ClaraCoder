@@ -42,8 +42,15 @@ def get_runtime_downloads_dir() -> Path:
     return get_runtime_dir() / 'downloads'
 
 
+def is_usable_venv(root: Path) -> bool:
+    """True when ``root`` has ``pyvenv.cfg`` (required by the Windows venv launcher)."""
+    return (root / 'pyvenv.cfg').is_file()
+
+
 def venv_python(venv_dir: Path | None = None) -> Path | None:
     root = venv_dir or get_runtime_python_dir()
+    if not is_usable_venv(root):
+        return None
     if sys.platform.startswith('win'):
         cand = root / 'Scripts' / 'python.exe'
     else:

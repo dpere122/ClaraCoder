@@ -56,17 +56,16 @@
     }
   </div>
   <div class="composer-options-row">
-    <button
-      type="button"
-      class="btn btn-voice"
-      [class.btn-voice--active]="voiceActive()"
-      [attr.aria-pressed]="voiceActive()"
-      (click)="onVoiceButtonClick()"
-      title="Voice: microphone input and spoken assistant replies"
-      aria-label="Toggle voice: microphone and spoken replies"
-    >
-      <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
-    </button>
+    <span class="composer-voice-wrap" title="Coming soon">
+      <button
+        type="button"
+        class="btn btn-voice"
+        disabled
+        aria-label="Coming soon"
+      >
+        <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
+      </button>
+    </span>
     @if (showReasoningCluster()) {
       <div class="composer-reasoning-cluster">
         @if (thinkingVisible()) {

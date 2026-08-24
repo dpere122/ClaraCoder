@@ -69,6 +69,21 @@ def test_build_llm_omits_reasoning_effort_for_gemma(
 @patch('clara_coder_backend.llm.factory.ChatOpenAI')
 @patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
 @patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_lmstudio_appends_v1_when_missing(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _gemma_conn(base_url='http://127.0.0.1:1234')
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    assert mock_ctor.call_args.kwargs.get('base_url') == 'http://127.0.0.1:1234/v1'
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_llamacpp_defaults_base_url(
     mock_get: MagicMock,
     _mock_log: MagicMock,

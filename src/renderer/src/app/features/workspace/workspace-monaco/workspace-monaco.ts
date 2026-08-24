@@ -272,8 +272,6 @@ export class WorkspaceMonacoComponent {
   private diffMountedPayloadKey = '';
 
   private readonly editorReady = signal(false);
-  private uiThemeObserver: MutationObserver | null = null;
-  private themeRefreshRaf: number | null = null;
   private readonly modelByPath = new Map<string, Monaco.editor.ITextModel>();
   /** Shared with ``registerWorkspaceMonacoLsp`` — updated when TS/JS semantic legend is prefetched. */
   private readonly semanticLegendsByServer: Record<string, Monaco.languages.SemanticTokensLegend> = {};
@@ -438,9 +436,6 @@ export class WorkspaceMonacoComponent {
           const { theme: _t, ...diffOpts } = mapped as Record<string, unknown>;
           this.diffEditor.updateOptions(diffOpts as Monaco.editor.IDiffEditorConstructionOptions);
         }
-        if (settings.theme === 'clara-monaco') {
-          this.defineClaraTheme(monacoApi);
-        }
         monacoApi.editor.setTheme(settings.theme);
       });
     });
@@ -503,14 +498,6 @@ export class WorkspaceMonacoComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((event) => this.onWorkspaceFilesChanged(event));
 
-    if (typeof MutationObserver !== 'undefined') {
-      this.uiThemeObserver = new MutationObserver(() => this.scheduleMonacoRefreshAfterUiThemeChange());
-      this.uiThemeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'data-bs-theme'],
-      });
-    }
-
     effect(() => {
       const pending = this.pendingEditorReveal();
       const key = this.activeModelKey()?.trim();
@@ -560,12 +547,6 @@ export class WorkspaceMonacoComponent {
       this.lspHoverDisposables = [];
       this.lspLanguageDisposable?.dispose();
       this.lspLanguageDisposable = null;
-      if (this.themeRefreshRaf != null) {
-        cancelAnimationFrame(this.themeRefreshRaf);
-        this.themeRefreshRaf = null;
-      }
-      this.uiThemeObserver?.disconnect();
-      this.uiThemeObserver = null;
       this.disposeDiffSurface();
       for (const m of this.modelByPath.values()) {
         m.dispose();
@@ -968,42 +949,6 @@ export class WorkspaceMonacoComponent {
     return `Change ${at} of ${order.length} (${done} resolved)`;
   });
 
-  private scheduleMonacoRefreshAfterUiThemeChange(): void {
-    if (this.themeRefreshRaf != null) {
-      cancelAnimationFrame(this.themeRefreshRaf);
-    }
-    this.themeRefreshRaf = requestAnimationFrame(() => {
-      this.themeRefreshRaf = null;
-      this.refreshMonacoAfterUiThemeChange();
-      requestAnimationFrame(() => {
-        this.editor?.layout();
-        this.diffEditor?.layout();
-      });
-    });
-  }
-
-  private refreshMonacoAfterUiThemeChange(): void {
-    const ed = this.editor;
-    const monacoApi = this.monaco;
-    if (!this.editorReady() || !ed || !monacoApi) {
-      return;
-    }
-    const cfg = this.editorSettings();
-    const { settings } = normalizeMonacoWorkspaceEditorSettings(cfg == null ? undefined : cfg);
-    const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
-    ed.updateOptions(mapped);
-    if (this.diffEditor) {
-      const { theme: _t, ...diffOpts } = mapped as Record<string, unknown>;
-      this.diffEditor.updateOptions(diffOpts as Monaco.editor.IDiffEditorConstructionOptions);
-    }
-    if (settings.theme === 'clara-monaco') {
-      this.defineClaraTheme(monacoApi);
-    }
-    monacoApi.editor.setTheme(settings.theme);
-    ed.layout();
-    this.diffEditor?.layout();
-  }
-
   private workspaceRootsEqual(a: string, b: string): boolean {
     const x = normalizePathSlashes(a).replace(/\/+$/, '').toLowerCase();
     const y = normalizePathSlashes(b).replace(/\/+$/, '').toLowerCase();
@@ -1246,105 +1191,6 @@ export class WorkspaceMonacoComponent {
     return found?.id ?? 'plaintext';
   }
 
-  /**
-   * Monaco resolves semantic token styles via {@link StandaloneTheme.getTokenStyleMetadata}
-   * → {@link TokenTheme._match} on the selector ``${type}.${modifier.join('.')}``.
-   * Standalone Monaco does **not** apply {@link IStandaloneThemeData.semanticTokenColors}; only
-   * {@link IStandaloneThemeData.rules} participates in that trie (see monaco-editor#1833).
-   */
-  private claraSemanticTokenRules(): Monaco.editor.ITokenThemeRule[] {
-    const cs = getComputedStyle(document.documentElement);
-    const pick = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-    const hex = (css: string, fb: string) => {
-      const raw = (css.trim() || fb).trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
-        return raw.slice(1);
-      }
-      if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
-        const r = raw[1];
-        const g = raw[2];
-        const b = raw[3];
-        return `${r}${r}${g}${g}${b}${b}`;
-      }
-      return fb.replace(/^#/, '');
-    };
-    const fg = hex(pick('--t-code-text', '#d4d4d4'), 'd4d4d4');
-    const accent = hex(pick('--t-primary', '#00ff41'), '00ff41');
-    const typeTone = hex(pick('--t-code-type', '#4EC9B0'), '4EC9B0');
-    const paramTone = hex(pick('--t-code-param', '#9CDCFE'), '9CDCFE');
-    const enumTone = hex(pick('--t-code-enum', '#4FC1FF'), '4FC1FF');
-    const kw = hex(pick('--t-code-keyword', '#569CD6'), '569CD6');
-    const str = hex(pick('--t-code-string', '#CE9178'), 'CE9178');
-    const num = hex(pick('--t-code-number', '#B5CEA8'), 'B5CEA8');
-    const mut = hex(pick('--t-text-muted', '#808080'), '808080');
-    const rules: Monaco.editor.ITokenThemeRule[] = [
-      { token: 'namespace', foreground: typeTone },
-      { token: 'type', foreground: typeTone },
-      { token: 'class', foreground: typeTone },
-      { token: 'enum', foreground: typeTone },
-      { token: 'interface', foreground: typeTone },
-      { token: 'struct', foreground: typeTone },
-      { token: 'typeParameter', foreground: typeTone },
-      { token: 'parameter', foreground: paramTone },
-      { token: 'variable', foreground: fg },
-      { token: 'property', foreground: paramTone },
-      { token: 'enumMember', foreground: enumTone },
-      { token: 'decorator', foreground: accent },
-      { token: 'event', foreground: fg },
-      { token: 'function', foreground: accent },
-      { token: 'method', foreground: accent },
-      { token: 'member', foreground: accent },
-      { token: 'macro', foreground: accent },
-      { token: 'keyword', foreground: kw },
-      { token: 'modifier', foreground: kw },
-      { token: 'comment', foreground: mut },
-      { token: 'string', foreground: str },
-      { token: 'number', foreground: num },
-      { token: 'regexp', foreground: 'D16969' },
-      { token: 'operator', foreground: fg },
-      { token: 'label', foreground: fg },
-      // TS / Py modifiers (selector is type + '.' + sorted modifier names)
-      { token: 'variable.readonly', foreground: mut },
-      { token: 'property.readonly', foreground: mut },
-      { token: 'parameter.readonly', foreground: mut },
-      { token: 'variable.defaultLibrary', foreground: enumTone },
-      { token: 'function.defaultLibrary', foreground: enumTone },
-      { token: 'method.defaultLibrary', foreground: enumTone },
-      { token: 'function.async', foreground: accent },
-      { token: 'method.async', foreground: accent },
-    ];
-    return rules;
-  }
-
-  private defineClaraTheme(monacoApi: typeof Monaco): void {
-    const cs = getComputedStyle(document.documentElement);
-    const pick = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-    const bg = pick('--t-code-bg', '#1a1a1a');
-    const fg = pick('--t-code-text', '#d4d4d4');
-    const line = pick('--t-border-subtle', '#333333');
-    const selection = pick('--t-selection-bg', '#264f78');
-    const accent = pick('--t-primary', '#00ff41');
-    const typeTone = pick('--t-code-type', '#4EC9B0');
-    const paramTone = pick('--t-code-param', '#9CDCFE');
-    monacoApi.editor.defineTheme('clara-monaco', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: this.claraSemanticTokenRules(),
-      colors: {
-        'editor.background': bg,
-        'editor.foreground': fg,
-        'editorLineNumber.foreground': pick('--t-text-muted', '#858585'),
-        'editor.lineHighlightBackground': pick('--t-hover-bg', '#ffffff0c'),
-        'editorCursor.foreground': accent,
-        'editor.selectionBackground': selection,
-        'editor.inactiveSelectionBackground': selection + '99',
-        'editorWhitespace.foreground': line,
-        'editorIndentGuide.background': line,
-        'editorIndentGuide.activeBackground': pick('--t-border', '#555'),
-      },
-    });
-  }
-
   private async bootstrapEditor(): Promise<void> {
     const monacoApi = await import('monaco-editor');
     const { ensureMonacoFindWidgetSafe } = await import('../../../../monaco-find-safety');
@@ -1379,7 +1225,6 @@ export class WorkspaceMonacoComponent {
     };
     tsDefaults.setModeConfiguration(lspOnlyMode);
     jsDefaults.setModeConfiguration(lspOnlyMode);
-    this.defineClaraTheme(monacoApi);
     const host = this.editorHost().nativeElement;
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
     const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
@@ -1855,9 +1700,6 @@ export class WorkspaceMonacoComponent {
         renderSideBySide: true,
       });
       void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
-      if (settings.theme === 'clara-monaco') {
-        this.defineClaraTheme(monacoApi);
-      }
       monacoApi.editor.setTheme(settings.theme);
 
       this.diffOriginalModel = monacoApi.editor.createModel(

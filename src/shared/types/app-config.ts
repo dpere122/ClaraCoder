@@ -589,6 +589,11 @@ export interface WorkspaceToolsConfig {
    * included automatically on packaged GUI launches.
    */
   extraUserPath?: string;
+  /**
+   * When true, the agent auto-runs Black/Prettier after edits and binds the format_* tools.
+   * Default false. Optional on disk until migrated.
+   */
+  enableAgentFormatters?: boolean;
 }
 
 /** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */
@@ -673,8 +678,8 @@ export const CODE_FONT_FAMILY_OPTIONS: readonly FontFamilyOption[] = [
   { label: 'Consolas', stack: "Consolas, 'Courier New', monospace" },
 ];
 
-/** Built-in Monaco themes plus the app-defined `clara-monaco` (CSS-variable aligned). */
-export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['clara-monaco', 'vs', 'vs-dark', 'hc-black', 'hc-light'] as const;
+/** Built-in Monaco color themes for the workspace file editor. */
+export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['vs-dark', 'vs', 'hc-black', 'hc-light'] as const;
 export type MonacoWorkspaceEditorThemeId = (typeof MONACO_WORKSPACE_EDITOR_THEME_IDS)[number];
 
 /**
@@ -682,7 +687,7 @@ export type MonacoWorkspaceEditorThemeId = (typeof MONACO_WORKSPACE_EDITOR_THEME
  * Empty `fontFamily` means the renderer uses its built-in CSS font stack.
  */
 export interface MonacoWorkspaceEditorSettings {
-  /** Color theme for the workspace file editor (`clara-monaco` follows app tokens). */
+  /** Color theme for the workspace file editor. */
   theme: MonacoWorkspaceEditorThemeId;
   fontSize: number;
   lineHeight: number;
@@ -728,7 +733,7 @@ export interface MonacoWorkspaceEditorSettings {
 
 export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSettings {
   return {
-    theme: 'clara-monaco',
+    theme: 'vs-dark',
     fontSize: 13,
     lineHeight: 0,
     fontFamily: '',
@@ -767,7 +772,7 @@ export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSet
     formatOnSave: false,
     parameterHintsEnabled: true,
     hoverEnabled: true,
-    hoverDelay: 300,
+    hoverDelay: 500,
   };
 }
 

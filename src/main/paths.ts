@@ -177,13 +177,26 @@ export function getBundledVtslsEntry(): string | null {
   return existsSync(entry) ? entry : null;
 }
 
+/**
+ * Windows venv launchers (`Scripts/python.exe`) refuse to start without ``pyvenv.cfg``
+ * (exit 106: "No pyvenv.cfg file"). An interrupted ``python -m venv`` can leave the
+ * exe behind with no cfg — treat that as missing so we fall back to bundled / repo / system Python.
+ */
+export function isUsablePythonVenv(root: string): boolean {
+  return existsSync(path.join(root, 'pyvenv.cfg'));
+}
+
 function runtimeVenvPython(): string | null {
   const root = getRuntimePythonDir();
   const unix = path.join(root, 'bin', 'python');
   const win = path.join(root, 'Scripts', 'python.exe');
-  if (existsSync(unix)) return unix;
-  if (existsSync(win)) return win;
-  return null;
+  const exe = existsSync(unix) ? unix : existsSync(win) ? win : null;
+  if (!exe) return null;
+  if (!isUsablePythonVenv(root)) {
+    console.warn(`[Python] Ignoring incomplete runtime venv at ${root} (missing pyvenv.cfg)`);
+    return null;
+  }
+  return exe;
 }
 
 /**

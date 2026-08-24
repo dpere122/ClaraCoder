@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from clara_coder_backend.runtime.deps.paths import venv_python
 from clara_coder_backend.runtime.deps.providers import python_runtime as pr
+
+
+def _venv_exe(root: Path) -> Path:
+    return root / ('Scripts' if sys.platform.startswith('win') else 'bin') / (
+        'python.exe' if sys.platform.startswith('win') else 'python'
+    )
 
 
 def test_base_python_skips_interpreter_inside_target_venv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,4 +161,54 @@ def test_status_installed_when_core_packages_and_hash_current(
     st = pr.status()
     assert st['state'] == 'installed'
     assert st.get('error') is None
+
+
+def test_venv_python_none_without_pyvenv_cfg(tmp_path: Path) -> None:
+    venv = tmp_path / 'python-venv'
+    py = _venv_exe(venv)
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+    assert venv_python(venv) is None
+    (venv / 'pyvenv.cfg').write_text('home = /tmp\n', encoding='utf-8')
+    assert venv_python(venv) == py
+
+
+def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv = tmp_path / 'python-venv'
+    stub = _venv_exe(venv)
+    stub.parent.mkdir(parents=True)
+    stub.write_text('', encoding='utf-8')
+
+    durable = tmp_path / 'portable' / ('python.exe' if sys.platform.startswith('win') else 'python')
+    durable.parent.mkdir(parents=True)
+    durable.write_text('', encoding='utf-8')
+
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
+    monkeypatch.setattr(pr, '_base_python', lambda _v: str(durable))
+    monkeypatch.setattr(pr, '_pip_install_requirements', lambda _py: None)
+    monkeypatch.setattr(pr, '_write_requirements_hash', lambda _v: None)
+    monkeypatch.setattr(pr, '_interpreter_version', lambda _py: '3.12.0')
+    monkeypatch.setattr(pr, 'write_ready_marker', lambda _v, _ver: None)
+    monkeypatch.setattr(pr, 'status', lambda: {'id': 'python-runtime', 'state': 'installed'})
+
+    saw_venv_create = {'ok': False}
+
+    def fake_run(args, **_kwargs):  # type: ignore[no-untyped-def]
+        argv = [str(a) for a in args]
+        if '-m' in argv and 'venv' in argv:
+            assert not stub.exists(), 'incomplete venv stub should be removed before python -m venv'
+            saw_venv_create['ok'] = True
+            py = _venv_exe(venv)
+            py.parent.mkdir(parents=True)
+            py.write_text('', encoding='utf-8')
+            (venv / 'pyvenv.cfg').write_text('home = /tmp\n', encoding='utf-8')
+            return subprocess.CompletedProcess(args, 0, '', '')
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+    monkeypatch.setattr(pr.subprocess, 'run', fake_run)
+    result = pr.install(force=False)
+    assert saw_venv_create['ok'] is True
+    assert result['state'] == 'installed'
 

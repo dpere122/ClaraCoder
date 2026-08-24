@@ -88,12 +88,6 @@
           <span class='pill'>Save on close</span>
           <span class='settings-copy'>Unsaved changes are written when you leave this window (only if you edited something).</span>
         </div>
-        @if (s.selectedSettingsTab() === 'models') {
-          <button type='button' class='action-button action-button--primary' (click)='s.addProvider()'>
-            <lucide-icon name='plus' [size]='17' />
-            Add source
-          </button>
-        }
         @if (s.selectedSettingsTab() === 'workspaces') {
           <button type='button' class='action-button action-button--primary' (click)='s.addWorkspace()'>
             <lucide-icon name='folder-plus' [size]='17' />

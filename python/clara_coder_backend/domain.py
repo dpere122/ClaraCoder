@@ -390,6 +390,8 @@ class RuntimeToolsConfig:
     searxng_base_url: str = ''
     #: Extra directories prepended onto agent ``run_command`` PATH (Settings → Tools).
     extra_user_path: str = ''
+    #: When True, auto-run Black/Prettier after edits and bind format_* tools (Settings → Tools).
+    enable_agent_formatters: bool = False
 
 
 @dataclass

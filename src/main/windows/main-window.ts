@@ -5,7 +5,11 @@ import { mainState } from '../state';
 import { buildMenu } from '../menu/application-menu';
 import { resolveAppIconPath } from '../utils/app-icon';
 import { isPrimaryEditorFindShortcut } from '../utils/editor-find-shortcut';
-import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
+import {
+  framelessWindowShapeOptions,
+  hardenBrowserWindow,
+  secureWebPreferences,
+} from '../utils/harden-browser-window';
 import { attachBrowserWindowRevealFallbacks } from '../utils/reveal-browser-window';
 import { registerSelectableTextContextMenu } from '../utils/register-selectable-text-context-menu';
 
@@ -44,6 +48,7 @@ export function createMainWindow(): void {
     width: 1920,
     height: 1080,
     frame: false,
+    ...framelessWindowShapeOptions(),
     show: false,
     backgroundColor: '#0a0a0a',
     title: 'Clara Coder',

@@ -82,7 +82,7 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       id: 'theme',
       label: 'Color theme',
       description:
-        'Monaco color theme for workspace files. Clara tracks the app code colors; VS and high-contrast themes are built-ins.',
+        'Monaco color theme for workspace files. VS Dark is the default; VS Light and high-contrast themes are also available.',
     },
     {
       id: 'typography',

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
+from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url, normalize_openai_api_base
 
 
 def test_normalize_bind_all_ipv4() -> None:
@@ -19,3 +19,10 @@ def test_normalize_preserves_lan_host() -> None:
 
 def test_normalize_schemeless() -> None:
     assert normalize_bind_all_host_url('0.0.0.0:7777/v1') == 'http://127.0.0.1:7777/v1'
+
+
+def test_normalize_openai_api_base_appends_v1() -> None:
+    assert normalize_openai_api_base('http://127.0.0.1:1234') == 'http://127.0.0.1:1234/v1'
+    assert normalize_openai_api_base('http://127.0.0.1:1234/v1') == 'http://127.0.0.1:1234/v1'
+    assert normalize_openai_api_base('http://127.0.0.1:1234/v1/') == 'http://127.0.0.1:1234/v1'
+    assert normalize_openai_api_base('') is None

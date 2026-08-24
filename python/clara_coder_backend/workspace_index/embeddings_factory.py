@@ -21,6 +21,7 @@ from clara_coder_backend.config import (
     CLARA_EMBEDDINGS_MODEL,
 )
 from clara_coder_backend.domain import RuntimeConnection
+from clara_coder_backend.runtime.http_url_normalize import normalize_openai_api_base
 from clara_coder_backend.session.state import require_openai_api_key
 
 logger = logging.getLogger('clara.workspace_index.embeddings')
@@ -172,17 +173,6 @@ def _make_chunk_pooling_embedding(connection: RuntimeConnection, **kwargs: Any) 
     emb._text_engine = real_id
     emb.model_name = real_id
     return emb
-
-
-def normalize_openai_api_base(raw: str) -> str | None:
-    """Return ``api_base`` for the OpenAI SDK (``.../v1``) or ``None`` for library defaults."""
-    s = (raw or '').strip()
-    if not s:
-        return None
-    s = s.rstrip('/')
-    if s.endswith('/v1'):
-        return s
-    return f'{s}/v1'
 
 
 def embeddings_available(connection: RuntimeConnection) -> tuple[bool, str]:

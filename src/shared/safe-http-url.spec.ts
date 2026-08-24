@@ -21,4 +21,8 @@ describe('openAiBaseUrlToOrigin', () => {
   it('strips trailing /v1', () => {
     expect(openAiBaseUrlToOrigin('http://127.0.0.1:1234/v1')).toBe('http://127.0.0.1:1234');
   });
+
+  it('preserves a path prefix after stripping /v1', () => {
+    expect(openAiBaseUrlToOrigin('http://example.com/lms/v1')).toBe('http://example.com/lms');
+  });
 });

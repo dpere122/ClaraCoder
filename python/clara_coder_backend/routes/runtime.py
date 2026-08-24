@@ -118,6 +118,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             allow_web_access=request.tools.allowWebAccess,
             searxng_base_url=(request.tools.searxngBaseUrl or '').strip().rstrip('/'),
             extra_user_path=(request.tools.extraUserPath or '').strip(),
+            enable_agent_formatters=request.tools.enableAgentFormatters,
         )
     else:
         tools_cfg = prev_tools

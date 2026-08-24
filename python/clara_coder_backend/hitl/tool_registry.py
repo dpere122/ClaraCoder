@@ -55,7 +55,7 @@ from clara_coder_backend.tools.lsp_tools import (
 )
 from clara_coder_backend.tools.staging_edit import STAGING_TOOLS
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.session.state import direct_workspace_edits_active, runtime_config
+from clara_coder_backend.session.state import agent_formatters_enabled, direct_workspace_edits_active, runtime_config
 from clara_coder_backend.context_packs.tool import ACTIVATE_CONTEXT_TOOLS
 from clara_coder_backend.tools.workspace import TOOLS, TOOL_MAP, WORKSPACE_READ_TOOL_NAMES as _BASE_READ_NAMES
 
@@ -128,15 +128,17 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
 
         names = {t.name for t in edit_tools_for_strict(edit_strict)}
         names |= _LSP_CREATE_UPDATE_NAMES
-        names.add(FORMAT_WORKSPACE_FILE_BLACK_NAME)
-        names.add(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
+        if agent_formatters_enabled():
+            names.add(FORMAT_WORKSPACE_FILE_BLACK_NAME)
+            names.add(FORMAT_WORKSPACE_FILE_PRETTIER_NAME)
         # Staged→workspace transfer can still run under direct bindings (plan mode / auto-apply off).
         names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
         return frozenset(names)
     names = {t.name for t in staging_workspace_write_tools(edit_strict)}
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
-    names.add(FORMAT_STAGING_FILE_BLACK_NAME)
-    names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
+    if agent_formatters_enabled():
+        names.add(FORMAT_STAGING_FILE_BLACK_NAME)
+        names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
     names |= _LSP_CREATE_UPDATE_NAMES
     return frozenset(names)
 

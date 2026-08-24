@@ -425,6 +425,11 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('extraUserPath', 'extra_user_path'),
     )
 
+    enableAgentFormatters: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('enableAgentFormatters', 'enable_agent_formatters'),
+    )
+
     @field_validator('allowStagingOverlayCommands', mode='before')
     @classmethod
     def _normalize_allow_overlay(cls, v: Any) -> Any:
@@ -443,6 +448,11 @@ class RuntimeToolsRequest(BaseModel):
     @field_validator('allowWebAccess', mode='before')
     @classmethod
     def _normalize_allow_web(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+    @field_validator('enableAgentFormatters', mode='before')
+    @classmethod
+    def _normalize_enable_agent_formatters(cls, v: Any) -> Any:
         return _coerce_boolish(v)
 
     @field_validator('searxngBaseUrl', mode='before')

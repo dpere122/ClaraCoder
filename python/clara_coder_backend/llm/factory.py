@@ -31,6 +31,7 @@ from langchain_openai import ChatOpenAI
 from clara_coder_backend.config import env_clara, DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_connection_settings
 from clara_coder_backend.llm.http_transport import acquire_llm_http_clients
+from clara_coder_backend.runtime.http_url_normalize import normalize_openai_api_base
 from clara_coder_backend.llm.model_tuning import (
     connection_exposes_reasoning_effort,
     connection_user_sampling_kwargs_for_llm,
@@ -112,10 +113,14 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
         api_key = api_key or os.getenv('OPENAI_API_KEY', '')
         require_openai_api_key(api_key, 'OpenAI')
     elif connection.provider == 'lmstudio':
-        base_url = connection.base_url or DEFAULT_LM_STUDIO_BASE_URL
+        base_url = (
+            normalize_openai_api_base(connection.base_url or DEFAULT_LM_STUDIO_BASE_URL) or DEFAULT_LM_STUDIO_BASE_URL
+        )
         api_key = connection.api_key or os.getenv('LM_STUDIO_API_KEY', 'lm-studio')
     elif connection.provider == 'llamacpp':
-        base_url = connection.base_url or DEFAULT_LLAMACPP_BASE_URL
+        base_url = (
+            normalize_openai_api_base(connection.base_url or DEFAULT_LLAMACPP_BASE_URL) or DEFAULT_LLAMACPP_BASE_URL
+        )
         api_key = connection.api_key or os.getenv('LLAMACPP_API_KEY', 'not-needed')
     else:
         logger.error('Unsupported LLM provider: %s', connection.provider)

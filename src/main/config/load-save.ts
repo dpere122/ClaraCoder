@@ -1078,6 +1078,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     (newConfig as AppConfig).monacoWorkspaceEditor = monacoNorm;
     migrated = true;
   }
+  // 300ms was the previous shipped default and felt too eager; bump leftover values.
+  const monacoEditor = (newConfig as AppConfig).monacoWorkspaceEditor;
+  if (monacoEditor?.hoverDelay === 300) {
+    monacoEditor.hoverDelay = 500;
+    migrated = true;
+  }
 
   const wtRaw = (newConfig as AppConfig & { workspaceTools?: WorkspaceToolsConfig }).workspaceTools;
   if (!wtRaw) {
@@ -1167,6 +1173,15 @@ export function migrateConfig(config: AppConfig): AppConfig {
       migrated = true;
     } else if (extraPathRaw.length > 16_384) {
       wt.extraUserPath = extraPathRaw.slice(0, 16_384);
+      migrated = true;
+    }
+    const formattersRaw = (wt as unknown as { enableAgentFormatters?: unknown }).enableAgentFormatters;
+    if (typeof formattersRaw === 'string') {
+      const s = formattersRaw.trim().toLowerCase();
+      wt.enableAgentFormatters = s === 'true' || s === '1' || s === 'yes' || s === 'on';
+      migrated = true;
+    } else if (typeof formattersRaw !== 'boolean') {
+      wt.enableAgentFormatters = false;
       migrated = true;
     }
   }

@@ -823,11 +823,12 @@ export class App implements OnInit, OnDestroy {
   }
 
   private async refreshLmStudioLiveContext(conn: LlmConnectionConfig): Promise<void> {
+    const gen = this.lmStudioContextPollGen;
     const res = await this.electron.lmStudioListModels({
       baseUrl: conn.baseUrl,
       apiKey: unwrapSecret(conn.apiKey),
     });
-    if (!res.ok) {
+    if (this.shellDestroyed || gen !== this.lmStudioContextPollGen || !res.ok) {
       return;
     }
     const card = res.models.find((c) => c.id === conn.model);

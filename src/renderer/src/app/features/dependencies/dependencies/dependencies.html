@@ -169,24 +169,28 @@
 
             <div class='deps-card__actions'>
               @if (showDownload(dep)) {
-                <button
-                  type='button'
-                  class='deps-btn deps-btn--primary'
-                  [disabled]='isBusy(dep.id)'
-                  (click)='download(dep)'
-                >
-                  Download
-                </button>
+                <span class='deps-btn-wrap' [attr.title]='downloadComingSoon(dep) ? "Coming soon" : null'>
+                  <button
+                    type='button'
+                    class='deps-btn deps-btn--primary'
+                    [disabled]='isBusy(dep.id) || downloadComingSoon(dep)'
+                    (click)='download(dep)'
+                  >
+                    Download
+                  </button>
+                </span>
               }
               @if (dep.state === 'installed' || dep.state === 'error') {
-                <button
-                  type='button'
-                  class='deps-btn'
-                  [disabled]='isBusy(dep.id)'
-                  (click)='reinstall(dep)'
-                >
-                  Reinstall
-                </button>
+                <span class='deps-btn-wrap' [attr.title]='downloadComingSoon(dep) ? "Coming soon" : null'>
+                  <button
+                    type='button'
+                    class='deps-btn'
+                    [disabled]='isBusy(dep.id) || downloadComingSoon(dep)'
+                    (click)='reinstall(dep)'
+                  >
+                    Reinstall
+                  </button>
+                </span>
               }
               <button
                 type='button'

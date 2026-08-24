@@ -5,7 +5,11 @@ import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
 import { getLogsDir } from '../paths';
 import { resolveAppIconPath } from '../utils/app-icon';
-import { hardenBrowserWindow, secureWebPreferences } from '../utils/harden-browser-window';
+import {
+  framelessWindowShapeOptions,
+  hardenBrowserWindow,
+  secureWebPreferences,
+} from '../utils/harden-browser-window';
 import {
   attachBrowserWindowRevealFallbacks,
   settingsWindowParentOptions,
@@ -44,6 +48,7 @@ export function createHealthWindow(): void {
     minHeight: 720,
     ...(mainWindow && !mainWindow.isDestroyed() ? settingsWindowParentOptions(mainWindow) : {}),
     frame: false,
+    ...framelessWindowShapeOptions(),
     resizable: true,
     maximizable: true,
     show: false,

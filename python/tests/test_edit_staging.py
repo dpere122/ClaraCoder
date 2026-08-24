@@ -469,6 +469,7 @@ def test_stage_workspace_file_overwrite_uses_active_snapshot_baseline(staging_en
 
 
 def test_read_format_approve_reject(staging_env) -> None:
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'z.py').write_text('a=1\n', encoding='utf-8')
@@ -491,7 +492,29 @@ def test_read_format_approve_reject(staging_env) -> None:
     assert Path(session.pending_edit_stagings['z.py'].temp_path).is_file()
 
 
+def test_format_staging_file_black_disabled_by_settings(staging_env) -> None:
+    saved = runtime_config.tools
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=False)
+    try:
+        (staging_env.workspace / 'z.py').write_text('a=1\n', encoding='utf-8')
+        stage_create_file.invoke(
+            {
+                'relative_path': 'z.py',
+                'new_content': 'a=1\nb=2\n',
+                'encoding': 'utf-8',
+                'newline': 'lf',
+            }
+        )
+        assert staging_env.session.pending_edit_stagings['z.py'].merged_text == 'a=1\nb=2\n'
+        out = format_staging_file_black.invoke({'relative_path': 'z.py'})
+        assert 'disabled' in out.lower()
+        assert staging_env.session.pending_edit_stagings['z.py'].merged_text == 'a=1\nb=2\n'
+    finally:
+        runtime_config.tools = saved
+
+
 def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) -> None:
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
     session = staging_env.session
 
     from clara_coder_backend.staging import edit_staging as _es

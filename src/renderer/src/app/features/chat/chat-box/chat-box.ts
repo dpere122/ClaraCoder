@@ -22,7 +22,6 @@ import {
   Injector,
   input,
   OnDestroy,
-  DestroyRef,
   output,
   untracked,
   ElementRef,
@@ -246,8 +245,8 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
-  /** True when chat message role labels (USER / CLARA) drive expand/collapse chrome on `<html>`. */
-  readonly tuiFrameChrome = signal(false);
+  /** Role-label frames drive expand/collapse; all remaining themes use this chrome. */
+  readonly tuiFrameChrome = signal(true);
 
   // --- Outputs (HITL completion + composer send) ---
 
@@ -507,27 +506,7 @@ export class ChatBox implements OnDestroy {
     return 'thinking';
   });
 
-  constructor(
-    private el: ElementRef<HTMLElement>,
-    private destroyRef: DestroyRef,
-  ) {
-    afterNextRender(() => {
-      const syncTuiFrameChrome = (): void => {
-        const root = document.documentElement.classList;
-        this.tuiFrameChrome.set(
-          root.contains('theme-clara-tui')
-          || root.contains('theme-mae-tui')
-          || root.contains('theme-classical')
-          || root.contains('theme-dark-classical')
-          || root.contains('theme-woodland'),
-        );
-      };
-      syncTuiFrameChrome();
-      const themeObserver = new MutationObserver(syncTuiFrameChrome);
-      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-      this.destroyRef.onDestroy(() => themeObserver.disconnect());
-    });
-
+  constructor(private el: ElementRef<HTMLElement>) {
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
     // When the viewport shrinks while pinned to the bottom (HITL dock slides up or the
     // terminal auto-expands below, covering the chat), re-bottom so the latest content

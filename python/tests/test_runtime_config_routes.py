@@ -97,6 +97,13 @@ def test_runtime_config_updates_imported_runtime_config_references() -> None:
             assert r4.status_code == 200
             assert state.runtime_config.tools.extra_user_path == '/opt/clara-extra'
             assert '/opt/clara-extra' in os.environ['PATH'].split(os.pathsep)
+
+            r5_body = _payload()
+            r5_body['tools']['enableAgentFormatters'] = False
+            r5 = client.post('/runtime-config', json=r5_body)
+            assert r5.status_code == 200
+            assert state.runtime_config.tools.enable_agent_formatters is False
+            assert messages.runtime_config.tools.enable_agent_formatters is False
     finally:
         os.environ['PATH'] = orig_path
         state.runtime_config.active_connection_id = orig.active_connection_id

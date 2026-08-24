@@ -203,9 +203,8 @@ function modelExtension(fileName: string): string {
 }
 
 const MONACO_EDITOR_THEME_LABELS: Record<MonacoWorkspaceEditorThemeId, string> = {
-  'clara-monaco': 'Clara (matches app)',
-  vs: 'VS Light',
   'vs-dark': 'VS Dark',
+  vs: 'VS Light',
   'hc-black': 'High contrast dark',
   'hc-light': 'High contrast light',
 };
@@ -308,6 +307,7 @@ export class SettingsStore {
   readonly allowWebAccess = signal(false);
   readonly searxngBaseUrl = signal('');
   readonly extraUserPath = signal('');
+  readonly enableAgentFormatters = signal(false);
   readonly contextCompressionEnabled = signal(true);
   readonly contextCompressionTriggerRatio = signal(0.7);
   readonly contextCompressionTargetRatio = signal(0.55);
@@ -465,13 +465,16 @@ export class SettingsStore {
   readonly lmStudioInventory = signal<LmStudioModelCard[]>([]);
   readonly lmStudioInventoryError = signal<string | null>(null);
   readonly lmStudioListInFlight = signal(false);
+  private lmStudioListGen = 0;
   readonly lmStudioMainModelOptions = computed(() =>
     this.lmStudioInventory().filter((c) => !/embed/i.test(c.type)),
   );
   readonly lmStudioEmbeddingModelOptions = computed(() =>
     this.lmStudioInventory().filter((c) => /embed/i.test(c.type)),
   );
-  readonly lmStudioLoadedCards = computed(() => this.lmStudioInventory().filter((c) => c.state === 'loaded'));
+  readonly lmStudioLoadedCards = computed(() =>
+    this.lmStudioInventory().filter((c) => c.state === 'loaded' || c.state === 'loading'),
+  );
   readonly llamacppManagedModelIds = signal<string[]>([]);
   /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
   readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
@@ -604,10 +607,6 @@ export class SettingsStore {
     return (
       optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
     );
-  });
-  readonly selectedSourceIsActiveForChat = computed(() => {
-    const p = this.selectedProvider();
-    return !!p && this.sourceIsActive(p);
   });
   private hfDownloadSubscription: Subscription | null = null;
   readonly llamacppUrlModelsSummary = computed(() => {
@@ -947,8 +946,7 @@ export class SettingsStore {
     if (p.provider === 'lmstudio') {
       void this.refreshLmStudioInventory();
     } else {
-      this.lmStudioInventory.set([]);
-      this.lmStudioInventoryError.set(null);
+      this.clearLmStudioInventory();
     }
     if (p.provider === 'llamacpp') {
       if (isPinnedLlamaServerUrlProviderId(p.id)) {
@@ -1059,21 +1057,48 @@ export class SettingsStore {
     return isPinnedLlmSourceId(providerId);
   }
 
+  private clearLmStudioInventory(): void {
+    this.lmStudioListGen += 1;
+    this.lmStudioListInFlight.set(false);
+    this.lmStudioInventory.set([]);
+    this.lmStudioInventoryError.set(null);
+  }
+
   async refreshLmStudioInventory(): Promise<void> {
     const p = this.selectedProvider();
     if (!p || p.provider !== 'lmstudio') {
       return;
     }
+    const gen = ++this.lmStudioListGen;
+    const providerId = p.id;
     this.lmStudioListInFlight.set(true);
     this.lmStudioInventoryError.set(null);
-    const res = await this.electron.lmStudioListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) });
-    this.lmStudioListInFlight.set(false);
-    if (res.ok) {
-      this.lmStudioInventory.set(res.models);
-      this.applyLmStudioLiveContextFromInventory();
-    } else {
+    try {
+      const res = await this.electron.lmStudioListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) });
+      if (gen !== this.lmStudioListGen) {
+        return;
+      }
+      const still = this.selectedProvider();
+      if (!still || still.id !== providerId || still.provider !== 'lmstudio') {
+        return;
+      }
+      if (res.ok) {
+        this.lmStudioInventory.set(res.models);
+        this.applyLmStudioLiveContextFromInventory();
+      } else {
+        this.lmStudioInventory.set([]);
+        this.lmStudioInventoryError.set(res.error);
+      }
+    } catch (e) {
+      if (gen !== this.lmStudioListGen) {
+        return;
+      }
       this.lmStudioInventory.set([]);
-      this.lmStudioInventoryError.set(res.error);
+      this.lmStudioInventoryError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (gen === this.lmStudioListGen) {
+        this.lmStudioListInFlight.set(false);
+      }
     }
   }
 
@@ -1101,7 +1126,7 @@ export class SettingsStore {
     const inv = this.lmStudioInventory();
     const needLoad = (id: string) => {
       const c = inv.find((x) => x.id === id);
-      return !c || c.state !== 'loaded';
+      return !c || (c.state !== 'loaded' && c.state !== 'loading');
     };
     const wantsMain = !!main && needLoad(main);
     const wantsEmb = !!emb && needLoad(emb);
@@ -1123,10 +1148,17 @@ export class SettingsStore {
     if (emb && emb !== main) {
       keys.push(emb);
     }
+    const errors: string[] = [];
     for (const k of keys) {
-      await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: unwrapSecret(p.apiKey) });
+      const r = await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: unwrapSecret(p.apiKey) });
+      if (!r.ok) {
+        errors.push(`${k}: ${r.error}`);
+      }
     }
     await this.refreshLmStudioInventory();
+    if (errors.length) {
+      this.lmStudioInventoryError.set(errors.join('; '));
+    }
   }
 
   async unloadLmStudioCard(card: LmStudioModelCard): Promise<void> {
@@ -1134,12 +1166,15 @@ export class SettingsStore {
     if (!p || p.provider !== 'lmstudio' || !card.instanceId) {
       return;
     }
-    await this.electron.lmStudioUnloadModel({
+    const r = await this.electron.lmStudioUnloadModel({
       baseUrl: p.baseUrl,
       instanceId: card.instanceId,
       apiKey: unwrapSecret(p.apiKey),
     });
     await this.refreshLmStudioInventory();
+    if (!r.ok) {
+      this.lmStudioInventoryError.set(r.error);
+    }
   }
 
   addProvider(): void {
@@ -1440,14 +1475,6 @@ export class SettingsStore {
 
   openModelManagerTab(): void {
     this.selectTab('modelManager');
-  }
-
-  activateSelectedSourceForChat(): void {
-    const p = this.selectedProvider();
-    if (!p) {
-      return;
-    }
-    this.activateSource(p.id);
   }
 
   onManagedInventoryPick(value: string): void {
@@ -2673,6 +2700,9 @@ export class SettingsStore {
     if (changes.extraUserPath !== undefined) {
       this.extraUserPath.set(changes.extraUserPath || '');
     }
+    if (changes.enableAgentFormatters !== undefined) {
+      this.enableAgentFormatters.set(!!changes.enableAgentFormatters);
+    }
     this.markSettingsDirty();
   }
 
@@ -2740,6 +2770,11 @@ export class SettingsStore {
 
   onExtraUserPathChange(value: string): void {
     this.extraUserPath.set(value || '');
+    this.markSettingsDirty();
+  }
+
+  onEnableAgentFormattersChange(enabled: boolean): void {
+    this.enableAgentFormatters.set(!!enabled);
     this.markSettingsDirty();
   }
 
@@ -2854,8 +2889,6 @@ export class SettingsStore {
 
   monacoEditorThemeShortLabel(id: MonacoWorkspaceEditorThemeId): string {
     switch (id) {
-      case 'clara-monaco':
-        return 'Clara';
       case 'vs':
         return 'VS';
       case 'vs-dark':
@@ -3043,6 +3076,7 @@ export class SettingsStore {
         allowWebAccess: this.allowWebAccess(),
         searxngBaseUrl: this.searxngBaseUrl(),
         extraUserPath: this.extraUserPath(),
+        enableAgentFormatters: this.enableAgentFormatters(),
       },
       contextCompression: {
         enabled: this.contextCompressionEnabled(),
@@ -3207,6 +3241,7 @@ export class SettingsStore {
     this.allowWebAccess.set(!!(wt.allowWebAccess ?? false));
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
     this.extraUserPath.set(wt.extraUserPath ?? '');
+    this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
 
     const cc = config.contextCompression ?? getDefaultContextCompression();
     this.contextCompressionEnabled.set(!!cc.enabled);
@@ -3233,8 +3268,7 @@ export class SettingsStore {
     if (locAfter?.provider.provider === 'lmstudio') {
       void this.refreshLmStudioInventory();
     } else {
-      this.lmStudioInventory.set([]);
-      this.lmStudioInventoryError.set(null);
+      this.clearLmStudioInventory();
     }
 
     if (locAfter?.provider.provider === 'llamacpp' && locAfter.model) {

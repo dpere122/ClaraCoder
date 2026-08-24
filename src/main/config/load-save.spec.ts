@@ -161,3 +161,34 @@ describe('migrateConfig workspace tools extraUserPath', () => {
     expect(migrated.workspaceTools.extraUserPath).toBe('');
   });
 });
+
+describe('migrateConfig workspace tools enableAgentFormatters', () => {
+  it('defaults missing enableAgentFormatters to false', () => {
+    const cfg = sampleConfig();
+    delete cfg.workspaceTools.enableAgentFormatters;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.workspaceTools.enableAgentFormatters).toBe(false);
+  });
+});
+
+describe('migrateConfig monaco hover delay', () => {
+  it('bumps the previous 300ms default so hover is less eager', () => {
+    const cfg = sampleConfig();
+    cfg.monacoWorkspaceEditor = {
+      ...cfg.monacoWorkspaceEditor,
+      hoverDelay: 300,
+    };
+    const migrated = migrateConfig(cfg);
+    expect(migrated.monacoWorkspaceEditor.hoverDelay).toBe(500);
+  });
+
+  it('keeps a custom hover delay', () => {
+    const cfg = sampleConfig();
+    cfg.monacoWorkspaceEditor = {
+      ...cfg.monacoWorkspaceEditor,
+      hoverDelay: 800,
+    };
+    const migrated = migrateConfig(cfg);
+    expect(migrated.monacoWorkspaceEditor.hoverDelay).toBe(800);
+  });
+});

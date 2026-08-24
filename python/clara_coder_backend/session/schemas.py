@@ -309,6 +309,10 @@ class RuntimeConnectionRequest(BaseModel):
         default='',
         validation_alias=AliasChoices('embeddingsModel', 'embeddings_model'),
     )
+    embeddingsConfigured: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('embeddingsConfigured', 'embeddings_configured'),
+    )
     contextWindowTokens: int = Field(
         default=0,
         ge=0,

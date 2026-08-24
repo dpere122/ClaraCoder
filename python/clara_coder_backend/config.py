@@ -127,6 +127,12 @@ CLARA_EMBEDDINGS_API_KEY = (env_clara('CLARA_EMBEDDINGS_API_KEY', '') or '').str
 # Split each embedding request into tiktoken-sized chunks (``cl100k_base``) at or below this size so local
 # ``llama-server --embedding`` (default physical batch / ubatch 512) and mismatched model tokenizers do not 500.
 CLARA_EMBEDDINGS_MAX_INPUT_TOKENS = _env_int('CLARA_EMBEDDINGS_MAX_INPUT_TOKENS', 384, 32, 8192)
+# In-process FastEmbed/ONNX CPU embeddings (Nomic) — the primary embedding backend.
+# Activates as soon as a chat model is connected; no HTTP embeddings endpoint is used.
+CLARA_EMBEDDINGS_CPU_ENABLED = _env_bool('CLARA_EMBEDDINGS_CPU_ENABLED', True)
+CLARA_FASTEMBED_MODEL = (env_clara('CLARA_FASTEMBED_MODEL', '') or 'nomic-ai/nomic-embed-text-v1.5').strip()
+# Empty = ``{CLARA_RUNTIME_DIR}/embeddings/fastembed``.
+CLARA_FASTEMBED_CACHE_DIR = (env_clara('CLARA_FASTEMBED_CACHE_DIR', '') or '').strip()
 
 # Seeds :attr:`~clara_coder_backend.session.state.runtime_config` before the first
 # ``POST /runtime-config``; overridden by Settings → Tools.

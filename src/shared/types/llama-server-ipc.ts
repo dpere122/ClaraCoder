@@ -52,3 +52,12 @@ export type LlamaServerLifecycleEvent =
   /** Chat (and embedding if configured) passed ``/health``; managed servers are ready. */
   | { phase: 'running'; modelId: string; chatTemplateReasoning?: ChatTemplateReasoningCaps; nCtx?: number }
   | { phase: 'stopped'; modelId: string };
+
+/** CPU Nomic embeddings load status from the Python sidecar (``GET /embeddings/status``). */
+export type EmbeddingsLoadStatus = 'idle' | 'loading' | 'ready' | 'error' | 'disabled';
+
+export interface EmbeddingsStatusResult {
+  ok: true;
+  status: EmbeddingsLoadStatus;
+  model: string;
+}

@@ -19,6 +19,7 @@ import type {
   LlamaServerProcessExitEvent,
   LlamaServerStartResult,
   LlamaServerStatusResult,
+  EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
   ChatTemplateReasoningCaps,
   LlmStatus,
@@ -377,6 +378,7 @@ declare global {
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
+    embeddingsStatus: () => Promise<EmbeddingsStatusResult | { ok: false; error: string }>;
     llamaServerChatTemplateReasoning: (payload: {
       modelId: string;
     }) => Promise<

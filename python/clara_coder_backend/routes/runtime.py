@@ -58,6 +58,32 @@ async def health() -> dict[str, str | bool]:
     }
 
 
+@router.get('/embeddings/status')
+async def embeddings_status() -> dict[str, str]:
+    """Report CPU Nomic embeddings load status for the status-bar indicator.
+
+    Returns ``status`` in ``idle`` | ``loading`` | ``ready`` | ``error`` | ``disabled``,
+    plus the pinned ``model`` id.
+
+    When the main chat model is disconnected or not running, the embeddings model is
+    considered inactive (``idle``) even if the ONNX engine was previously loaded — the
+    indicator shows red and semantic index calls are skipped.
+    """
+    from clara_coder_backend.config import CLARA_EMBEDDINGS_CPU_ENABLED
+    from clara_coder_backend.workspace_index.embeddings_factory import chat_connected
+    from clara_coder_backend.workspace_index.fastembed_backend import fastembed_model_id, get_embed_status
+
+    if not CLARA_EMBEDDINGS_CPU_ENABLED:
+        return {'status': 'disabled', 'model': fastembed_model_id()}
+
+    conn = state.get_active_connection()
+    chat_ok, _ = chat_connected(conn)
+    if not chat_ok:
+        return {'status': 'idle', 'model': fastembed_model_id()}
+
+    return {'status': get_embed_status(), 'model': fastembed_model_id()}
+
+
 @router.post('/runtime-config')
 async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     """Replace LLM connections, transcription settings, and host metadata from the UI."""
@@ -85,6 +111,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             embeddings_base_url=normalize_bind_all_host_url((item.embeddingsBaseUrl or '').strip()),
             embeddings_enabled=bool(item.embeddingsEnabled),
             embeddings_model=(item.embeddingsModel or '').strip(),
+            embeddings_configured=bool(item.embeddingsConfigured),
             context_window_tokens=int(item.contextWindowTokens),
             chat_template_reasoning=_chat_template_reasoning_dict(item.chatTemplateReasoning),
         )
@@ -178,4 +205,13 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         'yes' if request.tools is not None else 'no',
         'yes' if request.contextCompression is not None else 'no',
     )
+
+    # Preload CPU Nomic embeddings as soon as the chat model is connected.
+    active_conn = state.get_active_connection()
+    try:
+        from clara_coder_backend.workspace_index.embeddings_factory import preload_embedding_model
+        preload_embedding_model(active_conn)
+    except Exception:
+        logger.debug('embeddings preload trigger failed', exc_info=True)
+
     return {'ok': True}

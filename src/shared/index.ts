@@ -100,6 +100,8 @@ export {
   tensorSplitForGpus,
 } from './managed-llama-gpu-split';
 export type {
+  EmbeddingsLoadStatus,
+  EmbeddingsStatusResult,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,

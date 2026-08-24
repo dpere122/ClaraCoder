@@ -146,14 +146,8 @@
                     </label>
                     <label class='field field--full'>
                       <span>Embedding model</span>
-                      <select
-                        [ngModel]='s.selectedProvider()!.embeddingsModel ?? ""'
-                        (ngModelChange)='s.updateSelectedProvider({ embeddingsModel: $event || undefined })'
-                      >
-                        <option value=''>None</option>
-                        @for (opt of s.lmStudioEmbeddingModelOptions(); track opt.id) {
-                          <option [value]='opt.id'>{{ opt.id }} — {{ opt.state }}</option>
-                        }
+                      <select disabled>
+                        <option value=''>Built-in CPU Nomic</option>
                       </select>
                     </label>
                     <div class='field field--full'>
@@ -231,9 +225,8 @@
                       <span>Embeddings URL</span>
                       <input
                         type='text'
-                        placeholder='http://192.168.1.10:8081/v1'
-                        [ngModel]='s.selectedProvider()!.embeddingsBaseUrl ?? ""'
-                        (ngModelChange)='s.updateSelectedProvider({ embeddingsBaseUrl: $event || undefined })'
+                        placeholder='Built-in CPU Nomic (disabled)'
+                        disabled
                       />
                     </label>
                     <label class='field field--full'>
@@ -286,17 +279,8 @@
                     </label>
                     <label class='field field--full'>
                       <span>Embedding model</span>
-                      <select
-                        [ngModel]='s.selectedProvider()!.embeddingsModel ?? ""'
-                        (ngModelChange)='s.updateSelectedProvider({ embeddingsModel: $event || undefined })'
-                      >
-                        <option value=''>None</option>
-                        @if ((s.selectedProvider()?.embeddingsModel || "") && !s.llamacppUrlEmbeddingModelIds().includes((s.selectedProvider()?.embeddingsModel) || "")) {
-                          <option [value]='s.selectedProvider()!.embeddingsModel'>{{ s.selectedProvider()!.embeddingsModel }} (current)</option>
-                        }
-                        @for (id of s.llamacppUrlEmbeddingModelIds(); track id) {
-                          <option [value]='id'>{{ id }}</option>
-                        }
+                      <select disabled>
+                        <option value=''>Built-in CPU Nomic</option>
                       </select>
                     </label>
                   </div>
@@ -540,9 +524,8 @@
                       <span>Embedding command</span>
                       <textarea
                         rows='3'
-                        [ngModel]='s.selectedLlamaCppManaged().embeddingRunCommand'
-                        (ngModelChange)='s.patchLlamaCppManaged({ embeddingRunCommand: $event })'
-                        [placeholder]="'optional; include ' + s.managedLlamaPortToken"
+                        disabled
+                        placeholder='Built-in CPU Nomic (disabled)'
                       ></textarea>
                     </label>
                     <div class='field field--full'>

@@ -1,19 +1,28 @@
 import { Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { AppConfig, LlamaServerStatusResult, ManagedServerHealthState } from '@shared/index';
+import type {
+  AppConfig,
+  EmbeddingsLoadStatus,
+  LlamaServerStatusResult,
+  ManagedServerHealthState,
+} from '@shared/index';
 import { resolveActiveLlmConnection } from '@shared/index';
 import { filter, merge } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
 import {
   computeStatusPollIntervalMs,
+  embeddingsStatusDotState,
   healthDotState,
   type LlamaStatusDotState,
 } from './llama-status-display';
 
 /**
- * Compact status-bar indicator for the managed llama.cpp servers: two traffic-light dots
- * (Model + Embeddings) driven by the same ``/health`` IPC probe the old 3D tile used.
- * Only rendered when the active LLM provider is ``llamacpp``.
+ * Compact status-bar indicator with traffic-light dots:
+ * - **Model** dot: managed llama.cpp chat server health (only for ``llamacpp`` provider).
+ * - **Embeddings** dot: CPU Nomic FastEmbed load status (all providers).
+ *
+ * The embeddings dot polls the Python sidecar ``GET /embeddings/status`` endpoint, which reports
+ * whether the in-process ONNX model is ``idle``, ``loading``, ``ready``, ``error``, or ``disabled``.
  */
 @Component({
   selector: 'app-llama-status-indicator',
@@ -38,14 +47,30 @@ export class LlamaStatusIndicator {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Managed llama.cpp server status (chat + embed probe). Only relevant for ``llamacpp`` provider. */
   protected readonly status = signal<LlamaServerStatusResult | null>(null);
   /** Set from main-process lifecycle while HF / remote weights are being fetched. */
   private readonly modelDownloadPhase = signal(false);
 
+  /** CPU Nomic embeddings status from the Python sidecar. */
+  protected readonly embedStatus = signal<EmbeddingsLoadStatus | null>(null);
+  private embedPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private embedPollCfg: AppConfig | null = null;
+
+  /** Active provider from the app config. */
+  private readonly activeProvider = computed(() => {
+    const cfg = this.appConfig();
+    return cfg ? resolveActiveLlmConnection(cfg)?.provider ?? null : null;
+  });
+
+  /** Show the indicator whenever there is an active LLM connection. */
   protected readonly show = computed(() => {
     const cfg = this.appConfig();
-    return !!cfg && resolveActiveLlmConnection(cfg)?.provider === 'llamacpp';
+    return !!cfg && !!cfg.activeLlmModelId?.trim() && !!this.activeProvider();
   });
+
+  /** Show the Model dot only for managed llama.cpp. */
+  protected readonly showModelDot = computed(() => this.activeProvider() === 'llamacpp');
 
   /** True when the managed (or remote-probed) servers are considered live. */
   private readonly live = computed(() => {
@@ -67,26 +92,32 @@ export class LlamaStatusIndicator {
     return healthDotState(st.chat.health);
   });
 
-  protected readonly embedConfigured = computed(() => {
-    const st = this.status();
-    return !!st && st.ok === true && st.embed != null;
-  });
-
   protected readonly embedDot = computed((): LlamaStatusDotState => {
-    const st = this.status();
-    if (!st || st.ok === false || !this.live()) {
+    const es = this.embedStatus();
+    if (es == null) {
       return 'red';
     }
-    const health: ManagedServerHealthState | 'off' = st.embed ? st.embed.health : 'off';
-    return healthDotState(health);
+    return embeddingsStatusDotState(es);
   });
 
   protected readonly modelTitle = computed(() => `Model server — ${this.dotLabel(this.modelDot())}`);
-  protected readonly embedTitle = computed(() =>
-    this.embedConfigured()
-      ? `Embeddings server — ${this.dotLabel(this.embedDot())}`
-      : 'Embeddings server — not configured',
-  );
+  protected readonly embedTitle = computed(() => {
+    const es = this.embedStatus();
+    const label = this.dotLabel(this.embedDot());
+    if (es === 'loading') {
+      return `Embeddings (CPU Nomic) — loading`;
+    }
+    if (es === 'ready') {
+      return `Embeddings (CPU Nomic) — ready`;
+    }
+    if (es === 'disabled') {
+      return `Embeddings (CPU Nomic) — disabled`;
+    }
+    if (es === 'error') {
+      return `Embeddings (CPU Nomic) — error`;
+    }
+    return `Embeddings (CPU Nomic) — ${label}`;
+  });
 
   private dotLabel(s: LlamaStatusDotState): string {
     if (s === 'green') {
@@ -101,6 +132,7 @@ export class LlamaStatusIndicator {
   constructor() {
     this.destroyRef.onDestroy(() => {
       this.stopPolling();
+      this.stopEmbedPolling();
       this.clearDebounceRefresh();
     });
 
@@ -128,27 +160,37 @@ export class LlamaStatusIndicator {
 
     effect((onCleanup) => {
       const cfg = this.appConfig();
-      const show = cfg && resolveActiveLlmConnection(cfg)?.provider === 'llamacpp';
-      if (!show || !cfg) {
+      const provider = this.activeProvider();
+      if (!cfg || !provider) {
         this.refreshSeq += 1;
         this.chatOkExitStreak.n = 0;
         this.embedOkExitStreak.n = 0;
         this.deferredRefreshCfg = null;
         this.status.set(null);
+        this.embedStatus.set(null);
         this.stopPolling();
+        this.stopEmbedPolling();
         this.clearDebounceRefresh();
         return;
       }
 
-      const mid = cfg.activeLlmModelId?.trim();
-      if (!mid) {
-        return;
+      // Model dot polling: only for managed llama.cpp.
+      if (provider === 'llamacpp') {
+        const mid = cfg.activeLlmModelId?.trim();
+        if (mid) {
+          this.armPolling(cfg);
+        }
+      } else {
+        this.stopPolling();
+        this.status.set(null);
       }
 
-      this.armPolling(cfg);
+      // Embeddings dot polling: all providers (CPU Nomic).
+      this.armEmbedPolling(cfg);
 
       onCleanup(() => {
         this.stopPolling();
+        this.stopEmbedPolling();
         this.clearDebounceRefresh();
       });
     });
@@ -223,6 +265,66 @@ export class LlamaStatusIndicator {
     }
     this.pollCfg = null;
   }
+
+  // ---- CPU Nomic embeddings status polling (all providers) ----
+
+  private armEmbedPolling(cfg: AppConfig): void {
+    this.stopEmbedPolling();
+    this.embedPollCfg = cfg;
+    void this.refreshEmbedStatus().finally(() => {
+      if (this.embedPollCfg === cfg) {
+        this.scheduleEmbedPollTick();
+      }
+    });
+  }
+
+  private scheduleEmbedPollTick(): void {
+    const cfg = this.embedPollCfg;
+    if (!cfg) {
+      return;
+    }
+    if (this.embedPollTimer != null) {
+      window.clearTimeout(this.embedPollTimer);
+      this.embedPollTimer = null;
+    }
+    // Poll faster while loading; slow down once ready or errored.
+    const es = this.embedStatus();
+    const ms = es === 'loading' || es === 'idle' ? 2_500 : 10_000;
+    this.embedPollTimer = window.setTimeout(() => {
+      this.embedPollTimer = null;
+      if (this.embedPollCfg !== cfg) {
+        return;
+      }
+      void this.refreshEmbedStatus().finally(() => {
+        if (this.embedPollCfg === cfg) {
+          this.scheduleEmbedPollTick();
+        }
+      });
+    }, ms);
+  }
+
+  private stopEmbedPolling(): void {
+    if (this.embedPollTimer != null) {
+      window.clearTimeout(this.embedPollTimer);
+      this.embedPollTimer = null;
+    }
+    this.embedPollCfg = null;
+  }
+
+  private async refreshEmbedStatus(): Promise<void> {
+    try {
+      const r = await this.electron.embeddingsStatus();
+      if (r.ok) {
+        this.embedStatus.set(r.status);
+      } else {
+        this.embedStatus.set(null);
+      }
+    } catch {
+      this.embedStatus.set(null);
+    }
+  }
+
+  // ---- Managed llama.cpp status polling (llamacpp only) ----
 
   private async refreshStatus(cfg: AppConfig): Promise<void> {
     const mid = cfg.activeLlmModelId?.trim();

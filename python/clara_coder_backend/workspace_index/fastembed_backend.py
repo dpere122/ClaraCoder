@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,11 @@ logger = logging.getLogger('clara.workspace_index.fastembed')
 
 _NOMIC_QUERY_PREFIX = 'search_query: '
 _NOMIC_DOC_PREFIX = 'search_document: '
+
+# ONNX Runtime's default CPU arena + one thread per core balloons RAM while embedding a
+# large workspace (multi-GB and it does not shrink). Cap threads and disable the arena.
+_ONNX_INTRA_OP_THREADS = min(4, os.cpu_count() or 1)
+_EMBED_INFER_BATCH = 16
 
 _engine_lock = threading.Lock()
 _engine: Any = None
@@ -110,8 +116,20 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
             cache_dir,
         )
     logger.debug('onnxruntime version=%s', getattr(onnxruntime, '__version__', 'unknown'))
-    engine = TextEmbedding(model_name=model_name, cache_dir=str(cache_dir))
-    logger.info('CPU FastEmbed model=%s ready cache_dir=%s', model_name, cache_dir)
+    engine = TextEmbedding(
+        model_name=model_name,
+        cache_dir=str(cache_dir),
+        threads=_ONNX_INTRA_OP_THREADS,
+        providers=['CPUExecutionProvider'],
+        cuda=False,
+        enable_cpu_mem_arena=False,
+    )
+    logger.info(
+        'CPU FastEmbed model=%s ready cache_dir=%s onnx_threads=%s',
+        model_name,
+        cache_dir,
+        _ONNX_INTRA_OP_THREADS,
+    )
     return engine
 
 
@@ -152,28 +170,32 @@ class FastEmbedEmbedding(BaseEmbedding):
 
     _engine: Any = PrivateAttr()
 
-    def __init__(self, *, model_name: str, engine: Any, embed_batch_size: int = 32, **kwargs: Any) -> None:
+    def __init__(self, *, model_name: str, engine: Any, embed_batch_size: int = _EMBED_INFER_BATCH, **kwargs: Any) -> None:
         super().__init__(model_name=model_name, embed_batch_size=embed_batch_size, **kwargs)
         self._engine = engine
+
+    def _infer_kwargs(self) -> dict[str, Any]:
+        return {'batch_size': self.embed_batch_size, 'parallel': None}
 
     def _embed_queries(self, queries: list[str]) -> list[list[float]]:
         engine = self._engine
         query_embed = getattr(engine, 'query_embed', None)
         if callable(query_embed):
-            return [_as_float_list(v) for v in query_embed(queries)]
+            return [_as_float_list(v) for v in query_embed(queries, **self._infer_kwargs())]
         prefixed = [_prefix_query(self.model_name, q) for q in queries]
-        return [_as_float_list(v) for v in engine.embed(prefixed)]
+        return [_as_float_list(v) for v in engine.embed(prefixed, **self._infer_kwargs())]
 
     def _embed_documents(self, texts: list[str]) -> list[list[float]]:
         engine = self._engine
         passage_embed = getattr(engine, 'passage_embed', None)
+        infer = self._infer_kwargs()
         if callable(passage_embed):
-            return [_as_float_list(v) for v in passage_embed(texts)]
+            return [_as_float_list(v) for v in passage_embed(texts, **infer)]
         if callable(getattr(engine, 'query_embed', None)):
             # FastEmbed registry already applies document prefixes on ``embed``.
-            return [_as_float_list(v) for v in engine.embed(texts)]
+            return [_as_float_list(v) for v in engine.embed(texts, **infer)]
         prefixed = [_prefix_document(self.model_name, t) for t in texts]
-        return [_as_float_list(v) for v in engine.embed(prefixed)]
+        return [_as_float_list(v) for v in engine.embed(prefixed, **infer)]
 
     def _get_query_embedding(self, query: str) -> list[float]:
         norm = (query or '').replace('\n', ' ')

@@ -73,6 +73,39 @@ def test_build_fastembed_embedding_import_error(monkeypatch, tmp_path: Path) -> 
     assert fb.get_embed_status() == 'error'
 
 
+def test_load_text_embedding_pins_cpu_and_disables_onnx_arena(monkeypatch, tmp_path: Path) -> None:
+    import sys
+
+    captured: dict[str, object] = {}
+
+    class _FakeTextEmbedding:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    fake_fastembed = type(sys)('fastembed')
+    fake_fastembed.TextEmbedding = _FakeTextEmbedding  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, 'fastembed', fake_fastembed)
+    monkeypatch.setitem(sys.modules, 'onnxruntime', type(sys)('onnxruntime'))
+
+    engine = fb._load_text_embedding('nomic-ai/nomic-embed-text-v1.5', tmp_path)
+    assert isinstance(engine, _FakeTextEmbedding)
+    assert captured['providers'] == ['CPUExecutionProvider']
+    assert captured['cuda'] is False
+    assert captured['enable_cpu_mem_arena'] is False
+    assert captured['threads'] == fb._ONNX_INTRA_OP_THREADS
+    assert int(captured['threads']) <= 4  # type: ignore[arg-type]
+
+
+def test_query_embed_passes_small_batch_and_no_parallel() -> None:
+    engine = MagicMock()
+    engine.query_embed.return_value = [[0.1, 0.2]]
+    embed = fb.FastEmbedEmbedding(model_name='nomic-ai/nomic-embed-text-v1.5', engine=engine)
+    embed._get_query_embedding('hello')
+    kwargs = engine.query_embed.call_args.kwargs
+    assert kwargs['batch_size'] == fb._EMBED_INFER_BATCH
+    assert kwargs['parallel'] is None
+
+
 def test_get_text_embedding_engine_reuse_restores_ready(monkeypatch, tmp_path: Path) -> None:
     engine = MagicMock()
     monkeypatch.setattr(fb, '_load_text_embedding', lambda *_a, **_k: engine)

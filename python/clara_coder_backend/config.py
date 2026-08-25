@@ -81,9 +81,9 @@ CLARA_SMOKE_READINESS_SETTLE_SEC = _env_int('CLARA_SMOKE_READINESS_SETTLE_SEC', 
 # ---------------------------------------------------------------------------
 # Each iteration is one LLM completion; a single step may execute several tools.
 try:
-    MAX_AGENT_STEPS = max(1, min(int(env_clara('CLARA_MAX_AGENT_STEPS', '400').strip() or '400'), 5000))
+    MAX_AGENT_STEPS = max(1, min(int(env_clara('CLARA_MAX_AGENT_STEPS', '2000').strip() or '2000'), 5000))
 except ValueError:
-    MAX_AGENT_STEPS = 400
+    MAX_AGENT_STEPS = 2000
 
 # When the model returns no visible text, inject a nudge message instead of stopping.
 MAX_AGENT_EMPTY_NUDGES = 2

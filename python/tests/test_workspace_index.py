@@ -55,6 +55,16 @@ def test_iter_index_skips_dot_nemo(tmp_path: Path) -> None:
     assert not any(r.startswith('.nemo/') for r in rels)
 
 
+def test_iter_index_skips_runtime_bundle(tmp_path: Path) -> None:
+    bundled = tmp_path / 'runtime-bundle' / 'python' / 'Lib'
+    bundled.mkdir(parents=True)
+    (bundled / 'inspect.py').write_text('def foo():\n    pass\n', encoding='utf-8')
+    (tmp_path / 'app.py').write_text('ok\n', encoding='utf-8')
+    rels = {p.relative_to(tmp_path).as_posix() for p in iter_index_workspace_files(tmp_path, max_files=50)}
+    assert 'app.py' in rels
+    assert not any(r.startswith('runtime-bundle/') for r in rels)
+
+
 def test_pdf_allowed_in_index_walk(tmp_path: Path) -> None:
     (tmp_path / 'a.pdf').write_bytes(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
     files = list(iter_index_workspace_files(tmp_path, max_files=20))

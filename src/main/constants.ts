@@ -35,6 +35,9 @@ export const WORKSPACE_CONTEXT_IGNORED_NAMES = new Set([
   'tmp',
   'vendor',
   'venv',
+  // Clara pack artifacts (also in root .gitignore; keep if gitignore matching fails).
+  'runtime-bundle',
+  'vtsls-bundle',
 ]);
 
 /** Suffix skips for bulk discovery (log files are always visible — see `isLogRelatedFile`). */

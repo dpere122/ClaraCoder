@@ -35,6 +35,9 @@ WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
         'tmp',
         'vendor',
         'venv',
+        # Clara pack artifacts (also in root .gitignore; keep if gitignore matching fails).
+        'runtime-bundle',
+        'vtsls-bundle',
     }
 )
 
@@ -114,12 +117,16 @@ def matches_ignore_rule(relative_path: str, entry_name: str, rule: str) -> bool:
         return False
 
     if normalized_rule.endswith('/'):
-        dir_rule = normalized_rule[:-1]
-        return (
-            normalized_path == dir_rule
-            or normalized_path.startswith(f'{dir_rule}/')
-            or entry_name == dir_rule
-        )
+        # Gitignore `/runtime-bundle/` is anchored; strip the leading slash so we match
+        # `runtime-bundle/...` rather than looking for a path that starts with `/runtime-bundle`.
+        anchored = normalized_rule.startswith('/')
+        dir_rule = normalized_rule[:-1].lstrip('/')
+        if not dir_rule:
+            return False
+        path_hit = normalized_path == dir_rule or normalized_path.startswith(f'{dir_rule}/')
+        if anchored:
+            return path_hit
+        return path_hit or entry_name == dir_rule
 
     if normalized_rule.startswith('*.'):
         return entry_name.endswith(normalized_rule[1:])

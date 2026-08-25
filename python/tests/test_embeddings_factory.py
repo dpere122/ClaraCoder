@@ -176,11 +176,12 @@ def test_build_embedding_model_skips_unsupported_provider(monkeypatch) -> None:
     assert not called
 
 
-def test_resolve_embedding_model_id_always_returns_nomic() -> None:
+def test_resolve_embedding_model_id_always_returns_fastembed_default() -> None:
     from clara_coder_backend.workspace_index.embeddings_factory import resolve_embedding_model_id
+    from clara_coder_backend.workspace_index.fastembed_backend import DEFAULT_FASTEMBED_MODEL
 
     conn = _llamacpp_conn(embeddings_model='custom-emb-id')
-    assert resolve_embedding_model_id(conn) == 'nomic-ai/nomic-embed-text-v1.5'
+    assert resolve_embedding_model_id(conn) == DEFAULT_FASTEMBED_MODEL
 
 
 def test_embeddings_available_true_when_chat_connected(monkeypatch: pytest.MonkeyPatch) -> None:

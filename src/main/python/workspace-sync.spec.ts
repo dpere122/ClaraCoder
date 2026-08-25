@@ -31,7 +31,7 @@ describe('ensureOpenAiV1Base', () => {
 });
 
 describe('embeddingsEnabledForWire', () => {
-  // CPU Nomic is the primary embedding backend — HTTP embeddings are always disabled.
+  // CPU FastEmbed is the primary embedding backend — HTTP embeddings are always disabled.
 
   it('returns false for openai', () => {
     expect(
@@ -63,7 +63,7 @@ describe('embeddingsEnabledForWire', () => {
 });
 
 describe('embeddingsConfiguredForWire', () => {
-  // CPU Nomic is the primary embedding backend — no HTTP embeddings are configured.
+  // CPU FastEmbed is the primary embedding backend — no HTTP embeddings are configured.
 
   it('returns false for openai', () => {
     expect(embeddingsConfiguredForWire(llamacppConn({ provider: 'openai' }))).toBe(false);

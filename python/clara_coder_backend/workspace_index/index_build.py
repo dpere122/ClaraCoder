@@ -78,8 +78,10 @@ _CODE_LIKE_SUFFIXES: frozenset[str] = frozenset(
     }
 )
 
-_sentence_splitter = SentenceSplitter(chunk_size=1024, chunk_overlap=128)
-_code_like_sentence_splitter = SentenceSplitter(chunk_size=512, chunk_overlap=64)
+# Cap below BGE-small's 512-token context. LlamaIndex counts tiktoken tokens, which
+# under-count BERT WordPiece on code, so 384 leaves headroom before silent truncation.
+_sentence_splitter = SentenceSplitter(chunk_size=384, chunk_overlap=48)
+_code_like_sentence_splitter = SentenceSplitter(chunk_size=384, chunk_overlap=48)
 
 
 def _splitter_for_path(path: Path) -> SentenceSplitter:

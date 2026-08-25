@@ -1,4 +1,4 @@
-"""In-process FastEmbed/ONNX CPU embeddings (Nomic) — the primary embedding backend."""
+"""In-process FastEmbed/ONNX CPU embeddings — the primary embedding backend."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ logger = logging.getLogger('clara.workspace_index.fastembed')
 _NOMIC_QUERY_PREFIX = 'search_query: '
 _NOMIC_DOC_PREFIX = 'search_document: '
 
+# FastEmbed's own default. INT8 ONNX ~67 MB, 384-dim, 512-token context.
+# nomic-ai/nomic-embed-text-v1.5 is ~520 MB unquantized with 8192-token attention;
+# ONNX CPU activations climb into multiple GB during a workspace index.
+DEFAULT_FASTEMBED_MODEL = 'BAAI/bge-small-en-v1.5'
+
 # ONNX Runtime's default CPU arena + one thread per core balloons RAM while embedding a
 # large workspace (multi-GB and it does not shrink). Cap threads and disable the arena.
 _ONNX_INTRA_OP_THREADS = min(4, os.cpu_count() or 1)
@@ -34,7 +39,7 @@ _embed_status_lock = threading.Lock()
 
 
 def get_embed_status() -> str:
-    """Current CPU Nomic embeddings load status for the status-bar indicator."""
+    """Current CPU embeddings load status for the status-bar indicator."""
     with _embed_status_lock:
         return _embed_status
 
@@ -54,7 +59,7 @@ def fastembed_cache_dir() -> Path:
 
 
 def fastembed_model_id() -> str:
-    return (CLARA_FASTEMBED_MODEL or '').strip() or 'nomic-ai/nomic-embed-text-v1.5'
+    return (CLARA_FASTEMBED_MODEL or '').strip() or DEFAULT_FASTEMBED_MODEL
 
 
 def reset_fastembed_engine_for_tests() -> None:
@@ -97,7 +102,7 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
         from fastembed import TextEmbedding
     except ImportError as exc:
         raise RuntimeError(
-            'CPU Nomic embeddings require fastembed and onnxruntime in the Clara Python runtime. '
+            'CPU embeddings require fastembed and onnxruntime in the Clara Python runtime. '
             'Open File → Dependencies and update Python runtime, or pip install fastembed onnxruntime.'
         ) from exc
 

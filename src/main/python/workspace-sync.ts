@@ -108,7 +108,7 @@ export function openAiV1BasesEquivalent(a: string, b: string): boolean {
 }
 
 /**
- * CPU Nomic is the primary embedding backend. HTTP embeddings are no longer used,
+ * In-process CPU FastEmbed is the primary embedding backend. HTTP embeddings are no longer used,
  * so this always returns false. Kept for wire compatibility.
  */
 export function embeddingsEnabledForWire(
@@ -119,7 +119,7 @@ export function embeddingsEnabledForWire(
 }
 
 /**
- * CPU Nomic is the primary embedding backend. No HTTP embeddings are configured,
+ * In-process CPU FastEmbed is the primary embedding backend. No HTTP embeddings are configured,
  * so this always returns false. Kept for wire compatibility.
  */
 export function embeddingsConfiguredForWire(_c: LlmConnectionConfig): boolean {

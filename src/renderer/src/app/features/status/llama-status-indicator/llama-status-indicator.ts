@@ -19,7 +19,7 @@ import {
 /**
  * Compact status-bar indicator with traffic-light dots:
  * - **Model** dot: managed llama.cpp chat server health (only for ``llamacpp`` provider).
- * - **Embeddings** dot: CPU Nomic FastEmbed load status (all providers).
+ * - **Embeddings** dot: CPU FastEmbed load status (all providers).
  *
  * The embeddings dot polls the Python sidecar ``GET /embeddings/status`` endpoint, which reports
  * whether the in-process ONNX model is ``idle``, ``loading``, ``ready``, ``error``, or ``disabled``.
@@ -52,7 +52,7 @@ export class LlamaStatusIndicator {
   /** Set from main-process lifecycle while HF / remote weights are being fetched. */
   private readonly modelDownloadPhase = signal(false);
 
-  /** CPU Nomic embeddings status from the Python sidecar. */
+  /** CPU FastEmbed embeddings status from the Python sidecar. */
   protected readonly embedStatus = signal<EmbeddingsLoadStatus | null>(null);
   private embedPollTimer: ReturnType<typeof setTimeout> | null = null;
   private embedPollCfg: AppConfig | null = null;
@@ -105,18 +105,18 @@ export class LlamaStatusIndicator {
     const es = this.embedStatus();
     const label = this.dotLabel(this.embedDot());
     if (es === 'loading') {
-      return `Embeddings (CPU Nomic) — loading`;
+      return `Embeddings (CPU) — loading`;
     }
     if (es === 'ready') {
-      return `Embeddings (CPU Nomic) — ready`;
+      return `Embeddings (CPU) — ready`;
     }
     if (es === 'disabled') {
-      return `Embeddings (CPU Nomic) — disabled`;
+      return `Embeddings (CPU) — disabled`;
     }
     if (es === 'error') {
-      return `Embeddings (CPU Nomic) — error`;
+      return `Embeddings (CPU) — error`;
     }
-    return `Embeddings (CPU Nomic) — ${label}`;
+    return `Embeddings (CPU) — ${label}`;
   });
 
   private dotLabel(s: LlamaStatusDotState): string {
@@ -185,7 +185,7 @@ export class LlamaStatusIndicator {
         this.status.set(null);
       }
 
-      // Embeddings dot polling: all providers (CPU Nomic).
+      // Embeddings dot polling: all providers (CPU FastEmbed).
       this.armEmbedPolling(cfg);
 
       onCleanup(() => {
@@ -266,7 +266,7 @@ export class LlamaStatusIndicator {
     this.pollCfg = null;
   }
 
-  // ---- CPU Nomic embeddings status polling (all providers) ----
+  // ---- CPU FastEmbed embeddings status polling (all providers) ----
 
   private armEmbedPolling(cfg: AppConfig): void {
     this.stopEmbedPolling();

@@ -1,4 +1,4 @@
-"""In-process FastEmbed/ONNX CPU embeddings (Nomic) as the primary embedding backend."""
+"""In-process FastEmbed/ONNX CPU embeddings as the primary embedding backend."""
 
 from __future__ import annotations
 
@@ -77,10 +77,10 @@ def embeddings_available(connection: RuntimeConnection) -> tuple[bool, str]:
 
 
 def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding | None, str]:
-    """Construct CPU FastEmbed (Nomic) embeddings, or ``(None, error_message)``.
+    """Construct CPU FastEmbed embeddings, or ``(None, error_message)``.
 
-    CPU Nomic is the primary embedding backend. It activates as soon as a chat
-    model is connected — no HTTP embeddings endpoint is used.
+    In-process FastEmbed is the primary embedding backend. It activates as soon
+    as a chat model is connected — no HTTP embeddings endpoint is used.
     """
     cpu_ok, cpu_reason = cpu_embeddings_available(connection)
     if not cpu_ok:
@@ -95,7 +95,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
     model_id = fastembed_model_id()
     _log_backend_once(
         f'cpu\0{connection.provider}\0{model_id}',
-        'Using CPU Nomic FastEmbed embeddings (primary) provider=%s chat_model=%s embed_model=%s',
+        'Using CPU FastEmbed embeddings (primary) provider=%s chat_model=%s embed_model=%s',
         connection.provider,
         (connection.model or '').strip() or '(none)',
         model_id,
@@ -104,7 +104,7 @@ def build_embedding_model(connection: RuntimeConnection) -> tuple[BaseEmbedding 
 
 
 def preload_embedding_model(connection: RuntimeConnection) -> None:
-    """Start loading the CPU Nomic ONNX model in a background thread.
+    """Start loading the CPU FastEmbed ONNX model in a background thread.
 
     Called as soon as the chat model is connected (``POST /runtime-config``)
     so the model is resident in memory before the first semantic tool call.
@@ -128,11 +128,11 @@ def preload_embedding_model(connection: RuntimeConnection) -> None:
         global _preloaded_key, _preload_in_flight
         try:
             get_text_embedding_engine(model_name, cache_dir)
-            logger.info('CPU Nomic embeddings preloaded model=%s cache_dir=%s', model_name, cache_dir)
+            logger.info('CPU embeddings preloaded model=%s cache_dir=%s', model_name, cache_dir)
             with _preload_lock:
                 _preloaded_key = key
         except Exception as exc:
-            logger.warning('CPU Nomic preload failed model=%s: %s', model_name, exc, exc_info=True)
+            logger.warning('CPU embeddings preload failed model=%s: %s', model_name, exc, exc_info=True)
         finally:
             with _preload_lock:
                 if _preload_in_flight == key:

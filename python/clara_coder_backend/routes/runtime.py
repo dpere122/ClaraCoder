@@ -60,7 +60,7 @@ async def health() -> dict[str, str | bool]:
 
 @router.get('/embeddings/status')
 async def embeddings_status() -> dict[str, str]:
-    """Report CPU Nomic embeddings load status for the status-bar indicator.
+    """Report CPU embeddings load status for the status-bar indicator.
 
     Returns ``status`` in ``idle`` | ``loading`` | ``ready`` | ``error`` | ``disabled``,
     plus the pinned ``model`` id.
@@ -206,7 +206,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         'yes' if request.contextCompression is not None else 'no',
     )
 
-    # Preload CPU Nomic embeddings as soon as the chat model is connected.
+    # Preload CPU FastEmbed embeddings as soon as the chat model is connected.
     active_conn = state.get_active_connection()
     try:
         from clara_coder_backend.workspace_index.embeddings_factory import preload_embedding_model

@@ -13,9 +13,10 @@ def test_fastembed_cache_dir_uses_override(monkeypatch, tmp_path: Path) -> None:
     assert fb.fastembed_cache_dir() == (tmp_path / 'emb').resolve()
 
 
-def test_fastembed_model_id_defaults_to_nomic(monkeypatch) -> None:
+def test_fastembed_model_id_defaults_to_bge_small(monkeypatch) -> None:
     monkeypatch.setattr(fb, 'CLARA_FASTEMBED_MODEL', '')
-    assert fb.fastembed_model_id() == 'nomic-ai/nomic-embed-text-v1.5'
+    assert fb.fastembed_model_id() == fb.DEFAULT_FASTEMBED_MODEL
+    assert fb.DEFAULT_FASTEMBED_MODEL == 'BAAI/bge-small-en-v1.5'
 
 
 def test_query_embed_uses_fastembed_query_api() -> None:
@@ -46,6 +47,15 @@ def test_nomic_prefix_when_query_embed_missing() -> None:
     assert args[0] == ['search_query: hello']
 
 
+def test_bge_does_not_get_nomic_prefix_when_query_embed_missing() -> None:
+    engine = MagicMock(spec=['embed'])
+    engine.embed.return_value = [[1.0, 0.0]]
+    embed = fb.FastEmbedEmbedding(model_name=fb.DEFAULT_FASTEMBED_MODEL, engine=engine)
+    embed._get_query_embedding('hello')
+    args, _kwargs = engine.embed.call_args
+    assert args[0] == ['hello']
+
+
 def test_build_fastembed_embedding_returns_wrapper(monkeypatch, tmp_path: Path) -> None:
     engine = MagicMock()
     engine.query_embed.return_value = [[0.5]]
@@ -55,7 +65,7 @@ def test_build_fastembed_embedding_returns_wrapper(monkeypatch, tmp_path: Path) 
     emb, err = fb.build_fastembed_embedding()
     assert err == ''
     assert emb is not None
-    assert emb.model_name == 'nomic-ai/nomic-embed-text-v1.5'
+    assert emb.model_name == fb.DEFAULT_FASTEMBED_MODEL
     assert emb.get_query_embedding('q') == [0.5]
 
 
@@ -87,7 +97,7 @@ def test_load_text_embedding_pins_cpu_and_disables_onnx_arena(monkeypatch, tmp_p
     monkeypatch.setitem(sys.modules, 'fastembed', fake_fastembed)
     monkeypatch.setitem(sys.modules, 'onnxruntime', type(sys)('onnxruntime'))
 
-    engine = fb._load_text_embedding('nomic-ai/nomic-embed-text-v1.5', tmp_path)
+    engine = fb._load_text_embedding(fb.DEFAULT_FASTEMBED_MODEL, tmp_path)
     assert isinstance(engine, _FakeTextEmbedding)
     assert captured['providers'] == ['CPUExecutionProvider']
     assert captured['cuda'] is False
@@ -110,10 +120,10 @@ def test_get_text_embedding_engine_reuse_restores_ready(monkeypatch, tmp_path: P
     engine = MagicMock()
     monkeypatch.setattr(fb, '_load_text_embedding', lambda *_a, **_k: engine)
     fb.reset_fastembed_engine_for_tests()
-    first = fb.get_text_embedding_engine('nomic-ai/nomic-embed-text-v1.5', tmp_path)
+    first = fb.get_text_embedding_engine(fb.DEFAULT_FASTEMBED_MODEL, tmp_path)
     assert first is engine
     assert fb.get_embed_status() == 'ready'
     fb._set_embed_status('error')
-    reused = fb.get_text_embedding_engine('nomic-ai/nomic-embed-text-v1.5', tmp_path)
+    reused = fb.get_text_embedding_engine(fb.DEFAULT_FASTEMBED_MODEL, tmp_path)
     assert reused is engine
     assert fb.get_embed_status() == 'ready'

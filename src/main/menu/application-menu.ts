@@ -71,7 +71,7 @@ function buildHelpMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         dialog.showMessageBox(mw, {
           type: 'info',
           title: 'About Clara Coder',
-          message: 'Clara Coder v0.1.0',
+          message: 'Clara Coder v0.1.1',
           detail: 'An AI chat application with speech synthesis and recognition.',
         });
       },

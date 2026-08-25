@@ -72,11 +72,29 @@ describe('matchesIgnoreRule', () => {
     expect(matchesIgnoreRule('secret.cfg', 'secret.cfg', '/secret.cfg')).toBe(true);
     expect(matchesIgnoreRule('x/secret.cfg', 'secret.cfg', '/secret.cfg')).toBe(false);
   });
+
+  it('matches an anchored directory rule with leading and trailing slash', () => {
+    expect(matchesIgnoreRule('runtime-bundle', 'runtime-bundle', '/runtime-bundle/')).toBe(true);
+    expect(
+      matchesIgnoreRule(
+        'runtime-bundle/python/include/cpython/pystate.h',
+        'pystate.h',
+        '/runtime-bundle/',
+      ),
+    ).toBe(true);
+    expect(matchesIgnoreRule('vendor/runtime-bundle/x', 'x', '/runtime-bundle/')).toBe(false);
+    expect(matchesIgnoreRule('release/win-unpacked/app.exe', 'app.exe', '/release/')).toBe(true);
+  });
 });
 
 describe('shouldIgnoreWorkspaceEntry (denylist wins, negation, exposeAll)', () => {
   it('denylist wins over exposeAll=true', () => {
     expect(shouldIgnoreWorkspaceEntry('.env', '.env', [], true)).toBe(true);
+  });
+
+  it('ignores Clara pack artifact directories by builtin name', () => {
+    expect(shouldIgnoreWorkspaceEntry('runtime-bundle', 'runtime-bundle', [])).toBe(true);
+    expect(shouldIgnoreWorkspaceEntry('vtsls-bundle', 'vtsls-bundle', [])).toBe(true);
   });
 
   it('denylist wins over a !negation rule', () => {

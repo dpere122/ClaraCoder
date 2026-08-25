@@ -5,7 +5,8 @@
     "lib": [
       "ES6",
       "ES2017",
-      "ESNext.AsyncIterable"
+      "ESNext.AsyncIterable",
+      "ES2022.Error"
     ],
     "sourceMap": true,
     "outDir": "./dist",

@@ -4,6 +4,7 @@ import path = require('path');
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   APP_DATA_DIR_NAME,
+  DEV_APP_DATA_DIR_NAME,
   migrateLegacyAppDataDir,
   resolveAppDataDir,
 } from './app-data';
@@ -25,6 +26,11 @@ describe('migrateLegacyAppDataDir', () => {
   it('resolves the canonical clara-coder path', () => {
     const r = makeRoot();
     expect(resolveAppDataDir(r)).toBe(path.join(r, APP_DATA_DIR_NAME));
+  });
+
+  it('resolves the dev clara-coder-dev path when isDev is true', () => {
+    const r = makeRoot();
+    expect(resolveAppDataDir(r, true)).toBe(path.join(r, DEV_APP_DATA_DIR_NAME));
   });
 
   it('creates an empty target when no legacy data exists', () => {
@@ -74,5 +80,48 @@ describe('migrateLegacyAppDataDir', () => {
     expect(result.migrated).toBe(true);
     expect(result.from).toBe(legacy);
     expect(readFileSync(path.join(result.target, 'config.json'), 'utf-8')).toBe('{"from":"product"}');
+  });
+
+  it('dev mode creates an empty clara-coder-dev target with no migration', () => {
+    const r = makeRoot();
+    const result = migrateLegacyAppDataDir(r, true);
+    expect(result.migrated).toBe(false);
+    expect(result.target).toBe(path.join(r, DEV_APP_DATA_DIR_NAME));
+    expect(readdirSync(result.target)).toEqual([]);
+  });
+
+  it('dev mode ignores nemo-wrapper, Clara Coder, and clara-coder when starting fresh', () => {
+    const r = makeRoot();
+    // Seed all three legacy/existing folders with data.
+    for (const name of ['nemo-wrapper', 'Clara Coder', APP_DATA_DIR_NAME]) {
+      const legacy = path.join(r, name);
+      mkdirSync(legacy, { recursive: true });
+      writeFileSync(path.join(legacy, 'config.json'), `{"from":"${name}"}`, 'utf-8');
+    }
+
+    const result = migrateLegacyAppDataDir(r, true);
+    expect(result.migrated).toBe(false);
+    expect(result.target).toBe(path.join(r, DEV_APP_DATA_DIR_NAME));
+    expect(readdirSync(result.target)).toEqual([]);
+    // Legacy/existing folders are left untouched.
+    for (const name of ['nemo-wrapper', 'Clara Coder', APP_DATA_DIR_NAME]) {
+      expect(readFileSync(path.join(r, name, 'config.json'), 'utf-8')).toBe(`{"from":"${name}"}`);
+    }
+  });
+
+  it('dev mode does not migrate when clara-coder-dev already has entries', () => {
+    const r = makeRoot();
+    const target = path.join(r, DEV_APP_DATA_DIR_NAME);
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, 'config.json'), '{"existing":true}', 'utf-8');
+    // Legacy folder present but should be ignored.
+    const legacy = path.join(r, 'nemo-wrapper');
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(path.join(legacy, 'config.json'), '{"old":true}', 'utf-8');
+
+    const result = migrateLegacyAppDataDir(r, true);
+    expect(result.migrated).toBe(false);
+    expect(readFileSync(path.join(result.target, 'config.json'), 'utf-8')).toBe('{"existing":true}');
+    expect(existsSync(legacy)).toBe(true);
   });
 });

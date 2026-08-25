@@ -120,7 +120,7 @@ Staged code review does not run pytest; use `run_command` on the outer agent whe
 
 | Variable                    | Purpose                                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLARA_MAX_AGENT_STEPS`      | Max LLM turns per chat request (default `400`, capped at `5000`).                                                                                    |
+| `CLARA_MAX_AGENT_STEPS`      | Max LLM turns per chat request (default `2000`, capped at `5000`).                                                                                    |
 | `CLARA_REASONING_EFFORT`     | Fallback for reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or UI aliases `on`/`off` (mapped to `medium`/`none` on the API). |
 | `OPENAI_API_KEY`            | Default API key for OpenAI chat and OpenAI transcription when the UI leaves key empty.                                                               |
 | `OPENAI_BASE_URL`           | Optional alternate OpenAI-compatible URL for the default OpenAI connection.                                                                          |

@@ -46,6 +46,23 @@ def test_anchored_path() -> None:
     assert not matches_ignore_rule('other/src/only', 'only', '/src/only')
 
 
+def test_anchored_directory_with_leading_and_trailing_slash() -> None:
+    """Root `.gitignore` uses `/runtime-bundle/`; paths from os.walk have no leading slash."""
+    assert matches_ignore_rule('runtime-bundle', 'runtime-bundle', '/runtime-bundle/')
+    assert matches_ignore_rule(
+        'runtime-bundle/python/include/cpython/pystate.h',
+        'pystate.h',
+        '/runtime-bundle/',
+    )
+    assert not matches_ignore_rule('vendor/runtime-bundle/x', 'x', '/runtime-bundle/')
+    assert matches_ignore_rule('release/win-unpacked/Clara Coder.exe', 'Clara Coder.exe', '/release/')
+
+
+def test_runtime_bundle_dir_is_builtin_ignored() -> None:
+    assert should_ignore_workspace_entry('runtime-bundle', 'runtime-bundle', [])
+    assert should_ignore_workspace_entry('vtsls-bundle', 'vtsls-bundle', [])
+
+
 # --- TestShouldIgnoreBuiltins ---
 
 def test_log_files_never_ignored() -> None:

@@ -7,12 +7,14 @@ import { envClara } from './env-clara';
 let appDataConfigured = false;
 
 /**
- * Migrate legacy data dirs and pin Electron ``userData`` to ``{appData}/clara-coder``.
- * Must run once before any ``getAppDataDir()`` / config / SQLite open.
+ * Migrate legacy data dirs and pin Electron ``userData`` to ``{appData}/clara-coder``
+ * (packaged) or ``{appData}/clara-coder-dev`` (dev). Must run once before any
+ * ``getAppDataDir()`` / config / SQLite open.
  */
 export function configureAppDataDir(): string {
   if (!appDataConfigured) {
-    const { target, migrated, from, method } = migrateLegacyAppDataDir(app.getPath('appData'));
+    const isDev = !app.isPackaged;
+    const { target, migrated, from, method } = migrateLegacyAppDataDir(app.getPath('appData'), isDev);
     app.setPath('userData', target);
     appDataConfigured = true;
     if (migrated && from) {
@@ -24,7 +26,8 @@ export function configureAppDataDir(): string {
 
 /**
  * Resolves the directory used for config.json, workspaces, and conversations.
- * Always ``{appData}/clara-coder`` after {@link configureAppDataDir}.
+ * ``{appData}/clara-coder`` (packaged) or ``{appData}/clara-coder-dev`` (dev) after
+ * {@link configureAppDataDir}.
  */
 export function getAppDataDir(): string {
   if (!appDataConfigured) {

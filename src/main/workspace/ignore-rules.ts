@@ -91,8 +91,18 @@ export function matchesIgnoreRule(relativePath: string, entryName: string, rule:
   if (!normalizedRule) return false;
 
   if (normalizedRule.endsWith('/')) {
-    const dirRule = normalizedRule.slice(0, -1);
-    return normalizedPath === dirRule || normalizedPath.startsWith(`${dirRule}/`) || entryName === dirRule;
+    // Gitignore `/runtime-bundle/` is anchored; strip the leading slash so we match
+    // `runtime-bundle/...` rather than looking for a path that starts with `/runtime-bundle`.
+    const anchored = normalizedRule.startsWith('/');
+    const dirRule = normalizedRule.slice(0, -1).replace(/^\/+/, '');
+    if (!dirRule) {
+      return false;
+    }
+    const pathHit = normalizedPath === dirRule || normalizedPath.startsWith(`${dirRule}/`);
+    if (anchored) {
+      return pathHit;
+    }
+    return pathHit || entryName === dirRule;
   }
 
   if (normalizedRule.startsWith('*.')) {

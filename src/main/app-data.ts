@@ -1,15 +1,20 @@
 /**
  * Stable on-disk app identity under the OS app-data root.
  *
- * Dev and packaged builds both use ``{appData}/clara-coder`` so config is not
- * scattered by Electron executable / productName changes. Legacy ``nemo-wrapper``
- * (and optional ``Clara Coder``) folders are migrated once on startup.
+ * Packaged builds use ``{appData}/clara-coder``. Dev builds (``app.isPackaged === false``)
+ * use ``{appData}/clara-coder-dev`` so config is not scattered by Electron executable /
+ * productName changes and so dev state stays separate from packaged state. Legacy
+ * ``nemo-wrapper`` (and optional ``Clara Coder``) folders are migrated once on startup
+ * in packaged builds only; dev starts fresh.
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
 import path = require('path');
 
-/** Canonical folder name under ``app.getPath('appData')``. Matches ``desktopName``. */
+/** Canonical folder name under ``app.getPath('appData')`` for packaged builds. Matches ``desktopName``. */
 export const APP_DATA_DIR_NAME = 'clara-coder';
+
+/** Canonical folder name under ``app.getPath('appData')`` for dev builds. */
+export const DEV_APP_DATA_DIR_NAME = 'clara-coder-dev';
 
 /**
  * Older data-dir names to migrate from (first match wins when the new dir is empty).
@@ -20,8 +25,8 @@ export const LEGACY_APP_DATA_DIR_NAMES = ['nemo-wrapper', 'Clara Coder'] as cons
 
 const MIGRATION_MARKER = '.clara-coder-migrated-from';
 
-export function resolveAppDataDir(appDataRoot: string): string {
-  return path.join(appDataRoot, APP_DATA_DIR_NAME);
+export function resolveAppDataDir(appDataRoot: string, isDev = false): string {
+  return path.join(appDataRoot, isDev ? DEV_APP_DATA_DIR_NAME : APP_DATA_DIR_NAME);
 }
 
 function dirHasEntries(dir: string): boolean {
@@ -49,13 +54,20 @@ export type AppDataMigrationResult = {
 };
 
 /**
- * Ensure ``{appDataRoot}/clara-coder`` exists, migrating the first non-empty legacy
- * directory when the target is missing or empty.
+ * Ensure ``{appDataRoot}/clara-coder`` (packaged) or ``{appDataRoot}/clara-coder-dev`` (dev)
+ * exists. Packaged builds migrate the first non-empty legacy directory when the target is
+ * missing or empty; dev builds skip legacy migration and start fresh.
  */
-export function migrateLegacyAppDataDir(appDataRoot: string): AppDataMigrationResult {
-  const target = resolveAppDataDir(appDataRoot);
+export function migrateLegacyAppDataDir(appDataRoot: string, isDev = false): AppDataMigrationResult {
+  const target = resolveAppDataDir(appDataRoot, isDev);
 
   if (dirHasEntries(target)) {
+    return { target, migrated: false };
+  }
+
+  if (isDev) {
+    // Dev starts fresh — never pull in nemo-wrapper / Clara Coder / clara-coder data.
+    mkdirSync(target, { recursive: true });
     return { target, migrated: false };
   }
 

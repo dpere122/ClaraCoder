@@ -4,7 +4,8 @@ Run with uvicorn::
 
     uvicorn clara_coder_backend.main:app --host 127.0.0.1 --port 5123
 
-Or use the repo-level :file:`python/server.py` shim (same port) for Electron.
+Or use the repo-level :file:`python/server.py` shim for Electron (it reads
+``CLARA_PYTHON_PORT`` from the environment, defaulting to 5123).
 """
 
 from __future__ import annotations

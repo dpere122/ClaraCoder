@@ -226,6 +226,7 @@ export function startPythonServer(): ChildProcess {
       ...process.env,
       PYTHONUNBUFFERED: '1',
       CLARA_SIDECAR_TOKEN: sidecarToken,
+      CLARA_PYTHON_PORT: String(PYTHON_PORT),
       CLARA_LOG_DIR: logDir,
       CLARA_STAGING_DIR: stagingDir,
       CLARA_CHECKPOINT_DB: checkpointDb,

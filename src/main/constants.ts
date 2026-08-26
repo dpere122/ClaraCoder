@@ -3,7 +3,11 @@
  * Theme id must stay aligned with THEMES in the renderer theme-selector.
  */
 export const DEV_SERVER_URL = process.env.DEV_SERVER_URL;
-export const PYTHON_PORT = 5123;
+/**
+ * Python sidecar port. Dev (`npm run dev` sets `DEV_SERVER_URL`) uses 5124 so a dev
+ * instance can run alongside the installed app's sidecar (5123) without colliding.
+ */
+export const PYTHON_PORT = DEV_SERVER_URL ? 5124 : 5123;
 export const PYTHON_URL = `http://127.0.0.1:${PYTHON_PORT}`;
 
 export const WORKSPACE_CONTEXT_MAX_DEPTH = 6;

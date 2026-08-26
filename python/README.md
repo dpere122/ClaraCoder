@@ -54,6 +54,9 @@ Windows PowerShell:
 ```
 
 The desktop app expects **127.0.0.1:5123** by default and prefers `<repo>/.venv` in development.
+In development (`npm run dev`) the app uses **127.0.0.1:5124** instead, so a dev
+instance can run alongside the installed app's sidecar (5123) without colliding;
+the port is passed to `server.py` via `CLARA_PYTHON_PORT`.
 
 ## Tests
 

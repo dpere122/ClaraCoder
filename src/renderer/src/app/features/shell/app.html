@@ -2,9 +2,9 @@
   <div class='app-top-bar'>
     @if (electron.isElectron) {
       <div class='window-chrome'>
+        <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>Clara Coder</h1>
         <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHelpMenu($event)'>Help</button>
-        <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>Clara Coder</h1>
         <button
           type='button'
           class='chrome-win-btn chrome-pin-btn'

@@ -308,7 +308,7 @@ export class SettingsStore {
   readonly searxngBaseUrl = signal('');
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
-  readonly contextCompressionEnabled = signal(true);
+  readonly contextCompressionEnabled = signal(false);
   readonly contextCompressionTriggerRatio = signal(0.7);
   readonly contextCompressionTargetRatio = signal(0.55);
   readonly contextCompressionProtectTail = signal(24);

@@ -31,6 +31,8 @@ from clara_coder_backend.plan.plan_execute import (
     _finalize_rewritten_plan,
     _grounding_gap_questions,
     _planner_markdown_chain,
+    _planner_markdown_from_channels,
+    _slice_build_plan_markdown,
     build_build_plan_executor_prompt,
     build_planner_context_block,
     stream_plan_execute_langgraph,
@@ -45,6 +47,29 @@ from clara_coder_backend.session.state import get_session
 
 async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
+
+
+def _sse_json_rows(lines: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in lines:
+        raw = line.strip()
+        if raw.startswith('data:'):
+            raw = raw[5:].strip()
+        if not raw:
+            continue
+        try:
+            rows.append(json.loads(raw))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
+def _build_plan_chunk_contents(lines: list[str]) -> list[str]:
+    return [
+        str((row.get('buildPlanChunk') or {}).get('content') or '')
+        for row in _sse_json_rows(lines)
+        if row.get('type') == 'build_plan_chunk'
+    ]
 
 
 def _sample_plan() -> BuildPlanModel:
@@ -284,6 +309,236 @@ def test_stream_planner_md_recovers_plan_written_in_thought_channel(tmp_path: Pa
     assert '# Build Plan' in (md_out[0] or '')
     assert 'Implement change' in (md_out[0] or '')
     assert '<|channel>' not in (md_out[0] or '')
+
+
+def test_slice_build_plan_markdown_ignores_inline_mentions_and_takes_last_heading() -> None:
+    plan = _sample_plan_md()
+    mixed = (
+        'I will write a # Build Plan next after more thinking.\n'
+        '# Build Plan: Sketch\n'
+        'not the real document\n'
+        f'{plan}'
+    )
+    assert _slice_build_plan_markdown(mixed) == plan
+    assert _slice_build_plan_markdown('no heading here') == ''
+    assert _planner_markdown_from_channels('preamble only', 'thinking\n' + plan).startswith('# Build Plan:')
+
+
+def test_stream_planner_md_holds_plan_write_until_heading(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import (
+        BUILD_PLAN_DRAFT_STUB,
+        create_build_plan_draft,
+        read_build_plan_md,
+    )
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+    leaked_thought = 'Still thinking about the architecture and files to change.\n'
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content=leaked_thought)
+            yield AIMessageChunk(content=plan_md)
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-gate-heading', session=session)
+    assert read_build_plan_md(str(tmp_path), record) == BUILD_PLAN_DRAFT_STUB
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        lines = asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert leaked_thought.strip() not in (md_out[0] or '')
+    chunks = _build_plan_chunk_contents(lines)
+    assert chunks
+    for content in chunks:
+        assert leaked_thought.strip() not in content
+        assert content.startswith('# Build Plan:')
+    assert read_build_plan_md(str(tmp_path), record) == plan_md
+
+
+def test_stream_planner_md_does_not_write_reasoning_to_plan(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft, read_build_plan_md
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+    thinking = 'Considering discovery facts for a long time before writing anything.\n'
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content='', additional_kwargs={'reasoning_content': thinking})
+            yield AIMessageChunk(content=plan_md)
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-gated-reason', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        lines = asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert thinking.strip() not in (md_out[0] or '')
+    for content in _build_plan_chunk_contents(lines):
+        assert thinking.strip() not in content
+    disk = read_build_plan_md(str(tmp_path), record)
+    assert thinking.strip() not in disk
+    assert disk.startswith('# Build Plan:')
+    assert any(
+        '"stream_tag": "reasoning"' in line and 'Considering discovery facts' in line for line in lines
+    )
+
+
+def test_stream_planner_md_slices_think_block_then_real_plan(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft, read_build_plan_md
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+    leaked = (
+        '<think>\n'
+        'I will draft\n'
+        '# Build Plan: Sketch\n'
+        'this is only thinking\n'
+        '</think>\n'
+        f'{plan_md}'
+    )
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content=leaked)
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-think-tags', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        lines = asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert '<think>' not in (md_out[0] or '')
+    assert '# Build Plan: Sketch' not in (md_out[0] or '')
+    for content in _build_plan_chunk_contents(lines):
+        assert '<think>' not in content
+        assert content.startswith('# Build Plan:')
+    assert read_build_plan_md(str(tmp_path), record) == plan_md
+
+
+def test_stream_planner_md_recovers_thought_channel_plan_after_preamble(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+    preamble = 'I will think carefully about auth and routing for a long time.\n\n'
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(content='<|channel>thought\n' + preamble + plan_md + '<channel|>')
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-thought-preamble', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert preamble.strip() not in (md_out[0] or '')
+    assert (md_out[0] or '').startswith('# Build Plan:')
+
+
+def test_stream_planner_md_drops_thinking_content_blocks_from_plan_file(tmp_path: Path) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    from clara_coder_backend.plan.build_plan_store import create_build_plan_draft, read_build_plan_md
+    from clara_coder_backend.plan.plan_execute import _stream_planner_md
+
+    plan_md = _sample_plan_md()
+    cot = 'Long CoT about the request that must not land in the plan file.\n'
+
+    class _FakeChain:
+        async def astream(self, _inputs: Any):
+            yield AIMessageChunk(
+                content=[
+                    {'type': 'thinking', 'text': cot},
+                    {'type': 'text', 'text': plan_md},
+                ]
+            )
+
+    session = SessionState(workspace_path=str(tmp_path))
+    record = create_build_plan_draft(str(tmp_path), 'sess-thinking-blocks', session=session)
+    md_out: list[str] = ['']
+
+    with patch('clara_coder_backend.plan.plan_execute._planner_markdown_chain', return_value=_FakeChain()):
+        lines = asyncio.run(
+            _collect_lines(
+                _stream_planner_md(
+                    'Build feature',
+                    session=session,
+                    apply_mode=True,
+                    discovery_summary='discovery found src/app.ts',
+                    record=record,
+                    md_out=md_out,
+                )
+            )
+        )
+
+    assert md_out and md_out[0] == plan_md
+    assert cot.strip() not in (md_out[0] or '')
+    for content in _build_plan_chunk_contents(lines):
+        assert cot.strip() not in content
+    assert read_build_plan_md(str(tmp_path), record) == plan_md
 
 
 def _sample_gemma_native_plan_markup(*, in_thought_channel: bool = False) -> str:

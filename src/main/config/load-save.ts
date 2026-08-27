@@ -1193,7 +1193,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
   } else {
     const cc = ccRaw;
     if (typeof cc.enabled !== 'boolean') {
-      cc.enabled = true;
+      cc.enabled = false;
       migrated = true;
     }
     if (typeof cc.triggerRatio !== 'number' || cc.triggerRatio < 0.5 || cc.triggerRatio > 0.95) {

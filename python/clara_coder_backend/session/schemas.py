@@ -477,7 +477,7 @@ class RuntimeToolsRequest(BaseModel):
 class RuntimeContextCompressionRequest(BaseModel):
     """LangGraph checkpoint compaction settings from Settings → Tools."""
 
-    enabled: bool = True
+    enabled: bool = False
     triggerRatio: float = Field(default=0.70, ge=0.5, le=0.95)
     targetRatio: float = Field(default=0.55, ge=0.4, le=0.90)
     protectTailMessages: int = Field(default=24, ge=8, le=100)

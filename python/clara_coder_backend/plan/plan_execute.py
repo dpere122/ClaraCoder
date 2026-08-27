@@ -9,6 +9,7 @@ proposes a structured build plan written to ``.nemo/build-plans/``; user approve
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -180,6 +181,10 @@ PLAN_DRAFTING_OVERRIDE = (
 
 PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC = 0.5
 
+# Line-start heading only — inline CoT like "I'll write a # Build Plan next" must not count.
+# ``# Build Plan: Title`` (colon) or a bare ``# Build Plan`` line; last match is the real document.
+_BUILD_PLAN_HEADING_RE = re.compile(r'^#\s*Build\s+Plan(?:\s*:|\s*$)', re.IGNORECASE | re.MULTILINE)
+
 
 def build_planner_context_block(
     session: SessionState,
@@ -340,19 +345,55 @@ def _plan_has_action_steps(plan: BuildPlanModel | None) -> bool:
     return any(str(getattr(step, 'goal', '') or '').strip() for step in (plan.action_steps or []))
 
 
+def _slice_build_plan_markdown(text: str) -> str:
+    """Return markdown from the last line-start ``# Build Plan`` heading, or empty.
+
+    Long-thinking models often leak CoT (or a sketch heading) before the real document.
+    The last heading prefers the final plan over a thought-channel draft.
+    """
+    if not text:
+        return ''
+    last = None
+    for match in _BUILD_PLAN_HEADING_RE.finditer(text):
+        last = match
+    if last is None:
+        return ''
+    return text[last.start() :]
+
+
 def _markdown_looks_like_build_plan(text: str) -> bool:
-    return '# Build Plan' in (text or '')
+    return bool(_slice_build_plan_markdown(text))
 
 
 def _planner_markdown_from_channels(visible: str, reasoning: str) -> str:
-    """Prefer visible markdown; recover a plan the model wrote only in the thought channel."""
-    vis = (visible or '').strip()
-    reason = (reasoning or '').strip()
-    if _markdown_looks_like_build_plan(vis):
-        return vis
-    if _markdown_looks_like_build_plan(reason):
-        return reason
-    return vis
+    """Prefer visible plan markdown; recover a heading-sliced plan from the thought channel."""
+    vis_plan = _slice_build_plan_markdown(visible)
+    if vis_plan:
+        return vis_plan
+    reason_plan = _slice_build_plan_markdown(reasoning)
+    if reason_plan:
+        return reason_plan
+    return (visible or '').strip()
+
+
+def _gated_plan_draft_sse_line(
+    accumulated: str,
+    *,
+    relative_path: str,
+    workspace_root: str,
+    record: BuildPlanRecord,
+    last_disk_write: float,
+) -> tuple[str | None, float]:
+    """Emit a plan-preview chunk only after a real heading exists; optionally throttle disk writes."""
+    publishable = _slice_build_plan_markdown(accumulated)
+    if not publishable:
+        return None, last_disk_write
+    line = sse_line(build_plan_chunk_event(relative_path=relative_path, content=publishable))
+    now = time.monotonic()
+    if workspace_root and now - last_disk_write >= PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC:
+        write_build_plan_draft_content(workspace_root, record, publishable)
+        last_disk_write = now
+    return line, last_disk_write
 
 
 def _coerce_planner_model(raw: Any) -> BuildPlanModel | None:
@@ -672,11 +713,15 @@ async def _stream_planner_md(
             if not is_meaningful_stream_delta(delta):
                 continue
             accumulated += delta
-            yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
-            now = time.monotonic()
-            if workspace_root and now - last_disk_write >= PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC:
-                write_build_plan_draft_content(workspace_root, record, accumulated)
-                last_disk_write = now
+            draft_line, last_disk_write = _gated_plan_draft_sse_line(
+                accumulated,
+                relative_path=relative_path,
+                workspace_root=workspace_root,
+                record=record,
+                last_disk_write=last_disk_write,
+            )
+            if draft_line:
+                yield draft_line
 
         if gemma_split:
             flush_main, flush_reason = splitter.flush()
@@ -686,11 +731,21 @@ async def _stream_planner_md(
                     yield model_chunk_sse_line(flush_reason, REASONING_AUXILIARY_STREAM_TAG)
             if flush_main:
                 accumulated += flush_main
+                draft_line, last_disk_write = _gated_plan_draft_sse_line(
+                    accumulated,
+                    relative_path=relative_path,
+                    workspace_root=workspace_root,
+                    record=record,
+                    last_disk_write=last_disk_write,
+                )
+                if draft_line:
+                    yield draft_line
         recovered = _planner_markdown_from_channels(accumulated, reason_acc)
         if _markdown_looks_like_build_plan(recovered):
-            if recovered.strip() != accumulated.strip():
-                accumulated = recovered if recovered.endswith('\n') else recovered + '\n'
-                yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=accumulated))
+            normalized = recovered if recovered.endswith('\n') else recovered + '\n'
+            if normalized.strip() != accumulated.strip():
+                yield sse_line(build_plan_chunk_event(relative_path=relative_path, content=normalized))
+            accumulated = normalized
         else:
             coerced = _coerce_planner_model(raw_acc) or _coerce_planner_model(reason_acc)
             if coerced is not None:

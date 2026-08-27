@@ -183,7 +183,7 @@ except ValueError:
 # ---------------------------------------------------------------------------
 # LangGraph checkpoint context compression (Settings → Tools overrides via runtime-config)
 # ---------------------------------------------------------------------------
-CLARA_CONTEXT_COMPACT_ENABLED = _env_bool('CLARA_CONTEXT_COMPACT_ENABLED', True)
+CLARA_CONTEXT_COMPACT_ENABLED = _env_bool('CLARA_CONTEXT_COMPACT_ENABLED', False)
 CLARA_CONTEXT_COMPACT_TRIGGER_RATIO = _env_float('CLARA_CONTEXT_COMPACT_TRIGGER_RATIO', 0.70, 0.5, 0.95)
 CLARA_CONTEXT_COMPACT_TARGET_RATIO = _env_float('CLARA_CONTEXT_COMPACT_TARGET_RATIO', 0.55, 0.4, 0.90)
 CLARA_CONTEXT_COMPACT_PROTECT_TAIL = _env_int('CLARA_CONTEXT_COMPACT_PROTECT_TAIL', 24, 8, 100)

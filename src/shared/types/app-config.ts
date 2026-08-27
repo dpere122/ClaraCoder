@@ -619,7 +619,7 @@ export interface ContextCompressionConfig {
 
 export function getDefaultContextCompression(): ContextCompressionConfig {
   return {
-    enabled: true,
+    enabled: false,
     triggerRatio: 0.7,
     targetRatio: 0.55,
     protectTailMessages: 24,

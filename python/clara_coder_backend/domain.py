@@ -326,7 +326,7 @@ class RuntimeContextCompressionConfig:
     Applies mid-turn (before each model call) and post-turn when enabled.
     """
 
-    enabled: bool = True
+    enabled: bool = False
     trigger_ratio: float = 0.70
     target_ratio: float = 0.55
     protect_tail_messages: int = 24

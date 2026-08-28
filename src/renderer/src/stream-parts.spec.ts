@@ -10,6 +10,9 @@ import {
   isToolTrailStatusStreamTag,
   joinPrimaryAssistantStreamText,
   multiplexAuxiliaryStreamTimeline,
+  buildTurnFeed,
+  isActiveLiveThought,
+  turnFeedScrollKey,
   normalizeStreamPart,
   normalizeStreamTag,
   normalizeReasoningStreamPart,
@@ -135,6 +138,83 @@ describe('appendReadToolPreviewChunk', () => {
     const out = appendReadToolPreviewChunk(parts, '\nbody');
     expect(out).toHaveLength(1);
     expect(out[0].text).toBe('draft.ts\nbody');
+  });
+});
+
+describe('buildTurnFeed', () => {
+  it('returns empty for empty parts', () => {
+    expect(buildTurnFeed([])).toEqual([]);
+    expect(buildTurnFeed([], '   ')).toEqual([]);
+  });
+
+  it('interleaves thought, tool, and agent markdown in arrival order', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'reasoning', label: 'R', text: 'think first' },
+      { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'Reading…' },
+      { streamTag: 'agent', label: '', text: 'Here is the answer.' },
+    ];
+    expect(buildTurnFeed(parts)).toEqual([
+      { kind: 'thought', part: parts[0] },
+      { kind: 'tool', part: parts[1] },
+      { kind: 'markdown', text: 'Here is the answer.' },
+    ]);
+  });
+
+  it('replaces in-feed agent markdown with final_text at the end', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'reasoning', label: 'R', text: 'think' },
+      { streamTag: 'agent', label: '', text: 'Streaming…' },
+      { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'done' },
+      { streamTag: 'agent', label: '', text: 'Draft answer' },
+    ];
+    expect(buildTurnFeed(parts, '  Final reply  ')).toEqual([
+      { kind: 'thought', part: parts[0] },
+      { kind: 'tool', part: parts[2] },
+      { kind: 'markdown', text: 'Final reply' },
+    ]);
+  });
+
+  it('merges consecutive agent segments into one markdown item', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'agent', label: '', text: 'Hello ' },
+      { streamTag: 'agent', label: '', text: 'world' },
+    ];
+    expect(buildTurnFeed(parts)).toEqual([{ kind: 'markdown', text: 'Hello world' }]);
+  });
+
+  it('skips blank reasoning and agent parts', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'reasoning', label: 'R', text: '   ' },
+      { streamTag: 'agent', label: '', text: '\n' },
+      { streamTag: 'tool-pytest', label: 'T', text: '' },
+    ];
+    expect(buildTurnFeed(parts)).toEqual([{ kind: 'tool', part: parts[2] }]);
+  });
+
+  it('normalizes legacy moe reasoning tags', () => {
+    const parts: StreamPart[] = [{ streamTag: 'moe', label: 'R', text: 'legacy' }];
+    expect(buildTurnFeed(parts)).toEqual([
+      { kind: 'thought', part: { streamTag: 'reasoning', label: 'R', text: 'legacy' } },
+    ]);
+  });
+});
+
+describe('isActiveLiveThought', () => {
+  const thought = { kind: 'thought' as const, part: { streamTag: 'reasoning', label: 'R', text: 'x' } };
+  const tool = { kind: 'tool' as const, part: { streamTag: 'tool-trail:a', label: 'read', text: '' } };
+
+  it('is true only for the last live thought', () => {
+    expect(isActiveLiveThought([thought], 0, true)).toBe(true);
+    expect(isActiveLiveThought([thought, tool], 0, true)).toBe(false);
+    expect(isActiveLiveThought([thought], 0, false)).toBe(false);
+  });
+});
+
+describe('turnFeedScrollKey', () => {
+  it('changes when markdown or part text grows', () => {
+    const a = turnFeedScrollKey([{ kind: 'markdown', text: 'Hi' }]);
+    const b = turnFeedScrollKey([{ kind: 'markdown', text: 'Hello' }]);
+    expect(a).not.toBe(b);
   });
 });
 

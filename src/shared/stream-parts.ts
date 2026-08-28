@@ -349,6 +349,73 @@ export function multiplexAuxiliaryStreamTimeline(parts: StreamPart[]): StreamPar
   );
 }
 
+/** One chronological UI event in the unified live/persisted turn feed. */
+export type TurnFeedItem =
+  | { kind: 'thought'; part: StreamPart }
+  | { kind: 'tool'; part: StreamPart }
+  | { kind: 'markdown'; text: string };
+
+/**
+ * Build the unified turn feed: thought pills, tool pills, and rendered markdown in arrival order.
+ * When `finalText` is set, in-feed `agent` segments are omitted and a single markdown block
+ * is appended at the end (backend `final_text` / persisted `assistant.text`).
+ */
+export function buildTurnFeed(
+  parts: readonly StreamPart[],
+  finalText?: string | null,
+): TurnFeedItem[] {
+  const normalized = mergeReadPreviewIntoToolTrailParts(
+    parts.map(normalizeStreamPart).filter((p): p is StreamPart => p !== null),
+  );
+  const final = (finalText ?? '').trim();
+  const items: TurnFeedItem[] = [];
+  for (const part of normalized) {
+    if (isReasoningAuxiliaryStreamTag(part.streamTag)) {
+      if (part.text.trim()) {
+        items.push({ kind: 'thought', part: normalizeReasoningStreamPart(part) });
+      }
+      continue;
+    }
+    if (isPrimaryAssistantStreamTag(part.streamTag)) {
+      if (!final && part.text.trim()) {
+        const last = items[items.length - 1];
+        if (last?.kind === 'markdown') {
+          last.text += part.text;
+        } else {
+          items.push({ kind: 'markdown', text: part.text });
+        }
+      }
+      continue;
+    }
+    items.push({ kind: 'tool', part });
+  }
+  if (final) {
+    items.push({ kind: 'markdown', text: final });
+  }
+  return items;
+}
+
+/** True when this thought is the latest live feed event (auto-expand while thinking). */
+export function isActiveLiveThought(
+  items: readonly TurnFeedItem[],
+  index: number,
+  live: boolean,
+): boolean {
+  return live && items[index]?.kind === 'thought' && index === items.length - 1;
+}
+
+/** Fingerprint of feed content for streaming autoscroll dedupe. */
+export function turnFeedScrollKey(items: readonly TurnFeedItem[]): string {
+  return items
+    .map((item) => {
+      if (item.kind === 'markdown') {
+        return `md:${item.text.length}:${item.text.slice(-80)}`;
+      }
+      return `${item.kind}:${item.part.streamTag}:${item.part.text.length}`;
+    })
+    .join('\u001f');
+}
+
 /** Subset of persisted assistant fields used to resolve auxiliary timeline for display. */
 export type PersistedAssistantStreamFields = {
   auxiliaryStreamTimeline?: StreamPart[];

@@ -318,6 +318,20 @@ html.theme-classical .interactive-output .terminal-shell {
   border-radius: 0 !important;
 }
 
+/* Chat chips and the live thought preview keep rounded chrome. */
+app-stream-tool-pill .stream-tool-pill,
+.chat-context-chip,
+.chat-context-chip-pin,
+.chat-context-chip-remove,
+.chat-context-chip-thumb,
+.user-attachment-file {
+  border-radius: 999px !important;
+}
+
+app-stream-thought-pill .stream-thought-preview__inner {
+  border-radius: 0.85rem !important;
+}
+
 html, body {
   height: 100%;
   margin: 0;
@@ -810,6 +824,16 @@ html.theme-woodland .processing-text {
 html.theme-woodland .streaming-cursor {
   box-shadow: none;
 }
+html.theme-woodland app-stream-thought-pill .stream-thought-preview__inner {
+  background: color-mix(in srgb, var(--t-bg-surface) 78%, var(--t-panel) 22%);
+  border-color: var(--t-border);
+}
+html.theme-woodland app-stream-thought-pill .stream-thought-preview__header {
+  color: var(--t-secondary);
+}
+html.theme-woodland app-stream-thought-pill .stream-thought-preview__body {
+  color: var(--t-secondary);
+}
 html.theme-woodland .code-block-run-btn {
   border: none;
   background: var(--t-hover-bg);
@@ -1198,31 +1222,12 @@ html .tui-frame-bar__chevron-icon {
   letter-spacing: 0;
 }
 
-html app-auxiliary-stream-panel > .auxiliary-stream-panel.stream-trail-panel > .stream-trail-panel__toggle {
-  display: none;
-}
-
-html app-auxiliary-stream-panel .stream-trail-panel__toggle {
-  border: none;
-  padding: 0 0 0.05rem;
-}
-
-html app-auxiliary-stream-panel .stream-trail-row + .stream-trail-row {
-  border: none;
-}
-
 html app-chat-box .llm-reasoning-panel {
   border: none;
   border-radius: 0;
   margin-top: 0.05rem;
   padding: 0.1rem 0.15rem;
   background-color: color-mix(in srgb, var(--t-tui-clara-frame) 6%, transparent);
-}
-
-html app-auxiliary-stream-panel .stream-trail-panel {
-  margin-top: 0.05rem;
-  margin-bottom: 0.05rem;
-  background-color: color-mix(in srgb, var(--t-secondary) 4%, transparent);
 }
 
 html app-chat-context-bar .chat-context-bar {
@@ -1427,6 +1432,29 @@ html.theme-classical app-message-box .composer-prompt {
 
 html.theme-classical app-message-box .composer-mode-select {
   color-scheme: light;
+}
+
+html.theme-classical app-stream-thought-pill .stream-thought-preview__inner {
+  background: var(--t-assistant-bg);
+  border-color: var(--t-assistant-border);
+  border-radius: 0.95rem !important;
+}
+html.theme-classical app-stream-thought-pill .stream-thought-preview__header {
+  color: var(--t-secondary);
+}
+html.theme-classical app-stream-thought-pill .stream-thought-preview__body {
+  color: var(--t-assistant-fg);
+}
+
+html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__inner {
+  background: color-mix(in srgb, var(--t-bg-deep) 70%, var(--t-code-bg) 30%);
+  border-color: color-mix(in srgb, var(--t-secondary) 45%, var(--t-border));
+}
+html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__header {
+  color: var(--t-secondary);
+}
+html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__body {
+  color: var(--t-assistant-fg);
 }
 
 @media (max-width: 1100px) {

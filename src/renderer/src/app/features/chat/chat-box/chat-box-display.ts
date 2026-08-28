@@ -7,7 +7,8 @@ import type {
   StreamPart,
 } from '@shared/index';
 import { isClaraOuterBriefStreamTag, isPrimaryAssistantStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
-import { DEFAULT_AUXILIARY_STREAM_PANEL_TITLE } from './auxiliary-stream-panel/auxiliary-stream-panel';
+
+export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 import {
   attachedFileDisplayLabel,
   attachedFileRefFromText,

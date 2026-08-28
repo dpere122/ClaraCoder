@@ -275,6 +275,9 @@ export {
   persistedReasoningStreams,
   reasoningStreamPartsForDisplay,
   multiplexAuxiliaryStreamTimeline,
+  buildTurnFeed,
+  isActiveLiveThought,
+  turnFeedScrollKey,
   otherDelegatedStreamPartsForDisplay,
   persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
@@ -304,7 +307,7 @@ export {
   HITL_TRAIL_STREAM_PREFIX,
   TOOL_TRAIL_STATUS_STREAM_PREFIX,
 } from './stream-parts';
-export type { PersistedAssistantStreamFields } from './stream-parts';
+export type { PersistedAssistantStreamFields, TurnFeedItem } from './stream-parts';
 export {
   condenseToolTrailText,
   readToolPreviewBody,

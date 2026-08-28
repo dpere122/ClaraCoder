@@ -1,0 +1,36 @@
+<div
+  class="stream-thought-pill"
+  [class.stream-thought-pill--previewing]="showPreview()"
+>
+  @if (live()) {
+    <div
+      class="stream-thought-preview"
+      [class.stream-thought-preview--open]="showPreview()"
+    >
+      <div class="stream-thought-preview__inner">
+        <button
+          type="button"
+          class="stream-thought-preview__header"
+          [attr.aria-expanded]="showPreview()"
+          (click)="toggle()"
+        >
+          {{ label() }}
+        </button>
+        <pre #previewBody class="stream-thought-preview__body">{{ text() }}@if (showPreview()) {<span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>}</pre>
+      </div>
+    </div>
+  }
+  <div class="stream-thought-pill__chip" [hidden]="showPreview()">
+    <app-stream-tool-pill
+      [name]="label()"
+      [state]="pillState()"
+      [expandable]="true"
+      [expanded]="expanded()"
+      [live]="live()"
+      (toggle)="toggle()"
+    />
+    @if (expanded() && !showPreview()) {
+      <pre class="llm-reasoning-body stream-thought-pill__body">{{ text() }}</pre>
+    }
+  </div>
+</div>

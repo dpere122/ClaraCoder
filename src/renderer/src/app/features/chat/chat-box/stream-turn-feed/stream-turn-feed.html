@@ -1,0 +1,28 @@
+<div class="stream-turn-feed" [class.stream-turn-feed--live]="live()" aria-live="polite">
+  @for (item of items(); track trackItem(item, $index)) {
+    @if (item.kind === 'thought') {
+      <app-stream-thought-pill
+        [text]="item.part.text"
+        [live]="live()"
+        [active]="isActiveThought(items(), $index, live())"
+      />
+    } @else if (item.kind === 'tool') {
+      <app-aux-stream-tool-part
+        [part]="item.part"
+        [live]="live()"
+        [compactDetails]="planPanelVisible()"
+      />
+    } @else {
+      <div class="stream-turn-feed__markdown">
+        <div
+          class="assistant-md"
+          [class.streaming-live-md]="live()"
+          [innerHTML]="item.text | markdown: markdownLayoutPass()"
+        ></div>
+        @if (showCursor() && isLastMarkdown($index)) {
+          <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
+        }
+      </div>
+    }
+  }
+</div>

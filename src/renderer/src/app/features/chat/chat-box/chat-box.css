@@ -131,7 +131,7 @@ app-chat-box .user-attachment-file {
   max-width: 16rem;
   padding: 0.15rem 0.4rem;
   border: 1px solid var(--t-border);
-  border-radius: 0.3rem;
+  border-radius: 999px !important;
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -420,33 +420,6 @@ app-chat-box .streaming-plain {
   color: var(--t-secondary);
 }
 
-app-chat-box .streaming-primary-live {
-  margin-bottom: 0.5rem;
-  line-height: 1.5;
-  word-break: break-word;
-  display: flex;
-  align-items: flex-end;
-  gap: 0.15rem;
-}
-
-app-chat-box .streaming-live-md {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.9em;
-  color: var(--t-secondary);
-}
-
-app-chat-box .streaming-live-pre {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-family: inherit;
-  font-size: 0.9em;
-  color: var(--t-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 app-chat-box .streaming-delegated {
   margin-bottom: 0.5rem;
   display: flex;
@@ -510,16 +483,9 @@ app-chat-box .processing-bubble {
   align-items: center;
   gap: 0.55rem;
   min-height: 1.5em;
-  padding-top: 0.15rem;
-  border-top: 1px solid var(--t-border-subtle);
-  margin-top: 0.15rem;
-}
-
-/* Treat overflow-pending aux panel as absent so it does not add a separator gap. */
-app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel:not(.aux-stream-panel--pending-overflow))) .processing-bubble {
+  padding-top: 0;
   border-top: none;
   margin-top: 0;
-  padding-top: 0;
 }
 
 app-chat-box .processing-ngx-host {

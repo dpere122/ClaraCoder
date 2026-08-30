@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from clara_coder_backend.domain import RuntimeConnection
 from clara_coder_backend.lang_agent.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
 
 
-def _gemma_connection() -> RuntimeConnection:
+def _gemma_connection(*, thinking_mode: str = 'on') -> RuntimeConnection:
     return RuntimeConnection(
         id='g',
         name='g',
@@ -26,7 +27,7 @@ def _gemma_connection() -> RuntimeConnection:
         parallel_tool_calls=False,
         optimization_preset='gemma',
         max_output_tokens=0,
-        thinking_mode='on',
+        thinking_mode=thinking_mode,
     )
 
 
@@ -129,9 +130,33 @@ def test_outer_agent_brief_emits_status() -> None:
     assert '"type": "status"' in lines[0]
     assert '"label": "Planner checklist"' in lines[0]
     assert 'First step' in lines[0]
-    assert 'Second step' not in lines[0]
+    assert 'Second step' in lines[0]
     assert '"stream_tag": "clara"' in lines[0]
     assert '"id": "outer-brief-' in lines[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_outer_agent_brief_emits_status_for_gemma_preset(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'outer_agent_brief',
+            'data': {
+                'kind': 'plan_recorded',
+                'summary': '1. First step',
+                'label': 'Planner checklist',
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Workspace',
+        llm_event_prefix='nest',
+        llm_log_context='test',
+    )
+    assert len(lines) == 1
+    assert '"stream_tag": "clara"' in lines[0]
+    assert 'First step' in lines[0]
 
 
 def test_tool_exec_complete_event_is_forwarded() -> None:
@@ -221,6 +246,62 @@ def test_chat_model_stream_clears_primary_when_step_requests_tools() -> None:
     assert state.deferred_agent_text == ''
 
 
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_gemma_preset_clears_primary_when_step_requests_tools(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='Planning before tools. ')},
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {
+                'output': AIMessage(
+                    content='Planning before tools. ',
+                    tool_calls=[{'name': 'read_file', 'args': {}, 'id': 'tc1', 'type': 'tool_call'}],
+                ),
+            },
+        },
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert any('"type": "clear_primary_stream"' in ln for ln in end_lines)
+    assert state.deferred_agent_text == ''
+
+
+def test_agent_nudge_event_promotes_primary_and_clears_final_text() -> None:
+    state = GraphStreamState()
+    state.last_final_text = 'Done staging.'
+    state.deferred_agent_text = 'Done staging.'
+    lines = sse_lines_for_graph_event(
+        {'event': 'agent_nudge', 'data': {'reason': 'staging'}},
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    assert len(lines) == 1
+    assert '"type": "promote_primary_to_nudge"' in lines[0]
+    assert state.last_final_text == ''
+    assert state.deferred_agent_text == ''
+
+
 def test_chat_model_stream_emits_primary_live_and_skips_end_redump() -> None:
     state = GraphStreamState()
 
@@ -300,6 +381,326 @@ def test_chat_model_stream_splits_gemma_channel_to_reasoning(mock_conn: MagicMoc
     assert '"stream_tag": "reasoning"' in lines[1]
     assert state.deferred_agent_text == 'Hello!'
     assert state.reasoning_emitted_this_step is True
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_parses_thought_after_empty_channel_close(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='<|channel>thought\n<channel|>')},
+        },
+        state,
+        **kwargs,
+    )
+    mid = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='still thinking about the file')},
+        },
+        state,
+        **kwargs,
+    )
+    assert mid == []
+    later = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='<channel|>Hello!')},
+        },
+        state,
+        **kwargs,
+    )
+    assert any('still thinking about the file' in ln and '"stream_tag": "reasoning"' in ln for ln in later)
+    assert any('Hello!' in ln and '"stream_tag": "agent"' in ln for ln in later)
+    assert '<channel' not in ''.join(later)
+
+
+def _sse_kwargs() -> dict[str, object]:
+    return {
+        'agent_role': None,
+        'status_label': 'Agent',
+        'llm_event_prefix': 'step',
+        'llm_log_context': 'test',
+        'stream_tag': 'agent',
+    }
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_after_tool_maps_prompt_opened_thought(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        _tool_end_event(name='read_workspace_file', run_id='r1', output='ok'),
+        state,
+        **_sse_kwargs(),
+    )
+    sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': []}},
+        state,
+        **_sse_kwargs(),
+    )
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='Need the file ')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert len(first) == 1
+    assert 'Need the file' in first[0]
+    assert '"stream_tag": "reasoning"' in first[0]
+    second = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='next.<channel|>Hello!')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert any('Hello!' in ln and '"stream_tag": "agent"' in ln for ln in second)
+    assert any('next.' in ln and '"stream_tag": "reasoning"' in ln for ln in second)
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_nested_chat_model_start_after_tool_keeps_prompt_opened_thought(mock_conn: MagicMock) -> None:
+    """Wrapper + ChatOpenAI both emit ``on_chat_model_start``; the second must not drop thought."""
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        _tool_end_event(name='read_workspace_file', run_id='r-nested', output='ok'),
+        state,
+        **_sse_kwargs(),
+    )
+    first_start = sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': []}},
+        state,
+        **_sse_kwargs(),
+    )
+    nested_start = sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': []}},
+        state,
+        **_sse_kwargs(),
+    )
+    assert any('Thinking' in ln for ln in first_start)
+    assert nested_start == []
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='Need the file ')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert len(first) == 1
+    assert 'Need the file' in first[0]
+    assert '"stream_tag": "reasoning"' in first[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_start_with_tool_message_opens_thought_without_tool_end_flag(
+    mock_conn: MagicMock,
+) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_start',
+            'data': {
+                'input': [
+                    HumanMessage(content='Read the file'),
+                    AIMessage(content='', tool_calls=[{'name': 'read_workspace_file', 'id': 'c1', 'args': {}}]),
+                    ToolMessage(content='ok', tool_call_id='c1', name='read_workspace_file'),
+                ],
+            },
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='After the read ')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert len(first) == 1
+    assert 'After the read' in first[0]
+    assert '"stream_tag": "reasoning"' in first[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_after_tool_uses_default_thinking_as_on(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection(thinking_mode='default')
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        _tool_end_event(name='read_workspace_file', run_id='r-default', output='ok'),
+        state,
+        **_sse_kwargs(),
+    )
+    sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': []}},
+        state,
+        **_sse_kwargs(),
+    )
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='Need the file ')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert '"stream_tag": "reasoning"' in first[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_after_tool_stays_visible_when_thinking_off(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection(thinking_mode='off')
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        _tool_end_event(name='read_workspace_file', run_id='r-off', output='ok'),
+        state,
+        **_sse_kwargs(),
+    )
+    sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': []}},
+        state,
+        **_sse_kwargs(),
+    )
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='Need the file ')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert len(first) == 1
+    assert 'Need the file' in first[0]
+    assert '"stream_tag": "agent"' in first[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_after_tool_still_honors_explicit_channel(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        _tool_end_event(name='read_workspace_file', run_id='r2', output='ok'),
+        state,
+        **_sse_kwargs(),
+    )
+    sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': []}},
+        state,
+        **_sse_kwargs(),
+    )
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content="<|channel>thought\nplan<channel|>Hello!",
+                ),
+            },
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert any('Hello!' in ln and '"stream_tag": "agent"' in ln for ln in lines)
+    assert any('plan' in ln and '"stream_tag": "reasoning"' in ln for ln in lines)
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_empty_channel_then_thought_before_tool_call(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='<|channel>thought\n<channel|>')},
+        },
+        state,
+        **kwargs,
+    )
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='I should list files next')},
+        },
+        state,
+        **kwargs,
+    )
+    later = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='<|tool_call>call:list_workspace_directory{relative_path:<|"|>.<|"|>}<tool_call|>',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    assert any('I should list files next' in ln and '"stream_tag": "reasoning"' in ln for ln in later)
+    assert not any('I should list files next' in ln and '"stream_tag": "agent"' in ln for ln in later)
+    assert not any('<|tool_call>' in ln for ln in later)
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_strips_nested_channel_tags_from_reasoning(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content=(
+                        "<|channel>thought\nouter\n"
+                        "<|channel>thought\ninner<channel|>Hello!"
+                    ),
+                ),
+            },
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    reason_lines = [ln for ln in lines if '"stream_tag": "reasoning"' in ln]
+    assert reason_lines
+    assert '<|channel>' not in reason_lines[0]
+    assert '<channel' not in reason_lines[0]
+    assert 'outer' in reason_lines[0]
+    assert 'inner' in reason_lines[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_strips_tags_from_reasoning_sidecar(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='Hello!',
+                    additional_kwargs={'reasoning_content': '<channel thought>plan it'},
+                ),
+            },
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    reason_lines = [ln for ln in lines if '"stream_tag": "reasoning"' in ln]
+    assert reason_lines
+    assert '<channel' not in reason_lines[0]
+    assert 'plan it' in reason_lines[0]
 
 
 def test_chat_model_stream_emits_reasoning_tag_for_reasoning_chunk() -> None:
@@ -429,6 +830,17 @@ async def test_hitl_sse_lines_diff_sentinel_only() -> None:
 
 
 @pytest.mark.asyncio(loop_scope='function')
+async def test_hitl_sse_lines_agent_nudge() -> None:
+    from clara_coder_backend.lang_agent.graph import _hitl_sse_lines
+    from clara_coder_backend.domain import SessionState
+
+    s = SessionState()
+    lines = await _hitl_sse_lines(s, ('agent_nudge', {'reason': 'staging'}))
+    assert len(lines) == 1
+    assert '"type": "promote_primary_to_nudge"' in lines[0]
+
+
+@pytest.mark.asyncio(loop_scope='function')
 async def test_hitl_sse_lines_accept_command_skips_risk_enrichment_when_setting_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -508,3 +920,310 @@ async def test_hitl_sse_lines_accept_command_includes_risk_fields_when_enriched(
     assert '"riskAssessmentStatus": "ok"' in lines[0]
     assert '"riskLevel": "medium"' in lines[0]
     assert 'Deletes the build directory.' in lines[0]
+
+
+def _sse_json(line: str) -> dict:
+    return json.loads(line.removeprefix('data: ').strip())
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_previews_write_tool_before_native_block_closes(
+    mock_conn: MagicMock,
+) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    named = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='<|tool_call>call:stage_workspace_file_overwrite{',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    named_status = [_sse_json(ln)['status'] for ln in named if '"type": "status"' in ln]
+    assert named_status
+    assert named_status[0]['label'] == 'stage_workspace_file_overwrite'
+    assert named_status[0]['state'] == 'running'
+    assert named_status[0]['source'] == 'tool'
+    preview_id = named_status[0]['id']
+    assert preview_id.startswith('gemma-tool-preview-')
+
+    pathed = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='relative_path:<|"|>src/app.ts<|"|>,new_content:<|"|>const x = 1',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    pathed_status = [_sse_json(ln)['status'] for ln in pathed if '"type": "status"' in ln]
+    assert pathed_status
+    assert pathed_status[0]['id'] == preview_id
+    assert pathed_status[0]['detail'] == 'src/app.ts'
+
+    quiet = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content=';\nconst y = 2')},
+        },
+        state,
+        **kwargs,
+    )
+    assert not any('"type": "status"' in ln for ln in quiet)
+
+    start = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'stage_workspace_file_overwrite',
+            'run_id': 'lg-run-1',
+            'data': {'input': {'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\nconst y = 2'}},
+        },
+        state,
+        **kwargs,
+    )
+    start_status = [_sse_json(ln)['status'] for ln in start if '"type": "status"' in ln]
+    assert start_status[0]['id'] == preview_id
+
+    end = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_end',
+            'name': 'stage_workspace_file_overwrite',
+            'run_id': 'lg-run-1',
+            'data': {'output': 'Staged src/app.ts'},
+        },
+        state,
+        **kwargs,
+    )
+    end_status = [_sse_json(ln)['status'] for ln in end if '"type": "status"' in ln]
+    assert end_status[0]['id'] == preview_id
+    assert end_status[0]['state'] == 'complete'
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_end_completes_unclosed_write_preview(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    named = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='<|tool_call>call:stage_workspace_file_overwrite{relative_path:<|"|>a.ts<|"|>,new_content:<|"|>x',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    preview_id = [_sse_json(ln)['status']['id'] for ln in named if '"type": "status"' in ln][0]
+    assert preview_id in state.pending_tool_runs
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {'output': AIMessage(content='truncated')},
+        },
+        state,
+        **kwargs,
+    )
+    done = [
+        _sse_json(ln)['status']
+        for ln in end_lines
+        if '"type": "status"' in ln and _sse_json(ln)['status']['id'] == preview_id
+    ]
+    assert done
+    assert done[0]['state'] == 'complete'
+    assert preview_id not in state.pending_tool_runs
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_end_completes_closed_unparseable_write_preview(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    named = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='<|tool_call>call:stage_create_file{relative_path:<|"|>a.py<|"|>!!!}<tool_call|>',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    preview_id = [_sse_json(ln)['status']['id'] for ln in named if '"type": "status"' in ln][0]
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {
+                'output': AIMessage(
+                    content='<|tool_call>call:stage_create_file{relative_path:<|"|>a.py<|"|>!!!}<tool_call|>',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    done = [
+        _sse_json(ln)['status']
+        for ln in end_lines
+        if '"type": "status"' in ln and _sse_json(ln)['status']['id'] == preview_id
+    ]
+    assert done
+    assert done[0]['state'] == 'complete'
+    assert preview_id not in state.pending_tool_runs
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_stream_previews_two_native_tool_calls_share_ids(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    streamed = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content=(
+                        '<|tool_call>call:list_workspace_directory{relative_path:<|"|>src<|"|>}<tool_call|>'
+                        '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}<tool_call|>'
+                    ),
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    previews = [_sse_json(ln)['status'] for ln in streamed if '"type": "status"' in ln]
+    assert [row['label'] for row in previews] == [
+        'list_workspace_directory',
+        'read_workspace_file',
+    ]
+    assert all(row['state'] == 'running' and row['source'] == 'tool' for row in previews)
+    ids = [row['id'] for row in previews]
+    assert ids[0] != ids[1]
+    assert all(item.startswith('gemma-tool-preview-') for item in ids)
+
+    first_start = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'list_workspace_directory',
+            'run_id': 'lg-run-a',
+            'data': {'input': {'relative_path': 'src'}},
+        },
+        state,
+        **kwargs,
+    )
+    first_status = [_sse_json(ln)['status'] for ln in first_start if '"type": "status"' in ln]
+    assert first_status[0]['id'] == ids[0]
+    assert first_status[0]['label'] == 'list_workspace_directory'
+
+    second_start = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'read_workspace_file',
+            'run_id': 'lg-run-b',
+            'data': {'input': {'path': 'a.py'}},
+        },
+        state,
+        **kwargs,
+    )
+    second_status = [_sse_json(ln)['status'] for ln in second_start if '"type": "status"' in ln]
+    assert second_status[0]['id'] == ids[1]
+    assert second_status[0]['label'] == 'read_workspace_file'
+    assert set(state.gemma_run_id_alias.values()) == set(ids)
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_chat_model_start_after_injected_human_does_not_inherit_thought(
+    mock_conn: MagicMock,
+) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    sse_lines_for_graph_event(
+        _tool_end_event(name='read_workspace_file', run_id='r-nudge', output='ok'),
+        state,
+        **_sse_kwargs(),
+    )
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_start',
+            'data': {'input': [HumanMessage(content='You ended with leftover drafts.')]},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': AIMessageChunk(content='I will transfer now.')},
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert len(first) == 1
+    assert 'I will transfer now.' in first[0]
+    assert '"stream_tag": "agent"' in first[0]
+    assert '"stream_tag": "reasoning"' not in first[0]
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_parallel_same_name_previews_bind_by_path(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    streamed = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content=(
+                        '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}<tool_call|>'
+                        '<|tool_call>call:read_workspace_file{path:<|"|>b.py<|"|>}<tool_call|>'
+                    ),
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    previews = [_sse_json(ln)['status'] for ln in streamed if '"type": "status"' in ln]
+    assert [row['label'] for row in previews] == ['read_workspace_file', 'read_workspace_file']
+    ids = [row['id'] for row in previews]
+    assert ids[0] != ids[1]
+
+    second_first = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'read_workspace_file',
+            'run_id': 'lg-b',
+            'data': {'input': {'path': 'b.py'}},
+        },
+        state,
+        **kwargs,
+    )
+    first_second = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'read_workspace_file',
+            'run_id': 'lg-a',
+            'data': {'input': {'path': 'a.py'}},
+        },
+        state,
+        **kwargs,
+    )
+    assert [_sse_json(ln)['status']['id'] for ln in second_first if '"type": "status"' in ln] == [ids[1]]
+    assert [_sse_json(ln)['status']['id'] for ln in first_second if '"type": "status"' in ln] == [ids[0]]
+    assert state.gemma_run_id_alias['lg-b'] == ids[1]
+    assert state.gemma_run_id_alias['lg-a'] == ids[0]

@@ -36,3 +36,19 @@ def test_reasoning_sidecar_from_gemma_channel(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _gemma_conn()
     msg = AIMessage(content="<|channel>thought\nhidden<channel|>visible")
     assert reasoning_sidecar_text(msg) == 'hidden'
+
+
+@patch('clara_coder_backend.llm.messages.get_active_connection')
+def test_assistant_visible_answer_orphan_channel_close(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_conn()
+    msg = AIMessage(content="Need the file next.\n<channel|>visible")
+    assert assistant_visible_answer(msg) == 'visible'
+    assert reasoning_sidecar_text(msg) == 'Need the file next.'
+
+
+@patch('clara_coder_backend.llm.messages.get_active_connection')
+def test_reasoning_sidecar_strips_nested_channel_tags(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _gemma_conn()
+    msg = AIMessage(content='visible')
+    msg.additional_kwargs['reasoning_content'] = '<|channel>thought\nnested plan'
+    assert reasoning_sidecar_text(msg) == 'nested plan'

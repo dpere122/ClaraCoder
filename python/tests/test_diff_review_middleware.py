@@ -166,3 +166,47 @@ async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_t
 
     item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
     assert item == ('staged_transfer_batch', batch_payload)
+
+
+@patch('clara_coder_backend.middleware.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+async def test_staged_transfer_hitl_note_folds_into_tool_message(mock_pause: AsyncMock) -> None:
+    """Gemma treats a post-transfer HumanMessage as a new user turn and restarts the request."""
+    mock_pause.return_value = 'User approved staged transfer for: `a.py`.'
+
+    session_id = 'diff-mw-fold-transfer-note'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.worker_apply_mode = True
+    session.auto_apply_mode = False
+    session.hitl_sse_queue = asyncio.Queue()
+    from clara_coder_backend.domain import PendingStagedTransferHitl
+    from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
+
+    pending = PendingStagedTransferHitl(request_id='req-fold', relative_paths=['a.py'])
+    session.pending_staged_transfer_hitl = pending
+    session.pending_staged_transfer_batch_payload = staged_transfer_batch_sse_payload(
+        pending,
+        [{'version': 1, 'relativePath': 'a.py', 'stagedTransferHitl': True}],
+    )
+    session.pending_diff_payload = None
+
+    mw = DiffReviewAfterToolMiddleware()
+
+    async def _handler(_req: object) -> ToolMessage:
+        return ToolMessage(
+            content='Awaiting human confirmation…',
+            tool_call_id='tc-fold',
+            name=TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME,
+        )
+
+    request = SimpleNamespace(
+        tool_call={'name': TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME, 'id': 'tc-fold'},
+    )
+    try:
+        result = await mw.awrap_tool_call(request, _handler)
+    finally:
+        current_session_id.reset(token)
+
+    assert isinstance(result, ToolMessage)
+    assert 'Awaiting human confirmation' in str(result.content)
+    assert 'User approved staged transfer' in str(result.content)

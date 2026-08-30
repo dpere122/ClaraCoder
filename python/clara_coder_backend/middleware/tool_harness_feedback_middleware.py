@@ -32,8 +32,9 @@ def _repeated_failure_footer(tool_name: str, *, streak: int) -> str:
     times = streak + 1
     if tool_name in _ANCHOR_STAGING_TOOL_NAMES:
         advice = (
-            'Call `read_staged_edit` on this exact path now to see its **current** text, then build a new '
-            '`old_snippet`/`start_line`/`end_line` from that output—not from `read_workspace_file`, a diff, or memory.'
+            'Call `read_workspace_file` or `read_staged_edit` on this exact path now to see its **current** '
+            'draft (already on disk), then build a new `old_snippet`/`start_line`/`end_line` from that output—'
+            'not from a journal baseline, a diff, or memory.'
         )
     else:
         advice = (

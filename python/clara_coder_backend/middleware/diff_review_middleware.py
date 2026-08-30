@@ -15,8 +15,15 @@ from clara_coder_backend.session.state import current_session_id, direct_workspa
 from clara_coder_backend.hitl.tool_registry import hitl_diff_pause_tools
 
 
+def _fold_note_into_tool_message(tm: ToolMessage, note: str) -> ToolMessage:
+    """Keep transfer HITL outcomes on the tool channel (avoids a new Gemma user turn)."""
+    base = stringify_content(tm.content).strip()
+    merged = f'{base}\n\n---\n{note}'.strip() if base else note.strip()
+    return ToolMessage(content=merged, tool_call_id=tm.tool_call_id, name=tm.name)
+
+
 class DiffReviewAfterToolMiddleware(AgentMiddleware):
-    """Signal the SSE pump to emit a diff, await agent-continue, then append an optional HumanMessage."""
+    """Signal the SSE pump to emit a diff, await agent-continue, then attach the resume note."""
 
     async def awrap_tool_call(
         self,
@@ -65,5 +72,9 @@ class DiffReviewAfterToolMiddleware(AgentMiddleware):
                 name=name,
             )
         if note:
+            # Staged-transfer confirm/re-review is the tool outcome. A follow-up HumanMessage
+            # looks like a new user turn to Gemma and it restarts the original request.
+            if staged_transfer_pending:
+                return _fold_note_into_tool_message(tm, note)
             return Command(update={'messages': [tm, HumanMessage(content=note)]})
         return tm

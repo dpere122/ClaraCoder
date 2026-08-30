@@ -7,6 +7,7 @@ Modules
 ``copy_review_middleware`` — pause after copy HITL
 ``accept_command_review_middleware`` — pause after accept-command HITL
 ``empty_response_middleware`` — nudge on empty model turns
+``flush_untransferred_staging_middleware`` — ``after_agent`` node that returns leftover staged drafts to the model until resolved
 ``parallel_tool_middleware`` — inject ``parallel_tool_calls`` from runtime
 ``briefing_disable_thinking_middleware`` — pin thinking off for Clara's first-turn briefing (Gemma and Qwen honor thinking settings on every agent call)
 ``vision_tool_middleware`` — vision / multimodal tool message shaping

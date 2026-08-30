@@ -2,7 +2,7 @@
   <div class="staged-batch-card staged-batch-card--collapsed border rounded-2 px-3 py-2">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
       <div>
-        <span class="fw-medium">Staged transfer batch</span>
+        <span class="fw-medium">{{ payload().untransferredFlush ? 'Untransferred drafts' : 'Staged transfer batch' }}</span>
         <span class="text-secondary small ms-2">{{ payload().files.length }} file(s)</span>
         @if (reviewSummary()) {
           <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
@@ -36,7 +36,9 @@
     >
       <div class="staged-batch-toolbar p-2 border-bottom">
         <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-          <span class="badge text-bg-info">Staged batch</span>
+          <span class="badge" [class.text-bg-warning]="payload().untransferredFlush" [class.text-bg-info]="!payload().untransferredFlush">{{
+            payload().untransferredFlush ? 'Left untransferred' : 'Staged batch'
+          }}</span>
           <span class="small fw-medium text-secondary">File {{ fileProgressLabel() }}</span>
           <code class="small mb-0">{{ currentFile().relativePath }}</code>
           <button

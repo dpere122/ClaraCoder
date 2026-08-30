@@ -78,6 +78,11 @@ def staging_env():
 
     yield env
 
+    from clara_coder_backend.tools.write_jobs import cancel_write_job, write_jobs
+
+    for job in list(write_jobs().values()):
+        if job.session_id == session_id:
+            cancel_write_job(job)
     shutdown_session_lsp(session_id)
     current_session_id.reset(token)
     if saved_staging is None:

@@ -57,7 +57,7 @@ def test_standard_includes_staging_write_tools() -> None:
         'stage_snippet_edit',
     ]
     lsp_mut = _LSP_CREATE_UPDATE_NAMES
-    transfer_names = {'transfer_staged_file_to_workspace'}
+    transfer_names = {'transfer_staged_file_to_workspace', 'wait_for_write'}
     staging_review_names = {'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert hitl_delete_pause_tools() == frozenset(
@@ -72,7 +72,7 @@ def test_strict_omits_snippet_tool() -> None:
     names = [t.name for t in staging_workspace_write_tools(True)]
     assert names == ['stage_create_file', 'stage_workspace_file_overwrite', 'stage_line_range_edit']
     lsp_mut = _LSP_CREATE_UPDATE_NAMES
-    transfer_names = {'transfer_staged_file_to_workspace'}
+    transfer_names = {'transfer_staged_file_to_workspace', 'wait_for_write'}
     staging_review_names = {'format_staging_file_black', 'format_staging_file_prettier'}
     assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
     assert 'stage_snippet_edit' not in hitl_diff_pause_tools()
@@ -142,12 +142,14 @@ def test_outer_agent_tools_staging_mode() -> None:
         'kill_background_command',
         'list_background_commands',
     }
+    write_job_names = {'wait_for_write', 'cancel_write', 'list_write_jobs'}
 
     tools_on, map_on = worker_tools_and_map(True, session=session)
     assert {t.name for t in tools_on} == (
         read_names
         | {'copy_workspace_files'}
         | background_command_names
+        | write_job_names
         | edit_names
         | lsp_mut_names
         | {'delete_workspace_entry', 'batch_delete_workspace_entries'}

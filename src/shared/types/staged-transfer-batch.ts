@@ -8,4 +8,6 @@ export interface StagedTransferBatchPayload {
   version: 1;
   requestId: string;
   files: FileDiffPayload[];
+  /** True when the batch was queued because the agent ended with leftover untransferred drafts. */
+  untransferredFlush?: boolean;
 }

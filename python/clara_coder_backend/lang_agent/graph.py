@@ -4,6 +4,10 @@ Standard Clara uses read/search plus staging and LSP tools when Editor is on. Pe
 :class:`~clara_coder_backend.middleware.parallel_tool_middleware.ConnectionParallelToolCallsMiddleware`.
 Diff-review pauses use :class:`~clara_coder_backend.middleware.diff_review_middleware.DiffReviewAfterToolMiddleware`
 plus a multiplexed event pump so diffs emit while the graph waits on ``POST /chat/agent-continue``.
+Leftover staged drafts at graph END are handled by
+:class:`~clara_coder_backend.middleware.flush_untransferred_staging_middleware.FlushUntransferredStagingMiddleware`
+(``after_agent`` node): the node jumps back to the model with review/resolve instructions
+until the drafts are transferred, discarded, or the turn is aborted.
 """
 
 from __future__ import annotations
@@ -25,7 +29,6 @@ from clara_coder_backend.middleware.accept_command_review_middleware import Acce
 from clara_coder_backend.middleware.briefing_disable_thinking_middleware import ClaraBriefingDisableThinkingMiddleware
 from clara_coder_backend.middleware.context_pack_activation_middleware import ContextPackActivationMiddleware
 from clara_coder_backend.hitl.command_risk_assess import maybe_enrich_pending_command_risk
-from clara_coder_backend.staging.materializations import rollback_test_run_materializations
 from clara_coder_backend.session.checkpointing import get_graph_checkpointer, outer_agent_thread_id
 from clara_coder_backend.config import MAX_AGENT_STEPS
 from clara_coder_backend.middleware.copy_review_middleware import CopyReviewAfterToolMiddleware
@@ -34,6 +37,7 @@ from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from clara_coder_backend.middleware.diff_review_middleware import DiffReviewAfterToolMiddleware
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.middleware.flush_untransferred_staging_middleware import FlushUntransferredStagingMiddleware
 from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
 from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
@@ -47,6 +51,7 @@ from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lang_agent.langgraph_sse import (
     GraphStreamState,
+    finalize_unconsumed_gemma_previews,
     sse_lines_for_graph_event,
 )
 from clara_coder_backend.llm.factory import build_llm
@@ -124,6 +129,7 @@ def build_clara_single_outer_graph(
     core_middleware.append(CopyReviewAfterToolMiddleware())
     core_middleware.append(DeleteReviewAfterToolMiddleware())
     core_middleware.append(DiffReviewAfterToolMiddleware())
+    core_middleware.append(FlushUntransferredStagingMiddleware())
     middleware = prepend_harness_feedback_middleware(core_middleware)
     return create_agent(
         llm,
@@ -146,10 +152,15 @@ def _default_outer_graph_builder(
 
 def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
     """Discard leftover staging after the outer agent turn finishes."""
-    if session.pending_edit_stagings:
+    leftover = [
+        rel
+        for rel, entry in session.pending_edit_stagings.items()
+        if not getattr(entry, 'workspace_applied', False)
+    ]
+    if leftover:
         logger.warning(
             'Orphaned edit stagings after outer agent completion (discarding): %s',
-            list(session.pending_edit_stagings.keys()),
+            leftover,
         )
     cleanup_staging_snapshot_session(session, session_id)
 
@@ -284,6 +295,10 @@ async def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
         if payload:
             return [sse_line({'type': 'file_journal', 'fileJournal': payload})]
         return []
+    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'agent_nudge':
+        from clara_coder_backend.lang_agent.streaming import promote_primary_to_nudge_sse_line
+
+        return [promote_primary_to_nudge_sse_line()]
     return []
 
 
@@ -522,6 +537,9 @@ async def _stream_langgraph_tool_agent(
                     break
 
                 if kind == 'hitl':
+                    if isinstance(item, tuple) and item and item[0] == 'agent_nudge':
+                        main_state.last_final_text = ''
+                        main_state.deferred_agent_text = ''
                     for line in await _hitl_sse_lines(get_session(cfg.session_id), item):
                         yield line
                     continue
@@ -589,6 +607,10 @@ async def _stream_langgraph_tool_agent(
                     final_text=final_text,
                     partial_text=main_state.partial_stream_text,
                 )
+                for line in finalize_unconsumed_gemma_previews(
+                    main_state, agent_role=cfg.agent_role, stream_tag=main_stream_tag
+                ):
+                    yield line
                 yield sse_line(
                     status_event(
                         cfg.done_event_id,

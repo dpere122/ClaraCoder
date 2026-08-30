@@ -75,6 +75,8 @@ class _FakeLspClient:
             self.docs.pop(uri, None)
             self.notification_handler('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': []})
             return
+        if method in ('workspace/didChangeWatchedFiles', 'textDocument/didSave'):
+            return
         if method not in ('textDocument/didOpen', 'textDocument/didChange'):
             raise AssertionError(f'unexpected LSP notification: {method}')
         self.sync_notify_count += 1
@@ -275,6 +277,32 @@ def test_lsp_completion_skip_document_sync_avoids_second_buffer_sync(lsp_http_en
     assert after_second == after_first
 
 
+def test_lsp_diagnostics_refresh_skips_disk_when_document_tracked(lsp_http_env) -> None:
+    """Status-bar warm (``refresh_active_document``) must not overwrite an open editor buffer."""
+
+    with TestClient(lsp_http_env.app) as client:
+        r1 = client.post(
+            f'/lsp/hover?session_id={lsp_http_env.session_id}',
+            json={
+                'relative_path': lsp_http_env.sample_path,
+                'line': 1,
+                'character': 1,
+                'document_text': 'value = 1\n',
+                'skip_document_sync': False,
+            },
+        )
+        assert r1.status_code == 200
+        assert lsp_http_env.fake_clients, 'expected injected LSP client'
+        fake = lsp_http_env.fake_clients[0]
+        after_sync = fake.sync_notify_count
+        r2 = client.get(
+            f'/lsp/diagnostics?session_id={lsp_http_env.session_id}'
+            f'&relative_path={lsp_http_env.sample_path}&refresh_active_document=true',
+        )
+        assert r2.status_code == 200
+        assert fake.sync_notify_count == after_sync
+
+
 def test_lsp_semantic_tokens_legend_python_deferred_without_seed(lsp_http_env) -> None:
     """Python is not started for legend prefetch until a ``.py`` file has been synced (seed)."""
 
@@ -461,9 +489,9 @@ def test_lsp_shutdown_all_http_route(lsp_http_env) -> None:
 def test_lsp_warm_server_http_route(lsp_http_env) -> None:
     with TestClient(lsp_http_env.app) as client:
         r = client.post(f'/lsp/warm-server?session_id={lsp_http_env.session_id}&server=python')
-    assert r.status_code == 200
-    body = r.json()
-    assert body.get('server') == 'python'
-    st = get_lsp_dashboard_status(lsp_http_env.session_id)
-    assert st['servers']['python']['initialized'] is True
-    assert st['servers']['python']['phase'] == 'running'
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get('server') == 'python'
+        st = get_lsp_dashboard_status(lsp_http_env.session_id)
+        assert st['servers']['python']['initialized'] is True
+        assert st['servers']['python']['phase'] == 'running'

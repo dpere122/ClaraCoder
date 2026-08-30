@@ -27,9 +27,10 @@ def _conn() -> RuntimeConnection:
 
 def test_staging_edit_semantics_tells_model_to_refresh_from_staged_draft() -> None:
     block = edit_semantics_block(direct=False)
-    assert 'current staged draft' in block
+    assert 'Write-through' in block
+    assert 'read_workspace_file' in block
     assert 'read_staged_edit' in block
-    assert 'not `read_workspace_file`' in block
+    assert 'discard_staged_edits' in block
 
 
 def test_staging_edit_semantics_prefers_line_range_when_line_numbers_known() -> None:

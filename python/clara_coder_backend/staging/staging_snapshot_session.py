@@ -5,16 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from clara_coder_backend.staging import edit_staging
-from clara_coder_backend.staging.materializations import rollback_test_run_materializations
+from clara_coder_backend.staging.materializations import rollback_unapplied_journals
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.lsp.manager import shutdown_session_lsp
+from clara_coder_backend.lsp.manager import shutdown_session_lsp, shutdown_session_lsp_scope
 
 
 def prepare_new_staging_snapshot_session(session: SessionState, session_id: str) -> str:
     """Reset session-local staging/LSP state, then seed a fresh workspace snapshot."""
     shutdown_session_lsp(session_id)
-    if session.staging.test_run_materializations:
-        rollback_test_run_materializations(session)
+    rollback_unapplied_journals(session)
     hitl = session.hitl
     hitl.pending_diff_payload = None
     hitl.pending_staged_transfer_hitl = None
@@ -35,17 +34,18 @@ def prepare_new_staging_snapshot_session(session: SessionState, session_id: str)
 
 
 def cleanup_staging_snapshot_session(session: SessionState, session_id: str) -> None:
-    """Best-effort cleanup for staging snapshot state after an outer agent turn completes."""
-    shutdown_session_lsp(session_id)
-    if session.staging.test_run_materializations:
-        rollback_test_run_materializations(session)
+    """Best-effort cleanup for staging snapshot state after an outer agent turn completes.
+
+    Workspace-scope language servers stay up so the editor is not reset mid-session.
+    """
+    shutdown_session_lsp_scope(session_id, 'staging')
+    rollback_unapplied_journals(session)
     edit_staging.discard_all_session_stagings(session)
     edit_staging.clear_session_staging_dir(session_id)
     staging = session.staging
     staging.active_staging_snapshot_id = ''
     staging.active_staging_snapshot_root = ''
-    lsp = session.lsp
-    lsp.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
-    lsp.lsp_workspace_root = ''
-    lsp.typescript_lsp_resolved_root = ''
-    lsp.lsp_active_scope = 'workspace'
+    caches = session.lsp.lsp_diagnostics_by_scope
+    caches['staging'] = {}
+    if session.lsp.lsp_active_scope == 'staging':
+        session.lsp.lsp_active_scope = 'workspace'

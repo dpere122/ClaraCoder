@@ -22,7 +22,7 @@ from clara_coder_backend.lsp.registry import (
     iter_registered_lsp_server_ids,
 )
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin
-from clara_coder_backend.lsp.overlay_hooks import clear_lsp_staging_overlay, ensure_lsp_staging_overlay
+from clara_coder_backend.lsp.overlay_hooks import clear_lsp_staging_overlay
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.workspace.paths import normalize_relative_path
 from clara_coder_backend.workspace.workspace_text_io import read_file_for_tools, validate_workspace_encoding
@@ -39,6 +39,7 @@ __all__ = [
     'count_active_lsp_sessions',
     'shutdown_session_lsp',
     'shutdown_session_lsp_server',
+    'shutdown_session_lsp_scope',
     'shutdown_session_python_lsp',
     'shutdown_all_lsp_managers',
     'list_session_diagnostics',
@@ -55,6 +56,9 @@ _VALID_LSP_SCOPES = frozenset({'workspace', 'staging'})
 _JAVA_WAIT_READY_TIMEOUT_S = 8.0
 _JAVA_STARTING_GRACE_S = 5.0
 _JAVA_NO_STATUS_GRACE_S = 3.0
+_DIAG_WAIT_TIMEOUT_S = 1.5
+_DIAG_WAIT_TIMEOUT_SLOW_S = 2.5
+_DIAG_QUIET_S = 0.05
 
 
 def java_workspace_is_ready(status: str, message: str = '') -> bool:
@@ -256,6 +260,10 @@ class SessionWorkspaceLspManager:
         self._doc_versions: dict[str, int] = {}
         self._diag_generation: dict[str, int] = {}
         self._last_synced_digest: dict[str, bytes] = {}
+        self._diag_ready_digest: dict[str, bytes] = {}
+        self._path_locks: dict[str, threading.Lock] = {}
+        self._sync_epoch: int = 0
+        self._bump_sync_epoch_locked()
         self._semantic_tokens_legend: dict[str, list[str]] | None = None
         self._server_capabilities: dict[str, Any] = {}
         self._language_status: str = ''
@@ -295,13 +303,15 @@ class SessionWorkspaceLspManager:
         self._lifecycle_phase = 'crashed'
         if not (self._lifecycle_error or '').strip():
             self._lifecycle_error = 'Language server process exited.'
-        tracked = list(self._doc_versions.keys())
         self._doc_versions.clear()
         self._diag_generation.clear()
         self._last_synced_digest.clear()
+        self._diag_ready_digest.clear()
+        self._bump_sync_epoch_locked()
         cache = self._diag_cache()
-        for rel in tracked:
-            cache.pop(rel, None)
+        for rel in list(cache.keys()):
+            if lsp_server_for_path(rel) == self.server_kind:
+                cache.pop(rel, None)
         if client is None:
             return
         self._close_client_best_effort(
@@ -482,13 +492,15 @@ class SessionWorkspaceLspManager:
             self._server_capabilities = {}
             self._language_status = ''
             self._language_status_message = ''
-            tracked = list(self._doc_versions.keys())
             self._doc_versions.clear()
             self._diag_generation.clear()
             self._last_synced_digest.clear()
+            self._diag_ready_digest.clear()
+            self._bump_sync_epoch_locked()
             cache = self._diag_cache()
-            for rel in tracked:
-                cache.pop(rel, None)
+            for rel in list(cache.keys()):
+                if lsp_server_for_path(rel) == self.server_kind:
+                    cache.pop(rel, None)
             self._diag_cond.notify_all()
         if inflight is not None and inflight is not client:
             self._close_client_best_effort(
@@ -542,11 +554,39 @@ class SessionWorkspaceLspManager:
         ):
             self.shutdown()
         self.ensure_started()
+        with self._path_lock_for(rel):
+            return self._sync_document_locked(
+                rel,
+                text,
+                digest=digest,
+                policy=policy,
+                wait_for_diagnostics=wait_for_diagnostics,
+            )
+
+    def _path_lock_for(self, rel: str) -> threading.Lock:
+        with self._lock:
+            lock = self._path_locks.get(rel)
+            if lock is None:
+                lock = threading.Lock()
+                self._path_locks[rel] = lock
+            return lock
+
+    def _sync_document_locked(
+        self,
+        rel: str,
+        text: str,
+        *,
+        digest: bytes,
+        policy: Any,
+        wait_for_diagnostics: bool,
+    ) -> list[dict[str, Any]]:
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
         with self._lock:
             cache = self._diag_cache()
-            if rel in self._doc_versions and self._last_synced_digest.get(rel) == digest:
+            same_digest = rel in self._doc_versions and self._last_synced_digest.get(rel) == digest
+            ready = self._diag_ready_digest.get(rel) == digest
+            if same_digest and (ready or not wait_for_diagnostics):
                 return list(cache.get(rel, []))
             prev_generation = self._diag_generation.get(rel, 0)
             version = self._doc_versions.get(rel, 0) + 1
@@ -589,9 +629,29 @@ class SessionWorkspaceLspManager:
                     version,
                 )
             self._last_synced_digest[rel] = digest
+            self._diag_ready_digest.pop(rel, None)
+            wait_ok = True
             if wait_for_diagnostics:
-                self._wait_for_diagnostics(rel, prev_generation)
-            return list(cache.get(rel, []))
+                wait_ok = self._wait_for_diagnostics(rel, prev_generation)
+            if wait_ok:
+                self._diag_ready_digest[rel] = digest
+            rows = list(cache.get(rel, []))
+        if self.scope == 'staging':
+            try:
+                pending = [
+                    peer
+                    for peer in _pending_unapplied_staging_rels(self.session)
+                    if lsp_server_for_path(peer) == self.server_kind and peer != rel
+                ]
+                self.notify_watched_file_changes(pending)
+            except Exception as exc:
+                logger.debug(
+                    '%s staging watched-files notify failed session=%s err=%s',
+                    self.server_kind,
+                    self.session_id,
+                    exc,
+                )
+        return rows
 
     def sync_workspace_document(
         self,
@@ -620,6 +680,7 @@ class SessionWorkspaceLspManager:
             client.notify('textDocument/didClose', {'textDocument': {'uri': _path_to_uri(target)}})
             self._doc_versions.pop(rel, None)
             self._last_synced_digest.pop(rel, None)
+            self._diag_ready_digest.pop(rel, None)
             cache.pop(rel, None)
             self._diag_generation.pop(rel, None)
             logger.info(
@@ -640,6 +701,79 @@ class SessionWorkspaceLspManager:
             for path in sorted(cache):
                 all_items.extend(cache[path])
             return all_items
+
+    def document_is_tracked(self, relative_path: str) -> bool:
+        rel = normalize_relative_posix_path(relative_path)
+        with self._lock:
+            return rel in self._doc_versions
+
+    def tracked_relative_paths(self) -> list[str]:
+        with self._lock:
+            return list(self._doc_versions.keys())
+
+    def _bump_sync_epoch_locked(self) -> None:
+        """Advance this manager's epoch and the session-level counter (survives recreate)."""
+
+        self._sync_epoch += 1
+        lsp = getattr(self.session, 'lsp', None)
+        if lsp is not None:
+            lsp.lsp_sync_epoch = int(getattr(lsp, 'lsp_sync_epoch', 0) or 0) + 1
+
+    def get_sync_epoch(self) -> int:
+        lsp = getattr(self.session, 'lsp', None)
+        if lsp is not None:
+            return int(getattr(lsp, 'lsp_sync_epoch', 0) or 0)
+        return int(self._sync_epoch)
+
+    def resync_tracked_documents_from_disk(self, *, encoding: str = 'utf-8') -> None:
+        """Re-read overlay/workspace files for every open document (digest-skips unchanged)."""
+
+        for rel in self.tracked_relative_paths():
+            try:
+                self.sync_workspace_document(rel, encoding=encoding, wait_for_diagnostics=False)
+            except Exception as exc:
+                logger.debug(
+                    '%s overlay resync skipped session=%s scope=%s path=%s err=%s',
+                    self.server_kind,
+                    self.session_id,
+                    self.scope,
+                    rel,
+                    exc,
+                )
+
+    def notify_watched_file_changes(self, relative_paths: list[str], *, change_type: int = 2) -> None:
+        """Tell the language server overlay/disk peers changed (Created=1, Changed=2, Deleted=3)."""
+
+        rels = [normalize_relative_posix_path(p) for p in relative_paths if str(p).strip()]
+        if not rels:
+            return
+        try:
+            client = self._require_client()
+        except RuntimeError:
+            return
+        changes: list[dict[str, Any]] = []
+        for rel in rels:
+            try:
+                uri = _path_to_uri(normalize_relative_path(self.workspace_root, rel))
+            except Exception:
+                continue
+            changes.append({'uri': uri, 'type': int(change_type)})
+        if not changes:
+            return
+        client.notify('workspace/didChangeWatchedFiles', {'changes': changes})
+
+    def save_document(self, relative_path: str) -> None:
+        rel = normalize_relative_posix_path(relative_path)
+        if self._policy(rel) is None:
+            return
+        with self._lock:
+            if rel not in self._doc_versions:
+                return
+            client = self._client
+            if client is None:
+                return
+            target = normalize_relative_path(self.workspace_root, rel)
+        client.notify('textDocument/didSave', {'textDocument': {'uri': _path_to_uri(target)}})
 
     def hover(self, relative_path: str, line: int, character: int) -> dict[str, Any]:
         rel = self._ensure_workspace_synced(relative_path)
@@ -941,10 +1075,14 @@ class SessionWorkspaceLspManager:
         rel = normalize_relative_posix_path(relative_path)
         if self._policy(rel) is None:
             raise ValueError(f'LSP tools do not support `{rel}` on the {self.server_kind} server.')
-        if rel not in self._doc_versions:
-            self.sync_workspace_document(rel)
-        else:
+        # Keep an already-open buffer (editor unsaved text). Only read disk when
+        # the language server has no document for this path.
+        with self._lock:
+            tracked = rel in self._doc_versions
+        if tracked:
             self.ensure_started()
+        else:
+            self.sync_workspace_document(rel)
         return rel
 
     def _wait_for_java_workspace_ready(self, timeout_s: float = _JAVA_WAIT_READY_TIMEOUT_S) -> None:
@@ -1043,14 +1181,39 @@ class SessionWorkspaceLspManager:
             len(normalized),
         )
 
-    def _wait_for_diagnostics(self, relative_path: str, previous_generation: int) -> None:
-        deadline = time.monotonic() + 1.5
-        while time.monotonic() < deadline:
-            remaining = deadline - time.monotonic()
+    def _wait_for_diagnostics(self, relative_path: str, previous_generation: int) -> bool:
+        """Wait until diagnostics generation advances, then a short quiet window.
+
+        Returns True when at least one publish arrived (and the quiet window elapsed or
+        the deadline was reached after an advance). False means the wait timed out with
+        no generation bump — callers must not treat the digest as fresh.
+        """
+
+        timeout_s = (
+            _DIAG_WAIT_TIMEOUT_SLOW_S if self.server_kind in {'java', 'typescript'} else _DIAG_WAIT_TIMEOUT_S
+        )
+        deadline = time.monotonic() + timeout_s
+        last_seen = previous_generation
+        quiet_until: float | None = None
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                return last_seen > previous_generation
             with self._lock:
-                if self._diag_generation.get(relative_path, 0) > previous_generation:
-                    return
-                self._diag_cond.wait(timeout=max(0.05, min(0.2, remaining)))
+                gen = int(self._diag_generation.get(relative_path, 0))
+                if gen > last_seen:
+                    last_seen = gen
+                    quiet_until = time.monotonic() + _DIAG_QUIET_S
+                if last_seen > previous_generation and quiet_until is not None:
+                    remaining_quiet = quiet_until - time.monotonic()
+                    if remaining_quiet <= 0:
+                        return True
+                    wait_for = min(remaining_quiet, deadline - time.monotonic(), 0.2)
+                else:
+                    wait_for = min(0.2, deadline - now)
+                if wait_for <= 0:
+                    continue
+                self._diag_cond.wait(timeout=max(0.01, wait_for))
 
     def _require_client(self) -> JsonRpcLspClient:
         with self._lock:
@@ -1124,10 +1287,8 @@ def _resolve_session_and_root(session_id: str | None) -> tuple[str, SessionState
 
 
 def _effective_lsp_workspace_root(session: SessionState, scope: str, *, session_id: str) -> Path:
-    desired = _normalize_lsp_scope(scope)
-    if desired == 'workspace':
-        return Path(session.workspace.workspace_path).resolve()
-    return ensure_lsp_staging_overlay(session, Path(session.workspace.workspace_path), session_id=session_id)
+    del scope, session_id
+    return Path(session.workspace.workspace_path).resolve()
 
 
 def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> None:
@@ -1135,6 +1296,20 @@ def activate_session_lsp_scope(session_id: str | None = None, *, scope: str) -> 
 
     _sid, session, _workspace_root = _resolve_session_and_root(session_id)
     session.lsp.lsp_active_scope = _normalize_lsp_scope(scope)
+
+
+def _pending_unapplied_staging_rels(session: SessionState) -> list[str]:
+    pending = getattr(session, 'pending_edit_stagings', None)
+    if not isinstance(pending, dict):
+        return []
+    out: list[str] = []
+    for rel_key, entry in pending.items():
+        if getattr(entry, 'workspace_applied', False):
+            continue
+        rel = str(rel_key).strip().replace('\\', '/')
+        if rel and '..' not in rel.split('/'):
+            out.append(rel)
+    return out
 
 
 def get_session_lsp_manager(
@@ -1151,12 +1326,18 @@ def get_session_lsp_manager(
     desired_scope = _normalize_lsp_scope(scope or session.lsp.lsp_active_scope)
     effective_root = _effective_lsp_workspace_root(session, desired_scope, session_id=sid)
     key = (sid, server_id, desired_scope)
+    stale: SessionWorkspaceLspManager | None = None
     with _MANAGERS_LOCK:
         manager = _SESSION_MANAGERS.get(key)
         if manager is not None and manager.workspace_root != effective_root:
-            manager.shutdown()
-            _SESSION_MANAGERS.pop(key, None)
+            popped = _SESSION_MANAGERS.pop(key, None)
+            if popped is manager:
+                stale = manager
             manager = None
+    if stale is not None:
+        stale.shutdown()
+    with _MANAGERS_LOCK:
+        manager = _SESSION_MANAGERS.get(key)
         if manager is None:
             manager = SessionWorkspaceLspManager(
                 session_id=sid,
@@ -1171,7 +1352,7 @@ def get_session_lsp_manager(
         # (e.g. read-only diagnostics against the non-default scope).
         if set_active and scope is not None:
             session.lsp.lsp_active_scope = desired_scope
-        return manager
+    return manager
 
 
 def _shutdown_and_forget_managers(
@@ -1202,6 +1383,27 @@ def shutdown_session_python_lsp(session_id: str) -> None:
     """Stop only the Python language-server manager for this session (e.g. after interpreter change)."""
 
     shutdown_session_lsp_server(session_id, 'python')
+
+
+def shutdown_session_lsp_scope(session_id: str, scope: str) -> None:
+    """Stop managers for one LSP scope without tearing down the other scope."""
+
+    sid = (session_id or '').strip()
+    if not sid:
+        return
+    desired = _normalize_lsp_scope(scope)
+    with _MANAGERS_LOCK:
+        pairs = [(k, mgr) for k, mgr in _SESSION_MANAGERS.items() if k[0] == sid and k[2] == desired]
+    _shutdown_and_forget_managers(pairs)
+    try:
+        session = get_session(sid)
+        clear_diagnostics_caches(session, scope=desired)
+        if desired == 'staging':
+            clear_lsp_staging_overlay(session)
+            if session.lsp.lsp_active_scope == 'staging':
+                session.lsp.lsp_active_scope = 'workspace'
+    except Exception as exc:
+        logger.warning('clear LSP scope=%s overlay failed session=%s err=%s', desired, sid, exc)
 
 
 def shutdown_session_lsp(session_id: str) -> None:
@@ -1366,5 +1568,15 @@ def close_session_document(
     server = lsp_server_for_path(relative_path)
     if not server:
         return
-    manager = get_session_lsp_manager(session_id, scope=scope, server=server)
-    manager.close_document(relative_path)
+    sid = (session_id or current_session_id.get() or '').strip()
+    if not sid:
+        return
+    desired = _normalize_lsp_scope(scope) if scope else None
+    with _MANAGERS_LOCK:
+        managers = [
+            mgr
+            for k, mgr in _SESSION_MANAGERS.items()
+            if k[0] == sid and k[1] == server and (desired is None or k[2] == desired)
+        ]
+    for mgr in managers:
+        mgr.close_document(relative_path)

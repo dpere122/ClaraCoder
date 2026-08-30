@@ -50,7 +50,7 @@ class _FakeLspClient:
             if method == 'exit':
                 self.closed = True
             return
-        if method in ('textDocument/didOpen', 'textDocument/didChange', 'textDocument/didClose'):
+        if method in ('textDocument/didOpen', 'textDocument/didChange', 'textDocument/didClose', 'workspace/didChangeWatchedFiles', 'textDocument/didSave'):
             return
         raise AssertionError(f'unexpected LSP notification: {method}')
 

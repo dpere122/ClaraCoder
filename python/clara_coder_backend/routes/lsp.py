@@ -28,6 +28,7 @@ from clara_coder_backend.lsp.editor_monaco import (
 )
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from clara_coder_backend.lsp.manager import (
+    close_session_document,
     count_active_lsp_sessions,
     get_lsp_dashboard_status,
     get_session_lsp_manager,
@@ -93,7 +94,7 @@ def _lsp_diagnostics_sync(
         if not server:
             raise ValueError(f'No LSP integration for `{rel}`.')
         manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-        if refresh_disk:
+        if refresh_disk and not manager.document_is_tracked(rel):
             manager.sync_workspace_document(rel, encoding=enc)
         diagnostics = manager.get_diagnostics(rel)
         return {'sessionId': session_id, 'relativePath': rel, 'diagnostics': diagnostics, 'server': server}
@@ -157,6 +158,12 @@ def _maybe_sync_buffer(
         manager.sync_document(rel, document_text, wait_for_diagnostics=wait_for_diagnostics)
 
 
+def _synced_from_disk_flag(manager: Any, rel: str, *, skip_document_sync: bool) -> bool:
+    """True when the editor skipped a buffer send but the language server has no open doc."""
+
+    return bool(skip_document_sync) and not manager.document_is_tracked(rel)
+
+
 def _lsp_editor_definition_sync(
     session_id: str,
     relative_path: str,
@@ -171,10 +178,11 @@ def _lsp_editor_definition_sync(
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    synced_from_disk = _synced_from_disk_flag(manager, rel, skip_document_sync=skip_document_sync)
     _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     raw = manager.definition(rel, line, character)
     locations = serialize_locations_payload(manager, raw)
-    return {'locations': locations}
+    return {'locations': locations, 'synced_from_disk': synced_from_disk}
 
 
 def _lsp_editor_references_sync(
@@ -231,6 +239,7 @@ def _lsp_editor_completion_sync(
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    synced_from_disk = _synced_from_disk_flag(manager, rel, skip_document_sync=skip_document_sync)
     _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
     tc = trigger_character
     raw = manager.completion(
@@ -240,7 +249,9 @@ def _lsp_editor_completion_sync(
         trigger_kind=int(trigger_kind),
         trigger_character=tc if tc not in (None, '') else None,
     )
-    return serialize_completion_result(manager, raw)
+    payload = serialize_completion_result(manager, raw)
+    payload['synced_from_disk'] = synced_from_disk
+    return payload
 
 
 def _lsp_editor_rename_sync(
@@ -295,6 +306,7 @@ def _lsp_editor_diagnostics_sync(
     if not server:
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    synced_from_disk = _synced_from_disk_flag(manager, rel, skip_document_sync=skip_document_sync)
     if not skip_document_sync and document_text is not None:
         manager.sync_document(rel, document_text, wait_for_diagnostics=True)
     diagnostics = manager.get_diagnostics(rel)
@@ -302,6 +314,8 @@ def _lsp_editor_diagnostics_sync(
     return {
         'diagnostics': serialize_diagnostics_payload(diagnostics),
         'generation': generation,
+        'epoch': manager.get_sync_epoch(),
+        'synced_from_disk': synced_from_disk,
     }
 
 
@@ -554,6 +568,7 @@ def _lsp_diagnostics_generation_sync(session_id: str, relative_path: str) -> dic
     return {
         'relativePath': rel,
         'generation': manager.get_diag_generation(rel),
+        'epoch': manager.get_sync_epoch(),
         'count': len(manager.get_diagnostics(rel)),
     }
 
@@ -603,6 +618,10 @@ class LspEditorDiagnosticsBody(BaseModel):
     relative_path: str = Field(..., min_length=1)
     document_text: str | None = None
     skip_document_sync: bool = False
+
+
+class LspEditorPathBody(BaseModel):
+    relative_path: str = Field(..., min_length=1)
 
 
 class LspEditorSignatureHelpBody(LspEditorPositionBody):
@@ -1205,5 +1224,37 @@ async def lsp_semantic_tokens_full_delta(
             body.document_text,
             skip_document_sync=body.skip_document_sync,
         )
+    except Exception as exc:
+        raise _lsp_http_400(exc) from exc
+
+
+def _lsp_editor_did_close_sync(session_id: str, relative_path: str) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    close_session_document(rel, session_id=session_id, scope='workspace')
+    return {'ok': True}
+
+
+def _lsp_editor_did_save_sync(session_id: str, relative_path: str) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server, set_active=False)
+    manager.save_document(rel)
+    return {'ok': True}
+
+
+@router.post('/lsp/editor/did-close')
+async def lsp_editor_did_close(session_id: str, body: LspEditorPathBody) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(_lsp_editor_did_close_sync, session_id, body.relative_path)
+    except Exception as exc:
+        raise _lsp_http_400(exc) from exc
+
+
+@router.post('/lsp/editor/did-save')
+async def lsp_editor_did_save(session_id: str, body: LspEditorPathBody) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(_lsp_editor_did_save_sync, session_id, body.relative_path)
     except Exception as exc:
         raise _lsp_http_400(exc) from exc

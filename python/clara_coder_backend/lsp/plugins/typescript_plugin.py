@@ -17,10 +17,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger('clara.lsp.plugins.typescript')
 
 
+def _path_under_workspace(path: Path, workspace_root: Path) -> Path | None:
+    """Return ``path`` resolved when it is inside ``workspace_root``; else None."""
+
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(workspace_root.resolve())
+        return resolved
+    except (OSError, ValueError):
+        return None
+
+
 @dataclass
 class TypescriptPluginState:
     last_seed: str = ''
     project_root: Path | None = None
+    persist_session_root: bool = False
 
 
 class TypescriptLspPlugin(LspServerPlugin):
@@ -39,17 +51,22 @@ class TypescriptLspPlugin(LspServerPlugin):
         scope: str = 'workspace',
     ) -> LspStartParams:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
-        cached = (session.lsp.typescript_lsp_resolved_root or '').strip()
-        if cached:
-            root = Path(cached).resolve()
-        elif st.last_seed:
+        st.persist_session_root = (scope or 'workspace') == 'workspace'
+        ws = Path(workspace_root).resolve()
+
+        root = _path_under_workspace(st.project_root, ws) if st.project_root is not None else None
+        if root is None and (st.last_seed or '').strip():
             root = resolve_typescript_project_root(
-                workspace_root,
+                ws,
                 seed_relative_path=st.last_seed,
             )
-        else:
+        if root is None:
+            cached = (session.lsp.typescript_lsp_resolved_root or '').strip()
+            if cached:
+                root = _path_under_workspace(Path(cached), ws)
+        if root is None:
             root = resolve_typescript_project_root(
-                workspace_root,
+                ws,
                 seed_relative_path=None,
                 allow_workspace_walk=False,
             )
@@ -103,9 +120,16 @@ class TypescriptLspPlugin(LspServerPlugin):
         return False
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:
-        session.lsp.typescript_lsp_resolved_root = ''
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
+        cached = (session.lsp.typescript_lsp_resolved_root or '').strip()
+        if st.persist_session_root and cached and st.project_root is not None:
+            try:
+                if Path(cached).resolve() == st.project_root.resolve():
+                    session.lsp.typescript_lsp_resolved_root = ''
+            except OSError:
+                session.lsp.typescript_lsp_resolved_root = ''
         st.project_root = None
+        st.persist_session_root = False
 
     def on_after_client_started(
         self,
@@ -117,5 +141,6 @@ class TypescriptLspPlugin(LspServerPlugin):
     ) -> None:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
         st.project_root = lsp_cwd
-        session.lsp.typescript_lsp_resolved_root = str(lsp_cwd)
+        if st.persist_session_root:
+            session.lsp.typescript_lsp_resolved_root = str(lsp_cwd)
 

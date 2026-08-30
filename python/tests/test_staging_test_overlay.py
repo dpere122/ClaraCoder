@@ -155,6 +155,7 @@ async def test_run_staging_overlay_command_runs_in_overlay(tmp_path: Path, monke
             disk_newline='lf',
             edit_mode='full-file',
         )
+        (ws / 'touched.txt').write_text('from_staging', encoding='utf-8')
         argv_json = json.dumps([sys.executable, 'read_touched.py'])
         hitl_token = deferred_tool_hitl_bypass.set(True)
         try:
@@ -162,7 +163,7 @@ async def test_run_staging_overlay_command_runs_in_overlay(tmp_path: Path, monke
         finally:
             deferred_tool_hitl_bypass.reset(hitl_token)
         assert 'from_staging' in out
-        assert (ws / 'touched.txt').read_text(encoding='utf-8') == 'orig'
+        assert (ws / 'touched.txt').read_text(encoding='utf-8') == 'from_staging'
     finally:
         current_session_id.reset(token)
         runtime_config.tools = saved

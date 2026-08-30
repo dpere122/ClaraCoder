@@ -7,8 +7,6 @@ from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
-from pathlib import Path
-
 from clara_coder_backend.tools.delete import delete_workspace_entry
 from clara_coder_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
 from clara_coder_backend.lsp.file_policy import (
@@ -341,15 +339,13 @@ def _sync_active_document_for_diagnostics(
     server: LspServerKind,
     scope: str,
 ) -> tuple[list[dict[str, Any]], str]:
-    sid = (current_session_id.get() or '').strip()
-    manager = get_session_lsp_manager(server=server, scope=scope, set_active=False)
-    if scope == 'staging' and sid:
-        session = get_session(sid)
-        from clara_coder_backend.staging.staging_test_overlay import ensure_lsp_staging_overlay
-
-        ensure_lsp_staging_overlay(session, Path(session.workspace_path), session_id=sid)
+    manager = get_session_lsp_manager(
+        server=server,
+        scope='workspace' if scope == 'staging' else scope,
+        set_active=False,
+    )
     rows = manager.sync_workspace_document(relative_path, encoding=encoding)
-    analyzed = 'overlay_workspace' if scope == 'staging' else 'workspace_file'
+    analyzed = 'workspace_file'
     return rows, analyzed
 
 
@@ -381,7 +377,11 @@ def _diagnostics_for_scope(
     encoding: str,
     refresh_active_document: bool,
 ) -> str:
-    manager = get_session_lsp_manager(server=server, scope=scope, set_active=False)
+    manager = get_session_lsp_manager(
+        server=server,
+        scope='workspace' if scope == 'staging' else scope,
+        set_active=False,
+    )
     cached_items = manager.get_diagnostics(relative_path)
     analyzed_source = 'cached'
     if refresh_active_document or not cached_items:
@@ -450,15 +450,14 @@ def _aggregate_cached_diagnostics(session_id: str, scopes: list[str]) -> str:
         not_='mutating files (use LSP mutators or staging tools).',
         shape=(
             '`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, `.java`; empty path = all cached. '
-            '`scope` is `workspace`, `staging`, `both`, or empty (session default). Available for both scopes '
-            'regardless of auto-apply mode. `refresh_active_document=true` re-syncs first: workspace scope '
-            'reads on-disk file; staging scope uses materialized overlay (pending drafts on disk in a mirror '
-            'tree) so cross-file resolution matches staged peers.'
+            '`scope` is `workspace`, `staging`, `both`, or empty (session default). Staging scope uses the '
+            'same real workspace as workspace scope (write-through drafts are already on disk). '
+            '`refresh_active_document=true` re-syncs the on-disk file first.'
         ),
         verify=(
             'after `format_staging_file_black` on a staged `.py` path, or `format_staging_file_prettier` '
             'on a staged `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.html`/`.htm`/`.css` path, call with '
-            '`refresh_active_document=true` and `scope=staging` on that path (LSP applies to Python, TS/JS, '
+            '`refresh_active_document=true` on that path (LSP applies to Python, TS/JS, '
             'GDScript, and Java) to verify indentation-related diagnostics are gone where the server supports it.'
         ),))
 def lsp_get_diagnostics(
@@ -475,13 +474,21 @@ def lsp_get_diagnostics(
         scopes = _resolve_diagnostics_scopes(scope, sid_tool)
         if rel:
             rel2, server = _require_lsp_read_path(rel)
+            refresh = bool(refresh_active_document)
+            if not refresh and sid_tool:
+                session = get_session(sid_tool)
+                pending = getattr(session, 'pending_edit_stagings', None)
+                if isinstance(pending, dict):
+                    entry = pending.get(rel2)
+                    if entry is not None and not getattr(entry, 'workspace_applied', False):
+                        refresh = True
             parts = [
                 _diagnostics_for_scope(
                     relative_path=rel2,
                     server=server,
                     scope=scope_label,
                     encoding=enc,
-                    refresh_active_document=refresh_active_document,
+                    refresh_active_document=refresh,
                 )
                 for scope_label in scopes
             ]

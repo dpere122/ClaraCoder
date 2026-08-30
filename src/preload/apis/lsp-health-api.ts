@@ -73,7 +73,7 @@ export const lspHealthApi = {
       documentText,
       skipDocumentSync === true,
     ) as Promise<
-      | { ok: true; locations: LspEditorLocationIpc[] }
+      | { ok: true; locations: LspEditorLocationIpc[]; syncedFromDisk?: boolean }
       | { ok: false; error: string }
     >,
   lspEditorReferences: (
@@ -127,7 +127,7 @@ export const lspHealthApi = {
       triggerCharacter,
       skipDocumentSync === true,
     ) as Promise<
-      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemIpc[] }
+      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemIpc[]; syncedFromDisk?: boolean }
       | { ok: false; error: string }
     >,
   lspEditorRename: (
@@ -176,12 +176,20 @@ export const lspHealthApi = {
       documentText,
       skipDocumentSync === true,
     ) as Promise<
-      | { ok: true; diagnostics: LspEditorDiagnosticIpc[]; generation: number }
+      | { ok: true; diagnostics: LspEditorDiagnosticIpc[]; generation: number; epoch?: number; syncedFromDisk?: boolean }
       | { ok: false; error: string }
+    >,
+  lspEditorDidClose: (sessionId: string, relativePath: string) =>
+    ipcRenderer.invoke('lsp-editor-did-close', sessionId, relativePath) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
+  lspEditorDidSave: (sessionId: string, relativePath: string) =>
+    ipcRenderer.invoke('lsp-editor-did-save', sessionId, relativePath) as Promise<
+      { ok: true } | { ok: false; error: string }
     >,
   lspDiagnosticsGeneration: (sessionId: string, relativePath: string) =>
     ipcRenderer.invoke('lsp-diagnostics-generation', sessionId, relativePath) as Promise<
-      | { ok: true; generation: number; count: number }
+      | { ok: true; generation: number; count: number; epoch?: number }
       | { ok: false; error: string }
     >,
   lspEditorSignatureHelp: (
@@ -389,7 +397,7 @@ export const lspHealthApi = {
         }
       | { ok: false; error: string }
     >,
-  onLspDiagnosticsUpdated: (callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number }) => void) =>
+  onLspDiagnosticsUpdated: (callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void) =>
     ipcRenderer.on('lsp-diagnostics-updated', callback),
   lspDiagnosticsWatchStart: (sessionId: string, relativePath: string) =>
     ipcRenderer.send('lsp-diagnostics-watch-start', sessionId, relativePath),

@@ -9,7 +9,6 @@ import pytest
 
 from clara_coder_backend.staging import staging_test_overlay as sto
 from clara_coder_backend.staging.edit_staging import copy_workspace_mirror
-from clara_coder_backend.lsp import manager as lsp_manager
 from clara_coder_backend.lsp.manager import SessionWorkspaceLspManager, get_session_lsp_manager
 from clara_coder_backend.session.state import current_session_id
 
@@ -52,25 +51,17 @@ def test_build_staging_workspace_overlay_prefers_planner_snapshot(staging_env) -
         sto.remove_overlay_parent(overlay_parent)
 
 
-def test_get_session_lsp_manager_staging_uses_ensure_overlay_root(staging_env, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_session_lsp_manager_staging_uses_real_workspace_root(staging_env) -> None:
     ws = staging_env.workspace
     session = staging_env.session
     (ws / 'x.py').write_text('x=1\n', encoding='utf-8')
-    fake_root = ws.parent / 'fake_lsp_overlay' / 'workspace'
-    fake_root.mkdir(parents=True)
-
-    monkeypatch.setattr(
-        lsp_manager,
-        'ensure_lsp_staging_overlay',
-        lambda session_arg, workspace_root, session_id=None: fake_root.resolve(),
-    )
 
     session_id = 'test-staging-session'
     token = current_session_id.set(session_id)
     try:
         session.lsp_active_scope = 'staging'
         mgr = get_session_lsp_manager(session_id, scope='staging', server='python')
-        assert mgr.workspace_root.resolve() == fake_root.resolve()
+        assert mgr.workspace_root.resolve() == ws.resolve()
         assert mgr.scope == 'staging'
     finally:
         current_session_id.reset(token)

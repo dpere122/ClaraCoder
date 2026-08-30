@@ -32,6 +32,7 @@ def _path_under_workspace(path: Path, workspace_root: Path) -> Path | None:
 class JavaPluginState:
     last_seed: str = ''
     project_root: Path | None = None
+    persist_session_root: bool = False
 
 
 class JavaLspPlugin(LspServerPlugin):
@@ -50,6 +51,7 @@ class JavaLspPlugin(LspServerPlugin):
         scope: str = 'workspace',
     ) -> LspStartParams:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
+        st.persist_session_root = (scope or 'workspace') == 'workspace'
         ws = Path(workspace_root).resolve()
 
         root = _path_under_workspace(st.project_root, ws) if st.project_root is not None else None
@@ -120,9 +122,16 @@ class JavaLspPlugin(LspServerPlugin):
         return False
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:
-        session.lsp.java_lsp_resolved_root = ''
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
+        cached = (session.lsp.java_lsp_resolved_root or '').strip()
+        if st.persist_session_root and cached and st.project_root is not None:
+            try:
+                if Path(cached).resolve() == st.project_root.resolve():
+                    session.lsp.java_lsp_resolved_root = ''
+            except OSError:
+                session.lsp.java_lsp_resolved_root = ''
         st.project_root = None
+        st.persist_session_root = False
 
     def on_after_client_started(
         self,
@@ -134,4 +143,5 @@ class JavaLspPlugin(LspServerPlugin):
     ) -> None:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
         st.project_root = lsp_cwd
-        session.lsp.java_lsp_resolved_root = str(lsp_cwd)
+        if st.persist_session_root:
+            session.lsp.java_lsp_resolved_root = str(lsp_cwd)

@@ -37,7 +37,7 @@ def clear_session_hitl_fields(sess: SessionState) -> None:
 
 
 async def teardown_session(sid: str) -> None:
-    """Release staging, background commands, and outer checkpoints for a session id.
+    """Release staging, background commands, write jobs, and outer checkpoints for a session id.
 
     Does not mutate ``state.sessions`` — callers reset (``/clear``) or pop (``/dispose``).
     """
@@ -49,6 +49,8 @@ async def teardown_session(sid: str) -> None:
     if sess is not None:
         cleanup_staging_snapshot_session(sess, sid)
     from clara_coder_backend.tools.run_command import kill_session_background_commands
+    from clara_coder_backend.tools.write_jobs import cancel_session_write_jobs
 
     await kill_session_background_commands(sid)
+    await cancel_session_write_jobs(sid)
     await delete_outer_threads_for_session(sid)

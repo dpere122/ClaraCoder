@@ -9,6 +9,7 @@ let watchTimer: ReturnType<typeof setInterval> | null = null;
 let watchSessionId = '';
 let watchRelativePath = '';
 let lastGeneration = -1;
+let lastEpoch = -1;
 
 async function pollDiagnosticsGeneration(): Promise<void> {
   if (!watchSessionId || !watchRelativePath) {
@@ -23,14 +24,17 @@ async function pollDiagnosticsGeneration(): Promise<void> {
     if (!res.ok) {
       return;
     }
-    const data = (await res.json()) as { generation?: number };
+    const data = (await res.json()) as { generation?: number; epoch?: number };
     const gen = data.generation ?? 0;
-    if (gen !== lastGeneration) {
+    const epoch = data.epoch ?? 0;
+    if (gen !== lastGeneration || epoch !== lastEpoch) {
       lastGeneration = gen;
+      lastEpoch = epoch;
       mainState.mainWindow?.webContents.send('lsp-diagnostics-updated', {
         sessionId: watchSessionId,
         relativePath: watchRelativePath,
         generation: gen,
+        epoch,
       });
     }
   } catch {
@@ -55,6 +59,7 @@ export function registerLspDiagnosticsWatchIpc(): void {
     watchSessionId = sid;
     watchRelativePath = rel;
     lastGeneration = -1;
+    lastEpoch = -1;
     if (watchTimer !== null) {
       clearInterval(watchTimer);
       watchTimer = null;
@@ -75,6 +80,7 @@ export function registerLspDiagnosticsWatchIpc(): void {
     watchSessionId = '';
     watchRelativePath = '';
     lastGeneration = -1;
+    lastEpoch = -1;
     if (watchTimer !== null) {
       clearInterval(watchTimer);
       watchTimer = null;

@@ -66,7 +66,7 @@ export function registerLspEditorExtendedIpc(): void {
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<
-      | { ok: true; diagnostics: LspEditorDiagnosticIpc[]; generation: number }
+      | { ok: true; diagnostics: LspEditorDiagnosticIpc[]; generation: number; epoch?: number; syncedFromDisk?: boolean }
       | { ok: false; error: string }
     > => {
       try {
@@ -79,7 +79,12 @@ export function registerLspEditorExtendedIpc(): void {
       if (!sid || !rel) {
         return { ok: false, error: 'Missing session or path.' };
       }
-      const out = await postLspEditorJson<{ diagnostics: LspEditorDiagnosticIpc[]; generation: number }>(
+      const out = await postLspEditorJson<{
+        diagnostics: LspEditorDiagnosticIpc[];
+        generation: number;
+        epoch?: number;
+        synced_from_disk?: boolean;
+      }>(
         '/lsp/editor/diagnostics',
         sid,
         docSyncBody(rel, documentText, skipDocumentSync),
@@ -91,6 +96,8 @@ export function registerLspEditorExtendedIpc(): void {
         ok: true,
         diagnostics: out.data.diagnostics ?? [],
         generation: out.data.generation ?? 0,
+        epoch: out.data.epoch ?? 0,
+        syncedFromDisk: out.data.synced_from_disk === true,
       };
     },
   );
@@ -101,7 +108,7 @@ export function registerLspEditorExtendedIpc(): void {
       event,
       sessionId: unknown,
       relativePath: unknown,
-    ): Promise<{ ok: true; generation: number; count: number } | { ok: false; error: string }> => {
+    ): Promise<{ ok: true; generation: number; count: number; epoch?: number } | { ok: false; error: string }> => {
       try {
         assertTrustedMainRendererOrThrow(event);
       } catch {
@@ -119,8 +126,8 @@ export function registerLspEditorExtendedIpc(): void {
           const detail = (await res.text()).trim() || `HTTP ${res.status}`;
           return { ok: false, error: detail };
         }
-        const data = (await res.json()) as { generation?: number; count?: number };
-        return { ok: true, generation: data.generation ?? 0, count: data.count ?? 0 };
+        const data = (await res.json()) as { generation?: number; count?: number; epoch?: number };
+        return { ok: true, generation: data.generation ?? 0, count: data.count ?? 0, epoch: data.epoch ?? 0 };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return { ok: false, error: msg };

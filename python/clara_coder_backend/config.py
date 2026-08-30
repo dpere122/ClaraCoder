@@ -67,6 +67,12 @@ except ValueError:
 CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC = _env_int('CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC', 30, 1, 3_600)
 # Upper bound for any single ``run_command`` / ``wait_for_command`` wait window.
 CLARA_RUN_COMMAND_MAX_WAIT_SEC = _env_int('CLARA_RUN_COMMAND_MAX_WAIT_SEC', 600, 30, 86_400)
+# Default window a staging write tool waits before returning a write-job id.
+CLARA_WRITE_JOB_DEFAULT_WAIT_SEC = _env_int('CLARA_WRITE_JOB_DEFAULT_WAIT_SEC', 8, 1, 3_600)
+# Upper bound for any single staging-write / ``wait_for_write`` wait window.
+CLARA_WRITE_JOB_MAX_WAIT_SEC = _env_int('CLARA_WRITE_JOB_MAX_WAIT_SEC', 90, 8, 86_400)
+# Hard wall-clock cap for one staging write job (format + LSP). Hung jobs fail without committing.
+CLARA_WRITE_JOB_TIMEOUT_SEC = _env_int('CLARA_WRITE_JOB_TIMEOUT_SEC', 90, 5, 600)
 # Fail-open cap for the side risk-assessment LLM call on `run_command` HITL approvals (see command_risk_assess.py).
 CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC = _env_int('CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC', 15, 3, 120)
 
@@ -94,14 +100,18 @@ try:
 except ValueError:
     MAX_AGENT_PSEUDO_TOOL_NUDGES = 2
 
-# When staged drafts exist but the model tries to finish without calling transfer_staged_file_to_workspace.
+# Legacy after-model staging-continuation nudge (off). Leftover drafts are returned by
+# FlushUntransferredStagingMiddleware after the agent would otherwise END.
+# Set CLARA_MAX_AGENT_STAGING_CONTINUATION_NUDGES > 0 only to restore the old mid-turn re-prompt.
 try:
     MAX_AGENT_STAGING_CONTINUATION_NUDGES = max(
         0,
-        min(int(env_clara('CLARA_MAX_AGENT_STAGING_CONTINUATION_NUDGES', '2') or '2'), 20),
+        min(int(env_clara('CLARA_MAX_AGENT_STAGING_CONTINUATION_NUDGES', '0') or '0'), 20),
     )
 except ValueError:
-    MAX_AGENT_STAGING_CONTINUATION_NUDGES = 2
+    MAX_AGENT_STAGING_CONTINUATION_NUDGES = 0
+# Cap after_agent leftover-draft review jumps. 0 = unlimited (unsafe with write-through).
+MAX_UNTRANSFERRED_DRAFT_REVIEW_NUDGES = _env_int('CLARA_MAX_UNTRANSFERRED_DRAFT_REVIEW_NUDGES', 3, 0, 20)
 
 # ---------------------------------------------------------------------------
 # Workspace tool limits

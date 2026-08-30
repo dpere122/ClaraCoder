@@ -54,6 +54,7 @@ from clara_coder_backend.tools.lsp_tools import (
     LSP_UPDATE_TYPESCRIPT_FILE_NAME,
 )
 from clara_coder_backend.tools.staging_edit import STAGING_TOOLS
+from clara_coder_backend.tools.write_jobs import WAIT_FOR_WRITE_NAME, write_job_tools
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.session.state import agent_formatters_enabled, direct_workspace_edits_active, runtime_config
 from clara_coder_backend.context_packs.tool import ACTIVATE_CONTEXT_TOOLS
@@ -136,6 +137,7 @@ def hitl_diff_pause_tools(*, direct: bool = False) -> frozenset[str]:
         return frozenset(names)
     names = {t.name for t in staging_workspace_write_tools(edit_strict)}
     names.add(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME)
+    names.add(WAIT_FOR_WRITE_NAME)
     if agent_formatters_enabled():
         names.add(FORMAT_STAGING_FILE_BLACK_NAME)
         names.add(FORMAT_STAGING_FILE_PRETTIER_NAME)
@@ -201,6 +203,10 @@ def worker_tools_and_map(
         tools.extend(edit_tools)
         for t in edit_tools:
             mapping[t.name] = t
+        if not direct:
+            for write_tool in write_job_tools():
+                tools.append(write_tool)
+                mapping[write_tool.name] = write_tool
         tools.extend(LSP_MUTATION_TOOLS)
         for t in LSP_MUTATION_TOOLS:
             mapping[t.name] = t
@@ -256,6 +262,9 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'stage_workspace_file_overwrite',
             'stage_line_range_edit',
             'stage_snippet_edit',
+            'wait_for_write',
+            'cancel_write',
+            'list_write_jobs',
             'apply_workspace_full_file',
             'replace_workspace_line_range',
             'replace_workspace_snippet',

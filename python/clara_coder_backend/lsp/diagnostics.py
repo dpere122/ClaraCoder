@@ -99,12 +99,12 @@ def indentation_followup_guidance(
         if formatters_on and rel.endswith('.py'):
             lines.append(
                 '- Call `format_staging_file_black` for this path, then `lsp_get_diagnostics` with '
-                '`refresh_active_document=true` and `scope=staging` on the same path to verify the staged draft.'
+                '`refresh_active_document=true` on the same path to verify the on-disk draft.'
             )
         elif formatters_on and is_prettier_managed_path(rel):
             lines.append(
                 '- Call `format_staging_file_prettier` for this path, then `lsp_get_diagnostics` with '
-                '`refresh_active_document=true` and `scope=staging` when the TypeScript/JavaScript server applies '
+                '`refresh_active_document=true` when the TypeScript/JavaScript server applies '
                 '(`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`); for `.html`/`.htm`/`.css`, use `read_staged_edit` '
                 'to verify the draft.'
             )
@@ -153,7 +153,7 @@ def post_edit_checks_footer(
         *formatter_lines,
     ]
     if server_kind:
-        analyzed = 'staged draft' if lsp_scope == 'staging' else 'workspace buffer'
+        analyzed = 'workspace buffer'
         head.append(
             format_diagnostics_summary(
                 relative_path,
@@ -202,13 +202,7 @@ def format_diagnostics_summary(
             bits.append(f'scope={lsp_scope}')
         if analyzed_source:
             bits.append(f'analyzed={analyzed_source}')
-        if (lsp_scope or '').strip().lower() == 'staging':
-            doc_note = (
-                f'the materialized staging overlay file URI for `{rel_display}` '
-                f'(other project files use the same overlay; heavy dirs may be symlinked from the real workspace).'
-            )
-        else:
-            doc_note = f'the workspace file URI for `{rel_display}`.'
+        doc_note = f'the workspace file URI for `{rel_display}`.'
         prelude.append(
             f"LSP context: {'; '.join(bits)} (document buffer uses {doc_note})"
         )
@@ -233,10 +227,4 @@ def format_diagnostics_summary(
         body = '\n'.join(lines)
         text = '\n'.join([*prelude, body]) if prelude else body
 
-    if server_kind == 'python' and lsp_scope == 'staging':
-        text += (
-            '\n\nNote: Staging analysis uses a mirror workspace with pending drafts on disk; imports resolve against '
-            'that mirror (symlinked dependency dirs such as `node_modules` point at the real workspace). '
-            'Paths never transferred into staging are unchanged copies from the staging snapshot or live workspace baseline.'
-        )
     return text

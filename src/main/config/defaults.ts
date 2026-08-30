@@ -31,7 +31,7 @@ import { SecretValue } from '../../shared/types/app-config';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` should reset LLM sources to defaults (see `migrateConfig`). */
-export const APP_CONFIG_SCHEMA_VERSION = 5;
+export const APP_CONFIG_SCHEMA_VERSION = 6;
 
 function defaultLmStudioModelProfile(): LlmModelProfile {
   const defaultLmStudioModel = process.env.LM_STUDIO_MODEL || 'local-model';
@@ -45,7 +45,7 @@ function defaultLmStudioModelProfile(): LlmModelProfile {
     samplingPreset: 'provider-default',
     architectureHint: 'auto',
     temperature: 0,
-    parallelToolCalls: false,
+    parallelToolCalls: true,
     optimizationPreset: 'generic',
     maxOutputTokens: 0,
   };
@@ -87,7 +87,7 @@ export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
         samplingPreset: 'provider-default',
         architectureHint: 'auto',
         temperature: 0,
-        parallelToolCalls: false,
+        parallelToolCalls: true,
         optimizationPreset: 'generic',
         maxOutputTokens: 0,
         llamaCppManaged: {
@@ -111,7 +111,7 @@ function defaultLlamacppUrlModelProfile(): LlmModelProfile {
     samplingPreset: 'provider-default',
     architectureHint: 'auto',
     temperature: 0,
-    parallelToolCalls: false,
+    parallelToolCalls: true,
     optimizationPreset: 'generic',
     maxOutputTokens: 0,
   };

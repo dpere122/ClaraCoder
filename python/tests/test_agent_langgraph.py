@@ -43,6 +43,41 @@ async def test_stream_is_genuinely_stalled_false_with_pending_delete_request() -
     assert _stream_is_genuinely_stalled(session, GraphStreamState()) is False
 
 
+async def test_hitl_pause_lock_serializes_concurrent_waiters() -> None:
+    from clara_coder_backend.session.pause import await_diff_review_note
+    from clara_coder_backend.session.state import current_session_id, get_session, sessions
+
+    sid = 'hitl-pause-lock-test'
+    sessions.pop(sid, None)
+    token = current_session_id.set(sid)
+    sess = get_session(sid)
+    finished: list[str] = []
+
+    async def waiter(tag: str) -> None:
+        await await_diff_review_note(sid)
+        finished.append(tag)
+
+    try:
+        first = asyncio.create_task(waiter('a'))
+        await asyncio.sleep(0.02)
+        second = asyncio.create_task(waiter('b'))
+        await asyncio.sleep(0.02)
+        pause = sess.agent_pause_event
+        assert pause is not None
+        pause.set()
+        await first
+        await asyncio.sleep(0.02)
+        pause2 = sess.agent_pause_event
+        assert pause2 is not None
+        assert pause2 is not pause
+        pause2.set()
+        await second
+        assert finished == ['a', 'b']
+    finally:
+        current_session_id.reset(token)
+        sessions.pop(sid, None)
+
+
 @patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
 @patch('clara_coder_backend.lang_agent.graph.build_llm')
 @patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')

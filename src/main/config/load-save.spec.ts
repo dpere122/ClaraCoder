@@ -192,3 +192,41 @@ describe('migrateConfig monaco hover delay', () => {
     expect(migrated.monacoWorkspaceEditor.hoverDelay).toBe(800);
   });
 });
+
+describe('migrateConfig parallel tool calls', () => {
+  it('defaults new profiles to on', () => {
+    const cfg = sampleConfig();
+    for (const provider of cfg.llmProviders) {
+      for (const model of provider.models) {
+        expect(model.parallelToolCalls).toBe(true);
+      }
+    }
+  });
+
+  it('turns parked-off profiles on when migrating from schema 5', () => {
+    const cfg = sampleConfig();
+    cfg.configSchemaVersion = 5;
+    for (const provider of cfg.llmProviders) {
+      for (const model of provider.models) {
+        model.parallelToolCalls = false;
+      }
+    }
+    const migrated = migrateConfig(cfg);
+    expect(migrated.configSchemaVersion).toBe(6);
+    for (const provider of migrated.llmProviders) {
+      for (const model of provider.models) {
+        expect(model.parallelToolCalls).toBe(true);
+      }
+    }
+  });
+
+  it('keeps the flag off when the user disabled it after unpark', () => {
+    const cfg = sampleConfig();
+    cfg.configSchemaVersion = 6;
+    const first = cfg.llmProviders[0]?.models[0];
+    expect(first).toBeDefined();
+    first!.parallelToolCalls = false;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.llmProviders[0]?.models[0]?.parallelToolCalls).toBe(false);
+  });
+});

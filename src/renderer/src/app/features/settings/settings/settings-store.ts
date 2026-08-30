@@ -2963,7 +2963,7 @@ export class SettingsStore {
       samplingPreset: 'provider-default',
       architectureHint: 'auto',
       temperature: 0,
-      parallelToolCalls: false,
+      parallelToolCalls: true,
       optimizationPreset: 'generic',
       maxOutputTokens: 0,
     };

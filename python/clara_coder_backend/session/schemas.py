@@ -286,7 +286,7 @@ class RuntimeConnectionRequest(BaseModel):
     apiKey: str = ''
     reasoningEffort: str = ''
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
-    parallelToolCalls: bool = False
+    parallelToolCalls: bool = True
     optimizationPreset: Literal['generic', 'qwen', 'gemma'] = 'generic'
     maxOutputTokens: int = Field(default=0, ge=0, le=200_000)
     thinkingMode: Literal['default', 'on', 'off'] = 'default'

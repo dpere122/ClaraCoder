@@ -199,7 +199,7 @@ export interface LlmModelProfile {
   architectureHint: GemmaArchitectureHint;
   /** Sampling temperature for chat completions (0–1). */
   temperature: number;
-  /** When true, the model may request multiple tool calls in one completion. Parked off (in construction). */
+  /** When true, the model may request multiple tool calls in one completion. */
   parallelToolCalls: boolean;
   /**
    * Optimization template (e.g. Qwen). "generic" uses normal settings; for Qwen models you can still

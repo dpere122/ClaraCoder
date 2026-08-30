@@ -84,3 +84,9 @@ def test_parallel_respects_connection_when_no_hitl_pressure() -> None:
         state.current_session_id.reset(token)
         state.runtime_config.active_connection_id = prev
         state.sessions.pop(sid, None)
+
+
+def test_default_runtime_config_enables_parallel_tool_calls() -> None:
+    cfg = state.build_default_runtime_config()
+    assert cfg.connections
+    assert all(conn.parallel_tool_calls for conn in cfg.connections)

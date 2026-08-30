@@ -61,7 +61,7 @@ def build_default_runtime_config() -> RuntimeConfig:
         model=DEFAULT_OPENAI_MODEL,
         api_key='',
         temperature=0.0,
-        parallel_tool_calls=False,
+        parallel_tool_calls=True,
         optimization_preset='generic',
         max_output_tokens=0,
     )
@@ -73,7 +73,7 @@ def build_default_runtime_config() -> RuntimeConfig:
         model=DEFAULT_LM_STUDIO_MODEL,
         api_key='lm-studio',
         temperature=0.0,
-        parallel_tool_calls=False,
+        parallel_tool_calls=True,
         optimization_preset='generic',
         max_output_tokens=0,
     )

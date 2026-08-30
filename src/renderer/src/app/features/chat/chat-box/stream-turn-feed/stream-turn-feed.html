@@ -1,28 +1,50 @@
 <div class="stream-turn-feed" [class.stream-turn-feed--live]="live()" aria-live="polite">
+  @let committed = displayCommitted();
   @for (item of items(); track trackItem(item, $index)) {
-    @if (item.kind === 'thought') {
-      <app-stream-thought-pill
-        [text]="item.part.text"
-        [live]="live()"
-        [active]="isActiveThought(items(), $index, live())"
-      />
-    } @else if (item.kind === 'tool') {
-      <app-aux-stream-tool-part
-        [part]="item.part"
-        [live]="live()"
-        [compactDetails]="planPanelVisible()"
-      />
-    } @else {
-      <div class="stream-turn-feed__markdown">
-        <div
-          class="assistant-md"
-          [class.streaming-live-md]="live()"
-          [innerHTML]="item.text | markdown: markdownLayoutPass()"
-        ></div>
-        @if (showCursor() && isLastMarkdown($index)) {
-          <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
+    @switch (itemRole($index, committed)) {
+      @case ('chip') {
+        @if (item.kind === 'thought') {
+          <app-stream-thought-pill [text]="item.part.text" [live]="live()" [active]="false" />
+        } @else if (item.kind === 'brief') {
+          <app-stream-brief-pill [text]="item.part.text" [live]="live()" [active]="false" />
+        } @else if (item.kind === 'nudge') {
+          <app-stream-nudge-pill [text]="item.part.text" [live]="live()" [active]="false" />
+        } @else if (item.kind === 'tool') {
+          <app-aux-stream-tool-part
+            [part]="item.part"
+            [live]="live()"
+            [compactDetails]="planPanelVisible()"
+          />
         }
-      </div>
+      }
+      @case ('preview') {
+        @if (previewShowsBody()) {
+          <div class="stream-turn-feed__preview">
+            <div class="stream-turn-feed__preview-inner">
+              <div class="stream-turn-feed__preview-header">{{ previewHeader() }}</div>
+              <pre #previewBody class="stream-turn-feed__preview-body">{{ previewBodyText(item) }}<span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span></pre>
+            </div>
+          </div>
+        } @else {
+          <div class="stream-turn-feed__tool-queue">
+            <app-stream-tool-pill [name]="previewHeader()" state="running" [live]="true" />
+          </div>
+        }
+      }
+      @case ('markdown') {
+        @if (item.kind === 'markdown') {
+          <div class="stream-turn-feed__markdown">
+            <div
+              class="assistant-md"
+              [class.streaming-live-md]="live()"
+              [innerHTML]="item.text | markdown: markdownLayoutPass()"
+            ></div>
+            @if (showCursor() && isLastMarkdown($index)) {
+              <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
+            }
+          </div>
+        }
+      }
     }
   }
 </div>

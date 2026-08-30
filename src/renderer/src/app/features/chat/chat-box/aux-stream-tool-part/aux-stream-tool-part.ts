@@ -14,10 +14,8 @@ import {
   isToolTrailStatusStreamTag,
   isWorkspaceReadToolLabel,
   readToolPreviewBody,
-  readToolPreviewTailForDisplay,
   shellStreamPartBadgeMeta,
   shellStreamPartPillState,
-  shouldShowReadToolPreview,
   streamPartIsExpandable,
   toolStatusStreamPartMeta,
   toolStatusStreamPartPillState,
@@ -39,7 +37,7 @@ export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
 export class AuxStreamToolPartComponent {
   readonly part = input.required<StreamPart>();
   readonly live = input(false);
-  /** When true, show pill only — hide read/shell previews until the user expands. */
+  /** When true, hide shell previews until the user expands. */
   readonly compactDetails = input(false);
 
   readonly expanded = signal(false);
@@ -116,24 +114,10 @@ export class AuxStreamToolPartComponent {
     );
   });
 
-  readonly showReadPreview = computed(() => {
-    const part = this.part();
-    if (this.compactDetails() || this.expanded() || !this.isReadToolRow()) {
-      return false;
-    }
-    return shouldShowReadToolPreview(part.text, part.label, part.streamTag);
-  });
-
-  readonly readPreviewTailText = computed(() =>
-    readToolPreviewTailForDisplay(this.part().text),
-  );
-
   readonly readExpandedText = computed(() => {
     const body = readToolPreviewBody(this.part().text);
     return body.trim() ? body : this.part().text;
   });
-
-  readonly isWorkspaceReadToolLabel = isWorkspaceReadToolLabel;
 
   toggleExpanded(): void {
     if (this.expandable()) {

@@ -56,6 +56,8 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-final-text', conversationId, parsed.text);
   } else if (parsed.type === 'clear_primary_stream') {
     event.reply('message-clear-primary-stream', conversationId);
+  } else if (parsed.type === 'promote_primary_to_nudge') {
+    event.reply('message-promote-primary-to-nudge', conversationId);
   } else if (parsed.type === 'planner_progress') {
     event.reply('message-planner-progress', conversationId, parsed.planner);
   } else if (parsed.type === 'build_plan_open') {

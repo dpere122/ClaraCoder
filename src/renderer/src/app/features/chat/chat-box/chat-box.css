@@ -5,6 +5,7 @@ app-chat-box.chat-layout-sidebar {
 }
 
 app-chat-box {
+  position: relative;
   display: flex;
   flex-direction: column;
   --chat-font-size: 0.9rem;
@@ -600,4 +601,47 @@ app-chat-box .diff-msg-title {
 
 app-chat-box .diff-msg-subtitle {
   color: var(--t-secondary);
+}
+
+app-chat-box .chat-jump-bottom {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 4;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--t-border-subtle);
+  background-color: var(--t-bg);
+  color: var(--t-fg);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--t-fg) 16%, transparent);
+  cursor: pointer;
+}
+
+app-chat-box .chat-jump-bottom:hover {
+  background-color: color-mix(in srgb, var(--t-primary) 12%, var(--t-bg));
+}
+
+app-chat-box .chat-jump-bottom:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+app-chat-box .chat-jump-bottom__unseen {
+  position: absolute;
+  top: -0.15rem;
+  right: -0.15rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: color-mix(in srgb, var(--t-primary) 88%, var(--t-bg));
+  color: var(--t-bg);
+  pointer-events: none;
 }

@@ -1,10 +1,14 @@
 import type { LlmStatus, StreamPart } from '@shared/index';
 import {
+  CLARA_OUTER_BRIEF_STREAM_TAG,
+  isClaraOuterBriefStreamTag,
   isReasoningAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
+  isToolLikeStreamTag,
   isWorkspaceReadToolLabel,
   mergeReadPreviewIntoToolTrailParts,
   normalizeStreamTag,
+  promotePrimaryAheadOfToolToReasoning,
   READ_TOOL_STREAM_BODY_MARKER,
   toolTrailStatusStreamTag,
 } from '@shared/index';
@@ -44,8 +48,8 @@ function appendStreamPartWithTag(
     next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
     return next;
   }
-  next.push({ streamTag: t, label: resolvedLabel, text: delta });
-  return next;
+  const base = isToolLikeStreamTag(t) ? promotePrimaryAheadOfToolToReasoning(next) : next;
+  return [...base, { streamTag: t, label: resolvedLabel, text: delta }];
 }
 
 /**
@@ -72,11 +76,42 @@ export function mergeToolTrailStatusText(
   return `${headline}${previewBody}`;
 }
 
+/** Fold a Clara outer-brief status row into the multiplex timeline (source is `agent`, not `tool`). */
+export function upsertClaraOuterBriefStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
+  if (!isClaraOuterBriefStreamTag(status.streamTag)) {
+    return parts;
+  }
+  const text = (status.detail ?? '').trim();
+  if (!text) {
+    return parts;
+  }
+  if (parts.some((p) => isClaraOuterBriefStreamTag(p.streamTag) && p.text.includes(text))) {
+    return parts;
+  }
+  const last = parts[parts.length - 1];
+  if (last && isClaraOuterBriefStreamTag(last.streamTag)) {
+    const next = [...parts];
+    next[next.length - 1] = {
+      ...last,
+      text: last.text.endsWith('\n') ? `${last.text}${text}` : `${last.text}\n${text}`,
+    };
+    return next;
+  }
+  return [
+    ...parts,
+    {
+      streamTag: CLARA_OUTER_BRIEF_STREAM_TAG,
+      label: status.label || 'Clara',
+      text,
+    },
+  ];
+}
+
 /** Insert or update a tool-status row in the multiplex timeline (wall-clock order vs. reasoning chunks). */
 export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
   const src = (status.source ?? 'agent').toLowerCase();
   if (src !== 'tool') {
-    return parts;
+    return upsertClaraOuterBriefStreamPart(parts, status);
   }
   const streamTag = toolTrailStatusStreamTag(status.id);
   const next = [...parts];
@@ -93,7 +128,10 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
     next[idx] = { ...prev, ...row, text };
     return mergeReadPreviewIntoToolTrailParts(next);
   }
-  return mergeReadPreviewIntoToolTrailParts([...next, row]);
+  return mergeReadPreviewIntoToolTrailParts([
+    ...promotePrimaryAheadOfToolToReasoning(next),
+    row,
+  ]);
 }
 
 export function markToolExecStreamComplete(

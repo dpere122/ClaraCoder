@@ -1,4 +1,4 @@
-<div class="chat-box" #chatScroll (scroll)="onChatScroll()" appRunButton>
+<div class="chat-box" #chatScroll (scroll)="onChatScroll()" (wheel)="onChatWheel($event)" appRunButton>
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().topSpacer" aria-hidden="true"></div>
   @for (slot of virtualWindow().slots; track slot.index) {
     <div class="chat-row-mount" [attr.data-chat-row]="slot.index">
@@ -202,3 +202,19 @@
     </div>
   }
 </div>
+@if (showJumpToBottom()) {
+  <button
+    type="button"
+    class="chat-jump-bottom"
+    [class.chat-jump-bottom--unseen]="hasUnseenBelow()"
+    (click)="onJumpToBottom()"
+    [attr.aria-label]="hasUnseenBelow() ? 'Scroll to bottom, new message' : 'Scroll to bottom'"
+  >
+    <lucide-icon name="arrow-down" [size]="18" aria-hidden="true"></lucide-icon>
+    @if (hasUnseenBelow()) {
+      <span class="chat-jump-bottom__unseen" aria-hidden="true">
+        <lucide-icon name="circle-alert" [size]="12"></lucide-icon>
+      </span>
+    }
+  </button>
+}

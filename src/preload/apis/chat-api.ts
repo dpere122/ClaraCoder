@@ -83,6 +83,8 @@ export const chatApi = {
     ipcRenderer.on('message-final-text', callback),
   onMessageClearPrimaryStream: (callback: (event: unknown, conversationId: string) => void) =>
     ipcRenderer.on('message-clear-primary-stream', callback),
+  onMessagePromotePrimaryToNudge: (callback: (event: unknown, conversationId: string) => void) =>
+    ipcRenderer.on('message-promote-primary-to-nudge', callback),
   onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
     ipcRenderer.on('message-diff', callback),
   onMessageAcceptCommand: (

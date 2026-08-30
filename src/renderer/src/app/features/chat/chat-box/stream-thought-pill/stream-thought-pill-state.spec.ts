@@ -46,6 +46,10 @@ describe('isThoughtStreamingPreview', () => {
     expect(isThoughtStreamingPreview(false, false, null)).toBe(false);
   });
 
+  it('stays a chip for a committed live thought even while later tools exist in the source feed', () => {
+    expect(isThoughtStreamingPreview(true, false, null)).toBe(false);
+  });
+
   it('hides the preview when the user collapses it', () => {
     expect(isThoughtStreamingPreview(true, true, false)).toBe(false);
   });

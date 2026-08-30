@@ -1,7 +1,14 @@
+app-stream-thought-pill {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
 app-stream-thought-pill .stream-thought-pill {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   min-width: 0;
   max-width: 100%;
   width: 100%;
@@ -62,6 +69,10 @@ app-stream-thought-pill .stream-thought-preview__inner {
   background: color-mix(in srgb, var(--t-bg-surface) 88%, var(--t-panel) 12%);
 }
 
+app-stream-thought-pill .stream-thought-preview--open .stream-thought-preview__inner {
+  min-height: min-content;
+}
+
 app-stream-thought-pill .stream-thought-preview__header {
   display: flex;
   align-items: center;
@@ -86,6 +97,8 @@ app-stream-thought-pill .stream-thought-preview__header:hover {
 }
 
 app-stream-thought-pill .stream-thought-preview__body {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
   margin: 0;
   padding: 0.22rem 0.7rem 0.55rem;

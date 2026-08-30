@@ -56,6 +56,7 @@ narrow the variant.
 | `staged_transfer_batch` | `stagedTransferBatch: StagedTransferBatchPayload` | A batch of staged file transfers. |
 | `final_text` | `text: string` | Terminal, non-streamed text to append after the stream closes. |
 | `clear_primary_stream` | _(none)_ | Instructs the UI to clear the primary stream buffer. |
+| `promote_primary_to_nudge` | _(none)_ | Retags live primary (`agent`) prose as a nudge preview because the graph is jumping back to the model. |
 | `context_compressed` | `tokensBefore`, `tokensAfter`, `toolMessagesCompacted`, `toolRoundsDropped` (all `number`) | Context window compaction event. |
 
 > Note: `ParsedAgentStreamPayload` is the only type re-exported for consumers.
@@ -199,6 +200,7 @@ noted) and lists the wire fields each branch reads.
 | `staged_transfer_batch` | `staged_transfer_batch` | `stagedTransferBatch` (object) |
 | `final_text` | `final_text` | `text` |
 | `clear_primary_stream` | `clear_primary_stream` | _(none)_ |
+| `promote_primary_to_nudge` | `promote_primary_to_nudge` | _(none)_ |
 | `context_compressed` | `context_compressed` | `tokens_before`/`tokensBefore`, `tokens_after`/`tokensAfter`, `tool_messages_compacted`/`toolMessagesCompacted`, `tool_rounds_dropped`/`toolRoundsDropped` |
 
 > The wire protocol is a mix of snake_case (top-level scalar fields) and

@@ -235,6 +235,9 @@ def tool_running_detail(tool_name: str, tool_args: Any) -> str:
     rp = tool_args.get('relative_path')
     if isinstance(rp, str) and rp.strip():
         return truncate_text(rp.strip(), MAX_TOOL_STATUS_LINE)
+    path = tool_args.get('path')
+    if isinstance(path, str) and path.strip():
+        return truncate_text(path.strip(), MAX_TOOL_STATUS_LINE)
     q = tool_args.get('query')
     if isinstance(q, str) and q.strip():
         return truncate_text(q.strip().replace('\n', ' '), MAX_TOOL_STATUS_LINE)
@@ -297,3 +300,8 @@ def model_chunk_sse_line(delta: str, stream_tag: str | None = None) -> str:
 def clear_primary_stream_sse_line() -> str:
     """Tell the UI to drop live primary (``agent``) prose when a step requests tools."""
     return sse_line({'type': 'clear_primary_stream'})
+
+
+def promote_primary_to_nudge_sse_line() -> str:
+    """Tell the UI to retag live primary (``agent``) prose as a nudge preview (graph continues)."""
+    return sse_line({'type': 'promote_primary_to_nudge'})

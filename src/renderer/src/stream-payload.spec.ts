@@ -37,6 +37,12 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses promote_primary_to_nudge payloads', () => {
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'promote_primary_to_nudge' }))).toEqual({
+      type: 'promote_primary_to_nudge',
+    });
+  });
+
   it('parses tool execution chunks with optional label and stream tag', () => {
     expect(
       parseAgentStreamPayload(

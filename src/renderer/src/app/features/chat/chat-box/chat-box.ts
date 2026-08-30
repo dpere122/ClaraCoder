@@ -8,7 +8,7 @@
  * - Persisted rows render from `persistedRows`; the in-flight turn renders separately via `liveTurn` while `loading`.
  *
  * **Presentation**
- * - One chronological feed: thought pills, tool pills, and rendered markdown (`buildTurnFeed`).
+ * - One chronological feed: thought pills, Clara brief pills, nudge pills, tool pills, and rendered markdown (`buildTurnFeed`).
  * - Backend `final_text` replaces in-feed `agent` segments with the clean reply.
  * - HITL change rows merge into the feed; interactive reviews live in the composer dock.
  *
@@ -30,6 +30,7 @@ import {
   signal,
   afterNextRender,
 } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { PlannerProgress, StreamPart } from '@shared/index';
 import { canRestoreToUserMessage } from '@shared/index';
@@ -54,15 +55,23 @@ import {
 } from './chat-box-virtual';
 import {
   buildChatDisplayRows,
+  decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
+  decideStickAfterUserScroll,
   hashChatToolPhaseKey,
   hitlArtifactsExcludingPlanConfirm,
-  isHitlActivationMessage,
-  isScrollWorthyAppendMessage,
+  isChatTranscriptScrollable,
+  isStickFromSlack,
   planPanelContext,
+  SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+  scrollSlackPx,
+  shouldFollowStreamComplete,
+  shouldFollowStreamToken,
+  shouldShowJumpToBottom,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
+  mergeClaraBriefsFromChainIntoTimeline,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
   userMessageAttachedFiles,
@@ -74,18 +83,28 @@ import {
 export {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
+  decideStickAfterUserScroll,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   hitlArtifactsExcludingPlanConfirm,
+  isChatTranscriptScrollable,
   isHitlActivationMessage,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  isStickFromSlack,
+  SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+  scrollSlackPx,
+  shouldFollowStreamComplete,
+  shouldFollowStreamToken,
+  shouldShowJumpToBottom,
   pendingHitlArtifactsForDock,
   planPanelContext,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   liveTurnPresentationSettled,
+  mergeClaraBriefsFromChainIntoTimeline,
   turnHasPlanPanel,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
@@ -98,9 +117,6 @@ export {
 } from './chat-box-display';
 
 export type ChatLayoutMode = 'sidebar' | 'expanded';
-
-/** Pixels from the bottom of the chat viewport to treat as “pinned” for follow-final-message behavior. */
-const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
 
 /** ngx-spinner names scoped to this component (hidden in `ngOnDestroy`). */
 const SPINNER_CHAT_THINK = 'chat-think';
@@ -116,6 +132,7 @@ const INLINE_SPINNER = {
 @Component({
   selector: 'app-chat-box',
   imports: [
+    LucideAngularModule,
     RunButtonDirective,
     NgxSpinnerComponent,
     PlannerChecklistComponent,
@@ -157,8 +174,25 @@ export class ChatBox implements OnDestroy {
     this.restoreConversation.emit({ userMessageId: msg.id, userMessageIndex });
   }
 
-  /** Scrollport element (`#chatScroll` in template); drives virtual window + pin detection. */
+  /** Scrollport element (`#chatScroll` in template); drives virtual window + stick/roam detection. */
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
+
+  /**
+   * Stick: auto-follow the bottom as the transcript grows.
+   * Roam: user has scrolled up; freeze the viewport until they return to the bottom.
+   */
+  readonly stickMode = signal(true);
+  /** True while roaming and a new message / HITL landed below the viewport. */
+  readonly hasUnseenBelow = signal(false);
+  /** Latest `#chatScroll` scrollHeight (FAB visibility + overflow checks). */
+  private readonly scrollHeightSig = signal(0);
+  /** Jump FAB: roam and the transcript actually overflows. */
+  readonly showJumpToBottom = computed(() =>
+    shouldShowJumpToBottom(
+      this.stickMode(),
+      isChatTranscriptScrollable(this.scrollHeightSig(), this.viewportHeightSig()),
+    ),
+  );
 
   // --- Virtual scroll state (see `chat-box-virtual.ts`) ---
 
@@ -180,9 +214,15 @@ export class ChatBox implements OnDestroy {
   private scrollTrackedMsgLen = 0;
   private scrollTrackedConvId: string | null | undefined = undefined;
   private scrollSmoothDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  /** While streaming, follow growing primary reply only when the user is pinned to the bottom. */
-  private pinToBottom = true;
+  /** Ignore slack-derived roam while a stick-mode `scrollToBottom` is in flight. */
+  private programmaticScroll = false;
+  private programmaticScrollUnlockTimer: ReturnType<typeof setTimeout> | null = null;
+  private chatScrollEndBound: HTMLElement | null = null;
+  /** Last `#chatScroll` scrollTop; a decrease is treated as user scroll-up → roam. */
+  private lastScrollTop = 0;
   private prevLoadingForCompletionScroll = false;
+  /** Last `liveAwaitingHitlReview` seen by the HITL layout-follow effect. */
+  private prevLiveAwaitingHitl = false;
   /** Fingerprint tail for streaming scroll dedupe (unified turn feed). */
   private prevStreamFeedKey = '';
   /** Tracks live plan checklist mount so discovery/planning chrome can autoscroll. */
@@ -222,6 +262,8 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
+  /** When false (Gemma preset), live pre-tool agent prose stays markdown instead of a Clara brief. */
+  readonly promoteLivePrimaryToBrief = input(true);
 
   // --- Outputs (HITL completion + composer send) ---
 
@@ -358,6 +400,7 @@ export class ChatBox implements OnDestroy {
     buildTurnFeed(
       mergeHitlTrailIntoAuxiliaryTimeline(this.streamingParts(), this.liveHitlArtifacts()),
       this.streamingFinalText(),
+      { promoteLivePrimaryToBrief: this.promoteLivePrimaryToBrief() },
     ),
   );
 
@@ -365,10 +408,14 @@ export class ChatBox implements OnDestroy {
   turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {
     return buildTurnFeed(
       mergeHitlTrailIntoAuxiliaryTimeline(
-        persistedAuxiliaryStreamTimeline(row.assistant),
+        mergeClaraBriefsFromChainIntoTimeline(
+          persistedAuxiliaryStreamTimeline(row.assistant),
+          row.chainGroups,
+        ),
         hitlArtifactsExcludingPlanConfirm(row.artifacts),
       ),
       row.assistant?.text,
+      { promoteLivePrimaryToBrief: this.promoteLivePrimaryToBrief() },
     );
   }
 
@@ -449,27 +496,31 @@ export class ChatBox implements OnDestroy {
 
   constructor(private el: ElementRef<HTMLElement>) {
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
-    // When the viewport shrinks while pinned to the bottom (HITL dock slides up or the
+    // When the viewport shrinks while stick is on (HITL dock slides up or the
     // terminal auto-expands below, covering the chat), re-bottom so the latest content
     // stays visible instead of getting hidden under the newly revealed chrome.
     afterNextRender(
       () => {
         const elScroll = this.chatScroll()?.nativeElement;
         if (!elScroll) return;
-        this.viewportHeightSig.set(elScroll.clientHeight);
+        this.syncScrollMetrics(elScroll);
+        this.lastScrollTop = elScroll.scrollTop;
         this.chatScrollResizeObserver?.disconnect();
         this.chatScrollResizeObserver = new ResizeObserver(() => {
           const prevHeight = this.viewportHeightSig();
-          const wasPinned = this.pinToBottom;
+          const wasStick = this.stickMode();
           const nextHeight = elScroll.clientHeight;
-          this.viewportHeightSig.set(nextHeight);
-          if (nextHeight < prevHeight && wasPinned) {
+          this.syncScrollMetrics(elScroll);
+          if (nextHeight < prevHeight && wasStick) {
             this.scrollToBottom('instant');
           } else {
-            requestAnimationFrame(() => this.updatePinFromScroll());
+            requestAnimationFrame(() => this.applyStickFromViewport(elScroll));
           }
         });
         this.chatScrollResizeObserver.observe(elScroll);
+        this.chatScrollEndBound?.removeEventListener('scrollend', this.onChatScrollEnd);
+        this.chatScrollEndBound = elScroll;
+        elScroll.addEventListener('scrollend', this.onChatScrollEnd);
       },
       { injector: this.inj },
     );
@@ -496,7 +547,7 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    // Auto-scroll: jump on conversation switch; smooth-scroll on user/HITL appends worth following.
+    // Auto-scroll: jump on conversation switch; follow or badge on appends per stick/roam.
     effect(() => {
       const id = this.conversationId();
       const msgs = this.messages();
@@ -506,6 +557,8 @@ export class ChatBox implements OnDestroy {
         if (convChanged) {
           this.scrollTrackedConvId = id;
           this.scrollTrackedMsgLen = msgs.length;
+          this.prevLiveAwaitingHitl = false;
+          this.enterStickMode();
           if (this.convScrollTimeout != null) {
             clearTimeout(this.convScrollTimeout);
           }
@@ -521,22 +574,23 @@ export class ChatBox implements OnDestroy {
         }
         if (msgs.length > this.scrollTrackedMsgLen) {
           const added = msgs.slice(this.scrollTrackedMsgLen);
-          if (added.some(isScrollWorthyAppendMessage)) {
-            const loading = this.loading();
-            if (
-              !loading ||
-              added.some((m) => m.role === 'user') ||
-              added.some(isHitlActivationMessage)
-            ) {
-              this.debouncedSmoothScrollToBottom();
-            }
+          const decision = decideChatScrollOnAppend({
+            stickMode: this.stickMode(),
+            added,
+            loading: this.loading(),
+          });
+          if (decision.badge) {
+            this.hasUnseenBelow.set(true);
+          }
+          if (decision.follow) {
+            this.debouncedSmoothScrollToBottom();
           }
         }
         this.scrollTrackedMsgLen = msgs.length;
       });
     });
 
-    // During streaming: follow unified feed growth while pinned to the bottom.
+    // During streaming: follow unified feed growth while stick is on.
     effect(() => {
       const loading = this.loading();
       const feedKey = turnFeedScrollKey(this.liveTurnFeed());
@@ -558,12 +612,10 @@ export class ChatBox implements OnDestroy {
         );
         this.prevStreamFeedKey = decision.next.prevPrimaryKey;
 
-        if (!this.pinToBottom) {
+        if (!shouldFollowStreamToken(this.stickMode(), decision.scrollNow)) {
           return;
         }
-        if (decision.scrollNow) {
-          this.scrollToBottom('instant');
-        }
+        this.scrollToBottom('instant');
       });
     });
 
@@ -578,12 +630,12 @@ export class ChatBox implements OnDestroy {
         }
         const becameVisible = planVisible && !this.prevLivePlanPanelVisible;
         this.prevLivePlanPanelVisible = planVisible;
-        if (!becameVisible || !this.pinToBottom) {
+        if (!becameVisible || !this.stickMode()) {
           return;
         }
         afterNextRender(
           () => {
-            if (this.chatDestroyed || !this.pinToBottom) {
+            if (this.chatDestroyed || !this.stickMode()) {
               return;
             }
             this.scrollToBottom('instant');
@@ -604,7 +656,7 @@ export class ChatBox implements OnDestroy {
         if (this.prevLoadingForCompletionScroll && !loading) {
           afterNextRender(
             () => {
-              if (this.chatDestroyed) {
+              if (this.chatDestroyed || !shouldFollowStreamComplete(this.stickMode())) {
                 return;
               }
               this.scrollToBottom('smooth');
@@ -613,6 +665,27 @@ export class ChatBox implements OnDestroy {
           );
         }
         this.prevLoadingForCompletionScroll = loading;
+      });
+    });
+
+    // Stick: re-bottom after HITL review chrome (diff dock) takes layout height.
+    effect(() => {
+      const awaitingHitl = this.liveAwaitingHitlReview();
+      untracked(() => {
+        const becameVisible = awaitingHitl && !this.prevLiveAwaitingHitl;
+        this.prevLiveAwaitingHitl = awaitingHitl;
+        if (!becameVisible || !this.stickMode()) {
+          return;
+        }
+        afterNextRender(
+          () => {
+            if (this.chatDestroyed || !this.stickMode()) {
+              return;
+            }
+            this.scrollToBottom('instant');
+          },
+          { injector: this.inj },
+        );
       });
     });
 
@@ -719,6 +792,9 @@ export class ChatBox implements OnDestroy {
     this.el.nativeElement.removeEventListener('send-response', this.onSendResponseDom);
     this.chatScrollResizeObserver?.disconnect();
     this.chatScrollResizeObserver = null;
+    this.chatScrollEndBound?.removeEventListener('scrollend', this.onChatScrollEnd);
+    this.chatScrollEndBound = null;
+    this.releaseProgrammaticScrollLock();
     if (this.convScrollTimeout != null) {
       clearTimeout(this.convScrollTimeout);
       this.convScrollTimeout = null;
@@ -731,25 +807,122 @@ export class ChatBox implements OnDestroy {
     void this.ngxSpinner.hide(SPINNER_CHAT_TTS);
   }
 
-  /** Template `(scroll)` handler: coalesced updates to virtual window + pin state. */
+  /** Template `(scroll)` handler: roam immediately on scroll-up; coalesce virtual-window updates. */
   onChatScroll(): void {
+    const box = this.chatScroll()?.nativeElement;
+    if (!box) return;
+    this.applyStickFromViewport(box);
     cancelAnimationFrame(this.scrollRaf);
     this.scrollRaf = requestAnimationFrame(() => {
-      const box = this.chatScroll()?.nativeElement;
-      if (!box) return;
-      this.scrollTopSig.set(box.scrollTop);
-      this.viewportHeightSig.set(box.clientHeight);
-      this.updatePinFromScroll();
+      const next = this.chatScroll()?.nativeElement;
+      if (!next) return;
+      this.syncScrollMetrics(next);
       this.scheduleMeasureVisibleRows();
     });
   }
 
-  /** Sets `pinToBottom` when the viewport is within {@link SCROLL_BOTTOM_PIN_THRESHOLD_PX} of the end. */
-  private updatePinFromScroll(): void {
+  /** Wheel-up leaves stick immediately so a live stream cannot yank the viewport back down. */
+  onChatWheel(event: WheelEvent): void {
     const box = this.chatScroll()?.nativeElement;
-    if (!box) return;
-    const slack = box.scrollHeight - box.scrollTop - box.clientHeight;
-    this.pinToBottom = slack <= SCROLL_BOTTOM_PIN_THRESHOLD_PX;
+    if (
+      event.deltaY < 0 &&
+      box &&
+      isChatTranscriptScrollable(box.scrollHeight, box.clientHeight)
+    ) {
+      this.enterRoamFromUser();
+    }
+  }
+
+  /** Jump-to-bottom FAB: re-enter stick and smooth-scroll to the latest content. */
+  onJumpToBottom(): void {
+    this.enterStickMode();
+    this.scrollToBottom('smooth');
+  }
+
+  private readonly onChatScrollEnd = (): void => {
+    this.releaseProgrammaticScrollLock();
+    const box = this.chatScroll()?.nativeElement;
+    if (box) {
+      this.applyStickFromViewport(box);
+    }
+  };
+
+  private enterStickMode(): void {
+    this.stickMode.set(true);
+    this.hasUnseenBelow.set(false);
+  }
+
+  /** User scroll-up: freeze the viewport and abort any in-flight stick follow. */
+  private enterRoamFromUser(): void {
+    const box = this.chatScroll()?.nativeElement;
+    if (!box || !isChatTranscriptScrollable(box.scrollHeight, box.clientHeight)) {
+      this.enterStickMode();
+      return;
+    }
+    this.stickMode.set(false);
+    this.releaseProgrammaticScrollLock();
+    cancelAnimationFrame(this.scrollToBottomRaf);
+    this.scrollToBottomRaf = 0;
+    if (this.scrollSmoothDebounceTimer != null) {
+      clearTimeout(this.scrollSmoothDebounceTimer);
+      this.scrollSmoothDebounceTimer = null;
+    }
+  }
+
+  private beginProgrammaticScrollLock(behavior: ScrollBehavior): void {
+    this.programmaticScroll = true;
+    if (this.programmaticScrollUnlockTimer != null) {
+      clearTimeout(this.programmaticScrollUnlockTimer);
+    }
+    const unlockMs = behavior === 'smooth' ? 450 : 64;
+    this.programmaticScrollUnlockTimer = setTimeout(() => {
+      this.programmaticScrollUnlockTimer = null;
+      this.programmaticScroll = false;
+      const box = this.chatScroll()?.nativeElement;
+      if (box) {
+        this.applyStickFromViewport(box);
+      }
+    }, unlockMs);
+  }
+
+  private releaseProgrammaticScrollLock(): void {
+    this.programmaticScroll = false;
+    if (this.programmaticScrollUnlockTimer != null) {
+      clearTimeout(this.programmaticScrollUnlockTimer);
+      this.programmaticScrollUnlockTimer = null;
+    }
+  }
+
+  private syncScrollMetrics(box: HTMLElement): void {
+    this.scrollTopSig.set(box.scrollTop);
+    this.viewportHeightSig.set(box.clientHeight);
+    this.scrollHeightSig.set(box.scrollHeight);
+  }
+
+  /**
+   * Stick/roam from the live viewport. Scroll-up always wins, including during a
+   * programmatic follow; the lock only ignores slack while a smooth jump is in flight.
+   */
+  private applyStickFromViewport(box: HTMLElement): void {
+    const top = box.scrollTop;
+    this.syncScrollMetrics(box);
+    const slack = scrollSlackPx(box.scrollHeight, top, box.clientHeight);
+    const intent = decideStickAfterUserScroll({
+      scrolledUp: top + 1 < this.lastScrollTop,
+      scrolledDown: top > this.lastScrollTop + 1,
+      nearBottom: isStickFromSlack(slack, SCROLL_BOTTOM_PIN_THRESHOLD_PX),
+      programmatic: this.programmaticScroll,
+      stickMode: this.stickMode(),
+      scrollable: isChatTranscriptScrollable(box.scrollHeight, box.clientHeight),
+    });
+    this.lastScrollTop = top;
+    if (intent === 'roam') {
+      this.enterRoamFromUser();
+      return;
+    }
+    if (intent === 'stick') {
+      this.enterStickMode();
+    }
   }
 
   /** Template helper: last row in the virtualized persisted list (e.g. markdown layout pass). */
@@ -770,6 +943,10 @@ export class ChatBox implements OnDestroy {
           }
           const root = this.chatScroll()?.nativeElement;
           if (!root) return;
+          this.syncScrollMetrics(root);
+          if (!isChatTranscriptScrollable(root.scrollHeight, root.clientHeight) && !this.stickMode()) {
+            this.enterStickMode();
+          }
           const rowsLen = this.persistedRows().length;
           for (const wrap of root.querySelectorAll<HTMLElement>('[data-chat-row]')) {
             const idx = Number(wrap.dataset['chatRow']);
@@ -790,14 +967,14 @@ export class ChatBox implements OnDestroy {
     );
   }
 
-  /** Batches rapid message appends into one smooth scroll (80 ms). */
+  /** Batches rapid message appends into one smooth scroll (80 ms). Skips if roam won the race. */
   private debouncedSmoothScrollToBottom(): void {
     if (this.scrollSmoothDebounceTimer != null) {
       clearTimeout(this.scrollSmoothDebounceTimer);
     }
     this.scrollSmoothDebounceTimer = setTimeout(() => {
       this.scrollSmoothDebounceTimer = null;
-      if (this.chatDestroyed) {
+      if (this.chatDestroyed || !this.stickMode()) {
         return;
       }
       this.scrollToBottom('smooth');
@@ -806,12 +983,13 @@ export class ChatBox implements OnDestroy {
 
   /** Scroll `#chatScroll` (or `.chat-box` fallback) to `scrollHeight` and refresh measurements. */
   private scrollToBottom(behavior: ScrollBehavior): void {
-    if (this.chatDestroyed) {
+    if (this.chatDestroyed || !this.stickMode()) {
       return;
     }
+    this.beginProgrammaticScrollLock(behavior);
     cancelAnimationFrame(this.scrollToBottomRaf);
     this.scrollToBottomRaf = requestAnimationFrame(() => {
-      if (this.chatDestroyed) {
+      if (this.chatDestroyed || !this.stickMode()) {
         return;
       }
       const box = this.chatScroll()?.nativeElement ?? this.el.nativeElement.querySelector('.chat-box');
@@ -822,10 +1000,10 @@ export class ChatBox implements OnDestroy {
         } catch {
           box.scrollTop = top;
         }
-        this.scrollTopSig.set(box.scrollTop);
+        this.lastScrollTop = box.scrollTop;
+        this.syncScrollMetrics(box);
       }
       this.scheduleMeasureVisibleRows();
-      this.updatePinFromScroll();
     });
   }
 

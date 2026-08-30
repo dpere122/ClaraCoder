@@ -141,6 +141,7 @@ function stubElectronApi(
     onMessageChunk: noop,
     onMessageToolReadChunk: noop,
     onMessageClearPrimaryStream: noop,
+    onMessagePromotePrimaryToNudge: noop,
     onMessageDone: noop,
     onMessageTokenUsage: (cb: (_event: unknown, conversationId: string, usage: unknown) => void) => {
       refs.tokenUsageHandler = cb;

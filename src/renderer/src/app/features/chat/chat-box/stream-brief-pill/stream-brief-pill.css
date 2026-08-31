@@ -66,6 +66,14 @@ app-stream-brief-pill .stream-brief-preview--open {
   grid-template-rows: 1fr;
 }
 
+/* Short persisted briefs skip the collapse animation so they paint open. */
+app-stream-brief-pill .stream-brief-pill--inline .stream-brief-preview {
+  transition: none;
+  opacity: 1;
+  pointer-events: auto;
+  grid-template-rows: 1fr;
+}
+
 app-stream-brief-pill .stream-brief-preview__inner {
   min-height: 0;
   overflow: hidden;

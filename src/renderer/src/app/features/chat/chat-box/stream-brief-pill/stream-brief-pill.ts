@@ -15,6 +15,7 @@ import {
   briefPillState,
   isBriefStreamingPreview,
   resolveBriefPillExpanded,
+  shouldKeepBriefRendered,
 } from './stream-brief-pill-state';
 
 @Component({
@@ -37,16 +38,18 @@ export class StreamBriefPillComponent {
   readonly label = computed(() => briefPillLabel(this.live(), this.active()));
   readonly pillState = computed(() => briefPillState(this.live(), this.active()));
   readonly expanded = computed(() =>
-    resolveBriefPillExpanded(this.live(), this.active(), this.userOverride()),
+    resolveBriefPillExpanded(this.live(), this.active(), this.userOverride(), this.text()),
   );
   readonly showPreview = computed(() =>
     isBriefStreamingPreview(this.live(), this.active(), this.userOverride()),
   );
+  readonly keepRendered = computed(() => shouldKeepBriefRendered(this.text(), this.userOverride()));
+  readonly panelOpen = computed(() => this.showPreview() || this.keepRendered());
 
   constructor() {
     effect(() => {
       this.text();
-      const open = this.showPreview();
+      const open = this.panelOpen();
       untracked(() => {
         if (!open) {
           return;

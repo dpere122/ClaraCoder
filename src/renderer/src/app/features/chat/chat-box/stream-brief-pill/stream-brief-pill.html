@@ -1,17 +1,18 @@
 <div
   class="stream-brief-pill"
-  [class.stream-brief-pill--previewing]="showPreview()"
+  [class.stream-brief-pill--previewing]="panelOpen()"
+  [class.stream-brief-pill--inline]="keepRendered() && !showPreview()"
 >
-  @if (live()) {
+  @if (live() || keepRendered()) {
     <div
       class="stream-brief-preview"
-      [class.stream-brief-preview--open]="showPreview()"
+      [class.stream-brief-preview--open]="panelOpen()"
     >
       <div class="stream-brief-preview__inner">
         <button
           type="button"
           class="stream-brief-preview__header"
-          [attr.aria-expanded]="showPreview()"
+          [attr.aria-expanded]="panelOpen()"
           (click)="toggle()"
         >
           {{ label() }}
@@ -20,7 +21,7 @@
       </div>
     </div>
   }
-  <div class="stream-brief-pill__chip" [hidden]="showPreview()">
+  <div class="stream-brief-pill__chip" [hidden]="panelOpen()">
     <app-stream-tool-pill
       [name]="label()"
       [state]="pillState()"
@@ -29,7 +30,7 @@
       [live]="live()"
       (toggle)="toggle()"
     />
-    @if (expanded() && !showPreview()) {
+    @if (expanded() && !panelOpen()) {
       <pre class="llm-reasoning-body stream-brief-pill__body">{{ text() }}</pre>
     }
   </div>

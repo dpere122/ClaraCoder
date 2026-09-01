@@ -133,6 +133,8 @@ import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import {
   SETTINGS_SUB_TAB_CATALOG,
   SETTINGS_TABS,
+  initialSettingsTab,
+  isSettingsTab,
   type SettingsSubTabEntry,
   type SettingsTab,
 } from './settings-tabs';
@@ -240,7 +242,7 @@ export class SettingsStore {
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
   private static readonly newManagedLlamacppChatCommand = DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
-  readonly selectedSettingsTab = signal<SettingsTab>('models');
+  readonly selectedSettingsTab = signal<SettingsTab>(initialSettingsTab());
   readonly tabs = SETTINGS_TABS;
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   readonly ttsVoiceChoices = VOICE_OPTIONS;
@@ -608,7 +610,6 @@ export class SettingsStore {
       optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
     );
   });
-  private hfDownloadSubscription: Subscription | null = null;
   readonly llamacppUrlModelsSummary = computed(() => {
     const chat = this.llamacppManagedModelIds().length;
     const emb = this.llamacppUrlEmbeddingModelIds().length;
@@ -624,6 +625,8 @@ export class SettingsStore {
   });
 
   private subscription: Subscription | null = null;
+  private settingsSelectTabSubscription: Subscription | null = null;
+  private hfDownloadSubscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
 
   constructor(
@@ -651,6 +654,13 @@ export class SettingsStore {
   }
 
   async ngOnInit(): Promise<void> {
+    this.settingsSelectTabSubscription = this.electron.settingsSelectTab$.subscribe((tab) => {
+      if (isSettingsTab(tab)) {
+        this.selectTab(tab);
+      }
+    });
+    this.electron.notifySettingsWindowReady();
+
     const config = await this.electron.loadConfig();
     this.configSnapshot = structuredClone(config);
     this.syncFromConfig(config, true);
@@ -706,6 +716,7 @@ export class SettingsStore {
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
     void this.ngxSpinner.hide(this.whisperModelDropdownSpinnerName);
     this.subscription?.unsubscribe();
+    this.settingsSelectTabSubscription?.unsubscribe();
     this.hfDownloadSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
       void this.enqueuePersist();

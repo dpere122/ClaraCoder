@@ -9,7 +9,7 @@ import {
   isTrustedMainRenderer,
 } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
-import { createSettingsWindow } from '../../windows/settings-window';
+import { createSettingsWindow, notifySettingsRendererReady, parseSettingsWindowTab } from '../../windows/settings-window';
 import { sendParsedPayload } from './chat-stream-payload';
 import {
   abortChatStream,
@@ -32,7 +32,7 @@ function replyMessageDone(
 
 /**
  * - `ready` — renderer finished boot (log only).
- * - `open-settings-window` / `close-settings-window` — settings BrowserWindow.
+ * - `open-settings-window` / `close-settings-window` / `settings-window-ready` — settings BrowserWindow.
  * - `message` — POST to Python `/chat/stream`, forward SSE lines to `message-chunk` / `message-done` / `message-status`.
  */
 export function registerChatIpc(): void {
@@ -43,11 +43,11 @@ export function registerChatIpc(): void {
     console.log('Renderer is ready');
   });
 
-  ipcMain.on('open-settings-window', (event) => {
+  ipcMain.on('open-settings-window', (event, tab?: unknown) => {
     if (!isTrustedMainRenderer(event.sender)) {
       return;
     }
-    createSettingsWindow();
+    createSettingsWindow(parseSettingsWindowTab(tab));
   });
 
   ipcMain.on('close-settings-window', (event) => {
@@ -60,6 +60,15 @@ export function registerChatIpc(): void {
     if (sw && !sw.isDestroyed()) {
       sw.close();
     }
+  });
+
+  ipcMain.on('settings-window-ready', (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
+    notifySettingsRendererReady(event.sender);
   });
 
   ipcMain.on(

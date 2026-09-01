@@ -752,7 +752,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     return {
       ok: false,
       error:
-        'llama-server is not installed. Open File → Dependencies and download “llama-server”, or set a full path in the run command.',
+        'llama-server is not installed. Open Dependencies and download “llama-server”, or set a full path in the run command.',
     };
   }
 

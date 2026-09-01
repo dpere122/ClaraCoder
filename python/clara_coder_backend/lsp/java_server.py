@@ -150,7 +150,7 @@ def build_java_lsp_command(project_root: Path, *, instance_key: str = '') -> lis
     """Return argv to run Eclipse JDT LS over stdio for ``project_root``.
 
     ``CLARA_JAVA_LSP_COMMAND`` may override the default. When unset, uses a JDT LS
-    product already installed via File → Dependencies (does not auto-download).
+    product already installed via Dependencies (does not auto-download).
 
     ``instance_key`` isolates ``-configuration`` / ``-data`` dirs so two managers
     (session, workspace vs staging) do not share one Equinox workspace. Product
@@ -171,7 +171,7 @@ def build_java_lsp_command(project_root: Path, *, instance_key: str = '') -> lis
     product_dir = get_jdtls_product_dir_if_ready()
     if product_dir is None:
         raise JavaLspSetupError(
-            'Java LSP (JDT LS) is not installed. Open File → Dependencies and download '
+            'Java LSP (JDT LS) is not installed. Open Dependencies and download '
             '“Java LSP (JDT LS)”, then retry.'
         )
     launcher = _find_equinox_launcher(product_dir)

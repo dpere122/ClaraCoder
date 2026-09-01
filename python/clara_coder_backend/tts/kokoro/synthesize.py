@@ -52,7 +52,7 @@ def _get_pipeline(lang_code: str) -> Any:
         from kokoro import KPipeline  # heavy import; load once per lang
     except ImportError as exc:
         raise RuntimeError(
-            'Kokoro TTS is not installed. Open File → Dependencies and download “Kokoro TTS”.'
+            'Kokoro TTS is not installed. Open Dependencies and download “Kokoro TTS”.'
         ) from exc
 
     with _PIPELINE_LOCK:

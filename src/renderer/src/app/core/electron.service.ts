@@ -369,6 +369,7 @@ export class ElectronService {
   private readonly agentQuestionSubject = new Subject<AgentQuestionMessage>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
+  private readonly settingsSelectTabSubject = new Subject<string>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
   private readonly conversationWorkspaceChangedSubject = new Subject<ConversationWorkspaceChangedMessage>();
   private readonly workspaceChangedSubject = new Subject<string | null>();
@@ -426,6 +427,7 @@ export class ElectronService {
   readonly agentQuestion$ = this.agentQuestionSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
+  readonly settingsSelectTab$ = this.settingsSelectTabSubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
   readonly conversationWorkspaceChanged$ = this.conversationWorkspaceChangedSubject.asObservable();
   readonly workspaceChanged$ = this.workspaceChangedSubject.asObservable();
@@ -661,6 +663,11 @@ export class ElectronService {
     });
     this.api?.onSettingsWindowVisibilityChanged((_event, isOpen) => {
       this.zone.run(() => this.settingsWindowVisibilitySubject.next(isOpen));
+    });
+    this.api?.onSettingsSelectTab?.((_event, tab) => {
+      if (typeof tab === 'string' && tab.trim()) {
+        this.zone.run(() => this.settingsSelectTabSubject.next(tab));
+      }
     });
     this.api?.onActiveConversationChanged((_event, conversationId) => {
       this.zone.run(() => this.activeConversationChangedSubject.next(conversationId));
@@ -1485,12 +1492,16 @@ export class ElectronService {
     return this.api?.lmStudioUnloadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
-  openSettingsWindow(): void {
-    this.api?.openSettingsWindow();
+  openSettingsWindow(tab?: string): void {
+    this.api?.openSettingsWindow(tab);
   }
 
   closeSettingsWindow(): void {
     this.api?.closeSettingsWindow();
+  }
+
+  notifySettingsWindowReady(): void {
+    this.api?.notifySettingsWindowReady?.();
   }
 
   openHealthWindow(): void {

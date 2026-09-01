@@ -4,7 +4,7 @@ import { openDocumentation } from '../../menu/application-menu';
 
 /**
  * Frameless window controls (minimize / maximize / close).
- * File / Help titlebar menus are rendered in-app so they follow UI themes.
+ * Settings / Dependencies / Health titlebar controls are rendered in-app so they follow UI themes.
  */
 export function registerWindowChromeIpc(): void {
   ipcMain.on('open-documentation', (event) => {

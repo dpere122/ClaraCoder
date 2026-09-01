@@ -25,14 +25,14 @@ _CACHED_KEY: tuple[str, str] | None = None
 _CACHED_MODEL: Any = None
 
 _WHISPER_MISSING = (
-    'Whisper STT is not installed. Open File → Dependencies and download “Whisper STT”.'
+    'Whisper STT is not installed. Open Dependencies and download “Whisper STT”.'
 )
 
 
 def _model_not_downloaded_message(model_name: str) -> str:
     return (
         f'Whisper model {model_name!r} is not downloaded. '
-        'Open File → Dependencies and download that size.'
+        'Open Dependencies and download that size.'
     )
 
 

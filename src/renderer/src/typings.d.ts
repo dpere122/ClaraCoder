@@ -413,6 +413,8 @@ declare global {
     getActiveConversationId: () => Promise<string | null>;
     onConfigUpdated: (callback: (event: unknown, config: AppConfig) => void) => void;
     onSettingsWindowVisibilityChanged: (callback: (event: unknown, isOpen: boolean) => void) => void;
+    onSettingsSelectTab: (callback: (event: unknown, tab: string) => void) => void;
+    notifySettingsWindowReady: () => void;
     closeSettingsWindow: () => void;
     onActiveConversationChanged: (callback: (event: unknown, conversationId: string) => void) => void;
     onConversationWorkspaceChanged: (
@@ -805,7 +807,7 @@ declare global {
     offDepsProgress: (
       callback: (event: unknown, data: import('@shared/index').DependencyProgressEvent) => void,
     ) => void;
-    openSettingsWindow: () => void;
+    openSettingsWindow: (tab?: string) => void;
     openDocumentation: () => void;
     windowMinimize: () => void;
     windowToggleMaximize: () => void;

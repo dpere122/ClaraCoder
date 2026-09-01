@@ -125,7 +125,7 @@ Clara Coder reconstructs user bins once at startup (login-shell `PATH` probe + w
 
 **Dependencies window**
 
-After install (or in dev), open **File → Dependencies** to download optional runtime pieces into app data (`runtime/`):
+After install (or in dev), open **Dependencies** to download optional runtime pieces into app data (`runtime/`):
 
 | Dependency | Purpose |
 | ---------- | ------- |

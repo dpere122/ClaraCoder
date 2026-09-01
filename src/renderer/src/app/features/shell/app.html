@@ -3,8 +3,9 @@
     @if (electron.isElectron) {
       <div class='window-chrome'>
         <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>Clara Coder</h1>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeHelpMenu($event)'>Help</button>
+        <button type='button' class='chrome-menu-btn' (click)='onChromeSettingsMenu($event)'>Settings</button>
+        <button type='button' class='chrome-menu-btn' (click)='onChromeDependencies()'>Dependencies</button>
+        <button type='button' class='chrome-menu-btn' (click)='onChromeHealth()'>Health</button>
         <button
           type='button'
           class='chrome-win-btn chrome-pin-btn'
@@ -30,66 +31,27 @@
           [style.top.px]='chromeMenuY()'
         >
           @switch (menuKind) {
-            @case ('file') {
-              <button
-                type='button'
-                class='chrome-dropdown-menu-item'
-                role='menuitem'
-                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuSettings()'
-              >
-                <span>Settings</span>
-                <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+,</span>
-              </button>
-              <button
-                type='button'
-                class='chrome-dropdown-menu-item'
-                role='menuitem'
-                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuDependencies()'
-              >
-                Dependencies
-              </button>
-              <button
-                type='button'
-                class='chrome-dropdown-menu-item'
-                role='menuitem'
-                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuHealth()'
-              >
-                Health window
-              </button>
-              <button
-                type='button'
-                class='chrome-dropdown-menu-item'
-                role='menuitem'
-                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuCloseWindow()'
-              >
-                <span>Close</span>
-                <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+W</span>
-              </button>
-            }
-            @case ('help') {
-              <button
-                type='button'
-                class='chrome-dropdown-menu-item'
-                role='menuitem'
-                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuAbout()'
-              >
-                About
-              </button>
-              <button
-                type='button'
-                class='chrome-dropdown-menu-item'
-                role='menuitem'
-                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuDocumentation()'
-              >
-                Documentation
-              </button>
+            @case ('settings') {
+              @for (tab of chromeSettingsTabs; track tab.id) {
+                <button
+                  type='button'
+                  class='chrome-dropdown-menu-item'
+                  role='menuitem'
+                  (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuSettingsTab(tab.id)'
+                >
+                  <span>{{ tab.label }}</span>
+                  @if (tab.id === 'general') {
+                    <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+,</span>
+                  }
+                </button>
+              }
             }
           }
         </div>
       }
     } @else {
       <p class='browser-only-hint'>
-        This tab is a browser preview only — close it and use the <strong>Clara Coder</strong> Electron window from <code>npm run dev</code> for File/Help menus, window controls, and workspaces.
+        This tab is a browser preview only — close it and use the <strong>Clara Coder</strong> Electron window from <code>npm run dev</code> for Settings, Dependencies, Health, window controls, and workspaces.
       </p>
       <h1 class='chrome-title chrome-title--solo'>Clara Coder</h1>
     }

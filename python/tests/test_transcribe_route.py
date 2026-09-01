@@ -62,7 +62,7 @@ def test_transcribe_whisper_missing_dep_returns_503() -> None:
     try:
         with patch(
             'clara_coder_backend.routes.audio.transcribe_whisper',
-            side_effect=RuntimeError('Whisper STT is not installed. Open File → Dependencies'),
+            side_effect=RuntimeError('Whisper STT is not installed. Open Dependencies'),
         ):
             with TestClient(app) as client:
                 res = client.post('/transcribe', content=_WAV)
@@ -81,7 +81,7 @@ def test_transcribe_whisper_missing_size_returns_503() -> None:
         with patch(
             'clara_coder_backend.routes.audio.transcribe_whisper',
             side_effect=RuntimeError(
-                "Whisper model 'medium' is not downloaded. Open File → Dependencies and download that size."
+                "Whisper model 'medium' is not downloaded. Open Dependencies and download that size."
             ),
         ):
             with TestClient(app) as client:

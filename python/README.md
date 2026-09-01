@@ -136,4 +136,4 @@ Staged code review does not run pytest; use `run_command` on the outer agent whe
 
 ## Dependencies
 
-See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, kokoro (+ torch), soundfile, faster-whisper (optional, File → Dependencies), diff-match-patch, pypdf, pillow, Black, basedpyright.
+See `requirements.txt` (runtime) and `requirements-dev.txt` (development/testing): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph, langchain-openai, kokoro (+ torch), soundfile, faster-whisper (optional, Dependencies), diff-match-patch, pypdf, pillow, Black, basedpyright.

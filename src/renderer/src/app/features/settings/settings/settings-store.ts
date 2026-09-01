@@ -133,6 +133,8 @@ import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import {
   SETTINGS_SUB_TAB_CATALOG,
   SETTINGS_TABS,
+  isSettingsTab,
+  settingsTabFromHash,
   type SettingsSubTabEntry,
   type SettingsTab,
 } from './settings-tabs';
@@ -608,7 +610,6 @@ export class SettingsStore {
       optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
     );
   });
-  private hfDownloadSubscription: Subscription | null = null;
   readonly llamacppUrlModelsSummary = computed(() => {
     const chat = this.llamacppManagedModelIds().length;
     const emb = this.llamacppUrlEmbeddingModelIds().length;
@@ -624,6 +625,8 @@ export class SettingsStore {
   });
 
   private subscription: Subscription | null = null;
+  private settingsSelectTabSubscription: Subscription | null = null;
+  private hfDownloadSubscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
 
   constructor(
@@ -664,6 +667,16 @@ export class SettingsStore {
 
     void this.electron.listSystemFonts().then((fonts: SystemFontInfo[]) => this.systemFonts.set(fonts));
     void this.electron.listCudaGpus().then((gpus) => this.cudaGpus.set(gpus));
+
+    const initialTab = settingsTabFromHash(globalThis.location?.hash ?? '');
+    if (initialTab) {
+      this.selectTab(initialTab);
+    }
+    this.settingsSelectTabSubscription = this.electron.settingsSelectTab$.subscribe((tab) => {
+      if (isSettingsTab(tab)) {
+        this.selectTab(tab);
+      }
+    });
 
     this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) => {
       const id = e.downloadId;
@@ -706,6 +719,7 @@ export class SettingsStore {
     void this.ngxSpinner.hide(this.hfSearchSpinnerName);
     void this.ngxSpinner.hide(this.whisperModelDropdownSpinnerName);
     this.subscription?.unsubscribe();
+    this.settingsSelectTabSubscription?.unsubscribe();
     this.hfDownloadSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
       void this.enqueuePersist();

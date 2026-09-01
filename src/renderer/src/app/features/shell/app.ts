@@ -79,6 +79,7 @@ import {
 } from './app-chat-file-tabs';
 import { relativePathFromModelKey } from '../workspace/open-editor-file-ref';
 import { applyAppFontOverrides, applyAppTheme, resolveAppThemeId } from './app-theme';
+import { SETTINGS_TABS, type SettingsTab } from '../settings/settings/settings-tabs';
 import {
   buildContextCapacitySnapshot,
   CONTEXT_CHAT_BLOCKED_PERCENT,
@@ -278,10 +279,11 @@ export class App implements OnInit, OnDestroy {
   protected readonly fileTabContextMenuX = signal(0);
   protected readonly fileTabContextMenuY = signal(0);
   protected readonly fileTabContextMenuTabId = signal<string | null>(null);
-  /** Titlebar File/Help dropdown (`null` when closed). */
-  protected readonly chromeMenu = signal<'file' | 'help' | null>(null);
+  /** Titlebar Settings dropdown (`null` when closed). */
+  protected readonly chromeMenu = signal<'settings' | null>(null);
   protected readonly chromeMenuX = signal(0);
   protected readonly chromeMenuY = signal(0);
+  protected readonly chromeSettingsTabs = SETTINGS_TABS;
   protected readonly chromeAccelMod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform)
     ? '⌘'
     : 'Ctrl';
@@ -1645,7 +1647,7 @@ export class App implements OnInit, OnDestroy {
     this.chromeMenu.set(null);
   }
 
-  private openChromeMenu(kind: 'file' | 'help', ev: MouseEvent): void {
+  private openChromeMenu(kind: 'settings', ev: MouseEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
     this.closeFileTabContextMenu();
@@ -1660,12 +1662,8 @@ export class App implements OnInit, OnDestroy {
     this.chromeMenu.set(kind);
   }
 
-  protected onChromeFileMenu(ev: MouseEvent): void {
-    this.openChromeMenu('file', ev);
-  }
-
-  protected onChromeHelpMenu(ev: MouseEvent): void {
-    this.openChromeMenu('help', ev);
+  protected onChromeSettingsMenu(ev: MouseEvent): void {
+    this.openChromeMenu('settings', ev);
   }
 
   protected onChromeMenuItemMousedown(event: MouseEvent): void {
@@ -1673,40 +1671,19 @@ export class App implements OnInit, OnDestroy {
     event.stopPropagation();
   }
 
-  protected onChromeMenuSettings(): void {
+  protected onChromeMenuSettingsTab(tab: SettingsTab): void {
     this.closeChromeMenu();
-    this.electron.openSettingsWindow();
+    this.electron.openSettingsWindow(tab);
   }
 
-  protected onChromeMenuDependencies(): void {
+  protected onChromeDependencies(): void {
     this.closeChromeMenu();
     this.electron.openDependenciesWindow();
   }
 
-  protected onChromeMenuHealth(): void {
+  protected onChromeHealth(): void {
     this.closeChromeMenu();
     this.electron.openHealthWindow();
-  }
-
-  protected onChromeMenuCloseWindow(): void {
-    this.closeChromeMenu();
-    this.electron.windowClose();
-  }
-
-  protected async onChromeMenuAbout(): Promise<void> {
-    this.closeChromeMenu();
-    await this.themedConfirm.open({
-      title: 'About Clara Coder',
-      message: 'Clara Coder v0.1.1',
-      detail: 'An AI chat application with speech synthesis and recognition.',
-      confirmText: 'OK',
-      cancelText: 'Close',
-    });
-  }
-
-  protected onChromeMenuDocumentation(): void {
-    this.closeChromeMenu();
-    this.electron.openDocumentation();
   }
 
   private async tryCloseFileTabById(tabId: string): Promise<boolean> {

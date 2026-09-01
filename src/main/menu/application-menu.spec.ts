@@ -4,12 +4,13 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('electron', () => ({
-  dialog: {},
   Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
   shell: { openExternal: vi.fn() },
 }));
-vi.mock('../state', () => ({ mainState: { mainWindow: null } }));
-vi.mock('../windows/settings-window', () => ({ createSettingsWindow: vi.fn() }));
+vi.mock('../windows/settings-window', () => ({
+  createSettingsWindow: vi.fn(),
+  SETTINGS_WINDOW_TABS: [],
+}));
 vi.mock('../windows/health-window', () => ({ createHealthWindow: vi.fn() }));
 vi.mock('../windows/dependencies-window', () => ({ createDependenciesWindow: vi.fn() }));
 

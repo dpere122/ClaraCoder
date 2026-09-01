@@ -1,11 +1,10 @@
-import { dialog, Menu, shell } from 'electron';
+import { Menu, shell } from 'electron';
 import type Electron from 'electron';
-import { mainState } from '../state';
-import { createSettingsWindow } from '../windows/settings-window';
+import { createSettingsWindow, SETTINGS_WINDOW_TABS } from '../windows/settings-window';
 import { createHealthWindow } from '../windows/health-window';
 import { createDependenciesWindow } from '../windows/dependencies-window';
 
-/** Hosts permitted for Help → Documentation / shell.openExternal. */
+/** Hosts permitted for Documentation / shell.openExternal. */
 const ALLOWED_EXTERNAL_HOSTS = new Set(['github.com', 'docs.claraverse.ai']);
 
 /** Pinned Clara docs URL (must pass {@link validateExternalUrl}). */
@@ -38,49 +37,12 @@ function openExternalUrl(url: string): void {
   void shell.openExternal(url);
 }
 
-function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions[] {
-  return [
-    {
-      label: 'Settings',
-      accelerator: 'CmdOrCtrl+,',
-      click: () => createSettingsWindow(),
-    },
-    {
-      label: 'Dependencies',
-      click: () => createDependenciesWindow(),
-    },
-    {
-      label: 'Health window',
-      click: () => createHealthWindow(),
-    },
-    {
-      label: 'Close',
-      accelerator: 'CmdOrCtrl+W',
-      click: () => mainState.mainWindow?.close(),
-    },
-  ];
-}
-
-function buildHelpMenuTemplate(): Electron.MenuItemConstructorOptions[] {
-  return [
-    {
-      label: 'About',
-      click: () => {
-        const mw = mainState.mainWindow;
-        if (!mw) return;
-        dialog.showMessageBox(mw, {
-          type: 'info',
-          title: 'About Clara Coder',
-          message: 'Clara Coder v0.1.1',
-          detail: 'An AI chat application with speech synthesis and recognition.',
-        });
-      },
-    },
-    {
-      label: 'Documentation',
-      click: () => openExternalUrl(DOCUMENTATION_URL),
-    },
-  ];
+function buildSettingsMenuTemplate(): Electron.MenuItemConstructorOptions[] {
+  return SETTINGS_WINDOW_TABS.map((tab, index) => ({
+    label: tab.label,
+    accelerator: index === 0 ? 'CmdOrCtrl+,' : undefined,
+    click: () => createSettingsWindow(tab.id),
+  }));
 }
 
 function buildWindowMenuTemplate(): Electron.MenuItemConstructorOptions[] {
@@ -92,19 +54,26 @@ function buildWindowMenuTemplate(): Electron.MenuItemConstructorOptions[] {
 
 /**
  * Native application menu: Alt fallback on Windows/Linux and keyboard accelerators.
- * Titlebar File/Help use themed in-renderer dropdowns instead of Menu.popup.
+ * Titlebar Settings/Dependencies/Health use themed in-renderer controls instead of Menu.popup.
  */
 export function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
-    { label: 'File', submenu: buildFileMenuTemplate() },
+    { label: 'Settings', submenu: buildSettingsMenuTemplate() },
+    {
+      label: 'Dependencies',
+      submenu: [{ label: 'Open', click: () => createDependenciesWindow() }],
+    },
+    {
+      label: 'Health',
+      submenu: [{ label: 'Open', click: () => createHealthWindow() }],
+    },
     { label: 'Window', submenu: buildWindowMenuTemplate() },
-    { label: 'Help', submenu: buildHelpMenuTemplate() },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** Opens the docs URL from the themed Help menu (renderer IPC). */
+/** Opens the docs URL from renderer IPC. */
 export function openDocumentation(): void {
   openExternalUrl(DOCUMENTATION_URL);
 }

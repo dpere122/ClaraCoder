@@ -9,7 +9,7 @@ import {
   isTrustedMainRenderer,
 } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
-import { createSettingsWindow } from '../../windows/settings-window';
+import { createSettingsWindow, parseSettingsWindowTab } from '../../windows/settings-window';
 import { sendParsedPayload } from './chat-stream-payload';
 import {
   abortChatStream,
@@ -43,11 +43,11 @@ export function registerChatIpc(): void {
     console.log('Renderer is ready');
   });
 
-  ipcMain.on('open-settings-window', (event) => {
+  ipcMain.on('open-settings-window', (event, tab?: unknown) => {
     if (!isTrustedMainRenderer(event.sender)) {
       return;
     }
-    createSettingsWindow();
+    createSettingsWindow(parseSettingsWindowTab(tab));
   });
 
   ipcMain.on('close-settings-window', (event) => {

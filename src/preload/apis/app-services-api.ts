@@ -50,7 +50,9 @@ export const appServicesApi = {
     ipcRenderer.on('llama-server-process-exit', callback),
   onLlamaServerLifecycle: (callback: (event: unknown, data: unknown) => void) =>
     ipcRenderer.on('llama-server-lifecycle', callback),
-  openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  openSettingsWindow: (tab?: string) => ipcRenderer.send('open-settings-window', tab),
+  onSettingsSelectTab: (callback: (event: unknown, tab: string) => void) =>
+    ipcRenderer.on('settings-select-tab', callback),
   openDocumentation: () => ipcRenderer.send('open-documentation'),
   windowMinimize: () => ipcRenderer.send('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.send('window-toggle-maximize'),

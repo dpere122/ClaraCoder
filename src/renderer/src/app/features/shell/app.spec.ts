@@ -150,6 +150,7 @@ function stubElectronApi(
     onMessageStatus: noop,
     onConfigUpdated: noop,
     onSettingsWindowVisibilityChanged: noop,
+    onSettingsSelectTab: noop,
     onActiveConversationChanged: noop,
     onConversationWorkspaceChanged: noop,
     onWorkspaceChanged: noop,

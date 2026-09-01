@@ -38,6 +38,21 @@ export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description:
   { id: 'workspaces', label: 'Workspaces', description: 'Attached folders and active project.' },
 ];
 
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return typeof value === 'string' && SETTINGS_TABS.some((tab) => tab.id === value);
+}
+
+/** Reads `tab=` from an Angular hash URL (`#/settings?tab=general`). */
+export function settingsTabFromHash(hash: string): SettingsTab | null {
+  const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
+  const queryStart = trimmed.indexOf('?');
+  if (queryStart < 0) {
+    return null;
+  }
+  const tab = new URLSearchParams(trimmed.slice(queryStart + 1)).get('tab');
+  return isSettingsTab(tab) ? tab : null;
+}
+
 export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTabEntry[]>> = {
   general: [
     {

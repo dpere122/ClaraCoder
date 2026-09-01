@@ -156,7 +156,23 @@
           }
         }
       }
-      <app-managed-llama-controls [appConfig]='appConfig()' />
+      @if (settingsError()) {
+        <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
+      }
+      <div class='workspace-footer-model-row'>
+        <button
+          class='workspace-icon-btn'
+          type='button'
+          title='Edit workspace system prompt'
+          aria-label='Edit workspace system prompt'
+          [disabled]='!currentWorkspaceId() || settingsOpening() || !currentWorkspaceHasPath()'
+          [attr.aria-busy]='settingsOpening()'
+          (click)='onOpenWorkspaceSettings()'
+        >
+          <lucide-icon name='settings' [size]='16' />
+        </button>
+        <app-managed-llama-controls [appConfig]='appConfig()' />
+      </div>
     </div>
   }
 

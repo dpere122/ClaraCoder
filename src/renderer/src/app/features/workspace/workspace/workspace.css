@@ -87,6 +87,65 @@ app-workspace .workspace-interpreter-error {
   color: var(--t-danger, #c44);
 }
 
+app-workspace .workspace-settings-error {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--t-danger, #c44);
+}
+
+app-workspace .workspace-footer-model-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+app-workspace .workspace-footer-model-row app-managed-llama-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+app-workspace .workspace-footer-model-row .managed-llama-controls {
+  padding-top: 0;
+  border-top: none;
+  margin-top: 0;
+}
+
+app-workspace .workspace-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--t-border);
+  background: var(--t-bg);
+  color: var(--t-primary);
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+
+app-workspace .workspace-icon-btn:hover:not(:disabled) {
+  background-color: var(--t-hover-bg);
+}
+
+app-workspace .workspace-icon-btn:focus-visible {
+  outline: none;
+  border-color: var(--t-primary);
+}
+
+app-workspace .workspace-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+app-workspace .workspace-icon-btn lucide-icon {
+  display: inline-flex;
+}
+
 app-workspace .tree-node {
   display: flex;
   align-items: center;

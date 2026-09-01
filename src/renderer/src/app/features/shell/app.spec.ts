@@ -178,6 +178,7 @@ function stubElectronApi(
     modelManagerListCustomModels: async () => ({ ok: true, models: [] }),
     setLastActiveConversation: async (_workspaceKey: string, _conversationId: string) => ({ ...defaultConfig }),
     patchWorkspaceMonacoScroll: async () => {},
+    patchWorkspaceOpenTabs: async () => {},
     setActiveLlmModel: async (_modelId: string) => ({ ...defaultConfig }),
     patchHealthMonitor: async (patch: { logLevel?: string; metricsEnabled?: boolean }) => ({
       ...defaultConfig,
@@ -279,6 +280,31 @@ describe('App', () => {
     };
     expect(saved.chatSidebarCollapsed).toBe(false);
     expect(saved.chatExpandedToMainPanel).toBe(true);
+  });
+
+  it('restores open file tabs for the current workspace from config', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [
+            { relativePath: 'src/foo.ts', outsideWorkspace: false },
+            { relativePath: 'src/bar.ts', outsideWorkspace: false },
+          ],
+          activeTabId: 'file:rel:src/bar.ts',
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      fileTabs: () => Array<{ relativePath?: string }>;
+      activeMainTabId: () => string | null;
+    };
+    expect(app.fileTabs().map((t) => t.relativePath)).toEqual(['src/foo.ts', 'src/bar.ts']);
+    expect(app.activeMainTabId()).toBe('file:rel:src/bar.ts');
   });
 
   it('should create the app', () => {

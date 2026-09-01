@@ -29,6 +29,7 @@ import {
   normalizeChatContainerSize,
   normalizeMonacoWorkspaceEditorSettings,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
+  normalizeWorkspaceOpenTabsByWorkspaceId,
   getDefaultContextCompression,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
@@ -1264,6 +1265,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const openTabsNorm = normalizeWorkspaceOpenTabsByWorkspaceId(
+    (newConfig as AppConfig).workspaceOpenTabsByWorkspaceId,
+  );
+  if (openTabsNorm.migrated) {
+    (newConfig as AppConfig).workspaceOpenTabsByWorkspaceId = openTabsNorm.openTabsByWorkspaceId;
+    migrated = true;
+  }
+
   const hm = (newConfig as AppConfig & { healthMonitor?: HealthMonitorConfig }).healthMonitor;
   if (!hm || typeof hm !== 'object') {
     (newConfig as AppConfig).healthMonitor = getDefaultHealthMonitor();
@@ -1456,6 +1465,7 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
     currentWorkspaceId: disk.currentWorkspaceId,
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,
     workspaceMonacoScrollByWorkspaceId: disk.workspaceMonacoScrollByWorkspaceId,
+    workspaceOpenTabsByWorkspaceId: disk.workspaceOpenTabsByWorkspaceId,
   };
 }
 

@@ -1,5 +1,11 @@
 import { ipcRenderer } from 'electron';
-import type { AppConfig, HealthMonitorConfig, SystemFontInfo, WorkspaceMonacoEditorScrollState } from '../../shared';
+import type {
+  AppConfig,
+  HealthMonitorConfig,
+  SystemFontInfo,
+  WorkspaceMonacoEditorScrollState,
+  WorkspaceOpenTabsState,
+} from '../../shared';
 
 /** App config, window chrome, scripts, and LLM server IPC. */
 export const appServicesApi = {
@@ -15,6 +21,8 @@ export const appServicesApi = {
     relativePath: string,
     scroll: WorkspaceMonacoEditorScrollState | null,
   ) => ipcRenderer.invoke('patch-workspace-monaco-scroll', workspaceId, relativePath, scroll),
+  patchWorkspaceOpenTabs: (workspaceId: string, state: WorkspaceOpenTabsState | null) =>
+    ipcRenderer.invoke('patch-workspace-open-tabs', workspaceId, state),
   setActiveLlmModel: (modelId: string) => ipcRenderer.invoke('set-active-llm-model', modelId),
   patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => ipcRenderer.invoke('patch-health-monitor', patch),
   onConfigUpdated: (callback: (event: unknown, config: unknown) => void) => ipcRenderer.on('config-updated', callback),

@@ -207,6 +207,7 @@ export function createDefaultConfig(): AppConfig {
     currentWorkspaceId: null,
     lastActiveConversationByWorkspaceId: {},
     workspaceMonacoScrollByWorkspaceId: {},
+    workspaceOpenTabsByWorkspaceId: {},
     workspaces: [],
     themeId: FIRST_THEME_ID,
     activeLlmModelId: llmProviders[0]?.models[0]?.id ?? 'default-lmstudio',

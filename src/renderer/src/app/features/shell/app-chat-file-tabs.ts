@@ -1,4 +1,5 @@
 import { normalizePathSlashes } from '../../utils/workspace-relative-path';
+import type { WorkspaceOpenTabsState, WorkspacePersistedOpenTab } from '@shared/index';
 import {
   editorModelKeyForAbsolutePath,
   editorModelKeyForRelativePath,
@@ -233,3 +234,91 @@ export function reorderFileTabs(
 }
 
 export { openEditorFileRefFromRelativePath };
+
+/** Drop ephemeral build-plan tabs; keep workspace and external file tabs. */
+export function toPersistedOpenTab(tab: ChatFileTab): WorkspacePersistedOpenTab | null {
+  if (tab.buildPlanId || tab.previewOnly) {
+    return null;
+  }
+  if (tab.outsideWorkspace && tab.absolutePath?.trim()) {
+    return {
+      absolutePath: normalizePathSlashes(tab.absolutePath.trim()),
+      outsideWorkspace: true,
+    };
+  }
+  const rel = tab.relativePath?.trim();
+  if (!rel) {
+    return null;
+  }
+  return { relativePath: normalizePathSlashes(rel), outsideWorkspace: false };
+}
+
+export function chatFileTabFromPersisted(tab: WorkspacePersistedOpenTab): ChatFileTab | null {
+  if (tab.outsideWorkspace && tab.absolutePath?.trim()) {
+    return {
+      absolutePath: normalizePathSlashes(tab.absolutePath.trim()),
+      outsideWorkspace: true,
+    };
+  }
+  const rel = tab.relativePath?.trim();
+  if (!rel) {
+    return null;
+  }
+  return { relativePath: normalizePathSlashes(rel), outsideWorkspace: false };
+}
+
+/** Ordered file tabs plus focused id, omitting ephemeral build-plan tabs. */
+export function serializeWorkspaceOpenTabs(
+  tabs: readonly ChatFileTab[],
+  activeTabId: string | null,
+): WorkspaceOpenTabsState {
+  const persisted: WorkspacePersistedOpenTab[] = [];
+  const seen = new Set<string>();
+  for (const tab of tabs) {
+    const slim = toPersistedOpenTab(tab);
+    if (!slim) {
+      continue;
+    }
+    const id = chatFileTabId(slim);
+    if (!id || id === 'file:' || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    persisted.push(slim);
+  }
+  const active = activeTabId?.trim() || null;
+  const activeTabIdOut =
+    active && seen.has(active)
+      ? active
+      : persisted.length > 0
+        ? chatFileTabId(persisted[persisted.length - 1]!)
+        : null;
+  return { tabs: persisted, activeTabId: activeTabIdOut };
+}
+
+export function chatFileTabsFromPersistedState(
+  state: WorkspaceOpenTabsState | null | undefined,
+): { tabs: ChatFileTab[]; activeTabId: string | null } {
+  if (!state) {
+    return { tabs: [], activeTabId: null };
+  }
+  const tabs: ChatFileTab[] = [];
+  const seen = new Set<string>();
+  for (const raw of state.tabs) {
+    const tab = chatFileTabFromPersisted(raw);
+    if (!tab) {
+      continue;
+    }
+    const id = chatFileTabId(tab);
+    if (!id || id === 'file:' || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    tabs.push(tab);
+  }
+  const active = state.activeTabId?.trim() || null;
+  return {
+    tabs,
+    activeTabId: active && seen.has(active) ? active : tabs.length > 0 ? chatFileTabId(tabs[tabs.length - 1]!) : null,
+  };
+}

@@ -12,6 +12,7 @@ Modules
 ``copy``, ``delete``, ``edit``, ``staging_edit`` — workspace mutators (staging or direct)
 ``lsp_tools`` — LSP reads, diagnostics, and language-specific CRUD
 ``run_command`` — managed background shell jobs (``wait_for_command`` / kill / list)
+``write_jobs`` — managed staging write jobs (``wait_for_write`` / cancel / list)
 ``review_tools`` — staging inspect/format/transfer/reject/discard/overlay
 ``project_review_tools`` — shared subprocess streaming helpers for overlay
 """

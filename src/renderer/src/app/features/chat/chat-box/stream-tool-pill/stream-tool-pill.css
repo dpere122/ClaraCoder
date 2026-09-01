@@ -6,7 +6,7 @@ app-stream-tool-pill .stream-tool-pill {
   margin: 0.12rem 0.18rem 0.12rem 0;
   padding: 0.16rem 0.55rem;
   border: 1px solid color-mix(in srgb, var(--t-primary) 48%, var(--t-border-subtle));
-  border-radius: 999px;
+  border-radius: 999px !important;
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--t-primary) 16%, var(--t-code-inline-bg)),

@@ -7,36 +7,6 @@ app-aux-stream-tool-part .aux-stream-tool-part__terminal {
   margin-top: 0.28rem;
 }
 
-/** Collapsed read pill: short tail peek (matches delegated-shell preview height). */
-app-aux-stream-tool-part .aux-stream-tool-part__read-preview {
-  display: block;
-  margin: 0.28rem 0 0;
-  padding: 0.3rem 0.45rem 0.4rem;
-  max-height: 4.5rem;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
-  border-radius: 0.35rem;
-  background: color-mix(in srgb, var(--t-code-bg) 65%, transparent);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 18%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%);
-}
-
-app-aux-stream-tool-part .aux-stream-tool-part__read-preview pre {
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  max-height: none;
-  overflow: visible;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  font-size: 0.72rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--t-code-text);
-}
-
 app-aux-stream-tool-part .aux-stream-tool-part__detail {
   display: block;
   margin: 0.28rem 0 0;

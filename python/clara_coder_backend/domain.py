@@ -15,17 +15,20 @@ from typing import Any
 
 @dataclass
 class EditStagingEntry:
-    """Pending nested edit: merged content on disk under ``CLARA_STAGING_DIR`` before code review / finalize."""
+    """Pending write-through edit: current bytes are on the real workspace file; ``old_text`` is the undo journal."""
 
-    temp_path: str
-    old_text: str
-    merged_text: str
-    disk_encoding: str
+    #: Unused leftover (was a sidecar draft path). Write-through keeps the draft on the workspace file.
+    temp_path: str = ''
+    #: Workspace bytes from the first stage on this path in the current chain (restore baseline).
+    old_text: str = ''
+    #: Last staged/formatted text (also written to the workspace file until discard restores ``old_text``).
+    merged_text: str = ''
+    disk_encoding: str = 'utf-8'
     #: ``lf`` or ``crlf`` for disk writes.
-    disk_newline: str
+    disk_newline: str = 'lf'
     #: ``full-file`` | ``line-range`` | ``snippet``
-    edit_mode: str
-    #: True once the approved staged draft has been materialized into the real workspace for the current chain.
+    edit_mode: str = 'full-file'
+    #: True once transfer/HITL keep dropped the journal (discard must not restore).
     workspace_applied: bool = False
     #: Whether the workspace file existed on disk before this staged edit (empty files count as existed).
     before_existed: bool = True
@@ -33,7 +36,7 @@ class EditStagingEntry:
 
 @dataclass
 class WorkspaceTestMaterializationEntry:
-    """Original workspace snapshot for a staged file materialized into the real workspace for test runs."""
+    """Legacy alias for a journal snapshot; write-through uses :class:`EditStagingEntry.old_text`."""
 
     existed: bool
     original_text: str
@@ -111,6 +114,8 @@ class SessionHitlState:
     question_aborted: bool = False
     # Human-in-the-loop: agent stream awaits this after emitting a diff; POST /chat/agent-continue sets it.
     agent_pause_event: asyncio.Event | None = None
+    #: Serializes HITL pauses so parallel ToolNode tasks cannot clobber ``agent_pause_event``.
+    hitl_pause_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Note from the client, appended as HumanMessage after the pause (may be empty).
     agent_pause_note: str | None = None
     # UI/system events (e.g. user closed a run_command terminal tab) drained into HumanMessages.
@@ -121,15 +126,15 @@ class SessionHitlState:
 
 @dataclass
 class SessionStagingState:
-    """Nested edit staging snapshots and test-run materializations."""
+    """Write-through journals for staged paths (undo until transfer keep)."""
 
     # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
     pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
-    # Active staging snapshot namespace for temp drafts and the seeded workspace mirror.
+    # Unused snapshot namespace (full-tree mirrors are no longer seeded in production).
     active_staging_snapshot_id: str = ''
-    # Absolute path to the seeded workspace mirror root, or empty when no snapshot is active.
+    # Unused snapshot root (full-tree mirrors are no longer seeded in production).
     active_staging_snapshot_root: str = ''
-    # Original workspace snapshots for staged files materialized into the real workspace before reviewer test runs.
+    # Legacy map; write-through journals live on ``pending_edit_stagings``.
     test_run_materializations: dict[str, WorkspaceTestMaterializationEntry] = field(default_factory=dict)
 
 
@@ -157,6 +162,8 @@ class SessionLspState:
     lsp_diagnostics_by_scope: dict[str, dict[str, list[dict[str, object]]]] = field(
         default_factory=lambda: {'workspace': {}, 'staging': {}}
     )
+    # Monotonic LSP manager generation (survives subprocess recreate; editor watch uses this).
+    lsp_sync_epoch: int = 0
 
 
 @dataclass
@@ -270,7 +277,7 @@ class RuntimeConnection:
     # Stored UI/config value; llm.py maps on→medium, off→none, and passes none|minimal|…|xhigh through.
     reasoning_effort: str = ''
     temperature: float = 0.0
-    parallel_tool_calls: bool = False
+    parallel_tool_calls: bool = True
     #: ``generic`` | ``qwen`` | ``gemma`` — from Settings optimization template.
     optimization_preset: str = 'generic'
     #: Chat max_tokens when > 0; 0 omits the cap (server context still limits).

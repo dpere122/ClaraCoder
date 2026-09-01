@@ -46,7 +46,7 @@ export function optimizationPresetsForProvider(provider: LlmProviderConfig['prov
 
 /** Values applied when the user picks the Qwen template (they can edit afterward). */
 export const QWEN_PRESET_DEFAULTS = {
-  parallelToolCalls: false,
+  parallelToolCalls: true,
   maxOutputTokens: 0,
   /** Recommended chat temperature for Qwen coding profiles. */
   temperature: 0.65,
@@ -57,7 +57,7 @@ export const QWEN_PRESET_DEFAULTS = {
 
 /** Defaults applied when the user picks the Gemma (local) optimization template. */
 export const GEMMA_PRESET_DEFAULTS = {
-  parallelToolCalls: false,
+  parallelToolCalls: true,
   maxOutputTokens: 0,
   temperature: 1.0,
   /** Connection ``top_p`` / ``top_k`` drive inference; keep sampling preset neutral. */
@@ -67,3 +67,8 @@ export const GEMMA_PRESET_DEFAULTS = {
   topP: 0.95,
   topK: 64,
 } as const;
+
+/** First-turn primary prose is shown as a Clara brief pill on every optimization preset. */
+export function outerAgentBriefEnabled(_preset: LlmOptimizationPreset | string | undefined): boolean {
+  return true;
+}

@@ -11,23 +11,25 @@ from clara_coder_backend.session.state import get_session
 async def await_diff_review_note(session_id: str) -> str:
     """Block until ``POST /chat/agent-continue``; return the optional user note (may be empty)."""
     sess = get_session(session_id)
-    sess.agent_pause_event = asyncio.Event()
-    try:
-        await sess.agent_pause_event.wait()
-    finally:
-        sess.agent_pause_event = None
-    note = (sess.agent_pause_note or '').strip()
-    sess.agent_pause_note = None
-    return note
+    async with sess.hitl_pause_lock:
+        sess.agent_pause_event = asyncio.Event()
+        try:
+            await sess.agent_pause_event.wait()
+        finally:
+            sess.agent_pause_event = None
+        note = (sess.agent_pause_note or '').strip()
+        sess.agent_pause_note = None
+        return note
 
 
 async def await_question_answers(session_id: str) -> list[dict[str, Any]]:
     """Block until ``POST /chat/agent-question-answers``; return structured answers (may be empty)."""
     sess = get_session(session_id)
-    sess.agent_pause_event = asyncio.Event()
-    try:
-        await sess.agent_pause_event.wait()
-    finally:
-        sess.agent_pause_event = None
-    answers: list[dict[str, Any]] = list(sess.question_answers or [])
-    return answers
+    async with sess.hitl_pause_lock:
+        sess.agent_pause_event = asyncio.Event()
+        try:
+            await sess.agent_pause_event.wait()
+        finally:
+            sess.agent_pause_event = None
+        answers: list[dict[str, Any]] = list(sess.question_answers or [])
+        return answers

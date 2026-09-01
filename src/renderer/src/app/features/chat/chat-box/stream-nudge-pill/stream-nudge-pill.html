@@ -1,0 +1,36 @@
+<div
+  class="stream-nudge-pill"
+  [class.stream-nudge-pill--previewing]="showPreview()"
+>
+  @if (live()) {
+    <div
+      class="stream-nudge-preview"
+      [class.stream-nudge-preview--open]="showPreview()"
+    >
+      <div class="stream-nudge-preview__inner">
+        <button
+          type="button"
+          class="stream-nudge-preview__header"
+          [attr.aria-expanded]="showPreview()"
+          (click)="toggle()"
+        >
+          {{ label() }}
+        </button>
+        <pre #previewBody class="stream-nudge-preview__body">{{ text() }}@if (showPreview()) {<span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>}</pre>
+      </div>
+    </div>
+  }
+  <div class="stream-nudge-pill__chip" [hidden]="showPreview()">
+    <app-stream-tool-pill
+      [name]="label()"
+      [state]="pillState()"
+      [expandable]="true"
+      [expanded]="expanded()"
+      [live]="live()"
+      (toggle)="toggle()"
+    />
+    @if (expanded() && !showPreview()) {
+      <pre class="llm-reasoning-body stream-nudge-pill__body">{{ text() }}</pre>
+    }
+  </div>
+</div>

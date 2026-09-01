@@ -48,12 +48,8 @@ from clara_coder_backend.runtime.python_env import (
     with_subprocess_color_env,
 )
 from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search
-from clara_coder_backend.staging.materializations import (
-    restore_materialized_path,
-    rollback_test_run_materializations,
-)
+from clara_coder_backend.staging.materializations import restore_materialized_path
 from clara_coder_backend.staging.staging_test_overlay import (
-    build_staging_test_overlay,
     parse_command_argv_json,
     remove_overlay_parent,
     resolve_overlay_cwd,
@@ -61,11 +57,9 @@ from clara_coder_backend.staging.staging_test_overlay import (
 )
 from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
 from clara_coder_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
-from clara_coder_backend.session.file_journal import emit_edit_journal
 from clara_coder_backend.session.state import (
     agent_formatters_enabled,
     current_session_id,
-    direct_workspace_edits_active,
     get_session,
     mutation_tools_blocked_reason,
     runtime_config,
@@ -129,6 +123,21 @@ def _format_read_excerpt_with_gutter(excerpt: list[str], line_start: int, line_e
     )
 
 
+def _pending_draft_text(rel_key: str, entry: object) -> str:
+    """Current draft text: workspace file if present, else the journalled merged snapshot."""
+
+    merged = str(getattr(entry, 'merged_text', '') or '')
+    try:
+        root = get_active_workspace_root()
+        target = normalize_relative_path(root, rel_key)
+        if target.is_file():
+            enc = str(getattr(entry, 'disk_encoding', '') or 'utf-8')
+            return decode_for_tools(target.read_bytes(), enc)
+    except (OSError, ValueError) as exc:
+        logger.warning('pending draft disk read failed path=%s err=%s', rel_key, exc)
+    return merged
+
+
 def _search_staged_edits_python(
     entries: list[tuple[str, object]],
     *,
@@ -137,11 +146,7 @@ def _search_staged_edits_python(
 ) -> list[str]:
     matches: list[str] = []
     for rel_key, entry in entries:
-        try:
-            text = edit_staging.read_staging_text(Path(entry.temp_path), entry.disk_encoding)
-        except OSError as exc:
-            logger.warning('search_staged_edits read failed path=%s err=%s', rel_key, exc)
-            continue
+        text = _pending_draft_text(rel_key, entry)
         for line_number, line in enumerate(text.splitlines(), start=1):
             if pattern.search(line):
                 matches.append(f'[{rel_key} line {line_number}]{_READ_FILE_GUTTER_SEP}{line}')
@@ -156,9 +161,14 @@ def _search_staged_edits_grep(
     query: str,
     limit: int,
 ) -> list[str] | None:
+    try:
+        root = get_active_workspace_root()
+    except ValueError:
+        return None
     candidates = [
-        SearchCandidate(command_path=str(Path(entry.temp_path)), display_path=rel_key)
+        SearchCandidate(command_path=str(normalize_relative_path(root, rel_key)), display_path=rel_key)
         for rel_key, entry in entries
+        if normalize_relative_path(root, rel_key).is_file()
     ]
     grep_matches = run_grep_line_search(query, candidates, max_matches=limit)
     if grep_matches is None:
@@ -171,14 +181,10 @@ def _search_staged_edits_grep(
         entry = entry_by_rel_key.get(match.display_path)
         if entry is None:
             continue
-        try:
-            file_lines = lines_cache.get(match.display_path)
-            if file_lines is None:
-                file_lines = edit_staging.read_staging_text(Path(entry.temp_path), entry.disk_encoding).splitlines()
-                lines_cache[match.display_path] = file_lines
-        except OSError as exc:
-            logger.warning('search_staged_edits grep reread failed path=%s err=%s', match.display_path, exc)
-            continue
+        file_lines = lines_cache.get(match.display_path)
+        if file_lines is None:
+            file_lines = _pending_draft_text(match.display_path, entry).splitlines()
+            lines_cache[match.display_path] = file_lines
         if 1 <= match.line_number <= len(file_lines):
             rendered.append(
                 f'[{match.display_path} line {match.line_number}]{_READ_FILE_GUTTER_SEP}'
@@ -395,6 +401,14 @@ def _validate_transfer_batch(session: SessionState, paths: list[str]) -> tuple[l
     return validated, None
 
 
+def _keep_write_through_entry(session: SessionState, rel_key: str, entry: object) -> None:
+    """Drop the undo journal; disk already has the draft."""
+
+    session.test_run_materializations.pop(rel_key, None)
+    entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
+    entry.workspace_applied = True  # type: ignore[attr-defined]
+
+
 def _apply_staged_transfer_confirm(
     session: SessionState,
     rel_key: str,
@@ -402,41 +416,13 @@ def _apply_staged_transfer_confirm(
     *,
     session_id: str | None,
 ) -> str | None:
-    """Write one confirmed staged path to the real workspace. Returns error text or None on success."""
+    """Keep one confirmed write-through path (disk already written). Returns error text or None on success."""
     if _entry_workspace_applied(entry):
-        return None
-    if rel_key in session.test_run_materializations:
-        _mark_materialization_approved(session, rel_key)
-        entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
-        entry.workspace_applied = True  # type: ignore[attr-defined]
-        logger.info('_apply_staged_transfer_confirm test_run path=%s', rel_key)
         return None
     wp = (session.workspace_path or '').strip()
     if not wp:
         return f'Tool error after user confirmation: no workspace is attached to this session.'
-    root = Path(wp).resolve()
-    target = normalize_relative_path(root, rel_key)
-    try:
-        write_file_resolved(
-            target,
-            str(entry.merged_text),  # type: ignore[attr-defined]
-            str(entry.disk_encoding),  # type: ignore[attr-defined]
-            'crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
-        )
-        emit_edit_journal(
-            session,
-            rel_key,
-            str(entry.old_text),  # type: ignore[attr-defined]
-            before_existed=bool(getattr(entry, 'before_existed', True)),
-            encoding=str(entry.disk_encoding),  # type: ignore[attr-defined]
-            newline='crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
-        )
-    except OSError as exc:
-        return f'Tool error after user confirmation: could not write staged file `{rel_key}` into the workspace ({exc}).'
-    except Exception as exc:
-        return f'Tool error after user confirmation: could not encode staged file `{rel_key}` for the workspace ({exc}).'
-    entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
-    entry.workspace_applied = True  # type: ignore[attr-defined]
+    _keep_write_through_entry(session, rel_key, entry)
     logger.info('_apply_staged_transfer_confirm path=%s session_id=%s', rel_key, session_id)
     return None
 
@@ -444,11 +430,11 @@ def _apply_staged_transfer_confirm(
 def _re_review_message(rel_key: str, user_note: str) -> str:
     fb = (user_note or '').strip() or '(no details)'
     return (
-        f'**Staged transfer returned for re-review (user did not approve landing this draft in the workspace '
-        f'yet).** Path: `{rel_key}`.\n\n'
-        'Revise the staged draft (`diff_staged_edit_against_baseline` / `read_staged_edit`), then call '
+        f'**Staged transfer returned for re-review (user did not keep this already-written draft).** '
+        f'Path: `{rel_key}`. The journal was restored on disk.\n\n'
+        'Revise with a follow-up `stage_*` (`diff_staged_edit_against_baseline` / `read_staged_edit`), then call '
         '`transfer_staged_file_to_workspace` again when ready. '
-        'Or call `discard_staged_edits` for this path to abandon the draft without landing.\n\n'
+        'Or call `discard_staged_edits` for this path to drop the pending entry.\n\n'
         f'User / reviewer feedback:\n{fb}'
     )
 
@@ -521,6 +507,12 @@ def resolve_staged_transfer_batch_file(
     else:
         pending.resolved[rel_key] = 're_review'
         pending.feedback[rel_key] = (user_note or '').strip() or '(no details)'
+        if entry is not None and not _entry_workspace_applied(entry):
+            try:
+                restore_materialized_path(session, rel_key)
+            except Exception as exc:
+                logger.warning('HITL re_review restore failed path=%s err=%s', rel_key, exc)
+            entry.merged_text = str(getattr(entry, 'old_text', '') or '')  # type: ignore[attr-defined]
 
     remaining = [p for p in pending.relative_paths if p not in pending.resolved]
     if remaining:
@@ -587,7 +579,7 @@ def _materialize_staged_python_files(session, overlays: list[tuple[str, object]]
 
 
 @tool(LIST_STAGED_EDITS_NAME, description=describe(
-        'List workspace-relative paths that have a pending staged draft (not yet transferred).',
+        'List workspace-relative paths that have a pending write-through journal (not yet kept or restored).',
         when='see what is in the staging plane before diff/read/search.',
         not_='disk directory listing (use `list_workspace_directory`); file text (use `read_staged_edit` or diff).',
         shape=f'paths are same keys as `relative_path` on other staging tools ({RELATIVE_PATH})',
@@ -606,10 +598,10 @@ def list_staged_edits() -> str:
 
 
 @tool(DIFF_STAGED_EDIT_AGAINST_BASELINE_NAME, description=describe(
-        'Unified diff: workspace baseline at stage time vs current staged `merged_text` (git-style).',
+        'Unified diff: journal baseline at first stage vs current on-disk draft (git-style).',
         when='mechanical review of what changed for one pending path; prefer before bulk `read_staged_edit`.',
         not_=(
-            'on-disk vs disk (use workspace diff elsewhere); full draft text '
+            'git working tree vs HEAD; full draft text '
             '(use `read_staged_edit` if diff truncated or need context).'
         ),
         shape=(
@@ -637,7 +629,7 @@ def diff_staged_edit_against_baseline(
     if body.startswith('Tool error:'):
         return body
     header = (
-        f'Diff `{rel_key}` (--- workspace baseline at stage time, +++ current staged draft)\n\n'
+        f'Diff `{rel_key}` (--- journal baseline at first stage, +++ current on-disk draft)\n\n'
     )
     out = header + body
     if truncated:
@@ -654,9 +646,9 @@ def diff_staged_edit_against_baseline(
 
 
 @tool(READ_STAGED_EDIT_NAME, description=describe(
-        'Read a **window** of the pending staged merged draft for one path (temp file, not on-disk workspace).',
+        'Read a **window** of the pending write-through draft (same bytes as `read_workspace_file` for this path).',
         when='inspect or copy exact staged text; revise after review; anchor line edits on the draft.',
-        not_='on-disk checkpoint (use `read_workspace_file` after transfer or when no staging entry).',
+        not_='journal baseline (use `diff_staged_edit_against_baseline`); already-kept paths (use `read_workspace_file`).',
         shape=(
             f'`relative_path` {RELATIVE_PATH} must exist in `list_staged_edits`. '
             f'`start_line`/`end_line` {ONE_BASED} over staged logical lines; window capped like `read_workspace_file`. '
@@ -676,11 +668,7 @@ def read_staged_edit(
         return got
     session, rel_key = got
     entry = session.pending_edit_stagings[rel_key]
-    path = Path(entry.temp_path)
-    try:
-        text = edit_staging.read_staging_text(path, entry.disk_encoding)
-    except OSError as exc:
-        return f'Tool error: could not read staging file ({exc}).'
+    text = _pending_draft_text(rel_key, entry)
     cap = _effective_max_file_read_lines()
     safe_start, safe_end = clamp_line_window(start_line, end_line, cap)
     lines = text.splitlines()
@@ -768,7 +756,11 @@ def format_staging_file_black(
     if not rel_key.lower().endswith('.py'):
         return 'Tool error: Black applies only to `.py` staged files.'
     entry = session.pending_edit_stagings[rel_key]
-    path = Path(entry.temp_path)
+    try:
+        root = get_active_workspace_root()
+        path = normalize_relative_path(root, rel_key)
+    except ValueError as exc:
+        return f'Tool error: {exc}'
     nl: DiskNewline = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
     ok, detail = edit_staging.run_black_on_file(path, encoding=entry.disk_encoding, disk_newline=nl)
     if not ok:
@@ -777,7 +769,7 @@ def format_staging_file_black(
     try:
         entry.merged_text = edit_staging.read_staging_text(path, entry.disk_encoding)
     except OSError as exc:
-        return f'Tool error: could not read staging after Black ({exc}).'
+        return f'Tool error: could not read workspace after Black ({exc}).'
     logger.info('format_staging_file_black ok path=%s', rel_key)
     return (
         f'Black formatted staged `{rel_key}`. Call `lsp_get_diagnostics` with `refresh_active_document=true` to verify, '
@@ -811,7 +803,7 @@ def format_staging_file_prettier(
     except ValueError as exc:
         return f'Tool error: {exc}'
     entry = session.pending_edit_stagings[rel_key]
-    path = Path(entry.temp_path)
+    path = normalize_relative_path(workspace_root, rel_key)
     nl: DiskNewline = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
     ok, detail = edit_staging.run_prettier_on_file(
         path,
@@ -826,7 +818,7 @@ def format_staging_file_prettier(
     try:
         entry.merged_text = edit_staging.read_staging_text(path, entry.disk_encoding)
     except OSError as exc:
-        return f'Tool error: could not read staging after Prettier ({exc}).'
+        return f'Tool error: could not read workspace after Prettier ({exc}).'
     logger.info('format_staging_file_prettier ok path=%s', rel_key)
     return (
         f'Prettier formatted staged `{rel_key}`. For `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, call '
@@ -939,12 +931,12 @@ def _overlay_combined_output(stdout: RollingTextBuffer, stderr: RollingTextBuffe
 
 
 @tool(RUN_STAGING_OVERLAY_COMMAND_NAME, description=describe(
-        'Run `command_argv_json` (JSON argv array, no shell) in an ephemeral overlay: workspace + pending staged drafts.',
-        when='pytest/npm tests against drafts without writing real workspace (requires Settings → Allow staging overlay commands).',
-        not_='substitute for `transfer_staged_file_to_workspace`; real workspace unchanged until transfer/reject flow.',
+        'Run `command_argv_json` (JSON argv array, no shell) in the real workspace (drafts are already on disk).',
+        when='pytest/npm tests against write-through drafts (requires Settings → Allow staging overlay commands).',
+        not_='a second workspace copy; use `run_command` for general shell work.',
         shape=(
-            '`cwd_relative` optional under overlay root. Heavy dirs linked from workspace. '
-            'Still finish review with transfer/reject. '
+            '`cwd_relative` optional under the workspace root. '
+            'Still finish review with transfer (keep) or discard (restore). '
             'Allowed: test/build/lint runners only (pytest, python -m pytest, npm/pnpm/yarn run, etc.)—'
             'no shells, `python -c`, or `node -e`.'
         ),
@@ -984,24 +976,12 @@ async def run_staging_overlay_command(
     except ValueError as exc:
         return f'Tool error: {exc}'
 
-    direct = direct_workspace_edits_active(session, apply_mode=True)
     overlay_parent: Path | None = None
-    if direct:
-        command_root = workspace_root.resolve()
-        cwd, cwd_err = resolve_overlay_cwd(command_root, cwd_relative)
-        if cwd is None:
-            return cwd_err
-        cwd_label = 'workspace'
-    else:
-        overlay_root, overlay_parent, build_err = build_staging_test_overlay(session, workspace_root, sid)
-        if overlay_root is None or overlay_parent is None:
-            return build_err or 'Tool error: could not build staging overlay.'
-        command_root = overlay_root
-        cwd, cwd_err = resolve_overlay_cwd(command_root, cwd_relative)
-        if cwd is None:
-            remove_overlay_parent(overlay_parent)
-            return cwd_err
-        cwd_label = 'overlay'
+    command_root = workspace_root.resolve()
+    cwd, cwd_err = resolve_overlay_cwd(command_root, cwd_relative)
+    if cwd is None:
+        return cwd_err
+    cwd_label = 'workspace'
 
     await ensure_session_python_workspace_env(
         session,
@@ -1212,7 +1192,7 @@ async def run_staging_overlay_command(
         )
         if combined:
             body += f'\nCaptured output:\n{combined}'
-        logger.info('run_staging_overlay_command exit_code=%s cwd=%s direct=%s watch=%s', exit_code, cwd, direct, watch_mode)
+        logger.info('run_staging_overlay_command exit_code=%s cwd=%s watch=%s', exit_code, cwd, watch_mode)
         return truncate_text_head_tail(body, _MAX_OVERLAY_OUTPUT_CHARS)
     finally:
         if overlay_parent is not None:
@@ -1220,17 +1200,9 @@ async def run_staging_overlay_command(
 
 
 def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[dict | None, str | None]:
-    """Workspace baseline vs staged merged text for chat diff review (no disk write)."""
-    root = get_active_workspace_root()
-    target = (root / rel_key).resolve()
-    old_text = ''
-    if target.is_file():
-        try:
-            raw_existing = target.read_bytes()
-            old_text = decode_for_tools(raw_existing, str(entry.disk_encoding))
-        except OSError as exc:
-            return None, f'could not read workspace file for diff ({exc})'
-    merged = str(entry.merged_text)
+    """Journal baseline vs current draft for chat keep-vs-restore review."""
+    old_text = str(getattr(entry, 'old_text', '') or '')
+    merged = _pending_draft_text(rel_key, entry)
     nl = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
     payload, err = build_file_diff_payload(
         rel_key,
@@ -1246,40 +1218,10 @@ def _build_staged_transfer_hitl_payload(session, rel_key: str, entry) -> tuple[d
 
 
 def _apply_staged_transfer_auto(session: SessionState, rel_key: str, entry: object) -> str:
-    """Auto-apply one staged path to the real workspace; returns a short status fragment."""
-    if rel_key in session.test_run_materializations:
-        _mark_materialization_approved(session, rel_key)
-        out = (
-            f'Staged `{rel_key}` is already saved in the workspace from the reviewer test run. '
-            'Keeping the workspace copy as the approved version.'
-        )
-    else:
-        root = get_active_workspace_root()
-        target = (root / rel_key).resolve()
-        try:
-            write_file_resolved(
-                target,
-                str(entry.merged_text),  # type: ignore[attr-defined]
-                str(entry.disk_encoding),  # type: ignore[attr-defined]
-                'crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
-            )
-            emit_edit_journal(
-                session,
-                rel_key,
-                str(entry.old_text),  # type: ignore[attr-defined]
-                before_existed=bool(getattr(entry, 'before_existed', True)),
-                encoding=str(entry.disk_encoding),  # type: ignore[attr-defined]
-                newline='crlf' if entry.disk_newline == 'crlf' else 'lf',  # type: ignore[attr-defined]
-            )
-        except OSError as exc:
-            return f'Tool error: could not write staged file `{rel_key}` into the workspace ({exc}).'
-        except Exception as exc:
-            return f'Tool error: could not encode staged file `{rel_key}` for the workspace ({exc}).'
-        out = f'Approved staged `{rel_key}` into the real workspace.'
-    entry.old_text = str(entry.merged_text)  # type: ignore[attr-defined]
-    entry.workspace_applied = True  # type: ignore[attr-defined]
+    """Keep one write-through path (disk already has the draft)."""
+    _keep_write_through_entry(session, rel_key, entry)
     logger.info('run_staged_transfer_to_workspace path=%s', rel_key)
-    return out
+    return f'Kept staged `{rel_key}` on disk (journal dropped).'
 
 
 def run_staged_transfer_batch(session: SessionState, paths: list[str]) -> str:
@@ -1296,15 +1238,12 @@ def run_staged_transfer_batch(session: SessionState, paths: list[str]) -> str:
 
     if not session.auto_apply_mode:
         file_payloads: list[dict] = []
-        any_test_run = False
         for rel_key in validated:
             entry = session.pending_edit_stagings[rel_key]
             payload, build_err = _build_staged_transfer_hitl_payload(session, rel_key, entry)
             if build_err:
                 return f'Tool error: `{rel_key}`: {build_err}'
             file_payloads.append(payload)
-            if rel_key in session.test_run_materializations:
-                any_test_run = True
         request_id = uuid.uuid4().hex
         pending = PendingStagedTransferHitl(request_id=request_id, relative_paths=list(validated))
         session.pending_staged_transfer_hitl = pending
@@ -1312,9 +1251,7 @@ def run_staged_transfer_batch(session: SessionState, paths: list[str]) -> str:
         session.pending_diff_payload = None
         quoted = ', '.join(f'`{p}`' for p in validated)
         test_note = (
-            ' Some paths are already on disk from reviewer test runs; confirm before this chain treats them as approved.'
-            if any_test_run
-            else ''
+            ' These paths are already written on disk; confirm keeps them, re-review restores the journal.'
         )
         logger.info(
             'run_staged_transfer_batch awaiting hitl paths=%s count=%d',
@@ -1340,12 +1277,12 @@ def run_staged_transfer_batch(session: SessionState, paths: list[str]) -> str:
     if len(validated) == 1:
         rel_key = validated[0]
         return (
-            f'Transferred staged `{rel_key}` to the real workspace and kept the staged draft for the current chain. '
+            f'Kept staged `{rel_key}` on disk and dropped the undo journal for the current chain. '
             f'{fragments[0]}{lsp_section} Stop this review turn after calling this tool.'
         )
     summary = '; '.join(fragments)
     return (
-        f'Transferred {len(validated)} staged path(s) ({quoted}) to the real workspace. '
+        f'Kept {len(validated)} staged path(s) ({quoted}) on disk and dropped their undo journals. '
         f'{summary}{lsp_section} Stop this review turn after calling this tool.'
     )
 
@@ -1356,16 +1293,16 @@ def run_staged_transfer_to_workspace(session: SessionState, rel_key: str) -> str
 
 
 @tool(TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME, description=describe(
-        'Approve landing staged draft(s): writes workspace (or queues HITL diff batch when auto-apply off).',
-        when='draft(s) are correct and should become the on-disk checkpoint.',
+        'Keep already-written draft(s): drop the undo journal (or queue HITL keep-vs-restore when auto-apply off).',
+        when='draft(s) are correct and should stay on disk as the checkpoint.',
         not_=(
             'request writer changes (use `reject_staged_workspace_edit` with feedback); '
-            'abandon without landing (use `discard_staged_edits`); reading only (use `read_staged_edit`).'
+            'abandon and restore the journal (use `discard_staged_edits`); reading only (use `read_staged_edit`).'
         ),
         shape=(
             f'`relative_paths` is a non-empty list of {RELATIVE_PATH}s (preferred for multiple files). '
-            'Legacy `relative_path` accepts a single path. After approval, follow-up reads use `read_workspace_file` / LSP on disk. '
-            'Workspace LSP refresh runs **once** after every staged path in this chain is transferred (not after each file).'
+            'Legacy `relative_path` accepts a single path. Disk already has the draft; this call only keeps or asks HITL. '
+            'Workspace LSP refresh runs **once** after every staged path in this chain is kept (not after each file).'
         ),
     ))
 def transfer_staged_file_to_workspace(
@@ -1402,7 +1339,13 @@ def reject_staged_workspace_edit(
     if isinstance(got, str):
         return got
     session, rel_key = got
-    rollback_test_run_materializations(session)
+    try:
+        restore_materialized_path(session, rel_key)
+    except Exception as exc:
+        logger.warning('reject_staged_workspace_edit restore failed path=%s err=%s', rel_key, exc)
+    entry = session.pending_edit_stagings.get(rel_key)
+    if entry is not None:
+        entry.merged_text = str(getattr(entry, 'old_text', '') or '')
     fb = (feedback or '').strip() or '(no details)'
     logger.info('reject_staged_workspace_edit path=%s', rel_key)
     return (
@@ -1414,19 +1357,18 @@ def reject_staged_workspace_edit(
 
 
 @tool(DISCARD_STAGED_EDITS_NAME, description=describe(
-        'Abandon pending staged draft(s): remove temp drafts and session entries without landing on disk.',
+        'Abandon pending staged draft(s): restore the journal on disk and drop the session entry.',
         when=(
-            'draft(s) should not be transferred—wrong approach, superseded, or after user re-review '
+            'draft(s) should not be kept—wrong approach, superseded, or after user re-review '
             'when you will not revise.'
         ),
         not_=(
             'request revisions while keeping the draft (use `reject_staged_workspace_edit` with feedback); '
-            'land approved work (use `transfer_staged_file_to_workspace`).'
+            'keep approved work (use `transfer_staged_file_to_workspace`).'
         ),
         shape=(
             f'`relative_paths` is a non-empty list of {RELATIVE_PATH}s (preferred for multiple files). '
-            'Legacy `relative_path` accepts a single path. Workspace on disk stays unchanged '
-            '(test-run materializations for discarded paths are restored).'
+            'Legacy `relative_path` accepts a single path. Disk is restored to the pre-stage journal.'
         ),
     ))
 def discard_staged_edits(
@@ -1473,9 +1415,9 @@ def discard_staged_edits(
         return 'Tool error: ' + '; '.join(errors) + '.'
     quoted = ', '.join(f'`{p}`' for p in discarded)
     if len(discarded) == 1:
-        body = f'Discarded staged draft for {quoted}. Workspace on disk was not changed.'
+        body = f'Discarded staged draft for {quoted}. Journal restored on disk.'
     else:
-        body = f'Discarded {len(discarded)} staged draft(s) ({quoted}). Workspace on disk was not changed.'
+        body = f'Discarded {len(discarded)} staged draft(s) ({quoted}). Journal restored on disk.'
     if errors:
         body += ' Partial failures: ' + '; '.join(errors) + '.'
     return body

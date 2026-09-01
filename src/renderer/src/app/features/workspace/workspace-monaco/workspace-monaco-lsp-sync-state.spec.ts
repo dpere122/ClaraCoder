@@ -1,4 +1,5 @@
 import {
+  invalidateMonacoModelLspDocumentSync,
   markMonacoModelLspDocumentSynced,
   monacoModelNeedsLspDocumentSync,
 } from './workspace-monaco-lsp-sync-state';
@@ -16,6 +17,15 @@ describe('workspace-monaco-lsp-sync-state', () => {
     markMonacoModelLspDocumentSynced(model);
     expect(monacoModelNeedsLspDocumentSync(model)).toBe(false);
     v = 8;
+    expect(monacoModelNeedsLspDocumentSync(model)).toBe(true);
+  });
+
+  it('invalidate forces the next call to send the live buffer', () => {
+    let v = 3;
+    const model = { getAlternativeVersionId: () => v } as import('monaco-editor').editor.ITextModel;
+    markMonacoModelLspDocumentSynced(model);
+    expect(monacoModelNeedsLspDocumentSync(model)).toBe(false);
+    invalidateMonacoModelLspDocumentSync(model);
     expect(monacoModelNeedsLspDocumentSync(model)).toBe(true);
   });
 });

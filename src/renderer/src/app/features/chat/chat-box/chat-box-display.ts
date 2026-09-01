@@ -6,8 +6,9 @@ import type {
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
-import { isClaraOuterBriefStreamTag, isPrimaryAssistantStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
-import { DEFAULT_AUXILIARY_STREAM_PANEL_TITLE } from './auxiliary-stream-panel/auxiliary-stream-panel';
+import { CLARA_OUTER_BRIEF_STREAM_TAG, isClaraOuterBriefStreamTag, isPrimaryAssistantStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
+
+export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 import {
   attachedFileDisplayLabel,
   attachedFileRefFromText,
@@ -203,6 +204,9 @@ export function userMessageAttachedFileRefs(msg: UserMessage): string[] {
   return files;
 }
 
+/** Pixels from the bottom of `#chatScroll` to treat as stick mode. */
+export const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
+
 export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
   return (
     m.role === 'user' ||
@@ -216,6 +220,112 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
     m.role === 'agent_question' ||
     m.role === 'staged_transfer_batch'
   );
+}
+
+/** Distance from the bottom of a scrollport (`scrollHeight - scrollTop - clientHeight`). */
+export function scrollSlackPx(scrollHeight: number, scrollTop: number, clientHeight: number): number {
+  return scrollHeight - scrollTop - clientHeight;
+}
+
+/** True when the transcript can actually scroll (ignore 1px subpixel overflow). */
+export function isChatTranscriptScrollable(scrollHeight: number, clientHeight: number): boolean {
+  return scrollHeight - clientHeight > 1;
+}
+
+/** Jump-to-bottom FAB: roam and the transcript must overflow. */
+export function shouldShowJumpToBottom(stickMode: boolean, scrollable: boolean): boolean {
+  return !stickMode && scrollable;
+}
+
+/** True when slack is within the stick threshold (user is at / near the bottom). */
+export function isStickFromSlack(
+  slackPx: number,
+  thresholdPx = SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+): boolean {
+  return slackPx <= thresholdPx;
+}
+
+/** How the transcript should react to newly appended messages. */
+export interface ChatScrollAppendDecision {
+  /** Scroll the transcript to the bottom. */
+  follow: boolean;
+  /** Show the unseen-message badge on the jump-to-bottom button. */
+  badge: boolean;
+}
+
+/**
+ * Stick follows new messages and HITL. Roam never auto-scrolls — including on a
+ * user send — and badges the FAB so the reader can jump back when ready.
+ */
+export function decideChatScrollOnAppend(input: {
+  stickMode: boolean;
+  added: readonly ChatMessage[];
+  loading: boolean;
+}): ChatScrollAppendDecision {
+  const none: ChatScrollAppendDecision = { follow: false, badge: false };
+  if (!input.added.some(isScrollWorthyAppendMessage)) {
+    return none;
+  }
+  const hasUser = input.added.some((m) => m.role === 'user');
+  const hasHitl = input.added.some(isHitlActivationMessage);
+
+  if (!input.stickMode) {
+    return { follow: false, badge: true };
+  }
+
+  // Stick: follow user/HITL even mid-stream; other worthy appends wait until the
+  // turn is not loading (live feed growth is handled by the stream-token path).
+  if (!input.loading || hasUser || hasHitl) {
+    return { follow: true, badge: false };
+  }
+  return none;
+}
+
+/** Outcome of a scroll event for stick/roam. `keep` leaves the current mode unchanged. */
+export type ChatStickScrollIntent = 'stick' | 'roam' | 'keep';
+
+/**
+ * Any user scroll-up leaves stick immediately once the transcript overflows.
+ * A non-scrollable transcript stays in stick — roam is meaningless until overflow.
+ * Re-stick only when the user scrolls back to the bottom (or is already stick and
+ * still near it). Resize / programmatic follow must not flip roam back to stick.
+ */
+export function decideStickAfterUserScroll(input: {
+  scrolledUp: boolean;
+  scrolledDown: boolean;
+  nearBottom: boolean;
+  programmatic: boolean;
+  stickMode: boolean;
+  scrollable: boolean;
+}): ChatStickScrollIntent {
+  if (!input.scrollable) {
+    return 'stick';
+  }
+  if (input.scrolledUp) {
+    return 'roam';
+  }
+  if (input.programmatic) {
+    return 'keep';
+  }
+  if (input.nearBottom && (input.stickMode || input.scrolledDown)) {
+    return 'stick';
+  }
+  return 'keep';
+}
+
+/** Stream completion should re-bottom only while stick is on. */
+export function shouldFollowStreamComplete(stickMode: boolean): boolean {
+  return stickMode;
+}
+
+/** Live feed growth should re-bottom only while stick is on and the feed actually changed. */
+export function shouldFollowStreamToken(stickMode: boolean, scrollNow: boolean): boolean {
+  return stickMode && scrollNow;
+}
+
+/** Returning to stick (scroll-to-bottom or FAB) always clears the unseen-message badge. */
+export function unseenBelowAfterScroll(stickMode: boolean, currentUnseen: boolean): boolean {
+  return stickMode ? false : currentUnseen;
 }
 
 /** Tracks streaming scroll dedupe for primary vs auxiliary (reasoning/tools) growth. */
@@ -264,7 +374,7 @@ export function decideInstantScrollOnStreamingUpdate(
   };
 }
 
-/** Review / confirmation cards (HITL): always scroll into view, including while a reply is still streaming. */
+/** Review / confirmation cards (HITL): follow in stick mode, including while a reply is still streaming. */
 export function isHitlActivationMessage(m: ChatMessage): boolean {
   return (
     m.role === 'diff' ||
@@ -382,7 +492,7 @@ export function extractLatestBriefLine(text: string): string {
 
 /**
  * Live markdown zone: prefer backend `final_text`, else stream the latest primary agent segment.
- * Pre-tool planning prose is removed via SSE ``clear_primary_stream`` (not blanked here), so
+ * Pre-tool planning prose is promoted to a Clara brief via SSE ``clear_primary_stream``, so
  * post-tool primary can stream even while the tools phase stays engaged for the spinner.
  */
 export function resolvePrimaryStreamLiveText(
@@ -413,6 +523,34 @@ export function auxiliaryPanelTitleFromChainGroups(groups: readonly ToolChainGro
     }
   }
   return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
+}
+
+/**
+ * Older transcripts stored Clara briefs as chain rows. Fold them into the turn feed
+ * unless the auxiliary timeline already has `clara` parts.
+ */
+export function mergeClaraBriefsFromChainIntoTimeline(
+  timeline: readonly StreamPart[],
+  groups: readonly ToolChainGroup[],
+): StreamPart[] {
+  const existing = [...timeline];
+  if (existing.some((p) => isClaraOuterBriefStreamTag(p.streamTag))) {
+    return existing;
+  }
+  const extras: StreamPart[] = [];
+  for (const group of groups) {
+    for (const row of group.rows) {
+      if (!isClaraOuterBriefStreamTag(row.streamTag) || !row.text.trim()) {
+        continue;
+      }
+      extras.push({
+        streamTag: CLARA_OUTER_BRIEF_STREAM_TAG,
+        label: row.label || 'Clara',
+        text: row.text,
+      });
+    }
+  }
+  return extras.length ? [...extras, ...existing] : existing;
 }
 
 export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] {

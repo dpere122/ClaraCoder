@@ -133,6 +133,7 @@ declare global {
       callback: (event: unknown, conversationId: string, text: string) => void,
     ) => void;
     onMessageClearPrimaryStream?: (callback: (event: unknown, conversationId: string) => void) => void;
+    onMessagePromotePrimaryToNudge?: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
     onMessageAcceptCommand?: (
       callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
@@ -535,7 +536,15 @@ declare global {
       character: number,
       documentText: string,
       skipDocumentSync?: boolean,
-    ) => Promise<{ ok: true; markdown: string | null; range?: LspEditorIRangePayload | null } | { ok: false; error: string }>;
+    ) => Promise<
+      | {
+          ok: true;
+          markdown: string | null;
+          range?: LspEditorIRangePayload | null;
+          syncedFromDisk?: boolean;
+        }
+      | { ok: false; error: string }
+    >;
     lspEditorDefinition?: (
       sessionId: string,
       relativePath: string,
@@ -543,7 +552,10 @@ declare global {
       character: number,
       documentText: string,
       skipDocumentSync?: boolean,
-    ) => Promise<{ ok: true; locations: LspEditorLocationPayload[] } | { ok: false; error: string }>;
+    ) => Promise<
+      | { ok: true; locations: LspEditorLocationPayload[]; syncedFromDisk?: boolean }
+      | { ok: false; error: string }
+    >;
     lspEditorReferences?: (
       sessionId: string,
       relativePath: string,
@@ -576,7 +588,7 @@ declare global {
       triggerCharacter: string | null,
       skipDocumentSync?: boolean,
     ) => Promise<
-      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[] }
+      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[]; syncedFromDisk?: boolean }
       | { ok: false; error: string }
     >;
     lspEditorRename?: (
@@ -604,13 +616,27 @@ declare global {
       documentText: string,
       skipDocumentSync?: boolean,
     ) => Promise<
-      | { ok: true; diagnostics: LspEditorDiagnosticPayload[]; generation: number }
+      | {
+          ok: true;
+          diagnostics: LspEditorDiagnosticPayload[];
+          generation: number;
+          epoch?: number;
+          syncedFromDisk?: boolean;
+        }
       | { ok: false; error: string }
     >;
     lspDiagnosticsGeneration?: (
       sessionId: string,
       relativePath: string,
-    ) => Promise<{ ok: true; generation: number; count: number } | { ok: false; error: string }>;
+    ) => Promise<{ ok: true; generation: number; count: number; epoch?: number } | { ok: false; error: string }>;
+    lspEditorDidClose?: (
+      sessionId: string,
+      relativePath: string,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+    lspEditorDidSave?: (
+      sessionId: string,
+      relativePath: string,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
     lspEditorSignatureHelp?: (
       sessionId: string,
       relativePath: string,
@@ -745,7 +771,7 @@ declare global {
     lspDiagnosticsWatchStart?: (sessionId: string, relativePath: string) => void;
     lspDiagnosticsWatchStop?: () => void;
     onLspDiagnosticsUpdated?: (
-      callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number }) => void,
+      callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void,
     ) => void;
     healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
     healthSetLogLevel: (level: string) => Promise<{ ok: boolean }>;

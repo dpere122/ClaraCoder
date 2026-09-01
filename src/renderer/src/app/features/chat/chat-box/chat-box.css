@@ -5,6 +5,7 @@ app-chat-box.chat-layout-sidebar {
 }
 
 app-chat-box {
+  position: relative;
   display: flex;
   flex-direction: column;
   --chat-font-size: 0.9rem;
@@ -131,7 +132,7 @@ app-chat-box .user-attachment-file {
   max-width: 16rem;
   padding: 0.15rem 0.4rem;
   border: 1px solid var(--t-border);
-  border-radius: 0.3rem;
+  border-radius: 999px !important;
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -420,33 +421,6 @@ app-chat-box .streaming-plain {
   color: var(--t-secondary);
 }
 
-app-chat-box .streaming-primary-live {
-  margin-bottom: 0.5rem;
-  line-height: 1.5;
-  word-break: break-word;
-  display: flex;
-  align-items: flex-end;
-  gap: 0.15rem;
-}
-
-app-chat-box .streaming-live-md {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.9em;
-  color: var(--t-secondary);
-}
-
-app-chat-box .streaming-live-pre {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-family: inherit;
-  font-size: 0.9em;
-  color: var(--t-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 app-chat-box .streaming-delegated {
   margin-bottom: 0.5rem;
   display: flex;
@@ -510,16 +484,9 @@ app-chat-box .processing-bubble {
   align-items: center;
   gap: 0.55rem;
   min-height: 1.5em;
-  padding-top: 0.15rem;
-  border-top: 1px solid var(--t-border-subtle);
-  margin-top: 0.15rem;
-}
-
-/* Treat overflow-pending aux panel as absent so it does not add a separator gap. */
-app-chat-box .streaming-bubble:not(:has(.streaming-primary-plain)):not(:has(.streaming-primary-live)):not(:has(.streaming-delegated)):not(:has(app-auxiliary-stream-panel:not(.aux-stream-panel--pending-overflow))) .processing-bubble {
+  padding-top: 0;
   border-top: none;
   margin-top: 0;
-  padding-top: 0;
 }
 
 app-chat-box .processing-ngx-host {
@@ -634,4 +601,47 @@ app-chat-box .diff-msg-title {
 
 app-chat-box .diff-msg-subtitle {
   color: var(--t-secondary);
+}
+
+app-chat-box .chat-jump-bottom {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 4;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--t-border-subtle);
+  background-color: var(--t-bg);
+  color: var(--t-fg);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--t-fg) 16%, transparent);
+  cursor: pointer;
+}
+
+app-chat-box .chat-jump-bottom:hover {
+  background-color: color-mix(in srgb, var(--t-primary) 12%, var(--t-bg));
+}
+
+app-chat-box .chat-jump-bottom:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+app-chat-box .chat-jump-bottom__unseen {
+  position: absolute;
+  top: -0.15rem;
+  right: -0.15rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: color-mix(in srgb, var(--t-primary) 88%, var(--t-bg));
+  color: var(--t-bg);
+  pointer-events: none;
 }

@@ -290,7 +290,7 @@ export function registerLspStatusIpc(): void {
       documentText: unknown,
       skipDocumentSync: unknown,
     ): Promise<
-      | { ok: true; locations: LspEditorLocationWire[] }
+      | { ok: true; locations: LspEditorLocationWire[]; syncedFromDisk?: boolean }
       | { ok: false; error: string }
     > => {
       try {
@@ -316,11 +316,20 @@ export function registerLspStatusIpc(): void {
       if (!skipSync) {
         jsonBody.document_text = typeof documentText === 'string' ? documentText : null;
       }
-      const out = await postLspEditorJson<{ locations: LspEditorLocationWire[] }>('/lsp/definition', sid, rel, jsonBody);
+      const out = await postLspEditorJson<{ locations: LspEditorLocationWire[]; synced_from_disk?: boolean }>(
+        '/lsp/definition',
+        sid,
+        rel,
+        jsonBody,
+      );
       if (!out.ok) {
         return out;
       }
-      return { ok: true, locations: out.data.locations ?? [] };
+      return {
+        ok: true,
+        locations: out.data.locations ?? [],
+        syncedFromDisk: out.data.synced_from_disk === true,
+      };
     },
   );
 
@@ -435,7 +444,7 @@ export function registerLspStatusIpc(): void {
       triggerCharacter: unknown,
       skipDocumentSync: unknown,
     ): Promise<
-      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemWire[] }
+      | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemWire[]; syncedFromDisk?: boolean }
       | { ok: false; error: string }
     > => {
       try {
@@ -472,6 +481,7 @@ export function registerLspStatusIpc(): void {
       const out = await postLspEditorJson<{
         isIncomplete?: boolean;
         items: LspEditorCompletionItemWire[];
+        synced_from_disk?: boolean;
       }>('/lsp/completion', sid, rel, jsonBody);
       if (!out.ok) {
         return out;
@@ -480,6 +490,7 @@ export function registerLspStatusIpc(): void {
         ok: true,
         isIncomplete: !!out.data.isIncomplete,
         items: out.data.items ?? [],
+        syncedFromDisk: out.data.synced_from_disk === true,
       };
     },
   );
@@ -627,6 +638,60 @@ export function registerLspStatusIpc(): void {
           resultId: d.resultId === undefined || d.resultId === null ? null : String(d.resultId),
         },
       };
+    },
+  );
+
+  ipcMain.handle(
+    'lsp-editor-did-close',
+    async (
+      event,
+      sessionId: unknown,
+      relativePath: unknown,
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
+      if (!sid || !rel) {
+        return { ok: false, error: 'Missing session or path.' };
+      }
+      const out = await postLspEditorJson<{ ok?: boolean }>('/lsp/editor/did-close', sid, rel, {
+        relative_path: rel,
+      });
+      if (!out.ok) {
+        return out;
+      }
+      return { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    'lsp-editor-did-save',
+    async (
+      event,
+      sessionId: unknown,
+      relativePath: unknown,
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
+      if (!sid || !rel) {
+        return { ok: false, error: 'Missing session or path.' };
+      }
+      const out = await postLspEditorJson<{ ok?: boolean }>('/lsp/editor/did-save', sid, rel, {
+        relative_path: rel,
+      });
+      if (!out.ok) {
+        return out;
+      }
+      return { ok: true };
     },
   );
 }

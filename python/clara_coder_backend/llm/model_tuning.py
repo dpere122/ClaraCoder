@@ -57,6 +57,12 @@ def gemma_optimize_profile_active(connection: RuntimeConnection) -> bool:
     return optimization_preset(connection) == 'gemma'
 
 
+def outer_agent_brief_enabled(connection: RuntimeConnection) -> bool:
+    """True for every preset: first-turn primary prose is shown as a Clara brief pill."""
+    del connection
+    return True
+
+
 def gemma_output_parsing_active(connection: RuntimeConnection) -> bool:
     """True when Gemma 4 ``<|channel>`` output should be split into reasoning vs visible text."""
     return gemma_optimize_profile_active(connection)

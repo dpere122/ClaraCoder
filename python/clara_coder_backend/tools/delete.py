@@ -147,7 +147,7 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
                 lines.append(msg)
                 if session_id and is_lsp_managed_path(rel):
                     try:
-                        close_session_document(rel, session_id=session_id, scope='workspace')
+                        close_session_document(rel, session_id=session_id)
                     except Exception as exc:
                         logger.warning('LSP close failed after delete path=%s err=%s', rel, exc)
                 edit_staging.delete_snapshot_path(session, rel)
@@ -167,7 +167,7 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
         emit_file_journal(session, pending_journal)
     if ok and session_id and is_lsp_managed_path(rel):
         try:
-            close_session_document(rel, session_id=session_id, scope='workspace')
+            close_session_document(rel, session_id=session_id)
         except Exception as exc:
             logger.warning('LSP close failed after delete path=%s err=%s', rel, exc)
     if ok:
@@ -223,7 +223,7 @@ def delete_workspace_entry(
             emit_file_journal(session, pending_journal)
         if ok and is_lsp_managed_path(rel_display):
             try:
-                close_session_document(rel_display, session_id=session_id, scope='workspace')
+                close_session_document(rel_display, session_id=session_id)
             except Exception as exc:
                 logger.warning('LSP close failed after auto delete path=%s err=%s', rel_display, exc)
         if ok:
@@ -336,7 +336,7 @@ def batch_delete_workspace_entries(
                 lines.append(msg)
                 if is_lsp_managed_path(rel):
                     try:
-                        close_session_document(rel, session_id=session_id, scope='workspace')
+                        close_session_document(rel, session_id=session_id)
                     except Exception as exc:
                         logger.warning('LSP close failed after auto delete path=%s err=%s', rel, exc)
                 edit_staging.delete_snapshot_path(session, rel)

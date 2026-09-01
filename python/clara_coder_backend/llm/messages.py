@@ -14,7 +14,11 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.llm.gemma_output import gemma_content_needs_parsing, split_gemma_channels
+from clara_coder_backend.llm.gemma_output import (
+    gemma_content_needs_parsing,
+    split_gemma_channels,
+    strip_gemma_channel_markup,
+)
 from clara_coder_backend.llm.model_tuning import combined_model_prompt_suffix, gemma_output_parsing_active
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.llm.prompt_blocks import (
@@ -184,6 +188,8 @@ def reasoning_sidecar_text(message: AIMessage) -> str:
     raw = _raw_assistant_content(message)
     if not body and raw and _should_split_gemma_content(raw):
         _, body = split_gemma_channels(raw)
+    if body and gemma_content_needs_parsing(body):
+        body = strip_gemma_channel_markup(body)
     if not body:
         return ''
     vis = assistant_visible_answer(message)
@@ -507,16 +513,18 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         'Use the **staging pipeline** for all programming-path and structured-config edits.\n'
         + f'- {edit_semantics_block(direct=False)}\n'
         + '- LSP **read** and **diagnostics** tools for supported extensions are available.\n'
-        + '- **Workspace checkpoint:** `read_workspace_file` shows the **on-disk workspace**. Pending edits live in '
-        '**staging** until landed—use `list_staged_edits`, '
-        '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect drafts.\n'
+        + '- **Write-through:** `read_workspace_file` shows the **current on-disk draft** after `stage_*`. '
+        'A journal of the pre-stage bytes is kept until `transfer_staged_file_to_workspace` (keep) or '
+        '`discard_staged_edits` (restore). Use `list_staged_edits`, '
+        '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect pending journals.\n'
         + '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage with '
         '`land_in_workspace=false`, run review/diagnostics on drafts, then land per the **Edit semantics** notes above.\n'
         + '- **All other text files** (e.g. .md, .txt): same staging tools and landing flow.\n'
         '- **Shell / verification:** use `run_command` for installs, tests, package managers, CLIs, port checks, '
         'and long-lived processes (dev servers, `npm run start`/`dev`, `python app.py`) so they run as managed '
         'background jobs—then `wait_for_command` for more output and `kill_background_command` when finished. '
-        'Use `run_staging_overlay_command` when you need to execute against staged drafts.\n'
+        'If a staging write reports still running, use `wait_for_write` / `cancel_write` instead of retrying the write. '
+        'Use `run_staging_overlay_command` to run allowlisted tests/linters against the real workspace (drafts are already on disk).\n'
         '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
         '- Read and inspect relevant files before editing. Prefer **small, verifiable** staging steps; refresh anchors '
         'from `read_staged_edit` or diff tools between dependent edits.\n'

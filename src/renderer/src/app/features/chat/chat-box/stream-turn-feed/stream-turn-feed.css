@@ -1,0 +1,130 @@
+app-stream-turn-feed {
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+
+/* Custom elements default to inline; keep preview windows on their own block row. */
+app-stream-turn-feed app-stream-thought-pill,
+app-stream-turn-feed app-stream-brief-pill,
+app-stream-turn-feed app-stream-nudge-pill {
+  display: block;
+  flex: 1 1 100%;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+app-stream-turn-feed app-aux-stream-tool-part {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+app-stream-turn-feed app-aux-stream-tool-part:has(.hitl-trail-row) {
+  flex: 1 1 100%;
+}
+
+app-stream-turn-feed .stream-turn-feed {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.12rem 0;
+  min-width: 0;
+  width: 100%;
+}
+
+app-stream-turn-feed .stream-turn-feed__markdown {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: flex-end;
+  gap: 0.15rem;
+  min-width: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+app-stream-turn-feed .stream-turn-feed__markdown .assistant-md {
+  flex: 1;
+  min-width: 0;
+}
+
+app-stream-turn-feed .streaming-live-md {
+  font-size: 0.9em;
+  color: var(--t-secondary);
+}
+
+/* Live preview slot: open on first paint so thought/tool text is never stuck at 0fr. */
+app-stream-turn-feed .stream-turn-feed__preview {
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-rows: 1fr;
+  width: 100%;
+  max-width: 100%;
+  opacity: 1;
+}
+
+app-stream-turn-feed .stream-turn-feed__tool-queue {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview-inner {
+  min-height: min-content;
+  overflow: hidden;
+  border: 1px solid var(--t-border);
+  border-radius: 0.85rem !important;
+  background: color-mix(in srgb, var(--t-bg-surface) 88%, var(--t-panel) 12%);
+}
+
+app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-inner {
+  border: none;
+  border-radius: 0 !important;
+  background: transparent;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-header {
+  padding: 0.08rem 0 0;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-body {
+  padding: 0 0 0.1rem;
+  max-height: none;
+  line-height: 1.35;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.7rem 0.12rem;
+  border: none;
+  background: transparent;
+  color: var(--t-secondary);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview-body {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0.22rem 0.7rem 0.55rem;
+  max-height: 10rem;
+  overflow: auto;
+  border: none;
+  background: transparent;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--chat-details-stream-fg, color-mix(in srgb, var(--t-secondary) 88%, transparent));
+  white-space: pre-wrap;
+  word-break: break-word;
+}

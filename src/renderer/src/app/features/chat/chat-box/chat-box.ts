@@ -7,10 +7,10 @@
  * - {@link buildChatDisplayRows} (in `chat-box-display.ts`) groups chain + artifact rows into assistant turns.
  * - Persisted rows render from `persistedRows`; the in-flight turn renders separately via `liveTurn` while `loading`.
  *
- * **Presentation split**
- * - Primary reply prose: streams from the latest `agent` segment; backend `final_text` wins at end.
- * - Tool / reasoning / planner multiplex: auxiliary stream panel.
- * - HITL change rows: merged into the auxiliary stream; interactive reviews live in the composer dock.
+ * **Presentation**
+ * - One chronological feed: thought pills, Clara brief pills, nudge pills, tool pills, and rendered markdown (`buildTurnFeed`).
+ * - Backend `final_text` replaces in-feed `agent` segments with the clean reply.
+ * - HITL change rows merge into the feed; interactive reviews live in the composer dock.
  *
  * Display helpers and types are re-exported below for parent components and tests.
  */
@@ -30,30 +30,21 @@ import {
   signal,
   afterNextRender,
 } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { StreamPart, PlannerProgress } from '@shared/index';
+import type { PlannerProgress, StreamPart } from '@shared/index';
 import { canRestoreToUserMessage } from '@shared/index';
 import {
+  buildTurnFeed,
   joinPrimaryAssistantStreamText,
   mergeHitlTrailIntoAuxiliaryTimeline,
-  multiplexAuxiliaryStreamTimeline,
   persistedAuxiliaryStreamTimeline,
-  primaryStreamPartsForDisplay,
+  turnFeedScrollKey,
+  type TurnFeedItem,
 } from '@shared/index';
-import { MarkdownPipe } from './markdown.pipe';
-import {
-  AuxiliaryStreamPanelComponent,
-  DEFAULT_AUXILIARY_STREAM_PANEL_TITLE,
-  PERSISTED_AUXILIARY_STREAM_PANEL_TITLE,
-} from './auxiliary-stream-panel/auxiliary-stream-panel';
-import {
-  type AuxiliaryPanelMode,
-  auxiliaryPanelContentVisible,
-  initialAuxiliaryPanelMode,
-  toggleAuxiliaryPanelMode,
-} from './auxiliary-stream-panel/auxiliary-stream-panel-modes';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { RunButtonDirective } from './run-button.directive';
+import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
 import {
   CHAT_MIN_FALLBACK_ROW,
   CHAT_VIRTUAL_PIXEL_BUFFER,
@@ -63,25 +54,28 @@ import {
   sumHeights,
 } from './chat-box-virtual';
 import {
-  auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
-  extractLatestBriefLine,
-  filterLiveToolChainGroups,
+  decideStickAfterUserScroll,
   hashChatToolPhaseKey,
   hitlArtifactsExcludingPlanConfirm,
-  isHitlActivationMessage,
-  isScrollWorthyAppendMessage,
+  isChatTranscriptScrollable,
+  isStickFromSlack,
   planPanelContext,
+  SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+  scrollSlackPx,
+  shouldFollowStreamComplete,
+  shouldFollowStreamToken,
+  shouldShowJumpToBottom,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
-  latestPrimaryStreamSegmentText,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
+  mergeClaraBriefsFromChainIntoTimeline,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
   userMessageAttachedFiles,
   userMessageImageUrls,
-  type ArtifactMessage,
   type ChatDisplayRow,
   type ChatMessage,
 } from './chat-box-display';
@@ -89,18 +83,28 @@ import {
 export {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
+  decideStickAfterUserScroll,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   hitlArtifactsExcludingPlanConfirm,
+  isChatTranscriptScrollable,
   isHitlActivationMessage,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  isStickFromSlack,
+  SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+  scrollSlackPx,
+  shouldFollowStreamComplete,
+  shouldFollowStreamToken,
+  shouldShowJumpToBottom,
   pendingHitlArtifactsForDock,
   planPanelContext,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   liveTurnPresentationSettled,
+  mergeClaraBriefsFromChainIntoTimeline,
   turnHasPlanPanel,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
@@ -113,9 +117,6 @@ export {
 } from './chat-box-display';
 
 export type ChatLayoutMode = 'sidebar' | 'expanded';
-
-/** Pixels from the bottom of the chat viewport to treat as “pinned” for follow-final-message behavior. */
-const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
 
 /** ngx-spinner names scoped to this component (hidden in `ngOnDestroy`). */
 const SPINNER_CHAT_THINK = 'chat-think';
@@ -131,11 +132,11 @@ const INLINE_SPINNER = {
 @Component({
   selector: 'app-chat-box',
   imports: [
-    MarkdownPipe,
+    LucideAngularModule,
     RunButtonDirective,
     NgxSpinnerComponent,
-    AuxiliaryStreamPanelComponent,
     PlannerChecklistComponent,
+    StreamTurnFeedComponent,
   ],
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
@@ -173,8 +174,25 @@ export class ChatBox implements OnDestroy {
     this.restoreConversation.emit({ userMessageId: msg.id, userMessageIndex });
   }
 
-  /** Scrollport element (`#chatScroll` in template); drives virtual window + pin detection. */
+  /** Scrollport element (`#chatScroll` in template); drives virtual window + stick/roam detection. */
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
+
+  /**
+   * Stick: auto-follow the bottom as the transcript grows.
+   * Roam: user has scrolled up; freeze the viewport until they return to the bottom.
+   */
+  readonly stickMode = signal(true);
+  /** True while roaming and a new message / HITL landed below the viewport. */
+  readonly hasUnseenBelow = signal(false);
+  /** Latest `#chatScroll` scrollHeight (FAB visibility + overflow checks). */
+  private readonly scrollHeightSig = signal(0);
+  /** Jump FAB: roam and the transcript actually overflows. */
+  readonly showJumpToBottom = computed(() =>
+    shouldShowJumpToBottom(
+      this.stickMode(),
+      isChatTranscriptScrollable(this.scrollHeightSig(), this.viewportHeightSig()),
+    ),
+  );
 
   // --- Virtual scroll state (see `chat-box-virtual.ts`) ---
 
@@ -196,15 +214,17 @@ export class ChatBox implements OnDestroy {
   private scrollTrackedMsgLen = 0;
   private scrollTrackedConvId: string | null | undefined = undefined;
   private scrollSmoothDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  /** While streaming, follow growing primary reply only when the user is pinned to the bottom. */
-  private pinToBottom = true;
+  /** Ignore slack-derived roam while a stick-mode `scrollToBottom` is in flight. */
+  private programmaticScroll = false;
+  private programmaticScrollUnlockTimer: ReturnType<typeof setTimeout> | null = null;
+  private chatScrollEndBound: HTMLElement | null = null;
+  /** Last `#chatScroll` scrollTop; a decrease is treated as user scroll-up → roam. */
+  private lastScrollTop = 0;
   private prevLoadingForCompletionScroll = false;
-  /** Fingerprint tails for streaming scroll dedupe (primary vs auxiliary growth). */
-  private prevStreamPrimaryKey = '';
-  private prevStreamAuxKey = '';
-  private prevAuxPanelVisible = false;
-  /** True once the live aux panel has taken layout height (overflow reveal). */
-  private readonly liveAuxPanelRevealed = signal(false);
+  /** Last `liveAwaitingHitlReview` seen by the HITL layout-follow effect. */
+  private prevLiveAwaitingHitl = false;
+  /** Fingerprint tail for streaming scroll dedupe (unified turn feed). */
+  private prevStreamFeedKey = '';
   /** Tracks live plan checklist mount so discovery/planning chrome can autoscroll. */
   private prevLivePlanPanelVisible = false;
   private wasProcessingToolsActive = false;
@@ -213,9 +233,6 @@ export class ChatBox implements OnDestroy {
   private chatDestroyed = false;
   private convScrollTimeout: ReturnType<typeof setTimeout> | null = null;
   private chatScrollResizeObserver: ResizeObserver | null = null;
-  /** Per-turn response-details expand state (Clara frame chevron + auxiliary panel). */
-  private readonly responseDetailsModes = signal<Record<string, AuxiliaryPanelMode>>({});
-  readonly liveResponseDetailsKey = 'live';
 
   /** Bridges `send-response` DOM events from nested HITL / run-button UI to `sendResponse` output. */
   private readonly onSendResponseDom: EventListener = ((event: Event) => {
@@ -245,8 +262,8 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
-  /** Role-label frames drive expand/collapse; all remaining themes use this chrome. */
-  readonly tuiFrameChrome = signal(true);
+  /** When false (Gemma preset), live pre-tool agent prose stays markdown instead of a Clara brief. */
+  readonly promoteLivePrimaryToBrief = input(true);
 
   // --- Outputs (HITL completion + composer send) ---
 
@@ -378,24 +395,27 @@ export class ChatBox implements OnDestroy {
     };
   });
 
-  /** Primary-lane stream parts for the live markdown zone (filters non-primary tags). */
-  readonly primaryStreamParts = computed(() =>
-    primaryStreamPartsForDisplay(this.streamingParts(), null),
-  );
-
-  /** Ordered reasoning + delegated tool segments for the live auxiliary panel. */
-  readonly liveAuxiliaryTimeline = computed(() =>
-    mergeHitlTrailIntoAuxiliaryTimeline(
-      multiplexAuxiliaryStreamTimeline(this.streamingParts()),
-      this.liveHitlArtifacts(),
+  /** Chronological live feed: thought pills, tool pills, and markdown. */
+  readonly liveTurnFeed = computed(() =>
+    buildTurnFeed(
+      mergeHitlTrailIntoAuxiliaryTimeline(this.streamingParts(), this.liveHitlArtifacts()),
+      this.streamingFinalText(),
+      { promoteLivePrimaryToBrief: this.promoteLivePrimaryToBrief() },
     ),
   );
 
-  /** Persisted turn timeline with HITL change rows embedded (no nested Changes panel). */
-  auxiliaryTimelineForTurn(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): StreamPart[] {
-    return mergeHitlTrailIntoAuxiliaryTimeline(
-      persistedAuxiliaryStreamTimeline(row.assistant),
-      hitlArtifactsExcludingPlanConfirm(row.artifacts),
+  /** Persisted turn feed (timeline + final assistant markdown). */
+  turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {
+    return buildTurnFeed(
+      mergeHitlTrailIntoAuxiliaryTimeline(
+        mergeClaraBriefsFromChainIntoTimeline(
+          persistedAuxiliaryStreamTimeline(row.assistant),
+          row.chainGroups,
+        ),
+        hitlArtifactsExcludingPlanConfirm(row.artifacts),
+      ),
+      row.assistant?.text,
+      { promoteLivePrimaryToBrief: this.promoteLivePrimaryToBrief() },
     );
   }
 
@@ -420,9 +440,12 @@ export class ChatBox implements OnDestroy {
     ),
   );
 
-  /** Blinking cursor while the main reply zone is actively receiving text. */
+  /** Blinking cursor while the main reply is still streaming (hidden once `final_text` lands). */
   readonly showStreamingPrimaryCursor = computed(
-    () => this.loading() && this.primaryStreamLiveText().length > 0,
+    () =>
+      this.loading() &&
+      !(this.streamingFinalText() ?? '').trim() &&
+      this.liveTurnFeed().some((item) => item.kind === 'markdown'),
   );
 
   /**
@@ -460,41 +483,6 @@ export class ChatBox implements OnDestroy {
     return turn != null && turnHasPendingHitlArtifacts(turn.artifacts);
   });
 
-  /** Tool chain groups in the open turn (Clara brief rows feed the auxiliary panel title). */
-  readonly liveVisibleChainGroups = computed(() => {
-    const liveTurn = this.liveTurn();
-    if (!liveTurn) return [];
-    return filterLiveToolChainGroups(liveTurn.chainGroups);
-  });
-
-  /**
-   * Auxiliary panel title: Clara chain briefs, or a status line while tools run with no main reply yet.
-   */
-  readonly liveAuxiliaryPanelTitle = computed(() => {
-    const fromChainGroups = auxiliaryPanelTitleFromChainGroups(this.liveVisibleChainGroups());
-    if (fromChainGroups !== DEFAULT_AUXILIARY_STREAM_PANEL_TITLE) {
-      return fromChainGroups;
-    }
-    if (this.primaryStreamLiveText().trim().length > 0) {
-      return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
-    }
-    const brief = extractLatestBriefLine(latestPrimaryStreamSegmentText(this.streamingParts()));
-    if (brief) {
-      return brief;
-    }
-    return DEFAULT_AUXILIARY_STREAM_PANEL_TITLE;
-  });
-
-  /**
-   * Mount the live auxiliary panel only when there is tool/reasoning/HITL trail content.
-   * The panel itself stays visually hidden until its viewport becomes scrollable.
-   */
-  readonly showLiveAuxiliaryPanel = computed(() => this.liveAuxiliaryTimeline().length > 0);
-
-  readonly hasLiveResponseDetails = computed(
-    () => this.showLiveAuxiliaryPanel() || this.liveHitlArtifacts().length > 0,
-  );
-
   /** Short status word beside the think/tool spinner in the live processing row. */
   readonly processingBubbleLabel = computed(() => {
     if (!this.loading()) {
@@ -508,27 +496,31 @@ export class ChatBox implements OnDestroy {
 
   constructor(private el: ElementRef<HTMLElement>) {
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
-    // When the viewport shrinks while pinned to the bottom (HITL dock slides up or the
+    // When the viewport shrinks while stick is on (HITL dock slides up or the
     // terminal auto-expands below, covering the chat), re-bottom so the latest content
     // stays visible instead of getting hidden under the newly revealed chrome.
     afterNextRender(
       () => {
         const elScroll = this.chatScroll()?.nativeElement;
         if (!elScroll) return;
-        this.viewportHeightSig.set(elScroll.clientHeight);
+        this.syncScrollMetrics(elScroll);
+        this.lastScrollTop = elScroll.scrollTop;
         this.chatScrollResizeObserver?.disconnect();
         this.chatScrollResizeObserver = new ResizeObserver(() => {
           const prevHeight = this.viewportHeightSig();
-          const wasPinned = this.pinToBottom;
+          const wasStick = this.stickMode();
           const nextHeight = elScroll.clientHeight;
-          this.viewportHeightSig.set(nextHeight);
-          if (nextHeight < prevHeight && wasPinned) {
+          this.syncScrollMetrics(elScroll);
+          if (nextHeight < prevHeight && wasStick) {
             this.scrollToBottom('instant');
           } else {
-            requestAnimationFrame(() => this.updatePinFromScroll());
+            requestAnimationFrame(() => this.applyStickFromViewport(elScroll));
           }
         });
         this.chatScrollResizeObserver.observe(elScroll);
+        this.chatScrollEndBound?.removeEventListener('scrollend', this.onChatScrollEnd);
+        this.chatScrollEndBound = elScroll;
+        elScroll.addEventListener('scrollend', this.onChatScrollEnd);
       },
       { injector: this.inj },
     );
@@ -555,7 +547,7 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    // Auto-scroll: jump on conversation switch; smooth-scroll on user/HITL appends worth following.
+    // Auto-scroll: jump on conversation switch; follow or badge on appends per stick/roam.
     effect(() => {
       const id = this.conversationId();
       const msgs = this.messages();
@@ -565,6 +557,8 @@ export class ChatBox implements OnDestroy {
         if (convChanged) {
           this.scrollTrackedConvId = id;
           this.scrollTrackedMsgLen = msgs.length;
+          this.prevLiveAwaitingHitl = false;
+          this.enterStickMode();
           if (this.convScrollTimeout != null) {
             clearTimeout(this.convScrollTimeout);
           }
@@ -580,71 +574,48 @@ export class ChatBox implements OnDestroy {
         }
         if (msgs.length > this.scrollTrackedMsgLen) {
           const added = msgs.slice(this.scrollTrackedMsgLen);
-          if (added.some(isScrollWorthyAppendMessage)) {
-            const loading = this.loading();
-            if (
-              !loading ||
-              added.some((m) => m.role === 'user') ||
-              added.some(isHitlActivationMessage)
-            ) {
-              this.debouncedSmoothScrollToBottom();
-            }
+          const decision = decideChatScrollOnAppend({
+            stickMode: this.stickMode(),
+            added,
+            loading: this.loading(),
+          });
+          if (decision.badge) {
+            this.hasUnseenBelow.set(true);
+          }
+          if (decision.follow) {
+            this.debouncedSmoothScrollToBottom();
           }
         }
         this.scrollTrackedMsgLen = msgs.length;
       });
     });
 
-    // During streaming: follow primary reply growth; scroll when live details panel reveals.
+    // During streaming: follow unified feed growth while stick is on.
     effect(() => {
       const loading = this.loading();
-      const _parts = this.streamingParts();
-      const auxPanelVisible = this.liveAuxPanelRevealed();
+      const feedKey = turnFeedScrollKey(this.liveTurnFeed());
       untracked(() => {
         if (!loading) {
           return;
         }
-        const primary = this.primaryStreamLiveText();
-        const auxParts = this.liveAuxiliaryTimeline();
-        const primaryKey =
-          primary.length === 0 ? '' : `${primary.length}:${primary.slice(-120)}`;
-        const auxKey = auxParts
-          .map((p) => `${String(p.streamTag ?? '')}:${String(p.label ?? '')}:${p.text.length}`)
-          .join('\u001f');
-
         const decision = decideInstantScrollOnStreamingUpdate(
           {
-            primaryKey,
-            auxKey,
-            auxPanelVisible,
+            primaryKey: feedKey,
+            auxKey: '',
+            auxPanelVisible: false,
           },
           {
-            prevPrimaryKey: this.prevStreamPrimaryKey,
-            prevAuxKey: this.prevStreamAuxKey,
-            prevAuxPanelVisible: this.prevAuxPanelVisible,
+            prevPrimaryKey: this.prevStreamFeedKey,
+            prevAuxKey: '',
+            prevAuxPanelVisible: false,
           },
         );
-        this.prevStreamPrimaryKey = decision.next.prevPrimaryKey;
-        this.prevStreamAuxKey = decision.next.prevAuxKey;
-        this.prevAuxPanelVisible = decision.next.prevAuxPanelVisible;
+        this.prevStreamFeedKey = decision.next.prevPrimaryKey;
 
-        if (!this.pinToBottom) {
+        if (!shouldFollowStreamToken(this.stickMode(), decision.scrollNow)) {
           return;
         }
-        if (decision.scrollNow) {
-          this.scrollToBottom('instant');
-        }
-        if (decision.scrollAfterLayout) {
-          afterNextRender(
-            () => {
-              if (this.chatDestroyed) {
-                return;
-              }
-              this.scrollToBottom('instant');
-            },
-            { injector: this.inj },
-          );
-        }
+        this.scrollToBottom('instant');
       });
     });
 
@@ -659,12 +630,12 @@ export class ChatBox implements OnDestroy {
         }
         const becameVisible = planVisible && !this.prevLivePlanPanelVisible;
         this.prevLivePlanPanelVisible = planVisible;
-        if (!becameVisible || !this.pinToBottom) {
+        if (!becameVisible || !this.stickMode()) {
           return;
         }
         afterNextRender(
           () => {
-            if (this.chatDestroyed || !this.pinToBottom) {
+            if (this.chatDestroyed || !this.stickMode()) {
               return;
             }
             this.scrollToBottom('instant');
@@ -679,16 +650,13 @@ export class ChatBox implements OnDestroy {
       const loading = this.loading();
       untracked(() => {
         if (loading && !this.prevLoadingForCompletionScroll) {
-          this.liveAuxPanelRevealed.set(false);
           this.prevLivePlanPanelVisible = false;
-          this.prevStreamPrimaryKey = '';
-          this.prevStreamAuxKey = '';
-          this.prevAuxPanelVisible = false;
+          this.prevStreamFeedKey = '';
         }
         if (this.prevLoadingForCompletionScroll && !loading) {
           afterNextRender(
             () => {
-              if (this.chatDestroyed) {
+              if (this.chatDestroyed || !shouldFollowStreamComplete(this.stickMode())) {
                 return;
               }
               this.scrollToBottom('smooth');
@@ -697,6 +665,27 @@ export class ChatBox implements OnDestroy {
           );
         }
         this.prevLoadingForCompletionScroll = loading;
+      });
+    });
+
+    // Stick: re-bottom after HITL review chrome (diff dock) takes layout height.
+    effect(() => {
+      const awaitingHitl = this.liveAwaitingHitlReview();
+      untracked(() => {
+        const becameVisible = awaitingHitl && !this.prevLiveAwaitingHitl;
+        this.prevLiveAwaitingHitl = awaitingHitl;
+        if (!becameVisible || !this.stickMode()) {
+          return;
+        }
+        afterNextRender(
+          () => {
+            if (this.chatDestroyed || !this.stickMode()) {
+              return;
+            }
+            this.scrollToBottom('instant');
+          },
+          { injector: this.inj },
+        );
       });
     });
 
@@ -738,6 +727,7 @@ export class ChatBox implements OnDestroy {
       const awaitingHitl = this.liveAwaitingHitlReview();
       // Re-run when the live-turn host (ngx-spinner targets) mounts — e.g. sidebar → expanded swap mid-stream.
       this.liveTurn();
+      this.liveTurnFeed();
       untracked(() => {
         if (loading && tools && !this.wasProcessingToolsActive) {
           const chainN = this.messages().filter((m) => m.role === 'chain').length;
@@ -769,7 +759,8 @@ export class ChatBox implements OnDestroy {
         }
         const loading = this.loading();
         const awaitingHitl = this.liveAwaitingHitlReview();
-        if (!loading || awaitingHitl) {
+        const feedEmpty = this.liveTurnFeed().length === 0;
+        if (!loading || awaitingHitl || !feedEmpty) {
           void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
           return;
         }
@@ -801,6 +792,9 @@ export class ChatBox implements OnDestroy {
     this.el.nativeElement.removeEventListener('send-response', this.onSendResponseDom);
     this.chatScrollResizeObserver?.disconnect();
     this.chatScrollResizeObserver = null;
+    this.chatScrollEndBound?.removeEventListener('scrollend', this.onChatScrollEnd);
+    this.chatScrollEndBound = null;
+    this.releaseProgrammaticScrollLock();
     if (this.convScrollTimeout != null) {
       clearTimeout(this.convScrollTimeout);
       this.convScrollTimeout = null;
@@ -813,25 +807,122 @@ export class ChatBox implements OnDestroy {
     void this.ngxSpinner.hide(SPINNER_CHAT_TTS);
   }
 
-  /** Template `(scroll)` handler: coalesced updates to virtual window + pin state. */
+  /** Template `(scroll)` handler: roam immediately on scroll-up; coalesce virtual-window updates. */
   onChatScroll(): void {
+    const box = this.chatScroll()?.nativeElement;
+    if (!box) return;
+    this.applyStickFromViewport(box);
     cancelAnimationFrame(this.scrollRaf);
     this.scrollRaf = requestAnimationFrame(() => {
-      const box = this.chatScroll()?.nativeElement;
-      if (!box) return;
-      this.scrollTopSig.set(box.scrollTop);
-      this.viewportHeightSig.set(box.clientHeight);
-      this.updatePinFromScroll();
+      const next = this.chatScroll()?.nativeElement;
+      if (!next) return;
+      this.syncScrollMetrics(next);
       this.scheduleMeasureVisibleRows();
     });
   }
 
-  /** Sets `pinToBottom` when the viewport is within {@link SCROLL_BOTTOM_PIN_THRESHOLD_PX} of the end. */
-  private updatePinFromScroll(): void {
+  /** Wheel-up leaves stick immediately so a live stream cannot yank the viewport back down. */
+  onChatWheel(event: WheelEvent): void {
     const box = this.chatScroll()?.nativeElement;
-    if (!box) return;
-    const slack = box.scrollHeight - box.scrollTop - box.clientHeight;
-    this.pinToBottom = slack <= SCROLL_BOTTOM_PIN_THRESHOLD_PX;
+    if (
+      event.deltaY < 0 &&
+      box &&
+      isChatTranscriptScrollable(box.scrollHeight, box.clientHeight)
+    ) {
+      this.enterRoamFromUser();
+    }
+  }
+
+  /** Jump-to-bottom FAB: re-enter stick and smooth-scroll to the latest content. */
+  onJumpToBottom(): void {
+    this.enterStickMode();
+    this.scrollToBottom('smooth');
+  }
+
+  private readonly onChatScrollEnd = (): void => {
+    this.releaseProgrammaticScrollLock();
+    const box = this.chatScroll()?.nativeElement;
+    if (box) {
+      this.applyStickFromViewport(box);
+    }
+  };
+
+  private enterStickMode(): void {
+    this.stickMode.set(true);
+    this.hasUnseenBelow.set(false);
+  }
+
+  /** User scroll-up: freeze the viewport and abort any in-flight stick follow. */
+  private enterRoamFromUser(): void {
+    const box = this.chatScroll()?.nativeElement;
+    if (!box || !isChatTranscriptScrollable(box.scrollHeight, box.clientHeight)) {
+      this.enterStickMode();
+      return;
+    }
+    this.stickMode.set(false);
+    this.releaseProgrammaticScrollLock();
+    cancelAnimationFrame(this.scrollToBottomRaf);
+    this.scrollToBottomRaf = 0;
+    if (this.scrollSmoothDebounceTimer != null) {
+      clearTimeout(this.scrollSmoothDebounceTimer);
+      this.scrollSmoothDebounceTimer = null;
+    }
+  }
+
+  private beginProgrammaticScrollLock(behavior: ScrollBehavior): void {
+    this.programmaticScroll = true;
+    if (this.programmaticScrollUnlockTimer != null) {
+      clearTimeout(this.programmaticScrollUnlockTimer);
+    }
+    const unlockMs = behavior === 'smooth' ? 450 : 64;
+    this.programmaticScrollUnlockTimer = setTimeout(() => {
+      this.programmaticScrollUnlockTimer = null;
+      this.programmaticScroll = false;
+      const box = this.chatScroll()?.nativeElement;
+      if (box) {
+        this.applyStickFromViewport(box);
+      }
+    }, unlockMs);
+  }
+
+  private releaseProgrammaticScrollLock(): void {
+    this.programmaticScroll = false;
+    if (this.programmaticScrollUnlockTimer != null) {
+      clearTimeout(this.programmaticScrollUnlockTimer);
+      this.programmaticScrollUnlockTimer = null;
+    }
+  }
+
+  private syncScrollMetrics(box: HTMLElement): void {
+    this.scrollTopSig.set(box.scrollTop);
+    this.viewportHeightSig.set(box.clientHeight);
+    this.scrollHeightSig.set(box.scrollHeight);
+  }
+
+  /**
+   * Stick/roam from the live viewport. Scroll-up always wins, including during a
+   * programmatic follow; the lock only ignores slack while a smooth jump is in flight.
+   */
+  private applyStickFromViewport(box: HTMLElement): void {
+    const top = box.scrollTop;
+    this.syncScrollMetrics(box);
+    const slack = scrollSlackPx(box.scrollHeight, top, box.clientHeight);
+    const intent = decideStickAfterUserScroll({
+      scrolledUp: top + 1 < this.lastScrollTop,
+      scrolledDown: top > this.lastScrollTop + 1,
+      nearBottom: isStickFromSlack(slack, SCROLL_BOTTOM_PIN_THRESHOLD_PX),
+      programmatic: this.programmaticScroll,
+      stickMode: this.stickMode(),
+      scrollable: isChatTranscriptScrollable(box.scrollHeight, box.clientHeight),
+    });
+    this.lastScrollTop = top;
+    if (intent === 'roam') {
+      this.enterRoamFromUser();
+      return;
+    }
+    if (intent === 'stick') {
+      this.enterStickMode();
+    }
   }
 
   /** Template helper: last row in the virtualized persisted list (e.g. markdown layout pass). */
@@ -852,6 +943,10 @@ export class ChatBox implements OnDestroy {
           }
           const root = this.chatScroll()?.nativeElement;
           if (!root) return;
+          this.syncScrollMetrics(root);
+          if (!isChatTranscriptScrollable(root.scrollHeight, root.clientHeight) && !this.stickMode()) {
+            this.enterStickMode();
+          }
           const rowsLen = this.persistedRows().length;
           for (const wrap of root.querySelectorAll<HTMLElement>('[data-chat-row]')) {
             const idx = Number(wrap.dataset['chatRow']);
@@ -872,14 +967,14 @@ export class ChatBox implements OnDestroy {
     );
   }
 
-  /** Batches rapid message appends into one smooth scroll (80 ms). */
+  /** Batches rapid message appends into one smooth scroll (80 ms). Skips if roam won the race. */
   private debouncedSmoothScrollToBottom(): void {
     if (this.scrollSmoothDebounceTimer != null) {
       clearTimeout(this.scrollSmoothDebounceTimer);
     }
     this.scrollSmoothDebounceTimer = setTimeout(() => {
       this.scrollSmoothDebounceTimer = null;
-      if (this.chatDestroyed) {
+      if (this.chatDestroyed || !this.stickMode()) {
         return;
       }
       this.scrollToBottom('smooth');
@@ -888,12 +983,13 @@ export class ChatBox implements OnDestroy {
 
   /** Scroll `#chatScroll` (or `.chat-box` fallback) to `scrollHeight` and refresh measurements. */
   private scrollToBottom(behavior: ScrollBehavior): void {
-    if (this.chatDestroyed) {
+    if (this.chatDestroyed || !this.stickMode()) {
       return;
     }
+    this.beginProgrammaticScrollLock(behavior);
     cancelAnimationFrame(this.scrollToBottomRaf);
     this.scrollToBottomRaf = requestAnimationFrame(() => {
-      if (this.chatDestroyed) {
+      if (this.chatDestroyed || !this.stickMode()) {
         return;
       }
       const box = this.chatScroll()?.nativeElement ?? this.el.nativeElement.querySelector('.chat-box');
@@ -904,10 +1000,10 @@ export class ChatBox implements OnDestroy {
         } catch {
           box.scrollTop = top;
         }
-        this.scrollTopSig.set(box.scrollTop);
+        this.lastScrollTop = box.scrollTop;
+        this.syncScrollMetrics(box);
       }
       this.scheduleMeasureVisibleRows();
-      this.updatePinFromScroll();
     });
   }
 
@@ -915,60 +1011,5 @@ export class ChatBox implements OnDestroy {
   planPanelForTurn(row: ChatDisplayRow): ReturnType<typeof planPanelContext> {
     if (row.kind !== 'assistant-turn') return null;
     return planPanelContext(row.assistant?.planner, row.artifacts);
-  }
-
-  /** HITL artifact messages for a persisted assistant turn (plan confirm excluded). */
-  hitlArtifactsForTurn(row: ChatDisplayRow): ArtifactMessage[] {
-    if (row.kind !== 'assistant-turn') return [];
-    return hitlArtifactsExcludingPlanConfirm(row.artifacts);
-  }
-
-  /** Persisted auxiliary panels use a fixed title (live stream uses brief-derived title). */
-  auxiliaryPanelTitleForTurn(_row: ChatDisplayRow): string {
-    return PERSISTED_AUXILIARY_STREAM_PANEL_TITLE;
-  }
-
-  persistedResponseDetailsKey(index: number): string {
-    return `row-${index}`;
-  }
-
-  hasResponseDetailsForRow(row: ChatDisplayRow): boolean {
-    if (row.kind !== 'assistant-turn') {
-      return false;
-    }
-    return this.auxiliaryTimelineForTurn(row).length > 0;
-  }
-
-  responseDetailsMode(key: string): AuxiliaryPanelMode {
-    const stored = this.responseDetailsModes()[key];
-    if (stored !== undefined) {
-      return stored;
-    }
-    if (key === this.liveResponseDetailsKey && this.hasLiveResponseDetails()) {
-      return initialAuxiliaryPanelMode(true);
-    }
-    return 'collapsed';
-  }
-
-  onResponseDetailsModeChange(key: string, mode: AuxiliaryPanelMode): void {
-    this.responseDetailsModes.update((modes) => ({ ...modes, [key]: mode }));
-  }
-
-  /** Live aux panel took layout height — drive streaming autoscroll after reveal. */
-  onLiveAuxiliaryPanelRevealed(): void {
-    this.liveAuxPanelRevealed.set(true);
-  }
-
-  toggleResponseDetails(key: string, live: boolean): void {
-    const next = toggleAuxiliaryPanelMode(this.responseDetailsMode(key), live);
-    this.onResponseDetailsModeChange(key, next);
-  }
-
-  responseDetailsExpanded(key: string): boolean {
-    return auxiliaryPanelContentVisible(this.responseDetailsMode(key));
-  }
-
-  responseDetailsChevron(key: string): string {
-    return this.responseDetailsExpanded(key) ? '▼' : '▶';
   }
 }

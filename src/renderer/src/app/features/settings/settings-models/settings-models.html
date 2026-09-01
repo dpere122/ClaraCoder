@@ -651,10 +651,14 @@
                         />
                       </label>
                       <div class='field'>
-                        <span>Parallel tool calls <span class='settings-wip'>in construction</span></span>
+                        <span>Parallel tool calls</span>
                         <label class='toggle-row'>
-                          <input type='checkbox' disabled />
-                          <span>Off</span>
+                          <input
+                            type='checkbox'
+                            [ngModel]='connection.parallelToolCalls'
+                            (ngModelChange)='s.updateSelectedModel({ parallelToolCalls: $event })'
+                          />
+                          <span>{{ connection.parallelToolCalls ? 'On' : 'Off' }}</span>
                         </label>
                       </div>
                     </div>

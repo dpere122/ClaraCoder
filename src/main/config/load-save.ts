@@ -333,9 +333,8 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
       migrated = true;
     }
   }
-  // Parked: parallel tool calling is in construction; keep the stored flag off.
-  if (model.parallelToolCalls !== false) {
-    model.parallelToolCalls = false;
+  if (typeof model.parallelToolCalls !== 'boolean') {
+    model.parallelToolCalls = true;
     migrated = true;
   }
   if (
@@ -587,7 +586,7 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
           samplingPreset: 'provider-default',
           architectureHint: 'auto',
           temperature: 0,
-          parallelToolCalls: false,
+          parallelToolCalls: true,
           optimizationPreset: 'generic',
           maxOutputTokens: 0,
         },
@@ -847,6 +846,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
       // sidebar width so the new default takes effect (the workspace pane width is client-only
       // and already re-initializes to 25% of the viewport on every launch).
       (newConfig as AppConfig).chatSidebarWidthPercent = 1 / 3;
+    }
+    if (schemaVersion < 6) {
+      // Parallel tool calls were parked off in normalize; turn them on for existing profiles.
+      for (const provider of newConfig.llmProviders) {
+        for (const model of provider.models) {
+          model.parallelToolCalls = true;
+        }
+      }
     }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;

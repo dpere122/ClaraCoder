@@ -65,6 +65,7 @@ from clara_coder_backend.llm.gemma_output import (
     extract_gemma_native_tool_calls,
     gemma_content_needs_parsing,
     split_gemma_channels,
+    strip_gemma_channel_markup,
 )
 from clara_coder_backend.llm.model_tuning import gemma_output_parsing_active
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
@@ -702,11 +703,13 @@ async def _stream_planner_md(
             delta = aimessage_chunk_sse_delta(chunk)
             if delta:
                 raw_acc += delta
-            if not reason_delta.strip() and delta and _gemma_planner_split_enabled(delta, already=gemma_split):
+            if delta and _gemma_planner_split_enabled(delta, already=gemma_split):
                 gemma_split = True
                 delta, split_reason = splitter.feed(delta)
                 if split_reason:
                     reason_delta = f'{reason_delta}{split_reason}'
+            if reason_delta and (gemma_split or gemma_content_needs_parsing(reason_delta)):
+                reason_delta = strip_gemma_channel_markup(reason_delta)
             if is_meaningful_stream_delta(reason_delta):
                 reason_acc += reason_delta
                 yield model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG)

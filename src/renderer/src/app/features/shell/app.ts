@@ -352,6 +352,12 @@ export class App implements OnInit, OnDestroy {
     return relativePathFromModelKey(key);
   });
 
+  /** True when the active Monaco tab has unsaved buffer edits. */
+  protected readonly activeFileIsDirty = computed(() => {
+    const key = this.activeModelKey();
+    return !!key && this.monacoUnsavedPaths().has(key);
+  });
+
   /** True when the active file tab is an image the dedicated viewer should render. */
   protected readonly activeFileIsImage = computed(() => {
     const p = this.activeFileRelativePath();

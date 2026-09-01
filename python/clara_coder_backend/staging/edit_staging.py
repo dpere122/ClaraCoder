@@ -325,7 +325,12 @@ def unlink_staging_quiet(path: Path) -> None:
 
 
 def discard_session_staging(session: object, rel_key: str) -> bool:
-    """Remove one pending staging entry (unlink temp). Returns True if an entry existed."""
+    """Forget one pending staging entry (unlink leftover sidecar temp).
+
+    Does not restore the workspace file. Callers that abandon a write-through
+    draft must restore the journal first (see ``discard_staged_edits``).
+    Returns True if an entry existed.
+    """
     pending = getattr(session, 'pending_edit_stagings', None)
     if not isinstance(pending, dict):
         return False
@@ -337,7 +342,12 @@ def discard_session_staging(session: object, rel_key: str) -> bool:
         return False
     tp = getattr(entry, 'temp_path', '') or ''
     if tp:
-        unlink_staging_quiet(Path(tp))
+        try:
+            staged = Path(tp).resolve()
+            if staged.is_relative_to(get_staging_root()):
+                unlink_staging_quiet(staged)
+        except (OSError, ValueError):
+            pass
     return True
 
 
@@ -349,7 +359,12 @@ def discard_all_session_stagings(session: object) -> None:
     for _rel, entry in list(pending.items()):
         tp = getattr(entry, 'temp_path', '') or ''
         if tp:
-            unlink_staging_quiet(Path(tp))
+            try:
+                staged = Path(tp).resolve()
+                if staged.is_relative_to(get_staging_root()):
+                    unlink_staging_quiet(staged)
+            except (OSError, ValueError):
+                pass
     pending.clear()
 
 

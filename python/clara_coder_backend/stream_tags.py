@@ -5,6 +5,9 @@ from __future__ import annotations
 # Keep in sync with src/shared/stream-parts.ts (SSE auxiliary / reasoning).
 REASONING_AUXILIARY_STREAM_TAG = 'reasoning'
 
+# Premature primary prose promoted when EmptyResponseNudgeMiddleware jumps back to the model.
+NUDGE_STREAM_TAG = 'nudge'
+
 # Plan-and-execute planner status rows and progress payloads.
 PLANNER_STREAM_TAG = 'planner'
 

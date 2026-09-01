@@ -19,7 +19,9 @@ import type {
 import {
   parseFileJournalSsePayload,
   clearPrimaryStreamParts,
+  promotePrimaryToNudgeParts,
   findManagedLocalLlamaLocation,
+  isClaraOuterBriefStreamTag,
   mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
@@ -41,6 +43,7 @@ import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
   appendStreamPart,
   markToolExecStreamComplete,
+  upsertClaraOuterBriefStreamPart,
   upsertToolTrailStatusStreamPart,
 } from './app-stream-parts';
 import { applyAppTheme, resolveAppThemeId } from './app-theme';
@@ -262,6 +265,10 @@ export class ConversationSessionService {
         });
         return;
       }
+      if (isClaraOuterBriefStreamTag(status.streamTag)) {
+        this.streamingParts.update((prev) => upsertClaraOuterBriefStreamPart(prev, status));
+        return;
+      }
       this.upsertChainMessage(status);
     });
 
@@ -279,6 +286,17 @@ export class ConversationSessionService {
       }
       const prev = this.backgroundStreamParts.get(conversationId) ?? [];
       this.backgroundStreamParts.set(conversationId, clearPrimaryStreamParts(prev));
+    });
+
+    this.electron.promotePrimaryToNudge$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId }) => {
+      this.pendingFinalText.delete(conversationId);
+      if (conversationId === this.activeConversationId()) {
+        this.streamingParts.update((prev) => promotePrimaryToNudgeParts(prev));
+        this.streamingFinalText.set(undefined);
+        return;
+      }
+      const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+      this.backgroundStreamParts.set(conversationId, promotePrimaryToNudgeParts(prev));
     });
 
     this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, outcome }) => {

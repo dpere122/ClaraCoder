@@ -1,9 +1,11 @@
 import { EnvironmentProviders, importProvidersFrom, Provider } from '@angular/core';
 import {
+  ArrowDown,
   Brain,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CircleAlert,
   Copy,
   FileSearch,
   FileText,
@@ -45,10 +47,12 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
   { provide: LucideIconConfig, useFactory: lucideIconConfigFactory },
   importProvidersFrom(
     LucideAngularModule.pick({
+      ArrowDown,
       Brain,
       ChevronDown,
       ChevronLeft,
       ChevronRight,
+      CircleAlert,
       Copy,
       FileSearch,
       FileText,

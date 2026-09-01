@@ -3,18 +3,29 @@ import { persistedAuxiliaryStreamTimeline } from '@shared/index';
 import {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
+  decideStickAfterUserScroll,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
+  isChatTranscriptScrollable,
   isPendingHitlArtifact,
   isScrollWorthyAppendMessage,
+  isStickFromSlack,
   liveTurnPresentationSettled,
+  mergeClaraBriefsFromChainIntoTimeline,
   pendingHitlArtifactsForDock,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   latestPrimaryStreamSegmentText,
+  SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+  scrollSlackPx,
+  shouldFollowStreamComplete,
+  shouldFollowStreamToken,
+  shouldShowJumpToBottom,
   turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
+  unseenBelowAfterScroll,
   type ChatMessage,
   type ToolChainGroup,
 } from './chat-box-display';
@@ -184,6 +195,58 @@ describe('buildChatDisplayRows', () => {
     expect(rows[1].chainGroups[0].rows).toHaveLength(1);
     expect(rows[1].chainGroups[0].rows[0].streamTag).toBe('clara');
     expect(rows[1].chainGroups[0].toolCallCount).toBe(0);
+  });
+
+  it('folds persisted Clara chain briefs into the turn timeline when missing from auxiliary parts', () => {
+    const groups: ToolChainGroup[] = [
+      {
+        key: 'brief-1',
+        rows: [
+          {
+            role: 'chain',
+            label: 'Clara',
+            text: 'Checking the layout next.',
+            state: 'complete',
+            source: 'agent',
+            statusId: 'brief-1',
+            streamTag: 'clara',
+          },
+        ],
+        toolCallCount: 0,
+      },
+    ];
+    const merged = mergeClaraBriefsFromChainIntoTimeline(
+      [{ streamTag: 'reasoning', label: 'R', text: 'think' }],
+      groups,
+    );
+    expect(merged[0]).toEqual({
+      streamTag: 'clara',
+      label: 'Clara',
+      text: 'Checking the layout next.',
+    });
+    expect(merged[1]?.streamTag).toBe('reasoning');
+  });
+
+  it('does not duplicate chain briefs when the timeline already has clara parts', () => {
+    const groups: ToolChainGroup[] = [
+      {
+        key: 'brief-1',
+        rows: [
+          {
+            role: 'chain',
+            label: 'Clara',
+            text: 'from chain',
+            state: 'complete',
+            source: 'agent',
+            statusId: 'brief-1',
+            streamTag: 'clara',
+          },
+        ],
+        toolCallCount: 0,
+      },
+    ];
+    const timeline: StreamPart[] = [{ streamTag: 'clara', label: 'Clara', text: 'from stream' }];
+    expect(mergeClaraBriefsFromChainIntoTimeline(timeline, groups)).toEqual(timeline);
   });
 
   it('preserves persisted shell tool streams on the assistant row', () => {
@@ -431,6 +494,182 @@ describe('isScrollWorthyAppendMessage', () => {
         reviewStatus: 'pending',
       }),
     ).toBe(true);
+  });
+});
+
+const hitlDiffMessage: ChatMessage = {
+  role: 'diff',
+  payload: {
+    version: 1,
+    relativePath: 'a.ts',
+    language: 'typescript',
+    rows: [],
+    fullNewContent: '',
+    truncated: false,
+  },
+  reviewStatus: 'pending',
+};
+
+describe('stick/roam scroll policy', () => {
+  it('treats slack within 48px as stick and beyond as roam', () => {
+    expect(scrollSlackPx(1000, 900, 80)).toBe(20);
+    expect(isStickFromSlack(0)).toBe(true);
+    expect(isStickFromSlack(SCROLL_BOTTOM_PIN_THRESHOLD_PX)).toBe(true);
+    expect(isStickFromSlack(SCROLL_BOTTOM_PIN_THRESHOLD_PX + 1)).toBe(false);
+  });
+
+  it('treats a short transcript as not scrollable', () => {
+    expect(isChatTranscriptScrollable(400, 400)).toBe(false);
+    expect(isChatTranscriptScrollable(401, 400)).toBe(false);
+    expect(isChatTranscriptScrollable(402, 400)).toBe(true);
+  });
+
+  it('hides the jump button unless roam and the transcript overflows', () => {
+    expect(shouldShowJumpToBottom(true, true)).toBe(false);
+    expect(shouldShowJumpToBottom(false, false)).toBe(false);
+    expect(shouldShowJumpToBottom(true, false)).toBe(false);
+    expect(shouldShowJumpToBottom(false, true)).toBe(true);
+  });
+
+  it('follows user, assistant, and HITL appends while stick', () => {
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: true,
+        added: [{ role: 'user', text: 'hi' }],
+        loading: false,
+      }),
+    ).toEqual({ follow: true, badge: false });
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: true,
+        added: [{ role: 'assistant', text: 'ok' }],
+        loading: false,
+      }),
+    ).toEqual({ follow: true, badge: false });
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: true,
+        added: [hitlDiffMessage],
+        loading: true,
+      }),
+    ).toEqual({ follow: true, badge: false });
+  });
+
+  it('does not follow in-stream assistant/chain appends while stick (live feed handles them)', () => {
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: true,
+        added: [{ role: 'assistant', text: 'partial' }],
+        loading: true,
+      }),
+    ).toEqual({ follow: false, badge: false });
+  });
+
+  it('badges and stays put for user, assistant, and HITL appends while roam', () => {
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: false,
+        added: [{ role: 'user', text: 'next' }],
+        loading: false,
+      }),
+    ).toEqual({ follow: false, badge: true });
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: false,
+        added: [{ role: 'assistant', text: 'ok' }],
+        loading: false,
+      }),
+    ).toEqual({ follow: false, badge: true });
+    expect(
+      decideChatScrollOnAppend({
+        stickMode: false,
+        added: [hitlDiffMessage],
+        loading: true,
+      }),
+    ).toEqual({ follow: false, badge: true });
+  });
+
+  it('leaves stick on any user scroll-up, even during programmatic follow', () => {
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: true,
+        scrolledDown: false,
+        nearBottom: true,
+        programmatic: true,
+        stickMode: true,
+        scrollable: true,
+      }),
+    ).toBe('roam');
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: true,
+        scrolledDown: false,
+        nearBottom: false,
+        programmatic: false,
+        stickMode: true,
+        scrollable: true,
+      }),
+    ).toBe('roam');
+  });
+
+  it('stays in stick when the transcript is not scrollable, even on scroll-up', () => {
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: true,
+        scrolledDown: false,
+        nearBottom: true,
+        programmatic: false,
+        stickMode: true,
+        scrollable: false,
+      }),
+    ).toBe('stick');
+  });
+
+  it('re-sticks only when the user scrolls down to the bottom, not on resize while roam', () => {
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: false,
+        scrolledDown: true,
+        nearBottom: true,
+        programmatic: false,
+        stickMode: false,
+        scrollable: true,
+      }),
+    ).toBe('stick');
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: false,
+        scrolledDown: false,
+        nearBottom: true,
+        programmatic: false,
+        stickMode: false,
+        scrollable: true,
+      }),
+    ).toBe('keep');
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: false,
+        scrolledDown: false,
+        nearBottom: true,
+        programmatic: true,
+        stickMode: true,
+        scrollable: true,
+      }),
+    ).toBe('keep');
+  });
+
+  it('follows stream tokens and completion only while stick', () => {
+    expect(shouldFollowStreamToken(true, true)).toBe(true);
+    expect(shouldFollowStreamToken(false, true)).toBe(false);
+    expect(shouldFollowStreamToken(true, false)).toBe(false);
+    expect(shouldFollowStreamComplete(true)).toBe(true);
+    expect(shouldFollowStreamComplete(false)).toBe(false);
+  });
+
+  it('clears the unseen badge when returning to stick', () => {
+    expect(unseenBelowAfterScroll(true, true)).toBe(false);
+    expect(unseenBelowAfterScroll(false, true)).toBe(true);
+    expect(unseenBelowAfterScroll(false, false)).toBe(false);
   });
 });
 

@@ -47,6 +47,29 @@ def test_gemma_native_middleware_promotes_tool_call_after_thought(_active: Magic
     assert result is not None
     promoted = result['messages'][0]
     assert promoted.tool_calls[0]['name'] == 'get_current_temperature'
+    assert promoted.additional_kwargs.get('reasoning_content') == 'Need the file.'
+    assert promoted.content == ''
+
+
+@patch(_ACTIVE, return_value=True)
+def test_gemma_native_middleware_promotes_empty_channel_thought_before_tool(_active: MagicMock) -> None:
+    middleware = GemmaNativeToolMiddleware()
+    raw = (
+        '<|channel>thought\n<channel|>Need the file.\n'
+        + _GOOGLE_TEMPERATURE
+    )
+    result = asyncio.run(
+        middleware.aafter_model(
+            {'messages': [AIMessage(content=raw)]},
+            MagicMock(),
+        )
+    )
+    assert result is not None
+    promoted = result['messages'][0]
+    assert promoted.tool_calls[0]['name'] == 'get_current_temperature'
+    assert 'Need the file.' in str(promoted.additional_kwargs.get('reasoning_content') or '')
+    assert 'Need the file.' not in str(promoted.content)
+    assert promoted.content == ''
 
 
 @patch(_ACTIVE, return_value=True)
@@ -69,6 +92,25 @@ def test_gemma_native_middleware_skips_when_gemma_preset_off(_active: MagicMock)
         )
     )
     assert result is None
+
+
+@patch(_ACTIVE, return_value=True)
+def test_gemma_native_middleware_remaps_api_path_aliases(_active: MagicMock) -> None:
+    middleware = GemmaNativeToolMiddleware()
+    msg = AIMessage(
+        content='',
+        tool_calls=[
+            {
+                'name': 'stage_create_file',
+                'id': 'api-1',
+                'args': {'file_path': 'hello.py', 'content': 'print(1)\n'},
+            }
+        ],
+    )
+    result = asyncio.run(middleware.aafter_model({'messages': [msg]}, MagicMock()))
+    assert result is not None
+    args = result['messages'][0].tool_calls[0]['args']
+    assert args == {'relative_path': 'hello.py', 'new_content': 'print(1)\n'}
 
 
 def test_gemma_native_middleware_ignores_existing_api_tool_calls() -> None:
@@ -105,3 +147,29 @@ def test_leftover_gemma_native_markup_triggers_pseudo_tool_nudge() -> None:
     assert result is not None
     assert result.get('jump_to') == 'model'
     assert result.get('pseudo_tool_markup_nudge_streak') == 1
+
+
+@patch('clara_coder_backend.session.state.get_active_connection')
+def test_leftover_gemma_native_markup_does_not_nudge_on_gemma_preset(mock_conn: MagicMock) -> None:
+    from clara_coder_backend.domain import RuntimeConnection
+
+    mock_conn.return_value = RuntimeConnection(
+        id='t',
+        name='t',
+        provider='lmstudio',
+        base_url='http://127.0.0.1:1234/v1',
+        model='google/gemma-4-it',
+        optimization_preset='gemma',
+    )
+    middleware = EmptyResponseNudgeMiddleware()
+    leftover = '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}'
+    result = asyncio.run(
+        middleware.aafter_model(
+            {
+                'messages': [AIMessage(content=leftover)],
+                'empty_response_nudge_streak': 0,
+            },
+            MagicMock(),
+        )
+    )
+    assert result is None

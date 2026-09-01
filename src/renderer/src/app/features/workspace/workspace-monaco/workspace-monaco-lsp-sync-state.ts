@@ -12,3 +12,8 @@ export function monacoModelNeedsLspDocumentSync(model: Monaco.editor.ITextModel)
 export function markMonacoModelLspDocumentSynced(model: Monaco.editor.ITextModel): void {
   lspDocumentSyncedAltVersion.set(model, model.getAlternativeVersionId());
 }
+
+/** Force the next LSP call to send the live buffer (server restart, agent overwrite, disk reload). */
+export function invalidateMonacoModelLspDocumentSync(model: Monaco.editor.ITextModel): void {
+  lspDocumentSyncedAltVersion.delete(model);
+}

@@ -228,3 +228,9 @@ def test_embeddings_configured_camel_and_default() -> None:
     r = RuntimeConfigRequest.model_validate(body)
     assert r.connections[0].embeddingsConfigured is True
     assert r.connections[0].embeddingsEnabled is False
+
+
+def test_parallel_tool_calls_defaults_on_when_omitted() -> None:
+    body = {k: v for k, v in _CONN.items() if k != 'parallelToolCalls'}
+    r = RuntimeConnectionRequest.model_validate(body)
+    assert r.parallelToolCalls is True

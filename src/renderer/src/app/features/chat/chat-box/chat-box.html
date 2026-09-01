@@ -1,4 +1,4 @@
-<div class="chat-box" #chatScroll (scroll)="onChatScroll()" appRunButton>
+<div class="chat-box" #chatScroll (scroll)="onChatScroll()" (wheel)="onChatWheel($event)" appRunButton>
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().topSpacer" aria-hidden="true"></div>
   @for (slot of virtualWindow().slots; track slot.index) {
     <div class="chat-row-mount" [attr.data-chat-row]="slot.index">
@@ -34,25 +34,9 @@
             <span class="tui-frame-bar__corner" aria-hidden="true">┐</span>
           </div>
         } @else {
-          <div
-            class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara"
-            [class.tui-frame-bar--has-details]="hasResponseDetailsForRow(slot.row)"
-          >
+          <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara">
             <span class="tui-frame-bar__corner" aria-hidden="true">╔</span>
-            @if (hasResponseDetailsForRow(slot.row)) {
-              <button
-                type="button"
-                class="tui-frame-bar__label-group"
-                (click)="toggleResponseDetails(persistedResponseDetailsKey(slot.index), false)"
-                [attr.aria-expanded]="responseDetailsExpanded(persistedResponseDetailsKey(slot.index))"
-                [attr.aria-label]="responseDetailsExpanded(persistedResponseDetailsKey(slot.index)) ? 'Collapse response details' : 'Expand response details'"
-              >
-                <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA</span>
-                <span class="tui-frame-bar__chevron-icon" aria-hidden="true">{{ responseDetailsChevron(persistedResponseDetailsKey(slot.index)) }}</span>
-              </button>
-            } @else {
-              <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
-            }
+            <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
             <span class="tui-frame-bar__fill" aria-hidden="true"></span>
             <span class="tui-frame-bar__corner" aria-hidden="true">╗</span>
           </div>
@@ -76,21 +60,7 @@
           }
         } @else {
           @let row = slot.row;
-
-          @let auxPersisted = auxiliaryTimelineForTurn(row);
-          @if (auxPersisted.length > 0) {
-            <div aria-live="polite">
-              <app-auxiliary-stream-panel
-                [parts]="auxPersisted"
-                [live]="false"
-                [planPanelVisible]="!!planPanelForTurn(row)"
-                [title]="auxiliaryPanelTitleForTurn(row)"
-                [hideHeaderToggle]="tuiFrameChrome()"
-                [mode]="responseDetailsMode(persistedResponseDetailsKey(slot.index))"
-                (modeChange)="onResponseDetailsModeChange(persistedResponseDetailsKey(slot.index), $event)"
-              />
-            </div>
-          }
+          @let persistedFeed = turnFeedForRow(row);
 
           @if (planPanelForTurn(row); as planCtx) {
             <app-planner-checklist
@@ -109,23 +79,29 @@
             />
           }
 
-          @if (row.assistant?.text) {
-            <div class="assistant-md" [innerHTML]="row.assistant!.text | markdown: assistantMdLayoutPass()"></div>
-            @if (ttsLoading() && isLastPersistedRow(slot.index)) {
-              <div class="tts-loading" role="status" aria-live="polite">
-                <div class="tts-ngx-host" aria-hidden="true">
-                  <ngx-spinner
-                    name="chat-tts"
-                    type="line-scale"
-                    [fullScreen]="false"
-                    bdColor="rgba(0,0,0,0)"
-                    size="small"
-                    color="var(--bs-secondary-color)"
-                  ></ngx-spinner>
-                </div>
-                <span class="tts-loading-label">Preparing audio</span>
+          @if (persistedFeed.length > 0) {
+            <app-stream-turn-feed
+              [items]="persistedFeed"
+              [live]="false"
+              [markdownLayoutPass]="assistantMdLayoutPass()"
+              [planPanelVisible]="!!planPanelForTurn(row)"
+            />
+          }
+
+          @if (ttsLoading() && isLastPersistedRow(slot.index)) {
+            <div class="tts-loading" role="status" aria-live="polite">
+              <div class="tts-ngx-host" aria-hidden="true">
+                <ngx-spinner
+                  name="chat-tts"
+                  type="line-scale"
+                  [fullScreen]="false"
+                  bdColor="rgba(0,0,0,0)"
+                  size="small"
+                  color="var(--bs-secondary-color)"
+                ></ngx-spinner>
               </div>
-            }
+              <span class="tts-loading-label">Preparing audio</span>
+            </div>
           }
         }
         </div>
@@ -170,43 +146,13 @@
         class="msg-bubble assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
-        <div
-          class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara"
-          [class.tui-frame-bar--has-details]="hasLiveResponseDetails()"
-        >
+        <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara">
           <span class="tui-frame-bar__corner" aria-hidden="true">╔</span>
-          @if (hasLiveResponseDetails()) {
-            <button
-              type="button"
-              class="tui-frame-bar__label-group"
-              (click)="toggleResponseDetails(liveResponseDetailsKey, true)"
-              [attr.aria-expanded]="responseDetailsExpanded(liveResponseDetailsKey)"
-              [attr.aria-label]="responseDetailsExpanded(liveResponseDetailsKey) ? 'Collapse response details' : 'Expand response details'"
-            >
-              <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA</span>
-              <span class="tui-frame-bar__chevron-icon" aria-hidden="true">{{ responseDetailsChevron(liveResponseDetailsKey) }}</span>
-            </button>
-          } @else {
-            <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
-          }
+          <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
           <span class="tui-frame-bar__fill" aria-hidden="true"></span>
           <span class="tui-frame-bar__corner" aria-hidden="true">╗</span>
         </div>
         <div class="tui-frame-bar__body">
-        @if (showLiveAuxiliaryPanel() || liveHitlArtifacts().length > 0) {
-          <div aria-live="polite">
-            <app-auxiliary-stream-panel
-              [parts]="liveAuxiliaryTimeline()"
-              [live]="true"
-              [planPanelVisible]="!!livePlanPanel()"
-              [title]="liveAuxiliaryPanelTitle()"
-              [hideHeaderToggle]="tuiFrameChrome()"
-              [mode]="responseDetailsMode(liveResponseDetailsKey)"
-              (modeChange)="onResponseDetailsModeChange(liveResponseDetailsKey, $event)"
-              (overflowRevealed)="onLiveAuxiliaryPanelRevealed()"
-            />
-          </div>
-        }
         @if (livePlanPanel(); as planCtx) {
           <app-planner-checklist
             [planner]="planCtx.planner"
@@ -223,15 +169,15 @@
             (agentQuestionFinished)="agentQuestionFinished.emit($event)"
           />
         }
-        @if (primaryStreamLiveText().length > 0) {
-          <div class="streaming-primary-live" aria-live="polite">
-            <div class="assistant-md streaming-live-md" [innerHTML]="primaryStreamLiveText() | markdown"></div>
-            @if (showStreamingPrimaryCursor()) {
-              <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
-            }
-          </div>
+        @if (liveTurnFeed().length > 0) {
+          <app-stream-turn-feed
+            [items]="liveTurnFeed()"
+            [live]="true"
+            [showCursor]="showStreamingPrimaryCursor()"
+            [planPanelVisible]="!!livePlanPanel()"
+          />
         }
-        @if (!liveAwaitingHitlReview()) {
+        @if (!liveAwaitingHitlReview() && liveTurnFeed().length === 0) {
           <div class="processing-bubble" role="status" aria-live="polite">
             <div class="processing-ngx-host" aria-hidden="true">
               <ngx-spinner
@@ -256,3 +202,19 @@
     </div>
   }
 </div>
+@if (showJumpToBottom()) {
+  <button
+    type="button"
+    class="chat-jump-bottom"
+    [class.chat-jump-bottom--unseen]="hasUnseenBelow()"
+    (click)="onJumpToBottom()"
+    [attr.aria-label]="hasUnseenBelow() ? 'Scroll to bottom, new message' : 'Scroll to bottom'"
+  >
+    <lucide-icon name="arrow-down" [size]="18" aria-hidden="true"></lucide-icon>
+    @if (hasUnseenBelow()) {
+      <span class="chat-jump-bottom__unseen" aria-hidden="true">
+        <lucide-icon name="circle-alert" [size]="12"></lucide-icon>
+      </span>
+    }
+  </button>
+}

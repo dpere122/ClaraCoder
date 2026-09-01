@@ -75,6 +75,7 @@ export type ParsedAgentStreamPayload =
     }
   | { type: 'final_text'; text: string }
   | { type: 'clear_primary_stream' }
+  | { type: 'promote_primary_to_nudge' }
   | {
       type: 'context_compressed';
       tokensBefore: number;
@@ -372,6 +373,10 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
 
     if (parsed.type === 'clear_primary_stream') {
       return { type: 'clear_primary_stream' };
+    }
+
+    if (parsed.type === 'promote_primary_to_nudge') {
+      return { type: 'promote_primary_to_nudge' };
     }
 
     if (parsed.type === 'context_compressed') {

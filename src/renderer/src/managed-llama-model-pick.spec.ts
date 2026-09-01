@@ -11,6 +11,7 @@ import {
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   optimizationPresetDefaultsPatch,
+  outerAgentBriefEnabled,
   parseCustomManagedContextTokens,
   parseManagedLlamaBatchSize,
   parseManagedLlamaCacheTypeK,
@@ -630,7 +631,7 @@ describe('optimizationPresetDefaultsPatch', () => {
   it('applies qwen defaults and clears gemma sampling leftovers', () => {
     expect(optimizationPresetDefaultsPatch('qwen')).toEqual({
       optimizationPreset: 'qwen',
-      parallelToolCalls: false,
+      parallelToolCalls: true,
       maxOutputTokens: 0,
       temperature: 0.65,
       samplingPreset: 'provider-default',
@@ -644,7 +645,7 @@ describe('optimizationPresetDefaultsPatch', () => {
   it('applies gemma recommended sampling onto the connection', () => {
     expect(optimizationPresetDefaultsPatch('gemma')).toEqual({
       optimizationPreset: 'gemma',
-      parallelToolCalls: false,
+      parallelToolCalls: true,
       maxOutputTokens: 0,
       temperature: 1,
       samplingPreset: 'provider-default',
@@ -665,5 +666,14 @@ describe('optimizationPresetDefaultsPatch', () => {
       topK: undefined,
       repeatPenalty: undefined,
     });
+  });
+});
+
+describe('outerAgentBriefEnabled', () => {
+  it('is true for every optimization preset', () => {
+    expect(outerAgentBriefEnabled('gemma')).toBe(true);
+    expect(outerAgentBriefEnabled('qwen')).toBe(true);
+    expect(outerAgentBriefEnabled('generic')).toBe(true);
+    expect(outerAgentBriefEnabled(undefined)).toBe(true);
   });
 });

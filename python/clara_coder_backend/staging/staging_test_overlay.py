@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,6 +27,10 @@ if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
 
 logger = logging.getLogger('clara.staging_overlay')
+
+_OVERLAY_LOCKS_GUARD = threading.Lock()
+_OVERLAY_LOCKS: dict[str, threading.RLock] = {}
+_OVERLAY_FINGERPRINTS: dict[str, str] = {}
 
 _DEFAULT_LINK_RELS: tuple[str, ...] = (
     '.venv',
@@ -211,12 +217,43 @@ def remove_overlay_parent(overlay_parent: Path | None) -> None:
         pass
 
 
+def _overlay_lock_for(session_id: str) -> threading.RLock:
+    with _OVERLAY_LOCKS_GUARD:
+        lock = _OVERLAY_LOCKS.get(session_id)
+        if lock is None:
+            lock = threading.RLock()
+            _OVERLAY_LOCKS[session_id] = lock
+        return lock
+
+
+def _pending_overlay_fingerprint(session: SessionState) -> str:
+    pending = getattr(session, 'pending_edit_stagings', None)
+    if not isinstance(pending, dict):
+        return ''
+    parts: list[str] = []
+    for rel_key in sorted(pending):
+        entry = pending[rel_key]
+        if _workspace_applied(entry):
+            continue
+        rel = str(rel_key).strip().replace('\\', '/')
+        merged = str(getattr(entry, 'merged_text', '') or '')
+        parts.append(f'{rel}\0{merged}')
+    return hashlib.sha256('\n'.join(parts).encode('utf-8')).hexdigest()
+
+
 def clear_lsp_staging_overlay(session: SessionState) -> None:
     """Remove on-disk LSP overlay and clear session pointers."""
 
     raw = str(getattr(session, 'lsp_staging_overlay_parent', '') or '').strip()
+    root = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
     if raw:
         remove_overlay_parent(Path(raw))
+    if root:
+        _OVERLAY_FINGERPRINTS.pop(root, None)
+        try:
+            _OVERLAY_FINGERPRINTS.pop(str(Path(root).resolve()), None)
+        except OSError:
+            pass
     session.lsp_staging_overlay_root = ''
     session.lsp_staging_overlay_parent = ''
 
@@ -229,13 +266,23 @@ def ensure_lsp_staging_overlay(session: SessionState, workspace_root: Path, *, s
     sid = (session_id or current_session_id.get() or '').strip()
     if not sid:
         raise ValueError('No active session for LSP staging overlay.')
+    with _overlay_lock_for(sid):
+        return _ensure_lsp_staging_overlay_locked(session, workspace_root, sid)
+
+
+def _ensure_lsp_staging_overlay_locked(session: SessionState, workspace_root: Path, sid: str) -> Path:
     ws = workspace_root.resolve()
     existing = str(getattr(session, 'lsp_staging_overlay_root', '') or '').strip()
+    fingerprint = _pending_overlay_fingerprint(session)
     if existing:
         root = Path(existing)
         if root.is_dir():
+            root_key = str(root.resolve())
+            if _OVERLAY_FINGERPRINTS.get(root_key) == fingerprint:
+                return root.resolve()
             ok, err = apply_pending_staged_merged_texts(session, root)
             if ok:
+                _OVERLAY_FINGERPRINTS[root_key] = fingerprint
                 return root.resolve()
             logger.warning('lsp staging overlay incremental refresh failed; rebuilding: %s', err)
             clear_lsp_staging_overlay(session)
@@ -250,6 +297,7 @@ def ensure_lsp_staging_overlay(session: SessionState, workspace_root: Path, *, s
         raise ValueError(err_msg or 'Could not build LSP staging overlay.')
     session.lsp_staging_overlay_root = str(overlay_root.resolve())
     session.lsp_staging_overlay_parent = str(overlay_parent.resolve()) if overlay_parent else ''
+    _OVERLAY_FINGERPRINTS[str(overlay_root.resolve())] = fingerprint
     return overlay_root.resolve()
 
 

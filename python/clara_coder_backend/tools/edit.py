@@ -172,6 +172,18 @@ def _after_merge_workspace_edit(
     diagnostics_note = ''
     session_id = current_session_id.get() or None
     srv = lsp_server_for_path(rel_display)
+
+    finalized = _finalize_workspace_edit(
+        session,
+        rel_display,
+        old_text,
+        merged,
+        mode,
+        disk_encoding,
+        disk_newline,
+        before_existed=before_existed,
+    )
+
     if is_lsp_managed_path(rel_display) and srv:
         try:
             diagnostics = sync_session_document(rel_display, merged, session_id=session_id, scope='workspace')
@@ -195,19 +207,7 @@ def _after_merge_workspace_edit(
     else:
         diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(fl)
 
-    return (
-        _finalize_workspace_edit(
-            session,
-            rel_display,
-            old_text,
-            merged,
-            mode,
-            disk_encoding,
-            disk_newline,
-            before_existed=before_existed,
-        )
-        + diagnostics_note
-    )
+    return finalized + diagnostics_note
 
 
 def _edit_preamble(

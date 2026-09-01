@@ -61,8 +61,9 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
     }
   }
   const timeline = row.assistant?.auxiliaryStreamTimeline?.length ?? 0;
-  // Collapsed auxiliary panel is fully hidden; only legacy stream fields need height.
-  if (timeline === 0) {
+  if (timeline > 0) {
+    h += timeline * 28;
+  } else {
     const streams = row.assistant?.toolStreams?.length ?? 0;
     if (streams > 0) {
       h += streams * Math.min(200, 80 + linePx * 3);

@@ -352,6 +352,7 @@ export class ElectronService {
   private readonly llmStatusSubject = new Subject<LlmStatusMessage>();
   private readonly finalTextSubject = new Subject<{ conversationId: string; text: string }>();
   private readonly clearPrimaryStreamSubject = new Subject<{ conversationId: string }>();
+  private readonly promotePrimaryToNudgeSubject = new Subject<{ conversationId: string }>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
   private readonly diffSubject = new Subject<DiffMessage>();
@@ -406,6 +407,8 @@ export class ElectronService {
   readonly finalText$ = this.finalTextSubject.asObservable();
   /** Drop live primary agent prose when a model step ends with tool calls. */
   readonly clearPrimaryStream$ = this.clearPrimaryStreamSubject.asObservable();
+  /** Retag live primary agent prose as a nudge preview when the graph jumps back to the model. */
+  readonly promotePrimaryToNudge$ = this.promotePrimaryToNudgeSubject.asObservable();
   /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
@@ -592,6 +595,9 @@ export class ElectronService {
     });
     this.api?.onMessageClearPrimaryStream?.((_event, conversationId) => {
       this.zone.run(() => this.clearPrimaryStreamSubject.next({ conversationId }));
+    });
+    this.api?.onMessagePromotePrimaryToNudge?.((_event, conversationId) => {
+      this.zone.run(() => this.promotePrimaryToNudgeSubject.next({ conversationId }));
     });
     this.api?.onMessageDiff?.((_event, conversationId, diff) => {
       this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
@@ -1605,7 +1611,7 @@ export class ElectronService {
     documentText: string,
     skipDocumentSync?: boolean,
   ): Promise<
-    | { ok: true; locations: LspEditorLocationPayload[] }
+    | { ok: true; locations: LspEditorLocationPayload[]; syncedFromDisk?: boolean }
     | { ok: false; error: string }
   > {
     return (
@@ -1674,7 +1680,7 @@ export class ElectronService {
     triggerCharacter: string | null,
     skipDocumentSync?: boolean,
   ): Promise<
-    | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[] }
+    | { ok: true; isIncomplete: boolean; items: LspEditorCompletionItemPayload[]; syncedFromDisk?: boolean }
     | { ok: false; error: string }
   > {
     return (
@@ -1744,7 +1750,7 @@ export class ElectronService {
     documentText: string,
     skipDocumentSync?: boolean,
   ): Promise<
-    | { ok: true; diagnostics: import('@shared/index').LspEditorDiagnostic[]; generation: number }
+    | { ok: true; diagnostics: import('@shared/index').LspEditorDiagnostic[]; generation: number; epoch?: number; syncedFromDisk?: boolean }
     | { ok: false; error: string }
   > {
     return (
@@ -1756,9 +1762,29 @@ export class ElectronService {
   lspDiagnosticsGeneration(
     sessionId: string,
     relativePath: string,
-  ): Promise<{ ok: true; generation: number; count: number } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; generation: number; count: number; epoch?: number } | { ok: false; error: string }> {
     return (
       this.api?.lspDiagnosticsGeneration?.(sessionId, relativePath) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorDidClose(
+    sessionId: string,
+    relativePath: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorDidClose?.(sessionId, relativePath) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorDidSave(
+    sessionId: string,
+    relativePath: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.lspEditorDidSave?.(sessionId, relativePath) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }
@@ -2009,11 +2035,11 @@ export class ElectronService {
     this.api?.lspDiagnosticsWatchStop?.();
   }
 
-  onLspDiagnosticsUpdated(callback: (payload: { sessionId: string; relativePath: string; generation: number }) => void): () => void {
+  onLspDiagnosticsUpdated(callback: (payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void): () => void {
     if (!this.api?.onLspDiagnosticsUpdated) {
       return () => {};
     }
-    const handler = (_event: unknown, payload: { sessionId: string; relativePath: string; generation: number }) => {
+    const handler = (_event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => {
       this.zone.run(() => callback(payload));
     };
     this.api.onLspDiagnosticsUpdated(handler);

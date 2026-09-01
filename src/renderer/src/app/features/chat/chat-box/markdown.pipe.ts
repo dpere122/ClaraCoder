@@ -51,7 +51,7 @@ const customRenderer = {
 const markedInstance = new Marked();
 markedInstance.use({ renderer: customRenderer });
 
-@Pipe({ name: 'markdown' })
+@Pipe({ name: 'markdown', standalone: true })
 export class MarkdownPipe implements PipeTransform {
   constructor(private sanitizer: DomSanitizer) {}
 

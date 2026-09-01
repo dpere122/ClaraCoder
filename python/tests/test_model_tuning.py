@@ -14,6 +14,7 @@ from clara_coder_backend.llm.model_tuning import (
     is_gemma_family,
     is_qwen_family,
     llm_optional_kwargs,
+    outer_agent_brief_enabled,
     qwen_optimize_profile_active,
     qwen_system_prompt_suffix,
 )
@@ -63,6 +64,13 @@ def test_is_gemma_family() -> None:
 def test_gemma_optimize_profile_preset() -> None:
     c = _conn(model='local-model', optimization_preset='gemma')
     assert gemma_optimize_profile_active(c)
+    assert outer_agent_brief_enabled(c) is True
+
+
+def test_outer_agent_brief_enabled_for_all_presets() -> None:
+    assert outer_agent_brief_enabled(_conn(model='local-model', optimization_preset='generic')) is True
+    assert outer_agent_brief_enabled(_conn(model='qwen3.5-9b', optimization_preset='qwen')) is True
+    assert outer_agent_brief_enabled(_conn(model='google/gemma-4-it', optimization_preset='gemma')) is True
 
 
 def test_gemma_optimize_profile_generic_even_when_model_id_gemma() -> None:

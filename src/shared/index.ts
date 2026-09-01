@@ -227,6 +227,7 @@ export {
   LLM_OPTIMIZATION_PRESET_LIST,
   GEMMA_PRESET_DEFAULTS,
   optimizationPresetsForProvider,
+  outerAgentBriefEnabled,
   QWEN_PRESET_DEFAULTS,
 } from './types/llm-presets';
 export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
@@ -257,16 +258,19 @@ export type {
 export {
   auxiliaryTimelineEmbedsToolStatus,
   CLARA_OUTER_BRIEF_STREAM_TAG,
+  NUDGE_STREAM_TAG,
   REASONING_AUXILIARY_STREAM_TAG,
   PLANNER_STREAM_TAG,
   delegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
   isClaraOuterBriefStreamTag,
+  isNudgeStreamTag,
   isReasoningAuxiliaryStreamTag,
   isPrimaryAssistantStreamTag,
   isShellStyleToolStreamTag,
   isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
+  isToolLikeStreamTag,
   joinAllStreamPartTexts,
   joinPrimaryAssistantStreamText,
   normalizeReasoningStreamPart,
@@ -275,10 +279,18 @@ export {
   persistedReasoningStreams,
   reasoningStreamPartsForDisplay,
   multiplexAuxiliaryStreamTimeline,
+  livePrimaryRendersAsOuterBrief,
+  buildTurnFeed,
+  isActiveLiveThought,
+  isActiveLiveBrief,
+  isActiveLiveNudge,
+  turnFeedScrollKey,
   otherDelegatedStreamPartsForDisplay,
   persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   clearPrimaryStreamParts,
+  promotePrimaryAheadOfToolToReasoning,
+  promotePrimaryToNudgeParts,
   primaryStreamPartsForDisplay,
   appendAndMergeReadToolPreviewChunk,
   appendReadToolPreviewChunk,
@@ -304,7 +316,7 @@ export {
   HITL_TRAIL_STREAM_PREFIX,
   TOOL_TRAIL_STATUS_STREAM_PREFIX,
 } from './stream-parts';
-export type { PersistedAssistantStreamFields } from './stream-parts';
+export type { PersistedAssistantStreamFields, TurnFeedItem, BuildTurnFeedOptions } from './stream-parts';
 export {
   condenseToolTrailText,
   readToolPreviewBody,

@@ -167,7 +167,8 @@ def test_stage_create_file_stages_python(staging_env) -> None:
     assert 'for review' in out.lower()
     assert 'mod.py' in session.pending_edit_stagings
     entry = session.pending_edit_stagings['mod.py']
-    assert Path(entry.temp_path).is_file()
+    assert (ws / 'mod.py').read_text(encoding='utf-8') == entry.merged_text
+    assert entry.old_text == 'x=1\n'
 
 
 def test_stage_create_file_stages_package_json(staging_env) -> None:
@@ -201,7 +202,8 @@ def test_stage_create_file_non_code_stages(staging_env) -> None:
     assert 'Tool error:' not in out
     assert 'for review' in out.lower()
     assert 'note.txt' in session.pending_edit_stagings
-    assert (ws / 'note.txt').read_text(encoding='utf-8') == 'hi\n'
+    assert (ws / 'note.txt').read_text(encoding='utf-8') == 'hello\n'
+    assert session.pending_edit_stagings['note.txt'].old_text == 'hi\n'
 
 
 def test_general_edit_tool_goes_straight_to_diff_for_non_code(staging_env) -> None:
@@ -316,7 +318,7 @@ def test_stage_snippet_edit_stale_disk_anchor_after_prior_stage_hints_read_stage
     )
     assert 'for review' in first.lower()
 
-    # Second call still anchors on the *disk* text ('beta'); the draft now has 'BETA' instead.
+    # Second call still anchors on the pre-stage text ('beta'); the write-through draft now has 'BETA'.
     second = stage_snippet_edit.invoke(
         {
             'relative_path': 'stale.py',
@@ -328,10 +330,9 @@ def test_stage_snippet_edit_stale_disk_anchor_after_prior_stage_hints_read_stage
     )
     assert second.startswith('Tool error:')
     assert 'old_snippet not found' in second
-    assert 'staged draft' in second
+    assert 'pending journal' in second
+    assert 'read_workspace_file' in second
     assert 'read_staged_edit' in second
-    assert 'not `read_workspace_file`' in second
-    assert 'on-disk' in second and 'absent from the staged draft' in second
 
 
 def test_stage_line_range_edit_past_draft_end_after_prior_stage_hints_read_staged_edit(staging_env) -> None:
@@ -350,7 +351,7 @@ def test_stage_line_range_edit_past_draft_end_after_prior_stage_hints_read_stage
     )
     assert 'for review' in first.lower()
 
-    # Second call still uses the disk-based end_line (5), now past the end of the 1-line draft.
+    # Second call still uses the pre-stage end_line (5), now past the end of the 1-line draft.
     second = stage_line_range_edit.invoke(
         {
             'relative_path': 'shrink.py',
@@ -363,7 +364,8 @@ def test_stage_line_range_edit_past_draft_end_after_prior_stage_hints_read_stage
     )
     assert second.startswith('Tool error:')
     assert 'past end of file' in second
-    assert 'staged draft' in second
+    assert 'pending journal' in second
+    assert 'read_workspace_file' in second
     assert 'read_staged_edit' in second
 
 
@@ -423,7 +425,8 @@ def test_stage_workspace_file_overwrite_allows_staged_only_new_file(staging_env)
     latest = session.pending_edit_stagings['staged_only.py']
     assert latest.old_text == ''
     assert latest.merged_text == 'value = 2\n'
-    assert latest.temp_path == first_entry.temp_path
+    assert (staging_env.workspace / 'staged_only.py').read_text(encoding='utf-8') == 'value = 2\n'
+    del first_entry
 
 
 def test_begin_staging_snapshot_session_copies_workspace_snapshot(staging_env) -> None:
@@ -464,7 +467,7 @@ def test_stage_workspace_file_overwrite_uses_active_snapshot_baseline(staging_en
 
     assert 'for review' in out.lower()
     entry = session.pending_edit_stagings['baseline.py']
-    assert entry.old_text == 'value = 1\n'
+    assert entry.old_text == 'value = 999\n'
     assert entry.merged_text == 'value = 2\n'
 
 
@@ -489,7 +492,7 @@ def test_read_format_approve_reject(staging_env) -> None:
     rej = reject_staged_workspace_edit.invoke({'relative_path': 'z.py', 'feedback': 'no'})
     assert 'Rejected' in rej
     assert 'z.py' in session.pending_edit_stagings
-    assert Path(session.pending_edit_stagings['z.py'].temp_path).is_file()
+    assert (ws / 'z.py').is_file()
 
 
 def test_format_staging_file_black_disabled_by_settings(staging_env) -> None:
@@ -518,13 +521,10 @@ def test_format_staging_file_prettier_updates_draft(monkeypatch, staging_env) ->
     session = staging_env.session
 
     from clara_coder_backend.staging import edit_staging as _es
-    class _FakeLspMgr:
-        def sync_workspace_document(self, relative_path: str, *, encoding: str = 'utf-8') -> list:
-            return []
 
     monkeypatch.setattr(
-        'clara_coder_backend.tools.staging_edit.get_session_lsp_manager',
-        lambda *args, **kwargs: _FakeLspMgr(),
+        'clara_coder_backend.tools.staging_edit.sync_session_document',
+        lambda *args, **kwargs: [],
     )
 
     def _fake_fmt(text: str, **kwargs: object) -> tuple[str | None, str]:
@@ -561,12 +561,11 @@ def test_follow_up_workspace_overwrite_restarts_from_workspace_file(staging_env)
         }
     )
     assert 'for review' in out.lower()
-    first_path = Path(session.pending_edit_stagings['draft.py'].temp_path)
-    assert first_path.is_file()
+    assert (ws / 'draft.py').read_text(encoding='utf-8') == 'def value():\n    return 1\n'
 
     rej = reject_staged_workspace_edit.invoke({'relative_path': 'draft.py', 'feedback': 'return 2 instead'})
     assert 'Rejected' in rej
-    assert session.pending_edit_stagings['draft.py'].temp_path == str(first_path)
+    assert (ws / 'draft.py').read_text(encoding='utf-8') == 'def value():\n    return 0\n'
 
     revised = stage_workspace_file_overwrite.invoke(
         {
@@ -579,8 +578,7 @@ def test_follow_up_workspace_overwrite_restarts_from_workspace_file(staging_env)
     assert 'for review' in revised.lower()
     latest = session.pending_edit_stagings['draft.py']
     assert latest.old_text == 'def value():\n    return 0\n'
-    assert Path(latest.temp_path).is_file()
-    assert latest.temp_path == str(first_path)
+    assert (ws / 'draft.py').read_text(encoding='utf-8') == 'def value():\n    return 2\n'
     reread = read_staged_edit.invoke({'relative_path': 'draft.py', 'include_line_numbers': False})
     assert 'return 2' in reread
 
@@ -682,7 +680,7 @@ def test_transfer_sets_diff_payload(staging_env) -> None:
     session.auto_apply_mode = False
     out = transfer_staged_file_to_workspace.invoke({'relative_path': 'q.py'})
     assert 'human confirmation' in out.lower()
-    assert (ws / 'q.py').read_text(encoding='utf-8') == 'n=0\n'
+    assert (ws / 'q.py').read_text(encoding='utf-8') == 'n = 0\n'
     assert session.pending_staged_transfer_hitl is not None
     assert session.pending_staged_transfer_hitl.relative_paths == ['q.py']
     assert session.pending_staged_transfer_batch_payload is not None
@@ -713,7 +711,7 @@ def test_transfer_tool_sets_diff_payload(staging_env) -> None:
     out = transfer_staged_file_to_workspace.invoke({'relative_path': 'transfer.py'})
     assert 'transfer.py' in out
     assert 'human confirmation' in out.lower()
-    assert (ws / 'transfer.py').read_text(encoding='utf-8') == 'x=1\n'
+    assert (ws / 'transfer.py').read_text(encoding='utf-8') == 'x = 1\n'
     assert session.pending_staged_transfer_hitl is not None
     assert session.pending_staged_transfer_batch_payload is not None
     assert 'transfer.py' in session.pending_edit_stagings
@@ -740,7 +738,7 @@ def test_stage_create_file_land_in_workspace_sets_hitl(staging_env) -> None:
     )
     assert '---' in out
     assert 'human confirmation' in out.lower()
-    assert (ws / 'land1.py').read_text(encoding='utf-8') == 'a=0\n'
+    assert (ws / 'land1.py').read_text(encoding='utf-8') == 'a = 0\n'
     assert session.pending_staged_transfer_hitl is not None
     assert session.pending_staged_transfer_hitl.relative_paths == ['land1.py']
     assert session.pending_staged_transfer_batch_payload is not None
@@ -763,7 +761,7 @@ def test_stage_create_file_land_in_workspace_auto_apply_writes(staging_env) -> N
             'land_in_workspace': True,
         }
     )
-    assert 'real workspace' in out.lower()
+    assert 'kept' in out.lower()
     assert (ws / 'land2.py').read_text(encoding='utf-8') == 'z = 0\n'
     assert session.pending_staged_transfer_hitl is None
     assert session.pending_edit_stagings['land2.py'].workspace_applied is True
@@ -783,7 +781,7 @@ def test_transfer_writes_immediately_when_auto_apply(staging_env) -> None:
         }
     )
     out = transfer_staged_file_to_workspace.invoke({'relative_path': 'auto.py'})
-    assert 'real workspace' in out.lower()
+    assert 'kept' in out.lower()
     assert (ws / 'auto.py').read_text(encoding='utf-8') == 'z = 0\n'
     assert session.pending_staged_transfer_hitl is None
     assert session.pending_edit_stagings['auto.py'].workspace_applied is True
@@ -918,7 +916,7 @@ def test_batch_transfer_auto_apply_writes_all(staging_env) -> None:
             }
         )
     out = transfer_staged_file_to_workspace.invoke({'relative_paths': ['x.py', 'y.py']})
-    assert 'Transferred 2 staged path(s)' in out
+    assert 'Kept 2 staged path(s)' in out
     assert (ws / 'x.py').read_text(encoding='utf-8') == 'x = 0\n'
     assert (ws / 'y.py').read_text(encoding='utf-8') == 'y = 0\n'
 
@@ -963,12 +961,10 @@ def test_discard_staged_edits_removes_entry_and_temp(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    temp = Path(session.pending_edit_stagings['keep.py'].temp_path)
-    assert temp.is_file()
+    assert (ws / 'keep.py').read_text(encoding='utf-8') == 'VALUE = 2\n'
     out = discard_staged_edits.invoke({'relative_path': 'keep.py'})
     assert 'Discarded staged draft' in out
     assert 'keep.py' not in session.pending_edit_stagings
-    assert not temp.exists()
     assert (ws / 'keep.py').read_text(encoding='utf-8') == 'VALUE = 1\n'
 
 
@@ -1053,10 +1049,8 @@ def test_discard_session_staging_helper(staging_env) -> None:
             'newline': 'lf',
         }
     )
-    temp = Path(session.pending_edit_stagings['h.py'].temp_path)
     assert discard_session_staging(session, 'h.py') is True
     assert 'h.py' not in session.pending_edit_stagings
-    assert not temp.exists()
     assert discard_session_staging(session, 'h.py') is False
 
 

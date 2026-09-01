@@ -28,6 +28,8 @@ export class EditorLspStatusComponent {
   readonly workspacePath = input<string | null>(null);
   /** When set, warms the integrated LSP for this path (``.py`` / TS/JS / ``.gd`` / ``.java``). */
   readonly activeFileRelativePath = input<string | null>(null);
+  /** Skip disk warm when the Monaco buffer has unsaved edits (do not overwrite the live buffer). */
+  readonly activeFileDirty = input(false);
 
   protected readonly dashboard = signal<LspDashboardStatus | null>(null);
   protected readonly fetchError = signal('');
@@ -120,6 +122,10 @@ export class EditorLspStatusComponent {
       const posix = path.replace(/\\/g, '/');
       const kind = lspServerKindForWorkspaceRelativePath(posix);
       if (!kind) {
+        this.warmingServerId.set(null);
+        return;
+      }
+      if (this.activeFileDirty()) {
         this.warmingServerId.set(null);
         return;
       }

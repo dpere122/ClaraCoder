@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from clara_coder_backend.lsp.manager import (
     activate_session_lsp_scope,
     get_session_lsp_manager,
     shutdown_all_lsp_managers,
+    shutdown_session_lsp,
     sync_session_document,
 )
 from clara_coder_backend.staging.staging_snapshot_session import prepare_new_staging_snapshot_session
@@ -90,6 +92,8 @@ class _FakeLspClient:
             uri = params['textDocument']['uri']
             self.docs.pop(uri, None)
             self.notification_handler('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': []})
+            return
+        if method in ('workspace/didChangeWatchedFiles', 'textDocument/didSave'):
             return
         if method not in ('textDocument/didOpen', 'textDocument/didChange'):
             raise AssertionError(f'unexpected LSP notification: {method}')
@@ -310,9 +314,9 @@ def test_sync_session_document_retry_restarts_only_failed_server(monkeypatch, ls
     assert shutdown_calls == [(lsp_env.session_id, 'python')]
 
 
-def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env) -> None:
+def test_lsp_get_diagnostics_refresh_uses_on_disk_workspace_file(lsp_env) -> None:
     lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
-        temp_path=str(lsp_env.sample),
+        temp_path='',
         old_text='value = "TODO"\nprint(value)\n',
         merged_text='value = "done"\nprint(value)\n',
         disk_encoding='utf-8',
@@ -320,15 +324,40 @@ def test_lsp_get_diagnostics_refresh_uses_staged_draft_in_staging_scope(lsp_env)
         edit_mode='full-file',
     )
     activate_session_lsp_scope(lsp_env.session_id, scope='staging')
-    staging_manager = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='staging')
+    workspace_manager = get_session_lsp_manager(
+        lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace'
+    )
 
     diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
 
-    assert diag_text.startswith('LSP context: scope=staging; analyzed=overlay_workspace')
-    assert 'No LSP diagnostics for `pkg/mod.py`.' in diag_text
-    assert 'Staging analysis uses a mirror workspace' in diag_text
-    assert staging_manager._client is not None
-    assert list(staging_manager._client.docs.values()) == ['value = "done"\nprint(value)\n']
+    assert 'analyzed=workspace_file' in diag_text
+    assert workspace_manager._client is not None
+    assert list(workspace_manager._client.docs.values()) == [lsp_env.sample.read_text(encoding='utf-8')]
+
+
+def test_lsp_get_diagnostics_auto_refreshes_workspace_file_for_pending_journal(monkeypatch, lsp_env) -> None:
+    lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
+        temp_path='',
+        old_text='value = "TODO"\nprint(value)\n',
+        merged_text='value = "done"\nprint(value)\n',
+        disk_encoding='utf-8',
+        disk_newline='lf',
+        edit_mode='full-file',
+    )
+    activate_session_lsp_scope(lsp_env.session_id, scope='staging')
+
+    def _inject(*a, **kwargs):
+        kwargs.setdefault('client_factory', lsp_env.factory)
+        return get_session_lsp_manager(*a, **kwargs)
+
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
+    diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py'})
+    workspace_manager = get_session_lsp_manager(
+        lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace'
+    )
+    assert workspace_manager._client is not None
+    assert list(workspace_manager._client.docs.values()) == [lsp_env.sample.read_text(encoding='utf-8')]
+    assert 'No LSP diagnostics for `pkg/mod.py`.' in diag_text or 'Found TODO marker' in diag_text
 
 
 def test_lsp_get_diagnostics_scope_param_works_regardless_of_auto_apply(monkeypatch, lsp_env) -> None:
@@ -364,8 +393,8 @@ def test_lsp_get_diagnostics_scope_param_works_regardless_of_auto_apply(monkeypa
     assert 'analyzed=workspace_file' in workspace_text
     assert 'Found TODO marker' in workspace_text
     assert 'scope=staging' in staging_text
-    assert 'analyzed=overlay_workspace' in staging_text
-    assert 'No LSP diagnostics for `pkg/mod.py`.' in staging_text
+    assert 'analyzed=workspace_file' in staging_text
+    assert 'Found TODO marker' in staging_text or 'No LSP diagnostics' in staging_text
     assert 'scope=staging' in both_text and 'scope=workspace' in both_text
     # Diagnostics queries must not flip the session default scope.
     assert lsp_env.session.lsp_active_scope == 'workspace'
@@ -762,3 +791,128 @@ def test_format_hover_contents_fences_marked_string_with_language() -> None:
 
     # Empty value with language yields empty (no empty fence).
     assert _format_hover_contents({'language': 'typescript', 'value': ''}) == ''
+
+
+def test_digest_equal_refresh_after_timed_out_wait_still_did_change(lsp_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timed-out wait must not freeze the digest skip; same-text refresh re-sends didChange."""
+
+    import clara_coder_backend.lsp.manager as mgr_mod
+
+    monkeypatch.setattr(mgr_mod, '_DIAG_WAIT_TIMEOUT_S', 0.08)
+    monkeypatch.setattr(mgr_mod, '_DIAG_QUIET_S', 0.01)
+    shutdown_session_lsp(lsp_env.session_id)
+    change_count = {'n': 0}
+
+    class SilentClient(_FakeLspClient):
+        def notify(self, method, params):
+            if method in ('workspace/didChangeWatchedFiles', 'textDocument/didSave', 'initialized', 'exit'):
+                if method == 'exit':
+                    self.closed = True
+                return
+            if method in ('textDocument/didOpen', 'textDocument/didChange'):
+                change_count['n'] += 1
+                if method == 'textDocument/didOpen':
+                    uri = params['textDocument']['uri']
+                    text = params['textDocument']['text']
+                else:
+                    uri = params['textDocument']['uri']
+                    text = params['contentChanges'][0]['text']
+                self.docs[uri] = text
+                return
+            if method == 'textDocument/didClose':
+                uri = params['textDocument']['uri']
+                self.docs.pop(uri, None)
+                return
+            raise AssertionError(f'unexpected LSP notification: {method}')
+
+    factory = lambda *, command, workspace_root, notification_handler, env=None: SilentClient(
+        command=command,
+        workspace_root=workspace_root,
+        notification_handler=notification_handler,
+    )
+    manager = get_session_lsp_manager(lsp_env.session_id, client_factory=factory)
+    text = 'value = 1\n'
+    manager.sync_document('pkg/mod.py', text)
+    first = change_count['n']
+    assert first >= 1
+    manager.sync_document('pkg/mod.py', text)
+    assert change_count['n'] > first
+
+
+def test_parallel_sync_document_same_path_last_content_wins(lsp_env) -> None:
+    texts = ['alpha = 1\n', 'beta = 2\n']
+    errors: list[BaseException] = []
+
+    def _run(payload: str) -> None:
+        try:
+            lsp_env.manager.sync_document('pkg/mod.py', payload)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run, args=(t,)) for t in texts]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    client = lsp_env.manager._client
+    assert client is not None
+    stored = list(client.docs.values())
+    assert len(stored) == 1
+    assert stored[0] in texts
+    assert lsp_env.manager._doc_versions['pkg/mod.py'] == 2
+
+
+def test_sync_epoch_advances_across_manager_recreate(lsp_env) -> None:
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    first = lsp_env.manager.get_sync_epoch()
+    shutdown_session_lsp(lsp_env.session_id)
+    revived = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory)
+    assert revived.get_sync_epoch() > first
+
+
+def test_cleanup_staging_snapshot_session_keeps_workspace_lsp(lsp_env) -> None:
+    from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
+
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    workspace_client = lsp_env.manager._client
+    assert workspace_client is not None
+    lsp_env.session.typescript_lsp_resolved_root = str(lsp_env.workspace)
+    staging = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='staging')
+    staging.sync_document('pkg/mod.py', 'value = 1\n')
+    cleanup_staging_snapshot_session(lsp_env.session, lsp_env.session_id)
+    assert lsp_env.manager._client is workspace_client
+    assert not workspace_client.closed
+    assert lsp_env.session.typescript_lsp_resolved_root == str(lsp_env.workspace)
+    assert lsp_env.session.lsp_diagnostics_by_scope.get('staging') == {}
+
+
+def test_workspace_resync_updates_open_peer_from_disk(lsp_env) -> None:
+    (lsp_env.workspace / 'a.py').write_text('a = 1\n', encoding='utf-8')
+    (lsp_env.workspace / 'b.py').write_text('b = 1\n', encoding='utf-8')
+    manager = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace')
+    manager.sync_document('a.py', 'a = 1\n')
+    manager.sync_document('b.py', 'b = 1\n')
+    (lsp_env.workspace / 'b.py').write_text('b = 99\n', encoding='utf-8')
+    manager.resync_tracked_documents_from_disk()
+    client = manager._client
+    assert client is not None
+    peer = [text for uri, text in client.docs.items() if str(uri).replace('\\', '/').endswith('/b.py')]
+    assert peer == ['b = 99\n']
+
+
+def test_hover_keeps_tracked_buffer_until_explicit_disk_sync(lsp_env) -> None:
+    manager = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace')
+    unsaved = 'value="TODO"\n'
+    manager.sync_document('pkg/mod.py', unsaved)
+    formatted = 'value = "TODO"\nprint(value)\n'
+    (lsp_env.workspace / 'pkg' / 'mod.py').write_text(formatted, encoding='utf-8')
+    manager.hover('pkg/mod.py', 1, 1)
+    client = manager._client
+    assert client is not None
+    texts = [text for uri, text in client.docs.items() if str(uri).replace('\\', '/').endswith('/pkg/mod.py')]
+    assert texts == [unsaved]
+    manager.sync_workspace_document('pkg/mod.py')
+    manager.hover('pkg/mod.py', 1, 1)
+    texts = [text for uri, text in client.docs.items() if str(uri).replace('\\', '/').endswith('/pkg/mod.py')]
+    assert texts == [formatted]

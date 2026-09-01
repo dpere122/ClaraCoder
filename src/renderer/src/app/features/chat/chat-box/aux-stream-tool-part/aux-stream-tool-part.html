@@ -20,13 +20,6 @@
       [live]="live()"
       (toggle)="toggleExpanded()"
     />
-    @if (showReadPreview()) {
-      <app-ansi-terminal-pre
-        class="aux-stream-tool-part__read-preview"
-        preClass="output-pre terminal-output terminal-ansi"
-        [text]="readPreviewTailText()"
-      />
-    }
     @if (showShellPreview()) {
       <app-delegated-shell-terminal
         class="aux-stream-tool-part__terminal"

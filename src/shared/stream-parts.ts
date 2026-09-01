@@ -30,6 +30,13 @@ export function isClaraOuterBriefStreamTag(streamTag: string | undefined): boole
   return (streamTag ?? '').trim() === CLARA_OUTER_BRIEF_STREAM_TAG;
 }
 
+/** Premature primary prose folded into a nudge preview when the graph jumps back to the model. */
+export const NUDGE_STREAM_TAG = 'nudge';
+
+export function isNudgeStreamTag(streamTag: string | undefined): boolean {
+  return (streamTag ?? '').trim() === NUDGE_STREAM_TAG;
+}
+
 /** Canonical SSE `stream_tag` for auxiliary model output (e.g. reasoning_content). */
 export const REASONING_AUXILIARY_STREAM_TAG = 'reasoning';
 
@@ -312,6 +319,8 @@ export function otherDelegatedStreamPartsForDisplay(
     (p) =>
       !isShellStyleToolStreamTag(p.streamTag) &&
       !isReasoningAuxiliaryStreamTag(p.streamTag) &&
+      !isClaraOuterBriefStreamTag(p.streamTag) &&
+      !isNudgeStreamTag(p.streamTag) &&
       !isToolTrailStatusStreamTag(p.streamTag),
   );
 }
@@ -324,9 +333,174 @@ export function primaryStreamPartsForDisplay(
   return parts.filter((p) => isPrimaryAssistantStreamTag(p.streamTag));
 }
 
-/** Drop live primary (`agent`) segments after a tool-calling step (keeps reasoning/tools). */
+function asClaraOuterBriefPart(part: StreamPart): StreamPart {
+  return {
+    ...part,
+    streamTag: CLARA_OUTER_BRIEF_STREAM_TAG,
+    label: part.label || 'Clara',
+  };
+}
+
+function asNudgeStreamPart(part: StreamPart): StreamPart {
+  return {
+    ...part,
+    streamTag: NUDGE_STREAM_TAG,
+    label: part.label || 'Nudge',
+  };
+}
+
+function pushOrMergeBriefItem(items: TurnFeedItem[], part: StreamPart): void {
+  const briefPart = asClaraOuterBriefPart(part);
+  const last = items[items.length - 1];
+  if (last?.kind === 'brief') {
+    last.part = { ...last.part, text: last.part.text + briefPart.text };
+    return;
+  }
+  items.push({ kind: 'brief', part: { ...briefPart } });
+}
+
+function pushOrMergeNudgeItem(items: TurnFeedItem[], part: StreamPart): void {
+  const nudgePart = asNudgeStreamPart(part);
+  const last = items[items.length - 1];
+  if (last?.kind === 'nudge') {
+    last.part = { ...last.part, text: last.part.text + nudgePart.text };
+    return;
+  }
+  items.push({ kind: 'nudge', part: { ...nudgePart } });
+}
+
+/**
+ * Tool / HITL / shell lanes. An `agent` segment after one of these is the live reply,
+ * not the Clara outer brief.
+ */
+function streamPartIsToolLike(part: StreamPart): boolean {
+  return isToolLikeStreamTag(part.streamTag);
+}
+
+/** Tool / HITL / shell multiplex tags (not primary, reasoning, brief, nudge, or planner). */
+export function isToolLikeStreamTag(streamTag: string): boolean {
+  const tag = streamTag;
+  return (
+    !isPrimaryAssistantStreamTag(tag) &&
+    !isReasoningAuxiliaryStreamTag(tag) &&
+    !isClaraOuterBriefStreamTag(tag) &&
+    !isNudgeStreamTag(tag) &&
+    tag.trim() !== PLANNER_STREAM_TAG
+  );
+}
+
+function asReasoningStreamPart(part: StreamPart): StreamPart {
+  return {
+    ...part,
+    streamTag: REASONING_AUXILIARY_STREAM_TAG,
+    label: part.label || 'Model reasoning',
+  };
+}
+
+/**
+ * Retag live `agent` prose to reasoning when a tool row is about to start.
+ * Gemma often streams between-tool thought on the primary lane; once a tool starts
+ * that prose is not the final reply and must stay in the auxiliary timeline.
+ */
+export function promotePrimaryAheadOfToolToReasoning(parts: readonly StreamPart[]): StreamPart[] {
+  const out: StreamPart[] = [];
+  for (const part of parts) {
+    if (!isPrimaryAssistantStreamTag(part.streamTag)) {
+      out.push(part);
+      continue;
+    }
+    if (!part.text.trim()) {
+      continue;
+    }
+    const promoted = asReasoningStreamPart(part);
+    const last = out[out.length - 1];
+    if (last && isReasoningAuxiliaryStreamTag(last.streamTag)) {
+      out[out.length - 1] = {
+        ...last,
+        label: last.label || promoted.label,
+        text: last.text + promoted.text,
+      };
+    } else {
+      out.push(promoted);
+    }
+  }
+  return out;
+}
+
+function primarySegmentIsBetweenTools(parts: readonly StreamPart[], index: number): boolean {
+  let priorTool = false;
+  for (let i = 0; i < index; i++) {
+    if (streamPartIsToolLike(parts[i]!)) {
+      priorTool = true;
+      break;
+    }
+  }
+  if (!priorTool) {
+    return false;
+  }
+  for (let i = index + 1; i < parts.length; i++) {
+    if (streamPartIsToolLike(parts[i]!)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Live `agent` text before any tool/HITL lane is the Clara outer brief (planning prose).
+ * After tools start, later `agent` segments are the user-visible reply.
+ */
+export function livePrimaryRendersAsOuterBrief(
+  parts: readonly StreamPart[],
+  index: number,
+): boolean {
+  for (let i = 0; i < index; i++) {
+    if (streamPartIsToolLike(parts[i]!)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function retagPrimaryStreamParts(
+  parts: readonly StreamPart[],
+  retag: (part: StreamPart) => StreamPart,
+  isLane: (streamTag: string) => boolean,
+): StreamPart[] {
+  const out: StreamPart[] = [];
+  for (const part of parts) {
+    if (!isPrimaryAssistantStreamTag(part.streamTag)) {
+      out.push(part);
+      continue;
+    }
+    if (!part.text.trim()) {
+      continue;
+    }
+    const promoted = retag(part);
+    const last = out[out.length - 1];
+    if (last && isLane(last.streamTag)) {
+      out[out.length - 1] = { ...last, text: last.text + promoted.text };
+    } else {
+      out.push(promoted);
+    }
+  }
+  return out;
+}
+
+/**
+ * Promote live primary (`agent`) segments into Clara outer briefs when a tool-calling
+ * step starts. Keeps the planning prose in the auxiliary timeline instead of discarding it.
+ */
 export function clearPrimaryStreamParts(parts: readonly StreamPart[]): StreamPart[] {
-  return parts.filter((p) => !isPrimaryAssistantStreamTag(p.streamTag));
+  return retagPrimaryStreamParts(parts, asClaraOuterBriefPart, isClaraOuterBriefStreamTag);
+}
+
+/**
+ * Promote live primary (`agent`) segments into a nudge preview when the graph jumps
+ * back to the model (empty / staging / pseudo-tool nudge). The real reply streams later.
+ */
+export function promotePrimaryToNudgeParts(parts: readonly StreamPart[]): StreamPart[] {
+  return retagPrimaryStreamParts(parts, asNudgeStreamPart, isNudgeStreamTag);
 }
 
 /** Non-primary multiplex segments (reasoning, tools, Clara briefs, tool-trail rows). */
@@ -347,6 +521,170 @@ export function multiplexAuxiliaryStreamTimeline(parts: StreamPart[]): StreamPar
       .filter((p): p is StreamPart => p !== null)
       .filter((p) => !isPrimaryAssistantStreamTag(p.streamTag)),
   );
+}
+
+/** One chronological UI event in the unified live/persisted turn feed. */
+export type TurnFeedItem =
+  | { kind: 'thought'; part: StreamPart }
+  | { kind: 'brief'; part: StreamPart }
+  | { kind: 'nudge'; part: StreamPart }
+  | { kind: 'tool'; part: StreamPart }
+  | { kind: 'markdown'; text: string };
+
+export type BuildTurnFeedOptions = {
+  /** When false, live pre-tool `agent` prose renders as markdown instead of a Clara brief. */
+  promoteLivePrimaryToBrief?: boolean;
+};
+
+/**
+ * Build the unified turn feed: thought pills, Clara brief pills, nudge pills, tool pills, and
+ * rendered markdown in arrival order.
+ * When `finalText` is set, in-feed `agent` segments are omitted except leaked planning
+ * between tools (rendered as thought) and a single markdown block is appended at the end
+ * (backend `final_text` / persisted `assistant.text`).
+ */
+export function buildTurnFeed(
+  parts: readonly StreamPart[],
+  finalText?: string | null,
+  options?: BuildTurnFeedOptions,
+): TurnFeedItem[] {
+  const promoteLivePrimaryToBrief = options?.promoteLivePrimaryToBrief !== false;
+  const normalized = mergeReadPreviewIntoToolTrailParts(
+    parts.map(normalizeStreamPart).filter((p): p is StreamPart => p !== null),
+  );
+  const final = (finalText ?? '').trim();
+  const items: TurnFeedItem[] = [];
+  for (let i = 0; i < normalized.length; i++) {
+    const part = normalized[i]!;
+    if (isReasoningAuxiliaryStreamTag(part.streamTag)) {
+      if (part.text.trim()) {
+        items.push({ kind: 'thought', part: normalizeReasoningStreamPart(part) });
+      }
+      continue;
+    }
+    if (isClaraOuterBriefStreamTag(part.streamTag)) {
+      if (part.text.trim()) {
+        pushOrMergeBriefItem(items, part);
+      }
+      continue;
+    }
+    if (isNudgeStreamTag(part.streamTag)) {
+      if (part.text.trim()) {
+        pushOrMergeNudgeItem(items, part);
+      }
+      continue;
+    }
+    if (isPrimaryAssistantStreamTag(part.streamTag)) {
+      if (!part.text.trim()) {
+        continue;
+      }
+      if (primarySegmentIsBetweenTools(normalized, i)) {
+        const thoughtPart = asReasoningStreamPart(part);
+        const last = items[items.length - 1];
+        if (last?.kind === 'thought') {
+          last.part = { ...last.part, text: last.part.text + thoughtPart.text };
+        } else {
+          items.push({ kind: 'thought', part: thoughtPart });
+        }
+        continue;
+      }
+      if (!final) {
+        if (promoteLivePrimaryToBrief && livePrimaryRendersAsOuterBrief(normalized, i)) {
+          pushOrMergeBriefItem(items, part);
+        } else {
+          const last = items[items.length - 1];
+          if (last?.kind === 'markdown') {
+            last.text += part.text;
+          } else {
+            items.push({ kind: 'markdown', text: part.text });
+          }
+        }
+      }
+      continue;
+    }
+    items.push({ kind: 'tool', part });
+  }
+  if (final) {
+    items.push({ kind: 'markdown', text: final });
+  }
+  return items;
+}
+
+/**
+ * True when this thought is the latest live feed event.
+ * Live turn-feed preview is owned by the preview queue; these helpers remain for tests
+ * and persisted (`live=false`) rendering, which never shows a streaming preview.
+ */
+export function isActiveLiveThought(
+  items: readonly TurnFeedItem[],
+  index: number,
+  live: boolean,
+): boolean {
+  return live && items[index]?.kind === 'thought' && index === items.length - 1;
+}
+
+/** True when a later feed item means this Clara brief is no longer being generated. */
+function briefGenerationSupersededBy(item: TurnFeedItem | undefined): boolean {
+  return item?.kind === 'tool' || item?.kind === 'markdown' || item?.kind === 'brief' || item?.kind === 'nudge';
+}
+
+/**
+ * True while this Clara brief is still being generated (auto-expand the reasoning preview).
+ * Later thought tokens do not close it; a tool, markdown reply, or a newer brief does.
+ * Live turn-feed preview is owned by the preview queue; this helper remains for tests.
+ */
+export function isActiveLiveBrief(
+  items: readonly TurnFeedItem[],
+  index: number,
+  live: boolean,
+): boolean {
+  if (!live || items[index]?.kind !== 'brief') {
+    return false;
+  }
+  for (let i = index + 1; i < items.length; i++) {
+    if (briefGenerationSupersededBy(items[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** True when a later feed item means this nudge preview is no longer being generated. */
+function nudgeGenerationSupersededBy(item: TurnFeedItem | undefined): boolean {
+  return item?.kind === 'tool' || item?.kind === 'markdown' || item?.kind === 'nudge';
+}
+
+/**
+ * True while this nudge preview is still the live premature reply (auto-expand).
+ * Later thought or brief tokens do not close it; a tool, markdown reply, or a newer nudge does.
+ * Live turn-feed preview is owned by the preview queue; this helper remains for tests.
+ */
+export function isActiveLiveNudge(
+  items: readonly TurnFeedItem[],
+  index: number,
+  live: boolean,
+): boolean {
+  if (!live || items[index]?.kind !== 'nudge') {
+    return false;
+  }
+  for (let i = index + 1; i < items.length; i++) {
+    if (nudgeGenerationSupersededBy(items[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Fingerprint of feed content for streaming autoscroll dedupe. */
+export function turnFeedScrollKey(items: readonly TurnFeedItem[]): string {
+  return items
+    .map((item) => {
+      if (item.kind === 'markdown') {
+        return `md:${item.text.length}:${item.text.slice(-80)}`;
+      }
+      return `${item.kind}:${item.part.streamTag}:${item.part.text.length}`;
+    })
+    .join('\u001f');
 }
 
 /** Subset of persisted assistant fields used to resolve auxiliary timeline for display. */

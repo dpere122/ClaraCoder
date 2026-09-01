@@ -14,7 +14,7 @@ from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available
 from clara_coder_backend.workspace_index.lifecycle import invalidate_workspace_index_disk
-from clara_coder_backend.lsp.manager import shutdown_session_python_lsp
+from clara_coder_backend.lsp.manager import shutdown_session_lsp, shutdown_session_python_lsp
 from clara_coder_backend.runtime.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
 from clara_coder_backend.runtime.python_interpreter_select import (
     apply_default_workspace_python_interpreter,
@@ -151,6 +151,7 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     workspace_first_attach = bool(new_path and not prev_path)
     workspace_path_changed = bool(prev_path and prev_path != new_path)
     if workspace_path_changed:
+        shutdown_session_lsp(request.session_id)
         cleanup_staging_snapshot_session(sess, request.session_id)
         if prev_path:
             try:

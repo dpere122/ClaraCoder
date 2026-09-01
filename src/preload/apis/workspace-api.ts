@@ -64,8 +64,11 @@ export const workspaceApi = {
     sessionId: string;
     interpreterId: string;
   }) => ipcRenderer.invoke('apply-workspace-python-interpreter', payload),
-  ensureWorkspaceSystemPrompt: (workspaceId: string): Promise<EnsureWorkspaceSystemPromptResult> =>
-    ipcRenderer.invoke('ensure-workspace-system-prompt', workspaceId),
+  ensureWorkspaceSystemPrompt: (
+    workspaceId: string,
+    sessionId?: string | null,
+  ): Promise<EnsureWorkspaceSystemPromptResult> =>
+    ipcRenderer.invoke('ensure-workspace-system-prompt', workspaceId, sessionId),
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
   addWorkspace: (name: string, p: string) => ipcRenderer.invoke('add-workspace', name, p),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),

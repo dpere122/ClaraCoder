@@ -505,7 +505,10 @@ declare global {
       sessionId: string;
       interpreterId: string;
     }) => Promise<{ ok: true } | { ok: false; error: string }>;
-    ensureWorkspaceSystemPrompt?: (workspaceId: string) => Promise<EnsureWorkspaceSystemPromptResult>;
+    ensureWorkspaceSystemPrompt?: (
+      workspaceId: string,
+      sessionId?: string | null,
+    ) => Promise<EnsureWorkspaceSystemPromptResult>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
     listCudaGpus?: () => Promise<CudaGpuDevice[]>;

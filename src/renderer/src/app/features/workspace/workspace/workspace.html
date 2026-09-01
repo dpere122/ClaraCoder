@@ -20,15 +20,20 @@
       <button
         class='workspace-icon-btn'
         type='button'
-        title='Workspace settings'
-        aria-label='Workspace settings'
-        [disabled]='!currentWorkspaceId()'
+        title='Edit workspace system prompt'
+        aria-label='Edit workspace system prompt'
+        [disabled]='!currentWorkspaceId() || settingsOpening() || !currentWorkspaceHasPath()'
+        [attr.aria-busy]='settingsOpening()'
         (click)='onOpenWorkspaceSettings()'
       >
         <lucide-icon name='settings' [size]='17' />
       </button>
     </div>
   </div>
+
+  @if (settingsError()) {
+    <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
+  }
 
   <div class='workspace-body'>
     @if (currentWorkspaceId()) {

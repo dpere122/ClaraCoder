@@ -1275,9 +1275,12 @@ export class ElectronService {
     );
   }
 
-  ensureWorkspaceSystemPrompt(workspaceId: string): Promise<EnsureWorkspaceSystemPromptResult> {
+  ensureWorkspaceSystemPrompt(
+    workspaceId: string,
+    sessionId?: string | null,
+  ): Promise<EnsureWorkspaceSystemPromptResult> {
     return (
-      this.api?.ensureWorkspaceSystemPrompt?.(workspaceId) ??
+      this.api?.ensureWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

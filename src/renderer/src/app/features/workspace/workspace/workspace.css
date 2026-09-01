@@ -99,6 +99,15 @@ app-workspace .workspace-icon-btn lucide-icon {
   display: inline-flex;
 }
 
+app-workspace .workspace-settings-error {
+  margin: 0 0 0.45rem;
+  padding: 0 0.6rem;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--t-danger, #c44);
+}
+
 app-workspace .file-tree {
   flex: 1;
   overflow-y: auto;

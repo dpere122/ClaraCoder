@@ -24,8 +24,12 @@ interface StubRefs {
   deleteConfirmHandler: DeleteConfirmHandler | null;
   /** Captured `onMessageTokenUsage` callback so tests can simulate backend token_usage events. */
   tokenUsageHandler: ((_event: unknown, conversationId: string, usage: unknown) => void) | null;
+  /** Captured `onConfigUpdated` callback so tests can simulate a main-process broadcast. */
+  configUpdatedHandler: ((event: unknown, config: unknown) => void) | null;
   saveConversation: Mock;
   saveConfig: Mock;
+  patchWorkspaceOpenTabs: Mock;
+  loadedConfig: Record<string, unknown>;
 }
 
 /** Minimal `window.electronAPI` so `App.ngOnInit` does not reject (no real Electron in unit tests). */
@@ -37,8 +41,11 @@ function stubElectronApi(
   const refs: StubRefs = {
     deleteConfirmHandler: null,
     tokenUsageHandler: null,
+    configUpdatedHandler: null,
     saveConversation: vi.fn(async () => noop()),
     saveConfig: vi.fn(async (c: unknown) => c),
+    patchWorkspaceOpenTabs: vi.fn(async () => undefined),
+    loadedConfig: {},
   };
   const defaultConfig = {
     currentWorkspaceId: null as string | null,
@@ -137,6 +144,8 @@ function stubElectronApi(
     messages: conversationFixtures[0]?.messages ?? [],
     themeId: 'woodland',
   };
+  const loadedConfig = { ...defaultConfig, ...configOverrides };
+  refs.loadedConfig = loadedConfig;
   (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
     onMessageChunk: noop,
     onMessageToolReadChunk: noop,
@@ -148,7 +157,9 @@ function stubElectronApi(
     },
     onMessageContextCompressed: noop,
     onMessageStatus: noop,
-    onConfigUpdated: noop,
+    onConfigUpdated: (cb: (event: unknown, config: unknown) => void) => {
+      refs.configUpdatedHandler = cb;
+    },
     onSettingsWindowVisibilityChanged: noop,
     onSettingsSelectTab: noop,
     notifySettingsWindowReady: noop,
@@ -173,12 +184,12 @@ function stubElectronApi(
     workspacePtyKillAll: async () => ({ success: true }),
     onReady: noop,
     setAlwaysOnTop: noop,
-    loadConfig: async () => ({ ...defaultConfig, ...configOverrides }),
+    loadConfig: async () => ({ ...loadedConfig }),
     saveConfig: refs.saveConfig,
     modelManagerListCustomModels: async () => ({ ok: true, models: [] }),
     setLastActiveConversation: async (_workspaceKey: string, _conversationId: string) => ({ ...defaultConfig }),
     patchWorkspaceMonacoScroll: async () => {},
-    patchWorkspaceOpenTabs: async () => {},
+    patchWorkspaceOpenTabs: refs.patchWorkspaceOpenTabs,
     setActiveLlmModel: async (_modelId: string) => ({ ...defaultConfig }),
     patchHealthMonitor: async (patch: { logLevel?: string; metricsEnabled?: boolean }) => ({
       ...defaultConfig,
@@ -305,6 +316,80 @@ describe('App', () => {
     };
     expect(app.fileTabs().map((t) => t.relativePath)).toEqual(['src/foo.ts', 'src/bar.ts']);
     expect(app.activeMainTabId()).toBe('file:rel:src/bar.ts');
+  });
+
+  it('keeps restored open tabs after a stale config-updated broadcast', async () => {
+    const workspaces = [
+      { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ws-b', name: 'B', path: 'C:/tmp/b', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces,
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+          activeTabId: 'file:rel:src/foo.ts',
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      fileTabs: () => Array<{ relativePath?: string }>;
+      currentWorkspaceId: { (): string | null; set: (id: string | null) => void };
+    };
+    expect(app.fileTabs().map((t) => t.relativePath)).toEqual(['src/foo.ts']);
+
+    refs.configUpdatedHandler?.({}, {
+      ...refs.loadedConfig,
+      workspaceOpenTabsByWorkspaceId: {},
+    });
+    await fixture.whenStable();
+
+    app.currentWorkspaceId.set('ws-b');
+    await fixture.whenStable();
+    expect(app.fileTabs()).toEqual([]);
+
+    app.currentWorkspaceId.set('ws-a');
+    await fixture.whenStable();
+    expect(app.fileTabs().map((t) => t.relativePath)).toEqual(['src/foo.ts']);
+  });
+
+  it('retries open-tab persist after a failed patch', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+          activeTabId: 'file:rel:src/foo.ts',
+        },
+      },
+    });
+    refs.patchWorkspaceOpenTabs.mockRejectedValue(new Error('disk busy'));
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      openOrFocusFileTab: (relativePath: string) => void;
+      currentWorkspaceId: { (): string | null; set: (id: string | null) => void };
+    };
+    refs.patchWorkspaceOpenTabs.mockClear();
+    app.openOrFocusFileTab('src/bar.ts');
+    await fixture.whenStable();
+    expect(refs.patchWorkspaceOpenTabs).toHaveBeenCalled();
+
+    refs.patchWorkspaceOpenTabs.mockClear();
+    refs.patchWorkspaceOpenTabs.mockResolvedValue(undefined);
+    app.currentWorkspaceId.set(null);
+    await fixture.whenStable();
+    expect(refs.patchWorkspaceOpenTabs).toHaveBeenCalled();
+    const persisted = refs.patchWorkspaceOpenTabs.mock.calls.at(-1)?.[1] as {
+      tabs?: Array<{ relativePath?: string }>;
+    };
+    expect(persisted?.tabs?.map((t) => t.relativePath)).toEqual(['src/foo.ts', 'src/bar.ts']);
   });
 
   it('should create the app', () => {

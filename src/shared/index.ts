@@ -197,6 +197,8 @@ export {
   normalizeWorkspaceOpenTabsByWorkspaceId,
   normalizeWorkspaceOpenTabsState,
   persistedWorkspaceOpenTabId,
+  pruneRemovedWorkspaceClientState,
+  retainRendererWorkspaceOpenTabs,
   SecretValue,
   unwrapSecret,
 } from './types/app-config';

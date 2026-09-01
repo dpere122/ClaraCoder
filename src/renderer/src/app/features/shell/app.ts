@@ -34,6 +34,7 @@ import {
   patchLlmModelProfile,
   resolveActiveLlmConnection,
   resolveChatWindowState,
+  retainRendererWorkspaceOpenTabs,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
@@ -705,7 +706,7 @@ export class App implements OnInit, OnDestroy {
     );
 
     this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
-      this.appConfig.set(config);
+      this.applyIncomingAppConfig(config);
       const cfs = config.chatFontSizeRem;
       const nextFs =
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9;
@@ -999,6 +1000,12 @@ export class App implements OnInit, OnDestroy {
     this.clearChatContextFiles();
   }
 
+  private applyIncomingAppConfig(config: AppConfig): void {
+    this.appConfig.set(
+      retainRendererWorkspaceOpenTabs(config, this.appConfig()?.workspaceOpenTabsByWorkspaceId),
+    );
+  }
+
   private restoreOpenTabsForWorkspace(workspaceId: string | null): void {
     this.applyingRestoredOpenTabs = true;
     try {
@@ -1051,12 +1058,12 @@ export class App implements OnInit, OnDestroy {
     if (workspaceId === this.openTabsOwnedWorkspaceId && json === this.lastPersistedOpenTabsJson) {
       return;
     }
-    if (workspaceId === this.openTabsOwnedWorkspaceId) {
-      this.lastPersistedOpenTabsJson = json;
-    }
     this.mergeOpenTabsIntoAppConfig(key, state);
     try {
       await this.electron.patchWorkspaceOpenTabs(key, state);
+      if (workspaceId === this.openTabsOwnedWorkspaceId) {
+        this.lastPersistedOpenTabsJson = json;
+      }
     } catch (err) {
       console.error('[App] persist workspace open tabs failed', err);
     }
@@ -1079,7 +1086,7 @@ export class App implements OnInit, OnDestroy {
         chatSidebarCollapsed: collapsed,
         chatExpandedToMainPanel: expanded,
       });
-      this.appConfig.set(saved);
+      this.applyIncomingAppConfig(saved);
     } catch (err) {
       console.error('[App] persist chat window state failed', err);
     }

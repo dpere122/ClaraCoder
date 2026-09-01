@@ -1091,6 +1091,45 @@ export function normalizeWorkspaceOpenTabsState(raw: unknown): {
   return { state: { tabs, activeTabId }, migrated };
 }
 
+/**
+ * Settings / conversation broadcasts keep disk tabs, which can lag the renderer patch.
+ * Prefer the in-memory map, dropping entries for workspaces that no longer exist.
+ */
+export function retainRendererWorkspaceOpenTabs(
+  incoming: AppConfig,
+  rendererTabs: WorkspaceOpenTabsByWorkspaceId | null | undefined,
+): AppConfig {
+  if (!rendererTabs) {
+    return incoming;
+  }
+  const allowed = new Set(incoming.workspaces.map((workspace) => workspace.id));
+  const workspaceOpenTabsByWorkspaceId: WorkspaceOpenTabsByWorkspaceId = {};
+  for (const [workspaceId, state] of Object.entries(rendererTabs)) {
+    if (allowed.has(workspaceId)) {
+      workspaceOpenTabsByWorkspaceId[workspaceId] = state;
+    }
+  }
+  return { ...incoming, workspaceOpenTabsByWorkspaceId };
+}
+
+/** Drop per-workspace client maps when a workspace is removed from the registry. */
+export function pruneRemovedWorkspaceClientState(config: AppConfig, workspaceId: string): void {
+  const id = workspaceId.trim();
+  if (!id) {
+    return;
+  }
+  if (config.workspaceOpenTabsByWorkspaceId && id in config.workspaceOpenTabsByWorkspaceId) {
+    const next = { ...config.workspaceOpenTabsByWorkspaceId };
+    delete next[id];
+    config.workspaceOpenTabsByWorkspaceId = next;
+  }
+  if (config.workspaceMonacoScrollByWorkspaceId && id in config.workspaceMonacoScrollByWorkspaceId) {
+    const next = { ...config.workspaceMonacoScrollByWorkspaceId };
+    delete next[id];
+    config.workspaceMonacoScrollByWorkspaceId = next;
+  }
+}
+
 /** Coerce unknown persisted open-tab JSON; drops invalid workspace entries. */
 export function normalizeWorkspaceOpenTabsByWorkspaceId(raw: unknown): {
   openTabsByWorkspaceId: WorkspaceOpenTabsByWorkspaceId;

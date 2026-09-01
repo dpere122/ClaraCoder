@@ -15,6 +15,7 @@ import {
   findLlmModelLocation,
   isNoWorkspaceSystemPromptId,
   normalizeWorkspaceOpenTabsState,
+  pruneRemovedWorkspaceClientState,
   resolveSystemPromptStorageId,
 } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
@@ -619,6 +620,7 @@ export function registerConfigWorkspacesIpc(): void {
       if (cfg.currentWorkspaceId === id) {
         cfg.currentWorkspaceId = cfg.workspaces.length > 0 ? cfg.workspaces[0].id : null;
       }
+      pruneRemovedWorkspaceClientState(cfg, id);
     });
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);

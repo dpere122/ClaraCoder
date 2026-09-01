@@ -3,6 +3,8 @@ import {
   normalizeWorkspaceOpenTabsByWorkspaceId,
   normalizeWorkspaceOpenTabsState,
   persistedWorkspaceOpenTabId,
+  pruneRemovedWorkspaceClientState,
+  retainRendererWorkspaceOpenTabs,
 } from './app-config';
 
 describe('persistedWorkspaceOpenTabId', () => {
@@ -87,5 +89,84 @@ describe('normalizeWorkspaceOpenTabsByWorkspaceId', () => {
     const { openTabsByWorkspaceId, migrated } = normalizeWorkspaceOpenTabsByWorkspaceId(undefined);
     expect(openTabsByWorkspaceId).toEqual({});
     expect(migrated).toBe(false);
+  });
+});
+
+describe('retainRendererWorkspaceOpenTabs', () => {
+  it('keeps renderer tabs when the incoming broadcast has a stale map', () => {
+    const incoming = {
+      workspaces: [
+        { id: 'ws-a', name: 'A', path: '/a', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'ws-b', name: 'B', path: '/b', createdAt: '2026-01-01T00:00:00.000Z' },
+      ],
+      workspaceOpenTabsByWorkspaceId: {},
+    };
+    const retained = retainRendererWorkspaceOpenTabs(incoming as never, {
+      'ws-a': {
+        tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:src/foo.ts',
+      },
+    });
+    expect(retained.workspaceOpenTabsByWorkspaceId).toEqual({
+      'ws-a': {
+        tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:src/foo.ts',
+      },
+    });
+  });
+
+  it('drops renderer tabs for workspaces no longer in the incoming registry', () => {
+    const incoming = {
+      workspaces: [{ id: 'ws-b', name: 'B', path: '/b', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {},
+    };
+    const retained = retainRendererWorkspaceOpenTabs(incoming as never, {
+      'ws-a': {
+        tabs: [{ relativePath: 'gone.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:gone.ts',
+      },
+      'ws-b': {
+        tabs: [{ relativePath: 'keep.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:keep.ts',
+      },
+    });
+    expect(retained.workspaceOpenTabsByWorkspaceId).toEqual({
+      'ws-b': {
+        tabs: [{ relativePath: 'keep.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:keep.ts',
+      },
+    });
+  });
+});
+
+describe('pruneRemovedWorkspaceClientState', () => {
+  it('removes open-tab and monaco-scroll entries for the workspace', () => {
+    const config = {
+      workspaces: [{ id: 'ws-a', name: 'A', path: '/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }],
+          activeTabId: 'file:rel:a.ts',
+        },
+        'ws-b': {
+          tabs: [{ relativePath: 'b.ts', outsideWorkspace: false }],
+          activeTabId: 'file:rel:b.ts',
+        },
+      },
+      workspaceMonacoScrollByWorkspaceId: {
+        'ws-a': { 'a.ts': { scrollTop: 1, scrollLeft: 0 } },
+        'ws-b': { 'b.ts': { scrollTop: 2, scrollLeft: 0 } },
+      },
+    };
+    pruneRemovedWorkspaceClientState(config as never, 'ws-a');
+    expect(config.workspaceOpenTabsByWorkspaceId).toEqual({
+      'ws-b': {
+        tabs: [{ relativePath: 'b.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:b.ts',
+      },
+    });
+    expect(config.workspaceMonacoScrollByWorkspaceId).toEqual({
+      'ws-b': { 'b.ts': { scrollTop: 2, scrollLeft: 0 } },
+    });
   });
 });

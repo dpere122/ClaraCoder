@@ -18,6 +18,7 @@ WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
         '.cursor',
         '.idea',
         '.next',
+        '.clara',
         '.nemo',
         '.nuxt',
         '.svn',

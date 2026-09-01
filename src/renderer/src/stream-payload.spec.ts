@@ -377,7 +377,7 @@ describe('parseAgentStreamPayload', () => {
           type: 'build_plan_open',
           buildPlanOpen: {
             planId: 'plan-1',
-            relativePath: '.nemo/build-plans/plan-1.md',
+            relativePath: '.clara/build-plans/plan-1.md',
             title: 'Refactor auth',
             previewMode: true,
           },
@@ -387,7 +387,7 @@ describe('parseAgentStreamPayload', () => {
       type: 'build_plan_open',
       buildPlanOpen: {
         planId: 'plan-1',
-        relativePath: '.nemo/build-plans/plan-1.md',
+        relativePath: '.clara/build-plans/plan-1.md',
         title: 'Refactor auth',
         previewMode: true,
       },
@@ -400,7 +400,7 @@ describe('parseAgentStreamPayload', () => {
         JSON.stringify({
           type: 'build_plan_chunk',
           buildPlanChunk: {
-            relativePath: '.nemo/build-plans/plan-1.md',
+            relativePath: '.clara/build-plans/plan-1.md',
             content: '# Build Plan: Draft\n',
           },
         }),
@@ -408,7 +408,7 @@ describe('parseAgentStreamPayload', () => {
     ).toEqual({
       type: 'build_plan_chunk',
       buildPlanChunk: {
-        relativePath: '.nemo/build-plans/plan-1.md',
+        relativePath: '.clara/build-plans/plan-1.md',
         content: '# Build Plan: Draft\n',
       },
     });
@@ -420,14 +420,14 @@ describe('parseAgentStreamPayload', () => {
         JSON.stringify({
           type: 'build_plan_stream_end',
           buildPlanStreamEnd: {
-            relativePath: '.nemo/build-plans/plan-1.md',
+            relativePath: '.clara/build-plans/plan-1.md',
           },
         }),
       ),
     ).toEqual({
       type: 'build_plan_stream_end',
       buildPlanStreamEnd: {
-        relativePath: '.nemo/build-plans/plan-1.md',
+        relativePath: '.clara/build-plans/plan-1.md',
       },
     });
   });

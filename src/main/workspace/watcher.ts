@@ -18,6 +18,7 @@ import { getWorkspaceStagingDir } from '../paths';
 import { mainState } from '../state';
 import { loadConfig } from '../config/load-save';
 import { syncWorkspaceContextToPython } from '../python/workspace-sync';
+import { ensureWorkspaceSystemPrompt } from './system-prompt';
 import { pushWorkspaceFilesChangedToRenderer } from './emit-files-changed';
 import { buildWorkspaceTree } from './context-tree';
 import {
@@ -363,6 +364,10 @@ export async function applyWorkspaceExposeAllFromConfig(config: import('../../sh
 
 export async function startWorkspaceWatcher(workspace: Workspace): Promise<void> {
   clearWorkspaceWatcher();
+
+  await ensureWorkspaceSystemPrompt(workspace.path, workspace.id).catch((err) => {
+    console.warn('[system-prompt] Failed to seed workspace system prompt:', err);
+  });
 
   const stagingPath = getWorkspaceStagingDir();
   syncFs.mkdirSync(stagingPath, { recursive: true });

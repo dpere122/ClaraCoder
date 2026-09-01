@@ -60,8 +60,7 @@ import type {
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
-  WorkspaceSystemPromptMutationResult,
-  WorkspaceSystemPromptStatus,
+  EnsureWorkspaceSystemPromptResult,
 } from '@shared/index';
 import { getDefaultContextCompression, SecretValue } from '@shared/index';
 
@@ -1276,50 +1275,13 @@ export class ElectronService {
     );
   }
 
-  getWorkspaceSystemPromptStatus(workspaceId: string): Promise<WorkspaceSystemPromptStatus> {
-    return (
-      this.api?.getWorkspaceSystemPromptStatus?.(workspaceId) ??
-      Promise.resolve({ hasFile: false, sourceName: '' })
-    );
-  }
-
-  pickWorkspaceSystemPrompt(
+  ensureWorkspaceSystemPrompt(
     workspaceId: string,
     sessionId?: string | null,
-  ): Promise<WorkspaceSystemPromptMutationResult> {
+  ): Promise<EnsureWorkspaceSystemPromptResult> {
     return (
-      this.api?.pickWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
-      Promise.resolve({ ok: false, error: 'API not available', hasFile: false, sourceName: '' })
-    );
-  }
-
-  getWorkspaceSystemPromptText(
-    workspaceId: string,
-  ): Promise<{ ok: true; text: string } | { ok: false; error: string; text: string }> {
-    return (
-      this.api?.getWorkspaceSystemPromptText?.(workspaceId) ??
-      Promise.resolve({ ok: false, error: 'API not available', text: '' })
-    );
-  }
-
-  saveWorkspaceSystemPromptText(payload: {
-    workspaceId: string;
-    text: string;
-    sessionId?: string | null;
-  }): Promise<WorkspaceSystemPromptMutationResult> {
-    return (
-      this.api?.saveWorkspaceSystemPromptText?.(payload) ??
-      Promise.resolve({ ok: false, error: 'API not available', hasFile: false, sourceName: '' })
-    );
-  }
-
-  clearWorkspaceSystemPrompt(
-    workspaceId: string,
-    sessionId?: string | null,
-  ): Promise<WorkspaceSystemPromptMutationResult> {
-    return (
-      this.api?.clearWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
-      Promise.resolve({ ok: false, error: 'API not available', hasFile: false, sourceName: '' })
+      this.api?.ensureWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
 

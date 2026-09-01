@@ -80,11 +80,11 @@ describe('app-chat-file-tabs', () => {
   });
 
   it('builds build-plan tabs with preview-only metadata', () => {
-    const tab = buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true);
+    const tab = buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true);
     expect(tab.previewOnly).toBe(true);
     expect(tab.buildPlanId).toBe('p1');
     expect(tab.buildPlanActive).toBe(true);
-    expect(chatFileTabId(tab)).toBe('file:rel:.nemo/build-plans/p1.md');
+    expect(chatFileTabId(tab)).toBe('file:rel:.clara/build-plans/p1.md');
   });
 
   it('lists tab ids to the left and right of an anchor tab', () => {
@@ -119,7 +119,7 @@ describe('app-chat-file-tabs', () => {
 
   it('deactivates and removes build-plan tabs by plan id', () => {
     const tabs = [
-      buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true),
+      buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true),
       workspaceChatFileTab('src/foo.ts'),
     ];
     expect(findBuildPlanTab(tabs, 'p1')?.buildPlanActive).toBe(true);
@@ -133,7 +133,7 @@ describe('app-chat-file-tabs', () => {
   it('omits build-plan tabs when serializing open tabs for a workspace', () => {
     const tabs = [
       workspaceChatFileTab('src/foo.ts'),
-      buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true),
+      buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true),
       { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
     ];
     const state = serializeWorkspaceOpenTabs(tabs, 'file:rel:src/foo.ts');
@@ -148,7 +148,7 @@ describe('app-chat-file-tabs', () => {
   it('falls back to the last file tab when the active tab is ephemeral', () => {
     const tabs = [
       workspaceChatFileTab('a.ts'),
-      buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true),
+      buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true),
     ];
     const state = serializeWorkspaceOpenTabs(tabs, chatFileTabId(tabs[1]!));
     expect(state.activeTabId).toBe('file:rel:a.ts');

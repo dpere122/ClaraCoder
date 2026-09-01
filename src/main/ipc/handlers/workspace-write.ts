@@ -17,6 +17,9 @@ import {
   resolveWorkspaceTransferPaths,
   transferWorkspaceEntry,
 } from '../../utils/workspace-entry-transfer';
+import { isWorkspaceSystemPromptRelativePath } from '../../../shared';
+import { mainState } from '../../state';
+import { syncWorkspaceSystemPromptToPython } from '../../python/workspace-sync';
 
 /** Write a text file under an open workspace (used after user confirms a proposed diff). */
 export function registerWorkspaceWriteIpc(): void {
@@ -57,6 +60,13 @@ export function registerWorkspaceWriteIpc(): void {
         const buf = encodeWorkspaceFileContent(content, encoding, newline);
         await fs.writeFile(abs, buf);
         await emitWorkspaceFilesChanged(workspaceRoot.trim(), abs, 'updated');
+        if (isWorkspaceSystemPromptRelativePath(relativePath) && mainState.activeConversationId) {
+          try {
+            await syncWorkspaceSystemPromptToPython(mainState.activeConversationId, workspaceRoot.trim());
+          } catch (err) {
+            console.error('Failed to re-sync workspace system prompt:', err);
+          }
+        }
         return { ok: true as const, path: abs };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

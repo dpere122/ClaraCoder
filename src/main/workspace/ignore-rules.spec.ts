@@ -97,6 +97,11 @@ describe('shouldIgnoreWorkspaceEntry (denylist wins, negation, exposeAll)', () =
     expect(shouldIgnoreWorkspaceEntry('vtsls-bundle', 'vtsls-bundle', [])).toBe(true);
   });
 
+  it('ignores the .clara metadata directory and leftover .nemo folders', () => {
+    expect(shouldIgnoreWorkspaceEntry('.clara', '.clara', [])).toBe(true);
+    expect(shouldIgnoreWorkspaceEntry('.nemo', '.nemo', [])).toBe(true);
+  });
+
   it('denylist wins over a !negation rule', () => {
     expect(shouldIgnoreWorkspaceEntry('.env', '.env', ['.env', '!.env'], false)).toBe(true);
   });

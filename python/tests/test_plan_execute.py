@@ -99,7 +99,7 @@ def test_build_planner_context_block_includes_staging_tools_in_plan_mode() -> No
 
 
 def test_build_build_plan_executor_prompt_references_plan_and_mark_tool() -> None:
-    prompt = build_build_plan_executor_prompt('.nemo/build-plans/plan-abc.md')
+    prompt = build_build_plan_executor_prompt('.clara/build-plans/plan-abc.md')
     assert 'read_build_plan' in prompt
     assert 'mark_build_plan_steps_complete' in prompt
     assert 'own pace' in prompt.lower()
@@ -719,11 +719,11 @@ def test_plan_confirm_sse_payload_includes_build_plan_path() -> None:
         session,
         steps=['A', 'B'],
         build_plan_id='plan-abc',
-        build_plan_path='.nemo/build-plans/plan-abc.md',
+        build_plan_path='.clara/build-plans/plan-abc.md',
     )
     payload = plan_confirm_sse_payload(pending)
     assert payload['planId'] == 'plan-abc'
-    assert payload['buildPlanPath'] == '.nemo/build-plans/plan-abc.md'
+    assert payload['buildPlanPath'] == '.clara/build-plans/plan-abc.md'
 
 
 def _sample_plan_md() -> str:
@@ -979,7 +979,7 @@ def test_stream_plan_execute_asks_open_questions_then_rewrites(
     rewritten_idx = next(i for i, line in enumerate(lines) if 'Implement REST handler' in line)
     assert stub_idx < rewritten_idx
     assert outcome.state == AgentLoopOutcome.COMPLETED
-    plan_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
+    plan_files = list((tmp_path / '.clara' / 'build-plans').glob('plan-*.md'))
     assert plan_files
     disk = plan_files[0].read_text(encoding='utf-8')
     assert 'REST' in disk
@@ -1151,7 +1151,7 @@ def test_stream_plan_execute_binds_answers_when_rewrite_has_no_steps(
     assert any('Plan kept' in line for line in lines)
     assert planner_calls['n'] == 2
     assert outcome.state == AgentLoopOutcome.COMPLETED
-    plan_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
+    plan_files = list((tmp_path / '.clara' / 'build-plans').glob('plan-*.md'))
     assert plan_files
     disk = plan_files[0].read_text(encoding='utf-8')
     assert 'Feature plan' in disk

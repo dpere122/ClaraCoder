@@ -41,8 +41,7 @@ import type {
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
-  WorkspaceSystemPromptMutationResult,
-  WorkspaceSystemPromptStatus,
+  EnsureWorkspaceSystemPromptResult,
 } from '../../shared/index';
 import type {
   LspEditorCompletionItemPayload,
@@ -506,23 +505,10 @@ declare global {
       sessionId: string;
       interpreterId: string;
     }) => Promise<{ ok: true } | { ok: false; error: string }>;
-    getWorkspaceSystemPromptStatus?: (workspaceId: string) => Promise<WorkspaceSystemPromptStatus>;
-    pickWorkspaceSystemPrompt?: (
+    ensureWorkspaceSystemPrompt?: (
       workspaceId: string,
       sessionId?: string | null,
-    ) => Promise<WorkspaceSystemPromptMutationResult>;
-    getWorkspaceSystemPromptText?: (
-      workspaceId: string,
-    ) => Promise<{ ok: true; text: string } | { ok: false; error: string; text: string }>;
-    saveWorkspaceSystemPromptText?: (payload: {
-      workspaceId: string;
-      text: string;
-      sessionId?: string | null;
-    }) => Promise<WorkspaceSystemPromptMutationResult>;
-    clearWorkspaceSystemPrompt?: (
-      workspaceId: string,
-      sessionId?: string | null,
-    ) => Promise<WorkspaceSystemPromptMutationResult>;
+    ) => Promise<EnsureWorkspaceSystemPromptResult>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
     listCudaGpus?: () => Promise<CudaGpuDevice[]>;

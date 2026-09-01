@@ -42,5 +42,5 @@ def staging_index_persist_dir(session_id: str) -> Path:
 
 
 def index_persist_dir(workspace_root: Path) -> Path:
-    """Deprecated layout: ``<workspace>/.nemo/llama_index``. Kept for tests that monkeypatch paths."""
-    return workspace_root.resolve() / '.nemo' / 'llama_index'
+    """Deprecated layout: ``<workspace>/.clara/llama_index``. Kept for tests that monkeypatch paths."""
+    return workspace_root.resolve() / '.clara' / 'llama_index'

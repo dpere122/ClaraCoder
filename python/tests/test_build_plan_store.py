@@ -132,9 +132,9 @@ def test_create_build_plan_evicts_old_complete_entries(tmp_path: Path) -> None:
     for i in range(6):
         doc = _sample_doc(title=f'Plan {i}')
         create_build_plan(str(tmp_path), f'sess-{i}', doc)
-    index_path = tmp_path / '.nemo' / 'build-plans' / 'index.json'
+    index_path = tmp_path / '.clara' / 'build-plans' / 'index.json'
     assert index_path.is_file()
-    md_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
+    md_files = list((tmp_path / '.clara' / 'build-plans').glob('plan-*.md'))
     assert len(md_files) <= 5
 
 
@@ -366,3 +366,109 @@ def test_mark_steps_complete_flips_checkboxes_without_step_id_markers(tmp_path: 
     updated = mark_steps_complete(str(tmp_path), record, ['step-2'])
     states = {row['id']: row['complete'] for row in updated}
     assert states == {'step-1': False, 'step-2': True}
+
+
+def test_migrate_legacy_nemo_dir_rewrites_index_paths(tmp_path: Path) -> None:
+    from clara_coder_backend.workspace.meta import migrate_legacy_workspace_meta_dir
+
+    legacy = tmp_path / '.nemo' / 'build-plans'
+    legacy.mkdir(parents=True)
+    (legacy / 'plan-abc.md').write_text('# Plan\n', encoding='utf-8')
+    (legacy / 'index.json').write_text(
+        '[{"id": "plan-abc", "relativePath": ".nemo/build-plans/plan-abc.md", "status": "active"}]\n',
+        encoding='utf-8',
+    )
+    migrate_legacy_workspace_meta_dir(tmp_path)
+    assert not (tmp_path / '.nemo').exists()
+    index = (tmp_path / '.clara' / 'build-plans' / 'index.json').read_text(encoding='utf-8')
+    assert '.clara/build-plans/plan-abc.md' in index
+    assert '.nemo/build-plans/' not in index
+    assert (tmp_path / '.clara' / 'build-plans' / 'plan-abc.md').is_file()
+
+
+def test_create_build_plan_uses_clara_dir_after_legacy_rename(tmp_path: Path) -> None:
+    from clara_coder_backend.workspace.meta import migrate_legacy_workspace_meta_dir
+
+    (tmp_path / '.nemo' / 'build-plans').mkdir(parents=True)
+    migrate_legacy_workspace_meta_dir(tmp_path)
+    record = create_build_plan(str(tmp_path), 'sess-1', _sample_doc())
+    assert record.relative_path.startswith('.clara/build-plans/')
+    assert (tmp_path / record.relative_path).is_file()
+
+
+def test_create_build_plan_migrates_legacy_before_mkdir(tmp_path: Path) -> None:
+    """Creating a plan must migrate ``.nemo`` first so the new index includes legacy plans."""
+    import json
+
+    legacy = tmp_path / '.nemo' / 'build-plans'
+    legacy.mkdir(parents=True)
+    (legacy / 'plan-legacy.md').write_text('# Legacy\n', encoding='utf-8')
+    (legacy / 'index.json').write_text(
+        '[{"id": "plan-legacy", "relativePath": ".nemo/build-plans/plan-legacy.md", "status": "active"}]\n',
+        encoding='utf-8',
+    )
+
+    record = create_build_plan(str(tmp_path), 'sess-1', _sample_doc())
+
+    assert (tmp_path / '.clara' / 'build-plans' / 'plan-legacy.md').is_file()
+    assert (tmp_path / record.relative_path).is_file()
+    assert record.relative_path.startswith('.clara/build-plans/')
+
+    index_path = tmp_path / '.clara' / 'build-plans' / 'index.json'
+    entries = json.loads(index_path.read_text(encoding='utf-8'))
+    ids = {str(entry.get('id') or '') for entry in entries}
+    assert 'plan-legacy' in ids
+    assert record.id in ids
+    for entry in entries:
+        rel = str(entry.get('relativePath') or '')
+        assert rel.startswith('.clara/build-plans/')
+        assert '.nemo/' not in rel
+
+
+def test_migrate_copies_missing_files_when_both_dirs_exist(tmp_path: Path) -> None:
+    from clara_coder_backend.workspace.meta import migrate_legacy_workspace_meta_dir
+
+    legacy = tmp_path / '.nemo' / 'build-plans'
+    legacy.mkdir(parents=True)
+    (legacy / 'old.md').write_text('# Old\n', encoding='utf-8')
+    (legacy / 'index.json').write_text(
+        '[{"id": "plan-old", "relativePath": ".nemo/build-plans/old.md", "status": "active"}]\n',
+        encoding='utf-8',
+    )
+    clara = tmp_path / '.clara'
+    clara.mkdir()
+    (clara / 'unrelated.txt').write_text('keep', encoding='utf-8')
+
+    migrate_legacy_workspace_meta_dir(tmp_path)
+
+    copied = tmp_path / '.clara' / 'build-plans' / 'old.md'
+    assert copied.is_file()
+    assert copied.read_text(encoding='utf-8') == '# Old\n'
+    index = (tmp_path / '.clara' / 'build-plans' / 'index.json').read_text(encoding='utf-8')
+    assert '.clara/build-plans/old.md' in index
+    assert '.nemo/build-plans/' not in index
+    assert (tmp_path / '.nemo').exists()
+    assert (tmp_path / '.clara' / 'unrelated.txt').read_text(encoding='utf-8') == 'keep'
+
+
+def test_delete_entry_files_rewrites_stale_nemo_path(tmp_path: Path) -> None:
+    from clara_coder_backend.plan.build_plan_store import _delete_entry_files
+    from clara_coder_backend.workspace.meta import migrate_legacy_workspace_meta_dir
+
+    legacy = tmp_path / '.nemo' / 'build-plans'
+    legacy.mkdir(parents=True)
+    (legacy / 'plan-stale.md').write_text('# Plan\n', encoding='utf-8')
+    (legacy / 'index.json').write_text(
+        '[{"id": "plan-stale", "relativePath": ".nemo/build-plans/plan-stale.md", "status": "active"}]\n',
+        encoding='utf-8',
+    )
+    migrate_legacy_workspace_meta_dir(tmp_path)
+    clara_md = tmp_path / '.clara' / 'build-plans' / 'plan-stale.md'
+    assert clara_md.is_file()
+
+    _delete_entry_files(
+        str(tmp_path),
+        {'id': 'plan-stale', 'relativePath': '.nemo/build-plans/plan-stale.md'},
+    )
+    assert not clara_md.exists()
+

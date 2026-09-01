@@ -17,8 +17,23 @@
       >
         <lucide-icon name='folder-plus' [size]='17' />
       </button>
+      <button
+        class='workspace-icon-btn'
+        type='button'
+        title='Edit workspace system prompt'
+        aria-label='Edit workspace system prompt'
+        [disabled]='!currentWorkspaceId() || settingsOpening() || !currentWorkspaceHasPath()'
+        [attr.aria-busy]='settingsOpening()'
+        (click)='onOpenWorkspaceSettings()'
+      >
+        <lucide-icon name='settings' [size]='17' />
+      </button>
     </div>
   </div>
+
+  @if (settingsError()) {
+    <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
+  }
 
   <div class='workspace-body'>
     @if (currentWorkspaceId()) {
@@ -177,75 +192,7 @@
           }
         }
       }
-      <div class='workspace-system-prompt-row'>
-        <span class='workspace-system-prompt-name' title='{{ systemPromptSourceName() }}'>{{ systemPromptSourceName() }}</span>
-        <button
-          type='button'
-          class='workspace-system-prompt-clear'
-          [disabled]='systemPromptBusy()'
-          aria-label='Edit system prompt'
-          (click)='onOpenSystemPromptEditor()'
-        >
-          Edit
-        </button>
-        <button
-          type='button'
-          class='workspace-system-prompt-clear'
-          [disabled]='systemPromptBusy()'
-          aria-label='Clear system prompt'
-          (click)='onClearSystemPrompt()'
-        >
-          Clear
-        </button>
-      </div>
-      @if (systemPromptError()) {
-        <p class='workspace-interpreter-error'>{{ systemPromptError() }}</p>
-      }
       <app-managed-llama-controls [appConfig]='appConfig()' />
-    </div>
-  }
-
-  @if (systemPromptEditorOpen()) {
-    <div class='workspace-system-prompt-editor-backdrop' role='presentation'>
-      <div
-        class='workspace-system-prompt-editor'
-        role='dialog'
-        aria-modal='true'
-        aria-labelledby='workspace-system-prompt-editor-title'
-      >
-        <h2 class='workspace-system-prompt-editor-title' id='workspace-system-prompt-editor-title'>
-          Edit system prompt
-        </h2>
-        <textarea
-          class='workspace-system-prompt-editor-textarea'
-          [value]='systemPromptEditorDraft()'
-          (input)='onSystemPromptEditorInput($event)'
-          [disabled]='systemPromptEditorSaving()'
-          rows='28'
-          spellcheck='false'
-        ></textarea>
-        @if (systemPromptEditorError()) {
-          <p class='workspace-interpreter-error'>{{ systemPromptEditorError() }}</p>
-        }
-        <div class='workspace-system-prompt-editor-actions'>
-          <button
-            type='button'
-            class='workspace-system-prompt-clear'
-            [disabled]='systemPromptEditorSaving()'
-            (click)='onCancelSystemPromptEditor()'
-          >
-            Cancel
-          </button>
-          <button
-            type='button'
-            class='workspace-system-prompt-save'
-            [disabled]='systemPromptEditorSaving()'
-            (click)='onSaveSystemPromptEditor()'
-          >
-            {{ systemPromptEditorSaving() ? 'Saving…' : 'Save' }}
-          </button>
-        </div>
-      </div>
     </div>
   }
 

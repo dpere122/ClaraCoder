@@ -9,6 +9,15 @@ export {
   resolveSystemPromptStorageId,
 } from './types/workspace';
 export {
+  LEGACY_WORKSPACE_META_DIR,
+  WORKSPACE_BUILD_PLANS_DIR,
+  WORKSPACE_BUILD_PLANS_REL_DIR,
+  WORKSPACE_META_DIR,
+  WORKSPACE_SYSTEM_PROMPT_FILE,
+  WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
+  isWorkspaceSystemPromptRelativePath,
+} from './workspace-meta';
+export {
   APP_BACKEND_INTERPRETER_ID,
   RUNTIME_VENV_INTERPRETER_ID,
 } from './python-interpreter-ids';
@@ -435,8 +444,7 @@ export type {
   WorkspaceContextSyncExtras,
   WorkspaceFileChangesForSync,
   PythonInterpreterListItem,
-  WorkspaceSystemPromptStatus,
-  WorkspaceSystemPromptMutationResult,
+  EnsureWorkspaceSystemPromptResult,
 } from './types/workspace-context';
 export type {
   HealthLogLevel,

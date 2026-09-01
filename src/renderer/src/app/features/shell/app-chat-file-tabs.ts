@@ -14,7 +14,7 @@ export interface ChatFileTab {
   absolutePath?: string;
   /** True when editing a file outside the workspace root. */
   outsideWorkspace?: boolean;
-  /** Build plan id when this tab shows a `.nemo/build-plans/` markdown file. */
+  /** Build plan id when this tab shows a `.clara/build-plans/` markdown file. */
   buildPlanId?: string;
   /** True while the plan awaits confirm or is executing; closing tab cancels the plan. */
   buildPlanActive?: boolean;

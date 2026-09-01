@@ -210,22 +210,10 @@ function stubElectronApi(
       activeInterpreterId: null as string | null,
     }),
     applyWorkspacePythonInterpreter: async () => ({ ok: true as const }),
-    getWorkspaceSystemPromptStatus: async () => ({ hasFile: false, sourceName: '' }),
-    pickWorkspaceSystemPrompt: async () => ({
+    ensureWorkspaceSystemPrompt: async () => ({
       ok: true as const,
-      hasFile: false,
-      sourceName: '',
-    }),
-    getWorkspaceSystemPromptText: async () => ({ ok: true as const, text: '' }),
-    saveWorkspaceSystemPromptText: async () => ({
-      ok: true as const,
-      hasFile: true,
-      sourceName: 'system-prompt.md',
-    }),
-    clearWorkspaceSystemPrompt: async () => ({
-      ok: true as const,
-      hasFile: false,
-      sourceName: '',
+      absolutePath: '/tmp/ws/.clara/system-prompt.md',
+      relativePath: '.clara/system-prompt.md',
     }),
     syncAutoApplyMode: async () => ({ ok: true }),
     startTtsStream: async () => ({ ok: true }),

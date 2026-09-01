@@ -69,12 +69,15 @@ function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions {
   const recentSubmenu: Electron.MenuItemConstructorOptions[] =
     recent.length === 0
       ? [{ label: 'No recent workspaces', enabled: false }]
-      : recent.map((ws) => ({
-          label: ws.name,
-          type: 'checkbox' as const,
-          checked: ws.id === currentId,
-          click: () => sendFileMenuCommand('open-recent', ws.id),
-        }));
+      : recent.map(
+          (ws): Electron.MenuItemConstructorOptions & { radioGroup: string } => ({
+            label: ws.name,
+            type: 'radio' as const,
+            radioGroup: 'open-recent-workspace',
+            checked: ws.id === currentId,
+            click: () => sendFileMenuCommand('open-recent', ws.id),
+          }),
+        );
 
   return {
     label: 'File',
@@ -107,9 +110,7 @@ function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions {
         enabled: hasWorkspace,
         click: () => sendFileMenuCommand('new-terminal'),
       },
-      process.platform === 'darwin'
-        ? { label: 'Exit', role: 'quit' }
-        : { label: 'Exit', click: () => sendFileMenuCommand('exit') },
+      { label: 'Exit', role: 'quit' },
     ],
   };
 }

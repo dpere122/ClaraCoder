@@ -97,10 +97,29 @@ describe('buildApplicationMenuTemplate File menu', () => {
     const recent = submenu.find((item) => item.label === 'Open Recent');
     expect(recent?.submenu).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: 'Beta', checked: true }),
-        expect.objectContaining({ label: 'Alpha', checked: false }),
+        expect.objectContaining({
+          label: 'Beta',
+          type: 'radio',
+          radioGroup: 'open-recent-workspace',
+          checked: true,
+        }),
+        expect.objectContaining({
+          label: 'Alpha',
+          type: 'radio',
+          radioGroup: 'open-recent-workspace',
+          checked: false,
+        }),
       ]),
     );
+  });
+
+  it('uses role quit for File Exit on every platform', () => {
+    const submenu = fileMenu().submenu as Electron.MenuItemConstructorOptions[];
+    const exit = submenu.find((item) => item.label === 'Exit');
+    expect(exit).toEqual(
+      expect.objectContaining({ label: 'Exit', role: 'quit' }),
+    );
+    expect(exit?.click).toBeUndefined();
   });
 
   it('disables New File / New Folder / New Terminal without a workspace', async () => {

@@ -55,6 +55,7 @@ app-workspace .workspace-select option {
 app-workspace .workspace-toolbar {
   display: flex;
   align-items: center;
+  gap: 0.25rem;
 }
 
 app-workspace .workspace-icon-btn {
@@ -78,6 +79,15 @@ app-workspace .workspace-icon-btn:hover {
 app-workspace .workspace-icon-btn:focus-visible {
   outline: none;
   border-color: var(--t-primary);
+}
+
+app-workspace .workspace-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+app-workspace .workspace-icon-btn:disabled:hover {
+  background-color: var(--t-bg);
 }
 
 app-workspace .workspace-icon-btn.is-active {
@@ -154,141 +164,6 @@ app-workspace .workspace-interpreter-error {
   font-size: 0.68rem;
   line-height: 1.35;
   color: var(--t-danger, #c44);
-}
-
-app-workspace .workspace-system-prompt-row {
-  display: flex;
-  align-items: stretch;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-app-workspace .workspace-system-prompt-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  align-self: center;
-  font-size: 0.72rem;
-  font-family: var(--t-font-mono, ui-monospace, monospace);
-  color: var(--t-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-app-workspace .workspace-system-prompt-pick {
-  flex: 1 1 auto;
-  min-width: 0;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-app-workspace .workspace-system-prompt-clear {
-  flex: 0 0 auto;
-  padding: 0.4rem 0.55rem;
-  background: transparent;
-  border: 1px solid var(--t-border);
-  color: var(--t-text-muted);
-  font-family: inherit;
-  font-size: 0.72rem;
-  cursor: pointer;
-  outline: none;
-}
-
-app-workspace .workspace-system-prompt-clear:hover:not(:disabled) {
-  color: var(--t-primary);
-  border-color: var(--t-primary);
-}
-
-app-workspace .workspace-system-prompt-clear:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-app-workspace .workspace-system-prompt-editor-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  box-sizing: border-box;
-  background: color-mix(in srgb, var(--t-bg-deep, #020402) 78%, transparent);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-}
-
-app-workspace .workspace-system-prompt-editor {
-  width: min(60rem, 100%);
-  max-height: min(92vh, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  padding: 1.15rem 1.25rem 1.05rem;
-  border-radius: 8px;
-  border: 1px solid var(--t-border, #00ff4133);
-  background: var(--t-bg-surface, #0d1a0d);
-  color: var(--t-fg, #00ff41);
-  box-shadow: var(--t-elev-shadow, 0 10px 28px rgba(0, 0, 0, 0.45));
-  font-family: inherit;
-}
-
-app-workspace .workspace-system-prompt-editor-title {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--t-primary);
-}
-
-app-workspace .workspace-system-prompt-editor-textarea {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 28rem;
-  max-height: min(78vh, 42rem);
-  box-sizing: border-box;
-  resize: vertical;
-  padding: 0.55rem 0.65rem;
-  background: var(--t-bg);
-  border: 1px solid var(--t-border);
-  color: var(--t-primary);
-  font-family: var(--t-font-mono, ui-monospace, monospace);
-  font-size: 0.8rem;
-  line-height: 1.4;
-  outline: none;
-}
-
-app-workspace .workspace-system-prompt-editor-textarea:focus {
-  border-color: var(--t-primary);
-}
-
-app-workspace .workspace-system-prompt-editor-textarea:disabled {
-  opacity: 0.7;
-}
-
-app-workspace .workspace-system-prompt-editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.4rem;
-}
-
-app-workspace .workspace-system-prompt-save {
-  flex: 0 0 auto;
-  padding: 0.4rem 0.75rem;
-  background: var(--t-primary);
-  border: 1px solid var(--t-primary);
-  color: var(--t-bg-deep, #020402);
-  font-family: inherit;
-  font-size: 0.72rem;
-  font-weight: 600;
-  cursor: pointer;
-  outline: none;
-}
-
-app-workspace .workspace-system-prompt-save:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
 }
 
 app-workspace .tree-node {

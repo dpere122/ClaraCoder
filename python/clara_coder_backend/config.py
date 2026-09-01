@@ -119,7 +119,7 @@ MAX_UNTRANSFERRED_DRAFT_REVIEW_NUDGES = _env_int('CLARA_MAX_UNTRANSFERRED_DRAFT_
 MAX_FILE_READ_LINES = 400
 MAX_SEARCH_RESULTS = 40
 
-# Workspace semantic index (LlamaIndex under ``.nemo/llama_index``).
+# Workspace semantic index (LlamaIndex under app data, not ``.clara``).
 # ``CLARA_EMBEDDINGS_MODEL`` = OpenAI-compatible embeddings model id (not the chat model).
 # ``CLARA_EMBEDDINGS_BASE_URL`` / ``CLARA_EMBEDDINGS_API_KEY`` = optional separate embeddings endpoint (e.g. second ``llama-server``).
 CLARA_LLAMA_INDEX_MAX_FILES = _env_int('CLARA_LLAMA_INDEX_MAX_FILES', 8000, 50, 100_000)

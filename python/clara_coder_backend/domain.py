@@ -203,7 +203,7 @@ class SessionStreamState:
 class SessionPlanState:
     """Active build plan registry pointer while planning or executing."""
 
-    #: Active build plan registry id (``.nemo/build-plans``) while planning or executing.
+    #: Active build plan registry id (``.clara/build-plans``) while planning or executing.
     active_build_plan_id: str = ''
     #: Workspace-relative path to the active build plan Markdown file.
     active_build_plan_path: str = ''

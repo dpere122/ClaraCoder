@@ -2,97 +2,117 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH } from '../../shared';
 
 const testRoot = { dir: '' };
 
 vi.mock('../paths', () => ({
-  getWorkspaceDir: (workspaceId: string) => join(testRoot.dir, 'workspaces', workspaceId),
-  getWorkspaceSystemPromptPath: (workspaceId: string) =>
-    join(testRoot.dir, 'workspaces', workspaceId, 'system-prompt.md'),
+  getLegacyAppDataSystemPromptPath: (workspaceId: string) =>
+    join(testRoot.dir, 'app-data', 'workspaces', workspaceId, 'system-prompt.md'),
+  getWorkspaceSystemPromptPath: (workspaceRoot: string) =>
+    join(workspaceRoot, '.clara', 'system-prompt.md'),
 }));
 
 import {
-  WORKSPACE_SYSTEM_PROMPT_MAX_BYTES,
-  clearWorkspaceSystemPromptFile,
-  copyWorkspaceSystemPromptFromPath,
-  getWorkspaceSystemPromptStatus,
+  DEFAULT_WORKSPACE_SYSTEM_PROMPT,
+  ensureWorkspaceSystemPrompt,
   readWorkspaceSystemPromptText,
-  writeWorkspaceSystemPromptText,
 } from './system-prompt';
+import { migrateLegacyWorkspaceMetaDir } from './meta-dir';
 
 describe('workspace system-prompt storage', () => {
   beforeEach(() => {
-    testRoot.dir = mkdtempSync(join(tmpdir(), 'nemo-sys-prompt-'));
+    testRoot.dir = mkdtempSync(join(tmpdir(), 'clara-sys-prompt-'));
   });
 
   afterEach(() => {
     rmSync(testRoot.dir, { recursive: true, force: true });
   });
 
-  it('copies a source file into the managed single copy and reports status', async () => {
-    const source = join(testRoot.dir, 'notes.md');
-    writeFileSync(source, 'Prefer pytest for this repo.', 'utf8');
-
-    const { sourceName } = await copyWorkspaceSystemPromptFromPath('ws-1', source);
-    expect(sourceName).toBe('notes.md');
-
-    const managed = join(testRoot.dir, 'workspaces', 'ws-1', 'system-prompt.md');
-    expect(existsSync(managed)).toBe(true);
-    expect(readFileSync(managed, 'utf8')).toBe('Prefer pytest for this repo.');
-
-    const status = await getWorkspaceSystemPromptStatus('ws-1', 'notes.md');
-    expect(status).toEqual({ hasFile: true, sourceName: 'notes.md' });
-    await expect(readWorkspaceSystemPromptText('ws-1')).resolves.toBe('Prefer pytest for this repo.');
+  it('seeds the default prompt under .clara when missing', async () => {
+    const ws = join(testRoot.dir, 'project');
+    mkdirSync(ws, { recursive: true });
+    const result = await ensureWorkspaceSystemPrompt(ws, 'ws-1');
+    expect(result.created).toBe(true);
+    expect(result.relativePath).toBe(WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH);
+    expect(existsSync(result.absolutePath)).toBe(true);
+    expect(readFileSync(result.absolutePath, 'utf8')).toBe(DEFAULT_WORKSPACE_SYSTEM_PROMPT);
+    await expect(readWorkspaceSystemPromptText(ws)).resolves.toBe(DEFAULT_WORKSPACE_SYSTEM_PROMPT);
   });
 
-  it('overwrites the managed file on a second pick', async () => {
-    const first = join(testRoot.dir, 'a.txt');
-    const second = join(testRoot.dir, 'b.txt');
-    writeFileSync(first, 'first', 'utf8');
-    writeFileSync(second, 'second', 'utf8');
-
-    await copyWorkspaceSystemPromptFromPath('ws-1', first);
-    await copyWorkspaceSystemPromptFromPath('ws-1', second);
-
-    await expect(readWorkspaceSystemPromptText('ws-1')).resolves.toBe('second');
-    const status = await getWorkspaceSystemPromptStatus('ws-1', 'b.txt');
-    expect(status.sourceName).toBe('b.txt');
+  it('does not overwrite an existing workspace prompt file', async () => {
+    const ws = join(testRoot.dir, 'project');
+    const dest = join(ws, '.clara', 'system-prompt.md');
+    mkdirSync(join(ws, '.clara'), { recursive: true });
+    writeFileSync(dest, 'Keep me.', 'utf8');
+    const result = await ensureWorkspaceSystemPrompt(ws, 'ws-1');
+    expect(result.created).toBe(false);
+    await expect(readWorkspaceSystemPromptText(ws)).resolves.toBe('Keep me.');
   });
 
-  it('rejects oversized files', async () => {
-    const source = join(testRoot.dir, 'big.md');
-    writeFileSync(source, 'x'.repeat(WORKSPACE_SYSTEM_PROMPT_MAX_BYTES + 1), 'utf8');
-    await expect(copyWorkspaceSystemPromptFromPath('ws-1', source)).rejects.toThrow(/at most/);
+  it('migrates leftover app-data prompt into .clara', async () => {
+    const ws = join(testRoot.dir, 'project');
+    mkdirSync(ws, { recursive: true });
+    const legacy = join(testRoot.dir, 'app-data', 'workspaces', 'ws-legacy', 'system-prompt.md');
+    mkdirSync(join(legacy, '..'), { recursive: true });
+    writeFileSync(legacy, 'Migrated prompt.', 'utf8');
+
+    const result = await ensureWorkspaceSystemPrompt(ws, 'ws-legacy');
+    expect(result.created).toBe(true);
+    await expect(readWorkspaceSystemPromptText(ws)).resolves.toBe('Migrated prompt.');
   });
 
-  it('clears the managed file', async () => {
-    const source = join(testRoot.dir, 'a.md');
-    writeFileSync(source, 'hello', 'utf8');
-    await copyWorkspaceSystemPromptFromPath('ws-1', source);
-    await clearWorkspaceSystemPromptFile('ws-1');
-    expect(existsSync(join(testRoot.dir, 'workspaces', 'ws-1', 'system-prompt.md'))).toBe(false);
-    const status = await getWorkspaceSystemPromptStatus('ws-1', 'a.md');
-    expect(status).toEqual({ hasFile: false, sourceName: '' });
+  it('returns empty text when no file exists', async () => {
+    const ws = join(testRoot.dir, 'empty');
+    mkdirSync(ws, { recursive: true });
+    await expect(readWorkspaceSystemPromptText(ws)).resolves.toBe('');
+    await expect(readWorkspaceSystemPromptText('')).resolves.toBe('');
+  });
+});
+
+describe('legacy .nemo metadata dir migration', () => {
+  beforeEach(() => {
+    testRoot.dir = mkdtempSync(join(tmpdir(), 'clara-meta-dir-'));
   });
 
-  it('returns empty text when no managed file exists', async () => {
-    mkdirSync(join(testRoot.dir, 'workspaces', 'ws-missing'), { recursive: true });
-    await expect(readWorkspaceSystemPromptText('ws-missing')).resolves.toBe('');
+  afterEach(() => {
+    rmSync(testRoot.dir, { recursive: true, force: true });
   });
 
-  it('writes edited text into the managed single copy', async () => {
-    await writeWorkspaceSystemPromptText('ws-1', 'Edited in dialog.');
-    await expect(readWorkspaceSystemPromptText('ws-1')).resolves.toBe('Edited in dialog.');
-    const status = await getWorkspaceSystemPromptStatus('ws-1');
-    expect(status.hasFile).toBe(true);
-  });
-
-  it('stores the no-workspace prompt under the reserved storage id', async () => {
-    await writeWorkspaceSystemPromptText('__no_workspace__', 'General chat instructions.');
-    await expect(readWorkspaceSystemPromptText('__no_workspace__')).resolves.toBe(
-      'General chat instructions.',
+  it('renames .nemo to .clara and rewrites build-plan index paths', async () => {
+    const ws = testRoot.dir;
+    const plans = join(ws, '.nemo', 'build-plans');
+    mkdirSync(plans, { recursive: true });
+    writeFileSync(join(plans, 'plan-abc.md'), '# Plan\n', 'utf8');
+    writeFileSync(
+      join(plans, 'index.json'),
+      `${JSON.stringify(
+        [{ id: 'plan-abc', relativePath: '.nemo/build-plans/plan-abc.md', status: 'active' }],
+        null,
+        2,
+      )}\n`,
+      'utf8',
     );
-    const managed = join(testRoot.dir, 'workspaces', '__no_workspace__', 'system-prompt.md');
-    expect(existsSync(managed)).toBe(true);
+
+    await migrateLegacyWorkspaceMetaDir(ws);
+
+    expect(existsSync(join(ws, '.nemo'))).toBe(false);
+    expect(existsSync(join(ws, '.clara', 'build-plans', 'plan-abc.md'))).toBe(true);
+    const index = JSON.parse(readFileSync(join(ws, '.clara', 'build-plans', 'index.json'), 'utf8')) as Array<{
+      relativePath: string;
+    }>;
+    expect(index[0]?.relativePath).toBe('.clara/build-plans/plan-abc.md');
+  });
+
+  it('leaves .nemo in place when .clara already exists', async () => {
+    const ws = testRoot.dir;
+    mkdirSync(join(ws, '.nemo', 'build-plans'), { recursive: true });
+    mkdirSync(join(ws, '.clara'), { recursive: true });
+    writeFileSync(join(ws, '.nemo', 'build-plans', 'old.md'), 'legacy', 'utf8');
+
+    await migrateLegacyWorkspaceMetaDir(ws);
+
+    expect(existsSync(join(ws, '.nemo', 'build-plans', 'old.md'))).toBe(true);
+    expect(existsSync(join(ws, '.clara', 'build-plans', 'old.md'))).toBe(false);
   });
 });

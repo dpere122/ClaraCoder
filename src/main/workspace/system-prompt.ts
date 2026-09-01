@@ -1,22 +1,29 @@
 import { promises as fs } from 'fs';
 import path = require('path');
-import { getWorkspaceDir, getWorkspaceSystemPromptPath } from '../paths';
-import { isAlwaysIgnoredWorkspaceEntry } from './ignore-rules';
+import { WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH } from '../../shared';
+import { getLegacyAppDataSystemPromptPath, getWorkspaceSystemPromptPath } from '../paths';
+import { migrateLegacyWorkspaceMetaDir } from './meta-dir';
 
-/** Max bytes accepted when copying a user-selected system prompt file. */
-export const WORKSPACE_SYSTEM_PROMPT_MAX_BYTES = 64 * 1024;
+/** Default system prompt written into every workspace so the prompt file always exists. */
+export const DEFAULT_WORKSPACE_SYSTEM_PROMPT = `You are Clara, a senior software engineering agent operating inside the Clara Coder IDE.
 
-export interface WorkspaceSystemPromptStatus {
-  hasFile: boolean;
-  sourceName: string;
+You work iteratively: read the workspace, plan, make focused edits, run commands, and verify. Prefer small, reviewable changes. Explain trade-offs briefly, then act. Use the provided tools rather than asking the user to do things by hand.
+
+Be direct and concise. When you are unsure about intent, ask a short clarifying question before making changes.
+`;
+
+export interface EnsuredWorkspaceSystemPromptFile {
+  absolutePath: string;
+  relativePath: string;
+  created: boolean;
 }
 
-export async function readWorkspaceSystemPromptText(workspaceId: string): Promise<string> {
-  const wid = (workspaceId || '').trim();
-  if (!wid) {
+export async function readWorkspaceSystemPromptText(workspaceRoot: string): Promise<string> {
+  const root = (workspaceRoot || '').trim();
+  if (!root) {
     return '';
   }
-  const filePath = getWorkspaceSystemPromptPath(wid);
+  const filePath = getWorkspaceSystemPromptPath(root);
   try {
     return await fs.readFile(filePath, 'utf8');
   } catch (err) {
@@ -28,97 +35,54 @@ export async function readWorkspaceSystemPromptText(workspaceId: string): Promis
   }
 }
 
-export async function getWorkspaceSystemPromptStatus(
-  workspaceId: string,
-  sourceNameFromConfig?: string,
-): Promise<WorkspaceSystemPromptStatus> {
-  const wid = (workspaceId || '').trim();
-  if (!wid) {
-    return { hasFile: false, sourceName: '' };
+/**
+ * Ensure `{workspace}/.clara/system-prompt.md` exists.
+ * Migrates a leftover app-data copy when the workspace file is missing.
+ */
+export async function ensureWorkspaceSystemPrompt(
+  workspaceRoot: string,
+  workspaceId?: string,
+): Promise<EnsuredWorkspaceSystemPromptFile> {
+  const root = (workspaceRoot || '').trim();
+  if (!root) {
+    throw new Error('Workspace path is required.');
   }
-  const filePath = getWorkspaceSystemPromptPath(wid);
+  await migrateLegacyWorkspaceMetaDir(root);
+  const dest = getWorkspaceSystemPromptPath(root);
+  await fs.mkdir(path.dirname(dest), { recursive: true });
   try {
-    await fs.access(filePath);
-    const sourceName = (sourceNameFromConfig || '').trim() || path.basename(filePath);
-    return { hasFile: true, sourceName };
+    await fs.access(dest);
+    return {
+      absolutePath: dest,
+      relativePath: WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
+      created: false,
+    };
   } catch {
-    return { hasFile: false, sourceName: '' };
+    /* missing — seed below */
   }
-}
 
-export async function copyWorkspaceSystemPromptFromPath(
-  workspaceId: string,
-  sourceAbsolutePath: string,
-): Promise<{ sourceName: string }> {
   const wid = (workspaceId || '').trim();
-  if (!wid) {
-    throw new Error('Workspace id is required.');
-  }
-  const source = (sourceAbsolutePath || '').trim();
-  if (!source || !path.isAbsolute(source)) {
-    throw new Error('A valid absolute file path is required.');
-  }
-
-  const sourceName = path.basename(source);
-  const normalizedSource = source.replace(/\\/g, '/');
-  if (
-    isAlwaysIgnoredWorkspaceEntry(sourceName, sourceName) ||
-    isAlwaysIgnoredWorkspaceEntry(sourceName, normalizedSource)
-  ) {
-    throw new Error('Selected file type is not allowed for the workspace system prompt.');
-  }
-
-  let stat;
-  try {
-    stat = await fs.stat(source);
-  } catch {
-    throw new Error('Selected file could not be read.');
-  }
-  if (!stat.isFile()) {
-    throw new Error('Selected path is not a file.');
-  }
-  if (stat.size > WORKSPACE_SYSTEM_PROMPT_MAX_BYTES) {
-    throw new Error(`System prompt file must be at most ${WORKSPACE_SYSTEM_PROMPT_MAX_BYTES} bytes.`);
-  }
-
-  const content = await fs.readFile(source, 'utf8');
-  if (Buffer.byteLength(content, 'utf8') > WORKSPACE_SYSTEM_PROMPT_MAX_BYTES) {
-    throw new Error(`System prompt file must be at most ${WORKSPACE_SYSTEM_PROMPT_MAX_BYTES} bytes.`);
-  }
-
-  await fs.mkdir(getWorkspaceDir(wid), { recursive: true });
-  await fs.writeFile(getWorkspaceSystemPromptPath(wid), content, 'utf8');
-  return { sourceName: path.basename(source) };
-}
-
-export async function writeWorkspaceSystemPromptText(
-  workspaceId: string,
-  content: string,
-): Promise<void> {
-  const wid = (workspaceId || '').trim();
-  if (!wid) {
-    throw new Error('Workspace id is required.');
-  }
-  const text = typeof content === 'string' ? content : '';
-  if (Buffer.byteLength(text, 'utf8') > WORKSPACE_SYSTEM_PROMPT_MAX_BYTES) {
-    throw new Error(`System prompt file must be at most ${WORKSPACE_SYSTEM_PROMPT_MAX_BYTES} bytes.`);
-  }
-  await fs.mkdir(getWorkspaceDir(wid), { recursive: true });
-  await fs.writeFile(getWorkspaceSystemPromptPath(wid), text, 'utf8');
-}
-
-export async function clearWorkspaceSystemPromptFile(workspaceId: string): Promise<void> {
-  const wid = (workspaceId || '').trim();
-  if (!wid) {
-    return;
-  }
-  const filePath = getWorkspaceSystemPromptPath(wid);
-  try {
-    await fs.unlink(filePath);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code !== 'ENOENT') {
-      throw err;
+  if (wid) {
+    try {
+      const legacyText = await fs.readFile(getLegacyAppDataSystemPromptPath(wid), 'utf8');
+      await fs.writeFile(dest, legacyText, 'utf8');
+      return {
+        absolutePath: dest,
+        relativePath: WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
+        created: true,
+      };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        throw err;
+      }
     }
   }
+
+  await fs.writeFile(dest, DEFAULT_WORKSPACE_SYSTEM_PROMPT, 'utf8');
+  return {
+    absolutePath: dest,
+    relativePath: WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
+    created: true,
+  };
 }

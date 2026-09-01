@@ -1,4 +1,4 @@
-"""Build plan Markdown persistence under ``.nemo/build-plans/``."""
+"""Build plan Markdown persistence under ``.clara/build-plans/``."""
 
 from __future__ import annotations
 
@@ -13,8 +13,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.workspace.meta import (
+    BUILD_PLANS_REL_DIR,
+    migrate_legacy_workspace_meta_dir,
+    rewrite_legacy_build_plan_relative_path,
+)
 
-BUILD_PLANS_REL_DIR = '.nemo/build-plans'
 MAX_BUILD_PLANS = 5
 INDEX_FILENAME = 'index.json'
 
@@ -140,7 +144,8 @@ class BuildPlanRecord:
 
 
 def _build_plans_root(workspace_root: str | Path) -> Path:
-    return Path(workspace_root).resolve() / '.nemo' / 'build-plans'
+    migrate_legacy_workspace_meta_dir(workspace_root)
+    return Path(workspace_root).resolve() / BUILD_PLANS_REL_DIR
 
 
 def _index_path(workspace_root: str | Path) -> Path:
@@ -172,7 +177,9 @@ def _save_index(workspace_root: str | Path, entries: list[dict[str, Any]]) -> No
 def _entry_to_record(entry: dict[str, Any]) -> BuildPlanRecord:
     return BuildPlanRecord(
         id=str(entry.get('id') or ''),
-        relative_path=str(entry.get('relativePath') or '').replace('\\', '/'),
+        relative_path=rewrite_legacy_build_plan_relative_path(
+            str(entry.get('relativePath') or '').replace('\\', '/'),
+        ),
         session_id=str(entry.get('sessionId') or ''),
         title=str(entry.get('title') or ''),
         created_at=str(entry.get('createdAt') or ''),

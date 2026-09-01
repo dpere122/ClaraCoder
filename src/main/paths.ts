@@ -3,6 +3,7 @@ import { app } from 'electron';
 import path = require('path');
 import { migrateLegacyAppDataDir } from './app-data';
 import { envClara } from './env-clara';
+import { WORKSPACE_META_DIR, WORKSPACE_SYSTEM_PROMPT_FILE } from '../shared';
 
 let appDataConfigured = false;
 
@@ -52,9 +53,14 @@ export function getWorkspaceConversationsDir(workspaceId: string): string {
   return path.join(getWorkspaceDir(workspaceId), 'conversations');
 }
 
-/** Single managed workspace system-prompt copy under app data (not the project tree). */
-export function getWorkspaceSystemPromptPath(workspaceId: string): string {
+/** Single managed workspace system-prompt copy under app data (legacy; migrated into `.clara`). */
+export function getLegacyAppDataSystemPromptPath(workspaceId: string): string {
   return path.join(getWorkspaceDir(workspaceId), 'system-prompt.md');
+}
+
+/** Workspace-tree system prompt: `{workspaceRoot}/.clara/system-prompt.md`. */
+export function getWorkspaceSystemPromptPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, WORKSPACE_META_DIR, WORKSPACE_SYSTEM_PROMPT_FILE);
 }
 
 export function getGeneralConversationsDir(): string {

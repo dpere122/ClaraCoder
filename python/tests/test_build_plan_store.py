@@ -132,9 +132,9 @@ def test_create_build_plan_evicts_old_complete_entries(tmp_path: Path) -> None:
     for i in range(6):
         doc = _sample_doc(title=f'Plan {i}')
         create_build_plan(str(tmp_path), f'sess-{i}', doc)
-    index_path = tmp_path / '.nemo' / 'build-plans' / 'index.json'
+    index_path = tmp_path / '.clara' / 'build-plans' / 'index.json'
     assert index_path.is_file()
-    md_files = list((tmp_path / '.nemo' / 'build-plans').glob('plan-*.md'))
+    md_files = list((tmp_path / '.clara' / 'build-plans').glob('plan-*.md'))
     assert len(md_files) <= 5
 
 
@@ -366,3 +366,32 @@ def test_mark_steps_complete_flips_checkboxes_without_step_id_markers(tmp_path: 
     updated = mark_steps_complete(str(tmp_path), record, ['step-2'])
     states = {row['id']: row['complete'] for row in updated}
     assert states == {'step-1': False, 'step-2': True}
+
+
+def test_migrate_legacy_nemo_dir_rewrites_index_paths(tmp_path: Path) -> None:
+    from clara_coder_backend.workspace.meta import migrate_legacy_workspace_meta_dir
+
+    legacy = tmp_path / '.nemo' / 'build-plans'
+    legacy.mkdir(parents=True)
+    (legacy / 'plan-abc.md').write_text('# Plan\n', encoding='utf-8')
+    (legacy / 'index.json').write_text(
+        '[{"id": "plan-abc", "relativePath": ".nemo/build-plans/plan-abc.md", "status": "active"}]\n',
+        encoding='utf-8',
+    )
+    migrate_legacy_workspace_meta_dir(tmp_path)
+    assert not (tmp_path / '.nemo').exists()
+    index = (tmp_path / '.clara' / 'build-plans' / 'index.json').read_text(encoding='utf-8')
+    assert '.clara/build-plans/plan-abc.md' in index
+    assert '.nemo/build-plans/' not in index
+    assert (tmp_path / '.clara' / 'build-plans' / 'plan-abc.md').is_file()
+
+
+def test_create_build_plan_uses_clara_dir_after_legacy_rename(tmp_path: Path) -> None:
+    from clara_coder_backend.workspace.meta import migrate_legacy_workspace_meta_dir
+
+    (tmp_path / '.nemo' / 'build-plans').mkdir(parents=True)
+    migrate_legacy_workspace_meta_dir(tmp_path)
+    record = create_build_plan(str(tmp_path), 'sess-1', _sample_doc())
+    assert record.relative_path.startswith('.clara/build-plans/')
+    assert (tmp_path / record.relative_path).is_file()
+

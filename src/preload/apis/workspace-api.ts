@@ -2,8 +2,7 @@ import { ipcRenderer } from 'electron';
 import type {
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
-  WorkspaceSystemPromptMutationResult,
-  WorkspaceSystemPromptStatus,
+  EnsureWorkspaceSystemPromptResult,
 } from '../../shared';
 
 /** Workspace file tree, Monaco unsaved paths, and Python interpreter IPC. */
@@ -65,28 +64,8 @@ export const workspaceApi = {
     sessionId: string;
     interpreterId: string;
   }) => ipcRenderer.invoke('apply-workspace-python-interpreter', payload),
-  getWorkspaceSystemPromptStatus: (workspaceId: string): Promise<WorkspaceSystemPromptStatus> =>
-    ipcRenderer.invoke('get-workspace-system-prompt-status', workspaceId),
-  pickWorkspaceSystemPrompt: (
-    workspaceId: string,
-    sessionId?: string | null,
-  ): Promise<WorkspaceSystemPromptMutationResult> =>
-    ipcRenderer.invoke('pick-workspace-system-prompt', workspaceId, sessionId),
-  getWorkspaceSystemPromptText: (
-    workspaceId: string,
-  ): Promise<{ ok: true; text: string } | { ok: false; error: string; text: string }> =>
-    ipcRenderer.invoke('get-workspace-system-prompt-text', workspaceId),
-  saveWorkspaceSystemPromptText: (payload: {
-    workspaceId: string;
-    text: string;
-    sessionId?: string | null;
-  }): Promise<WorkspaceSystemPromptMutationResult> =>
-    ipcRenderer.invoke('save-workspace-system-prompt-text', payload),
-  clearWorkspaceSystemPrompt: (
-    workspaceId: string,
-    sessionId?: string | null,
-  ): Promise<WorkspaceSystemPromptMutationResult> =>
-    ipcRenderer.invoke('clear-workspace-system-prompt', workspaceId, sessionId),
+  ensureWorkspaceSystemPrompt: (workspaceId: string): Promise<EnsureWorkspaceSystemPromptResult> =>
+    ipcRenderer.invoke('ensure-workspace-system-prompt', workspaceId),
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
   addWorkspace: (name: string, p: string) => ipcRenderer.invoke('add-workspace', name, p),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),

@@ -46,13 +46,13 @@ class _FakeEmb(BaseEmbedding):
         return self._get_text_embedding(text)
 
 
-def test_iter_index_skips_dot_nemo(tmp_path: Path) -> None:
-    (tmp_path / '.nemo' / 'nested').mkdir(parents=True)
-    (tmp_path / '.nemo' / 'nested' / 'hidden.txt').write_text('secret', encoding='utf-8')
+def test_iter_index_skips_dot_clara(tmp_path: Path) -> None:
+    (tmp_path / '.clara' / 'nested').mkdir(parents=True)
+    (tmp_path / '.clara' / 'nested' / 'hidden.txt').write_text('secret', encoding='utf-8')
     (tmp_path / 'visible.txt').write_text('ok', encoding='utf-8')
     rels = {p.relative_to(tmp_path).as_posix() for p in iter_index_workspace_files(tmp_path, max_files=50)}
     assert 'visible.txt' in rels
-    assert not any(r.startswith('.nemo/') for r in rels)
+    assert not any(r.startswith('.clara/') for r in rels)
 
 
 def test_iter_index_skips_runtime_bundle(tmp_path: Path) -> None:

@@ -1,7 +1,7 @@
 """Plan-and-execute orchestrator (LangGraph tutorial control flow, nemo streaming/HITL).
 
 Read-only discovery (:mod:`clara_coder_backend.plan.plan_discovery`) runs before planning; the planner
-proposes a structured build plan written to ``.nemo/build-plans/``; user approves via
+proposes a structured build plan written to ``.clara/build-plans/``; user approves via
 :mod:`clara_coder_backend.plan.plan_confirm`; a single ReAct executor run implements the plan using
 :mod:`clara_coder_backend.plan.build_plan_tools` to mark milestones.
 """
@@ -41,6 +41,7 @@ from clara_coder_backend.lang_agent.streaming import (
 )
 from clara_coder_backend.plan.build_plan_store import (
     BUILD_PLAN_REWRITE_STUB,
+    BUILD_PLANS_REL_DIR,
     ActionStep,
     BuildPlanModel,
     BuildPlanRecord,
@@ -600,7 +601,7 @@ def _steps_from_texts(
 def build_build_plan_executor_prompt(build_plan_path: str) -> str:
     """User message for the single non-sequential plan executor run."""
 
-    path = (build_plan_path or '').strip() or '.nemo/build-plans/active-plan.md'
+    path = (build_plan_path or '').strip() or f'{BUILD_PLANS_REL_DIR}/active-plan.md'
     return (
         f'Implement the build plan at `{path}`.\n\n'
         'Work at your own pace — action steps need not be completed in strict order. '
@@ -1232,7 +1233,7 @@ async def stream_plan_execute_langgraph(
         outcome.mark_completed(
             final_text=(
                 'The planner did not produce any action steps, so the plan was not run. '
-                'The draft was kept at .nemo/build-plans/ — open it to see what the planner '
+                f'The draft was kept at {BUILD_PLANS_REL_DIR}/ — open it to see what the planner '
                 'generated (it may have been cut off mid-document).'
             ),
         )

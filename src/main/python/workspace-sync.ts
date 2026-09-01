@@ -9,7 +9,6 @@ import {
   effectiveLmStudioContextTokens,
   flattenLlmProvidersToConnections,
   lmStudioOpenAiBaseUrlToRestOrigin,
-  resolveSystemPromptStorageId,
 } from '../../shared';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
@@ -373,12 +372,10 @@ export async function syncWorkspaceContextToPython(
   if (extras?.skipEnvBootstrap) {
     body.skip_env_bootstrap = true;
   }
-  const workspaceId = (extras?.workspaceId ?? '').trim();
-  const promptId =
-    workspaceId && (workspacePath || '').trim()
-      ? workspaceId
-      : resolveSystemPromptStorageId(null);
-  body.workspace_system_prompt = await readWorkspaceSystemPromptText(promptId);
+  const workspaceRoot = (workspacePath || '').trim();
+  body.workspace_system_prompt = workspaceRoot
+    ? await readWorkspaceSystemPromptText(workspaceRoot)
+    : '';
   // Window opens before the sidecar finishes booting; wait instead of failing the IPC.
   await ensurePythonReady();
   const res = await pythonControlFetch('/workspace-context', {
@@ -395,18 +392,18 @@ export async function syncWorkspaceContextToPython(
 }
 
 /**
- * Push only the managed workspace system-prompt text into a Python session.
- * Used after pick/edit/clear so injection does not depend on the file watcher tree.
+ * Push only the workspace `.clara/system-prompt.md` text into a Python session.
+ * Used after Monaco save so injection does not depend on the file watcher tree.
  */
 export async function syncWorkspaceSystemPromptToPython(
   sessionId: string,
-  workspaceId: string,
+  workspaceRoot: string,
 ): Promise<void> {
   const sid = (sessionId || '').trim();
   if (!sid) {
     return;
   }
-  const text = await readWorkspaceSystemPromptText(resolveSystemPromptStorageId(workspaceId));
+  const text = await readWorkspaceSystemPromptText(workspaceRoot);
   await pythonControlFetch('/workspace-system-prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

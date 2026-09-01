@@ -11,6 +11,7 @@ __pycache__/
 python/.venv/
 /docs/
 .venv/
+.clara/
 .nemo/
 
 # Branch-specific smoke tests: only track the README, ignore everything else

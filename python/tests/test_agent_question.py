@@ -31,13 +31,13 @@ def test_stage_question_request_shapes_questions_with_allow_other() -> None:
 
 def test_agent_question_sse_payload_camelcases_fields() -> None:
     session = SessionState()
-    pending = stage_question_request(session, questions=_questions(), build_plan_id='plan-1', build_plan_path='.nemo/build-plans/plan-1.md')
+    pending = stage_question_request(session, questions=_questions(), build_plan_id='plan-1', build_plan_path='.clara/build-plans/plan-1.md')
     payload = agent_question_sse_payload(pending)
     assert payload['version'] == 1
     assert payload['requestId'] == pending['request_id']
     assert payload['submitLabel'] == 'Submit answers'
     assert payload['planId'] == 'plan-1'
-    assert payload['buildPlanPath'] == '.nemo/build-plans/plan-1.md'
+    assert payload['buildPlanPath'] == '.clara/build-plans/plan-1.md'
     assert len(payload['questions']) == 2
     assert payload['questions'][0]['allowOther'] is True
 

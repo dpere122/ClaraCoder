@@ -9,7 +9,7 @@ from clara_coder_backend.plan.plan_step_verify import StepVerifyResult, invoke_s
 
 
 def test_build_build_plan_executor_prompt_mentions_mark_tool() -> None:
-    prompt = build_build_plan_executor_prompt('.nemo/build-plans/plan-1.md')
+    prompt = build_build_plan_executor_prompt('.clara/build-plans/plan-1.md')
     assert 'mark_build_plan_steps_complete' in prompt
     assert 'read_build_plan' in prompt
 

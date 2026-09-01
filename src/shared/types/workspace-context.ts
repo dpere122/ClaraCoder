@@ -59,13 +59,7 @@ export interface PythonInterpreterListItem {
   venvPath: string;
 }
 
-/** Status of the single managed workspace system-prompt copy under app data. */
-export interface WorkspaceSystemPromptStatus {
-  hasFile: boolean;
-  sourceName: string;
-}
-
-/** Result of pick/clear IPC for the workspace system prompt. */
-export type WorkspaceSystemPromptMutationResult =
-  | ({ ok: true } & WorkspaceSystemPromptStatus)
-  | ({ ok: false; error: string } & WorkspaceSystemPromptStatus);
+/** Result of ensuring `{workspace}/.clara/system-prompt.md` exists. */
+export type EnsureWorkspaceSystemPromptResult =
+  | { ok: true; absolutePath: string; relativePath: string }
+  | { ok: false; error: string };

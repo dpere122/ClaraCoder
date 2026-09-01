@@ -59,6 +59,7 @@ import type {
   RestoreConversationTimelineResult,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
+  WorkspaceOpenTabsState,
   WorkspaceSystemPromptMutationResult,
   WorkspaceSystemPromptStatus,
 } from '@shared/index';
@@ -1356,6 +1357,10 @@ export class ElectronService {
     scroll: { scrollTop: number; scrollLeft: number } | null,
   ): Promise<void> {
     return this.api?.patchWorkspaceMonacoScroll(workspaceId, relativePath, scroll) ?? Promise.resolve();
+  }
+
+  patchWorkspaceOpenTabs(workspaceId: string, state: WorkspaceOpenTabsState | null): Promise<void> {
+    return this.api?.patchWorkspaceOpenTabs(workspaceId, state) ?? Promise.resolve();
   }
 
   setActiveLlmModel(modelId: string): Promise<AppConfig> {

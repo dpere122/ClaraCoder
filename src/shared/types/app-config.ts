@@ -970,6 +970,195 @@ export function normalizeWorkspaceMonacoScrollByWorkspaceId(raw: unknown): {
   return { scrollByWorkspaceId, migrated };
 }
 
+/** One persisted editor tab (no ephemeral build-plan / preview-only fields). */
+export interface WorkspacePersistedOpenTab {
+  relativePath?: string;
+  absolutePath?: string;
+  outsideWorkspace?: boolean;
+}
+
+/** Ordered editor tabs and the focused tab id for one workspace. */
+export interface WorkspaceOpenTabsState {
+  tabs: WorkspacePersistedOpenTab[];
+  activeTabId: string | null;
+}
+
+/** Per-workspace open editor tabs keyed by workspace id. */
+export type WorkspaceOpenTabsByWorkspaceId = Record<string, WorkspaceOpenTabsState>;
+
+const MAX_WORKSPACE_OPEN_TABS = 100;
+
+/** Stable tab id matching renderer `chatFileTabId` (`file:rel:…` / `file:abs:…`). */
+export function persistedWorkspaceOpenTabId(tab: WorkspacePersistedOpenTab): string {
+  if (tab.outsideWorkspace) {
+    const abs = (tab.absolutePath ?? '').replace(/\\/g, '/').trim();
+    return abs ? `file:abs:${abs}` : '';
+  }
+  const rel = (tab.relativePath ?? '').replace(/\\/g, '/').trim();
+  return rel ? `file:rel:${rel}` : '';
+}
+
+function normalizePersistedOpenTab(raw: unknown): { tab: WorkspacePersistedOpenTab; migrated: boolean } | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const o = raw as {
+    relativePath?: unknown;
+    absolutePath?: unknown;
+    outsideWorkspace?: unknown;
+  };
+  const outsideWorkspace = o.outsideWorkspace === true;
+  if (outsideWorkspace) {
+    const absIn = typeof o.absolutePath === 'string' ? o.absolutePath.trim() : '';
+    const abs = absIn.replace(/\\/g, '/');
+    if (!abs) {
+      return null;
+    }
+    return {
+      tab: { absolutePath: abs, outsideWorkspace: true },
+      migrated: abs !== absIn || o.relativePath != null,
+    };
+  }
+  const relIn = typeof o.relativePath === 'string' ? o.relativePath.trim() : '';
+  const rel = relIn.replace(/\\/g, '/');
+  if (!rel) {
+    return null;
+  }
+  return {
+    tab: { relativePath: rel, outsideWorkspace: false },
+    migrated: rel !== relIn || o.outsideWorkspace === true || o.absolutePath != null,
+  };
+}
+
+/** Coerce unknown persisted open-tab JSON for one workspace; drops invalid entries. */
+export function normalizeWorkspaceOpenTabsState(raw: unknown): {
+  state: WorkspaceOpenTabsState | null;
+  migrated: boolean;
+} {
+  if (raw == null) {
+    return { state: null, migrated: false };
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { state: null, migrated: true };
+  }
+  const o = raw as { tabs?: unknown; activeTabId?: unknown };
+  const tabsRaw = o.tabs;
+  if (!Array.isArray(tabsRaw)) {
+    return { state: null, migrated: true };
+  }
+  let migrated = tabsRaw.length > MAX_WORKSPACE_OPEN_TABS;
+  const tabs: WorkspacePersistedOpenTab[] = [];
+  const seen = new Set<string>();
+  for (const item of tabsRaw.slice(0, MAX_WORKSPACE_OPEN_TABS)) {
+    const normalizedTab = normalizePersistedOpenTab(item);
+    if (!normalizedTab) {
+      migrated = true;
+      continue;
+    }
+    if (normalizedTab.migrated) {
+      migrated = true;
+    }
+    const id = persistedWorkspaceOpenTabId(normalizedTab.tab);
+    if (!id || seen.has(id)) {
+      migrated = true;
+      continue;
+    }
+    seen.add(id);
+    tabs.push(normalizedTab.tab);
+  }
+  if (tabsRaw.length !== tabs.length) {
+    migrated = true;
+  }
+  let activeTabId: string | null = null;
+  const activeRaw = o.activeTabId;
+  if (activeRaw == null || activeRaw === '') {
+    if (activeRaw === '') {
+      migrated = true;
+    }
+  } else if (typeof activeRaw !== 'string') {
+    migrated = true;
+  } else {
+    const active = activeRaw.trim();
+    if (seen.has(active)) {
+      activeTabId = active;
+    } else {
+      migrated = true;
+    }
+  }
+  if (tabs.length === 0) {
+    return { state: null, migrated: migrated || tabsRaw.length > 0 || activeRaw != null };
+  }
+  return { state: { tabs, activeTabId }, migrated };
+}
+
+/**
+ * Settings / conversation broadcasts keep disk tabs, which can lag the renderer patch.
+ * Prefer the in-memory map, dropping entries for workspaces that no longer exist.
+ */
+export function retainRendererWorkspaceOpenTabs(
+  incoming: AppConfig,
+  rendererTabs: WorkspaceOpenTabsByWorkspaceId | null | undefined,
+): AppConfig {
+  if (!rendererTabs) {
+    return incoming;
+  }
+  const allowed = new Set(incoming.workspaces.map((workspace) => workspace.id));
+  const workspaceOpenTabsByWorkspaceId: WorkspaceOpenTabsByWorkspaceId = {};
+  for (const [workspaceId, state] of Object.entries(rendererTabs)) {
+    if (allowed.has(workspaceId)) {
+      workspaceOpenTabsByWorkspaceId[workspaceId] = state;
+    }
+  }
+  return { ...incoming, workspaceOpenTabsByWorkspaceId };
+}
+
+/** Drop per-workspace client maps when a workspace is removed from the registry. */
+export function pruneRemovedWorkspaceClientState(config: AppConfig, workspaceId: string): void {
+  const id = workspaceId.trim();
+  if (!id) {
+    return;
+  }
+  if (config.workspaceOpenTabsByWorkspaceId && id in config.workspaceOpenTabsByWorkspaceId) {
+    const next = { ...config.workspaceOpenTabsByWorkspaceId };
+    delete next[id];
+    config.workspaceOpenTabsByWorkspaceId = next;
+  }
+  if (config.workspaceMonacoScrollByWorkspaceId && id in config.workspaceMonacoScrollByWorkspaceId) {
+    const next = { ...config.workspaceMonacoScrollByWorkspaceId };
+    delete next[id];
+    config.workspaceMonacoScrollByWorkspaceId = next;
+  }
+}
+
+/** Coerce unknown persisted open-tab JSON; drops invalid workspace entries. */
+export function normalizeWorkspaceOpenTabsByWorkspaceId(raw: unknown): {
+  openTabsByWorkspaceId: WorkspaceOpenTabsByWorkspaceId;
+  migrated: boolean;
+} {
+  if (raw == null) {
+    return { openTabsByWorkspaceId: {}, migrated: false };
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { openTabsByWorkspaceId: {}, migrated: true };
+  }
+  const openTabsByWorkspaceId: WorkspaceOpenTabsByWorkspaceId = {};
+  let migrated = false;
+  for (const [workspaceId, stateRaw] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+      migrated = true;
+      continue;
+    }
+    const normalized = normalizeWorkspaceOpenTabsState(stateRaw);
+    if (normalized.migrated) {
+      migrated = true;
+    }
+    if (normalized.state) {
+      openTabsByWorkspaceId[workspaceId] = normalized.state;
+    }
+  }
+  return { openTabsByWorkspaceId, migrated };
+}
+
 /** Root persisted settings for the desktop app (config.json). */
 export interface AppConfig {
   /**
@@ -1036,4 +1225,6 @@ export interface AppConfig {
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */
   workspaceMonacoScrollByWorkspaceId?: WorkspaceMonacoScrollByWorkspaceId;
+  /** Per-workspace open editor tabs restored when switching workspaces (client-only). */
+  workspaceOpenTabsByWorkspaceId?: WorkspaceOpenTabsByWorkspaceId;
 }

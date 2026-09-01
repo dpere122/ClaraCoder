@@ -40,6 +40,7 @@ import type {
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
+  WorkspaceOpenTabsState,
   WorkspaceSystemPromptMutationResult,
   WorkspaceSystemPromptStatus,
 } from '../../shared/index';
@@ -373,6 +374,10 @@ declare global {
       workspaceId: string,
       relativePath: string,
       scroll: { scrollTop: number; scrollLeft: number } | null,
+    ) => Promise<void>;
+    patchWorkspaceOpenTabs: (
+      workspaceId: string,
+      state: WorkspaceOpenTabsState | null,
     ) => Promise<void>;
     setActiveLlmModel: (modelId: string) => Promise<AppConfig>;
     patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => Promise<AppConfig>;

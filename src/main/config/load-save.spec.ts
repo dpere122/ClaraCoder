@@ -28,6 +28,12 @@ function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     workspaceMonacoScrollByWorkspaceId: {
       'ws-a': { 'src/a.ts': { scrollTop: 120, scrollLeft: 0 } },
     },
+    workspaceOpenTabsByWorkspaceId: {
+      'ws-a': {
+        tabs: [{ relativePath: 'src/a.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:src/a.ts',
+      },
+    },
     chatFontSizeRem: 1.1,
     ...overrides,
   };
@@ -40,6 +46,7 @@ describe('mergeSettingsConfigSave', () => {
       workspaces: [],
       currentWorkspaceId: null,
       lastActiveConversationByWorkspaceId: {},
+      workspaceOpenTabsByWorkspaceId: {},
       chatFontSizeRem: 1.4,
     });
 
@@ -49,6 +56,12 @@ describe('mergeSettingsConfigSave', () => {
     expect(merged.lastActiveConversationByWorkspaceId).toEqual({ 'ws-a': 'conv-a' });
     expect(merged.workspaceMonacoScrollByWorkspaceId).toEqual({
       'ws-a': { 'src/a.ts': { scrollTop: 120, scrollLeft: 0 } },
+    });
+    expect(merged.workspaceOpenTabsByWorkspaceId).toEqual({
+      'ws-a': {
+        tabs: [{ relativePath: 'src/a.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:src/a.ts',
+      },
     });
     expect(merged.chatFontSizeRem).toBe(1.4);
   });

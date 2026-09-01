@@ -7,12 +7,15 @@ import type {
   Workspace,
   WorkspaceContextSyncExtras,
   WorkspaceMonacoEditorScrollState,
+  WorkspaceOpenTabsState,
   WorkspaceSystemPromptMutationResult,
   WorkspaceSystemPromptStatus,
 } from '../../../shared';
 import {
   findLlmModelLocation,
   isNoWorkspaceSystemPromptId,
+  normalizeWorkspaceOpenTabsState,
+  pruneRemovedWorkspaceClientState,
   resolveSystemPromptStorageId,
 } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
@@ -173,6 +176,31 @@ export function registerConfigWorkspacesIpc(): void {
           byWs[wsId] = wsScroll;
         }
         cfg.workspaceMonacoScrollByWorkspaceId = byWs;
+      });
+    },
+  );
+
+  ipcMain.handle(
+    'patch-workspace-open-tabs',
+    async (event, workspaceId: string, state: WorkspaceOpenTabsState | null) => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return;
+      }
+      const wsId = typeof workspaceId === 'string' ? workspaceId.trim() : '';
+      if (!wsId) {
+        return;
+      }
+      const normalized = normalizeWorkspaceOpenTabsState(state);
+      await updateConfig((cfg) => {
+        const byWs = { ...(cfg.workspaceOpenTabsByWorkspaceId ?? {}) };
+        if (!normalized.state) {
+          delete byWs[wsId];
+        } else {
+          byWs[wsId] = normalized.state;
+        }
+        cfg.workspaceOpenTabsByWorkspaceId = byWs;
       });
     },
   );
@@ -592,6 +620,7 @@ export function registerConfigWorkspacesIpc(): void {
       if (cfg.currentWorkspaceId === id) {
         cfg.currentWorkspaceId = cfg.workspaces.length > 0 ? cfg.workspaces[0].id : null;
       }
+      pruneRemovedWorkspaceClientState(cfg, id);
     });
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);

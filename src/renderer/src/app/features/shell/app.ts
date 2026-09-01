@@ -13,6 +13,7 @@ import type {
   StagedTransferBatchPayload,
   Workspace,
   WorkspaceFilesChangedMessage,
+  WorkspaceOpenTabsState,
   LspEditorDiagnostic,
   LlmConnectionConfig,
   LlmReasoningSettingChange,
@@ -33,6 +34,7 @@ import {
   patchLlmModelProfile,
   resolveActiveLlmConnection,
   resolveChatWindowState,
+  retainRendererWorkspaceOpenTabs,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
@@ -73,6 +75,8 @@ import {
   replaceFileTabAfterSaveAs,
   reorderFileTabs,
   retargetFileTabPath,
+  serializeWorkspaceOpenTabs,
+  chatFileTabsFromPersistedState,
   type ChatFileTab,
   workspaceChatFileTab,
   buildPlanChatFileTab,
@@ -307,6 +311,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatCollapsed = model(false);
   /** Skip persisting chat chrome until the first config load has hydrated the signals. */
   private chatLayoutHydrated = false;
+  /** Skip open-tab persist/restore until the first config load. */
+  private openTabsHydrated = false;
+  /** Workspace whose `fileTabs` currently belong to; used to persist before restore. */
+  private openTabsOwnedWorkspaceId: string | null = null;
+  private applyingRestoredOpenTabs = false;
+  private lastPersistedOpenTabsJson = '';
 
   /** Width of the sidebar when the chat is collapsed (just the un-collapse button + padding). */
   private static readonly CHAT_COLLAPSED_WIDTH_PX = 48;
@@ -594,11 +604,20 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
-      this.currentWorkspaceId();
+      const wsId = this.currentWorkspaceId();
       untracked(() => {
-        this.fileTabs.set([]);
-        this.activeMainTabId.set(null);
-        this.clearChatContextFiles();
+        this.onWorkspaceIdChangedForOpenTabs(wsId);
+      });
+    });
+
+    effect(() => {
+      const tabs = this.fileTabs();
+      const activeTabId = this.activeMainTabId();
+      untracked(() => {
+        if (!this.openTabsHydrated || this.applyingRestoredOpenTabs) {
+          return;
+        }
+        void this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, tabs, activeTabId);
       });
     });
 
@@ -687,7 +706,7 @@ export class App implements OnInit, OnDestroy {
     );
 
     this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
-      this.appConfig.set(config);
+      this.applyIncomingAppConfig(config);
       const cfs = config.chatFontSizeRem;
       const nextFs =
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9;
@@ -781,7 +800,9 @@ export class App implements OnInit, OnDestroy {
     const config = await this.electron.loadConfig();
     this.appConfig.set(config);
     this.workspaces.set(config.workspaces);
+    this.openTabsHydrated = true;
     this.currentWorkspaceId.set(config.currentWorkspaceId);
+    this.restoreOpenTabsForWorkspace(config.currentWorkspaceId);
 
     applyAppTheme(resolveAppThemeId(config));
     this.hydrateChatWindowStateFromConfig(config);
@@ -804,6 +825,7 @@ export class App implements OnInit, OnDestroy {
     void this.tts.invalidateSpeechPipeline();
     window.removeEventListener('resize', this.boundOnWindowResize);
     this.flushSidebarWidthPersist();
+    void this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
     this.onResizeEnd();
   }
 
@@ -960,6 +982,93 @@ export class App implements OnInit, OnDestroy {
     this.chatLayoutHydrated = true;
   }
 
+  private onWorkspaceIdChangedForOpenTabs(workspaceId: string | null): void {
+    if (!this.openTabsHydrated) {
+      this.fileTabs.set([]);
+      this.activeMainTabId.set(null);
+      this.clearChatContextFiles();
+      return;
+    }
+    const prev = this.openTabsOwnedWorkspaceId;
+    if (prev === workspaceId) {
+      return;
+    }
+    if (prev) {
+      void this.persistOpenTabsNow(prev, this.fileTabs(), this.activeMainTabId());
+    }
+    this.restoreOpenTabsForWorkspace(workspaceId);
+    this.clearChatContextFiles();
+  }
+
+  private applyIncomingAppConfig(config: AppConfig): void {
+    this.appConfig.set(
+      retainRendererWorkspaceOpenTabs(config, this.appConfig()?.workspaceOpenTabsByWorkspaceId),
+    );
+  }
+
+  private restoreOpenTabsForWorkspace(workspaceId: string | null): void {
+    this.applyingRestoredOpenTabs = true;
+    try {
+      this.openTabsOwnedWorkspaceId = workspaceId;
+      const key = workspaceId?.trim() || '';
+      if (!key) {
+        this.fileTabs.set([]);
+        this.activeMainTabId.set(null);
+        this.lastPersistedOpenTabsJson = '';
+        return;
+      }
+      const restored = chatFileTabsFromPersistedState(
+        this.appConfig()?.workspaceOpenTabsByWorkspaceId?.[key],
+      );
+      this.fileTabs.set(restored.tabs);
+      this.activeMainTabId.set(restored.activeTabId);
+      this.lastPersistedOpenTabsJson = JSON.stringify(
+        serializeWorkspaceOpenTabs(restored.tabs, restored.activeTabId),
+      );
+    } finally {
+      this.applyingRestoredOpenTabs = false;
+    }
+  }
+
+  private mergeOpenTabsIntoAppConfig(workspaceId: string, state: WorkspaceOpenTabsState): void {
+    const config = this.appConfig();
+    if (!config) {
+      return;
+    }
+    const byWs = { ...(config.workspaceOpenTabsByWorkspaceId ?? {}) };
+    if (state.tabs.length === 0) {
+      delete byWs[workspaceId];
+    } else {
+      byWs[workspaceId] = state;
+    }
+    this.appConfig.set({ ...config, workspaceOpenTabsByWorkspaceId: byWs });
+  }
+
+  private async persistOpenTabsNow(
+    workspaceId: string | null,
+    tabs: readonly ChatFileTab[],
+    activeTabId: string | null,
+  ): Promise<void> {
+    const key = workspaceId?.trim() || '';
+    if (!key) {
+      return;
+    }
+    const state = serializeWorkspaceOpenTabs(tabs, activeTabId);
+    const json = JSON.stringify(state);
+    if (workspaceId === this.openTabsOwnedWorkspaceId && json === this.lastPersistedOpenTabsJson) {
+      return;
+    }
+    this.mergeOpenTabsIntoAppConfig(key, state);
+    try {
+      await this.electron.patchWorkspaceOpenTabs(key, state);
+      if (workspaceId === this.openTabsOwnedWorkspaceId) {
+        this.lastPersistedOpenTabsJson = json;
+      }
+    } catch (err) {
+      console.error('[App] persist workspace open tabs failed', err);
+    }
+  }
+
   private async persistChatWindowStateNow(): Promise<void> {
     const config = this.appConfig();
     if (!config || !this.chatLayoutHydrated) {
@@ -977,7 +1086,7 @@ export class App implements OnInit, OnDestroy {
         chatSidebarCollapsed: collapsed,
         chatExpandedToMainPanel: expanded,
       });
-      this.appConfig.set(saved);
+      this.applyIncomingAppConfig(saved);
     } catch (err) {
       console.error('[App] persist chat window state failed', err);
     }
@@ -1493,6 +1602,7 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
     await this.electron.setCurrentWorkspace(workspaceId);
     this.currentWorkspaceId.set(workspaceId);
     // Refresh config to get updated workspaces
@@ -2290,6 +2400,7 @@ export class App implements OnInit, OnDestroy {
       if (!canLeave) {
         return;
       }
+      await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
       await this.electron.setCurrentWorkspace(conv.workspaceId);
       const config = await this.electron.loadConfig();
       this.workspaces.set(config.workspaces);

@@ -15,6 +15,9 @@ import {
   replaceFileTabAfterSaveAs,
   reorderFileTabs,
   retargetFileTabPath,
+  serializeWorkspaceOpenTabs,
+  chatFileTabsFromPersistedState,
+  toPersistedOpenTab,
   workspaceChatFileTab,
 } from './app-chat-file-tabs';
 
@@ -125,5 +128,43 @@ describe('app-chat-file-tabs', () => {
     const remaining = removeBuildPlanTab(inactive, 'p1');
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.relativePath).toBe('src/foo.ts');
+  });
+
+  it('omits build-plan tabs when serializing open tabs for a workspace', () => {
+    const tabs = [
+      workspaceChatFileTab('src/foo.ts'),
+      buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true),
+      { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
+    ];
+    const state = serializeWorkspaceOpenTabs(tabs, 'file:rel:src/foo.ts');
+    expect(state.tabs).toEqual([
+      { relativePath: 'src/foo.ts', outsideWorkspace: false },
+      { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
+    ]);
+    expect(state.activeTabId).toBe('file:rel:src/foo.ts');
+    expect(toPersistedOpenTab(tabs[1]!)).toBeNull();
+  });
+
+  it('falls back to the last file tab when the active tab is ephemeral', () => {
+    const tabs = [
+      workspaceChatFileTab('a.ts'),
+      buildPlanChatFileTab('.nemo/build-plans/p1.md', 'p1', true),
+    ];
+    const state = serializeWorkspaceOpenTabs(tabs, chatFileTabId(tabs[1]!));
+    expect(state.activeTabId).toBe('file:rel:a.ts');
+  });
+
+  it('restores persisted tabs and the focused id', () => {
+    const restored = chatFileTabsFromPersistedState({
+      tabs: [
+        { relativePath: 'src/foo.ts', outsideWorkspace: false },
+        { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
+      ],
+      activeTabId: 'file:abs:C:/tmp/out.ts',
+    });
+    expect(restored.tabs).toHaveLength(2);
+    expect(restored.activeTabId).toBe('file:abs:C:/tmp/out.ts');
+    expect(restored.tabs[0]?.relativePath).toBe('src/foo.ts');
+    expect(restored.tabs[1]?.outsideWorkspace).toBe(true);
   });
 });

@@ -84,8 +84,6 @@ export class WorkspaceComponent implements OnDestroy {
   /** Relative path for the active outline (from Monaco). */
   readonly outlineRelativePath = input<string | null>(null);
 
-  readonly workspaceChanged = output<string | null>();
-  readonly addWorkspace = output<void>();
   /** User double-clicked a file in the tree (absolute path on disk). */
   readonly workspaceFileOpen = output<{ absolutePath: string }>();
   /** User chose "Add to chat" or dragged a file/folder out of the tree (absolute path on disk). */
@@ -117,18 +115,6 @@ export class WorkspaceComponent implements OnDestroy {
     return [...flat.slice(0, index), placeholder, ...flat.slice(index)];
   });
   protected readonly loadError = signal('');
-  /** Cog / system-prompt open failures — keep off `loadError` so the file tree stays visible. */
-  protected readonly settingsError = signal('');
-  protected readonly settingsOpening = signal(false);
-  /** Selected workspace has a non-empty folder path (cog stays disabled until then). */
-  protected readonly currentWorkspaceHasPath = computed(() => {
-    const id = this.currentWorkspaceId();
-    if (!id) {
-      return false;
-    }
-    const ws = this.workspaces().find((w) => w.id === id);
-    return !!(ws?.path?.trim());
-  });
 
   /** Currently selected node path (keyboard/click selection, distinct from open file). */
   protected readonly selectedPath = signal<string | null>(null);
@@ -246,8 +232,6 @@ export class WorkspaceComponent implements OnDestroy {
         this.initialLoadComplete = false;
         this.lastLoadedWorkspaceKey = null;
         this.selectedPath.set(null);
-        this.settingsError.set('');
-        this.settingsOpening.set(false);
       }
       this.lastEffectWorkspaceId = wsId ?? null;
       void this.loadWorkspaceFromConfig(wsId, workspaces);
@@ -355,19 +339,8 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  get currentWorkspaceName(): string {
-    const ws = this.workspaces().find(w => w.id === this.currentWorkspaceId());
-    return ws?.name ?? 'No workspace';
-  }
-
   /** Expose path normalizer to template for active file comparison. */
   protected normalizePathSlashes = normalizePathSlashes;
-
-  onWorkspaceSelectChange(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    const value = select.value;
-    this.workspaceChanged.emit(value || null);
-  }
 
   protected onOutlineSymbolReveal(sym: EditorOutlineSymbol): void {
     const rel = this.outlineRelativePath()?.trim() || this.activeFileRelativePath()?.trim();
@@ -496,38 +469,6 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  onAddWorkspace(): void {
-    this.addWorkspace.emit();
-  }
-
-  protected async onOpenWorkspaceSettings(): Promise<void> {
-    const wid = this.currentWorkspaceId();
-    if (!wid || !this.electron.isElectron) {
-      return;
-    }
-    this.settingsError.set('');
-    const ws = this.workspaces().find((w) => w.id === wid);
-    if (!ws?.path?.trim()) {
-      this.settingsError.set('Workspace has no folder path.');
-      return;
-    }
-    this.settingsOpening.set(true);
-    try {
-      const res = await this.electron.ensureWorkspaceSystemPrompt(wid, this.activeConversationId());
-      if (!res.ok) {
-        this.settingsError.set(res.error || 'Failed to open workspace system prompt.');
-        return;
-      }
-      this.settingsError.set('');
-      this.workspaceFileOpen.emit({ absolutePath: res.absolutePath });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.settingsError.set(msg || 'Failed to open workspace system prompt.');
-    } finally {
-      this.settingsOpening.set(false);
-    }
-  }
-
   onContextMenuItemMousedown(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -591,6 +532,22 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.contextMenuVisible()) {
       this.closeContextMenu();
     }
+  }
+
+  beginCreateFromMenu(kind: 'file' | 'folder'): void {
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!ws?.path?.trim()) {
+      return;
+    }
+    let parentDir = ws.path;
+    const selected = this.selectedPath();
+    if (selected) {
+      const node = findFileNode(this.tree, selected) ?? findFileNodeByNormalizedPath(this.tree, selected);
+      if (node) {
+        parentDir = node.isDirectory ? node.path : parentDirectoryPath(node.path);
+      }
+    }
+    void this.beginPendingCreate(kind, parentDir);
   }
 
   onContextMenuNewFile(): void {

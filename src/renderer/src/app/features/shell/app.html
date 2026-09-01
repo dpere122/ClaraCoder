@@ -3,6 +3,7 @@
     @if (electron.isElectron) {
       <div class='window-chrome'>
         <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>Clara Coder</h1>
+        <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeSettingsMenu($event)'>Settings</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeDependencies()'>Dependencies</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHealth()'>Health</button>
@@ -24,30 +25,134 @@
         <button type='button' class='chrome-win-btn chrome-win-close' (click)='onWindowClose()' aria-label='Close'>×</button>
       </div>
       @if (chromeMenu(); as menuKind) {
-        <div
-          class='chrome-dropdown-menu'
-          role='menu'
-          [style.left.px]='chromeMenuX()'
-          [style.top.px]='chromeMenuY()'
-        >
-          @switch (menuKind) {
-            @case ('settings') {
-              @for (tab of chromeSettingsTabs; track tab.id) {
-                <button
-                  type='button'
-                  class='chrome-dropdown-menu-item'
-                  role='menuitem'
-                  (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuSettingsTab(tab.id)'
-                >
-                  <span>{{ tab.label }}</span>
-                  @if (tab.id === 'general') {
-                    <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+,</span>
-                  }
-                </button>
-              }
+        @if (menuKind === 'settings') {
+          <div
+            class='chrome-dropdown-menu'
+            role='menu'
+            [style.left.px]='chromeMenuX()'
+            [style.top.px]='chromeMenuY()'
+          >
+            @for (tab of chromeSettingsTabs; track tab.id) {
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeMenuSettingsTab(tab.id)'
+              >
+                <span>{{ tab.label }}</span>
+                @if (tab.id === 'general') {
+                  <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+,</span>
+                }
+              </button>
             }
-          }
-        </div>
+          </div>
+        }
+        @if (menuKind === 'file' || menuKind === 'file-recent') {
+          <div
+            class='chrome-dropdown-menu'
+            role='menu'
+            [style.left.px]='chromeMenuX()'
+            [style.top.px]='chromeMenuY()'
+          >
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeOpenFolder()'
+            >
+              <span>Open Folder</span>
+              <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+O</span>
+            </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item chrome-dropdown-menu-item--submenu'
+              role='menuitem'
+              aria-haspopup='true'
+              [attr.aria-expanded]='menuKind === "file-recent"'
+              (mouseenter)='onChromeOpenRecentEnter($event)'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeOpenRecentEnter($event)'
+            >
+              <span>Open Recent</span>
+              <span class='chrome-dropdown-accel' aria-hidden='true'>›</span>
+            </button>
+            <div class='chrome-dropdown-menu-sep' role='separator'></div>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeNewFile()'
+            >
+              <span>New File</span>
+              <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+N</span>
+            </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeNewFolder()'
+            >
+              <span>New Folder</span>
+            </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeNewAgent()'
+            >
+              <span>New Agent</span>
+            </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeNewTerminal()'
+            >
+              <span>New Terminal</span>
+              <span class='chrome-dropdown-accel'>{{ chromeAccelMod }}+Shift+`</span>
+            </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeExit()'
+            >
+              <span>Exit</span>
+            </button>
+          </div>
+        }
+        @if (menuKind === 'file-recent') {
+          <div
+            class='chrome-dropdown-menu chrome-dropdown-menu--submenu'
+            role='menu'
+            [style.left.px]='chromeRecentMenuX()'
+            [style.top.px]='chromeRecentMenuY()'
+          >
+            @for (ws of recentWorkspaces(); track ws.id) {
+              <button
+                type='button'
+                class='chrome-dropdown-menu-item'
+                role='menuitem'
+                [class.is-current]='ws.id === currentWorkspaceId()'
+                (mousedown)='onChromeMenuItemMousedown($event); onChromeOpenRecentWorkspace(ws.id)'
+              >
+                <span>{{ ws.name }}</span>
+              </button>
+            } @empty {
+              <button type='button' class='chrome-dropdown-menu-item' role='menuitem' disabled>
+                <span>No recent workspaces</span>
+              </button>
+            }
+          </div>
+        }
       }
     } @else {
       <p class='browser-only-hint'>
@@ -67,8 +172,6 @@
         [outlineSymbols]='monacoOutlineState().symbols'
         [outlineRelativePath]='monacoOutlineState().relativePath'
         [appConfig]='appConfig()'
-        (workspaceChanged)='onWorkspaceChanged($event)'
-        (addWorkspace)='onAddWorkspace()'
         (workspaceFileOpen)='onWorkspaceFileOpen($event)'
         (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
         (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'

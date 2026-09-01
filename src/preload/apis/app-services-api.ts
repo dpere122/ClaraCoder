@@ -75,4 +75,9 @@ export const appServicesApi = {
   onEditorFindRequested: (callback: () => void) => {
     ipcRenderer.on('editor-find-requested', () => callback());
   },
+  onMenuFileCommand: (callback: (command: { action: string; workspaceId?: string }) => void) => {
+    ipcRenderer.on('menu-file-command', (_event, command: { action: string; workspaceId?: string }) =>
+      callback(command),
+    );
+  },
 };

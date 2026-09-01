@@ -422,12 +422,14 @@ export function registerConfigWorkspacesIpc(): void {
       return null;
     }
     let workspace!: Workspace;
+    const now = new Date().toISOString();
     const config = await updateConfig((cfg) => {
       workspace = {
         id: randomUUID(),
         name: name || path.basename(workspacePath) || 'New Workspace',
         path: workspacePath,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        lastOpenedAt: now,
       };
       cfg.workspaces.push(workspace);
     });
@@ -437,6 +439,7 @@ export function registerConfigWorkspacesIpc(): void {
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     broadcastConfig(config);
+    buildMenu();
     return workspace;
   });
 
@@ -456,6 +459,7 @@ export function registerConfigWorkspacesIpc(): void {
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     broadcastConfig(config);
+    buildMenu();
   });
 
   ipcMain.handle('set-current-workspace', async (event, id: string | null) => {
@@ -469,14 +473,19 @@ export function registerConfigWorkspacesIpc(): void {
       return;
     }
 
+    const now = new Date().toISOString();
     const config = await updateConfig((cfg) => {
       cfg.currentWorkspaceId = id;
+      if (id) {
+        cfg.workspaces = cfg.workspaces.map((w) => (w.id === id ? { ...w, lastOpenedAt: now } : w));
+      }
     });
     await shutdownAllLspManagersBestEffort();
     await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
     await refreshWorkspaceWatcherForCurrentConfig(config);
     sendToWindowIfAlive(mainState.mainWindow, 'workspace-changed', id);
     broadcastConfig(config);
+    buildMenu();
   });
 
   ipcMain.handle('set-theme', async (event, themeId: string) => {

@@ -183,6 +183,22 @@ describe('WorkspaceTerminalDockComponent', () => {
       expect(component.activeTabId()).toBe(component.ptyTabs()[0].id);
     });
 
+    it('openNewTerminal adds a tab and expands the dock', () => {
+      component.openNewTerminal();
+
+      expect(component.expanded()).toBe(true);
+      expect(component.ptyTabs().length).toBe(1);
+    });
+
+    it('openNewTerminal no-ops without a workspace', () => {
+      fixture.componentRef.setInput('workspacePath', '');
+      fixture.detectChanges();
+      component.openNewTerminal();
+
+      expect(component.expanded()).toBe(false);
+      expect(component.ptyTabs().length).toBe(0);
+    });
+
     it('selectTab changes active tab', () => {
       component.addTab();
       component.addTab();

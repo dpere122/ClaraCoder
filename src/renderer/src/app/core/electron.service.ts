@@ -393,10 +393,13 @@ export class ElectronService {
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
   private readonly windowMaximizedSubject = new Subject<boolean>();
   private readonly editorFindRequestedSubject = new Subject<void>();
+  private readonly menuFileCommandSubject = new Subject<{ action: string; workspaceId?: string }>();
   /** Emits when the main BrowserWindow is maximized or restored (frameless chrome). */
   readonly windowMaximized$ = this.windowMaximizedSubject.asObservable();
   /** Main intercepted Ctrl/Cmd+F; open Monaco find when a file editor is active. */
   readonly editorFindRequested$ = this.editorFindRequestedSubject.asObservable();
+  /** Native File menu (Alt / accelerators) forwarded from the main process. */
+  readonly menuFileCommand$ = this.menuFileCommandSubject.asObservable();
   readonly chunk$ = this.chunkSubject.asObservable();
   readonly toolReadChunk$ = this.toolReadChunkSubject.asObservable();
   readonly toolExecChunk$ = this.toolExecChunkSubject.asObservable();
@@ -740,6 +743,9 @@ export class ElectronService {
     });
     this.api?.onEditorFindRequested?.(() => {
       this.zone.run(() => this.editorFindRequestedSubject.next());
+    });
+    this.api?.onMenuFileCommand?.((command) => {
+      this.zone.run(() => this.menuFileCommandSubject.next(command));
     });
     this.api?.onReady();
   }

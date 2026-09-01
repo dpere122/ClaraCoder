@@ -230,6 +230,7 @@ function stubElectronApi(
     windowIsMaximized: async () => false,
     onWindowMaximizedChanged: noop,
     onEditorFindRequested: noop,
+    onMenuFileCommand: noop,
     lmStudioListModels: async () => ({ ok: false, error: 'stub' }),
     lmStudioLoadModel: async () => ({ ok: false, error: 'stub' }),
     lmStudioUnloadModel: async () => ({ ok: false, error: 'stub' }),

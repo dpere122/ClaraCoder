@@ -3,6 +3,8 @@ import {
   NO_WORKSPACE_SYSTEM_PROMPT_ID,
   isNoWorkspaceSystemPromptId,
   resolveSystemPromptStorageId,
+  sortRecentWorkspaces,
+  type Workspace,
 } from './workspace';
 
 describe('no-workspace system prompt id', () => {
@@ -21,5 +23,21 @@ describe('no-workspace system prompt id', () => {
     expect(isNoWorkspaceSystemPromptId('')).toBe(true);
     expect(isNoWorkspaceSystemPromptId(NO_WORKSPACE_SYSTEM_PROMPT_ID)).toBe(true);
     expect(isNoWorkspaceSystemPromptId('ws-123')).toBe(false);
+  });
+});
+
+describe('sortRecentWorkspaces', () => {
+  function ws(partial: Partial<Workspace> & Pick<Workspace, 'id' | 'name'>): Workspace {
+    return {
+      path: `/tmp/${partial.id}`,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      ...partial,
+    };
+  }
+
+  it('orders by lastOpenedAt then createdAt, newest first', () => {
+    const older = ws({ id: 'a', name: 'A', lastOpenedAt: '2026-01-01T00:00:00.000Z' });
+    const newer = ws({ id: 'b', name: 'B', lastOpenedAt: '2026-06-01T00:00:00.000Z' });
+    expect(sortRecentWorkspaces([older, newer]).map((w) => w.id)).toEqual(['b', 'a']);
   });
 });

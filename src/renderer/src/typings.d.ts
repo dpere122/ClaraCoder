@@ -806,6 +806,7 @@ declare global {
     windowIsMaximized: () => Promise<boolean>;
     onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => void;
     onEditorFindRequested: (callback: () => void) => void;
+    onMenuFileCommand: (callback: (command: { action: string; workspaceId?: string }) => void) => void;
     listSystemFonts: () => Promise<SystemFontInfo[]>;
   }
 

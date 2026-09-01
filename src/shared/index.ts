@@ -2,11 +2,12 @@
  * Cross-layer domain types for Electron main, preload, and Angular renderer.
  * No Node or Electron imports — safe to import from any compilation unit.
  */
-export type { Workspace } from './types/workspace';
+export type { Workspace, MenuFileCommand, MenuFileCommandAction } from './types/workspace';
 export {
   NO_WORKSPACE_SYSTEM_PROMPT_ID,
   isNoWorkspaceSystemPromptId,
   resolveSystemPromptStorageId,
+  sortRecentWorkspaces,
 } from './types/workspace';
 export {
   LEGACY_WORKSPACE_META_DIR,

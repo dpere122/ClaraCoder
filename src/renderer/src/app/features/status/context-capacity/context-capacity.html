@@ -8,8 +8,13 @@
   <button
     type="button"
     class="context-capacity__circle-button"
+    [class.context-capacity__circle-button--tooltip-open]="customTooltipOpen()"
     [attr.aria-label]="metricsTooltip()"
-    [attr.title]="metricsTooltip()"
+    [attr.title]="nativeTitle()"
+    (pointerenter)="onCirclePointerEnter()"
+    (pointerleave)="onCirclePointerLeave()"
+    (focusin)="onCircleFocusIn()"
+    (focusout)="onCircleFocusOut()"
   >
     <span class="context-capacity__tooltip" role="tooltip">{{ metricsTooltip() }}</span>
     <svg class="context-capacity__circle" viewBox="0 0 40 40" aria-hidden="true">

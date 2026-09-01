@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, signal } from '@angular/core';
 import type { AppConfig } from '@shared/index';
 
 @Component({
@@ -44,6 +44,33 @@ export class ContextCapacityComponent {
   protected readonly metricsTooltip = computed(() => (
     `${this.formatCompact(this.usedTokens())} / ${this.formatCompact(this.maxTokens())} tokens · ${this.formatCompact(this.remainingTokens())} left · ${this.percentageLabel()}`
   ));
+
+  private readonly pointerOver = signal(false);
+  private readonly focused = signal(false);
+
+  /** Custom popup is visible — native `title` must be omitted so Chromium does not also show it. */
+  protected readonly customTooltipOpen = computed(() => this.pointerOver() || this.focused());
+
+  /** Native OS tooltip — present only while the custom popup is not showing. */
+  protected readonly nativeTitle = computed(() => (
+    this.customTooltipOpen() ? null : this.metricsTooltip()
+  ));
+
+  protected onCirclePointerEnter(): void {
+    this.pointerOver.set(true);
+  }
+
+  protected onCirclePointerLeave(): void {
+    this.pointerOver.set(false);
+  }
+
+  protected onCircleFocusIn(): void {
+    this.focused.set(true);
+  }
+
+  protected onCircleFocusOut(): void {
+    this.focused.set(false);
+  }
 
   protected formatCompact(value: number): string {
     return ContextCapacityComponent.compactNumber.format(Math.max(0, value));

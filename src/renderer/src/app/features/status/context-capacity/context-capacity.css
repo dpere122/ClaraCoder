@@ -114,8 +114,7 @@
   z-index: 2;
 }
 
-.context-capacity__circle-button:hover .context-capacity__tooltip,
-.context-capacity__circle-button:focus-visible .context-capacity__tooltip {
+.context-capacity__circle-button--tooltip-open .context-capacity__tooltip {
   opacity: 1;
   transform: translateY(0);
 }

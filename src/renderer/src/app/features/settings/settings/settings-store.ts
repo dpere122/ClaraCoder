@@ -133,8 +133,8 @@ import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import {
   SETTINGS_SUB_TAB_CATALOG,
   SETTINGS_TABS,
+  initialSettingsTab,
   isSettingsTab,
-  settingsTabFromHash,
   type SettingsSubTabEntry,
   type SettingsTab,
 } from './settings-tabs';
@@ -242,7 +242,7 @@ export class SettingsStore {
    * Default chat command for newly added managed ``llama-server`` sources (not the pinned local row).
    */
   private static readonly newManagedLlamacppChatCommand = DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
-  readonly selectedSettingsTab = signal<SettingsTab>('models');
+  readonly selectedSettingsTab = signal<SettingsTab>(initialSettingsTab());
   readonly tabs = SETTINGS_TABS;
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   readonly ttsVoiceChoices = VOICE_OPTIONS;
@@ -654,6 +654,13 @@ export class SettingsStore {
   }
 
   async ngOnInit(): Promise<void> {
+    this.settingsSelectTabSubscription = this.electron.settingsSelectTab$.subscribe((tab) => {
+      if (isSettingsTab(tab)) {
+        this.selectTab(tab);
+      }
+    });
+    this.electron.notifySettingsWindowReady();
+
     const config = await this.electron.loadConfig();
     this.configSnapshot = structuredClone(config);
     this.syncFromConfig(config, true);
@@ -667,16 +674,6 @@ export class SettingsStore {
 
     void this.electron.listSystemFonts().then((fonts: SystemFontInfo[]) => this.systemFonts.set(fonts));
     void this.electron.listCudaGpus().then((gpus) => this.cudaGpus.set(gpus));
-
-    const initialTab = settingsTabFromHash(globalThis.location?.hash ?? '');
-    if (initialTab) {
-      this.selectTab(initialTab);
-    }
-    this.settingsSelectTabSubscription = this.electron.settingsSelectTab$.subscribe((tab) => {
-      if (isSettingsTab(tab)) {
-        this.selectTab(tab);
-      }
-    });
 
     this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) => {
       const id = e.downloadId;

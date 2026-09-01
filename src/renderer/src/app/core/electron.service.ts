@@ -1500,6 +1500,10 @@ export class ElectronService {
     this.api?.closeSettingsWindow();
   }
 
+  notifySettingsWindowReady(): void {
+    this.api?.notifySettingsWindowReady?.();
+  }
+
   openHealthWindow(): void {
     this.api?.openHealthWindow();
   }

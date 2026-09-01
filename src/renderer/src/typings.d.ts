@@ -414,6 +414,7 @@ declare global {
     onConfigUpdated: (callback: (event: unknown, config: AppConfig) => void) => void;
     onSettingsWindowVisibilityChanged: (callback: (event: unknown, isOpen: boolean) => void) => void;
     onSettingsSelectTab: (callback: (event: unknown, tab: string) => void) => void;
+    notifySettingsWindowReady: () => void;
     closeSettingsWindow: () => void;
     onActiveConversationChanged: (callback: (event: unknown, conversationId: string) => void) => void;
     onConversationWorkspaceChanged: (

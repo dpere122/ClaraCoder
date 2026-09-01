@@ -53,6 +53,11 @@ export function settingsTabFromHash(hash: string): SettingsTab | null {
   return isSettingsTab(tab) ? tab : null;
 }
 
+/** Pane to show on first paint: hash `tab=` when valid, otherwise Models. */
+export function initialSettingsTab(hash = globalThis.location?.hash ?? ''): SettingsTab {
+  return settingsTabFromHash(hash) ?? 'models';
+}
+
 export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTabEntry[]>> = {
   general: [
     {

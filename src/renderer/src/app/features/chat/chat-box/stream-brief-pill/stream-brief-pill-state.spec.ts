@@ -44,14 +44,15 @@ describe('briefLineCount', () => {
 });
 
 describe('isShortBrief', () => {
-  it('keeps one- and two-line briefs inline', () => {
+  it('keeps one- through three-line briefs inline', () => {
     expect(isShortBrief('Checking the layout next.')).toBe(true);
     expect(isShortBrief('First sentence.\nSecond sentence.')).toBe(true);
+    expect(isShortBrief('one\ntwo\nthree')).toBe(true);
   });
 
   it('condenses briefs that reach the line limit', () => {
-    expect(isShortBrief('one\ntwo\nthree')).toBe(false);
-    expect(BRIEF_INLINE_LINE_LIMIT).toBe(3);
+    expect(isShortBrief('one\ntwo\nthree\nfour')).toBe(false);
+    expect(BRIEF_INLINE_LINE_LIMIT).toBe(4);
   });
 });
 
@@ -63,16 +64,16 @@ describe('shouldKeepBriefRendered', () => {
   });
 
   it('never keeps a long brief rendered as the preview pane', () => {
-    expect(shouldKeepBriefRendered('one\ntwo\nthree', null)).toBe(false);
-    expect(shouldKeepBriefRendered('one\ntwo\nthree', true)).toBe(false);
+    expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', null)).toBe(false);
+    expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', true)).toBe(false);
   });
 });
 
 describe('resolveBriefPillExpanded', () => {
   it('auto-expands the active live brief and auto-collapses when superseded', () => {
-    expect(resolveBriefPillExpanded(true, true, null, 'one\ntwo\nthree')).toBe(true);
-    expect(resolveBriefPillExpanded(true, false, null, 'one\ntwo\nthree')).toBe(false);
-    expect(resolveBriefPillExpanded(false, false, null, 'one\ntwo\nthree')).toBe(false);
+    expect(resolveBriefPillExpanded(true, true, null, 'one\ntwo\nthree\nfour')).toBe(true);
+    expect(resolveBriefPillExpanded(true, false, null, 'one\ntwo\nthree\nfour')).toBe(false);
+    expect(resolveBriefPillExpanded(false, false, null, 'one\ntwo\nthree\nfour')).toBe(false);
   });
 
   it('keeps a short brief expanded after it is no longer the live event', () => {
@@ -81,7 +82,7 @@ describe('resolveBriefPillExpanded', () => {
   });
 
   it('honors a user expand/collapse override', () => {
-    expect(resolveBriefPillExpanded(true, false, true, 'one\ntwo\nthree')).toBe(true);
+    expect(resolveBriefPillExpanded(true, false, true, 'one\ntwo\nthree\nfour')).toBe(true);
     expect(resolveBriefPillExpanded(true, true, false, 'Checking files.')).toBe(false);
   });
 });

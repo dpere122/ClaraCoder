@@ -86,6 +86,12 @@ export class StreamTurnFeedComponent {
     return previewItemShowsBody(split.current);
   });
 
+  /** Clara briefs stay borderless in the live preview slot instead of a boxed pane. */
+  readonly previewCompact = computed(() => {
+    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    return split.current?.kind === 'brief';
+  });
+
   constructor() {
     this.destroyRef.onDestroy(() => this.clearTimer());
 

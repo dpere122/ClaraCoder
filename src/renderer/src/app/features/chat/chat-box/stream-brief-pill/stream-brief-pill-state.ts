@@ -1,7 +1,7 @@
 import type { ToolTrailPillState } from '@shared/index';
 
-/** Keep the brief body visible below this many display lines; 3+ collapse into the pill. */
-export const BRIEF_INLINE_LINE_LIMIT = 3;
+/** Keep the brief body visible below this many display lines; 4+ collapse into the pill. */
+export const BRIEF_INLINE_LINE_LIMIT = 4;
 
 /** Approx. characters per wrapped line at the brief preview's mono size. */
 export const BRIEF_WRAP_CHARS = 72;

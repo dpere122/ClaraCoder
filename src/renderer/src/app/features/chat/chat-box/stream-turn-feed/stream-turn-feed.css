@@ -77,6 +77,22 @@ app-stream-turn-feed .stream-turn-feed__preview-inner {
   background: color-mix(in srgb, var(--t-bg-surface) 88%, var(--t-panel) 12%);
 }
 
+app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-inner {
+  border: none;
+  border-radius: 0 !important;
+  background: transparent;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-header {
+  padding: 0.08rem 0 0;
+}
+
+app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-body {
+  padding: 0 0 0.1rem;
+  max-height: none;
+  line-height: 1.35;
+}
+
 app-stream-turn-feed .stream-turn-feed__preview-header {
   display: flex;
   align-items: center;

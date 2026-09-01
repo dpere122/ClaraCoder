@@ -404,7 +404,8 @@ export async function syncWorkspaceSystemPromptToPython(
     return;
   }
   const text = await readWorkspaceSystemPromptText(workspaceRoot);
-  await pythonControlFetch('/workspace-system-prompt', {
+  await ensurePythonReady();
+  const res = await pythonControlFetch('/workspace-system-prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -412,6 +413,12 @@ export async function syncWorkspaceSystemPromptToPython(
       workspace_system_prompt: text,
     }),
   });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `workspace-system-prompt failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+    );
+  }
 }
 
 /** Discovered interpreters for the session workspace (LSP analysis env). */

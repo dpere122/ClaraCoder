@@ -292,7 +292,7 @@ export function registerConfigWorkspacesIpc(): void {
 
   ipcMain.handle(
     'ensure-workspace-system-prompt',
-    async (event, workspaceId: string): Promise<EnsureWorkspaceSystemPromptResult> => {
+    async (event, workspaceId: string, sessionId?: string | null): Promise<EnsureWorkspaceSystemPromptResult> => {
       try {
         assertTrustedMainRenderer(event);
       } catch {
@@ -309,7 +309,7 @@ export function registerConfigWorkspacesIpc(): void {
       }
       try {
         const result = await ensureWorkspaceSystemPrompt(workspace.path, workspace.id);
-        await resyncActiveSessionSystemPrompt(workspace.path, workspace.id);
+        await resyncActiveSessionSystemPrompt(workspace.path, workspace.id, sessionId);
         return {
           ok: true,
           absolutePath: result.absolutePath,

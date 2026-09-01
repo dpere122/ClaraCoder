@@ -13,6 +13,9 @@ export const WORKSPACE_BUILD_PLANS_DIR = 'build-plans';
 export const WORKSPACE_BUILD_PLANS_REL_DIR = `${WORKSPACE_META_DIR}/${WORKSPACE_BUILD_PLANS_DIR}`;
 
 export function isWorkspaceSystemPromptRelativePath(relativePath: string): boolean {
-  const n = (relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  let n = (relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  while (n.startsWith('./')) {
+    n = n.slice(2);
+  }
   return n === WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH;
 }

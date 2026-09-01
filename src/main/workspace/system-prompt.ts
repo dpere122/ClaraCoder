@@ -1,6 +1,10 @@
 import { promises as fs } from 'fs';
 import path = require('path');
-import { WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH } from '../../shared';
+import {
+  LEGACY_WORKSPACE_META_DIR,
+  WORKSPACE_SYSTEM_PROMPT_FILE,
+  WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
+} from '../../shared';
 import { getLegacyAppDataSystemPromptPath, getWorkspaceSystemPromptPath } from '../paths';
 import { migrateLegacyWorkspaceMetaDir } from './meta-dir';
 
@@ -37,7 +41,7 @@ export async function readWorkspaceSystemPromptText(workspaceRoot: string): Prom
 
 /**
  * Ensure `{workspace}/.clara/system-prompt.md` exists.
- * Migrates a leftover app-data copy when the workspace file is missing.
+ * Seeds from leftover `.nemo/system-prompt.md`, then app-data, then the default.
  */
 export async function ensureWorkspaceSystemPrompt(
   workspaceRoot: string,
@@ -59,6 +63,22 @@ export async function ensureWorkspaceSystemPrompt(
     };
   } catch {
     /* missing — seed below */
+  }
+
+  const legacyDest = path.join(root, LEGACY_WORKSPACE_META_DIR, WORKSPACE_SYSTEM_PROMPT_FILE);
+  try {
+    const legacyText = await fs.readFile(legacyDest, 'utf8');
+    await fs.writeFile(dest, legacyText, 'utf8');
+    return {
+      absolutePath: dest,
+      relativePath: WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
+      created: true,
+    };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
+      throw err;
+    }
   }
 
   const wid = (workspaceId || '').trim();

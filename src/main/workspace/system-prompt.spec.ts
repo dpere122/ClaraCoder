@@ -107,12 +107,59 @@ describe('legacy .nemo metadata dir migration', () => {
   it('leaves .nemo in place when .clara already exists', async () => {
     const ws = testRoot.dir;
     mkdirSync(join(ws, '.nemo', 'build-plans'), { recursive: true });
-    mkdirSync(join(ws, '.clara'), { recursive: true });
+    mkdirSync(join(ws, '.clara', 'build-plans'), { recursive: true });
     writeFileSync(join(ws, '.nemo', 'build-plans', 'old.md'), 'legacy', 'utf8');
+    writeFileSync(join(ws, '.clara', 'build-plans', 'keep.md'), 'keep', 'utf8');
+    writeFileSync(
+      join(ws, '.nemo', 'build-plans', 'index.json'),
+      `${JSON.stringify(
+        [
+          { id: 'plan-old', relativePath: '.nemo/build-plans/old.md', status: 'active' },
+          { id: 'shared', relativePath: '.nemo/build-plans/old.md', status: 'legacy' },
+        ],
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    writeFileSync(
+      join(ws, '.clara', 'build-plans', 'index.json'),
+      `${JSON.stringify(
+        [
+          { id: 'plan-new', relativePath: '.clara/build-plans/keep.md', status: 'active' },
+          { id: 'shared', relativePath: '.clara/build-plans/keep.md', status: 'current' },
+        ],
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
 
     await migrateLegacyWorkspaceMetaDir(ws);
 
     expect(existsSync(join(ws, '.nemo', 'build-plans', 'old.md'))).toBe(true);
-    expect(existsSync(join(ws, '.clara', 'build-plans', 'old.md'))).toBe(false);
+    expect(existsSync(join(ws, '.clara', 'build-plans', 'old.md'))).toBe(true);
+    expect(readFileSync(join(ws, '.clara', 'build-plans', 'keep.md'), 'utf8')).toBe('keep');
+    const index = JSON.parse(readFileSync(join(ws, '.clara', 'build-plans', 'index.json'), 'utf8')) as Array<{
+      id: string;
+      relativePath: string;
+      status: string;
+    }>;
+    const byId = Object.fromEntries(index.map((e) => [e.id, e]));
+    expect(byId['plan-old']?.relativePath).toBe('.clara/build-plans/old.md');
+    expect(byId['plan-new']?.relativePath).toBe('.clara/build-plans/keep.md');
+    expect(byId['shared']?.status).toBe('current');
+    expect(byId['shared']?.relativePath).toBe('.clara/build-plans/keep.md');
+  });
+
+  it('copies system-prompt.md from .nemo when .clara already exists without it', async () => {
+    const ws = join(testRoot.dir, 'project');
+    mkdirSync(join(ws, '.nemo'), { recursive: true });
+    mkdirSync(join(ws, '.clara'), { recursive: true });
+    writeFileSync(join(ws, '.nemo', 'system-prompt.md'), 'Legacy workspace prompt.', 'utf8');
+
+    const result = await ensureWorkspaceSystemPrompt(ws, 'ws-1');
+    expect(readFileSync(result.absolutePath, 'utf8')).toBe('Legacy workspace prompt.');
+    await expect(readWorkspaceSystemPromptText(ws)).resolves.toBe('Legacy workspace prompt.');
   });
 });

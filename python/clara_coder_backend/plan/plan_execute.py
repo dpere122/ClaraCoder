@@ -1304,7 +1304,7 @@ async def stream_plan_execute_langgraph(
         )
     )
 
-    exec_prompt = build_build_plan_executor_prompt(session.plans.active_build_plan_path)
+    exec_prompt = build_build_plan_executor_prompt(record.relative_path)
     exec_outcome = LangGraphWorkerOutcome()
     exec_cfg = AgentGraphConfig(
         session_id=session_id,

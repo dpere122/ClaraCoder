@@ -193,7 +193,9 @@ def _md_path(workspace_root: str | Path, relative_path: str) -> Path:
 
 
 def _delete_entry_files(workspace_root: str | Path, entry: dict[str, Any]) -> None:
-    rel = str(entry.get('relativePath') or '').replace('\\', '/')
+    rel = rewrite_legacy_build_plan_relative_path(
+        str(entry.get('relativePath') or '').replace('\\', '/'),
+    )
     if not rel:
         return
     md_path = _md_path(workspace_root, rel)
@@ -555,6 +557,9 @@ def create_build_plan_draft(
     if not root_text:
         raise ValueError('workspace_root is required')
 
+    # Migrate ``.nemo`` → ``.clara`` before creating ``.clara/build-plans/``.
+    _build_plans_root(root_text)
+
     plan_id = f'plan-{uuid.uuid4().hex[:12]}'
     relative_path = f'{BUILD_PLANS_REL_DIR}/{plan_id}.md'
     md_path = _md_path(root_text, relative_path)
@@ -589,7 +594,13 @@ def write_build_plan_draft_content(
 ) -> None:
     """Overwrite a drafting build-plan file with the latest streamed markdown."""
 
-    md_path = _md_path(workspace_root, record.relative_path)
+    root_text = (workspace_root or '').strip()
+    if root_text:
+        # First touch can create ``.clara``; migrate leftover ``.nemo`` first.
+        _build_plans_root(root_text)
+
+    rel = rewrite_legacy_build_plan_relative_path(record.relative_path)
+    md_path = _md_path(workspace_root, rel)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     text = md_text if md_text.endswith('\n') else md_text + '\n'
     md_path.write_text(text, encoding='utf-8')
@@ -631,6 +642,9 @@ def create_build_plan(
     root_text = (workspace_root or '').strip()
     if not root_text:
         raise ValueError('workspace_root is required')
+
+    # Migrate ``.nemo`` → ``.clara`` before creating ``.clara/build-plans/``.
+    _build_plans_root(root_text)
 
     plan_id = f'plan-{uuid.uuid4().hex[:12]}'
     relative_path = f'{BUILD_PLANS_REL_DIR}/{plan_id}.md'

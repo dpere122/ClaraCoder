@@ -388,11 +388,14 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render the Clara Coder title', async () => {
+  it('should render the Clara Coder app icon in the window chrome', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Clara Coder');
+    const icon = compiled.querySelector('.chrome-title-icon') as HTMLImageElement | null;
+    expect(icon).toBeTruthy();
+    expect(icon?.getAttribute('src')).toBe('app-icon.png');
+    expect(icon?.getAttribute('alt')).toBe('Clara Coder');
   });
 
   it('hides workspace-specific chrome when no workspace is open', async () => {

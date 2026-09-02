@@ -17,6 +17,7 @@ import type {
   LspEditorDiagnostic,
   LlmConnectionConfig,
   LlmReasoningSettingChange,
+  MenuFileCommand,
 } from '@shared/index';
 import {
   fallbackJournalFromMessages,
@@ -831,6 +832,7 @@ export class App implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.shellDestroyed = true;
+    this.clearChromeRecentCloseTimer();
     this.stopLmStudioContextPoll();
     void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
     void this.tts.invalidateSpeechPipeline();
@@ -1764,8 +1766,34 @@ export class App implements OnInit, OnDestroy {
     this.fileTabContextMenuTabId.set(null);
   }
 
+  private chromeRecentCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private clearChromeRecentCloseTimer(): void {
+    if (this.chromeRecentCloseTimer !== null) {
+      clearTimeout(this.chromeRecentCloseTimer);
+      this.chromeRecentCloseTimer = null;
+    }
+  }
+
   private closeChromeMenu(): void {
+    this.clearChromeRecentCloseTimer();
     this.chromeMenu.set(null);
+  }
+
+  private placeChromeRecentSubmenu(anchor: DOMRect): void {
+    const submenuWidth = 14 * 16;
+    const pad = 8;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    let x = Math.floor(anchor.right) - 1;
+    let y = Math.floor(anchor.top);
+    if (x + submenuWidth > vw - pad) {
+      x = Math.floor(anchor.left) - submenuWidth + 1;
+    }
+    x = Math.max(pad, Math.min(x, vw - submenuWidth - pad));
+    y = Math.max(pad, Math.min(y, vh - pad - 40));
+    this.chromeRecentMenuX.set(x);
+    this.chromeRecentMenuY.set(y);
   }
 
   private openChromeMenu(kind: 'settings' | 'file', ev: MouseEvent): void {
@@ -1796,17 +1824,28 @@ export class App implements OnInit, OnDestroy {
   protected onChromeOpenRecentEnter(ev: MouseEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
+    this.clearChromeRecentCloseTimer();
     const el = ev.currentTarget as HTMLElement;
-    const r = el.getBoundingClientRect();
-    this.chromeRecentMenuX.set(Math.floor(r.right) + 2);
-    this.chromeRecentMenuY.set(Math.floor(r.top));
+    this.placeChromeRecentSubmenu(el.getBoundingClientRect());
+    this.chromeMenu.set('file-recent');
+  }
+
+  protected onChromeRecentSubmenuEnter(): void {
+    this.clearChromeRecentCloseTimer();
     this.chromeMenu.set('file-recent');
   }
 
   protected onChromeFileItemEnter(): void {
-    if (this.chromeMenu() === 'file-recent') {
-      this.chromeMenu.set('file');
+    if (this.chromeMenu() !== 'file-recent') {
+      return;
     }
+    this.clearChromeRecentCloseTimer();
+    this.chromeRecentCloseTimer = setTimeout(() => {
+      this.chromeRecentCloseTimer = null;
+      if (this.chromeMenu() === 'file-recent') {
+        this.chromeMenu.set('file');
+      }
+    }, 150);
   }
 
   protected onChromeOpenFolder(): void {
@@ -1850,10 +1889,10 @@ export class App implements OnInit, OnDestroy {
 
   protected onChromeExit(): void {
     this.closeChromeMenu();
-    this.onWindowClose();
+    this.electron.appQuit();
   }
 
-  private onMenuFileCommand(command: { action?: string; workspaceId?: string }): void {
+  private onMenuFileCommand(command: MenuFileCommand): void {
     switch (command.action) {
       case 'open-folder':
         void this.onAddWorkspace();
@@ -1864,19 +1903,28 @@ export class App implements OnInit, OnDestroy {
         }
         break;
       case 'new-file':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
         this.workspacePanel?.beginCreateFromMenu('file');
         break;
       case 'new-folder':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
         this.workspacePanel?.beginCreateFromMenu('folder');
         break;
       case 'new-agent':
         void this.onNewConversation();
         break;
       case 'new-terminal':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
         this.workspaceTerminalDock?.openNewTerminal();
         break;
       case 'exit':
-        this.onWindowClose();
+        this.electron.appQuit();
         break;
       default:
         break;

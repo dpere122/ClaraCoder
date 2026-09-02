@@ -23,6 +23,7 @@ import type {
   LlamacppManagedListModelsResult,
   ChatTemplateReasoningCaps,
   LlmStatus,
+  MenuFileCommand,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
@@ -803,10 +804,11 @@ declare global {
     windowMinimize: () => void;
     windowToggleMaximize: () => void;
     windowClose: () => void;
+    appQuit: () => void;
     windowIsMaximized: () => Promise<boolean>;
     onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => void;
     onEditorFindRequested: (callback: () => void) => void;
-    onMenuFileCommand: (callback: (command: { action: string; workspaceId?: string }) => void) => void;
+    onMenuFileCommand: (callback: (command: MenuFileCommand) => void) => void;
     listSystemFonts: () => Promise<SystemFontInfo[]>;
   }
 

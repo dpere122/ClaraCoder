@@ -227,6 +227,7 @@ function stubElectronApi(
     windowMinimize: noop,
     windowToggleMaximize: noop,
     windowClose: noop,
+    appQuit: noop,
     windowIsMaximized: async () => false,
     onWindowMaximizedChanged: noop,
     onEditorFindRequested: noop,
@@ -513,5 +514,93 @@ describe('App', () => {
     expect(app.contextCapacity().usedTokens).toBe(64_000);
     expect(app.contextCapacity().measuredFromApi).toBe(true);
     expect(app.contextChatBlocked()).toBe(false);
+  });
+
+  function fakeChromeMenuEvent(rect: Partial<DOMRect> = {}): MouseEvent {
+    const el = document.createElement('button');
+    el.getBoundingClientRect = () =>
+      ({
+        x: 10,
+        y: 5,
+        left: 10,
+        right: 50,
+        top: 5,
+        bottom: 25,
+        width: 40,
+        height: 20,
+        toJSON: () => ({}),
+        ...rect,
+      }) as DOMRect;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'currentTarget', { value: el });
+    return ev;
+  }
+
+  it('opens and toggles the titlebar File menu', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const app = fixture.componentInstance as unknown as {
+      onChromeFileMenu: (ev: MouseEvent) => void;
+      chromeMenu: () => string | null;
+    };
+    app.onChromeFileMenu(fakeChromeMenuEvent());
+    expect(app.chromeMenu()).toBe('file');
+    app.onChromeFileMenu(fakeChromeMenuEvent());
+    expect(app.chromeMenu()).toBeNull();
+  });
+
+  it('keeps Open Recent open while the pointer is on the flyout', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const app = fixture.componentInstance as unknown as {
+      onChromeFileMenu: (ev: MouseEvent) => void;
+      onChromeOpenRecentEnter: (ev: MouseEvent) => void;
+      onChromeRecentSubmenuEnter: () => void;
+      onChromeFileItemEnter: () => void;
+      chromeMenu: () => string | null;
+      chromeRecentMenuX: () => number;
+    };
+    app.onChromeFileMenu(fakeChromeMenuEvent());
+    app.onChromeOpenRecentEnter(fakeChromeMenuEvent({ left: 10, right: 80, top: 40, bottom: 60 }));
+    expect(app.chromeMenu()).toBe('file-recent');
+    expect(app.chromeRecentMenuX()).toBe(79);
+    app.onChromeFileItemEnter();
+    app.onChromeRecentSubmenuEnter();
+    expect(app.chromeMenu()).toBe('file-recent');
+  });
+
+  it('routes native File menu commands and ignores create actions without a workspace', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const beginCreateFromMenu = vi.fn();
+    const openNewTerminal = vi.fn();
+    const appQuit = vi.fn();
+    const app = fixture.componentInstance as unknown as {
+      onMenuFileCommand: (command: { action: string; workspaceId?: string }) => void;
+      workspacePanel: { beginCreateFromMenu: typeof beginCreateFromMenu } | undefined;
+      workspaceTerminalDock: { openNewTerminal: typeof openNewTerminal } | undefined;
+      electron: { appQuit: () => void };
+      currentWorkspaceId: { (): string | null; set: (id: string | null) => void };
+    };
+    app.workspacePanel = { beginCreateFromMenu };
+    app.workspaceTerminalDock = { openNewTerminal };
+    app.electron.appQuit = appQuit;
+
+    app.onMenuFileCommand({ action: 'new-file' });
+    app.onMenuFileCommand({ action: 'new-folder' });
+    app.onMenuFileCommand({ action: 'new-terminal' });
+    expect(beginCreateFromMenu).not.toHaveBeenCalled();
+    expect(openNewTerminal).not.toHaveBeenCalled();
+
+    app.currentWorkspaceId.set('ws-a');
+    app.onMenuFileCommand({ action: 'new-file' });
+    app.onMenuFileCommand({ action: 'new-folder' });
+    app.onMenuFileCommand({ action: 'new-terminal' });
+    expect(beginCreateFromMenu).toHaveBeenCalledWith('file');
+    expect(beginCreateFromMenu).toHaveBeenCalledWith('folder');
+    expect(openNewTerminal).toHaveBeenCalledTimes(1);
+
+    app.onMenuFileCommand({ action: 'exit' });
+    expect(appQuit).toHaveBeenCalledTimes(1);
   });
 });

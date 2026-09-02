@@ -135,6 +135,7 @@
             role='menu'
             [style.left.px]='chromeRecentMenuX()'
             [style.top.px]='chromeRecentMenuY()'
+            (mouseenter)='onChromeRecentSubmenuEnter()'
           >
             @for (ws of recentWorkspaces(); track ws.id) {
               <button
@@ -142,6 +143,7 @@
                 class='chrome-dropdown-menu-item'
                 role='menuitem'
                 [class.is-current]='ws.id === currentWorkspaceId()'
+                [attr.aria-current]='ws.id === currentWorkspaceId() ? "true" : null'
                 (mousedown)='onChromeMenuItemMousedown($event); onChromeOpenRecentWorkspace(ws.id)'
               >
                 <span>{{ ws.name }}</span>

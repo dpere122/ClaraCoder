@@ -32,6 +32,7 @@ import type {
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
+  MenuFileCommand,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
@@ -393,7 +394,7 @@ export class ElectronService {
   private readonly healthLogRecordSubject = new Subject<HealthLogRecord>();
   private readonly windowMaximizedSubject = new Subject<boolean>();
   private readonly editorFindRequestedSubject = new Subject<void>();
-  private readonly menuFileCommandSubject = new Subject<{ action: string; workspaceId?: string }>();
+  private readonly menuFileCommandSubject = new Subject<MenuFileCommand>();
   /** Emits when the main BrowserWindow is maximized or restored (frameless chrome). */
   readonly windowMaximized$ = this.windowMaximizedSubject.asObservable();
   /** Main intercepted Ctrl/Cmd+F; open Monaco find when a file editor is active. */
@@ -2107,6 +2108,10 @@ export class ElectronService {
 
   windowClose(): void {
     this.api?.windowClose();
+  }
+
+  appQuit(): void {
+    this.api?.appQuit();
   }
 
   windowIsMaximized(): Promise<boolean> {

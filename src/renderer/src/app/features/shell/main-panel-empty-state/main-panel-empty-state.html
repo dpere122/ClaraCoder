@@ -2,10 +2,7 @@
   <div class="main-panel-empty__glow" aria-hidden="true"></div>
 
   @if (!hasWorkspace()) {
-    <div
-      class="main-panel-empty__welcome"
-      [class.main-panel-empty__welcome--with-recents]='visibleRecents().length > 0'
-    >
+    <div class="main-panel-empty__welcome">
       <div
         class="main-panel-empty__etch"
         aria-hidden="true"
@@ -26,38 +23,113 @@
           </button>
         </div>
 
-        @if (visibleRecents().length > 0) {
-          <nav class="main-panel-empty__recents" aria-label="Recent workspaces">
-            <h3 class="main-panel-empty__recents-heading">Recent</h3>
-            <ul class="main-panel-empty__recents-list">
-              @for (ws of visibleRecents(); track ws.id) {
-                <li>
-                  <button
-                    type="button"
-                    class="main-panel-empty__recent"
-                    [title]="ws.path"
-                    (click)="openWorkspace.emit(ws.id)"
-                  >
-                    <lucide-icon name="folder" [size]="15" class="main-panel-empty__recent-icon" />
-                    <span class="main-panel-empty__recent-text">
-                      <span class="main-panel-empty__recent-name">{{ ws.name }}</span>
-                      <span class="main-panel-empty__recent-path">{{ ws.path }}</span>
-                    </span>
-                  </button>
-                </li>
-              }
-            </ul>
+        @if (recentWorkspaces().length > 0) {
+          <nav class="main-panel-empty__recents" aria-label="Workspaces">
+            <div class="main-panel-empty__recents-frame">
+              <div class="main-panel-empty__recents-scroll">
+                @if (favoriteWorkspaces().length > 0) {
+                  <section class="main-panel-empty__recents-section">
+                    <h3 class="main-panel-empty__recents-heading">Favorites</h3>
+                    <ul
+                      class="main-panel-empty__recents-list"
+                      cdkDropList
+                      [cdkDropListData]="favoriteWorkspaces()"
+                      (cdkDropListDropped)="onFavoriteDrop($event)"
+                    >
+                      @for (ws of favoriteWorkspaces(); track ws.id) {
+                        <li class="main-panel-empty__row" cdkDrag>
+                          <div class="main-panel-empty__recent main-panel-empty__recent--favorite">
+                            <button
+                              type="button"
+                              class="main-panel-empty__lead main-panel-empty__drag"
+                              cdkDragHandle
+                              title="Drag to reorder"
+                              aria-label="Drag to reorder"
+                            >
+                              <lucide-icon name="grip-vertical" [size]="14" />
+                            </button>
+                            <button
+                              type="button"
+                              class="main-panel-empty__recent-main"
+                              [title]="ws.path"
+                              (click)="openWorkspace.emit(ws.id)"
+                            >
+                              <lucide-icon name="folder" [size]="15" class="main-panel-empty__recent-icon" />
+                              <span class="main-panel-empty__recent-name">{{ ws.name }}</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="main-panel-empty__remove"
+                              title="Remove favorite"
+                              aria-label="Remove favorite"
+                              (click)="toggleFavorite.emit(ws.id); $event.stopPropagation()"
+                            >
+                              <lucide-icon name="minus" [size]="14" />
+                            </button>
+                          </div>
+                        </li>
+                      }
+                    </ul>
+                  </section>
+                }
+                @if (recentOnlyWorkspaces().length > 0) {
+                  <section class="main-panel-empty__recents-section">
+                    <h3 class="main-panel-empty__recents-heading">Recent</h3>
+                    <ul class="main-panel-empty__recents-list">
+                      @for (ws of recentOnlyWorkspaces(); track ws.id) {
+                        <li class="main-panel-empty__row">
+                          <div class="main-panel-empty__recent">
+                            <button
+                              type="button"
+                              class="main-panel-empty__lead"
+                              title="Add favorite"
+                              aria-label="Add favorite"
+                              aria-pressed="false"
+                              (click)="toggleFavorite.emit(ws.id)"
+                            >
+                              <lucide-icon name="folder" [size]="15" class="main-panel-empty__lead-idle main-panel-empty__recent-icon" />
+                              <lucide-icon name="star" [size]="14" class="main-panel-empty__lead-hover" />
+                            </button>
+                            <button
+                              type="button"
+                              class="main-panel-empty__recent-main"
+                              [title]="ws.path"
+                              (click)="openWorkspace.emit(ws.id)"
+                            >
+                              <span class="main-panel-empty__recent-name">{{ ws.name }}</span>
+                              <span class="main-panel-empty__recent-opened">{{ lastOpenedById().get(ws.id) }}</span>
+                            </button>
+                          </div>
+                        </li>
+                      }
+                    </ul>
+                  </section>
+                }
+              </div>
+            </div>
           </nav>
         }
       </div>
 
       <div class="main-panel-empty__model">
         <button type="button" class="main-panel-empty__link" (click)="openModelManager.emit()">
-          Model Manager
+          Models
         </button>
         <button type="button" class="main-panel-empty__link" (click)="openDependencies.emit()">
           Dependencies
         </button>
+        <label
+          class="main-panel-empty__home-default"
+          title="Open this home page on start instead of the last workspace"
+        >
+          <input
+            type="checkbox"
+            class="main-panel-empty__home-default-checkbox"
+            [checked]="defaultHomePage()"
+            (change)="onDefaultHomePageChange($event)"
+          />
+          <span class="main-panel-empty__home-default-label">default Home page</span>
+        </label>
       </div>
     </div>
   } @else {

@@ -83,6 +83,7 @@ describe('buildApplicationMenuTemplate File menu', () => {
     expect(fileLabels()).toEqual([
       'Open Folder',
       'Open Recent',
+      'Close Workspace',
       '---',
       'New File',
       'New Folder',
@@ -90,6 +91,8 @@ describe('buildApplicationMenuTemplate File menu', () => {
       'New Terminal',
       'Exit',
     ]);
+    const submenu = fileMenu().submenu as Electron.MenuItemConstructorOptions[];
+    expect(submenu.find((item) => item.label === 'Close Workspace')?.enabled).toBe(true);
   });
 
   it('lists recent workspaces in the Open Recent submenu', () => {
@@ -122,7 +125,7 @@ describe('buildApplicationMenuTemplate File menu', () => {
     expect(exit?.click).toBeUndefined();
   });
 
-  it('disables New File / New Folder / New Agent / New Terminal without a workspace', async () => {
+  it('disables New File / New Folder / New Agent / New Terminal / Close Workspace without a workspace', async () => {
     const { loadConfigSync } = await import('../config/load-save');
     vi.mocked(loadConfigSync).mockReturnValueOnce({
       currentWorkspaceId: null,
@@ -133,6 +136,7 @@ describe('buildApplicationMenuTemplate File menu', () => {
     expect(submenu.find((item) => item.label === 'New Folder')?.enabled).toBe(false);
     expect(submenu.find((item) => item.label === 'New Agent')?.enabled).toBe(false);
     expect(submenu.find((item) => item.label === 'New Terminal')?.enabled).toBe(false);
+    expect(submenu.find((item) => item.label === 'Close Workspace')?.enabled).toBe(false);
   });
 
   it('shows an empty-state item when there are no recent workspaces', () => {

@@ -13,6 +13,20 @@ export function formatUnsavedWorkspaceDetail(paths: readonly string[]): string {
   return `${paths.length} unsaved files, including:\n${head.join('\n')}${tail}`;
 }
 
+/** Copy for File → Close Workspace (always shown before returning to the welcome screen). */
+export function closeWorkspacePrompt(workspaceName?: string): ThemedConfirmOpenOptions {
+  const name = workspaceName?.trim();
+  return {
+    title: 'Close workspace',
+    message: name
+      ? `Close "${name}" and return to the welcome screen?`
+      : 'Close the current workspace and return to the welcome screen?',
+    cancelText: 'Cancel',
+    confirmText: 'Close workspace',
+    variant: 'warning',
+  };
+}
+
 /** Copy for the “unsaved workspace files” confirmation (used in shell + settings). */
 export function unsavedWorkspaceSwitchPrompt(paths: readonly string[]): ThemedConfirmOpenOptions {
   return {

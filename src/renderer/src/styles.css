@@ -325,14 +325,21 @@ app-stream-tool-pill .stream-tool-pill,
 .chat-context-chip-remove,
 .chat-context-chip-thumb,
 .user-attachment-file,
-.main-panel-empty__cta {
+.main-panel-empty__cta,
+.main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
+.main-panel-empty__recents-scroll::-webkit-scrollbar-track {
   border-radius: 999px !important;
 }
 
 app-stream-thought-pill .stream-thought-preview__inner,
 app-stream-brief-pill .stream-brief-preview__inner,
-app-stream-nudge-pill .stream-nudge-preview__inner {
+app-stream-nudge-pill .stream-nudge-preview__inner,
+.main-panel-empty__recents-frame {
   border-radius: 0.85rem !important;
+}
+
+.main-panel-empty__recent {
+  border-radius: 0.7rem !important;
 }
 
 html, body {

@@ -310,6 +310,48 @@ export function deleteConversationById(id: string): void {
   database.prepare('DELETE FROM conversations WHERE id = ?').run(id);
 }
 
+/** Conversation ids stored under a workspace (empty when none). */
+export function listConversationIdsByWorkspaceId(workspaceId: string): string[] {
+  const id = workspaceId.trim();
+  if (!id) {
+    return [];
+  }
+  const rows = getDb()
+    .prepare('SELECT id FROM conversations WHERE workspace_id = ?')
+    .all(id) as { id: string }[];
+  return rows.map((row) => row.id);
+}
+
+/** Distinct non-null workspace ids that still have conversation rows. */
+export function listDistinctConversationWorkspaceIds(): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT workspace_id FROM conversations
+       WHERE workspace_id IS NOT NULL AND workspace_id != ''`,
+    )
+    .all() as { workspace_id: string }[];
+  return rows.map((row) => row.workspace_id);
+}
+
+/** Delete all conversations (and file-journal rows) for a workspace. Returns removed ids. */
+export function deleteConversationsByWorkspaceId(workspaceId: string): string[] {
+  const ids = listConversationIdsByWorkspaceId(workspaceId);
+  if (ids.length === 0) {
+    return [];
+  }
+  const database = getDb();
+  const deleteJournal = database.prepare('DELETE FROM conversation_file_journal WHERE conversation_id = ?');
+  const deleteConv = database.prepare('DELETE FROM conversations WHERE id = ?');
+  const tx = database.transaction(() => {
+    for (const id of ids) {
+      deleteJournal.run(id);
+      deleteConv.run(id);
+    }
+  });
+  tx();
+  return ids;
+}
+
 interface FileJournalRow {
   conversation_id: string;
   user_message_id: string;

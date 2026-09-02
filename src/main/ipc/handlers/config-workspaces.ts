@@ -13,7 +13,8 @@ import type {
 import {
   findLlmModelLocation,
   normalizeWorkspaceOpenTabsState,
-  pruneRemovedWorkspaceClientState,
+  reorderFavoriteWorkspaces,
+  setWorkspaceFavorite,
 } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
@@ -35,6 +36,12 @@ import { getRecentConversations } from '../../menu/recent-conversations';
 import { buildMenu } from '../../menu/application-menu';
 import { assertTrustedAppRenderer, assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './health';
+import {
+  dropWorkspaceFromConfig,
+  purgeWorkspacePersistedData,
+  reconcileLostWorkspaces,
+  type ReconcileLostWorkspacesResult,
+} from '../../workspace/lost-workspace';
 
 /**
  * Push workspace system-prompt text into the active Python session immediately.
@@ -86,6 +93,24 @@ function broadcastConfig(config: AppConfig): void {
   sendToWindowIfAlive(mainState.healthWindow, 'config-updated', config);
 }
 
+async function publishLostWorkspaceReconcile(result: ReconcileLostWorkspacesResult): Promise<void> {
+  if (result.removedIds.length === 0 && !result.currentWorkspaceChanged) {
+    return;
+  }
+  if (result.currentWorkspaceChanged) {
+    await shutdownAllLspManagersBestEffort();
+    sendToWindowIfAlive(mainState.mainWindow, 'workspace-changed', result.config.currentWorkspaceId);
+  }
+  broadcastConfig(result.config);
+  buildMenu();
+  void applyPublishedConfigRuntime(result.config).catch((err) => {
+    console.error('Failed to apply config after lost-workspace reconcile:', err);
+  });
+  void refreshWorkspaceWatcherForCurrentConfig(result.config).catch((err) => {
+    console.error('Failed to refresh workspace watcher after lost-workspace reconcile:', err);
+  });
+}
+
 async function applyPublishedConfigRuntime(config: AppConfig): Promise<void> {
   await applyResolvedUserPath({ extraUserPath: config.workspaceTools?.extraUserPath ?? '' });
   await syncPythonLogLevel(config.healthMonitor.logLevel);
@@ -94,6 +119,13 @@ async function applyPublishedConfigRuntime(config: AppConfig): Promise<void> {
   // are not clobbered by this (possibly delayed) save-time snapshot.
   await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
   await applyWorkspaceExposeAllFromConfig(config);
+}
+
+/** Drop folders that vanished on disk, then publish so windows and the File menu stay in sync. */
+export async function reconcileLostWorkspacesOnStartup(): Promise<AppConfig> {
+  const result = await reconcileLostWorkspaces();
+  await publishLostWorkspaceReconcile(result);
+  return result.config;
 }
 
 /**
@@ -328,7 +360,9 @@ export function registerConfigWorkspacesIpc(): void {
     } catch {
       return null;
     }
-    return loadConfig();
+    const result = await reconcileLostWorkspaces();
+    await publishLostWorkspaceReconcile(result);
+    return result.config;
   });
 
   ipcMain.handle('save-config', async (event, config: AppConfig) => {
@@ -411,8 +445,9 @@ export function registerConfigWorkspacesIpc(): void {
     } catch {
       return [];
     }
-    const config = await loadConfig();
-    return config.workspaces;
+    const result = await reconcileLostWorkspaces();
+    await publishLostWorkspaceReconcile(result);
+    return result.config.workspaces;
   });
 
   ipcMain.handle('add-workspace', async (event, name: string, workspacePath: string) => {
@@ -449,17 +484,16 @@ export function registerConfigWorkspacesIpc(): void {
     } catch {
       return;
     }
+    const previousCurrent = (await loadConfig()).currentWorkspaceId;
     const config = await updateConfig((cfg) => {
-      cfg.workspaces = cfg.workspaces.filter((w) => w.id !== id);
-      if (cfg.currentWorkspaceId === id) {
-        cfg.currentWorkspaceId = cfg.workspaces.length > 0 ? cfg.workspaces[0].id : null;
-      }
-      pruneRemovedWorkspaceClientState(cfg, id);
+      dropWorkspaceFromConfig(cfg, id);
     });
-    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
-    await refreshWorkspaceWatcherForCurrentConfig(config);
-    broadcastConfig(config);
-    buildMenu();
+    await purgeWorkspacePersistedData(id);
+    await publishLostWorkspaceReconcile({
+      config,
+      removedIds: [id],
+      currentWorkspaceChanged: previousCurrent !== config.currentWorkspaceId,
+    });
   });
 
   ipcMain.handle('set-current-workspace', async (event, id: string | null) => {
@@ -468,8 +502,12 @@ export function registerConfigWorkspacesIpc(): void {
     } catch {
       return;
     }
-    const current = await loadConfig();
-    if (id === current.currentWorkspaceId) {
+    const reconciled = await reconcileLostWorkspaces();
+    await publishLostWorkspaceReconcile(reconciled);
+    if (id && !reconciled.config.workspaces.some((workspace) => workspace.id === id)) {
+      return;
+    }
+    if (id === reconciled.config.currentWorkspaceId) {
       return;
     }
 
@@ -486,6 +524,40 @@ export function registerConfigWorkspacesIpc(): void {
     sendToWindowIfAlive(mainState.mainWindow, 'workspace-changed', id);
     broadcastConfig(config);
     buildMenu();
+  });
+
+  ipcMain.handle('set-workspace-favorite', async (event, id: string, favorite: boolean) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    if (typeof id !== 'string' || !id.trim() || typeof favorite !== 'boolean') {
+      return null;
+    }
+    const config = await updateConfig((cfg) => {
+      cfg.workspaces = setWorkspaceFavorite(cfg.workspaces, id, favorite);
+    });
+    broadcastConfig(config);
+    buildMenu();
+    return config;
+  });
+
+  ipcMain.handle('reorder-workspace-favorites', async (event, orderedIds: unknown) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(orderedIds) || orderedIds.some((item) => typeof item !== 'string')) {
+      return null;
+    }
+    const config = await updateConfig((cfg) => {
+      cfg.workspaces = reorderFavoriteWorkspaces(cfg.workspaces, orderedIds as string[]);
+    });
+    broadcastConfig(config);
+    buildMenu();
+    return config;
   });
 
   ipcMain.handle('set-theme', async (event, themeId: string) => {
@@ -508,9 +580,10 @@ export function registerConfigWorkspacesIpc(): void {
     } catch {
       return null;
     }
-    const config = await loadConfig();
-    if (!config.currentWorkspaceId) return null;
-    return config.workspaces.find((w) => w.id === config.currentWorkspaceId) || null;
+    const result = await reconcileLostWorkspaces();
+    await publishLostWorkspaceReconcile(result);
+    if (!result.config.currentWorkspaceId) return null;
+    return result.config.workspaces.find((w) => w.id === result.config.currentWorkspaceId) || null;
   });
 
   ipcMain.handle('set-always-on-top', (event, pinned: boolean) => {

@@ -205,6 +205,7 @@ export function createDefaultConfig(): AppConfig {
   return {
     configSchemaVersion: APP_CONFIG_SCHEMA_VERSION,
     currentWorkspaceId: null,
+    defaultHomePageOnStart: false,
     lastActiveConversationByWorkspaceId: {},
     workspaceMonacoScrollByWorkspaceId: {},
     workspaceOpenTabsByWorkspaceId: {},
@@ -236,5 +237,6 @@ export function workspaceFromLegacyPath(oldPath: string): Workspace {
     name: path.basename(oldPath) || 'Default Workspace',
     path: oldPath,
     createdAt: new Date().toISOString(),
+    lastOpenedAt: new Date().toISOString(),
   };
 }

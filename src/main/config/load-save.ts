@@ -1047,6 +1047,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const defaultHome = (newConfig as AppConfig).defaultHomePageOnStart;
+  if (typeof defaultHome !== 'boolean') {
+    (newConfig as AppConfig).defaultHomePageOnStart = false;
+    migrated = true;
+  }
+
   const collapsed = (newConfig as AppConfig).chatSidebarCollapsed;
   if (typeof collapsed !== 'boolean') {
     (newConfig as AppConfig).chatSidebarCollapsed = false;

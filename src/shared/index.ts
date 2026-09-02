@@ -8,6 +8,13 @@ export {
   isNoWorkspaceSystemPromptId,
   resolveSystemPromptStorageId,
   sortRecentWorkspaces,
+  isFavoriteWorkspace,
+  sortFavoriteWorkspaces,
+  sortNonFavoriteWorkspaces,
+  setWorkspaceFavorite,
+  compactFavoriteOrders,
+  reorderFavoriteWorkspaces,
+  formatWorkspaceLastOpenedLabel,
 } from './types/workspace';
 export {
   LEGACY_WORKSPACE_META_DIR,
@@ -200,6 +207,8 @@ export {
   clampUiFontSizeRem,
   normalizeChatContainerSize,
   resolveChatWindowState,
+  resolveStartupWorkspaceId,
+  shouldOpenHomePageOnStart,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,

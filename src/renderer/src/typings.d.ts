@@ -410,6 +410,8 @@ declare global {
     addWorkspace: (name: string, path: string) => Promise<Workspace>;
     removeWorkspace: (id: string) => Promise<void>;
     setCurrentWorkspace: (id: string | null) => Promise<void>;
+    setWorkspaceFavorite: (id: string, favorite: boolean) => Promise<AppConfig | null>;
+    reorderWorkspaceFavorites: (orderedIds: string[]) => Promise<AppConfig | null>;
     getWorkspaceMonacoUnsavedPaths: () => Promise<string[]>;
     reportWorkspaceMonacoUnsavedPaths: (paths: string[]) => void;
     getCurrentWorkspace: () => Promise<Workspace | null>;

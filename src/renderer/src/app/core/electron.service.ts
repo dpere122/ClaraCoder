@@ -68,6 +68,7 @@ import { getDefaultContextCompression, SecretValue } from '@shared/index';
 /** Shape returned when `window.electronAPI` is unavailable (e.g. browser preview outside Electron). */
 const FALLBACK_APP_CONFIG: AppConfig = {
   currentWorkspaceId: null,
+  defaultHomePageOnStart: false,
   workspaces: [],
   themeId: 'woodland',
   activeLlmModelId: 'default-lmstudio',
@@ -1105,6 +1106,14 @@ export class ElectronService {
 
   setCurrentWorkspace(id: string | null): Promise<void> {
     return this.api?.setCurrentWorkspace(id) ?? Promise.resolve();
+  }
+
+  setWorkspaceFavorite(id: string, favorite: boolean): Promise<AppConfig | null> {
+    return this.api?.setWorkspaceFavorite?.(id, favorite) ?? Promise.resolve(null);
+  }
+
+  reorderWorkspaceFavorites(orderedIds: string[]): Promise<AppConfig | null> {
+    return this.api?.reorderWorkspaceFavorites?.(orderedIds) ?? Promise.resolve(null);
   }
 
   getWorkspaceMonacoUnsavedPaths(): Promise<string[]> {

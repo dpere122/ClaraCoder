@@ -283,6 +283,85 @@ describe('App', () => {
     expect(saved.chatExpandedToMainPanel).toBe(true);
   });
 
+  it('stays on the home screen when defaultHomePageOnStart is set', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      defaultHomePageOnStart: true,
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+          activeTabId: 'file:rel:src/foo.ts',
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const app = fixture.componentInstance as unknown as {
+      currentWorkspaceId: () => string | null;
+      defaultHomePageOnStart: () => boolean;
+      fileTabs: () => Array<{ relativePath?: string }>;
+    };
+    expect(app.currentWorkspaceId()).toBeNull();
+    expect(app.defaultHomePageOnStart()).toBe(true);
+    expect(app.fileTabs()).toEqual([]);
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.app-content--no-workspace')).toBeTruthy();
+    expect(compiled.querySelector('.main-panel-empty__welcome')).toBeTruthy();
+    const checkbox = compiled.querySelector(
+      '.main-panel-empty__home-default-checkbox',
+    ) as HTMLInputElement | null;
+    expect(checkbox?.checked).toBe(true);
+  });
+
+  it('persists the default Home page checkbox from the welcome intro', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: null,
+      defaultHomePageOnStart: false,
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const checkbox = (fixture.nativeElement as HTMLElement).querySelector(
+      '.main-panel-empty__home-default-checkbox',
+    ) as HTMLInputElement | null;
+    expect(checkbox).toBeTruthy();
+    refs.saveConfig.mockClear();
+    checkbox!.checked = true;
+    checkbox!.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(refs.saveConfig).toHaveBeenCalled();
+    const saved = refs.saveConfig.mock.calls.at(-1)?.[0] as { defaultHomePageOnStart?: boolean };
+    expect(saved.defaultHomePageOnStart).toBe(true);
+  });
+
+  it('does not restore the last workspace from a config broadcast after a home-on-start launch', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      defaultHomePageOnStart: true,
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      currentWorkspaceId: () => string | null;
+    };
+    expect(app.currentWorkspaceId()).toBeNull();
+
+    refs.configUpdatedHandler?.({}, {
+      ...refs.loadedConfig,
+      currentWorkspaceId: 'ws-a',
+      defaultHomePageOnStart: true,
+    });
+    await fixture.whenStable();
+    expect(app.currentWorkspaceId()).toBeNull();
+  });
+
   it('restores open file tabs for the current workspace from config', async () => {
     refs = stubElectronApi(undefined, {
       currentWorkspaceId: 'ws-a',
@@ -617,10 +696,12 @@ describe('App', () => {
     expect(app.chromeMenu()).toBe('file');
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const newAgent = [...compiled.querySelectorAll('.chrome-dropdown-menu-item')].find((el) =>
-      el.textContent?.includes('New Agent'),
-    ) as HTMLButtonElement | undefined;
+    const items = [...compiled.querySelectorAll('.chrome-dropdown-menu-item')] as HTMLButtonElement[];
+    const newAgent = items.find((el) => el.textContent?.includes('New Agent'));
+    const closeWorkspace = items.find((el) => el.textContent?.includes('Close Workspace'));
     expect(newAgent?.disabled).toBe(true);
+    expect(closeWorkspace).toBeTruthy();
+    expect(closeWorkspace?.disabled).toBe(true);
     app.onChromeFileMenu(fakeChromeMenuEvent());
     expect(app.chromeMenu()).toBeNull();
   });
@@ -669,6 +750,7 @@ describe('App', () => {
     app.onMenuFileCommand({ action: 'new-folder' });
     app.onMenuFileCommand({ action: 'new-agent' });
     app.onMenuFileCommand({ action: 'new-terminal' });
+    app.onMenuFileCommand({ action: 'close-workspace' });
     expect(beginCreateFromMenu).not.toHaveBeenCalled();
     expect(onNewConversation).not.toHaveBeenCalled();
     expect(openNewTerminal).not.toHaveBeenCalled();
@@ -685,5 +767,37 @@ describe('App', () => {
 
     app.onMenuFileCommand({ action: 'exit' });
     expect(appQuit).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for confirmation before File → Close Workspace and then shows the welcome screen', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const app = fixture.componentInstance as unknown as {
+      closeCurrentWorkspace: () => Promise<void>;
+      themedConfirm: { open: (opts: unknown) => Promise<string> };
+      currentWorkspaceId: { (): string | null };
+    };
+    const open = vi.fn(async () => 'cancel');
+    app.themedConfirm.open = open;
+
+    await app.closeCurrentWorkspace();
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Close workspace',
+        confirmText: 'Close workspace',
+        message: expect.stringContaining('Alpha'),
+      }),
+    );
+    expect(app.currentWorkspaceId()).toBe('ws-a');
+
+    open.mockResolvedValue('confirm');
+    await app.closeCurrentWorkspace();
+    fixture.detectChanges();
+    expect(app.currentWorkspaceId()).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.app-content--no-workspace')).toBeTruthy();
   });
 });

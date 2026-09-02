@@ -78,6 +78,16 @@
               <span>Open Recent</span>
               <span class='chrome-dropdown-accel' aria-hidden='true'>›</span>
             </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeCloseWorkspace()'
+            >
+              <span>Close Workspace</span>
+            </button>
             <div class='chrome-dropdown-menu-sep' role='separator'></div>
             <button
               type='button'
@@ -291,11 +301,15 @@
             <app-main-panel-empty-state
               class='chat-area__panel-host'
               [hasWorkspace]='!!currentWorkspaceId()'
-              [recentWorkspaces]='recentWorkspaces()'
+              [recentWorkspaces]='workspaces()'
+              [defaultHomePage]='defaultHomePageOnStart()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
+              (toggleFavorite)='onToggleWorkspaceFavorite($event)'
+              (reorderFavorites)='onReorderWorkspaceFavorites($event)'
               (openModelManager)='onChromeMenuSettingsTab("modelManager")'
               (openDependencies)='onChromeDependencies()'
+              (defaultHomePageChange)='onDefaultHomePageChange($event)'
             />
           </div>
           @if (hasOpenWorkspace()) {

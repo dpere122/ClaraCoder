@@ -6,7 +6,6 @@ export type { Workspace, MenuFileCommand, MenuFileCommandAction } from './types/
 export {
   NO_WORKSPACE_SYSTEM_PROMPT_ID,
   isNoWorkspaceSystemPromptId,
-  resolveSystemPromptStorageId,
   sortRecentWorkspaces,
   isFavoriteWorkspace,
   sortFavoriteWorkspaces,

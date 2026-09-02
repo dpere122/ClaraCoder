@@ -923,7 +923,7 @@ export class SettingsStore {
     await this.electron.removeWorkspace(id);
   }
 
-  async selectWorkspace(id: string | null): Promise<void> {
+  async selectWorkspace(id: string): Promise<void> {
     const config = await this.electron.loadConfig();
     const fromWorkspaceId = config.currentWorkspaceId;
 

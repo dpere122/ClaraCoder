@@ -752,8 +752,7 @@ html.theme-woodland .settings-nav {
   border-bottom: 1px solid var(--t-border);
 }
 html.theme-woodland .connection-card,
-html.theme-woodland .workspace-card__body,
-html.theme-woodland .workspace-card--none {
+html.theme-woodland .workspace-card__body {
   border: none;
   box-shadow: none;
   border-bottom: 1px solid var(--t-border-subtle);

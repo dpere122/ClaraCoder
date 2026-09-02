@@ -1,17 +1,5 @@
       <div class='settings-pane'>
         <div class='workspace-list'>
-          <div class='workspace-card workspace-card--none' [class.is-selected]='!s.currentWorkspace()'>
-            <button type='button' class='workspace-card__body' (click)='s.selectWorkspace(null)'>
-              <div class='workspace-card__header'>
-                <strong>No Workspace</strong>
-                @if (!s.currentWorkspace()) {
-                  <span class='pill pill--success'>Active</span>
-                }
-              </div>
-              <p>Chat without attaching a local project.</p>
-            </button>
-          </div>
-
           @for (workspace of s.workspaces(); track s.trackWorkspace($index, workspace)) {
             <div class='workspace-card' [class.is-selected]='workspace.id === s.currentWorkspace()?.id'>
               <button type='button' class='workspace-card__body' (click)='s.selectWorkspace(workspace.id)'>

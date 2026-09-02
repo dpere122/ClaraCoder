@@ -395,6 +395,38 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Clara Coder');
   });
 
+  it('hides workspace-specific chrome when no workspace is open', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.workspace-panel')).toBeNull();
+    expect(compiled.querySelector('app-workspace')).toBeNull();
+    expect(compiled.querySelector('.sidebar')).toBeNull();
+    expect(compiled.querySelector('app-chat-conversation-hub')).toBeNull();
+    expect(compiled.querySelector('app-managed-llama-controls')).toBeNull();
+    expect(compiled.querySelector('app-workspace-terminal-dock')).toBeNull();
+    expect(compiled.querySelector('.chat-area__tab-strip')).toBeNull();
+    expect(compiled.querySelector('app-main-panel-empty-state')).toBeTruthy();
+    expect(compiled.querySelector('.app-content--no-workspace')).toBeTruthy();
+  });
+
+  it('shows workspace-specific chrome when a workspace is open', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.workspace-panel')).toBeTruthy();
+    expect(compiled.querySelector('app-workspace')).toBeTruthy();
+    expect(compiled.querySelector('.sidebar')).toBeTruthy();
+    expect(compiled.querySelector('app-chat-conversation-hub')).toBeTruthy();
+    expect(compiled.querySelector('.app-content--no-workspace')).toBeNull();
+  });
+
   it('persists a delete-confirm for a non-active conversation so it re-surfaces on reopen', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
@@ -545,6 +577,12 @@ describe('App', () => {
     };
     app.onChromeFileMenu(fakeChromeMenuEvent());
     expect(app.chromeMenu()).toBe('file');
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const newAgent = [...compiled.querySelectorAll('.chrome-dropdown-menu-item')].find((el) =>
+      el.textContent?.includes('New Agent'),
+    ) as HTMLButtonElement | undefined;
+    expect(newAgent?.disabled).toBe(true);
     app.onChromeFileMenu(fakeChromeMenuEvent());
     expect(app.chromeMenu()).toBeNull();
   });
@@ -574,9 +612,11 @@ describe('App', () => {
     await fixture.whenStable();
     const beginCreateFromMenu = vi.fn();
     const openNewTerminal = vi.fn();
+    const onNewConversation = vi.fn();
     const appQuit = vi.fn();
     const app = fixture.componentInstance as unknown as {
       onMenuFileCommand: (command: { action: string; workspaceId?: string }) => void;
+      onNewConversation: typeof onNewConversation;
       workspacePanel: { beginCreateFromMenu: typeof beginCreateFromMenu } | undefined;
       workspaceTerminalDock: { openNewTerminal: typeof openNewTerminal } | undefined;
       electron: { appQuit: () => void };
@@ -584,20 +624,25 @@ describe('App', () => {
     };
     app.workspacePanel = { beginCreateFromMenu };
     app.workspaceTerminalDock = { openNewTerminal };
+    app.onNewConversation = onNewConversation;
     app.electron.appQuit = appQuit;
 
     app.onMenuFileCommand({ action: 'new-file' });
     app.onMenuFileCommand({ action: 'new-folder' });
+    app.onMenuFileCommand({ action: 'new-agent' });
     app.onMenuFileCommand({ action: 'new-terminal' });
     expect(beginCreateFromMenu).not.toHaveBeenCalled();
+    expect(onNewConversation).not.toHaveBeenCalled();
     expect(openNewTerminal).not.toHaveBeenCalled();
 
     app.currentWorkspaceId.set('ws-a');
     app.onMenuFileCommand({ action: 'new-file' });
     app.onMenuFileCommand({ action: 'new-folder' });
+    app.onMenuFileCommand({ action: 'new-agent' });
     app.onMenuFileCommand({ action: 'new-terminal' });
     expect(beginCreateFromMenu).toHaveBeenCalledWith('file');
     expect(beginCreateFromMenu).toHaveBeenCalledWith('folder');
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
     expect(openNewTerminal).toHaveBeenCalledTimes(1);
 
     app.onMenuFileCommand({ action: 'exit' });

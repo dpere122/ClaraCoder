@@ -122,7 +122,7 @@ describe('buildApplicationMenuTemplate File menu', () => {
     expect(exit?.click).toBeUndefined();
   });
 
-  it('disables New File / New Folder / New Terminal without a workspace', async () => {
+  it('disables New File / New Folder / New Agent / New Terminal without a workspace', async () => {
     const { loadConfigSync } = await import('../config/load-save');
     vi.mocked(loadConfigSync).mockReturnValueOnce({
       currentWorkspaceId: null,
@@ -131,8 +131,8 @@ describe('buildApplicationMenuTemplate File menu', () => {
     const submenu = fileMenu().submenu as Electron.MenuItemConstructorOptions[];
     expect(submenu.find((item) => item.label === 'New File')?.enabled).toBe(false);
     expect(submenu.find((item) => item.label === 'New Folder')?.enabled).toBe(false);
+    expect(submenu.find((item) => item.label === 'New Agent')?.enabled).toBe(false);
     expect(submenu.find((item) => item.label === 'New Terminal')?.enabled).toBe(false);
-    expect(submenu.find((item) => item.label === 'New Agent')?.enabled).not.toBe(false);
   });
 
   it('shows an empty-state item when there are no recent workspaces', () => {

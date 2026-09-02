@@ -1876,6 +1876,9 @@ export class App implements OnInit, OnDestroy {
 
   protected onChromeNewAgent(): void {
     this.closeChromeMenu();
+    if (!this.hasOpenWorkspace()) {
+      return;
+    }
     void this.onNewConversation();
   }
 
@@ -1915,6 +1918,9 @@ export class App implements OnInit, OnDestroy {
         this.workspacePanel?.beginCreateFromMenu('folder');
         break;
       case 'new-agent':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
         void this.onNewConversation();
         break;
       case 'new-terminal':

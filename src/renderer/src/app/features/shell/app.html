@@ -102,6 +102,7 @@
               type='button'
               class='chrome-dropdown-menu-item'
               role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
               (mouseenter)='onChromeFileItemEnter()'
               (mousedown)='onChromeMenuItemMousedown($event); onChromeNewAgent()'
             >
@@ -164,27 +165,30 @@
     }
   </div>
 
-  <div class='app-content'>
-    <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
-      <app-workspace
-        [workspaces]='workspaces()'
-        [currentWorkspaceId]='currentWorkspaceId()'
-        [activeConversationId]='activeConversationId()'
-        [activeFileRelativePath]='activeFileRelativePath()'
-        [outlineSymbols]='monacoOutlineState().symbols'
-        [outlineRelativePath]='monacoOutlineState().relativePath'
-        [appConfig]='appConfig()'
-        (workspaceFileOpen)='onWorkspaceFileOpen($event)'
-        (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
-        (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'
-      />
-    </div>
+  <div class='app-content' [class.app-content--no-workspace]='!hasOpenWorkspace()'>
+    @if (hasOpenWorkspace()) {
+      <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
+        <app-workspace
+          [workspaces]='workspaces()'
+          [currentWorkspaceId]='currentWorkspaceId()'
+          [activeConversationId]='activeConversationId()'
+          [activeFileRelativePath]='activeFileRelativePath()'
+          [outlineSymbols]='monacoOutlineState().symbols'
+          [outlineRelativePath]='monacoOutlineState().relativePath'
+          [appConfig]='appConfig()'
+          (workspaceFileOpen)='onWorkspaceFileOpen($event)'
+          (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
+          (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'
+        />
+      </div>
 
-    <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
+      <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
+    }
 
     <div class='chat-area'>
       <section class='chat-area__stage'>
         <div class='chat-area__tabs' role='presentation'>
+        @if (hasOpenWorkspace()) {
         <div class='chat-area__tab-strip' role='tablist' aria-label='Open files'>
           <div
             class='chat-area__tab-strip-tabs'
@@ -231,7 +235,8 @@
           }
           </div>
         </div>
-        @if (fileTabContextMenuVisible()) {
+        }
+        @if (hasOpenWorkspace() && fileTabContextMenuVisible()) {
           <div
             class='file-tab-context-menu'
             role='menu'
@@ -285,6 +290,7 @@
               (addWorkspace)='onAddWorkspace()'
             />
           </div>
+          @if (hasOpenWorkspace()) {
           <div
             class='chat-area__tab-panel chat-area__tab-panel--monaco'
             [class.chat-area__tab-panel--hidden]='!activeMainTabId()?.startsWith("file:") || activeFileIsImage() || chatExpanded()'
@@ -409,22 +415,26 @@
               }
             </div>
           }
+          }
         </div>
         </div>
       </section>
 
-      <section class='chat-area__dock'>
-        <app-workspace-terminal-dock
-          [workspacePath]='currentWorkspacePath()'
-          [appConfig]='appConfig()'
-          [conversationId]='activeConversationId() ?? ""'
-          [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
-          [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'
-          (revealEditorDiagnostic)='onRevealEditorDiagnostic($event)'
-        />
-      </section>
+      @if (hasOpenWorkspace()) {
+        <section class='chat-area__dock'>
+          <app-workspace-terminal-dock
+            [workspacePath]='currentWorkspacePath()'
+            [appConfig]='appConfig()'
+            [conversationId]='activeConversationId() ?? ""'
+            [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
+            [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'
+            (revealEditorDiagnostic)='onRevealEditorDiagnostic($event)'
+          />
+        </section>
+      }
     </div>
 
+    @if (hasOpenWorkspace()) {
     @if (!chatCollapsed()) {
       <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
     }
@@ -495,6 +505,7 @@
         (reasoningEffortChange)='onReasoningEffortChange($event)'
       />
     </div>
+    }
   </div>
 
   @if (electron.isElectron) {

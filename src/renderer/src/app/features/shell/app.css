@@ -226,6 +226,10 @@
   overflow: hidden;
 }
 
+.app-content--no-workspace .chat-area {
+  flex: 1;
+}
+
 .app-status-footer {
   display: flex;
   align-items: center;

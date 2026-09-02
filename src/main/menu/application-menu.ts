@@ -102,6 +102,7 @@ function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions {
       },
       {
         label: 'New Agent',
+        enabled: hasWorkspace,
         click: () => sendFileMenuCommand('new-agent'),
       },
       {

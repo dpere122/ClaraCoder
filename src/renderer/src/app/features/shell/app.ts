@@ -17,6 +17,7 @@ import type {
   LspEditorDiagnostic,
   LlmConnectionConfig,
   LlmReasoningSettingChange,
+  MenuFileCommand,
 } from '@shared/index';
 import {
   fallbackJournalFromMessages,
@@ -35,6 +36,7 @@ import {
   resolveActiveLlmConnection,
   resolveChatWindowState,
   retainRendererWorkspaceOpenTabs,
+  sortRecentWorkspaces,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
@@ -157,6 +159,8 @@ function parentRelativePath(relativePath: string): string {
 })
 export class App implements OnInit, OnDestroy {
   @ViewChild(WorkspaceMonacoComponent) private workspaceMonaco?: WorkspaceMonacoComponent;
+  @ViewChild(WorkspaceComponent) private workspacePanel?: WorkspaceComponent;
+  @ViewChild(WorkspaceTerminalDockComponent) private workspaceTerminalDock?: WorkspaceTerminalDockComponent;
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
   private shellDestroyed = false;
@@ -283,11 +287,15 @@ export class App implements OnInit, OnDestroy {
   protected readonly fileTabContextMenuX = signal(0);
   protected readonly fileTabContextMenuY = signal(0);
   protected readonly fileTabContextMenuTabId = signal<string | null>(null);
-  /** Titlebar Settings dropdown (`null` when closed). */
-  protected readonly chromeMenu = signal<'settings' | null>(null);
+  /** Titlebar File / Settings dropdown (`null` when closed). */
+  protected readonly chromeMenu = signal<'settings' | 'file' | 'file-recent' | null>(null);
   protected readonly chromeMenuX = signal(0);
   protected readonly chromeMenuY = signal(0);
+  protected readonly chromeRecentMenuX = signal(0);
+  protected readonly chromeRecentMenuY = signal(0);
   protected readonly chromeSettingsTabs = SETTINGS_TABS;
+  protected readonly recentWorkspaces = computed(() => sortRecentWorkspaces(this.workspaces()));
+  protected readonly hasOpenWorkspace = computed(() => !!this.currentWorkspaceId());
   protected readonly chromeAccelMod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform)
     ? '⌘'
     : 'Ctrl';
@@ -551,6 +559,10 @@ export class App implements OnInit, OnDestroy {
     this.electron.editorFindRequested$
       .pipe(takeUntilDestroyed())
       .subscribe(() => this.onEditorFindRequested());
+
+    this.electron.menuFileCommand$
+      .pipe(takeUntilDestroyed())
+      .subscribe((command) => this.onMenuFileCommand(command));
 
     this.electron.workspaceFilesChanged$
       .pipe(takeUntilDestroyed())
@@ -820,6 +832,7 @@ export class App implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.shellDestroyed = true;
+    this.clearChromeRecentCloseTimer();
     this.stopLmStudioContextPoll();
     void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
     void this.tts.invalidateSpeechPipeline();
@@ -1753,15 +1766,43 @@ export class App implements OnInit, OnDestroy {
     this.fileTabContextMenuTabId.set(null);
   }
 
+  private chromeRecentCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private clearChromeRecentCloseTimer(): void {
+    if (this.chromeRecentCloseTimer !== null) {
+      clearTimeout(this.chromeRecentCloseTimer);
+      this.chromeRecentCloseTimer = null;
+    }
+  }
+
   private closeChromeMenu(): void {
+    this.clearChromeRecentCloseTimer();
     this.chromeMenu.set(null);
   }
 
-  private openChromeMenu(kind: 'settings', ev: MouseEvent): void {
+  private placeChromeRecentSubmenu(anchor: DOMRect): void {
+    const submenuWidth = 14 * 16;
+    const pad = 8;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    let x = Math.floor(anchor.right) - 1;
+    let y = Math.floor(anchor.top);
+    if (x + submenuWidth > vw - pad) {
+      x = Math.floor(anchor.left) - submenuWidth + 1;
+    }
+    x = Math.max(pad, Math.min(x, vw - submenuWidth - pad));
+    y = Math.max(pad, Math.min(y, vh - pad - 40));
+    this.chromeRecentMenuX.set(x);
+    this.chromeRecentMenuY.set(y);
+  }
+
+  private openChromeMenu(kind: 'settings' | 'file', ev: MouseEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
     this.closeFileTabContextMenu();
-    if (this.chromeMenu() === kind) {
+    const current = this.chromeMenu();
+    const alreadyOpen = current === kind || (kind === 'file' && current === 'file-recent');
+    if (alreadyOpen) {
       this.closeChromeMenu();
       return;
     }
@@ -1772,8 +1813,122 @@ export class App implements OnInit, OnDestroy {
     this.chromeMenu.set(kind);
   }
 
+  protected onChromeFileMenu(ev: MouseEvent): void {
+    this.openChromeMenu('file', ev);
+  }
+
   protected onChromeSettingsMenu(ev: MouseEvent): void {
     this.openChromeMenu('settings', ev);
+  }
+
+  protected onChromeOpenRecentEnter(ev: MouseEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.clearChromeRecentCloseTimer();
+    const el = ev.currentTarget as HTMLElement;
+    this.placeChromeRecentSubmenu(el.getBoundingClientRect());
+    this.chromeMenu.set('file-recent');
+  }
+
+  protected onChromeRecentSubmenuEnter(): void {
+    this.clearChromeRecentCloseTimer();
+    this.chromeMenu.set('file-recent');
+  }
+
+  protected onChromeFileItemEnter(): void {
+    if (this.chromeMenu() !== 'file-recent') {
+      return;
+    }
+    this.clearChromeRecentCloseTimer();
+    this.chromeRecentCloseTimer = setTimeout(() => {
+      this.chromeRecentCloseTimer = null;
+      if (this.chromeMenu() === 'file-recent') {
+        this.chromeMenu.set('file');
+      }
+    }, 150);
+  }
+
+  protected onChromeOpenFolder(): void {
+    this.closeChromeMenu();
+    void this.onAddWorkspace();
+  }
+
+  protected onChromeOpenRecentWorkspace(workspaceId: string): void {
+    this.closeChromeMenu();
+    void this.onWorkspaceChanged(workspaceId);
+  }
+
+  protected onChromeNewFile(): void {
+    this.closeChromeMenu();
+    if (!this.hasOpenWorkspace()) {
+      return;
+    }
+    this.workspacePanel?.beginCreateFromMenu('file');
+  }
+
+  protected onChromeNewFolder(): void {
+    this.closeChromeMenu();
+    if (!this.hasOpenWorkspace()) {
+      return;
+    }
+    this.workspacePanel?.beginCreateFromMenu('folder');
+  }
+
+  protected onChromeNewAgent(): void {
+    this.closeChromeMenu();
+    void this.onNewConversation();
+  }
+
+  protected onChromeNewTerminal(): void {
+    this.closeChromeMenu();
+    if (!this.hasOpenWorkspace()) {
+      return;
+    }
+    this.workspaceTerminalDock?.openNewTerminal();
+  }
+
+  protected onChromeExit(): void {
+    this.closeChromeMenu();
+    this.electron.appQuit();
+  }
+
+  private onMenuFileCommand(command: MenuFileCommand): void {
+    switch (command.action) {
+      case 'open-folder':
+        void this.onAddWorkspace();
+        break;
+      case 'open-recent':
+        if (command.workspaceId) {
+          void this.onWorkspaceChanged(command.workspaceId);
+        }
+        break;
+      case 'new-file':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
+        this.workspacePanel?.beginCreateFromMenu('file');
+        break;
+      case 'new-folder':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
+        this.workspacePanel?.beginCreateFromMenu('folder');
+        break;
+      case 'new-agent':
+        void this.onNewConversation();
+        break;
+      case 'new-terminal':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
+        this.workspaceTerminalDock?.openNewTerminal();
+        break;
+      case 'exit':
+        this.electron.appQuit();
+        break;
+      default:
+        break;
+    }
   }
 
   protected onChromeMenuItemMousedown(event: MouseEvent): void {

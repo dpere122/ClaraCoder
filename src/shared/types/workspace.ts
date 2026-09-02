@@ -26,6 +26,8 @@ export interface Workspace {
   name: string;
   path: string;
   createdAt: string;
+  /** ISO timestamp of the last time this workspace was selected (Open Recent / switch). */
+  lastOpenedAt?: string;
   /**
    * Stable id from Python discovery (`runtime-venv`, `app-backend`, `dot-venv`, …);
    * drives Python LSP analysis env. Empty/unset → app default (`runtime-venv` when installed).
@@ -36,4 +38,36 @@ export interface Workspace {
    * (`workspaces/{id}/system-prompt.md`). Display only; content lives in app data.
    */
   systemPromptSourceName?: string;
+}
+
+/** Titlebar / native File menu actions sent from main to the renderer. */
+export type MenuFileCommandAction =
+  | 'open-folder'
+  | 'open-recent'
+  | 'new-file'
+  | 'new-folder'
+  | 'new-agent'
+  | 'new-terminal'
+  | 'exit';
+
+export interface MenuFileCommand {
+  action: MenuFileCommandAction;
+  workspaceId?: string;
+}
+
+function workspaceOpenedStampMs(ws: Workspace): number {
+  const raw = ws.lastOpenedAt || ws.createdAt;
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Newest last-opened (or created) first — used by File → Open Recent. */
+export function sortRecentWorkspaces(workspaces: readonly Workspace[]): Workspace[] {
+  return [...workspaces].sort((a, b) => {
+    const diff = workspaceOpenedStampMs(b) - workspaceOpenedStampMs(a);
+    if (diff !== 0) {
+      return diff;
+    }
+    return a.name.localeCompare(b.name);
+  });
 }

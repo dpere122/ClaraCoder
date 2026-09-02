@@ -513,6 +513,14 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     }
   }
 
+  openNewTerminal(): void {
+    if (!this.hasWorkspace()) {
+      return;
+    }
+    this.addTab();
+    this.expanded.set(true);
+  }
+
   addTab(): void {
     const id = crypto.randomUUID();
     const cwd = this.workspacePath().trim();

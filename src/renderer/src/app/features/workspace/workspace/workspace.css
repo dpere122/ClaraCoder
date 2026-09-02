@@ -13,99 +13,11 @@ app-workspace .workspace {
   padding: 0.75rem 0;
 }
 
-app-workspace .workspace-header {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0 0.6rem 0.6rem;
-  border-bottom: 1px solid var(--t-border-subtle);
-  margin-bottom: 0.5rem;
-  flex-shrink: 0;
-}
-
 app-workspace .workspace-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-app-workspace .workspace-select {
-  flex: 1;
-  min-width: 0;
-  padding: 0.4rem 1.5rem 0.4rem 0.6rem;
-  background: var(--t-bg);
-  border: 1px solid var(--t-border);
-  color: var(--t-primary);
-  font-family: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  outline: none;
-}
-
-app-workspace .workspace-select:focus {
-  border-color: var(--t-primary);
-}
-
-app-workspace .workspace-select option {
-  background: var(--t-bg-deep);
-  color: var(--t-primary);
-}
-
-app-workspace .workspace-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-app-workspace .workspace-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  border: 1px solid var(--t-border);
-  background: var(--t-bg);
-  color: var(--t-primary);
-  cursor: pointer;
-  transition: background-color 0.1s, border-color 0.1s, color 0.1s;
-}
-
-app-workspace .workspace-icon-btn:hover {
-  background-color: var(--t-hover-bg);
-}
-
-app-workspace .workspace-icon-btn:focus-visible {
-  outline: none;
-  border-color: var(--t-primary);
-}
-
-app-workspace .workspace-icon-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-app-workspace .workspace-icon-btn:disabled:hover {
-  background-color: var(--t-bg);
-}
-
-app-workspace .workspace-icon-btn.is-active {
-  border-color: var(--t-primary);
-  background-color: var(--t-hover-bg);
-}
-
-app-workspace .workspace-icon-btn lucide-icon {
-  display: inline-flex;
-}
-
-app-workspace .workspace-settings-error {
-  margin: 0 0 0.45rem;
-  padding: 0 0.6rem;
-  flex-shrink: 0;
-  font-size: 0.68rem;
-  line-height: 1.35;
-  color: var(--t-danger, #c44);
 }
 
 app-workspace .file-tree {
@@ -173,6 +85,65 @@ app-workspace .workspace-interpreter-error {
   font-size: 0.68rem;
   line-height: 1.35;
   color: var(--t-danger, #c44);
+}
+
+app-workspace .workspace-settings-error {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--t-danger, #c44);
+}
+
+app-workspace .workspace-footer-model-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+app-workspace .workspace-footer-model-row app-managed-llama-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+app-workspace .workspace-footer-model-row .managed-llama-controls {
+  padding-top: 0;
+  border-top: none;
+  margin-top: 0;
+}
+
+app-workspace .workspace-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--t-border);
+  background: var(--t-bg);
+  color: var(--t-primary);
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+
+app-workspace .workspace-icon-btn:hover:not(:disabled) {
+  background-color: var(--t-hover-bg);
+}
+
+app-workspace .workspace-icon-btn:focus-visible {
+  outline: none;
+  border-color: var(--t-primary);
+}
+
+app-workspace .workspace-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+app-workspace .workspace-icon-btn lucide-icon {
+  display: inline-flex;
 }
 
 app-workspace .tree-node {

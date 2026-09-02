@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 import { openDocumentation } from '../../menu/application-menu';
 
@@ -47,6 +47,15 @@ export function registerWindowChromeIpc(): void {
       return;
     }
     BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  ipcMain.on('app-quit', (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return;
+    }
+    app.quit();
   });
 
   ipcMain.handle('window-is-maximized', (event) => {

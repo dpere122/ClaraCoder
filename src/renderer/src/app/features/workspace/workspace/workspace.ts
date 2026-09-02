@@ -84,8 +84,6 @@ export class WorkspaceComponent implements OnDestroy {
   /** Relative path for the active outline (from Monaco). */
   readonly outlineRelativePath = input<string | null>(null);
 
-  readonly workspaceChanged = output<string | null>();
-  readonly addWorkspace = output<void>();
   /** User double-clicked a file in the tree (absolute path on disk). */
   readonly workspaceFileOpen = output<{ absolutePath: string }>();
   /** User chose "Add to chat" or dragged a file/folder out of the tree (absolute path on disk). */
@@ -355,19 +353,8 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  get currentWorkspaceName(): string {
-    const ws = this.workspaces().find(w => w.id === this.currentWorkspaceId());
-    return ws?.name ?? 'No workspace';
-  }
-
   /** Expose path normalizer to template for active file comparison. */
   protected normalizePathSlashes = normalizePathSlashes;
-
-  onWorkspaceSelectChange(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    const value = select.value;
-    this.workspaceChanged.emit(value || null);
-  }
 
   protected onOutlineSymbolReveal(sym: EditorOutlineSymbol): void {
     const rel = this.outlineRelativePath()?.trim() || this.activeFileRelativePath()?.trim();
@@ -496,10 +483,6 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
-  onAddWorkspace(): void {
-    this.addWorkspace.emit();
-  }
-
   protected async onOpenWorkspaceSettings(): Promise<void> {
     const wid = this.currentWorkspaceId();
     if (!wid || !this.electron.isElectron) {
@@ -591,6 +574,22 @@ export class WorkspaceComponent implements OnDestroy {
     if (this.contextMenuVisible()) {
       this.closeContextMenu();
     }
+  }
+
+  beginCreateFromMenu(kind: 'file' | 'folder'): void {
+    const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
+    if (!ws?.path?.trim()) {
+      return;
+    }
+    let parentDir = ws.path;
+    const selected = this.selectedPath();
+    if (selected) {
+      const node = findFileNode(this.tree, selected) ?? findFileNodeByNormalizedPath(this.tree, selected);
+      if (node) {
+        parentDir = node.isDirectory ? node.path : parentDirectoryPath(node.path);
+      }
+    }
+    void this.beginPendingCreate(kind, parentDir);
   }
 
   onContextMenuNewFile(): void {

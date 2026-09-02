@@ -1,40 +1,4 @@
 <div class='workspace'>
-  <div class='workspace-header'>
-    <select class='workspace-select' (change)='onWorkspaceSelectChange($event)'>
-      <option value=''>No workspace</option>
-      @for (ws of workspaces(); track ws.id) {
-        <option [value]='ws.id' [selected]='ws.id === currentWorkspaceId()'>{{ ws.name }}</option>
-      }
-    </select>
-
-    <div class='workspace-toolbar'>
-      <button
-        class='workspace-icon-btn'
-        type='button'
-        title='Add workspace'
-        aria-label='Add workspace'
-        (click)='onAddWorkspace()'
-      >
-        <lucide-icon name='folder-plus' [size]='17' />
-      </button>
-      <button
-        class='workspace-icon-btn'
-        type='button'
-        title='Edit workspace system prompt'
-        aria-label='Edit workspace system prompt'
-        [disabled]='!currentWorkspaceId() || settingsOpening() || !currentWorkspaceHasPath()'
-        [attr.aria-busy]='settingsOpening()'
-        (click)='onOpenWorkspaceSettings()'
-      >
-        <lucide-icon name='settings' [size]='17' />
-      </button>
-    </div>
-  </div>
-
-  @if (settingsError()) {
-    <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
-  }
-
   <div class='workspace-body'>
     @if (currentWorkspaceId()) {
       <div
@@ -192,7 +156,23 @@
           }
         }
       }
-      <app-managed-llama-controls [appConfig]='appConfig()' />
+      @if (settingsError()) {
+        <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
+      }
+      <div class='workspace-footer-model-row'>
+        <button
+          class='workspace-icon-btn'
+          type='button'
+          title='Edit workspace system prompt'
+          aria-label='Edit workspace system prompt'
+          [disabled]='!currentWorkspaceId() || settingsOpening() || !currentWorkspaceHasPath()'
+          [attr.aria-busy]='settingsOpening()'
+          (click)='onOpenWorkspaceSettings()'
+        >
+          <lucide-icon name='settings' [size]='16' />
+        </button>
+        <app-managed-llama-controls [appConfig]='appConfig()' />
+      </div>
     </div>
   }
 

@@ -2,6 +2,7 @@ import { ipcRenderer } from 'electron';
 import type {
   AppConfig,
   HealthMonitorConfig,
+  MenuFileCommand,
   SystemFontInfo,
   WorkspaceMonacoEditorScrollState,
   WorkspaceOpenTabsState,
@@ -66,6 +67,7 @@ export const appServicesApi = {
   windowMinimize: () => ipcRenderer.send('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.send('window-toggle-maximize'),
   windowClose: () => ipcRenderer.send('window-close'),
+  appQuit: () => ipcRenderer.send('app-quit'),
   windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized') as Promise<boolean>,
   listSystemFonts: () => ipcRenderer.invoke('list-system-fonts') as Promise<SystemFontInfo[]>,
   onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => {
@@ -74,5 +76,8 @@ export const appServicesApi = {
   /** Main stole Ctrl/Cmd+F from Chromium; renderer should open Monaco find when appropriate. */
   onEditorFindRequested: (callback: () => void) => {
     ipcRenderer.on('editor-find-requested', () => callback());
+  },
+  onMenuFileCommand: (callback: (command: MenuFileCommand) => void) => {
+    ipcRenderer.on('menu-file-command', (_event, command: MenuFileCommand) => callback(command));
   },
 };

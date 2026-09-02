@@ -112,6 +112,32 @@
   letter-spacing: 0.02em;
 }
 
+.chrome-dropdown-menu-sep {
+  height: 1px;
+  margin: 0.25rem 0;
+  background: var(--t-border);
+}
+
+.chrome-dropdown-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chrome-dropdown-menu-item:disabled:hover {
+  background: transparent;
+  color: var(--t-primary);
+}
+
+.chrome-dropdown-menu-item.is-current {
+  font-weight: 600;
+}
+
+.chrome-dropdown-menu--submenu {
+  min-width: 14rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
 .chrome-title {
   flex: 0 0 auto;
   min-width: 0;

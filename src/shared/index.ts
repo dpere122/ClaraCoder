@@ -6,8 +6,14 @@ export type { Workspace, MenuFileCommand, MenuFileCommandAction } from './types/
 export {
   NO_WORKSPACE_SYSTEM_PROMPT_ID,
   isNoWorkspaceSystemPromptId,
-  resolveSystemPromptStorageId,
   sortRecentWorkspaces,
+  isFavoriteWorkspace,
+  sortFavoriteWorkspaces,
+  sortNonFavoriteWorkspaces,
+  setWorkspaceFavorite,
+  compactFavoriteOrders,
+  reorderFavoriteWorkspaces,
+  formatWorkspaceLastOpenedLabel,
 } from './types/workspace';
 export {
   LEGACY_WORKSPACE_META_DIR,
@@ -200,6 +206,8 @@ export {
   clampUiFontSizeRem,
   normalizeChatContainerSize,
   resolveChatWindowState,
+  resolveStartupWorkspaceId,
+  shouldOpenHomePageOnStart,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   normalizeMonacoWorkspaceEditorSettings,

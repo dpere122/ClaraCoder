@@ -8,7 +8,8 @@ import { registerPrivilegedSchemes } from './protocol/register-privileged';
 import { ensurePythonServer } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { registerNemoAssetProtocol } from './protocol/nemo-asset';
-import { loadConfig, loadConfigSync } from './config/load-save';
+import { loadConfigSync } from './config/load-save';
+import { reconcileLostWorkspacesOnStartup } from './ipc/handlers/config-workspaces';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
 import { getLlamaManagedRuntimeOverrides } from './llama-server-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -95,7 +96,7 @@ app
     } catch (err) {
       console.error('[Main] Python sidecar unavailable — UI already open:', err);
     }
-    const config = await loadConfig();
+    const config = await reconcileLostWorkspacesOnStartup();
     // Ensure the Model Manager library root exists (default: ~/ClaraCoder/models).
     const modelsDir = config.modelManager?.customModelsDir?.trim();
     if (modelsDir) {

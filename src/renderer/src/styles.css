@@ -324,14 +324,22 @@ app-stream-tool-pill .stream-tool-pill,
 .chat-context-chip-pin,
 .chat-context-chip-remove,
 .chat-context-chip-thumb,
-.user-attachment-file {
+.user-attachment-file,
+.main-panel-empty__cta,
+.main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
+.main-panel-empty__recents-scroll::-webkit-scrollbar-track {
   border-radius: 999px !important;
 }
 
 app-stream-thought-pill .stream-thought-preview__inner,
 app-stream-brief-pill .stream-brief-preview__inner,
-app-stream-nudge-pill .stream-nudge-preview__inner {
+app-stream-nudge-pill .stream-nudge-preview__inner,
+.main-panel-empty__recents-frame {
   border-radius: 0.85rem !important;
+}
+
+.main-panel-empty__recent {
+  border-radius: 0.7rem !important;
 }
 
 html, body {
@@ -744,8 +752,7 @@ html.theme-woodland .settings-nav {
   border-bottom: 1px solid var(--t-border);
 }
 html.theme-woodland .connection-card,
-html.theme-woodland .workspace-card__body,
-html.theme-woodland .workspace-card--none {
+html.theme-woodland .workspace-card__body {
   border: none;
   box-shadow: none;
   border-bottom: 1px solid var(--t-border-subtle);

@@ -1609,8 +1609,7 @@ button.linkish {
 }
 
 .connection-card,
-.workspace-card__body,
-.workspace-card--none {
+.workspace-card__body {
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
   background: color-mix(in srgb, var(--t-bg) 52%, var(--t-bg-surface));
@@ -1623,9 +1622,7 @@ button.linkish {
 .connection-card:hover,
 .connection-card.is-selected,
 .workspace-card__body:hover,
-.workspace-card.is-selected,
-.workspace-card--none:hover,
-.workspace-card--none.is-selected {
+.workspace-card.is-selected {
   border-color: color-mix(in srgb, var(--t-primary) 58%, transparent);
   background: color-mix(in srgb, var(--t-primary) 16%, var(--t-bg-surface));
   transform: translateY(-1px);

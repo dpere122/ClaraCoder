@@ -140,7 +140,7 @@ describe('retainRendererWorkspaceOpenTabs', () => {
 });
 
 describe('pruneRemovedWorkspaceClientState', () => {
-  it('removes open-tab and monaco-scroll entries for the workspace', () => {
+  it('removes open-tab, monaco-scroll, and last-active conversation entries for the workspace', () => {
     const config = {
       workspaces: [{ id: 'ws-a', name: 'A', path: '/a', createdAt: '2026-01-01T00:00:00.000Z' }],
       workspaceOpenTabsByWorkspaceId: {
@@ -157,6 +157,10 @@ describe('pruneRemovedWorkspaceClientState', () => {
         'ws-a': { 'a.ts': { scrollTop: 1, scrollLeft: 0 } },
         'ws-b': { 'b.ts': { scrollTop: 2, scrollLeft: 0 } },
       },
+      lastActiveConversationByWorkspaceId: {
+        'ws-a': 'conv-a',
+        'ws-b': 'conv-b',
+      },
     };
     pruneRemovedWorkspaceClientState(config as never, 'ws-a');
     expect(config.workspaceOpenTabsByWorkspaceId).toEqual({
@@ -167,6 +171,9 @@ describe('pruneRemovedWorkspaceClientState', () => {
     });
     expect(config.workspaceMonacoScrollByWorkspaceId).toEqual({
       'ws-b': { 'b.ts': { scrollTop: 2, scrollLeft: 0 } },
+    });
+    expect(config.lastActiveConversationByWorkspaceId).toEqual({
+      'ws-b': 'conv-b',
     });
   });
 });

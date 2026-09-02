@@ -97,6 +97,22 @@ export function getWorkspaceSemanticIndexDir(): string {
   return path.join(getAppDataDir(), 'workspace-semantic-index');
 }
 
+/** Sanitize a workspace id for the semantic-index bucket folder (matches Python). */
+export function workspaceSemanticIndexBucketId(workspaceId: string): string {
+  const wid = workspaceId.trim();
+  const safe = (wid.replace(/[^a-zA-Z0-9._-]/g, '_') || 'workspace').slice(0, 200);
+  return safe;
+}
+
+/** Persist dir for one workspace corpus: ``workspace-semantic-index/workspaces/{id}``. */
+export function getWorkspaceSemanticIndexPersistDir(workspaceId: string): string {
+  return path.join(
+    getWorkspaceSemanticIndexDir(),
+    'workspaces',
+    workspaceSemanticIndexBucketId(workspaceId),
+  );
+}
+
 /** Root for managed runtime dependencies (Python ``CLARA_RUNTIME_DIR``). */
 export function getRuntimeDir(): string {
   return path.join(getAppDataDir(), 'runtime');

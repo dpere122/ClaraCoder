@@ -74,6 +74,10 @@ export const workspaceApi = {
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),
   getWorkspaceMonacoUnsavedPaths: () => ipcRenderer.invoke('get-workspace-monaco-unsaved-paths'),
   setCurrentWorkspace: (id: string | null) => ipcRenderer.invoke('set-current-workspace', id),
+  setWorkspaceFavorite: (id: string, favorite: boolean) =>
+    ipcRenderer.invoke('set-workspace-favorite', id, favorite),
+  reorderWorkspaceFavorites: (orderedIds: string[]) =>
+    ipcRenderer.invoke('reorder-workspace-favorites', orderedIds),
   reportWorkspaceMonacoUnsavedPaths: (paths: string[]) => ipcRenderer.send('workspace-monaco-unsaved-paths', paths),
   getCurrentWorkspace: () => ipcRenderer.invoke('get-current-workspace'),
   onWorkspaceChanged: (callback: (event: unknown, workspaceId: string | null) => void) =>

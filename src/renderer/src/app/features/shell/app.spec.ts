@@ -283,6 +283,85 @@ describe('App', () => {
     expect(saved.chatExpandedToMainPanel).toBe(true);
   });
 
+  it('stays on the home screen when defaultHomePageOnStart is set', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      defaultHomePageOnStart: true,
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+          activeTabId: 'file:rel:src/foo.ts',
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const app = fixture.componentInstance as unknown as {
+      currentWorkspaceId: () => string | null;
+      defaultHomePageOnStart: () => boolean;
+      fileTabs: () => Array<{ relativePath?: string }>;
+    };
+    expect(app.currentWorkspaceId()).toBeNull();
+    expect(app.defaultHomePageOnStart()).toBe(true);
+    expect(app.fileTabs()).toEqual([]);
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.app-content--no-workspace')).toBeTruthy();
+    expect(compiled.querySelector('.main-panel-empty__welcome')).toBeTruthy();
+    const checkbox = compiled.querySelector(
+      '.main-panel-empty__home-default-checkbox',
+    ) as HTMLInputElement | null;
+    expect(checkbox?.checked).toBe(true);
+  });
+
+  it('persists the default Home page checkbox from the welcome intro', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: null,
+      defaultHomePageOnStart: false,
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const checkbox = (fixture.nativeElement as HTMLElement).querySelector(
+      '.main-panel-empty__home-default-checkbox',
+    ) as HTMLInputElement | null;
+    expect(checkbox).toBeTruthy();
+    refs.saveConfig.mockClear();
+    checkbox!.checked = true;
+    checkbox!.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(refs.saveConfig).toHaveBeenCalled();
+    const saved = refs.saveConfig.mock.calls.at(-1)?.[0] as { defaultHomePageOnStart?: boolean };
+    expect(saved.defaultHomePageOnStart).toBe(true);
+  });
+
+  it('does not restore the last workspace from a config broadcast after a home-on-start launch', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      defaultHomePageOnStart: true,
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      currentWorkspaceId: () => string | null;
+    };
+    expect(app.currentWorkspaceId()).toBeNull();
+
+    refs.configUpdatedHandler?.({}, {
+      ...refs.loadedConfig,
+      currentWorkspaceId: 'ws-a',
+      defaultHomePageOnStart: true,
+    });
+    await fixture.whenStable();
+    expect(app.currentWorkspaceId()).toBeNull();
+  });
+
   it('restores open file tabs for the current workspace from config', async () => {
     refs = stubElectronApi(undefined, {
       currentWorkspaceId: 'ws-a',
@@ -388,11 +467,81 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render the Clara Coder title', async () => {
+  it('should render the Clara Coder app icon in the window chrome', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Clara Coder');
+    const icon = compiled.querySelector('.chrome-title-icon') as HTMLImageElement | null;
+    expect(icon).toBeTruthy();
+    expect(icon?.getAttribute('src')).toBe('app-icon.png');
+    expect(icon?.getAttribute('alt')).toBe('Clara Coder');
+  });
+
+  it('hides workspace-specific chrome when no workspace is open', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.workspace-panel')).toBeNull();
+    expect(compiled.querySelector('app-workspace')).toBeNull();
+    expect(compiled.querySelector('.sidebar')).toBeNull();
+    expect(compiled.querySelector('app-chat-conversation-hub')).toBeNull();
+    expect(compiled.querySelector('app-managed-llama-controls')).toBeNull();
+    expect(compiled.querySelector('app-workspace-terminal-dock')).toBeNull();
+    expect(compiled.querySelector('.chat-area__tab-strip')).toBeNull();
+    expect(compiled.querySelector('app-main-panel-empty-state')).toBeTruthy();
+    expect(compiled.querySelector('.app-content--no-workspace')).toBeTruthy();
+    expect(compiled.querySelector('.chat-area__tab-panel--empty.chat-area__tab-panel--hidden')).toBeNull();
+  });
+
+  it('still shows the no-workspace welcome when chat was left expanded', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: null,
+      chatSidebarCollapsed: false,
+      chatExpandedToMainPanel: true,
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.chat-area__tab-panel--empty.chat-area__tab-panel--hidden')).toBeNull();
+    expect(compiled.querySelector('.main-panel-empty__welcome')).toBeTruthy();
+    expect(compiled.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
+  });
+
+  it('lists recent workspaces on the no-workspace welcome screen', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: null,
+      workspaces: [
+        { id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'ws-b', name: 'Beta', path: 'C:/tmp/beta', createdAt: '2026-02-01T00:00:00.000Z' },
+      ],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const recents = compiled.querySelector('.main-panel-empty__recents');
+    expect(recents).toBeTruthy();
+    expect(recents?.textContent).toContain('Alpha');
+    expect(recents?.textContent).toContain('Beta');
+    expect(compiled.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
+  });
+
+  it('shows workspace-specific chrome when a workspace is open', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.workspace-panel')).toBeTruthy();
+    expect(compiled.querySelector('app-workspace')).toBeTruthy();
+    expect(compiled.querySelector('.sidebar')).toBeTruthy();
+    expect(compiled.querySelector('app-chat-conversation-hub')).toBeTruthy();
+    expect(compiled.querySelector('.app-content--no-workspace')).toBeNull();
   });
 
   it('persists a delete-confirm for a non-active conversation so it re-surfaces on reopen', async () => {
@@ -545,6 +694,14 @@ describe('App', () => {
     };
     app.onChromeFileMenu(fakeChromeMenuEvent());
     expect(app.chromeMenu()).toBe('file');
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const items = [...compiled.querySelectorAll('.chrome-dropdown-menu-item')] as HTMLButtonElement[];
+    const newAgent = items.find((el) => el.textContent?.includes('New Agent'));
+    const closeWorkspace = items.find((el) => el.textContent?.includes('Close Workspace'));
+    expect(newAgent?.disabled).toBe(true);
+    expect(closeWorkspace).toBeTruthy();
+    expect(closeWorkspace?.disabled).toBe(true);
     app.onChromeFileMenu(fakeChromeMenuEvent());
     expect(app.chromeMenu()).toBeNull();
   });
@@ -574,9 +731,11 @@ describe('App', () => {
     await fixture.whenStable();
     const beginCreateFromMenu = vi.fn();
     const openNewTerminal = vi.fn();
+    const onNewConversation = vi.fn();
     const appQuit = vi.fn();
     const app = fixture.componentInstance as unknown as {
       onMenuFileCommand: (command: { action: string; workspaceId?: string }) => void;
+      onNewConversation: typeof onNewConversation;
       workspacePanel: { beginCreateFromMenu: typeof beginCreateFromMenu } | undefined;
       workspaceTerminalDock: { openNewTerminal: typeof openNewTerminal } | undefined;
       electron: { appQuit: () => void };
@@ -584,23 +743,61 @@ describe('App', () => {
     };
     app.workspacePanel = { beginCreateFromMenu };
     app.workspaceTerminalDock = { openNewTerminal };
+    app.onNewConversation = onNewConversation;
     app.electron.appQuit = appQuit;
 
     app.onMenuFileCommand({ action: 'new-file' });
     app.onMenuFileCommand({ action: 'new-folder' });
+    app.onMenuFileCommand({ action: 'new-agent' });
     app.onMenuFileCommand({ action: 'new-terminal' });
+    app.onMenuFileCommand({ action: 'close-workspace' });
     expect(beginCreateFromMenu).not.toHaveBeenCalled();
+    expect(onNewConversation).not.toHaveBeenCalled();
     expect(openNewTerminal).not.toHaveBeenCalled();
 
     app.currentWorkspaceId.set('ws-a');
     app.onMenuFileCommand({ action: 'new-file' });
     app.onMenuFileCommand({ action: 'new-folder' });
+    app.onMenuFileCommand({ action: 'new-agent' });
     app.onMenuFileCommand({ action: 'new-terminal' });
     expect(beginCreateFromMenu).toHaveBeenCalledWith('file');
     expect(beginCreateFromMenu).toHaveBeenCalledWith('folder');
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
     expect(openNewTerminal).toHaveBeenCalledTimes(1);
 
     app.onMenuFileCommand({ action: 'exit' });
     expect(appQuit).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for confirmation before File → Close Workspace and then shows the welcome screen', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const app = fixture.componentInstance as unknown as {
+      closeCurrentWorkspace: () => Promise<void>;
+      themedConfirm: { open: (opts: unknown) => Promise<string> };
+      currentWorkspaceId: { (): string | null };
+    };
+    const open = vi.fn(async () => 'cancel');
+    app.themedConfirm.open = open;
+
+    await app.closeCurrentWorkspace();
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Close workspace',
+        confirmText: 'Close workspace',
+        message: expect.stringContaining('Alpha'),
+      }),
+    );
+    expect(app.currentWorkspaceId()).toBe('ws-a');
+
+    open.mockResolvedValue('confirm');
+    await app.closeCurrentWorkspace();
+    fixture.detectChanges();
+    expect(app.currentWorkspaceId()).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.app-content--no-workspace')).toBeTruthy();
   });
 });

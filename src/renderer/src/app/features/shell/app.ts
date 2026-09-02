@@ -35,7 +35,10 @@ import {
   patchLlmModelProfile,
   resolveActiveLlmConnection,
   resolveChatWindowState,
+  resolveStartupWorkspaceId,
   retainRendererWorkspaceOpenTabs,
+  reorderFavoriteWorkspaces,
+  setWorkspaceFavorite,
   sortRecentWorkspaces,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
@@ -114,6 +117,7 @@ import {
   unsavedWorkspaceSwitchPrompt,
   detachedFileClosePrompt,
   activeBuildPlanClosePrompt,
+  closeWorkspacePrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
@@ -237,6 +241,13 @@ export class App implements OnInit, OnDestroy {
   // Workspace management
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspaceId = signal<string | null>(null);
+  /** Welcome-screen preference: skip restoring the last workspace on launch. */
+  protected readonly defaultHomePageOnStart = signal(false);
+  /**
+   * After a home-on-start launch, ignore persisted `currentWorkspaceId` from config
+   * broadcasts until the user opens a workspace this session.
+   */
+  private holdStartupHomePage = false;
   protected readonly workspaceContextText = signal('');
   protected readonly currentWorkspace = computed(() => {
     const id = this.currentWorkspaceId();
@@ -361,7 +372,7 @@ export class App implements OnInit, OnDestroy {
   });
 
   protected readonly mainStageShowsEmptyState = computed(
-    () => this.activeMainTabId() === null && !this.chatExpanded(),
+    () => !this.hasOpenWorkspace() || (this.activeMainTabId() === null && !this.chatExpanded()),
   );
 
   protected readonly activeFileRelativePath = computed(() => {
@@ -718,6 +729,7 @@ export class App implements OnInit, OnDestroy {
     );
 
     this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
+      const previousWorkspaceId = this.currentWorkspaceId();
       this.applyIncomingAppConfig(config);
       const cfs = config.chatFontSizeRem;
       const nextFs =
@@ -739,7 +751,10 @@ export class App implements OnInit, OnDestroy {
       applyAppTheme(resolveAppThemeId(config));
       applyAppFontOverrides(config);
       this.workspaces.set(config.workspaces);
-      this.currentWorkspaceId.set(config.currentWorkspaceId);
+      this.applyWorkspaceIdFromConfig(config, false);
+      if (this.currentWorkspaceId() !== previousWorkspaceId) {
+        void this.loadConversationsForWorkspace();
+      }
       if (this.pendingSidebarWidthPercent == null && this.resizing !== 'sidebar') {
         this.syncSidebarWidthFromEffectivePercent();
       }
@@ -813,8 +828,8 @@ export class App implements OnInit, OnDestroy {
     this.appConfig.set(config);
     this.workspaces.set(config.workspaces);
     this.openTabsHydrated = true;
-    this.currentWorkspaceId.set(config.currentWorkspaceId);
-    this.restoreOpenTabsForWorkspace(config.currentWorkspaceId);
+    this.applyWorkspaceIdFromConfig(config, true);
+    this.restoreOpenTabsForWorkspace(this.currentWorkspaceId());
 
     applyAppTheme(resolveAppThemeId(config));
     this.hydrateChatWindowStateFromConfig(config);
@@ -1017,6 +1032,41 @@ export class App implements OnInit, OnDestroy {
     this.appConfig.set(
       retainRendererWorkspaceOpenTabs(config, this.appConfig()?.workspaceOpenTabsByWorkspaceId),
     );
+  }
+
+  private applyWorkspaceIdFromConfig(config: AppConfig, isStartup: boolean): void {
+    this.defaultHomePageOnStart.set(config.defaultHomePageOnStart === true);
+    if (isStartup) {
+      const startupId = resolveStartupWorkspaceId(config);
+      this.holdStartupHomePage = startupId === null && !!config.currentWorkspaceId;
+      this.currentWorkspaceId.set(startupId);
+      return;
+    }
+    if (this.holdStartupHomePage && config.currentWorkspaceId) {
+      return;
+    }
+    this.currentWorkspaceId.set(config.currentWorkspaceId);
+  }
+
+  private acknowledgeSessionWorkspace(): void {
+    this.holdStartupHomePage = false;
+  }
+
+  protected async onDefaultHomePageChange(checked: boolean): Promise<void> {
+    this.defaultHomePageOnStart.set(checked);
+    const config = this.appConfig();
+    if (!config || config.defaultHomePageOnStart === checked) {
+      return;
+    }
+    try {
+      const saved = await this.electron.saveConfig({
+        ...config,
+        defaultHomePageOnStart: checked,
+      });
+      this.applyIncomingAppConfig(saved);
+    } catch (err) {
+      console.error('[App] persist defaultHomePageOnStart failed', err);
+    }
   }
 
   private restoreOpenTabsForWorkspace(workspaceId: string | null): void {
@@ -1601,6 +1651,18 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  /** Confirm, then clear the current workspace so the welcome screen is shown. */
+  private async closeCurrentWorkspace(): Promise<void> {
+    if (!this.hasOpenWorkspace()) {
+      return;
+    }
+    const choice = await this.themedConfirm.open(closeWorkspacePrompt(this.currentWorkspace()?.name));
+    if (choice !== 'confirm') {
+      return;
+    }
+    await this.onWorkspaceChanged(null);
+  }
+
   // Workspace management
   async onWorkspaceChanged(workspaceId: string | null): Promise<void> {
     console.log('[App] onWorkspaceChanged:', workspaceId);
@@ -1617,6 +1679,7 @@ export class App implements OnInit, OnDestroy {
 
     await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
     await this.electron.setCurrentWorkspace(workspaceId);
+    this.acknowledgeSessionWorkspace();
     this.currentWorkspaceId.set(workspaceId);
     // Refresh config to get updated workspaces
     const config = await this.electron.loadConfig();
@@ -1641,6 +1704,25 @@ export class App implements OnInit, OnDestroy {
       // Auto-select the new workspace
       await this.onWorkspaceChanged(config.workspaces[config.workspaces.length - 1].id);
     }
+  }
+
+  protected async onToggleWorkspaceFavorite(workspaceId: string): Promise<void> {
+    const current = this.workspaces().find((workspace) => workspace.id === workspaceId);
+    if (!current) {
+      return;
+    }
+    const nextFavorite = !current.favorite;
+    const saved = await this.electron.setWorkspaceFavorite(workspaceId, nextFavorite);
+    this.workspaces.set(
+      saved?.workspaces ?? setWorkspaceFavorite(this.workspaces(), workspaceId, nextFavorite),
+    );
+  }
+
+  protected async onReorderWorkspaceFavorites(orderedIds: string[]): Promise<void> {
+    const saved = await this.electron.reorderWorkspaceFavorites(orderedIds);
+    this.workspaces.set(
+      saved?.workspaces ?? reorderFavoriteWorkspaces(this.workspaces(), orderedIds),
+    );
   }
 
   protected openOrFocusFileTab(relativePath: string): void {
@@ -1858,6 +1940,11 @@ export class App implements OnInit, OnDestroy {
     void this.onWorkspaceChanged(workspaceId);
   }
 
+  protected onChromeCloseWorkspace(): void {
+    this.closeChromeMenu();
+    void this.closeCurrentWorkspace();
+  }
+
   protected onChromeNewFile(): void {
     this.closeChromeMenu();
     if (!this.hasOpenWorkspace()) {
@@ -1876,6 +1963,9 @@ export class App implements OnInit, OnDestroy {
 
   protected onChromeNewAgent(): void {
     this.closeChromeMenu();
+    if (!this.hasOpenWorkspace()) {
+      return;
+    }
     void this.onNewConversation();
   }
 
@@ -1902,6 +1992,9 @@ export class App implements OnInit, OnDestroy {
           void this.onWorkspaceChanged(command.workspaceId);
         }
         break;
+      case 'close-workspace':
+        void this.closeCurrentWorkspace();
+        break;
       case 'new-file':
         if (!this.hasOpenWorkspace()) {
           return;
@@ -1915,6 +2008,9 @@ export class App implements OnInit, OnDestroy {
         this.workspacePanel?.beginCreateFromMenu('folder');
         break;
       case 'new-agent':
+        if (!this.hasOpenWorkspace()) {
+          return;
+        }
         void this.onNewConversation();
         break;
       case 'new-terminal':
@@ -2559,6 +2655,7 @@ export class App implements OnInit, OnDestroy {
       await this.electron.setCurrentWorkspace(conv.workspaceId);
       const config = await this.electron.loadConfig();
       this.workspaces.set(config.workspaces);
+      this.acknowledgeSessionWorkspace();
       this.currentWorkspaceId.set(config.currentWorkspaceId);
       const list = await this.electron.getConversations(conv.workspaceId);
       this.conversations.set(list);

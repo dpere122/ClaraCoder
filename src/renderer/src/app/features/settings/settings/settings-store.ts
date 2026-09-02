@@ -923,7 +923,7 @@ export class SettingsStore {
     await this.electron.removeWorkspace(id);
   }
 
-  async selectWorkspace(id: string | null): Promise<void> {
+  async selectWorkspace(id: string): Promise<void> {
     const config = await this.electron.loadConfig();
     const fromWorkspaceId = config.currentWorkspaceId;
 
@@ -3153,6 +3153,7 @@ export class SettingsStore {
         this.configSnapshot.themeId = config.themeId;
         this.configSnapshot.chatSidebarCollapsed = config.chatSidebarCollapsed;
         this.configSnapshot.chatExpandedToMainPanel = config.chatExpandedToMainPanel;
+        this.configSnapshot.defaultHomePageOnStart = config.defaultHomePageOnStart;
       }
       this.themeId.set(config.themeId || DEFAULT_THEME_ID);
       this.applyTheme(config.themeId || DEFAULT_THEME_ID);

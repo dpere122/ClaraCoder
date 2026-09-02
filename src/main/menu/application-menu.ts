@@ -88,6 +88,11 @@ function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions {
         click: () => sendFileMenuCommand('open-folder'),
       },
       { label: 'Open Recent', submenu: recentSubmenu },
+      {
+        label: 'Close Workspace',
+        enabled: hasWorkspace,
+        click: () => sendFileMenuCommand('close-workspace'),
+      },
       { type: 'separator' },
       {
         label: 'New File',
@@ -102,6 +107,7 @@ function buildFileMenuTemplate(): Electron.MenuItemConstructorOptions {
       },
       {
         label: 'New Agent',
+        enabled: hasWorkspace,
         click: () => sendFileMenuCommand('new-agent'),
       },
       {

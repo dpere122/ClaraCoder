@@ -2,7 +2,9 @@
   <div class='app-top-bar'>
     @if (electron.isElectron) {
       <div class='window-chrome'>
-        <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>Clara Coder</h1>
+        <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>
+          <img class='chrome-title-icon' src='app-icon.png' alt='Clara Coder' />
+        </h1>
         <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeSettingsMenu($event)'>Settings</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeDependencies()'>Dependencies</button>
@@ -76,6 +78,16 @@
               <span>Open Recent</span>
               <span class='chrome-dropdown-accel' aria-hidden='true'>›</span>
             </button>
+            <button
+              type='button'
+              class='chrome-dropdown-menu-item'
+              role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
+              (mouseenter)='onChromeFileItemEnter()'
+              (mousedown)='onChromeMenuItemMousedown($event); onChromeCloseWorkspace()'
+            >
+              <span>Close Workspace</span>
+            </button>
             <div class='chrome-dropdown-menu-sep' role='separator'></div>
             <button
               type='button'
@@ -102,6 +114,7 @@
               type='button'
               class='chrome-dropdown-menu-item'
               role='menuitem'
+              [disabled]='!hasOpenWorkspace()'
               (mouseenter)='onChromeFileItemEnter()'
               (mousedown)='onChromeMenuItemMousedown($event); onChromeNewAgent()'
             >
@@ -160,31 +173,36 @@
       <p class='browser-only-hint'>
         This tab is a browser preview only — close it and use the <strong>Clara Coder</strong> Electron window from <code>npm run dev</code> for Settings, Dependencies, Health, window controls, and workspaces.
       </p>
-      <h1 class='chrome-title chrome-title--solo'>Clara Coder</h1>
+      <h1 class='chrome-title chrome-title--solo'>
+        <img class='chrome-title-icon' src='app-icon.png' alt='Clara Coder' />
+      </h1>
     }
   </div>
 
-  <div class='app-content'>
-    <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
-      <app-workspace
-        [workspaces]='workspaces()'
-        [currentWorkspaceId]='currentWorkspaceId()'
-        [activeConversationId]='activeConversationId()'
-        [activeFileRelativePath]='activeFileRelativePath()'
-        [outlineSymbols]='monacoOutlineState().symbols'
-        [outlineRelativePath]='monacoOutlineState().relativePath'
-        [appConfig]='appConfig()'
-        (workspaceFileOpen)='onWorkspaceFileOpen($event)'
-        (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
-        (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'
-      />
-    </div>
+  <div class='app-content' [class.app-content--no-workspace]='!hasOpenWorkspace()'>
+    @if (hasOpenWorkspace()) {
+      <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
+        <app-workspace
+          [workspaces]='workspaces()'
+          [currentWorkspaceId]='currentWorkspaceId()'
+          [activeConversationId]='activeConversationId()'
+          [activeFileRelativePath]='activeFileRelativePath()'
+          [outlineSymbols]='monacoOutlineState().symbols'
+          [outlineRelativePath]='monacoOutlineState().relativePath'
+          [appConfig]='appConfig()'
+          (workspaceFileOpen)='onWorkspaceFileOpen($event)'
+          (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
+          (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'
+        />
+      </div>
 
-    <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
+      <div class='workspace-resize-handle' (mousedown)='onWorkspaceResizeStart($event)'></div>
+    }
 
     <div class='chat-area'>
       <section class='chat-area__stage'>
         <div class='chat-area__tabs' role='presentation'>
+        @if (hasOpenWorkspace()) {
         <div class='chat-area__tab-strip' role='tablist' aria-label='Open files'>
           <div
             class='chat-area__tab-strip-tabs'
@@ -231,7 +249,8 @@
           }
           </div>
         </div>
-        @if (fileTabContextMenuVisible()) {
+        }
+        @if (hasOpenWorkspace() && fileTabContextMenuVisible()) {
           <div
             class='file-tab-context-menu'
             role='menu'
@@ -282,9 +301,18 @@
             <app-main-panel-empty-state
               class='chat-area__panel-host'
               [hasWorkspace]='!!currentWorkspaceId()'
+              [recentWorkspaces]='workspaces()'
+              [defaultHomePage]='defaultHomePageOnStart()'
               (addWorkspace)='onAddWorkspace()'
+              (openWorkspace)='onWorkspaceChanged($event)'
+              (toggleFavorite)='onToggleWorkspaceFavorite($event)'
+              (reorderFavorites)='onReorderWorkspaceFavorites($event)'
+              (openModelManager)='onChromeMenuSettingsTab("modelManager")'
+              (openDependencies)='onChromeDependencies()'
+              (defaultHomePageChange)='onDefaultHomePageChange($event)'
             />
           </div>
+          @if (hasOpenWorkspace()) {
           <div
             class='chat-area__tab-panel chat-area__tab-panel--monaco'
             [class.chat-area__tab-panel--hidden]='!activeMainTabId()?.startsWith("file:") || activeFileIsImage() || chatExpanded()'
@@ -409,22 +437,26 @@
               }
             </div>
           }
+          }
         </div>
         </div>
       </section>
 
-      <section class='chat-area__dock'>
-        <app-workspace-terminal-dock
-          [workspacePath]='currentWorkspacePath()'
-          [appConfig]='appConfig()'
-          [conversationId]='activeConversationId() ?? ""'
-          [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
-          [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'
-          (revealEditorDiagnostic)='onRevealEditorDiagnostic($event)'
-        />
-      </section>
+      @if (hasOpenWorkspace()) {
+        <section class='chat-area__dock'>
+          <app-workspace-terminal-dock
+            [workspacePath]='currentWorkspacePath()'
+            [appConfig]='appConfig()'
+            [conversationId]='activeConversationId() ?? ""'
+            [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
+            [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'
+            (revealEditorDiagnostic)='onRevealEditorDiagnostic($event)'
+          />
+        </section>
+      }
     </div>
 
+    @if (hasOpenWorkspace()) {
     @if (!chatCollapsed()) {
       <div class='sidebar-resize-handle' (mousedown)='onSidebarResizeStart($event)'></div>
     }
@@ -495,6 +527,7 @@
         (reasoningEffortChange)='onReasoningEffortChange($event)'
       />
     </div>
+    }
   </div>
 
   @if (electron.isElectron) {

@@ -481,6 +481,20 @@ export function resolveChatWindowState(
   };
 }
 
+/** When true, launch on the welcome/home screen instead of the last workspace. */
+export function shouldOpenHomePageOnStart(
+  config: Pick<AppConfig, 'defaultHomePageOnStart'>,
+): boolean {
+  return config.defaultHomePageOnStart === true;
+}
+
+/** Workspace to restore at process start. Honors {@link AppConfig.defaultHomePageOnStart}. */
+export function resolveStartupWorkspaceId(
+  config: Pick<AppConfig, 'currentWorkspaceId' | 'defaultHomePageOnStart'>,
+): string | null {
+  return shouldOpenHomePageOnStart(config) ? null : (config.currentWorkspaceId ?? null);
+}
+
 /** Speech-to-text settings forwarded to the Python backend. */
 export interface AudioTranscriptionConfig {
   provider: AudioTranscriptionProvider;
@@ -1128,6 +1142,11 @@ export function pruneRemovedWorkspaceClientState(config: AppConfig, workspaceId:
     delete next[id];
     config.workspaceMonacoScrollByWorkspaceId = next;
   }
+  if (config.lastActiveConversationByWorkspaceId && id in config.lastActiveConversationByWorkspaceId) {
+    const next = { ...config.lastActiveConversationByWorkspaceId };
+    delete next[id];
+    config.lastActiveConversationByWorkspaceId = next;
+  }
 }
 
 /** Coerce unknown persisted open-tab JSON; drops invalid workspace entries. */
@@ -1167,6 +1186,11 @@ export interface AppConfig {
    */
   configSchemaVersion?: number;
   currentWorkspaceId: string | null;
+  /**
+   * When true, the welcome/home screen is shown on launch instead of restoring
+   * {@link currentWorkspaceId}. The last workspace id is still persisted.
+   */
+  defaultHomePageOnStart?: boolean;
   /**
    * When switching back to a workspace, restore the last open conversation in that folder.
    * Key is `workspaceId`, or the empty string for the “no workspace / general” conversation bucket.

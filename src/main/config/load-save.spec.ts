@@ -118,6 +118,21 @@ describe('updateConfig serialization', () => {
   });
 });
 
+describe('migrateConfig default home page', () => {
+  it('defaults a missing defaultHomePageOnStart flag to false', () => {
+    const cfg = sampleConfig();
+    delete cfg.defaultHomePageOnStart;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.defaultHomePageOnStart).toBe(false);
+  });
+
+  it('keeps a persisted defaultHomePageOnStart preference', () => {
+    const cfg = sampleConfig({ defaultHomePageOnStart: true });
+    const migrated = migrateConfig(cfg);
+    expect(migrated.defaultHomePageOnStart).toBe(true);
+  });
+});
+
 describe('migrateConfig chat window state', () => {
   it('defaults missing chat chrome flags to false', () => {
     const cfg = sampleConfig();

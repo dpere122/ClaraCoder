@@ -2,16 +2,63 @@
   <div class="main-panel-empty__glow" aria-hidden="true"></div>
 
   @if (!hasWorkspace()) {
-    <div class="main-panel-empty__content main-panel-empty__content--no-workspace">
-      <p class="main-panel-empty__eyebrow">&gt; Clara Coder_</p>
-      <h2 class="main-panel-empty__title title-glow">Open a workspace to begin</h2>
-      <p class="main-panel-empty__hint">
-        Add a project folder to browse files, edit code, and chat with Clara.
-      </p>
-      <button type="button" class="main-panel-empty__cta" (click)="addWorkspace.emit()">
-        <lucide-icon name="folder-plus" [size]="18" />
-        <span>Add Workspace</span>
-      </button>
+    <div
+      class="main-panel-empty__welcome"
+      [class.main-panel-empty__welcome--with-recents]='visibleRecents().length > 0'
+    >
+      <div
+        class="main-panel-empty__etch"
+        aria-hidden="true"
+        style="--empty-etch-icon: url('app-icon.png')"
+      >
+        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--shadow"></span>
+        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--fill"></span>
+        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--highlight"></span>
+      </div>
+
+      <h2 class="main-panel-empty__title">Clara Coder</h2>
+
+      <div class="main-panel-empty__band">
+        <div class="main-panel-empty__intro">
+          <button type="button" class="main-panel-empty__cta" (click)="addWorkspace.emit()">
+            <lucide-icon name="folder-plus" [size]="18" />
+            <span>Add Workspace</span>
+          </button>
+        </div>
+
+        @if (visibleRecents().length > 0) {
+          <nav class="main-panel-empty__recents" aria-label="Recent workspaces">
+            <h3 class="main-panel-empty__recents-heading">Recent</h3>
+            <ul class="main-panel-empty__recents-list">
+              @for (ws of visibleRecents(); track ws.id) {
+                <li>
+                  <button
+                    type="button"
+                    class="main-panel-empty__recent"
+                    [title]="ws.path"
+                    (click)="openWorkspace.emit(ws.id)"
+                  >
+                    <lucide-icon name="folder" [size]="15" class="main-panel-empty__recent-icon" />
+                    <span class="main-panel-empty__recent-text">
+                      <span class="main-panel-empty__recent-name">{{ ws.name }}</span>
+                      <span class="main-panel-empty__recent-path">{{ ws.path }}</span>
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          </nav>
+        }
+      </div>
+
+      <div class="main-panel-empty__model">
+        <button type="button" class="main-panel-empty__link" (click)="openModelManager.emit()">
+          Model Manager
+        </button>
+        <button type="button" class="main-panel-empty__link" (click)="openDependencies.emit()">
+          Dependencies
+        </button>
+      </div>
     </div>
   } @else {
     <div class="main-panel-empty__content main-panel-empty__content--select-file">

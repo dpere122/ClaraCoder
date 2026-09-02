@@ -409,6 +409,41 @@ describe('App', () => {
     expect(compiled.querySelector('.chat-area__tab-strip')).toBeNull();
     expect(compiled.querySelector('app-main-panel-empty-state')).toBeTruthy();
     expect(compiled.querySelector('.app-content--no-workspace')).toBeTruthy();
+    expect(compiled.querySelector('.chat-area__tab-panel--empty.chat-area__tab-panel--hidden')).toBeNull();
+  });
+
+  it('still shows the no-workspace welcome when chat was left expanded', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: null,
+      chatSidebarCollapsed: false,
+      chatExpandedToMainPanel: true,
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.chat-area__tab-panel--empty.chat-area__tab-panel--hidden')).toBeNull();
+    expect(compiled.querySelector('.main-panel-empty__welcome')).toBeTruthy();
+    expect(compiled.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
+  });
+
+  it('lists recent workspaces on the no-workspace welcome screen', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: null,
+      workspaces: [
+        { id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'ws-b', name: 'Beta', path: 'C:/tmp/beta', createdAt: '2026-02-01T00:00:00.000Z' },
+      ],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const recents = compiled.querySelector('.main-panel-empty__recents');
+    expect(recents).toBeTruthy();
+    expect(recents?.textContent).toContain('Alpha');
+    expect(recents?.textContent).toContain('Beta');
+    expect(compiled.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
   });
 
   it('shows workspace-specific chrome when a workspace is open', async () => {

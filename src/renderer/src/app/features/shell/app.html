@@ -287,7 +287,11 @@
             <app-main-panel-empty-state
               class='chat-area__panel-host'
               [hasWorkspace]='!!currentWorkspaceId()'
+              [recentWorkspaces]='recentWorkspaces()'
               (addWorkspace)='onAddWorkspace()'
+              (openWorkspace)='onWorkspaceChanged($event)'
+              (openModelManager)='onChromeMenuSettingsTab("modelManager")'
+              (openDependencies)='onChromeDependencies()'
             />
           </div>
           @if (hasOpenWorkspace()) {

@@ -361,7 +361,7 @@ export class App implements OnInit, OnDestroy {
   });
 
   protected readonly mainStageShowsEmptyState = computed(
-    () => this.activeMainTabId() === null && !this.chatExpanded(),
+    () => !this.hasOpenWorkspace() || (this.activeMainTabId() === null && !this.chatExpanded()),
   );
 
   protected readonly activeFileRelativePath = computed(() => {

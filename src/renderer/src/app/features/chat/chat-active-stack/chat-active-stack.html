@@ -30,20 +30,7 @@
     (agentQuestionFinished)="agentQuestionFinished.emit($event)"
   />
 
-  <section class="chat-active-stack__composer">
-    <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--input" aria-hidden="true">
-      <span class="tui-frame-bar__corner">┌</span>
-      <span class="tui-frame-bar__fill"></span>
-      <span class="tui-frame-bar__corner">┐</span>
-    </div>
-    <div class="tui-frame-bar__body">
-    <app-chat-context-bar
-      [files]="chatContextFiles()"
-      [workspaceRoot]="workspaceRoot()"
-      (removeFile)="removeChatContextFile.emit($event)"
-      (togglePinFile)="togglePinChatContextFile.emit($event)"
-      (pathsDropped)="chatContextPathsDropped.emit($event)"
-    />
+  <section class="chat-active-stack__composer" #composer [style.transform]="composerTransform()">
     <app-hitl-composer-dock
       [artifacts]="pendingHitlDockArtifacts()"
       [conversationId]="conversationId()"
@@ -84,16 +71,15 @@
         [loading]="loading()"
         [contextBlocked]="contextBlocked()"
         [attachmentCount]="attachmentCount() || chatContextFiles().length"
+        [contextFiles]="chatContextFiles()"
+        [workspaceRoot]="workspaceRoot()"
+        (removeContextFile)="removeChatContextFile.emit($event)"
+        (togglePinContextFile)="togglePinChatContextFile.emit($event)"
+        (contextPathsDropped)="chatContextPathsDropped.emit($event)"
         (messageSent)="messageSent.emit($event)"
         (abortRequested)="abortRequested.emit()"
         (reasoningEffortChange)="reasoningEffortChange.emit($event)"
       />
-    </div>
-    </div>
-    <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--input" aria-hidden="true">
-      <span class="tui-frame-bar__corner">└</span>
-      <span class="tui-frame-bar__fill"></span>
-      <span class="tui-frame-bar__corner">┘</span>
     </div>
   </section>
 </div>

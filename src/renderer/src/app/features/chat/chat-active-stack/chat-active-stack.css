@@ -54,15 +54,26 @@
 .chat-active-stack__composer {
   flex-shrink: 0;
   min-width: 0;
-  border-top: 1px solid var(--t-border-subtle);
   display: flex;
   flex-direction: column;
   gap: 0;
   padding: 0.25rem 0.35rem;
-  overflow: visible;
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
   transition: filter 0.15s ease;
+}
+
+/**
+ * Empty transcript: the composer's `transform` (set from the template) lifts the message box to
+ * the vertical center of the stack. Once the first measurement has painted (`--ready`), enable
+ * the transform transition so the composer eases down to the bottom edge when the first message
+ * lands — and eases back up if the transcript becomes empty again.
+ */
+:host.chat-active-stack--ready .chat-active-stack__composer {
+  transition:
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.15s ease;
 }
 
 :host-context(body.sidebar-resizing) .chat-active-stack__composer {

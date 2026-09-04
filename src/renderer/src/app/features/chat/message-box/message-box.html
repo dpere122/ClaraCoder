@@ -1,3 +1,12 @@
+<div class="composer-context">
+  <app-chat-context-bar
+    [files]="contextFiles()"
+    [workspaceRoot]="workspaceRoot()"
+    (removeFile)="removeContextFile.emit($event)"
+    (togglePinFile)="togglePinContextFile.emit($event)"
+    (pathsDropped)="contextPathsDropped.emit($event)"
+  />
+</div>
 @if (talkStatus() || talkDetail()) {
   <div class="talk-status">
     <span class="talk-status-dot"></span>

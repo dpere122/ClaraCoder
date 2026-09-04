@@ -24,12 +24,15 @@ import { filter, merge } from 'rxjs';
 
 import { ElectronService } from '../../../core/electron.service';
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
+import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
+import { type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
+import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 
 type ComposerField = HTMLInputElement | HTMLTextAreaElement;
 
 @Component({
   selector: 'app-message-box',
-  imports: [FormsModule, LucideAngularModule, ContextCapacityComponent],
+  imports: [FormsModule, LucideAngularModule, ContextCapacityComponent, ChatContextBar],
   templateUrl: './message-box.html',
   styleUrl: './message-box.css'
 })
@@ -61,6 +64,16 @@ export class MessageBox {
   readonly contextBlocked = input(false);
   /** Staged reference-bar file count; allows send with empty text when > 0. */
   readonly attachmentCount = input(0);
+  /** Files attached to the next turn, rendered as chips at the top of the composer box. */
+  readonly contextFiles = input<readonly ChatContextFile[]>([]);
+  /** Workspace root for resolving image thumbnails in the context chips. */
+  readonly workspaceRoot = input('');
+  /** User removed an attached context file. */
+  readonly removeContextFile = output<ChatContextFile>();
+  /** User toggled pinning on an editor-selection context file. */
+  readonly togglePinContextFile = output<ChatContextFile>();
+  /** Files/folders dropped onto the context section. */
+  readonly contextPathsDropped = output<ChatContextDroppedPath[]>();
   /** When true (Agent/Plan), tool calls and edits run automatically. Hidden in Ask mode. */
   readonly autoApplyMode = model(false);
   /** Active app config — drives model/embeddings status beside the context meter. */

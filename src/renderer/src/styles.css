@@ -1073,17 +1073,9 @@ html app-chat-box .tui-frame-bar__body {
   min-width: 0;
 }
 
-html .chat-active-stack__composer .tui-frame-bar__body {
-  padding: 0.15rem 0.35rem 0.2rem;
-  min-width: 0;
-  background: color-mix(in srgb, var(--t-secondary) 5%, transparent);
-  overflow: visible;
-}
-
 html app-chat-box .user-bubble::before,
 html app-chat-box .assistant-bubble::before,
-html app-chat-box .msg-bubble::after,
-html app-chat-box .empty-state::before {
+html app-chat-box .msg-bubble::after {
   content: none;
   display: none;
 }
@@ -1149,21 +1141,6 @@ html app-chat-box .tts-loading {
   gap: 0.15rem;
   margin-top: 0.1rem;
   padding-top: 0.1rem;
-}
-
-html app-chat-box .empty-state-wrap {
-  margin: 0.1rem 0;
-  width: 100%;
-  max-width: 100%;
-}
-
-html app-chat-box .empty-state {
-  margin: 0;
-  padding: 0.05rem 0;
-  border: none;
-  color: var(--t-text-muted);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
 }
 
 html .chat-active-stack__composer {
@@ -1290,7 +1267,9 @@ html app-message-box .composer-prompt--active:hover {
 }
 
 html app-message-box .composer-entry-row {
-  background-color: var(--t-composer-input-bg);
+  background-color: transparent;
+  border: 1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent);
+  border-radius: 1rem;
   padding: 0.12rem 0.2rem;
   min-height: 2rem;
 }
@@ -1428,12 +1407,22 @@ html .chat-active-stack__status * {
   box-shadow: none !important;
 }
 
-html app-message-box .composer-entry-row .btn-send {
-  border: 1px dashed color-mix(in srgb, var(--t-secondary) 60%, transparent) !important;
+html .chat-active-stack__composer app-message-box {
+  border: 2px solid color-mix(in srgb, var(--t-secondary) 65%, var(--t-border)) !important;
+  border-radius: 1.5rem !important;
+  box-shadow:
+    0 2px 14px color-mix(in srgb, var(--t-glow) 26%, transparent),
+    0 1px 4px rgba(0, 0, 0, 0.4) !important;
 }
 
-html app-message-box .composer-entry-row .btn-send:hover:not(:disabled) {
-  border-color: var(--t-secondary) !important;
+html app-message-box .composer-entry-row {
+  border: 1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent) !important;
+  border-radius: 1rem !important;
+}
+
+html app-message-box .composer-entry-row .btn-send {
+  border: none !important;
+  border-radius: 1rem !important;
 }
 
 html app-chat-box app-stream-thought-pill .stream-thought-preview__inner,

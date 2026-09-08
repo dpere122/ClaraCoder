@@ -32,7 +32,8 @@ from clara_coder_backend.llm.prompt_blocks import (
 from clara_coder_backend.session.state import get_active_connection, runtime_config
 
 # Precompiled patterns for detecting "pseudo" tool syntax in plain model text.
-_RE_PSEUDO_FUNCTION_TAG = re.compile(r'<\s*function\s*=', re.IGNORECASE)
+# Match both `<function=name>` and `<function name="name">` (and the parameter = form).
+_RE_PSEUDO_FUNCTION_TAG = re.compile(r'<\s*function\s*(?:=|name\s*=)', re.IGNORECASE)
 _RE_PSEUDO_PARAMETER_TAG = re.compile(r'<\s*parameter\s*=', re.IGNORECASE)
 _RE_FUNCTION_EQ_TAG = re.compile(
     r'<\s*function\s*=\s*(?:"(?P<dq>[^"]+)"|\'(?P<sq>[^\']+)\'|(?P<bare>[^\s>/]+))\s*(?P<self>/?)\s*>',
@@ -42,6 +43,21 @@ _RE_PARAMETER_EQ_TAG = re.compile(
     r'<\s*parameter\s*=\s*(?:"(?P<dq>[^"]+)"|\'(?P<sq>[^\']+)\'|(?P<bare>[^\s>/]+))\s*(?P<self>/?)\s*>',
     re.IGNORECASE,
 )
+_RE_TOOL_CALL_BLOCK = re.compile(
+    r'<\s*tool_call\b[^>]*>.*?</\s*tool_call\s*>',
+    re.IGNORECASE | re.DOTALL,
+)
+_RE_FUNCTION_BLOCK = re.compile(
+    r'<\s*function\s*(?:=|name\s*=)[^>]*/\s*>'
+    r'|<\s*function\s*(?:=|name\s*=)[^>]*>.*?</\s*function\s*>',
+    re.IGNORECASE | re.DOTALL,
+)
+_RE_KNOWN_PSEUDO_TAG = re.compile(
+    r'</?\s*(?:function|parameter|tool_call|arguments|args|input)\b[^>]*/?>',
+    re.IGNORECASE,
+)
+# Bare `&` that is not already a character or named entity (`&amp;`, `&#38;`, `&#x26;`).
+_RE_BARE_AMP = re.compile(r'&(?!(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)')
 _RE_JSON_LIKE = re.compile(r'^\s*[\[{"]')
 
 
@@ -215,6 +231,39 @@ def text_uses_pseudo_tool_markup(text: str) -> bool:
     return False
 
 
+def _escape_xml_text(text: str) -> str:
+    """Escape `&`, `<`, and `>` in text content without double-escaping valid entities."""
+    text = _RE_BARE_AMP.sub('&amp;', text)
+    return text.replace('<', '&lt;').replace('>', '&gt;')
+
+
+def _escape_pseudo_xml_text_content(xml: str) -> str:
+    """Escape text between known tool tags so argument values can contain `&` / `<>`."""
+    parts: list[str] = []
+    last = 0
+    for match in _RE_KNOWN_PSEUDO_TAG.finditer(xml):
+        parts.append(_escape_xml_text(xml[last:match.start()]))
+        parts.append(match.group(0))
+        last = match.end()
+    parts.append(_escape_xml_text(xml[last:]))
+    return ''.join(parts)
+
+
+def _iter_pseudo_tool_blocks(text: str) -> list[str]:
+    """Return isolated `<tool_call>` / `<function>` blocks in document order."""
+    spans: list[tuple[int, int, str]] = []
+    for match in _RE_TOOL_CALL_BLOCK.finditer(text):
+        spans.append((match.start(), match.end(), match.group(0)))
+    occupied = [(start, end) for start, end, _block in spans]
+    for match in _RE_FUNCTION_BLOCK.finditer(text):
+        start, end = match.span()
+        if any(outer_start <= start and end <= outer_end for outer_start, outer_end in occupied):
+            continue
+        spans.append((start, end, match.group(0)))
+    spans.sort(key=lambda item: item[0])
+    return [block for _start, _end, block in spans]
+
+
 def _normalize_pseudo_tool_xml(text: str) -> str:
     def _replace_function(match: re.Match[str]) -> str:
         name = (match.group('dq') or match.group('sq') or match.group('bare') or '').strip()
@@ -321,16 +370,7 @@ def _parse_tool_call_node(node: ET.Element) -> tuple[str, dict[str, Any]]:
     return direct_name, direct_args
 
 
-def extract_pseudo_tool_calls(text: str) -> list[dict[str, Any]]:
-    """Best-effort conversion of pseudo XML tool syntax into LangChain-style ``tool_calls``."""
-    if not text_uses_pseudo_tool_markup(text):
-        return []
-    normalized = _normalize_pseudo_tool_xml(text)
-    try:
-        root = ET.fromstring(f'<root>{normalized}</root>')
-    except ET.ParseError:
-        return []
-
+def _tool_calls_from_root(root: ET.Element, start_id: int) -> list[dict[str, Any]]:
     parent_by_child: dict[ET.Element, ET.Element] = {child: parent for parent in root.iter() for child in parent}
     out: list[dict[str, Any]] = []
     for node in root.iter():
@@ -347,9 +387,34 @@ def extract_pseudo_tool_calls(text: str) -> list[dict[str, Any]]:
             {
                 'name': tool_name,
                 'args': args if isinstance(args, dict) else {},
-                'id': f'xml-tool-{len(out) + 1}',
+                'id': f'xml-tool-{start_id + len(out)}',
             }
         )
+    return out
+
+
+def _extract_calls_from_xml_fragment(fragment: str, start_id: int) -> list[dict[str, Any]]:
+    normalized = _normalize_pseudo_tool_xml(fragment)
+    escaped = _escape_pseudo_xml_text_content(normalized)
+    try:
+        root = ET.fromstring(f'<root>{escaped}</root>')
+    except ET.ParseError:
+        return []
+    return _tool_calls_from_root(root, start_id)
+
+
+def extract_pseudo_tool_calls(text: str) -> list[dict[str, Any]]:
+    """Best-effort conversion of pseudo XML tool syntax into LangChain-style ``tool_calls``.
+
+    Each ``<tool_call>`` / ``<function>`` block is parsed independently so surrounding
+    prose or one malformed block cannot drop the rest. Argument text is escaped so
+    bare ``&`` / ``<>`` (e.g. ``npm run build && npm test``) still extract.
+    """
+    if not text_uses_pseudo_tool_markup(text):
+        return []
+    out: list[dict[str, Any]] = []
+    for block in _iter_pseudo_tool_blocks(text):
+        out.extend(_extract_calls_from_xml_fragment(block, start_id=len(out) + 1))
     return out
 
 

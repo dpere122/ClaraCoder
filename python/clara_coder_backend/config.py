@@ -93,8 +93,8 @@ except ValueError:
 
 # When the model returns no visible text, inject a nudge message instead of stopping.
 MAX_AGENT_EMPTY_NUDGES = 2
-# When the model writes <tool_call> / <function=...> in plain text (common with some Qwen stacks) but sends no
-# API ``tool_calls``, re-prompt so the graph can reach the tool node. 0 = disable (same as max empty nudges).
+# When the model writes <tool_call> / <function=...> in plain text but sends no API ``tool_calls``,
+# re-prompt so the graph can reach the tool node. 0 = disable. Gemma and Qwen presets skip this.
 try:
     MAX_AGENT_PSEUDO_TOOL_NUDGES = max(0, min(int(env_clara('CLARA_MAX_AGENT_PSEUDO_TOOL_NUDGES', '2') or '2'), 20))
 except ValueError:

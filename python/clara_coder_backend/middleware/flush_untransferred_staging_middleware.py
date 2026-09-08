@@ -10,6 +10,8 @@ calls ``transfer_staged_file_to_workspace`` (or abort / Editor-off ends the turn
 turn-end cleanup drops leftover staging).
 
 The after-model staging-continuation nudge in ``empty_response_middleware`` is legacy (off).
+The Qwen optimization preset skips this leftover-draft re-prompt so the turn ends on the
+base model→tools path; turn-end cleanup still restores leftover journals.
 """
 
 from __future__ import annotations
@@ -30,6 +32,17 @@ from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.review_tools import pending_untransferred_staging_paths
 
 logger = logging.getLogger('clara.agent.langgraph')
+
+
+def leftover_draft_review_enabled() -> bool:
+    """False when the Qwen optimization preset is active (no after-agent re-prompt)."""
+    try:
+        from clara_coder_backend.llm.model_tuning import qwen_optimize_profile_active
+        from clara_coder_backend.session.state import get_active_connection
+
+        return not qwen_optimize_profile_active(get_active_connection())
+    except Exception:
+        return True
 
 
 def untransferred_draft_review_nudge_text(paths: list[str], *, auto_apply: bool) -> str:
@@ -68,6 +81,8 @@ class FlushUntransferredStagingMiddleware(AgentMiddleware):
         runtime: Runtime[ContextT],
     ) -> dict[str, Any] | None:
         del runtime  # API contract; unused
+        if not leftover_draft_review_enabled():
+            return None
         sid = (current_session_id.get() or '').strip()
         if not sid:
             return None

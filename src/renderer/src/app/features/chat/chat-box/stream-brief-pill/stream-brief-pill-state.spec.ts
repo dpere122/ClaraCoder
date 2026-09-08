@@ -7,6 +7,7 @@ import {
   briefPillState,
   isBriefStreamingPreview,
   isShortBrief,
+  resolveBriefPresentation,
   resolveBriefPillExpanded,
   shouldKeepBriefRendered,
 } from './stream-brief-pill-state';
@@ -56,6 +57,50 @@ describe('isShortBrief', () => {
   });
 });
 
+describe('resolveBriefPresentation', () => {
+  const long = 'one\ntwo\nthree\nfour';
+
+  it('keeps a live generating brief in preview even when it already exceeds the line limit', () => {
+    expect(
+      resolveBriefPresentation({ live: true, generating: true, text: long, userOverride: null }),
+    ).toBe('preview');
+  });
+
+  it('collapses a finished long brief to a pill', () => {
+    expect(
+      resolveBriefPresentation({ live: true, generating: false, text: long, userOverride: null }),
+    ).toBe('pill');
+    expect(
+      resolveBriefPresentation({ live: false, generating: false, text: long, userOverride: null }),
+    ).toBe('pill');
+  });
+
+  it('keeps a finished short brief in preview', () => {
+    expect(
+      resolveBriefPresentation({
+        live: false,
+        generating: false,
+        text: 'Checking files.',
+        userOverride: null,
+      }),
+    ).toBe('preview');
+  });
+
+  it('honors a user expand/collapse override', () => {
+    expect(
+      resolveBriefPresentation({ live: true, generating: true, text: long, userOverride: false }),
+    ).toBe('pill');
+    expect(
+      resolveBriefPresentation({
+        live: false,
+        generating: false,
+        text: long,
+        userOverride: true,
+      }),
+    ).toBe('preview');
+  });
+});
+
 describe('shouldKeepBriefRendered', () => {
   it('keeps short briefs rendered unless the user collapsed them', () => {
     expect(shouldKeepBriefRendered('Checking files.', null)).toBe(true);
@@ -63,9 +108,17 @@ describe('shouldKeepBriefRendered', () => {
     expect(shouldKeepBriefRendered('Checking files.', false)).toBe(false);
   });
 
-  it('never keeps a long brief rendered as the preview pane', () => {
+  it('never keeps a finished long brief rendered as the preview pane', () => {
     expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', null)).toBe(false);
-    expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', true)).toBe(false);
+    expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', null, false, false)).toBe(false);
+  });
+
+  it('keeps a live generating long brief rendered', () => {
+    expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', null, true, true)).toBe(true);
+  });
+
+  it('keeps a long brief rendered when the user expands it', () => {
+    expect(shouldKeepBriefRendered('one\ntwo\nthree\nfour', true)).toBe(true);
   });
 });
 

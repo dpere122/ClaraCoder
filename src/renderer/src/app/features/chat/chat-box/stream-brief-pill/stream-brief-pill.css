@@ -77,9 +77,9 @@ app-stream-brief-pill .stream-brief-pill--inline .stream-brief-preview {
 app-stream-brief-pill .stream-brief-preview__inner {
   min-height: 0;
   overflow: hidden;
-  border: none;
-  border-radius: 0 !important;
-  background: transparent;
+  border: 1px solid var(--t-border);
+  border-radius: 0.85rem !important;
+  background: color-mix(in srgb, var(--t-bg-surface) 88%, var(--t-panel) 12%);
 }
 
 app-stream-brief-pill .stream-brief-preview--open .stream-brief-preview__inner {
@@ -91,7 +91,7 @@ app-stream-brief-pill .stream-brief-preview__header {
   align-items: center;
   width: 100%;
   margin: 0;
-  padding: 0.08rem 0 0;
+  padding: 0.4rem 0.7rem 0.12rem;
   border: none;
   background: transparent;
   color: var(--t-secondary);
@@ -114,15 +114,14 @@ app-chat-box .assistant-bubble app-stream-brief-pill .stream-brief-preview__body
   box-sizing: border-box;
   width: 100%;
   margin: 0;
-  padding: 0 0 0.1rem;
-  max-height: none;
-  line-height: 1.35;
+  padding: 0.22rem 0.7rem 0.55rem;
+  max-height: 10rem;
+  line-height: 1.5;
   overflow: auto;
   border: none;
   background: transparent;
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.74rem;
-  font-weight: 700;
   color: var(--chat-details-stream-fg, color-mix(in srgb, var(--t-secondary) 88%, transparent));
   white-space: pre-wrap;
   word-break: break-word;

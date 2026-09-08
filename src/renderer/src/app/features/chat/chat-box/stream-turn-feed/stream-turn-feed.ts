@@ -11,7 +11,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { TurnFeedItem } from '@shared/index';
+import { isActiveLiveBrief, type TurnFeedItem } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
 import { StreamBriefPillComponent } from '../stream-brief-pill/stream-brief-pill';
@@ -86,12 +86,6 @@ export class StreamTurnFeedComponent {
     return previewItemShowsBody(split.current);
   });
 
-  /** Clara briefs stay borderless in the live preview slot instead of a boxed pane. */
-  readonly previewCompact = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return split.current?.kind === 'brief';
-  });
-
   constructor() {
     this.destroyRef.onDestroy(() => this.clearTimer());
 
@@ -124,6 +118,10 @@ export class StreamTurnFeedComponent {
       return `md:${index}`;
     }
     return `${item.kind}:${item.part.streamTag}:${index}`;
+  }
+
+  briefIsGenerating(index: number): boolean {
+    return isActiveLiveBrief(this.items(), index, this.live());
   }
 
   isLastMarkdown(index: number): boolean {

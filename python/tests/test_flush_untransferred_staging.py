@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import HumanMessage
 
-from clara_coder_backend.domain import PendingStagedTransferHitl
+from clara_coder_backend.domain import PendingStagedTransferHitl, RuntimeConnection
 from clara_coder_backend.lang_agent.graph import _cleanup_nested_edit_staging
 from clara_coder_backend.middleware.flush_untransferred_staging_middleware import (
     FlushUntransferredStagingMiddleware,
@@ -51,6 +51,26 @@ async def test_after_agent_noop_without_untransferred_drafts(staging_env) -> Non
     session.worker_apply_mode = True
     mw = FlushUntransferredStagingMiddleware()
     assert await mw.aafter_agent({}, MagicMock()) is None
+
+
+@patch('clara_coder_backend.session.state.get_active_connection')
+async def test_after_agent_skips_on_qwen_preset(mock_conn: MagicMock, staging_env) -> None:
+    mock_conn.return_value = RuntimeConnection(
+        id='t',
+        name='t',
+        provider='lmstudio',
+        base_url='http://127.0.0.1:1234/v1',
+        model='qwen3.5-9b',
+        optimization_preset='qwen',
+    )
+    session = staging_env.session
+    session.worker_apply_mode = True
+    session.hitl_sse_queue = asyncio.Queue()
+    _stage_py(staging_env, name='qwen.py', old='a=1\n', new='a = 1\n')
+    mw = FlushUntransferredStagingMiddleware()
+    assert await mw.aafter_agent({}, MagicMock()) is None
+    assert session.hitl_sse_queue.empty()
+    assert session.pending_edit_stagings['qwen.py'].workspace_applied is False
 
 
 async def test_after_agent_skips_when_editor_off(staging_env) -> None:

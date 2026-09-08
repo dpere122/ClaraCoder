@@ -38,6 +38,7 @@ import {
   streamPlainOneLine,
   TOOL_OVERLAY_STREAM_TAG,
   TOOL_PYTEST_STREAM_TAG,
+  hitlTrailStreamTag,
   toolTrailStatusStreamTag,
 } from '@shared/index';
 
@@ -252,6 +253,19 @@ describe('buildTurnFeed', () => {
     expect(feed[0]?.kind).toBe('brief');
     if (feed[0]?.kind !== 'brief') return;
     expect(feed[0].part.text).toBe('Hello world');
+  });
+
+  it('renders live pre-tool agent prose as a Clara brief even with a HITL trail row present', () => {
+    const parts: StreamPart[] = [
+      { streamTag: hitlTrailStreamTag('change-1'), label: 'edit src/a.ts', text: 'pending' },
+      { streamTag: 'agent', label: '', text: 'Checking the layout next.' },
+    ];
+    const feed = buildTurnFeed(parts);
+    expect(feed).toHaveLength(2);
+    expect(feed[0]?.kind).toBe('tool');
+    expect(feed[1]?.kind).toBe('brief');
+    if (feed[1]?.kind !== 'brief') return;
+    expect(feed[1].part.text).toBe('Checking the layout next.');
   });
 
   it('keeps post-tool agent segments as markdown', () => {

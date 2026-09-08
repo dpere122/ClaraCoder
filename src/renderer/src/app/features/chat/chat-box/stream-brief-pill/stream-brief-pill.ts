@@ -43,7 +43,9 @@ export class StreamBriefPillComponent {
   readonly showPreview = computed(() =>
     isBriefStreamingPreview(this.live(), this.active(), this.userOverride()),
   );
-  readonly keepRendered = computed(() => shouldKeepBriefRendered(this.text(), this.userOverride()));
+  readonly keepRendered = computed(() =>
+    shouldKeepBriefRendered(this.text(), this.userOverride(), this.live(), this.active()),
+  );
   readonly panelOpen = computed(() => this.showPreview() || this.keepRendered());
 
   constructor() {

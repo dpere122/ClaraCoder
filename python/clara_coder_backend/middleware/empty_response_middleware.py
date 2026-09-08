@@ -4,17 +4,22 @@
 this middleware injects a user nudge up to :data:`clara_coder_backend.config.MAX_AGENT_EMPTY_NUDGES` times.
 It also nudges (separate cap, :data:`clara_coder_backend.config.MAX_AGENT_PSEUDO_TOOL_NUDGES`) when the
 model encodes tool usage as ``<tool_call>`` / ``<function=...>`` XML in assistant text or reasoning
-but the completion includes no registered ``tool_calls``—a frequent mismatch with some Qwen templates.
+and that markup cannot be promoted into registered ``tool_calls``—a frequent mismatch with some
+Qwen templates. Recoverable XML is promoted by
+:class:`~clara_coder_backend.middleware.pseudo_tool_xml_middleware.PseudoToolXmlMiddleware`
+instead of a re-prompt.
 
 Leftover staged drafts in Editor mode are returned after the agent would otherwise END by
 :class:`~clara_coder_backend.middleware.flush_untransferred_staging_middleware.FlushUntransferredStagingMiddleware`.
 The after-model staging-continuation re-prompt is **legacy** (off unless
 :data:`clara_coder_backend.config.MAX_AGENT_STAGING_CONTINUATION_NUDGES` is set above 0).
 
-The Gemma optimization preset skips empty and pseudo-tool re-prompts. Gemma native
+The Gemma and Qwen optimization presets skip empty, pseudo-tool, and after-model
+staging re-prompts so those profiles keep a base model→tools loop. Gemma native
 ``<|tool_call>`` markup is promoted by
 :class:`~clara_coder_backend.middleware.gemma_native_tool_middleware.GemmaNativeToolMiddleware`
-instead of a re-prompt.
+instead of a re-prompt. Recoverable Qwen XML is still promoted by
+:class:`~clara_coder_backend.middleware.pseudo_tool_xml_middleware.PseudoToolXmlMiddleware`.
 
 The nudge streak counter only resets when the model produces *visible text* (the goal of
 the nudge).  Tool calls alone do **not** reset it—this prevents an alternating loop where
@@ -41,6 +46,7 @@ from clara_coder_backend.config import (
     MAX_AGENT_STAGING_CONTINUATION_NUDGES,
 )
 from clara_coder_backend.llm.messages import (
+    extract_pseudo_tool_calls,
     final_assistant_text,
     text_uses_pseudo_tool_markup,
 )
@@ -104,12 +110,18 @@ def _staging_continuation_paths() -> list[str] | None:
 
 
 def empty_response_nudge_enabled() -> bool:
-    """False when the Gemma optimization preset is active (no empty / pseudo-tool nudges)."""
+    """False when the Gemma or Qwen optimization preset is active (no after-model re-prompts)."""
     try:
-        from clara_coder_backend.llm.model_tuning import gemma_optimize_profile_active
+        from clara_coder_backend.llm.model_tuning import (
+            gemma_optimize_profile_active,
+            qwen_optimize_profile_active,
+        )
         from clara_coder_backend.session.state import get_active_connection
 
-        return not gemma_optimize_profile_active(get_active_connection())
+        connection = get_active_connection()
+        return not (
+            gemma_optimize_profile_active(connection) or qwen_optimize_profile_active(connection)
+        )
     except Exception:
         return True
 
@@ -137,7 +149,7 @@ class _EmptyResponseNudgeState(AgentState[ResponseT]):
 class EmptyResponseNudgeMiddleware(AgentMiddleware):
     """After an empty assistant message with no tools, append a user nudge and call the model again.
 
-    Gemma skips empty and pseudo-tool nudges. After-model staging continuation is legacy (off).
+    Gemma and Qwen skip after-model nudges. Staging continuation is legacy (off).
     """
 
     state_schema = _EmptyResponseNudgeState  # type: ignore[assignment]
@@ -166,6 +178,8 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
         if inv:
             return None
         fat = (final_assistant_text(last) or '').strip()
+        if not empty_response_nudge_enabled():
+            return None
         pending_paths = _staging_continuation_paths()
         # Legacy after-model staging continuation (off unless MAX_AGENT_STAGING_CONTINUATION_NUDGES > 0).
         if pending_paths and MAX_AGENT_STAGING_CONTINUATION_NUDGES > 0:
@@ -190,9 +204,11 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
                     'empty_response_nudge_streak': 0,
                     'pseudo_tool_markup_nudge_streak': 0,
                 }
-        if not empty_response_nudge_enabled():
-            return None
-        if text_uses_pseudo_tool_markup(fat) and MAX_AGENT_PSEUDO_TOOL_NUDGES > 0:
+        if (
+            text_uses_pseudo_tool_markup(fat)
+            and not extract_pseudo_tool_calls(fat)
+            and MAX_AGENT_PSEUDO_TOOL_NUDGES > 0
+        ):
             p_streak = int(state.get('pseudo_tool_markup_nudge_streak') or 0)
             if p_streak >= MAX_AGENT_PSEUDO_TOOL_NUDGES:
                 return None

@@ -370,11 +370,12 @@ function pushOrMergeNudgeItem(items: TurnFeedItem[], part: StreamPart): void {
 }
 
 /**
- * Tool / HITL / shell lanes. An `agent` segment after one of these is the live reply,
- * not the Clara outer brief.
+ * Tool / shell lanes that end the Clara outer-brief window.
+ * HITL trail rows do not count — leftover review chips must not turn the first
+ * `agent` segment into markdown.
  */
 function streamPartIsToolLike(part: StreamPart): boolean {
-  return isToolLikeStreamTag(part.streamTag);
+  return isToolLikeStreamTag(part.streamTag) && !isHitlTrailStreamTag(part.streamTag);
 }
 
 /** Tool / HITL / shell multiplex tags (not primary, reasoning, brief, nudge, or planner). */
@@ -447,8 +448,9 @@ function primarySegmentIsBetweenTools(parts: readonly StreamPart[], index: numbe
 }
 
 /**
- * Live `agent` text before any tool/HITL lane is the Clara outer brief (planning prose).
+ * Live `agent` text before any tool/shell lane is the Clara outer brief (planning prose).
  * After tools start, later `agent` segments are the user-visible reply.
+ * HITL trail rows do not end this window.
  */
 export function livePrimaryRendersAsOuterBrief(
   parts: readonly StreamPart[],

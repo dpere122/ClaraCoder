@@ -6,6 +6,8 @@ export const BRIEF_INLINE_LINE_LIMIT = 4;
 /** Approx. characters per wrapped line at the brief preview's mono size. */
 export const BRIEF_WRAP_CHARS = 72;
 
+export type BriefPresentation = 'preview' | 'pill';
+
 export function briefPillLabel(_live: boolean, _active: boolean): string {
   return 'reasoning';
 }
@@ -37,30 +39,47 @@ export function isShortBrief(text: string): boolean {
 }
 
 /**
- * Short briefs stay in the preview pane after streaming unless the user collapsed them.
- * Longer briefs always condense into the reasoning chip.
+ * Preview vs collapsed pill. Line count is ignored while the brief is still generating.
  */
-export function shouldKeepBriefRendered(text: string, userOverride: boolean | null): boolean {
-  if (userOverride === false) {
-    return false;
+export function resolveBriefPresentation(opts: {
+  live: boolean;
+  generating: boolean;
+  text: string;
+  userOverride: boolean | null;
+}): BriefPresentation {
+  if (opts.userOverride === false) {
+    return 'pill';
   }
-  return isShortBrief(text);
+  if (opts.userOverride === true) {
+    return 'preview';
+  }
+  if (opts.live && opts.generating) {
+    return 'preview';
+  }
+  return isShortBrief(opts.text) ? 'preview' : 'pill';
 }
 
-/** User override wins; short briefs stay open; otherwise expand only while live+active. */
+/**
+ * Short briefs stay in the preview pane after streaming unless the user collapsed them.
+ * Live generating briefs stay in the preview even when they already exceed the line limit.
+ */
+export function shouldKeepBriefRendered(
+  text: string,
+  userOverride: boolean | null,
+  live = false,
+  generating = false,
+): boolean {
+  return resolveBriefPresentation({ live, generating, text, userOverride }) === 'preview';
+}
+
+/** User override wins; generating or short briefs stay open; otherwise collapse. */
 export function resolveBriefPillExpanded(
   live: boolean,
   active: boolean,
   userOverride: boolean | null,
   text = '',
 ): boolean {
-  if (userOverride !== null) {
-    return userOverride;
-  }
-  if (isShortBrief(text)) {
-    return true;
-  }
-  return live && active;
+  return resolveBriefPresentation({ live, generating: active, text, userOverride }) === 'preview';
 }
 
 /** Live streaming preview pane; user collapse hides it in favor of the chip. */

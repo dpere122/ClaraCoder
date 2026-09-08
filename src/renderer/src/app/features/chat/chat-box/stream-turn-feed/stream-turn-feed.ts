@@ -27,6 +27,7 @@ import {
   previewCommitCount,
   previewItemText,
   previewQueueHeader,
+  previewSessionText,
   previewShowsBody as previewItemShowsBody,
   pressureInbound,
   queueableFeedIdentity,
@@ -110,6 +111,13 @@ export class StreamTurnFeedComponent {
   }
 
   previewBodyText(item: TurnFeedItem): string {
+    if (item.kind !== 'brief') {
+      return previewItemText(item);
+    }
+    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    if (split.current?.kind === 'brief') {
+      return previewSessionText(split.current, split.inbound);
+    }
     return previewItemText(item);
   }
 
@@ -167,7 +175,7 @@ export class StreamTurnFeedComponent {
     }
 
     const id = queueableFeedIdentity(split.current);
-    const textLen = previewItemText(split.current).length;
+    const textLen = previewSessionText(split.current, split.inbound).length;
     if (id !== this.currentIdentity) {
       this.currentIdentity = id;
       this.currentTextLen = textLen;

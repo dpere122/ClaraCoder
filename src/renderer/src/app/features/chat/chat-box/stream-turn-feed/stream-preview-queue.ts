@@ -55,6 +55,42 @@ export function previewItemText(item: TurnFeedItem): string {
   return item.kind === 'markdown' ? item.text : item.part.text;
 }
 
+/**
+ * Leading inbound thoughts stay inside a live Clara brief preview.
+ * Same rule as `isActiveLiveBrief`: later thought tokens do not close the brief.
+ */
+export function absorbedBriefThoughts(
+  current: TurnFeedItem | undefined,
+  inbound: readonly TurnFeedItem[],
+): TurnFeedItem[] {
+  if (current?.kind !== 'brief') {
+    return [];
+  }
+  const out: TurnFeedItem[] = [];
+  for (const item of inbound) {
+    if (item.kind !== 'thought') {
+      break;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** Brief text plus absorbed live reasoning, so sidecar tokens stay in one pane. */
+export function previewSessionText(
+  current: TurnFeedItem,
+  inbound: readonly TurnFeedItem[] = [],
+): string {
+  const parts = [previewItemText(current)];
+  for (const item of absorbedBriefThoughts(current, inbound)) {
+    const text = previewItemText(item);
+    if (text) {
+      parts.push(text);
+    }
+  }
+  return parts.filter((part) => part.length > 0).join('\n');
+}
+
 export function previewShowsBody(item: TurnFeedItem | undefined): boolean {
   return item?.kind === 'thought' || item?.kind === 'brief' || item?.kind === 'nudge';
 }
@@ -76,7 +112,11 @@ export function previewItemLabel(item: TurnFeedItem): string {
 }
 
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const labels = [previewItemLabel(current), ...inbound.map(previewItemLabel)].filter((label) => label.length > 0);
+  const absorbed = absorbedBriefThoughts(current, inbound).length;
+  const visibleInbound = inbound.slice(absorbed);
+  const labels = [previewItemLabel(current), ...visibleInbound.map(previewItemLabel)].filter(
+    (label) => label.length > 0,
+  );
   return labels.join(' — ');
 }
 
@@ -118,6 +158,29 @@ export function initialLiveCommittedCount(items: readonly TurnFeedItem[]): numbe
     while (n > 0 && isToolBatchMember(queueable[n - 1]!)) {
       n -= 1;
     }
+  } else if (current && (current.kind === 'thought' || current.kind === 'brief')) {
+    n = reasoningSessionStartIndex(queueable, n);
+  }
+  return n;
+}
+
+/** Walk back a live brief and the thoughts that belong in its preview pane. */
+function reasoningSessionStartIndex(queueable: readonly TurnFeedItem[], end: number): number {
+  let n = end;
+  const current = queueable[n];
+  if (current?.kind === 'thought') {
+    while (n > 0 && queueable[n - 1]?.kind === 'thought') {
+      n -= 1;
+    }
+    if (n > 0 && queueable[n - 1]?.kind === 'brief') {
+      n -= 1;
+    }
+    return n;
+  }
+  if (current?.kind === 'brief') {
+    while (n > 0 && queueable[n - 1]?.kind === 'thought') {
+      n -= 1;
+    }
   }
   return n;
 }
@@ -134,8 +197,9 @@ export function splitQueuedFeed(items: readonly TurnFeedItem[], committedCount: 
 }
 
 /**
- * How many uncommitted tools share the current live preview chip.
- * Thought / brief / nudge / HITL always commit one at a time.
+ * How many uncommitted items share the current live preview.
+ * Tools batch together; a Clara brief commits with the thoughts absorbed into its pane.
+ * Nudge / HITL always commit one at a time.
  */
 export function previewCommitCount(items: readonly TurnFeedItem[], committedCount: number): number {
   const queueable = queueableItems(items);
@@ -143,6 +207,13 @@ export function previewCommitCount(items: readonly TurnFeedItem[], committedCoun
   const current = queueable[i];
   if (!current) {
     return 0;
+  }
+  if (current.kind === 'brief') {
+    let n = 1;
+    while (i + n < queueable.length && queueable[i + n]?.kind === 'thought') {
+      n += 1;
+    }
+    return n;
   }
   if (!isToolBatchMember(current)) {
     return 1;
@@ -159,7 +230,13 @@ export function pressureInbound(
   current: TurnFeedItem | undefined,
   inbound: readonly TurnFeedItem[],
 ): TurnFeedItem | undefined {
-  if (!current || !isToolBatchMember(current)) {
+  if (!current) {
+    return undefined;
+  }
+  if (current.kind === 'brief') {
+    return inbound.find((item) => item.kind !== 'thought');
+  }
+  if (!isToolBatchMember(current)) {
     return inbound[0];
   }
   return inbound.find((item) => !isToolBatchMember(item));

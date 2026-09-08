@@ -18,10 +18,12 @@ import {
   previewItemLabel,
   previewItemText,
   previewQueueHeader,
+  previewSessionText,
   previewShowsBody,
   pressureInbound,
   queueableFeedIdentity,
   splitQueuedFeed,
+  absorbedBriefThoughts,
 } from './stream-preview-queue';
 
 const thought: TurnFeedItem = {
@@ -101,6 +103,33 @@ describe('previewQueueHeader', () => {
       'Thinking — read_workspace_file — search_workspace',
     );
   });
+
+  it('keeps a live brief labeled reasoning while thoughts are absorbed', () => {
+    expect(previewQueueHeader(brief, [thought])).toBe('reasoning');
+    expect(previewQueueHeader(brief, [thought, tool])).toBe('reasoning — read_workspace_file');
+  });
+});
+
+describe('absorbedBriefThoughts', () => {
+  it('takes leading thoughts after a live brief and stops at any other event', () => {
+    expect(absorbedBriefThoughts(brief, [thought, tool])).toEqual([thought]);
+    expect(absorbedBriefThoughts(brief, [tool, thought])).toEqual([]);
+    expect(absorbedBriefThoughts(thought, [thought])).toEqual([]);
+  });
+});
+
+describe('previewSessionText', () => {
+  it('appends absorbed thought text into the live brief pane', () => {
+    const later: TurnFeedItem = {
+      kind: 'thought',
+      part: { streamTag: 'reasoning', label: 'R', text: 'sidecar' },
+    };
+    expect(previewSessionText(brief, [later, tool])).toBe('next I will read\nsidecar');
+  });
+
+  it('leaves a thought preview as its own text', () => {
+    expect(previewSessionText(thought, [brief])).toBe('hmm');
+  });
 });
 
 describe('previewShowsBody', () => {
@@ -171,6 +200,11 @@ describe('previewCommitCount', () => {
   it('does not batch HITL with ordinary tools', () => {
     expect(previewCommitCount([tool, hitl, tool2], 0)).toBe(1);
   });
+
+  it('commits a live brief together with the thoughts absorbed into its pane', () => {
+    expect(previewCommitCount([brief, thought, tool], 0)).toBe(2);
+    expect(previewCommitCount([brief, tool], 0)).toBe(1);
+  });
 });
 
 describe('pressureInbound', () => {
@@ -181,6 +215,12 @@ describe('pressureInbound', () => {
   it('ignores sibling tools in the live batch', () => {
     expect(pressureInbound(tool, [tool2, tool3])).toBeUndefined();
     expect(pressureInbound(tool, [tool2, thought])).toEqual(thought);
+  });
+
+  it('does not let live reasoning commit a Clara brief', () => {
+    expect(pressureInbound(brief, [thought])).toBeUndefined();
+    expect(pressureInbound(brief, [thought, tool])).toEqual(tool);
+    expect(pressureInbound(brief, [nudge])).toEqual(nudge);
   });
 });
 
@@ -209,6 +249,12 @@ describe('feedItemDisplayRole', () => {
     expect(feedItemDisplayRole(items, 0, 1, true)).toBe('chip');
     expect(feedItemDisplayRole(items, 1, 1, true)).toBe('preview');
   });
+
+  it('keeps the brief in preview and hides absorbed live thoughts', () => {
+    const items = [brief, thought];
+    expect(feedItemDisplayRole(items, 0, 0, true)).toBe('preview');
+    expect(feedItemDisplayRole(items, 1, 0, true)).toBe('hidden');
+  });
 });
 
 describe('advanceZeroDwell', () => {
@@ -236,6 +282,12 @@ describe('initialLiveCommittedCount', () => {
     expect(initialLiveCommittedCount([thought, tool, tool2, tool3])).toBe(1);
     expect(initialLiveCommittedCount([tool, tool2, tool3])).toBe(0);
   });
+
+  it('keeps a live brief and its absorbed thoughts in one preview on remount', () => {
+    expect(initialLiveCommittedCount([brief, thought])).toBe(0);
+    expect(initialLiveCommittedCount([thought, brief])).toBe(0);
+    expect(initialLiveCommittedCount([brief, thought, brief, thought])).toBe(2);
+  });
 });
 
 describe('firstQueueableIdentity', () => {
@@ -255,6 +307,12 @@ describe('hasCommitPressure', () => {
   it('is false while only sibling tools are inbound', () => {
     expect(hasCommitPressure([tool, tool2], tool, [tool2])).toBe(false);
     expect(hasCommitPressure([tool, tool2, md], tool, [tool2])).toBe(true);
+  });
+
+  it('is false while only reasoning is inbound on a live brief', () => {
+    expect(hasCommitPressure([brief, thought], brief, [thought])).toBe(false);
+    expect(hasCommitPressure([brief, thought, tool], brief, [thought, tool])).toBe(true);
+    expect(hasCommitPressure([brief, thought, md], brief, [thought])).toBe(true);
   });
 });
 
@@ -341,5 +399,17 @@ describe('decidePreviewCommit', () => {
         now: 0,
       }),
     ).toEqual({ action: 'commit' });
+  });
+
+  it('stays on a live brief when only reasoning is inbound', () => {
+    expect(
+      decidePreviewCommit({
+        ...base,
+        items: [brief, thought],
+        current: brief,
+        inbound: [thought],
+        now: 10_000,
+      }),
+    ).toEqual({ action: 'stay' });
   });
 });

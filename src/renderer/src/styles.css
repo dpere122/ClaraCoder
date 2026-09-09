@@ -381,6 +381,13 @@ app-workspace-monaco .workspace-monaco-md-toggle__btn {
   border-radius: 999px !important;
 }
 
+/* Monaco editor file tabs sit as pills above the editor. */
+.chat-main-tab,
+.chat-main-tab.cdk-drag-preview,
+.chat-main-tab-close {
+  border-radius: 999px !important;
+}
+
 html, body {
   height: 100%;
   margin: 0;

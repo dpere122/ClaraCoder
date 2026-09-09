@@ -1,0 +1,72 @@
+<div
+  class='chat-area__tab-strip'
+  role='tablist'
+  aria-label='Open files'
+  [class.is-overlay-dragging]='overlayDragging()'
+  [class.is-focused]='focused()'
+>
+  <div
+    class='chat-area__tab-strip-tabs'
+    #tabsEl
+    cdkDropList
+    cdkDropListOrientation='horizontal'
+    [cdkDropListData]='slotId()'
+    (cdkDropListDropped)='onDropped($event)'
+    (wheel)='onWheel($event)'
+    (scroll)='onScroll()'
+  >
+    @for (tab of tabs(); track tabId(tab)) {
+      <button
+        type='button'
+        class='chat-main-tab'
+        role='tab'
+        cdkDrag
+        [cdkDragData]='dragDataFor()(tab)'
+        (cdkDragStarted)='onDragStarted($event)'
+        (cdkDragMoved)='onDragMoved($event)'
+        (cdkDragEnded)='onDragEnded()'
+        [attr.aria-selected]='activeTabId() === tabId(tab)'
+        [class.chat-main-tab--active]='activeTabId() === tabId(tab)'
+        [class.chat-main-tab--detached]='isDetached(tab)'
+        (click)='onSelect(tab)'
+        (contextmenu)='onContextMenu($event, tab)'
+        [attr.title]='title(tab)'
+      >
+        <span class='chat-main-tab-drag-handle' cdkDragHandle>
+          @if (tab.outsideWorkspace) {
+            <lucide-icon
+              name='triangle-alert'
+              [size]='14'
+              class='chat-main-tab-outside-warn'
+              aria-label='This file is outside of the workspace.'
+              title='This file is outside of the workspace.'
+            ></lucide-icon>
+          }
+          <span class='chat-main-tab-label'>{{ basename(tab) }}</span>
+          @if (isUnsaved(tab)) {
+            <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
+          }
+        </span>
+        <span
+          class='chat-main-tab-close'
+          role='presentation'
+          (click)='onClose($event, tab)'
+          title='Close tab'
+        >&times;</span>
+      </button>
+    }
+  </div>
+  <div
+    class='chat-area__tab-strip-overlay'
+    [class.is-overflowing]='overlay().overflowing'
+    aria-hidden='true'
+    (pointerdown)='onOverlayTrackPointerDown($event)'
+  >
+    <div
+      class='chat-area__tab-strip-overlay-thumb'
+      [style.width.px]='overlay().thumbSizePx'
+      [style.transform]='"translateX(" + overlay().thumbOffsetPx + "px)"'
+      (pointerdown)='onOverlayThumbPointerDown($event)'
+    ></div>
+  </div>
+</div>

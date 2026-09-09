@@ -202,75 +202,6 @@
     <div class='chat-area'>
       <section class='chat-area__stage'>
         <div class='chat-area__tabs' role='presentation'>
-        @if (hasOpenWorkspace()) {
-        <div
-          class='chat-area__tab-strip'
-          role='tablist'
-          aria-label='Open files'
-          [class.is-overlay-dragging]='fileTabStripOverlayDragging()'
-        >
-          <div
-            class='chat-area__tab-strip-tabs'
-            #fileTabStripTabs
-            cdkDropList
-            cdkDropListOrientation='horizontal'
-            (cdkDropListDropped)='onFileTabDrop($event)'
-            (wheel)='onFileTabStripWheel($event)'
-            (scroll)='onFileTabStripScroll()'
-          >
-          @for (tab of fileTabs(); track fileTabIdForTab(tab)) {
-            <button
-              type='button'
-              class='chat-main-tab'
-              role='tab'
-              cdkDrag
-              cdkDragLockAxis='x'
-              [attr.aria-selected]='activeMainTabId() === fileTabIdForTab(tab)'
-              [class.chat-main-tab--active]='activeMainTabId() === fileTabIdForTab(tab)'
-              [class.chat-main-tab--detached]='fileTabIsDetached(chatFileTabModelKey(tab))'
-              (click)='selectMainTab(fileTabIdForTab(tab))'
-              (contextmenu)='onFileTabContextMenu($event, fileTabIdForTab(tab))'
-              [attr.title]='fileTabTitle(tab)'
-            >
-              <span class='chat-main-tab-drag-handle' cdkDragHandle>
-                @if (tab.outsideWorkspace) {
-                  <lucide-icon
-                    name='triangle-alert'
-                    [size]='14'
-                    class='chat-main-tab-outside-warn'
-                    aria-label='This file is outside of the workspace.'
-                    title='This file is outside of the workspace.'
-                  ></lucide-icon>
-                }
-                <span class='chat-main-tab-label'>{{ fileTabBasenameForTab(tab) }}</span>
-                @if (fileTabIsUnsaved(chatFileTabModelKey(tab))) {
-                  <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
-                }
-              </span>
-              <span
-                class='chat-main-tab-close'
-                role='presentation'
-                (click)='closeMainFileTab($event, fileTabIdForTab(tab))'
-                title='Close tab'
-              >&times;</span>
-            </button>
-          }
-          </div>
-          <div
-            class='chat-area__tab-strip-overlay'
-            [class.is-overflowing]='fileTabStripOverlay().overflowing'
-            aria-hidden='true'
-            (pointerdown)='onFileTabStripOverlayTrackPointerDown($event)'
-          >
-            <div
-              class='chat-area__tab-strip-overlay-thumb'
-              [style.width.px]='fileTabStripOverlay().thumbSizePx'
-              [style.transform]='"translateX(" + fileTabStripOverlay().thumbOffsetPx + "px)"'
-              (pointerdown)='onFileTabStripOverlayThumbPointerDown($event)'
-            ></div>
-          </div>
-        </div>
-        }
         @if (hasOpenWorkspace() && fileTabContextMenuVisible()) {
           <div
             class='file-tab-context-menu'
@@ -334,52 +265,70 @@
             />
           </div>
           @if (hasOpenWorkspace()) {
-          <div
-            class='chat-area__tab-panel chat-area__tab-panel--monaco'
-            [class.chat-area__tab-panel--hidden]='!activeMainTabId()?.startsWith("file:") || activeFileIsImage() || chatExpanded()'
+          <app-editor-grid
+            class='chat-area__tab-panel chat-area__tab-panel--grid'
+            [class.chat-area__tab-panel--hidden]='mainStageShowsEmptyState() || chatExpanded()'
+            [layout]='editorGrid()'
+            [focusedSlotId]='focusedSlotId()'
+            [unsavedKeys]='monacoUnsavedPaths()'
+            [detachedKeys]='monacoDetachedPaths()'
+            (layoutChange)='onEditorGridLayoutChange($event)'
+            (slotFocus)='onEditorGridSlotFocus($event)'
+            (tabSelect)='onEditorGridTabSelect($event)'
+            (tabClose)='onEditorGridTabClose($event)'
+            (tabContextMenu)='onEditorGridTabContextMenu($event)'
+            (fileDrop)='onEditorGridFileDrop($event)'
           >
-            <app-workspace-monaco
-              class='chat-area__panel-host'
-              [workspacePath]='currentWorkspacePath()'
-              [activeModelKey]='monacoActiveModelKey()'
-              [openEditorFiles]='monacoOpenEditorFiles()'
-              [workspaceId]='currentWorkspaceId()'
-              [persistedScrollByPath]='workspaceMonacoScrollByPath()'
-              [relativePath]='monacoActiveFileRelativePath()'
-              [openFileRelativePaths]='monacoOpenFileRelativePaths()'
-              [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
-              [pendingDiffPayload]='pendingDiffForActiveEditor()'
-              [pendingStagedTransferBatch]='pendingStagedTransferBatchForActiveEditor()'
-              [conversationId]='activeConversationId()'
-              [pendingEditorReveal]='monacoRevealPending()'
-              [forcePreviewForKeys]='monacoForcePreviewKeys()'
-              [buildPlanLiveContent]='buildPlanLiveContent()'
-              [buildPlanStreamingKeys]='buildPlanStreamingKeys()'
-              (unsavedPathsChange)='onMonacoUnsavedPathsChange($event)'
-              (detachedPathsChange)='onMonacoDetachedPathsChange($event)'
-              (saveAsCompleted)='onMonacoSaveAsCompleted($event)'
-              (diffReviewFinished)='onDiffReviewFinished($event)'
-              (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
-              (stagedTransferBatchFileResolved)='onStagedTransferBatchFileResolved($event)'
-              (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
-              (pendingEditorRevealHandled)='onMonacoRevealHandled()'
-              (editorSelectionChange)='onEditorSelectionChange($event)'
-              (outlineSymbolsChange)='onMonacoOutlineChange($event)'
-              (diagnosticsChange)='onMonacoDiagnosticsChange($event)'
-            />
-          </div>
-          <div
-            class='chat-area__tab-panel chat-area__tab-panel--image'
-            [class.chat-area__tab-panel--hidden]='!activeFileIsImage() || chatExpanded()'
-          >
-            <app-image-viewer
-              class='chat-area__panel-host'
-              [workspacePath]='currentWorkspacePath()'
-              [relativePath]='imageViewerRelativePath()'
-              [active]='activeFileIsImage() && !chatExpanded()'
-              (navigateTo)='onImageViewerNavigate($event)'
-            />
-          </div>
+            <ng-template #slotBody let-slot let-focused='focused'>
+              @if (slotView(slot); as view) {
+                <div
+                  class='chat-area__tab-panel chat-area__tab-panel--monaco'
+                  [class.chat-area__tab-panel--hidden]='!view.monacoActiveModelKey'
+                >
+                  <app-workspace-monaco
+                    class='chat-area__panel-host'
+                    [workspacePath]='currentWorkspacePath()'
+                    [activeModelKey]='view.monacoActiveModelKey'
+                    [openEditorFiles]='view.monacoOpenEditorFiles'
+                    [workspaceId]='currentWorkspaceId()'
+                    [persistedScrollByPath]='workspaceMonacoScrollByPath()'
+                    [relativePath]='view.monacoActiveRelativePath'
+                    [openFileRelativePaths]='view.monacoOpenFileRelativePaths'
+                    [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
+                    [pendingDiffPayload]='focused ? pendingDiffForActiveEditor() : null'
+                    [pendingStagedTransferBatch]='focused ? pendingStagedTransferBatchForActiveEditor() : null'
+                    [conversationId]='activeConversationId()'
+                    [pendingEditorReveal]='focused ? monacoRevealPending() : null'
+                    [forcePreviewForKeys]='monacoForcePreviewKeys()'
+                    [buildPlanLiveContent]='buildPlanLiveContent()'
+                    [buildPlanStreamingKeys]='buildPlanStreamingKeys()'
+                    [focused]='focused'
+                    (surfaceFocused)='onEditorGridSlotFocus(slot.id)'
+                    (diffReviewFinished)='onDiffReviewFinished($event)'
+                    (stagedTransferBatchFinished)='onStagedTransferBatchFinished($event)'
+                    (stagedTransferBatchFileResolved)='onStagedTransferBatchFileResolved($event)'
+                    (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
+                    (pendingEditorRevealHandled)='onMonacoRevealHandled()'
+                    (editorSelectionChange)='onEditorSelectionChange($event)'
+                    (outlineSymbolsChange)='onMonacoOutlineChange($event)'
+                    (diagnosticsChange)='onMonacoDiagnosticsChange($event)'
+                  />
+                </div>
+                <div
+                  class='chat-area__tab-panel chat-area__tab-panel--image'
+                  [class.chat-area__tab-panel--hidden]='!view.activeIsImage'
+                >
+                  <app-image-viewer
+                    class='chat-area__panel-host'
+                    [workspacePath]='currentWorkspacePath()'
+                    [relativePath]='view.imageRelativePath'
+                    [active]='view.activeIsImage && focused && !chatExpanded()'
+                    (navigateTo)='onImageViewerNavigate($event)'
+                  />
+                </div>
+              }
+            </ng-template>
+          </app-editor-grid>
 
           @if (chatExpanded()) {
             <div

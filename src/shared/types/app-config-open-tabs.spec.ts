@@ -61,6 +61,99 @@ describe('normalizeWorkspaceOpenTabsState', () => {
     expect(state).toBeNull();
     expect(migrated).toBe(false);
   });
+
+  it('keeps a valid grid layout and normalizes its sizes', () => {
+    const { state, migrated } = normalizeWorkspaceOpenTabsState({
+      tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }, { relativePath: 'b.ts', outsideWorkspace: false }],
+      activeTabId: 'file:rel:b.ts',
+      layout: {
+        columns: [
+          { slots: [{ tabIds: ['file:rel:a.ts'], activeTabId: 'file:rel:a.ts' }], rowSizes: [1] },
+          {
+            slots: [
+              { tabIds: ['file:rel:b.ts', 'file:rel:a.ts'], activeTabId: 'file:rel:b.ts' },
+              { tabIds: ['file:rel:a.ts'], activeTabId: null },
+            ],
+            rowSizes: [3, 1],
+          },
+        ],
+        columnSizes: [1, 3],
+        focused: [1, 0],
+      },
+    });
+    expect(migrated).toBe(false);
+    expect(state?.layout?.columnSizes).toEqual([0.25, 0.75]);
+    expect(state?.layout?.columns[1]?.rowSizes).toEqual([0.75, 0.25]);
+    expect(state?.layout?.columns[1]?.slots[1]?.activeTabId).toBe('file:rel:a.ts');
+    expect(state?.layout?.focused).toEqual([1, 0]);
+  });
+
+  it('drops the layout (and migrates) when it references unknown tabs', () => {
+    const { state, migrated } = normalizeWorkspaceOpenTabsState({
+      tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }],
+      activeTabId: 'file:rel:a.ts',
+      layout: {
+        columns: [{ slots: [{ tabIds: ['file:rel:missing.ts'], activeTabId: null }], rowSizes: [1] }],
+        columnSizes: [1],
+      },
+    });
+    expect(migrated).toBe(true);
+    expect(state?.tabs).toHaveLength(1);
+    expect(state?.layout).toBeUndefined();
+  });
+
+  it('drops layouts that exceed the 3x3 cap or contain empty slots', () => {
+    const slot = { tabIds: ['file:rel:a.ts'], activeTabId: null };
+    const tooManyColumns = normalizeWorkspaceOpenTabsState({
+      tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }],
+      activeTabId: null,
+      layout: {
+        columns: [1, 2, 3, 4].map(() => ({ slots: [slot], rowSizes: [1] })),
+        columnSizes: [1, 1, 1, 1],
+      },
+    });
+    expect(tooManyColumns.migrated).toBe(true);
+    expect(tooManyColumns.state?.layout).toBeUndefined();
+
+    const tooManyRows = normalizeWorkspaceOpenTabsState({
+      tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }],
+      activeTabId: null,
+      layout: {
+        columns: [{ slots: [slot, slot, slot, slot], rowSizes: [1, 1, 1, 1] }],
+        columnSizes: [1],
+      },
+    });
+    expect(tooManyRows.state?.layout).toBeUndefined();
+
+    const emptySlot = normalizeWorkspaceOpenTabsState({
+      tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }],
+      activeTabId: null,
+      layout: {
+        columns: [{ slots: [{ tabIds: [], activeTabId: null }], rowSizes: [1] }],
+        columnSizes: [1],
+      },
+    });
+    expect(emptySlot.state?.layout).toBeUndefined();
+  });
+
+  it('uses even sizes and ignores an out-of-range focus when sizes are malformed', () => {
+    const { state, migrated } = normalizeWorkspaceOpenTabsState({
+      tabs: [{ relativePath: 'a.ts', outsideWorkspace: false }, { relativePath: 'b.ts', outsideWorkspace: false }],
+      activeTabId: null,
+      layout: {
+        columns: [
+          { slots: [{ tabIds: ['file:rel:a.ts'], activeTabId: null }], rowSizes: 'nope' },
+          { slots: [{ tabIds: ['file:rel:b.ts'], activeTabId: null }], rowSizes: [-1] },
+        ],
+        columnSizes: [1],
+        focused: [5, 0],
+      },
+    });
+    expect(migrated).toBe(false);
+    expect(state?.layout?.columnSizes).toEqual([0.5, 0.5]);
+    expect(state?.layout?.columns.map((c) => c.rowSizes)).toEqual([[1], [1]]);
+    expect(state?.layout?.focused).toBeUndefined();
+  });
 });
 
 describe('normalizeWorkspaceOpenTabsByWorkspaceId', () => {

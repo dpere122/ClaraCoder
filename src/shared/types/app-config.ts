@@ -991,10 +991,37 @@ export interface WorkspacePersistedOpenTab {
   outsideWorkspace?: boolean;
 }
 
+/** One tab group inside the persisted editor grid; `tabIds` reference entries in `tabs`. */
+export interface WorkspacePersistedEditorGridSlot {
+  tabIds: string[];
+  activeTabId: string | null;
+}
+
+export interface WorkspacePersistedEditorGridColumn {
+  slots: WorkspacePersistedEditorGridSlot[];
+  /** Fractions (sum 1), one per slot. */
+  rowSizes: number[];
+}
+
+/** Editor grid arrangement (max 3 columns x 3 rows). Absent = single slot with all tabs. */
+export interface WorkspacePersistedEditorGridLayout {
+  columns: WorkspacePersistedEditorGridColumn[];
+  /** Fractions (sum 1), one per column. */
+  columnSizes: number[];
+  /** Index of the focused slot as `[columnIndex, rowIndex]`. */
+  focused?: [number, number];
+}
+
+export const WORKSPACE_EDITOR_GRID_MAX_COLUMNS = 3;
+export const WORKSPACE_EDITOR_GRID_MAX_ROWS = 3;
+
 /** Ordered editor tabs and the focused tab id for one workspace. */
 export interface WorkspaceOpenTabsState {
+  /** Flat, de-duplicated union of every open tab across the grid. */
   tabs: WorkspacePersistedOpenTab[];
   activeTabId: string | null;
+  /** Optional split arrangement; when missing or invalid the renderer shows one slot. */
+  layout?: WorkspacePersistedEditorGridLayout;
 }
 
 /** Per-workspace open editor tabs keyed by workspace id. */
@@ -1102,7 +1129,100 @@ export function normalizeWorkspaceOpenTabsState(raw: unknown): {
   if (tabs.length === 0) {
     return { state: null, migrated: migrated || tabsRaw.length > 0 || activeRaw != null };
   }
-  return { state: { tabs, activeTabId }, migrated };
+  const layoutRaw = (o as { layout?: unknown }).layout;
+  if (layoutRaw === undefined) {
+    return { state: { tabs, activeTabId }, migrated };
+  }
+  const layout = normalizePersistedEditorGridLayout(layoutRaw, seen);
+  if (!layout) {
+    return { state: { tabs, activeTabId }, migrated: true };
+  }
+  return { state: { tabs, activeTabId, layout }, migrated };
+}
+
+function normalizeSizeList(raw: unknown, count: number): number[] | null {
+  if (!Array.isArray(raw) || raw.length !== count) {
+    return null;
+  }
+  const nums = raw.map((v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : NaN));
+  if (nums.some((n) => Number.isNaN(n))) {
+    return null;
+  }
+  const total = nums.reduce((a, b) => a + b, 0);
+  return nums.map((n) => n / total);
+}
+
+/**
+ * Validate a persisted editor-grid layout against the flat tab set. Returns null when the
+ * shape is invalid, exceeds the 3x3 cap, references unknown tabs, or has an empty slot.
+ */
+export function normalizePersistedEditorGridLayout(
+  raw: unknown,
+  knownTabIds: ReadonlySet<string>,
+): WorkspacePersistedEditorGridLayout | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const o = raw as { columns?: unknown; columnSizes?: unknown; focused?: unknown };
+  if (!Array.isArray(o.columns) || o.columns.length === 0 || o.columns.length > WORKSPACE_EDITOR_GRID_MAX_COLUMNS) {
+    return null;
+  }
+  const columns: WorkspacePersistedEditorGridColumn[] = [];
+  for (const colRaw of o.columns) {
+    if (!colRaw || typeof colRaw !== 'object' || Array.isArray(colRaw)) {
+      return null;
+    }
+    const c = colRaw as { slots?: unknown; rowSizes?: unknown };
+    if (!Array.isArray(c.slots) || c.slots.length === 0 || c.slots.length > WORKSPACE_EDITOR_GRID_MAX_ROWS) {
+      return null;
+    }
+    const slots: WorkspacePersistedEditorGridSlot[] = [];
+    for (const slotRaw of c.slots) {
+      if (!slotRaw || typeof slotRaw !== 'object' || Array.isArray(slotRaw)) {
+        return null;
+      }
+      const s = slotRaw as { tabIds?: unknown; activeTabId?: unknown };
+      if (!Array.isArray(s.tabIds) || s.tabIds.length === 0) {
+        return null;
+      }
+      const tabIds: string[] = [];
+      const seenInSlot = new Set<string>();
+      for (const id of s.tabIds) {
+        if (typeof id !== 'string' || !knownTabIds.has(id) || seenInSlot.has(id)) {
+          return null;
+        }
+        seenInSlot.add(id);
+        tabIds.push(id);
+      }
+      let activeTabId: string | null = null;
+      if (typeof s.activeTabId === 'string' && seenInSlot.has(s.activeTabId)) {
+        activeTabId = s.activeTabId;
+      } else if (s.activeTabId != null && s.activeTabId !== '') {
+        return null;
+      }
+      slots.push({ tabIds, activeTabId: activeTabId ?? tabIds[tabIds.length - 1]! });
+    }
+    const rowSizes = normalizeSizeList(c.rowSizes, slots.length) ?? slots.map(() => 1 / slots.length);
+    columns.push({ slots, rowSizes });
+  }
+  const columnSizes = normalizeSizeList(o.columnSizes, columns.length) ?? columns.map(() => 1 / columns.length);
+  const layout: WorkspacePersistedEditorGridLayout = { columns, columnSizes };
+  if (Array.isArray(o.focused) && o.focused.length === 2) {
+    const [ci, ri] = o.focused;
+    if (
+      typeof ci === 'number' &&
+      typeof ri === 'number' &&
+      Number.isInteger(ci) &&
+      Number.isInteger(ri) &&
+      ci >= 0 &&
+      ci < columns.length &&
+      ri >= 0 &&
+      ri < columns[ci]!.slots.length
+    ) {
+      layout.focused = [ci, ri];
+    }
+  }
+  return layout;
 }
 
 /**

@@ -5,6 +5,7 @@ import { NgxSpinnerModule } from 'ngx-spinner';
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { lucideAppProviders } from '../../lucide-setup';
 import { App } from './app';
+import { WorkspaceMonacoModelStore } from '../workspace/workspace-monaco/workspace-monaco-model-store';
 import {
   CONTEXT_CHAT_BLOCKED_PERCENT,
   estimateTranscriptContextTokens,
@@ -385,6 +386,88 @@ describe('App', () => {
     };
     expect(app.fileTabs().map((t) => t.relativePath)).toEqual(['src/foo.ts', 'src/bar.ts']);
     expect(app.activeMainTabId()).toBe('file:rel:src/bar.ts');
+  });
+
+  it('restores a persisted editor-grid layout with the focused slot driving fileTabs', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [
+            { relativePath: 'src/foo.ts', outsideWorkspace: false },
+            { relativePath: 'src/bar.ts', outsideWorkspace: false },
+          ],
+          activeTabId: 'file:rel:src/bar.ts',
+          layout: {
+            columns: [
+              { slots: [{ tabIds: ['file:rel:src/foo.ts'], activeTabId: 'file:rel:src/foo.ts' }], rowSizes: [1] },
+              {
+                slots: [{ tabIds: ['file:rel:src/bar.ts', 'file:rel:src/foo.ts'], activeTabId: 'file:rel:src/bar.ts' }],
+                rowSizes: [1],
+              },
+            ],
+            columnSizes: [0.5, 0.5],
+            focused: [1, 0],
+          },
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const app = fixture.componentInstance as unknown as {
+      fileTabs: () => Array<{ relativePath?: string }>;
+      activeMainTabId: () => string | null;
+      allFileTabs: () => Array<{ relativePath?: string }>;
+      editorGrid: () => { columns: Array<{ slots: unknown[] }> };
+    };
+    expect(app.editorGrid().columns).toHaveLength(2);
+    // Focused slot is the right column; `fileTabs` reflects only that slot.
+    expect(app.fileTabs().map((t) => t.relativePath)).toEqual(['src/bar.ts', 'src/foo.ts']);
+    expect(app.activeMainTabId()).toBe('file:rel:src/bar.ts');
+    // The same file is open in both slots but appears once in the flat union.
+    expect(app.allFileTabs().map((t) => t.relativePath)).toEqual(['src/foo.ts', 'src/bar.ts']);
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelectorAll('app-editor-grid-tab-strip')).toHaveLength(2);
+    expect(compiled.querySelectorAll('.editor-grid__gutter--column')).toHaveLength(1);
+  });
+
+  it('holds a grid-wide model claim covering every open text tab across slots', async () => {
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [
+            { relativePath: 'src/foo.ts', outsideWorkspace: false },
+            { relativePath: 'src/bar.ts', outsideWorkspace: false },
+          ],
+          activeTabId: 'file:rel:src/bar.ts',
+          layout: {
+            columns: [
+              { slots: [{ tabIds: ['file:rel:src/foo.ts'], activeTabId: 'file:rel:src/foo.ts' }], rowSizes: [1] },
+              {
+                slots: [{ tabIds: ['file:rel:src/bar.ts', 'file:rel:src/foo.ts'], activeTabId: 'file:rel:src/bar.ts' }],
+                rowSizes: [1],
+              },
+            ],
+            columnSizes: [0.5, 0.5],
+            focused: [1, 0],
+          },
+        },
+      },
+    });
+    const store = TestBed.inject(WorkspaceMonacoModelStore);
+    const claim = vi.spyOn(store, 'syncGridOpenFiles');
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const last = claim.mock.calls.at(-1)?.[0] ?? [];
+    expect(last.map((r) => r.modelKey).sort()).toEqual(['rel:src/bar.ts', 'rel:src/foo.ts']);
   });
 
   it('renders full file tab names without truncating labels', async () => {

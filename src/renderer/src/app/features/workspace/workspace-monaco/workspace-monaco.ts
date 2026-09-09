@@ -22,14 +22,11 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import type * as Monaco from 'monaco-editor';
 import {
-  LSP_MONACO_LANGUAGE_IDS,
-  lspServerIdForMonacoLanguageId,
   lspServerKindForWorkspaceRelativePath,
   type FileDiffPayload,
   type MonacoWorkspaceEditorSettings,
   type StagedTransferBatchPayload,
   type StagedTransferFileResolution,
-  type WorkspaceFilesChangedMessage,
   type WorkspaceMonacoEditorScrollState,
   type LspEditorDiagnostic,
 } from '@shared/index';
@@ -37,7 +34,6 @@ import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
-  absolutePathFromModelKey,
   displayPathForModelKey,
   editorModelKeyForRelativePath,
   isExternalModelKey,
@@ -49,65 +45,28 @@ import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
 import { renderMarkdownDoc } from './markdown-doc-renderer';
 import type { EditorSelectionPayload } from '../../chat/chat-context-bar/chat-context-file';
-import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
 import { invalidateMonacoModelLspDocumentSync, markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
-import { applyLspDiagnosticsToModel, clearLspDiagnosticsFromModel } from './workspace-monaco-diagnostics';
+import { applyLspDiagnosticsToModel } from './workspace-monaco-diagnostics';
 import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
+import {
+  monacoLanguageIdForPath,
+  WorkspaceMonacoModelStore,
+  type WorkspaceMonacoModelEvent,
+} from './workspace-monaco-model-store';
 
 const EDITOR_SELECTION_DEBOUNCE_MS = 50;
 const LSP_DIAGNOSTICS_DEBOUNCE_MS = 450;
 const LSP_OUTLINE_DEBOUNCE_MS = 450;
 
-const EXT_TO_LANG: Record<string, string> = {
-  ts: 'typescript',
-  tsx: 'typescript',
-  mts: 'typescript',
-  cts: 'typescript',
-  js: 'javascript',
-  jsx: 'javascript',
-  mjs: 'javascript',
-  cjs: 'javascript',
-  json: 'json',
-  html: 'html',
-  htm: 'html',
-  css: 'css',
-  scss: 'scss',
-  sass: 'scss',
-  less: 'less',
-  md: 'markdown',
-  mdx: 'markdown',
-  py: 'python',
-  gd: 'gdscript',
-  yml: 'yaml',
-  yaml: 'yaml',
-  xml: 'xml',
-  sql: 'sql',
-  sh: 'shell',
-  bash: 'shell',
-  zsh: 'shell',
-  ps1: 'powershell',
-  psm1: 'powershell',
-  rs: 'rust',
-  go: 'go',
-  java: 'java',
-  kt: 'kotlin',
-  kts: 'kotlin',
-  cs: 'csharp',
-  cpp: 'cpp',
-  cxx: 'cpp',
-  cc: 'cpp',
-  c: 'c',
-  h: 'c',
-  hpp: 'cpp',
-  rb: 'ruby',
-  php: 'php',
-  vue: 'html',
-  svelte: 'html',
-  toml: 'ini',
-  ini: 'ini',
-  dockerfile: 'dockerfile',
-};
+let nextOwnerSeq = 0;
 
+/**
+ * One Monaco editor surface (one per editor-grid slot).
+ *
+ * Text models, dirty / detached state and LSP provider registration live in the shared
+ * {@link WorkspaceMonacoModelStore}; this component owns only its editor instance, view
+ * state, markdown preview and diff surface.
+ */
 @Component({
   selector: 'app-workspace-monaco',
   standalone: true,
@@ -125,6 +84,8 @@ export class WorkspaceMonacoComponent {
   private readonly pendingDiffReview = inject(PendingDiffReviewService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly inj = inject(Injector);
+  private readonly store = inject(WorkspaceMonacoModelStore);
+  private readonly ownerId = `monaco-${++nextOwnerSeq}`;
 
   /** Absolute workspace root (empty when none). */
   readonly workspacePath = input<string>('');
@@ -155,6 +116,11 @@ export class WorkspaceMonacoComponent {
   readonly buildPlanLiveContent = input<{ relativePath: string; content: string } | null>(null);
   /** Model keys receiving live build-plan chunks — skip disk reload while streaming. */
   readonly buildPlanStreamingKeys = input<ReadonlySet<string> | readonly string[]>([]);
+  /**
+   * True for the editor-grid slot that owns keyboard focus. Only the focused instance
+   * reports selection / outline / diagnostics to the shell and drives the LSP watch.
+   */
+  readonly focused = input<boolean>(true);
 
   private readonly buildPlanStreamingKeySet = computed(() => {
     const raw = this.buildPlanStreamingKeys();
@@ -163,15 +129,6 @@ export class WorkspaceMonacoComponent {
     }
     return new Set(raw);
   });
-  readonly unsavedPathsChange = output<readonly string[]>();
-  readonly detachedPathsChange = output<readonly string[]>();
-  readonly outsideWorkspacePathsChange = output<readonly string[]>();
-  readonly saveAsCompleted = output<{
-    oldModelKey: string;
-    relativePath?: string;
-    absolutePath?: string;
-    outsideWorkspace: boolean;
-  }>();
   readonly diffReviewFinished = output<{
     relativePath: string;
     status: 'complete' | 'cancelled';
@@ -202,6 +159,8 @@ export class WorkspaceMonacoComponent {
     relativePath: string | null;
     diagnostics: readonly LspEditorDiagnostic[];
   }>();
+  /** Pointer / keyboard activity inside this editor surface (grid focus tracking). */
+  readonly surfaceFocused = output<void>();
 
   protected readonly loadError = signal('');
   protected readonly detachedBanner = signal('');
@@ -219,9 +178,7 @@ export class WorkspaceMonacoComponent {
       return false;
     }
     const key = editorModelKeyForRelativePath(rel);
-    const model = this.modelByPath.get(key);
-    const synced = this.diskSyncedAltVersionByPath.get(key);
-    return !!(model && synced !== undefined && model.getAlternativeVersionId() !== synced);
+    return this.store.unsavedKeys().has(key);
   });
 
   protected readonly monacoDiffActive = computed(() => {
@@ -265,6 +222,7 @@ export class WorkspaceMonacoComponent {
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   private editorSelectionDisposable: Monaco.IDisposable | null = null;
   private editorSelectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private editorContentDisposable: Monaco.IDisposable | null = null;
   private diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
   private diffOriginalModel: Monaco.editor.ITextModel | null = null;
   private diffModifiedModel: Monaco.editor.ITextModel | null = null;
@@ -272,17 +230,8 @@ export class WorkspaceMonacoComponent {
   private diffMountedPayloadKey = '';
 
   private readonly editorReady = signal(false);
-  private readonly modelByPath = new Map<string, Monaco.editor.ITextModel>();
-  /** Shared with ``registerWorkspaceMonacoLsp`` — updated when TS/JS semantic legend is prefetched. */
-  private readonly semanticLegendsByServer: Record<string, Monaco.languages.SemanticTokensLegend> = {};
-  private readonly tsSemanticLegendPrefetchedKeys = new Set<string>();
-  private readonly diskSyncedAltVersionByPath = new Map<string, number>();
-  private readonly modelDirtyDisposables = new Map<string, Monaco.IDisposable>();
-  private readonly fileRefByKey = new Map<string, OpenEditorFileRef>();
-  private readonly detachedByKey = new Map<
-    string,
-    { tempAbsolutePath: string; snapshotAltVersionId: number; defaultRelativePath: string }
-  >();
+  /** Model keys this instance currently owns in the shared store. */
+  private ownedKeys = new Set<string>();
   /** In-session Monaco view state per open file (scroll + cursor). */
   private readonly viewStateByPath = new Map<string, Monaco.editor.ICodeEditorViewState>();
   private lastActiveEditorPath: string | null = null;
@@ -294,14 +243,11 @@ export class WorkspaceMonacoComponent {
     scrollTop: number;
     scrollLeft: number;
   } | null = null;
-  private lspHoverDisposables: Monaco.IDisposable[] = [];
-  private lspLanguageDisposable: Monaco.IDisposable | null = null;
   private lspDiagnosticsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lspDiagnosticsUnsubscribe: (() => void) | null = null;
   private lastLspDiagnosticsGeneration = -1;
   private lastLspDiagnosticsEpoch = -1;
   private lastLspDiagnosticsWatchKey = '';
-  private readonly diagnosticsByModelKey = new Map<string, LspEditorDiagnostic[]>();
   private readonly activeDiagnostics = signal<readonly LspEditorDiagnostic[]>([]);
   private lspOutlineDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
@@ -309,6 +255,12 @@ export class WorkspaceMonacoComponent {
 
   constructor() {
     afterNextRender(() => void this.bootstrapEditor());
+
+    // Shared context every instance pushes into the store (all slots share one workspace).
+    effect(() => this.store.setWorkspaceRoot(this.workspacePath() ?? ''));
+    effect(() => this.store.setConversationId(this.conversationId()));
+    effect(() => this.store.setEditorSettings(this.editorSettings()));
+    effect(() => this.store.setBuildPlanStreamingKeys(this.buildPlanStreamingKeySet()));
 
     effect(() => {
       const rel = this.relativePath();
@@ -323,48 +275,11 @@ export class WorkspaceMonacoComponent {
     });
 
     effect(() => {
-      const open = this.openEditorFiles().map((f) => f.modelKey);
       const refs = this.openEditorFiles();
       if (!this.monaco) {
         return;
       }
-      untracked(() => {
-        for (const ref of refs) {
-          this.fileRefByKey.set(ref.modelKey, ref);
-        }
-        for (const [key, model] of this.modelByPath) {
-          if (!open.includes(key)) {
-            if (this.editor?.getModel() === model) {
-              const activeRel = relativePathFromModelKey(key);
-              if (activeRel) {
-                this.captureEditorViewStateForPath(normalizePathSlashes(activeRel));
-              }
-              this.editor.setModel(null);
-            }
-            this.modelDirtyDisposables.get(key)?.dispose();
-            this.modelDirtyDisposables.delete(key);
-            const closedRel = relativePathFromModelKey(key);
-            if (closedRel && lspServerKindForWorkspaceRelativePath(closedRel)) {
-              const sid = this.lspSessionId();
-              if (sid) {
-                void this.electron.lspEditorDidClose(sid, closedRel);
-              }
-            }
-            model.dispose();
-            this.modelByPath.delete(key);
-            this.diskSyncedAltVersionByPath.delete(key);
-            void this.cleanupDetachedSnapshot(key);
-            this.detachedByKey.delete(key);
-            this.fileRefByKey.delete(key);
-            if (closedRel) {
-              this.viewStateByPath.delete(normalizePathSlashes(closedRel));
-            }
-          }
-        }
-        this.emitDetachedPaths();
-        this.emitOutsideWorkspacePaths();
-        this.emitDirtyPaths();
-      });
+      untracked(() => this.syncOwnedModels(refs));
     });
 
     effect(() => {
@@ -404,11 +319,11 @@ export class WorkspaceMonacoComponent {
         const s = this.pendingDiffReview.sessionFor(pending);
         s.accepted();
         s.skipped();
-        untracked(() => void this.mountOrUpdateDiffEditor(root, key, pending));
+        untracked(() => void this.mountOrUpdateDiffEditor(key, pending));
       } else {
         untracked(() => {
           this.disposeDiffSurface();
-          void this.syncActiveModel(root, key);
+          void this.syncActiveModel(key);
         });
       }
     });
@@ -416,6 +331,7 @@ export class WorkspaceMonacoComponent {
     effect(() => {
       const key = this.activeModelKey()?.trim();
       const rel = this.relativePath()?.trim();
+      const isFocused = this.focused();
       if (key && rel) {
         return;
       }
@@ -424,7 +340,29 @@ export class WorkspaceMonacoComponent {
         this.lastLspDiagnosticsWatchKey = '';
         this.lastLspDiagnosticsGeneration = -1;
         this.lastLspDiagnosticsEpoch = -1;
-        this.electron.lspDiagnosticsWatchStop();
+        if (isFocused) {
+          this.electron.lspDiagnosticsWatchStop();
+        }
+      });
+    });
+
+    // Focus hand-off between grid slots: the newly focused instance re-publishes its
+    // selection / outline / diagnostics so shell panels reflect the active editor.
+    effect(() => {
+      const isFocused = this.focused();
+      const ready = this.editorReady();
+      untracked(() => {
+        if (!ready || !this.editor) {
+          return;
+        }
+        if (isFocused) {
+          this.store.setFocusedEditor(this.editor);
+          void this.refreshActiveLspDiagnostics(true);
+          void this.refreshOutlineSymbols();
+          this.emitEditorSelectionFromActiveEditor();
+        } else {
+          this.store.clearFocusedEditorIf(this.editor);
+        }
       });
     });
 
@@ -489,22 +427,15 @@ export class WorkspaceMonacoComponent {
       if (!activeRel || normalizePathSlashes(activeRel) !== livePath) {
         return;
       }
-      untracked(() => {
-        const model = this.modelByPath.get(key);
-        if (!model || model.isDisposed()) {
-          return;
-        }
-        if (model.getValue() !== live.content) {
-          model.setValue(live.content);
-          this.diskSyncedAltVersionByPath.set(key, model.getAlternativeVersionId());
-          this.emitDirtyPaths();
-        }
-      });
+      untracked(() => this.store.setModelContentSynced(key, live.content));
     });
 
-    this.electron.workspaceFilesChanged$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((event) => this.onWorkspaceFilesChanged(event));
+    this.store.events$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onStoreEvent(ev));
+    this.store.navigateWorkspaceFile$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((p) => {
+      if (this.focused()) {
+        this.zone.run(() => this.emitOutput(this.navigateWorkspaceFile, p));
+      }
+    });
 
     effect(() => {
       const pending = this.pendingEditorReveal();
@@ -543,29 +474,25 @@ export class WorkspaceMonacoComponent {
       this.lastLspDiagnosticsWatchKey = '';
       this.lastLspDiagnosticsGeneration = -1;
       this.lastLspDiagnosticsEpoch = -1;
-      this.electron.lspDiagnosticsWatchStop();
+      if (this.focused()) {
+        this.electron.lspDiagnosticsWatchStop();
+      }
       this.mdPreviewContentDisposable?.dispose();
       this.mdPreviewContentDisposable = null;
       if (this.mdPreviewRenderTimer != null) {
         clearTimeout(this.mdPreviewRenderTimer);
         this.mdPreviewRenderTimer = null;
       }
-      for (const d of this.lspHoverDisposables) {
-        d.dispose();
-      }
-      this.lspHoverDisposables = [];
-      this.lspLanguageDisposable?.dispose();
-      this.lspLanguageDisposable = null;
       this.disposeDiffSurface();
-      for (const m of this.modelByPath.values()) {
-        m.dispose();
-      }
-      this.modelByPath.clear();
-      this.diskSyncedAltVersionByPath.clear();
-      this.detachedByKey.clear();
-      this.fileRefByKey.clear();
       this.viewStateByPath.clear();
       this.disposeEditorSelectionListener();
+      this.editorContentDisposable?.dispose();
+      this.editorContentDisposable = null;
+      this.store.clearFocusedEditorIf(this.editor);
+      // Detach before releasing so a shared model is never disposed while still attached here.
+      this.editor?.setModel(null);
+      this.store.releaseOwner(this.ownerId);
+      this.ownedKeys.clear();
       this.editor?.dispose();
       this.editor = null;
       this.monaco = null;
@@ -601,6 +528,73 @@ export class WorkspaceMonacoComponent {
       return;
     }
     output.emit();
+  }
+
+  /** Sync this instance's owned model keys with the store; releases models for closed tabs. */
+  private syncOwnedModels(refs: readonly OpenEditorFileRef[]): void {
+    const next = new Set(refs.map((r) => r.modelKey).filter(Boolean));
+    for (const key of this.ownedKeys) {
+      if (next.has(key)) {
+        continue;
+      }
+      const model = this.store.getModel(key);
+      if (model && this.editor?.getModel() === model) {
+        const activeRel = relativePathFromModelKey(key);
+        if (activeRel) {
+          this.captureEditorViewStateForPath(normalizePathSlashes(activeRel));
+        }
+        this.editor.setModel(null);
+      }
+      const closedRel = relativePathFromModelKey(key);
+      if (closedRel) {
+        this.viewStateByPath.delete(normalizePathSlashes(closedRel));
+      }
+      this.mdViewModeByPath.delete(key);
+    }
+    this.store.syncOwner(this.ownerId, refs);
+    this.ownedKeys = next;
+  }
+
+  private onStoreEvent(ev: WorkspaceMonacoModelEvent): void {
+    const activeKey = this.activeModelKey()?.trim() ?? '';
+    switch (ev.type) {
+      case 'reloaded':
+        if (ev.modelKey === activeKey) {
+          this.zone.run(() => {
+            this.loadError.set('');
+            this.detachedBanner.set('');
+          });
+          if (this.focused()) {
+            this.scheduleLspDiagnosticsRefresh();
+          }
+        }
+        break;
+      case 'detached':
+        if (ev.modelKey === activeKey) {
+          this.zone.run(() => this.updateDetachedBanner(ev.modelKey));
+        }
+        break;
+      case 'retargeted': {
+        const mdMode = this.mdViewModeByPath.get(ev.fromKey);
+        if (mdMode) {
+          this.mdViewModeByPath.set(ev.toKey, mdMode);
+          this.mdViewModeByPath.delete(ev.fromKey);
+        }
+        if (this.ownedKeys.has(ev.fromKey)) {
+          this.ownedKeys.delete(ev.fromKey);
+          this.ownedKeys.add(ev.toKey);
+        }
+        if (ev.fromKey === activeKey) {
+          this.zone.run(() => this.detachedBanner.set(''));
+        }
+        break;
+      }
+      case 'loadError':
+        if (ev.modelKey === activeKey) {
+          this.zone.run(() => this.loadError.set(ev.message));
+        }
+        break;
+    }
   }
 
   private async resolveBatchStagedTransfer(
@@ -712,6 +706,16 @@ export class WorkspaceMonacoComponent {
     );
   }
 
+  @HostListener('pointerdown')
+  protected onHostPointerDown(): void {
+    this.emitOutputVoid(this.surfaceFocused);
+  }
+
+  @HostListener('focusin')
+  protected onHostFocusIn(): void {
+    this.emitOutputVoid(this.surfaceFocused);
+  }
+
   @HostListener('keydown', ['$event'])
   protected onKeydown(ev: KeyboardEvent): void {
     // Monaco's own Ctrl+S binding only fires while the (hidden) editor has focus.
@@ -799,10 +803,10 @@ export class WorkspaceMonacoComponent {
 
   /** Shows the rendered preview for {@param key} and keeps it live against model changes. */
   private enterMdPreview(key: string, attempt = 0): void {
-    const model = this.modelByPath.get(key);
-    if (!model || model.isDisposed()) {
+    const model = this.store.getModel(key);
+    if (!model) {
       // The activePreviewOnly effect can fire before syncActiveModel finishes creating the
-      // model (modelByPath is a plain Map, not reactive). Retry a few frames so the preview
+      // model (the store map is not reactive). Retry a few frames so the preview
       // still enters once the model lands.
       if (attempt < 4 && this.activePreviewOnly()) {
         afterNextRender(() => this.enterMdPreview(key, attempt + 1), { injector: this.inj });
@@ -814,7 +818,7 @@ export class WorkspaceMonacoComponent {
     this.mdPreviewActive.set(true);
 
     // Live re-render: covers typing (n/a while hidden) and external file changes
-    // reloading the model via workspaceFilesChanged$ → reloadModelFromDiskIfUnmodified.
+    // reloading the model via the store's workspaceFilesChanged$ handling.
     this.mdPreviewContentDisposable?.dispose();
     this.mdPreviewContentDisposable = model.onDidChangeContent(() => this.scheduleMdPreviewRerender(key));
 
@@ -871,9 +875,9 @@ export class WorkspaceMonacoComponent {
   }
 
   private renderMdPreview(key: string): void {
-    const model = this.modelByPath.get(key);
+    const model = this.store.getModel(key);
     const root = this.workspacePath()?.trim();
-    if (!model || model.isDisposed() || !root) {
+    if (!model || !root) {
       return;
     }
     const rel = relativePathFromModelKey(key) ?? displayPathForModelKey(key);
@@ -958,250 +962,11 @@ export class WorkspaceMonacoComponent {
     return `Change ${at} of ${order.length} (${done} resolved)`;
   });
 
-  private workspaceRootsEqual(a: string, b: string): boolean {
-    const x = normalizePathSlashes(a).replace(/\/+$/, '').toLowerCase();
-    const y = normalizePathSlashes(b).replace(/\/+$/, '').toLowerCase();
-    return x.length > 0 && x === y;
-  }
-
-  private onWorkspaceFilesChanged(event: WorkspaceFilesChangedMessage): void {
-    const root = this.workspacePath()?.trim();
-    if (!root || !this.workspaceRootsEqual(root, event.workspacePath)) {
-      return;
-    }
-
-    const refreshAll = event.paths.some((p) => {
-      const s = normalizePathSlashes(p.trim());
-      return s === '.' || s === '';
-    });
-
-    const keys = new Set<string>();
-    if (refreshAll) {
-      for (const k of this.modelByPath.keys()) {
-        keys.add(k);
-      }
-    } else {
-      for (const p of event.paths) {
-        if (p.startsWith('[staging] ')) {
-          continue;
-        }
-        const relKey = editorModelKeyForRelativePath(normalizePathSlashes(p));
-        if (this.modelByPath.has(relKey)) {
-          keys.add(relKey);
-        }
-      }
-      for (const k of this.modelByPath.keys()) {
-        if (!isExternalModelKey(k) && !this.detachedByKey.has(k)) {
-          keys.add(k);
-        }
-      }
-    }
-
-    for (const key of keys) {
-      if (isExternalModelKey(key) || this.detachedByKey.has(key)) {
-        continue;
-      }
-      void this.ensureWorkspaceLink(key);
-      void this.reloadModelFromDiskIfUnmodified(key);
-    }
-  }
-
-  private async ensureWorkspaceLink(modelKey: string): Promise<void> {
-    if (isExternalModelKey(modelKey) || this.detachedByKey.has(modelKey)) {
-      return;
-    }
-    const rel = relativePathFromModelKey(modelKey);
-    const root = this.workspacePath()?.trim();
-    if (!rel || !root) {
-      return;
-    }
-    const res = await this.electron.workspaceFileExists(root, rel);
-    if (!res.ok) {
-      return;
-    }
-    if (!res.exists || !res.isFile) {
-      await this.detachModel(modelKey, rel);
-    }
-  }
-
-  private async detachModel(modelKey: string, defaultRelativePath: string): Promise<void> {
-    if (this.detachedByKey.has(modelKey)) {
-      return;
-    }
-    const model = this.modelByPath.get(modelKey);
-    if (!model || model.isDisposed()) {
-      return;
-    }
-    const snap = await this.electron.writeEditorDetachedSnapshot(model.getValue());
-    if (!snap.ok || !snap.path) {
-      this.loadError.set(snap.error ?? 'Failed to snapshot detached file.');
-      return;
-    }
-    const alt = model.getAlternativeVersionId();
-    this.detachedByKey.set(modelKey, {
-      tempAbsolutePath: snap.path,
-      snapshotAltVersionId: alt,
-      defaultRelativePath,
-    });
-    this.emitDetachedPaths();
-    this.updateDetachedBanner(modelKey);
-    this.emitDirtyPaths();
-  }
-
   private updateDetachedBanner(modelKey: string): void {
     if (this.activeModelKey()?.trim() === modelKey) {
       this.detachedBanner.set('This file no longer exists at this path. Save to choose a location.');
       this.loadError.set('');
     }
-  }
-
-  private async cleanupDetachedSnapshot(modelKey: string): Promise<void> {
-    const d = this.detachedByKey.get(modelKey);
-    if (!d) {
-      return;
-    }
-    await this.electron.deleteEditorDetachedSnapshot(d.tempAbsolutePath);
-  }
-
-  private emitDetachedPaths(): void {
-    const list = [...this.detachedByKey.keys()].sort();
-    this.zone.run(() => this.emitOutput(this.detachedPathsChange, list));
-  }
-
-  private emitOutsideWorkspacePaths(): void {
-    const list = [...this.fileRefByKey.entries()]
-      .filter(([, ref]) => ref.outsideWorkspace)
-      .map(([k]) => k)
-      .sort();
-    this.zone.run(() => this.emitOutput(this.outsideWorkspacePathsChange, list));
-  }
-
-  /** Shell: close tab after discard — remove temp snapshot for a detached key. */
-  async cleanupDetachedForKey(modelKey: string): Promise<void> {
-    await this.cleanupDetachedSnapshot(modelKey);
-    this.detachedByKey.delete(modelKey);
-    this.emitDetachedPaths();
-    if (this.activeModelKey()?.trim() === modelKey) {
-      this.detachedBanner.set('');
-    }
-  }
-
-  isDetachedKey(modelKey: string): boolean {
-    return this.detachedByKey.has(modelKey);
-  }
-
-  /** Shell: Save As for detached/dirty tab; returns new model key when saved. */
-  async saveAsForKey(modelKey: string): Promise<string | null> {
-    return this.promptSaveAs(modelKey);
-  }
-
-  private retargetModelKey(fromKey: string, toKey: string): void {
-    if (fromKey === toKey) {
-      return;
-    }
-    const model = this.modelByPath.get(fromKey);
-    if (!model || model.isDisposed()) {
-      return;
-    }
-    this.modelByPath.delete(fromKey);
-    this.modelByPath.set(toKey, model);
-    const synced = this.diskSyncedAltVersionByPath.get(fromKey);
-    if (synced !== undefined) {
-      this.diskSyncedAltVersionByPath.set(toKey, synced);
-      this.diskSyncedAltVersionByPath.delete(fromKey);
-    }
-    const dirty = this.modelDirtyDisposables.get(fromKey);
-    if (dirty) {
-      dirty.dispose();
-      this.modelDirtyDisposables.delete(fromKey);
-      this.ensureModelDirtyListener(toKey, model);
-    }
-    const mdMode = this.mdViewModeByPath.get(fromKey);
-    if (mdMode) {
-      this.mdViewModeByPath.set(toKey, mdMode);
-      this.mdViewModeByPath.delete(fromKey);
-    }
-    void this.cleanupDetachedSnapshot(fromKey);
-    this.detachedByKey.delete(fromKey);
-    const ref = this.fileRefByKey.get(fromKey);
-    if (ref) {
-      this.fileRefByKey.delete(fromKey);
-      const rel = relativePathFromModelKey(toKey);
-      this.fileRefByKey.set(toKey, {
-        ...ref,
-        modelKey: toKey,
-        relativePath: rel ?? ref.relativePath,
-        absolutePath: undefined,
-        outsideWorkspace: false,
-      });
-    }
-    this.emitDetachedPaths();
-    this.emitOutsideWorkspacePaths();
-    this.emitDirtyPaths();
-  }
-
-  private async reloadModelFromDiskIfUnmodified(modelKey: string): Promise<void> {
-    if (this.buildPlanStreamingKeySet().has(modelKey)) {
-      return;
-    }
-    const monacoApi = this.monaco;
-    const root = this.workspacePath()?.trim();
-    const model = this.modelByPath.get(modelKey);
-    if (!monacoApi || !root || !model || model.isDisposed()) {
-      return;
-    }
-    if (isExternalModelKey(modelKey) || this.detachedByKey.has(modelKey)) {
-      return;
-    }
-    const rel = relativePathFromModelKey(modelKey);
-    if (!rel) {
-      return;
-    }
-
-    let baseline = this.diskSyncedAltVersionByPath.get(modelKey);
-    if (baseline === undefined) {
-      baseline = model.getAlternativeVersionId();
-      this.diskSyncedAltVersionByPath.set(modelKey, baseline);
-    }
-    if (model.getAlternativeVersionId() !== baseline) {
-      return;
-    }
-
-    const res = await this.electron.readWorkspaceFile(root, rel);
-    const activeKey = this.activeModelKey()?.trim() ?? '';
-
-    if (!res.ok || res.content === undefined) {
-      await this.detachModel(modelKey, rel);
-      return;
-    }
-
-    if (modelKey === activeKey) {
-      this.loadError.set('');
-      this.detachedBanner.set('');
-    }
-    if (model.getValue() !== res.content) {
-      model.setValue(res.content);
-    }
-    this.diskSyncedAltVersionByPath.set(modelKey, model.getAlternativeVersionId());
-    invalidateMonacoModelLspDocumentSync(model);
-    this.emitDirtyPaths();
-    if (modelKey === activeKey) {
-      this.scheduleLspDiagnosticsRefresh();
-    }
-  }
-
-  private languageIdForPath(monacoApi: typeof Monaco, rel: string): string {
-    const base = rel.split('/').pop() ?? rel;
-    const ext = base.includes('.') ? (base.split('.').pop() ?? '').toLowerCase() : '';
-    if (base.toLowerCase() === 'dockerfile') {
-      return 'dockerfile';
-    }
-    const mapped = EXT_TO_LANG[ext];
-    if (mapped) {
-      return mapped;
-    }
-    const found = monacoApi.languages.getLanguages().find((l) => l.id === ext);
-    return found?.id ?? 'plaintext';
   }
 
   private async bootstrapEditor(): Promise<void> {
@@ -1210,7 +975,11 @@ export class WorkspaceMonacoComponent {
     const { ensureMonacoHoverDelegateSafe } = await import('../../../../monaco-hover-delegate-safety');
     await ensureMonacoFindWidgetSafe();
     await ensureMonacoHoverDelegateSafe();
+    if (this.destroyed) {
+      return;
+    }
     this.monaco = monacoApi;
+    this.store.setMonaco(monacoApi);
     // Monaco's in-worker TS/JS service has no workspace fs/tsconfig; semantic rules
     // clash with the real project. TS/JS IntelliSense and checks come from the LSP bridge.
     monacoApi.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
@@ -1270,29 +1039,16 @@ export class WorkspaceMonacoComponent {
       void this.refreshActiveLspDiagnostics(true);
       void this.refreshOutlineSymbols();
     });
-    this.registerWorkspaceLspHoverProviders(monacoApi);
-    this.lspLanguageDisposable?.dispose();
-
-    this.lspLanguageDisposable = registerWorkspaceMonacoLsp({
-      monacoApi,
-      electron: this.electron,
-      getLspSessionId: () => this.lspSessionId(),
-      getConversationId: () => this.conversationId()?.trim() ?? null,
-      getWorkspaceRelativePathForModel: (m) => this.workspaceRelativePathForModel(m),
-      getDiagnosticsForModel: (m) => this.diagnosticsForModel(m),
-      getEditorTabSettings: () => {
-        const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() ?? undefined);
-        return {
-          tabSize: settings.tabSize,
-          insertSpaces: settings.insertSpaces,
-          formatOnSave: settings.formatOnSave,
-        };
-      },
-      getEditor: () => this.editor,
-      onNavigateToWorkspaceFile: (p) => this.emitOutput(this.navigateWorkspaceFile, p),
-      semanticLegendsByServer: this.semanticLegendsByServer,
+    this.editorContentDisposable = this.editor.onDidChangeModelContent(() => {
+      this.scheduleLspDiagnosticsRefresh();
+      this.scheduleOutlineRefresh();
     });
+    this.editor.onDidFocusEditorWidget(() => this.zone.run(() => this.emitOutputVoid(this.surfaceFocused)));
+    this.store.ensureLspRegistered(monacoApi);
     this.lspDiagnosticsUnsubscribe = this.electron.onLspDiagnosticsUpdated((payload) => {
+      if (!this.focused()) {
+        return;
+      }
       const rel = this.relativePath()?.trim();
       if (!rel || normalizePathSlashes(rel) !== normalizePathSlashes(payload.relativePath)) {
         return;
@@ -1302,7 +1058,7 @@ export class WorkspaceMonacoComponent {
         return;
       }
       const model = this.editor?.getModel();
-      const dirty = !!(model && this.modelIsDirtyRelativeToDisk(model));
+      const dirty = !!(model && this.modelIsDirtyRelativeToDisk());
       const epochChanged = epoch !== this.lastLspDiagnosticsEpoch;
       const generationRewound = payload.generation < this.lastLspDiagnosticsGeneration;
       if (model && (generationRewound || (epochChanged && dirty))) {
@@ -1310,33 +1066,23 @@ export class WorkspaceMonacoComponent {
       }
       void this.refreshActiveLspDiagnostics(dirty);
     });
+    if (this.focused()) {
+      this.store.setFocusedEditor(this.editor);
+    }
+    this.syncOwnedModels(this.openEditorFiles());
     this.editorReady.set(true);
-    this.emitDirtyPaths();
     void this.refreshActiveLspDiagnostics(true);
     void this.refreshOutlineSymbols();
   }
 
   /** Conversation id gates LSP; when a workspace is open without chat, IntelliSense stays off. */
   private lspSessionId(): string | null {
-    return this.conversationId()?.trim() ?? null;
+    return this.conversationId()?.trim() || null;
   }
 
-  private modelIsDirtyRelativeToDisk(model: Monaco.editor.ITextModel): boolean {
+  private modelIsDirtyRelativeToDisk(): boolean {
     const key = this.activeModelKey()?.trim();
-    if (!key) {
-      return false;
-    }
-    const synced = this.diskSyncedAltVersionByPath.get(key);
-    return synced !== undefined && model.getAlternativeVersionId() !== synced;
-  }
-
-  private diagnosticsForModel(model: Monaco.editor.ITextModel): readonly LspEditorDiagnostic[] {
-    for (const [k, m] of this.modelByPath) {
-      if (m === model) {
-        return this.diagnosticsByModelKey.get(k) ?? [];
-      }
-    }
-    return [];
+    return !!key && this.store.isKeyDirty(key);
   }
 
   private scheduleLspDiagnosticsRefresh(): void {
@@ -1350,6 +1096,10 @@ export class WorkspaceMonacoComponent {
   }
 
   private async refreshActiveLspDiagnostics(forceSync: boolean): Promise<void> {
+    if (!this.focused()) {
+      // Unfocused slots never touch the shared diagnostics watch or shell state.
+      return;
+    }
     const monacoApi = this.monaco;
     const ed = this.editor;
     const sid = this.lspSessionId();
@@ -1398,7 +1148,8 @@ export class WorkspaceMonacoComponent {
     const activeRel = this.relativePath()?.trim();
     const activeKey = this.activeModelKey()?.trim();
     if (
-      !activeRel
+      !this.focused()
+      || !activeRel
       || !activeKey
       || activeKey !== requestKey
       || normalizePathSlashes(activeRel) !== requestRel
@@ -1412,7 +1163,7 @@ export class WorkspaceMonacoComponent {
     if (!skipSync || res.syncedFromDisk) {
       markMonacoModelLspDocumentSynced(model);
     }
-    this.diagnosticsByModelKey.set(modelKey, [...res.diagnostics]);
+    this.store.diagnosticsByModelKey.set(modelKey, [...res.diagnostics]);
     this.lastLspDiagnosticsGeneration = res.generation;
     this.lastLspDiagnosticsEpoch = res.epoch ?? 0;
     applyLspDiagnosticsToModel(monacoApi, model, res.diagnostics);
@@ -1420,7 +1171,7 @@ export class WorkspaceMonacoComponent {
   }
 
   private setActiveDiagnostics(relativePath: string | null, diagnostics: readonly LspEditorDiagnostic[]): void {
-    if (this.destroyed) {
+    if (this.destroyed || !this.focused()) {
       return;
     }
     if (
@@ -1435,12 +1186,11 @@ export class WorkspaceMonacoComponent {
     this.emitOutput(this.diagnosticsChange, { relativePath, diagnostics });
   }
 
-  private emitOutlineSymbolsChange(relativePath: string | null, symbols: readonly EditorOutlineSymbol[]): void {
-    this.emitOutput(this.outlineSymbolsChange, { relativePath, symbols });
-  }
-
   private setOutlineSymbols(relativePath: string | null, symbols: readonly EditorOutlineSymbol[]): void {
-    this.emitOutlineSymbolsChange(relativePath, symbols);
+    if (!this.focused()) {
+      return;
+    }
+    this.emitOutput(this.outlineSymbolsChange, { relativePath, symbols });
   }
 
   private scheduleOutlineRefresh(): void {
@@ -1454,6 +1204,9 @@ export class WorkspaceMonacoComponent {
   }
 
   private async refreshOutlineSymbols(): Promise<void> {
+    if (!this.focused()) {
+      return;
+    }
     const sid = this.lspSessionId();
     const rel = this.relativePath()?.trim();
     const ed = this.editor;
@@ -1487,15 +1240,6 @@ export class WorkspaceMonacoComponent {
     ed.revealRangeInCenter(range);
   }
 
-  private workspaceRelativePathForModel(model: Monaco.editor.ITextModel): string | undefined {
-    for (const [k, m] of this.modelByPath) {
-      if (m === model) {
-        return relativePathFromModelKey(k) ?? undefined;
-      }
-    }
-    return undefined;
-  }
-
   private disposeEditorSelectionListener(): void {
     if (this.editorSelectionDebounceTimer != null) {
       clearTimeout(this.editorSelectionDebounceTimer);
@@ -1523,6 +1267,9 @@ export class WorkspaceMonacoComponent {
   }
 
   private emitEditorSelectionFromActiveEditor(): void {
+    if (!this.focused()) {
+      return;
+    }
     const ed = this.editor;
     if (!ed || this.monacoDiffActive()) {
       this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
@@ -1533,7 +1280,8 @@ export class WorkspaceMonacoComponent {
       this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
-    const rel = this.workspaceRelativePathForModel(model);
+    const modelKey = this.store.modelKeyForModel(model);
+    const rel = modelKey ? relativePathFromModelKey(modelKey) : null;
     if (!rel?.trim()) {
       this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
@@ -1543,19 +1291,12 @@ export class WorkspaceMonacoComponent {
       this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
-    let modelKey: string | undefined;
-    for (const [k, m] of this.modelByPath) {
-      if (m === model) {
-        modelKey = k;
-        break;
-      }
-    }
     if (!modelKey || isExternalModelKey(modelKey)) {
       this.zone.run(() => this.emitOutput(this.editorSelectionChange, null));
       return;
     }
     const relNorm = normalizePathSlashes(rel.trim());
-    const absFromRef = this.fileRefByKey.get(modelKey)?.absolutePath?.trim();
+    const absFromRef = this.store.fileRefForKey(modelKey)?.absolutePath?.trim();
     const root = this.workspacePath().trim();
     const abs =
       absFromRef ||
@@ -1581,113 +1322,6 @@ export class WorkspaceMonacoComponent {
     this.zone.run(() => this.emitOutput(this.editorSelectionChange, payload));
   }
 
-  private async prefetchSemanticLegendForModel(model: Monaco.editor.ITextModel): Promise<void> {
-    const lang = model.getLanguageId();
-    if (lang !== 'typescript' && lang !== 'javascript') {
-      return;
-    }
-    const convId = this.conversationId()?.trim();
-    if (!this.electron.isElectron || !convId) {
-      return;
-    }
-    const prefetchKey = `${convId}|typescript`;
-    if (this.tsSemanticLegendPrefetchedKeys.has(prefetchKey)) {
-      return;
-    }
-    this.tsSemanticLegendPrefetchedKeys.add(prefetchKey);
-    const res = await this.electron.lspEditorSemanticTokensLegend(convId, 'typescript');
-    this.semanticLegendsByServer['typescript'] = {
-      tokenTypes: res.ok ? res.legend.tokenTypes : [],
-      tokenModifiers: res.ok ? res.legend.tokenModifiers : [],
-    };
-  }
-
-  /** Bridges Monaco hover to the session LSP; models use ``clara-workspace`` URIs only. */
-  private registerWorkspaceLspHoverProviders(monacoApi: typeof Monaco): void {
-    for (const d of this.lspHoverDisposables) {
-      d.dispose();
-    }
-    this.lspHoverDisposables = [];
-    if (!this.electron.isElectron) {
-      return;
-    }
-    for (const lang of LSP_MONACO_LANGUAGE_IDS) {
-      this.lspHoverDisposables.push(
-        monacoApi.languages.registerHoverProvider(lang, {
-          provideHover: (model, position) => this.provideWorkspaceLspHover(model, position),
-        }),
-      );
-    }
-  }
-
-  private async provideWorkspaceLspHover(
-    model: Monaco.editor.ITextModel,
-    position: Monaco.Position,
-  ): Promise<Monaco.languages.Hover | null> {
-    if (!this.electron.isElectron) {
-      return null;
-    }
-    if (model.uri.scheme !== 'clara-workspace') {
-      return null;
-    }
-    let relKey: string | undefined;
-    for (const [k, m] of this.modelByPath) {
-      if (m === model) {
-        relKey = relativePathFromModelKey(k) ?? undefined;
-        break;
-      }
-    }
-    if (!relKey || !lspServerKindForWorkspaceRelativePath(relKey)) {
-      return null;
-    }
-    const sessionId = this.conversationId()?.trim();
-    if (!sessionId) {
-      return null;
-    }
-    const skipSync = !monacoModelNeedsLspDocumentSync(model);
-    let res = await this.electron.lspEditorHover(
-      sessionId,
-      relKey,
-      position.lineNumber,
-      position.column,
-      skipSync ? '' : model.getValue(),
-      skipSync,
-    );
-    // Python lost our doc version (e.g. after a TS project-root restart cleared _doc_versions)
-    // and fell back to disk. Re-send the live buffer so hover reflects the editor, not disk.
-    let didResync = false;
-    if (res.ok && res.syncedFromDisk && skipSync) {
-      invalidateMonacoModelLspDocumentSync(model);
-      res = await this.electron.lspEditorHover(
-        sessionId,
-        relKey,
-        position.lineNumber,
-        position.column,
-        model.getValue(),
-        false,
-      );
-      didResync = true;
-    }
-    if (!res.ok || !res.markdown?.trim()) {
-      return null;
-    }
-    if (!skipSync || didResync) {
-      markMonacoModelLspDocumentSynced(model);
-    }
-    const hoverRange = res.range
-      ? new this.monaco!.Range(
-          res.range.startLineNumber,
-          res.range.startColumn,
-          res.range.endLineNumber,
-          res.range.endColumn,
-        )
-      : undefined;
-    return {
-      contents: [{ value: res.markdown, isTrusted: true }],
-      ...(hoverRange ? { range: hoverRange } : {}),
-    };
-  }
-
   private disposeDiffSurface(): void {
     this.diffEditor?.dispose();
     void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
@@ -1703,13 +1337,13 @@ export class WorkspaceMonacoComponent {
     this.diffMountedPayloadKey = '';
   }
 
-  private async mountOrUpdateDiffEditor(workspaceRoot: string, modelKey: string, payload: FileDiffPayload): Promise<void> {
+  private async mountOrUpdateDiffEditor(modelKey: string, payload: FileDiffPayload): Promise<void> {
     const monacoApi = this.monaco;
     if (!monacoApi) {
       return;
     }
     const payloadKey = this.pendingDiffReview.sessionKey(payload);
-    const wsModel = await this.getOrCreateModel(workspaceRoot, modelKey);
+    const wsModel = await this.getOrCreateModel(modelKey);
     const displayPath = relativePathFromModelKey(modelKey) ?? displayPathForModelKey(modelKey);
     const baseline =
       typeof payload.fullOriginalContent === 'string'
@@ -1722,7 +1356,7 @@ export class WorkspaceMonacoComponent {
 
     const session = this.pendingDiffReview.sessionFor(payload);
     const modifiedText = mergedContentForDiffPreview(payload, session.accepted(), session.skipped());
-    const lang = this.languageIdForPath(monacoApi, displayPath);
+    const lang = monacoLanguageIdForPath(monacoApi, displayPath);
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
     const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
 
@@ -1741,15 +1375,17 @@ export class WorkspaceMonacoComponent {
       void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
       monacoApi.editor.setTheme(settings.theme);
 
+      // Diff models are per-instance: suffix the URI with the owner id so two slots reviewing
+      // the same file never collide on `createModel`.
       this.diffOriginalModel = monacoApi.editor.createModel(
         baseline,
         lang,
-        monacoApi.Uri.parse(`clara-diff-org://${encodeURI(displayPath)}`),
+        monacoApi.Uri.parse(`clara-diff-org://${this.ownerId}/${encodeURI(displayPath)}`),
       );
       this.diffModifiedModel = monacoApi.editor.createModel(
         modifiedText,
         lang,
-        monacoApi.Uri.parse(`clara-diff-mod://${encodeURI(displayPath)}`),
+        monacoApi.Uri.parse(`clara-diff-mod://${this.ownerId}/${encodeURI(displayPath)}`),
       );
       this.diffEditor.setModel({
         original: this.diffOriginalModel,
@@ -1768,97 +1404,20 @@ export class WorkspaceMonacoComponent {
     this.loadError.set('');
   }
 
-  private ensureModelDirtyListener(key: string, model: Monaco.editor.ITextModel): void {
-    this.modelDirtyDisposables.get(key)?.dispose();
-    const d = model.onDidChangeContent(() => {
-      this.emitDirtyPaths();
-      this.scheduleLspDiagnosticsRefresh();
-      this.scheduleOutlineRefresh();
-    });
-    this.modelDirtyDisposables.set(key, d);
-  }
-
-  private emitDirtyPaths(): void {
-    const list: string[] = [];
-    for (const [key, model] of this.modelByPath) {
-      if (model.isDisposed()) {
-        continue;
+  /** Loads or creates the shared text model for {@param modelKey}; surfaces load errors in this slot. */
+  private async getOrCreateModel(modelKey: string): Promise<Monaco.editor.ITextModel | null> {
+    const res = await this.store.getOrCreateModel(modelKey);
+    if (!res.model) {
+      if (res.error) {
+        this.loadError.set(res.error);
       }
-      const synced = this.diskSyncedAltVersionByPath.get(key);
-      if (synced === undefined) {
-        continue;
-      }
-      if (model.getAlternativeVersionId() !== synced) {
-        list.push(key);
-      }
-    }
-    list.sort();
-    this.zone.run(() => this.emitOutput(this.unsavedPathsChange, list));
-  }
-
-  /**
-   * Loads or creates a text model for {@param modelKey} without attaching the standalone editor.
-   */
-  private async getOrCreateModel(workspaceRoot: string, modelKey: string): Promise<Monaco.editor.ITextModel | null> {
-    const monacoApi = this.monaco;
-    if (!monacoApi) {
       return null;
     }
-    let model = this.modelByPath.get(modelKey);
-    if (!model || model.isDisposed()) {
-      this.loadError.set('');
-      const ref = this.fileRefByKey.get(modelKey);
-      const displayPath = displayPathForModelKey(modelKey);
-      let content: string | undefined;
-      if (isExternalModelKey(modelKey)) {
-        const abs = absolutePathFromModelKey(modelKey) ?? ref?.absolutePath;
-        if (!abs) {
-          this.loadError.set('No external file path.');
-          return null;
-        }
-        const res = await this.electron.readAbsoluteFile(abs);
-        if (!res.ok || res.content === undefined) {
-          this.loadError.set(res.error ?? 'Failed to read file.');
-          return null;
-        }
-        content = res.content;
-      } else if (this.detachedByKey.has(modelKey)) {
-        const d = this.detachedByKey.get(modelKey)!;
-        const res = await this.electron.readAbsoluteFile(d.tempAbsolutePath);
-        if (!res.ok || res.content === undefined) {
-          this.loadError.set(res.error ?? 'Failed to read detached snapshot.');
-          return null;
-        }
-        content = res.content;
-      } else {
-        const rel = relativePathFromModelKey(modelKey);
-        if (!rel) {
-          return null;
-        }
-        const res = await this.electron.readWorkspaceFile(workspaceRoot, rel);
-        if (!res.ok || res.content === undefined) {
-          if (this.modelByPath.has(modelKey)) {
-            await this.detachModel(modelKey, rel);
-            return this.modelByPath.get(modelKey) ?? null;
-          }
-          this.loadError.set(res.error ?? 'Failed to read file.');
-          return null;
-        }
-        content = res.content;
-      }
-      const lang = this.languageIdForPath(monacoApi, displayPath);
-      const uri = isExternalModelKey(modelKey)
-        ? monacoApi.Uri.parse(`clara-external:///${encodeURI(absolutePathFromModelKey(modelKey) ?? displayPath)}`)
-        : monacoApi.Uri.parse(`clara-workspace:///${encodeURI(relativePathFromModelKey(modelKey) ?? displayPath)}`);
-      model = monacoApi.editor.createModel(content, lang, uri);
-      this.modelByPath.set(modelKey, model);
-      this.diskSyncedAltVersionByPath.set(modelKey, model.getAlternativeVersionId());
-    }
-    this.ensureModelDirtyListener(modelKey, model);
-    return model;
+    this.loadError.set('');
+    return res.model;
   }
 
-  private async syncActiveModel(workspaceRoot: string, modelKey: string): Promise<void> {
+  private async syncActiveModel(modelKey: string): Promise<void> {
     const monacoApi = this.monaco;
     const ed = this.editor;
     if (!monacoApi || !ed) {
@@ -1866,7 +1425,7 @@ export class WorkspaceMonacoComponent {
     }
     const currentModel = ed.getModel();
     if (currentModel) {
-      const currentRel = this.workspaceRelativePathForModel(currentModel);
+      const currentRel = this.store.workspaceRelativePathForModel(currentModel);
       const nextRel = relativePathFromModelKey(modelKey);
       if (
         currentRel &&
@@ -1876,11 +1435,15 @@ export class WorkspaceMonacoComponent {
         this.captureEditorViewStateForPath(normalizePathSlashes(currentRel));
       }
     }
-    const model = await this.getOrCreateModel(workspaceRoot, modelKey);
-    if (!model) {
+    const model = await this.getOrCreateModel(modelKey);
+    if (!model || this.destroyed) {
       return;
     }
-    if (this.detachedByKey.has(modelKey)) {
+    // Active key changed while loading; the newer sync will attach its own model.
+    if (this.activeModelKey()?.trim() !== modelKey) {
+      return;
+    }
+    if (this.store.isDetachedKey(modelKey)) {
       this.updateDetachedBanner(modelKey);
     } else {
       this.detachedBanner.set('');
@@ -1894,7 +1457,7 @@ export class WorkspaceMonacoComponent {
     ed.updateOptions({
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
-    void this.prefetchSemanticLegendForModel(model);
+    void this.store.prefetchSemanticLegendForModel(model);
     const forcePreview = this.isForcePreviewKey(modelKey);
     const mdMode = forcePreview ? 'preview' : (this.mdViewModeByPath.get(modelKey) ?? 'edit');
     if (forcePreview) {
@@ -1910,10 +1473,11 @@ export class WorkspaceMonacoComponent {
         if (rel) {
           this.restoreEditorViewStateForPath(normalizePathSlashes(rel));
         }
-        ed.focus();
+        if (this.focused()) {
+          ed.focus();
+        }
       });
     }
-    this.emitDirtyPaths();
   }
 
   private captureEditorViewStateForPath(relativeKey: string, workspaceIdOverride?: string): void {
@@ -1925,7 +1489,7 @@ export class WorkspaceMonacoComponent {
     if (!model) {
       return;
     }
-    const modelRel = this.workspaceRelativePathForModel(model);
+    const modelRel = this.store.workspaceRelativePathForModel(model);
     if (!modelRel || normalizePathSlashes(modelRel) !== normalizePathSlashes(relativeKey)) {
       return;
     }
@@ -1968,7 +1532,7 @@ export class WorkspaceMonacoComponent {
     if (!model) {
       return;
     }
-    const key = this.workspaceRelativePathForModel(model);
+    const key = this.store.workspaceRelativePathForModel(model);
     if (!key) {
       return;
     }
@@ -2019,111 +1583,28 @@ export class WorkspaceMonacoComponent {
     });
   }
 
-  private async promptSaveAs(modelKey: string): Promise<string | null> {
-    const root = this.workspacePath()?.trim();
-    const model = this.modelByPath.get(modelKey);
-    if (!root || !model || model.isDisposed()) {
-      return null;
-    }
-    const detached = this.detachedByKey.get(modelKey);
-    const defaultRel =
-      detached?.defaultRelativePath ??
-      relativePathFromModelKey(modelKey) ??
-      displayPathForModelKey(modelKey);
-    const content = model.getValue();
-    const res = await this.electron.promptSaveEditorFile(root, defaultRel, content);
-    if (!res.ok) {
-      if (!res.cancelled) {
-        this.loadError.set(res.error ?? 'Save failed.');
-      }
-      return null;
-    }
-    await this.cleanupDetachedSnapshot(modelKey);
-    this.detachedByKey.delete(modelKey);
-    this.emitDetachedPaths();
-    this.detachedBanner.set('');
-
-    const oldKey = modelKey;
-    let newKey = oldKey;
-    if (res.outsideWorkspace && res.absolutePath) {
-      newKey = `abs:${normalizePathSlashes(res.absolutePath)}`;
-    } else if (res.relativePath) {
-      newKey = editorModelKeyForRelativePath(res.relativePath);
-    }
-
-    if (newKey !== oldKey) {
-      this.retargetModelKey(oldKey, newKey);
-      this.fileRefByKey.set(newKey, {
-        modelKey: newKey,
-        relativePath: res.relativePath,
-        absolutePath: res.absolutePath,
-        outsideWorkspace: !!res.outsideWorkspace,
-      });
-    } else {
-      this.diskSyncedAltVersionByPath.set(oldKey, model.getAlternativeVersionId());
-    }
-
-    this.emitOutsideWorkspacePaths();
-    this.emitDirtyPaths();
-    this.loadError.set('');
-    this.zone.run(() =>
-      this.emitOutput(this.saveAsCompleted, {
-        oldModelKey: oldKey,
-        relativePath: res.relativePath,
-        absolutePath: res.absolutePath,
-        outsideWorkspace: !!res.outsideWorkspace,
-      }),
-    );
-    return newKey;
-  }
-
   private async saveCurrent(): Promise<void> {
     const ed = this.editor;
-    const root = this.workspacePath()?.trim();
     const modelKey = this.activeModelKey()?.trim();
-    if (!ed || !root || !modelKey) {
+    if (!ed || !modelKey) {
       return;
     }
     const model = ed.getModel();
-    if (!model || this.modelByPath.get(modelKey) !== model) {
+    if (!model || this.store.getModel(modelKey) !== model) {
       return;
     }
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() ?? undefined);
-    if (settings.formatOnSave && model.uri.scheme === 'clara-workspace') {
+    if (settings.formatOnSave && model.uri.scheme === 'clara-workspace' && !this.store.isDetachedKey(modelKey)) {
       await ed.getAction('editor.action.formatDocument')?.run();
     }
-    if (this.detachedByKey.has(modelKey)) {
-      await this.promptSaveAs(modelKey);
+    const res = await this.store.saveKey(modelKey);
+    if (!res.ok) {
+      if (res.error) {
+        this.loadError.set(res.error);
+      }
       return;
     }
-    const content = model.getValue();
-    if (isExternalModelKey(modelKey)) {
-      const abs = absolutePathFromModelKey(modelKey);
-      if (!abs) {
-        return;
-      }
-      const res = await this.electron.writeAbsoluteFile(abs, content);
-      if (!res.ok) {
-        this.loadError.set(res.error ?? 'Save failed.');
-        return;
-      }
-    } else {
-      const rel = relativePathFromModelKey(modelKey);
-      if (!rel) {
-        return;
-      }
-      const res = await this.electron.writeWorkspaceFile(root, rel, content);
-      if (!res.ok) {
-        this.loadError.set(res.error ?? 'Save failed.');
-        return;
-      }
-      const sid = this.lspSessionId();
-      if (sid && lspServerKindForWorkspaceRelativePath(rel)) {
-        void this.electron.lspEditorDidSave(sid, rel);
-      }
-    }
-    this.diskSyncedAltVersionByPath.set(modelKey, model.getAlternativeVersionId());
     this.loadError.set('');
-    this.emitDirtyPaths();
+    this.detachedBanner.set('');
   }
 }

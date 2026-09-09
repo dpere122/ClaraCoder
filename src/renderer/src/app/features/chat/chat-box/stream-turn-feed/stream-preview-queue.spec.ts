@@ -14,6 +14,7 @@ import {
   isQueueableFeedItem,
   isToolBatchMember,
   isZeroDwellQueueItem,
+  markdownAfterCurrent,
   previewCommitCount,
   previewItemLabel,
   previewItemText,
@@ -40,10 +41,8 @@ const tool3: TurnFeedItem = {
   kind: 'tool',
   part: { streamTag: toolTrailStatusStreamTag('run-3'), label: 'list_workspace_directory', text: '.' },
 };
-const brief: TurnFeedItem = {
-  kind: 'brief',
-  part: { streamTag: 'clara', label: 'Clara', text: 'next I will read' },
-};
+/** Clara brief: planning prose rendered inline as markdown (never queued). */
+const brief: TurnFeedItem = { kind: 'markdown', text: 'next I will read' };
 const nudge: TurnFeedItem = {
   kind: 'nudge',
   part: { streamTag: 'nudge', label: 'Nudge', text: 'almost' },
@@ -55,13 +54,13 @@ const hitl: TurnFeedItem = {
 };
 
 describe('isQueueableFeedItem', () => {
-  it('queues thought, brief, nudge, and tool; not markdown', () => {
+  it('queues thought, nudge, and tool; not markdown (reply or Clara brief)', () => {
     expect(isQueueableFeedItem(thought)).toBe(true);
-    expect(isQueueableFeedItem(brief)).toBe(true);
     expect(isQueueableFeedItem(nudge)).toBe(true);
     expect(isQueueableFeedItem(tool)).toBe(true);
     expect(isQueueableFeedItem(hitl)).toBe(true);
     expect(isQueueableFeedItem(md)).toBe(false);
+    expect(isQueueableFeedItem(brief)).toBe(false);
   });
 });
 
@@ -104,11 +103,11 @@ describe('previewQueueHeader', () => {
 });
 
 describe('previewShowsBody', () => {
-  it('is true for thought/brief/nudge and false for tools', () => {
+  it('is true for thought/nudge and false for tools and markdown', () => {
     expect(previewShowsBody(thought)).toBe(true);
-    expect(previewShowsBody(brief)).toBe(true);
     expect(previewShowsBody(nudge)).toBe(true);
     expect(previewShowsBody(tool)).toBe(false);
+    expect(previewShowsBody(brief)).toBe(false);
     expect(previewShowsBody(undefined)).toBe(false);
   });
 });
@@ -171,6 +170,11 @@ describe('previewCommitCount', () => {
   it('does not batch HITL with ordinary tools', () => {
     expect(previewCommitCount([tool, hitl, tool2], 0)).toBe(1);
   });
+
+  it('ignores inline brief markdown when counting the batch', () => {
+    expect(previewCommitCount([brief, thought, tool], 0)).toBe(1);
+    expect(previewCommitCount([brief, tool, tool2], 0)).toBe(2);
+  });
 });
 
 describe('pressureInbound', () => {
@@ -209,6 +213,16 @@ describe('feedItemDisplayRole', () => {
     expect(feedItemDisplayRole(items, 0, 1, true)).toBe('chip');
     expect(feedItemDisplayRole(items, 1, 1, true)).toBe('preview');
   });
+
+  it('renders a Clara brief as markdown in place, live and persisted, without a preview slot', () => {
+    expect(feedItemDisplayRole([brief], 0, 0, true)).toBe('markdown');
+    expect(feedItemDisplayRole([brief], 0, 0, false)).toBe('markdown');
+    const items = [brief, tool, brief, tool2];
+    expect(feedItemDisplayRole(items, 0, 0, true)).toBe('markdown');
+    expect(feedItemDisplayRole(items, 1, 0, true)).toBe('preview');
+    expect(feedItemDisplayRole(items, 2, 0, true)).toBe('markdown');
+    expect(feedItemDisplayRole(items, 3, 0, true)).toBe('hidden');
+  });
 });
 
 describe('advanceZeroDwell', () => {
@@ -225,16 +239,26 @@ describe('initialLiveCommittedCount', () => {
   });
 
   it('keeps only the current event in preview when remounting mid-turn', () => {
-    expect(initialLiveCommittedCount([thought, brief, tool])).toBe(2);
+    expect(initialLiveCommittedCount([thought, brief, tool])).toBe(1);
   });
 
-  it('commits everything once markdown has started', () => {
+  it('commits everything once the reply markdown has started', () => {
     expect(initialLiveCommittedCount([thought, tool, md])).toBe(2);
+  });
+
+  it('does not treat an earlier inline brief as the reply having started', () => {
+    expect(initialLiveCommittedCount([brief, tool])).toBe(0);
+    expect(initialLiveCommittedCount([brief, tool, brief, thought])).toBe(1);
   });
 
   it('keeps a trailing tool batch in one preview', () => {
     expect(initialLiveCommittedCount([thought, tool, tool2, tool3])).toBe(1);
     expect(initialLiveCommittedCount([tool, tool2, tool3])).toBe(0);
+  });
+
+  it('keeps a run of live thoughts in one preview on remount', () => {
+    expect(initialLiveCommittedCount([thought, thought])).toBe(0);
+    expect(initialLiveCommittedCount([tool, thought, thought])).toBe(1);
   });
 });
 
@@ -255,6 +279,14 @@ describe('hasCommitPressure', () => {
   it('is false while only sibling tools are inbound', () => {
     expect(hasCommitPressure([tool, tool2], tool, [tool2])).toBe(false);
     expect(hasCommitPressure([tool, tool2, md], tool, [tool2])).toBe(true);
+  });
+
+  it('ignores an inline brief that landed before the current preview', () => {
+    expect(markdownAfterCurrent([brief, thought], thought)).toBe(false);
+    expect(markdownAfterCurrent([brief, thought, brief], thought)).toBe(true);
+    expect(hasCommitPressure([brief, thought], thought, [])).toBe(false);
+    expect(hasCommitPressure([brief, tool, tool2], tool, [tool2])).toBe(false);
+    expect(hasCommitPressure([brief, thought, brief], thought, [])).toBe(true);
   });
 });
 
@@ -341,5 +373,17 @@ describe('decidePreviewCommit', () => {
         now: 0,
       }),
     ).toEqual({ action: 'commit' });
+  });
+
+  it('stays on a live thought that follows an inline brief', () => {
+    expect(
+      decidePreviewCommit({
+        ...base,
+        items: [brief, thought],
+        current: thought,
+        inbound: [],
+        now: 10_000,
+      }),
+    ).toEqual({ action: 'stay' });
   });
 });

@@ -332,7 +332,6 @@ app-stream-tool-pill .stream-tool-pill,
 }
 
 app-stream-thought-pill .stream-thought-preview__inner,
-app-stream-brief-pill .stream-brief-preview__inner,
 app-stream-nudge-pill .stream-nudge-preview__inner,
 .main-panel-empty__recents-frame {
   border-radius: 0.85rem !important;
@@ -340,6 +339,52 @@ app-stream-nudge-pill .stream-nudge-preview__inner,
 
 .main-panel-empty__recent {
   border-radius: 0.7rem !important;
+}
+
+/* Dependencies window keeps rounded chrome (pill controls, soft row corners). */
+app-dependencies .deps-btn,
+app-dependencies .deps-close-btn,
+app-dependencies .deps-badge,
+app-dependencies .deps-pill,
+app-dependencies .deps-chip,
+app-dependencies .deps-inline-select select,
+app-dependencies .deps-status,
+app-dependencies .deps-progress__bar {
+  border-radius: 999px !important;
+}
+
+app-dependencies .deps-row,
+app-dependencies .deps-terminal {
+  border-radius: 14px !important;
+}
+
+/* Conversations sidebar toolbar buttons are pills. */
+app-chat-conversation-hub .chat-hub__expand,
+app-chat-conversation-hub .chat-hub__new-conv,
+app-chat-conversation-hub .chat-hub__conv-toggle,
+app-chat-conversation-hub .chat-hub__collapse,
+app-chat-conversation-hub .chat-hub__uncollapse {
+  border-radius: 999px !important;
+}
+
+/* Managed llama-server row in the workspace footer: Start/Stop, source select, settings. */
+app-managed-llama-controls .managed-llama-controls__btn,
+app-managed-llama-controls .managed-llama-controls__source-select,
+app-workspace .workspace-footer-model-row .workspace-icon-btn {
+  border-radius: 999px !important;
+}
+
+/* Floating markdown Edit | Preview pill over the Monaco editor. */
+app-workspace-monaco .workspace-monaco-md-toggle,
+app-workspace-monaco .workspace-monaco-md-toggle__btn {
+  border-radius: 999px !important;
+}
+
+/* Monaco editor file tabs sit as pills above the editor. */
+.chat-main-tab,
+.chat-main-tab.cdk-drag-preview,
+.chat-main-tab-close {
+  border-radius: 999px !important;
 }
 
 html, body {
@@ -834,18 +879,15 @@ html.theme-woodland .streaming-cursor {
   box-shadow: none;
 }
 html.theme-woodland app-stream-thought-pill .stream-thought-preview__inner,
-html.theme-woodland app-stream-brief-pill .stream-brief-preview__inner,
 html.theme-woodland app-stream-nudge-pill .stream-nudge-preview__inner {
   background: color-mix(in srgb, var(--t-bg-surface) 78%, var(--t-panel) 22%);
   border-color: var(--t-border);
 }
 html.theme-woodland app-stream-thought-pill .stream-thought-preview__header,
-html.theme-woodland app-stream-brief-pill .stream-brief-preview__header,
 html.theme-woodland app-stream-nudge-pill .stream-nudge-preview__header {
   color: var(--t-secondary);
 }
 html.theme-woodland app-stream-thought-pill .stream-thought-preview__body,
-html.theme-woodland app-stream-brief-pill .stream-brief-preview__body,
 html.theme-woodland app-stream-nudge-pill .stream-nudge-preview__body {
   color: var(--t-secondary);
 }
@@ -1073,17 +1115,9 @@ html app-chat-box .tui-frame-bar__body {
   min-width: 0;
 }
 
-html .chat-active-stack__composer .tui-frame-bar__body {
-  padding: 0.15rem 0.35rem 0.2rem;
-  min-width: 0;
-  background: color-mix(in srgb, var(--t-secondary) 5%, transparent);
-  overflow: visible;
-}
-
 html app-chat-box .user-bubble::before,
 html app-chat-box .assistant-bubble::before,
-html app-chat-box .msg-bubble::after,
-html app-chat-box .empty-state::before {
+html app-chat-box .msg-bubble::after {
   content: none;
   display: none;
 }
@@ -1149,21 +1183,6 @@ html app-chat-box .tts-loading {
   gap: 0.15rem;
   margin-top: 0.1rem;
   padding-top: 0.1rem;
-}
-
-html app-chat-box .empty-state-wrap {
-  margin: 0.1rem 0;
-  width: 100%;
-  max-width: 100%;
-}
-
-html app-chat-box .empty-state {
-  margin: 0;
-  padding: 0.05rem 0;
-  border: none;
-  color: var(--t-text-muted);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
 }
 
 html .chat-active-stack__composer {
@@ -1290,7 +1309,9 @@ html app-message-box .composer-prompt--active:hover {
 }
 
 html app-message-box .composer-entry-row {
-  background-color: var(--t-composer-input-bg);
+  background-color: transparent;
+  border: 1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent);
+  border-radius: 1rem;
   padding: 0.12rem 0.2rem;
   min-height: 2rem;
 }
@@ -1428,16 +1449,25 @@ html .chat-active-stack__status * {
   box-shadow: none !important;
 }
 
-html app-message-box .composer-entry-row .btn-send {
-  border: 1px dashed color-mix(in srgb, var(--t-secondary) 60%, transparent) !important;
+html .chat-active-stack__composer app-message-box {
+  border: 2px solid color-mix(in srgb, var(--t-secondary) 65%, var(--t-border)) !important;
+  border-radius: 1.5rem !important;
+  box-shadow:
+    0 2px 14px color-mix(in srgb, var(--t-glow) 26%, transparent),
+    0 1px 4px rgba(0, 0, 0, 0.4) !important;
 }
 
-html app-message-box .composer-entry-row .btn-send:hover:not(:disabled) {
-  border-color: var(--t-secondary) !important;
+html app-message-box .composer-entry-row {
+  border: 1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent) !important;
+  border-radius: 1rem !important;
+}
+
+html app-message-box .composer-entry-row .btn-send {
+  border: none !important;
+  border-radius: 1rem !important;
 }
 
 html app-chat-box app-stream-thought-pill .stream-thought-preview__inner,
-html app-chat-box app-stream-brief-pill .stream-brief-preview__inner,
 html app-chat-box app-stream-nudge-pill .stream-nudge-preview__inner {
   border: 1px solid var(--t-border) !important;
 }
@@ -1456,36 +1486,30 @@ html.theme-classical app-message-box .composer-mode-select {
 }
 
 html.theme-classical app-stream-thought-pill .stream-thought-preview__inner,
-html.theme-classical app-stream-brief-pill .stream-brief-preview__inner,
 html.theme-classical app-stream-nudge-pill .stream-nudge-preview__inner {
   background: var(--t-assistant-bg);
   border: 1px solid var(--t-assistant-border) !important;
   border-radius: 0.95rem !important;
 }
 html.theme-classical app-stream-thought-pill .stream-thought-preview__header,
-html.theme-classical app-stream-brief-pill .stream-brief-preview__header,
 html.theme-classical app-stream-nudge-pill .stream-nudge-preview__header {
   color: var(--t-secondary);
 }
 html.theme-classical app-stream-thought-pill .stream-thought-preview__body,
-html.theme-classical app-stream-brief-pill .stream-brief-preview__body,
 html.theme-classical app-stream-nudge-pill .stream-nudge-preview__body {
   color: var(--t-assistant-fg);
 }
 
 html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__inner,
-html.theme-dark-classical app-stream-brief-pill .stream-brief-preview__inner,
 html.theme-dark-classical app-stream-nudge-pill .stream-nudge-preview__inner {
   background: color-mix(in srgb, var(--t-bg-deep) 70%, var(--t-code-bg) 30%);
   border: 1px solid color-mix(in srgb, var(--t-secondary) 45%, var(--t-border)) !important;
 }
 html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__header,
-html.theme-dark-classical app-stream-brief-pill .stream-brief-preview__header,
 html.theme-dark-classical app-stream-nudge-pill .stream-nudge-preview__header {
   color: var(--t-secondary);
 }
 html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__body,
-html.theme-dark-classical app-stream-brief-pill .stream-brief-preview__body,
 html.theme-dark-classical app-stream-nudge-pill .stream-nudge-preview__body {
   color: var(--t-assistant-fg);
 }

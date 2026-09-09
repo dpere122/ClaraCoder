@@ -67,6 +67,7 @@ export {
   languageGgufStem,
   mmprojNameMatchesLanguage,
   isQwenFamily,
+  managedLlamaCommandHasCacheRam,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   managedLlamaCommandHasNoWebui,
@@ -305,10 +306,8 @@ export {
   persistedReasoningStreams,
   reasoningStreamPartsForDisplay,
   multiplexAuxiliaryStreamTimeline,
-  livePrimaryRendersAsOuterBrief,
   buildTurnFeed,
   isActiveLiveThought,
-  isActiveLiveBrief,
   isActiveLiveNudge,
   turnFeedScrollKey,
   otherDelegatedStreamPartsForDisplay,
@@ -342,7 +341,7 @@ export {
   HITL_TRAIL_STREAM_PREFIX,
   TOOL_TRAIL_STATUS_STREAM_PREFIX,
 } from './stream-parts';
-export type { PersistedAssistantStreamFields, TurnFeedItem, BuildTurnFeedOptions } from './stream-parts';
+export type { PersistedAssistantStreamFields, TurnFeedItem } from './stream-parts';
 export {
   condenseToolTrailText,
   readToolPreviewBody,
@@ -491,6 +490,7 @@ export type {
   LlamaServerVariant,
 } from './types/dependencies';
 export {
+  DEPENDENCY_COMPONENTS,
   DEPENDENCY_IDS,
   DEPENDENCY_LABELS,
   DEPENDENCY_DESCRIPTIONS,
@@ -498,4 +498,5 @@ export {
   LLAMA_SERVER_VARIANTS,
   LLAMA_SERVER_VARIANT_LABELS,
   defaultDependencyCatalog,
+  dependencyComponents,
 } from './types/dependencies';

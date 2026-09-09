@@ -35,10 +35,10 @@ export function createDependenciesWindow(): void {
 
   const icon = resolveAppIconPath();
   mainState.dependenciesWindow = new BrowserWindow({
-    width: 960,
-    height: 720,
-    minWidth: 720,
-    minHeight: 520,
+    width: 860,
+    height: 600,
+    minWidth: 680,
+    minHeight: 480,
     ...(mainWindow && !mainWindow.isDestroyed() ? settingsWindowParentOptions(mainWindow) : {}),
     frame: false,
     ...framelessWindowShapeOptions(),

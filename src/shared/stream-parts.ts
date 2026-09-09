@@ -349,14 +349,14 @@ function asNudgeStreamPart(part: StreamPart): StreamPart {
   };
 }
 
-function pushOrMergeBriefItem(items: TurnFeedItem[], part: StreamPart): void {
-  const briefPart = asClaraOuterBriefPart(part);
+/** Append rendered prose to the feed, merging into a directly preceding markdown block. */
+function pushOrMergeMarkdownItem(items: TurnFeedItem[], text: string): void {
   const last = items[items.length - 1];
-  if (last?.kind === 'brief') {
-    last.part = { ...last.part, text: last.part.text + briefPart.text };
+  if (last?.kind === 'markdown') {
+    last.text += text;
     return;
   }
-  items.push({ kind: 'brief', part: { ...briefPart } });
+  items.push({ kind: 'markdown', text });
 }
 
 function pushOrMergeNudgeItem(items: TurnFeedItem[], part: StreamPart): void {
@@ -370,11 +370,12 @@ function pushOrMergeNudgeItem(items: TurnFeedItem[], part: StreamPart): void {
 }
 
 /**
- * Tool / HITL / shell lanes. An `agent` segment after one of these is the live reply,
- * not the Clara outer brief.
+ * Tool / shell lanes that end the Clara outer-brief window.
+ * HITL trail rows do not count — leftover review chips must not turn the first
+ * `agent` segment into markdown.
  */
 function streamPartIsToolLike(part: StreamPart): boolean {
-  return isToolLikeStreamTag(part.streamTag);
+  return isToolLikeStreamTag(part.streamTag) && !isHitlTrailStreamTag(part.streamTag);
 }
 
 /** Tool / HITL / shell multiplex tags (not primary, reasoning, brief, nudge, or planner). */
@@ -446,22 +447,6 @@ function primarySegmentIsBetweenTools(parts: readonly StreamPart[], index: numbe
   return false;
 }
 
-/**
- * Live `agent` text before any tool/HITL lane is the Clara outer brief (planning prose).
- * After tools start, later `agent` segments are the user-visible reply.
- */
-export function livePrimaryRendersAsOuterBrief(
-  parts: readonly StreamPart[],
-  index: number,
-): boolean {
-  for (let i = 0; i < index; i++) {
-    if (streamPartIsToolLike(parts[i]!)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function retagPrimaryStreamParts(
   parts: readonly StreamPart[],
   retag: (part: StreamPart) => StreamPart,
@@ -526,29 +511,22 @@ export function multiplexAuxiliaryStreamTimeline(parts: StreamPart[]): StreamPar
 /** One chronological UI event in the unified live/persisted turn feed. */
 export type TurnFeedItem =
   | { kind: 'thought'; part: StreamPart }
-  | { kind: 'brief'; part: StreamPart }
   | { kind: 'nudge'; part: StreamPart }
   | { kind: 'tool'; part: StreamPart }
   | { kind: 'markdown'; text: string };
 
-export type BuildTurnFeedOptions = {
-  /** When false, live pre-tool `agent` prose renders as markdown instead of a Clara brief. */
-  promoteLivePrimaryToBrief?: boolean;
-};
-
 /**
- * Build the unified turn feed: thought pills, Clara brief pills, nudge pills, tool pills, and
- * rendered markdown in arrival order.
- * When `finalText` is set, in-feed `agent` segments are omitted except leaked planning
- * between tools (rendered as thought) and a single markdown block is appended at the end
- * (backend `final_text` / persisted `assistant.text`).
+ * Build the unified turn feed: thought pills, nudge pills, tool pills, and rendered markdown
+ * in arrival order.
+ * Clara briefs (`clara` parts — planning prose retagged when a tool call starts) and `agent`
+ * prose between tool calls render as markdown in place, so they stay visible between tools.
+ * When `finalText` is set, the trailing `agent` reply segment is omitted and a single markdown
+ * block is appended at the end (backend `final_text` / persisted `assistant.text`).
  */
 export function buildTurnFeed(
   parts: readonly StreamPart[],
   finalText?: string | null,
-  options?: BuildTurnFeedOptions,
 ): TurnFeedItem[] {
-  const promoteLivePrimaryToBrief = options?.promoteLivePrimaryToBrief !== false;
   const normalized = mergeReadPreviewIntoToolTrailParts(
     parts.map(normalizeStreamPart).filter((p): p is StreamPart => p !== null),
   );
@@ -564,7 +542,7 @@ export function buildTurnFeed(
     }
     if (isClaraOuterBriefStreamTag(part.streamTag)) {
       if (part.text.trim()) {
-        pushOrMergeBriefItem(items, part);
+        pushOrMergeMarkdownItem(items, part.text);
       }
       continue;
     }
@@ -578,27 +556,8 @@ export function buildTurnFeed(
       if (!part.text.trim()) {
         continue;
       }
-      if (primarySegmentIsBetweenTools(normalized, i)) {
-        const thoughtPart = asReasoningStreamPart(part);
-        const last = items[items.length - 1];
-        if (last?.kind === 'thought') {
-          last.part = { ...last.part, text: last.part.text + thoughtPart.text };
-        } else {
-          items.push({ kind: 'thought', part: thoughtPart });
-        }
-        continue;
-      }
-      if (!final) {
-        if (promoteLivePrimaryToBrief && livePrimaryRendersAsOuterBrief(normalized, i)) {
-          pushOrMergeBriefItem(items, part);
-        } else {
-          const last = items[items.length - 1];
-          if (last?.kind === 'markdown') {
-            last.text += part.text;
-          } else {
-            items.push({ kind: 'markdown', text: part.text });
-          }
-        }
+      if (!final || primarySegmentIsBetweenTools(normalized, i)) {
+        pushOrMergeMarkdownItem(items, part.text);
       }
       continue;
     }
@@ -623,32 +582,6 @@ export function isActiveLiveThought(
   return live && items[index]?.kind === 'thought' && index === items.length - 1;
 }
 
-/** True when a later feed item means this Clara brief is no longer being generated. */
-function briefGenerationSupersededBy(item: TurnFeedItem | undefined): boolean {
-  return item?.kind === 'tool' || item?.kind === 'markdown' || item?.kind === 'brief' || item?.kind === 'nudge';
-}
-
-/**
- * True while this Clara brief is still being generated (auto-expand the reasoning preview).
- * Later thought tokens do not close it; a tool, markdown reply, or a newer brief does.
- * Live turn-feed preview is owned by the preview queue; this helper remains for tests.
- */
-export function isActiveLiveBrief(
-  items: readonly TurnFeedItem[],
-  index: number,
-  live: boolean,
-): boolean {
-  if (!live || items[index]?.kind !== 'brief') {
-    return false;
-  }
-  for (let i = index + 1; i < items.length; i++) {
-    if (briefGenerationSupersededBy(items[i])) {
-      return false;
-    }
-  }
-  return true;
-}
-
 /** True when a later feed item means this nudge preview is no longer being generated. */
 function nudgeGenerationSupersededBy(item: TurnFeedItem | undefined): boolean {
   return item?.kind === 'tool' || item?.kind === 'markdown' || item?.kind === 'nudge';
@@ -656,7 +589,7 @@ function nudgeGenerationSupersededBy(item: TurnFeedItem | undefined): boolean {
 
 /**
  * True while this nudge preview is still the live premature reply (auto-expand).
- * Later thought or brief tokens do not close it; a tool, markdown reply, or a newer nudge does.
+ * Later thought tokens do not close it; a tool, markdown reply, or a newer nudge does.
  * Live turn-feed preview is owned by the preview queue; this helper remains for tests.
  */
 export function isActiveLiveNudge(

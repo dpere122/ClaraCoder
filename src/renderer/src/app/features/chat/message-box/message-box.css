@@ -2,7 +2,18 @@
   display: block;
   width: 100%;
   min-width: 0;
-  overflow: visible;
+  margin-bottom: 0.6rem;
+  padding: 0 0.75rem 0.75rem;
+  background-color: var(--t-composer-bg);
+  border: 2px solid color-mix(in srgb, var(--t-secondary) 65%, var(--t-border));
+  border-radius: 1.5rem;
+  overflow: hidden;
+}
+
+.composer-context {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 0.35rem;
 }
 
 .talk-status {
@@ -350,7 +361,7 @@
 }
 
 .composer-entry-row .btn-send {
-  border-style: dashed;
+  border-radius: 1rem !important;
 }
 
 .composer-entry-row .btn:disabled {

@@ -528,11 +528,6 @@ app-chat-box .processing-text {
   min-width: 0;
 }
 
-app-chat-box .empty-state {
-  color: var(--t-text-muted);
-  font-size: 0.85rem;
-}
-
 .tui-frame-bar {
   display: none;
 }

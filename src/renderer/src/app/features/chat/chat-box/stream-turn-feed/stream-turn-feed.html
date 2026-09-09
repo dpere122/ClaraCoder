@@ -5,8 +5,6 @@
       @case ('chip') {
         @if (item.kind === 'thought') {
           <app-stream-thought-pill [text]="item.part.text" [live]="live()" [active]="false" />
-        } @else if (item.kind === 'brief') {
-          <app-stream-brief-pill [text]="item.part.text" [live]="live()" [active]="false" />
         } @else if (item.kind === 'nudge') {
           <app-stream-nudge-pill [text]="item.part.text" [live]="live()" [active]="false" />
         } @else if (item.kind === 'tool') {
@@ -19,10 +17,7 @@
       }
       @case ('preview') {
         @if (previewShowsBody()) {
-          <div
-            class="stream-turn-feed__preview"
-            [class.stream-turn-feed__preview--compact]="previewCompact()"
-          >
+          <div class="stream-turn-feed__preview">
             <div class="stream-turn-feed__preview-inner">
               <div class="stream-turn-feed__preview-header">{{ previewHeader() }}</div>
               <pre #previewBody class="stream-turn-feed__preview-body">{{ previewBodyText(item) }}<span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span></pre>

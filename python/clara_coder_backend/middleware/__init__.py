@@ -9,7 +9,6 @@ Modules
 ``empty_response_middleware`` — nudge on empty model turns
 ``flush_untransferred_staging_middleware`` — ``after_agent`` node that returns leftover staged drafts to the model until resolved
 ``parallel_tool_middleware`` — inject ``parallel_tool_calls`` from runtime
-``briefing_disable_thinking_middleware`` — pin thinking off for Clara's first-turn briefing (Gemma and Qwen honor thinking settings on every agent call)
 ``vision_tool_middleware`` — vision / multimodal tool message shaping
 ``user_event_injection_middleware`` — inject queued user events into the turn
 ``gemma_native_tool_middleware`` — promote Gemma ``<|tool_call>`` markup into API tool_calls

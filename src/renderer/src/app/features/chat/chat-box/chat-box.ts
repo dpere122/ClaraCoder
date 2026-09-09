@@ -8,8 +8,9 @@
  * - Persisted rows render from `persistedRows`; the in-flight turn renders separately via `liveTurn` while `loading`.
  *
  * **Presentation**
- * - One chronological feed: thought pills, Clara brief pills, nudge pills, tool pills, and rendered markdown (`buildTurnFeed`).
- * - Backend `final_text` replaces in-feed `agent` segments with the clean reply.
+ * - One chronological feed: thought pills, nudge pills, tool pills, and rendered markdown (`buildTurnFeed`).
+ * - Clara briefs (planning prose before / between tool calls) render as markdown in place.
+ * - Backend `final_text` replaces the trailing `agent` reply segment with the clean reply.
  * - HITL change rows merge into the feed; interactive reviews live in the composer dock.
  *
  * Display helpers and types are re-exported below for parent components and tests.
@@ -262,8 +263,6 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
-  /** When false (Gemma preset), live pre-tool agent prose stays markdown instead of a Clara brief. */
-  readonly promoteLivePrimaryToBrief = input(true);
 
   // --- Outputs (HITL completion + composer send) ---
 
@@ -395,12 +394,11 @@ export class ChatBox implements OnDestroy {
     };
   });
 
-  /** Chronological live feed: thought pills, tool pills, and markdown. */
+  /** Chronological live feed: thought pills, tool pills, and markdown (briefs + reply). */
   readonly liveTurnFeed = computed(() =>
     buildTurnFeed(
       mergeHitlTrailIntoAuxiliaryTimeline(this.streamingParts(), this.liveHitlArtifacts()),
       this.streamingFinalText(),
-      { promoteLivePrimaryToBrief: this.promoteLivePrimaryToBrief() },
     ),
   );
 
@@ -415,7 +413,6 @@ export class ChatBox implements OnDestroy {
         hitlArtifactsExcludingPlanConfirm(row.artifacts),
       ),
       row.assistant?.text,
-      { promoteLivePrimaryToBrief: this.promoteLivePrimaryToBrief() },
     );
   }
 
@@ -440,12 +437,15 @@ export class ChatBox implements OnDestroy {
     ),
   );
 
-  /** Blinking cursor while the main reply is still streaming (hidden once `final_text` lands). */
+  /**
+   * Blinking cursor while prose is the latest live event (hidden once `final_text` lands, and
+   * not shown on a finished brief while a later tool is running).
+   */
   readonly showStreamingPrimaryCursor = computed(
     () =>
       this.loading() &&
       !(this.streamingFinalText() ?? '').trim() &&
-      this.liveTurnFeed().some((item) => item.kind === 'markdown'),
+      this.liveTurnFeed().at(-1)?.kind === 'markdown',
   );
 
   /**

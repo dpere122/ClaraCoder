@@ -1,10 +1,11 @@
-"""Shared download / extract / ready-marker helpers for managed dependencies."""
+"""Shared download / extract / ready-marker / subprocess helpers for managed dependencies."""
 
 from __future__ import annotations
 
 import logging
 import os
 import shutil
+import subprocess
 import tarfile
 import time
 import zipfile
@@ -12,9 +13,86 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from clara_coder_backend.runtime.deps.progress import PROGRESS
+
 logger = logging.getLogger('clara.runtime.deps.download')
 
 READY_MARKER = '.clara-ready'
+
+# Lines of child output kept for the error message when a streamed step fails.
+_STREAM_ERROR_TAIL = 40
+
+
+def run_streaming(
+    cmd: list[str],
+    *,
+    dep_id: str,
+    label: str,
+    phase: str = 'installing',
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
+    check: bool = True,
+    echo_command: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd`` and forward every stdout/stderr line to the progress bus.
+
+    Each non-empty output line becomes a ``phase`` progress event for ``dep_id``
+    with the line as the message, so the Dependencies window install log shows the
+    child's live output (pip downloads, venv/ensurepip chatter, …) instead of a
+    single static status line.
+
+    Returns a ``CompletedProcess`` whose ``stdout`` is the merged output. When
+    ``check`` is true a non-zero exit raises ``RuntimeError`` carrying the last
+    few lines of output.
+    """
+
+    logger.info('%s: %s', label, ' '.join(cmd))
+    if echo_command:
+        PROGRESS.emit(dep_id, phase, message='$ ' + ' '.join(cmd))
+
+    child_env = dict(os.environ if env is None else env)
+    # Flush promptly and emit UTF-8 so the log stays live and decodable on Windows.
+    child_env.setdefault('PYTHONUNBUFFERED', '1')
+    child_env.setdefault('PYTHONIOENCODING', 'utf-8')
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            bufsize=1,
+            env=child_env,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        PROGRESS.emit(dep_id, phase, message=f'{label} failed to start: {exc}')
+        raise RuntimeError(f'{label} failed: {exc}') from exc
+
+    assert proc.stdout is not None
+    collected: list[str] = []
+    for line in proc.stdout:
+        stripped = line.rstrip('\r\n')
+        if stripped.strip():
+            collected.append(stripped)
+            PROGRESS.emit(dep_id, phase, message=stripped)
+    proc.stdout.close()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        PROGRESS.emit(dep_id, phase, message=f'{label} timed out after {timeout}s')
+        raise RuntimeError(f'{label} timed out after {timeout}s')
+
+    output = '\n'.join(collected)
+    if proc.returncode != 0:
+        PROGRESS.emit(dep_id, phase, message=f'{label} exited with code {proc.returncode}')
+        if check:
+            tail = '\n'.join(collected[-_STREAM_ERROR_TAIL:])
+            raise RuntimeError(f'{label} failed with exit code {proc.returncode}\n{tail}')
+    return subprocess.CompletedProcess(cmd, proc.returncode, output, '')
 
 
 def download_file(

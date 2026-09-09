@@ -87,32 +87,33 @@
       }
     </div>
   }
-  @if (showMdToolbar()) {
-    <div class="workspace-monaco-md-toolbar border-bottom px-2 py-1 d-flex align-items-center">
-      <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="Markdown view mode">
-        <button
-          type="button"
-          class="btn"
-          [class.btn-primary]="!mdPreviewActive()"
-          [class.btn-outline-secondary]="mdPreviewActive()"
-          (click)="setMdViewMode('edit')"
-        >
-          Edit
-        </button>
-        <button
-          type="button"
-          class="btn"
-          [class.btn-primary]="mdPreviewActive()"
-          [class.btn-outline-secondary]="!mdPreviewActive()"
-          (click)="setMdViewMode('preview')"
-        >
-          Preview
-        </button>
-      </div>
-    </div>
-  }
   <div class="workspace-monaco-body">
     <div class="workspace-monaco-editor-stack">
+      @if (showMdToolbar()) {
+        <!-- Floating Edit | Preview pill; overlays the top-right of the editor / preview pane. -->
+        <div class="workspace-monaco-md-toggle" role="group" aria-label="Markdown view mode">
+          <button
+            type="button"
+            class="workspace-monaco-md-toggle__btn"
+            [class.is-active]="!mdPreviewActive()"
+            [attr.aria-pressed]="!mdPreviewActive()"
+            title="Edit markdown source"
+            (click)="setMdViewMode('edit')"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            class="workspace-monaco-md-toggle__btn"
+            [class.is-active]="mdPreviewActive()"
+            [attr.aria-pressed]="mdPreviewActive()"
+            title="Rendered preview"
+            (click)="setMdViewMode('preview')"
+          >
+            Preview
+          </button>
+        </div>
+      }
       <div
         #editorHost
         class="workspace-monaco-editor workspace-monaco-pane"

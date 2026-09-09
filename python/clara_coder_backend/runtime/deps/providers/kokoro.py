@@ -25,6 +25,10 @@ def _marker_path() -> Path:
     return get_runtime_python_dir() / MARKER_NAME
 
 
+def components() -> list[str]:
+    return ['torch (CPU)', 'kokoro', 'misaki', 'spacy']
+
+
 def status() -> dict:
     py = venv_python()
     marker = _marker_path()

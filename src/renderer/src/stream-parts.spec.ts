@@ -12,7 +12,6 @@ import {
   multiplexAuxiliaryStreamTimeline,
   buildTurnFeed,
   isActiveLiveThought,
-  isActiveLiveBrief,
   isActiveLiveNudge,
   turnFeedScrollKey,
   normalizeStreamPart,
@@ -38,6 +37,7 @@ import {
   streamPlainOneLine,
   TOOL_OVERLAY_STREAM_TAG,
   TOOL_PYTEST_STREAM_TAG,
+  hitlTrailStreamTag,
   toolTrailStatusStreamTag,
 } from '@shared/index';
 
@@ -134,13 +134,7 @@ describe('promotePrimaryAheadOfToolToReasoning', () => {
     ];
     const feed = buildTurnFeed(parts);
     expect(feed.some((item) => item.kind === 'thought')).toBe(false);
-    expect(
-      feed.some(
-        (item) =>
-          (item.kind === 'brief' && item.part.text.includes('live reply'))
-          || (item.kind === 'markdown' && item.text.includes('live reply')),
-      ),
-    ).toBe(true);
+    expect(feed.some((item) => item.kind === 'markdown' && item.text.includes('live reply'))).toBe(true);
   });
 });
 
@@ -206,63 +200,72 @@ describe('buildTurnFeed', () => {
     ]);
   });
 
-  it('renders Clara outer briefs as reasoning pills, not tool rows', () => {
+  it('renders Clara outer briefs as inline markdown, not pills or tool rows', () => {
     const parts: StreamPart[] = [
       { streamTag: 'clara', label: 'Clara', text: 'Checking the layout next.' },
       { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'done' },
     ];
     expect(buildTurnFeed(parts)).toEqual([
-      { kind: 'brief', part: parts[0] },
+      { kind: 'markdown', text: 'Checking the layout next.' },
       { kind: 'tool', part: parts[1] },
     ]);
   });
 
-  it('renders live pre-tool agent prose as a Clara brief, not markdown', () => {
+  it('renders live pre-tool agent prose as markdown', () => {
     const parts: StreamPart[] = [
       { streamTag: 'reasoning', label: 'R', text: 'think first' },
       { streamTag: 'agent', label: '', text: 'Checking the layout next.' },
     ];
-    const feed = buildTurnFeed(parts);
-    expect(feed).toHaveLength(2);
-    expect(feed[0]).toEqual({ kind: 'thought', part: parts[0] });
-    expect(feed[1]?.kind).toBe('brief');
-    if (feed[1]?.kind !== 'brief') return;
-    expect(feed[1].part.streamTag).toBe('clara');
-    expect(feed[1].part.text).toBe('Checking the layout next.');
-  });
-
-  it('renders live pre-tool agent prose as markdown when briefs are disabled', () => {
-    const parts: StreamPart[] = [
-      { streamTag: 'reasoning', label: 'R', text: 'think first' },
-      { streamTag: 'agent', label: '', text: 'Checking the layout next.' },
-    ];
-    expect(buildTurnFeed(parts, null, { promoteLivePrimaryToBrief: false })).toEqual([
+    expect(buildTurnFeed(parts)).toEqual([
       { kind: 'thought', part: parts[0] },
       { kind: 'markdown', text: 'Checking the layout next.' },
     ]);
   });
 
-  it('merges consecutive pre-tool agent segments into one brief', () => {
+  it('merges consecutive pre-tool agent segments into one markdown block', () => {
     const parts: StreamPart[] = [
       { streamTag: 'agent', label: '', text: 'Hello ' },
       { streamTag: 'agent', label: '', text: 'world' },
     ];
-    const feed = buildTurnFeed(parts);
-    expect(feed).toHaveLength(1);
-    expect(feed[0]?.kind).toBe('brief');
-    if (feed[0]?.kind !== 'brief') return;
-    expect(feed[0].part.text).toBe('Hello world');
+    expect(buildTurnFeed(parts)).toEqual([{ kind: 'markdown', text: 'Hello world' }]);
   });
 
-  it('keeps post-tool agent segments as markdown', () => {
+  it('renders live pre-tool agent prose as markdown with a HITL trail row present', () => {
+    const parts: StreamPart[] = [
+      { streamTag: hitlTrailStreamTag('change-1'), label: 'edit src/a.ts', text: 'pending' },
+      { streamTag: 'agent', label: '', text: 'Checking the layout next.' },
+    ];
+    expect(buildTurnFeed(parts)).toEqual([
+      { kind: 'tool', part: parts[0] },
+      { kind: 'markdown', text: 'Checking the layout next.' },
+    ]);
+  });
+
+  it('keeps briefs rendered between tool calls alongside the post-tool reply', () => {
     const parts: StreamPart[] = [
       { streamTag: 'clara', label: 'Clara', text: 'Checking files.' },
       { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'Reading…' },
       { streamTag: 'agent', label: '', text: 'Here is the answer.' },
     ];
     expect(buildTurnFeed(parts)).toEqual([
-      { kind: 'brief', part: parts[0] },
+      { kind: 'markdown', text: 'Checking files.' },
       { kind: 'tool', part: parts[1] },
+      { kind: 'markdown', text: 'Here is the answer.' },
+    ]);
+  });
+
+  it('keeps persisted briefs between tool calls when final_text is set', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'clara', label: 'Clara', text: 'First I will read the file.' },
+      { streamTag: 'tool-trail:a', label: 'read_workspace_file', text: 'done' },
+      { streamTag: 'clara', label: 'Clara', text: 'Now listing the directory.' },
+      { streamTag: 'tool-trail:b', label: 'list_workspace_directory', text: 'done' },
+    ];
+    expect(buildTurnFeed(parts, 'Here is the answer.')).toEqual([
+      { kind: 'markdown', text: 'First I will read the file.' },
+      { kind: 'tool', part: parts[1] },
+      { kind: 'markdown', text: 'Now listing the directory.' },
+      { kind: 'tool', part: parts[3] },
       { kind: 'markdown', text: 'Here is the answer.' },
     ]);
   });
@@ -309,7 +312,7 @@ describe('buildTurnFeed', () => {
     ]);
   });
 
-  it('renders leaked agent prose between tools as thought, even when final_text is set', () => {
+  it('keeps agent prose between tools rendered as markdown, even when final_text is set', () => {
     const parts: StreamPart[] = [
       { streamTag: 'reasoning', label: 'R', text: 'first think' },
       { streamTag: 'tool-trail:a', label: 'read_workspace_file', text: 'done' },
@@ -320,16 +323,13 @@ describe('buildTurnFeed', () => {
     expect(buildTurnFeed(parts, 'Here is the answer.')).toEqual([
       { kind: 'thought', part: parts[0] },
       { kind: 'tool', part: parts[1] },
-      {
-        kind: 'thought',
-        part: { streamTag: 'reasoning', label: 'Model reasoning', text: 'I should list files next' },
-      },
+      { kind: 'markdown', text: 'I should list files next' },
       { kind: 'tool', part: parts[3] },
       { kind: 'markdown', text: 'Here is the answer.' },
     ]);
   });
 
-  it('renders live between-tool agent prose as thought, not markdown', () => {
+  it('renders live between-tool agent prose as markdown, not a thought pill', () => {
     const parts: StreamPart[] = [
       { streamTag: 'tool-trail:a', label: 'read_workspace_file', text: 'done' },
       { streamTag: 'agent', label: '', text: 'Need the directory next' },
@@ -337,10 +337,7 @@ describe('buildTurnFeed', () => {
     ];
     expect(buildTurnFeed(parts)).toEqual([
       { kind: 'tool', part: parts[0] },
-      {
-        kind: 'thought',
-        part: { streamTag: 'reasoning', label: 'Model reasoning', text: 'Need the directory next' },
-      },
+      { kind: 'markdown', text: 'Need the directory next' },
       { kind: 'tool', part: parts[2] },
     ]);
   });
@@ -382,31 +379,6 @@ describe('isActiveLiveThought', () => {
     expect(isActiveLiveThought([thought], 0, true)).toBe(true);
     expect(isActiveLiveThought([thought, tool], 0, true)).toBe(false);
     expect(isActiveLiveThought([thought], 0, false)).toBe(false);
-  });
-});
-
-describe('isActiveLiveBrief', () => {
-  const brief = { kind: 'brief' as const, part: { streamTag: 'clara', label: 'Clara', text: 'next' } };
-  const thought = { kind: 'thought' as const, part: { streamTag: 'reasoning', label: 'R', text: 'x' } };
-  const tool = { kind: 'tool' as const, part: { streamTag: 'tool-trail:a', label: 'read', text: '' } };
-  const md = { kind: 'markdown' as const, text: 'done' };
-
-  it('is true for the live brief while it is still being generated', () => {
-    expect(isActiveLiveBrief([brief], 0, true)).toBe(true);
-    expect(isActiveLiveBrief([brief], 0, false)).toBe(false);
-  });
-
-  it('stays active when thought tokens arrive after the brief', () => {
-    expect(isActiveLiveBrief([brief, thought], 0, true)).toBe(true);
-    expect(isActiveLiveBrief([thought, brief, thought], 1, true)).toBe(true);
-  });
-
-  it('closes when a tool, markdown reply, or newer brief follows', () => {
-    expect(isActiveLiveBrief([brief, tool], 0, true)).toBe(false);
-    expect(isActiveLiveBrief([brief, md], 0, true)).toBe(false);
-    expect(isActiveLiveBrief([brief, { ...brief, part: { ...brief.part, text: 'later' } }], 0, true)).toBe(
-      false,
-    );
   });
 });
 

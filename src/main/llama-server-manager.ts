@@ -1,8 +1,8 @@
 /**
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
-import { spawn, spawnSync, type ChildProcess } from 'child_process';
-import { existsSync, promises as fs, realpathSync } from 'fs';
+import { spawn, type ChildProcess } from 'child_process';
+import { existsSync, promises as fs, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as net from 'net';
 import path = require('path');
 
@@ -35,7 +35,8 @@ import { loadConfigSync } from './config/load-save';
 import { SecretValue, unwrapSecret } from '../shared/types/app-config';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
-import { getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
+import { getAppDataDir, getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
+import { childHasExited, killPidTree, killProcessTree, processImageName } from './utils/kill-process-tree';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -152,10 +153,6 @@ function sendToRenderer(channel: string, payload: unknown): void {
   }
 }
 
-function childHasExited(proc: ChildProcess): boolean {
-  return proc.exitCode !== null || proc.signalCode !== null;
-}
-
 function isCurrent(modelId: string, generation: number): boolean {
   const st = running.get(modelId);
   return !!st && st.generation === generation && !st.abort;
@@ -169,37 +166,67 @@ function emptyLogBuf(): StreamBuf {
   return { lastChatStdout: '', lastEmbedStdout: '', lastChatStderr: '', lastEmbedStderr: '' };
 }
 
-function killProcessTree(proc: ChildProcess | undefined): void {
-  if (!proc || !proc.pid || childHasExited(proc)) {
-    return;
+function managedLlamaPidFile(): string {
+  return path.join(getAppDataDir(), 'managed-llama.pids.json');
+}
+
+function persistManagedLlamaPids(): void {
+  const pids: number[] = [];
+  for (const st of running.values()) {
+    if (st.chatProc?.pid) {
+      pids.push(st.chatProc.pid);
+    }
+    if (st.embedProc?.pid) {
+      pids.push(st.embedProc.pid);
+    }
   }
   try {
-    if (process.platform === 'win32') {
-      const r = spawnSync('taskkill', ['/pid', String(proc.pid), '/t', '/f'], {
-        windowsHide: true,
-        timeout: 8000,
-      });
-      if (r.error || (r.status !== 0 && !childHasExited(proc))) {
-        proc.kill();
-      }
-    } else {
-      /**
-       * Managed servers are spawned with ``detached: true`` on POSIX so this PID is a new session /
-       * process-group leader (``llama-server`` itself). Killing the group tears down the server.
-       * Without that, ``SIGKILL`` on a lone PID can miss children if the binary ever re-spawns helpers.
-       */
-      try {
-        process.kill(-proc.pid, 'SIGKILL');
-      } catch {
-        proc.kill('SIGKILL');
-      }
+    if (pids.length === 0) {
+      rmSync(managedLlamaPidFile(), { force: true });
+      return;
+    }
+    writeFileSync(managedLlamaPidFile(), JSON.stringify(pids), 'utf8');
+  } catch {
+    /* pidfile is best-effort */
+  }
+}
+
+/**
+ * Kill llama-server processes left over from a previous Clara session that did not
+ * run ``will-quit`` (crash, Task Manager kill). Those orphans hold model weights
+ * in RAM/VRAM after the UI is gone.
+ *
+ * A persisted PID is only killed when the OS still reports a ``llama-server``
+ * executable under it. The previous session may have exited long ago and the
+ * number may now belong to an unrelated process.
+ */
+export function reapOrphanManagedLlamaServers(): void {
+  let pids: number[] = [];
+  try {
+    const raw = readFileSync(managedLlamaPidFile(), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      pids = parsed.filter((n): n is number => typeof n === 'number' && n > 0);
     }
   } catch {
-    try {
-      proc.kill();
-    } catch {
-      /* already gone */
+    return;
+  }
+  for (const pid of pids) {
+    const image = processImageName(pid);
+    if (!image || !image.includes('llama-server')) {
+      logLlamaLifecycle(
+        'INFO',
+        `skipped orphan llama-server reap pid=${pid} image=${image ?? 'none'} (not a llama-server process)`,
+      );
+      continue;
     }
+    logLlamaLifecycle('INFO', `reaping orphan llama-server pid=${pid} image=${image}`);
+    killPidTree(pid);
+  }
+  try {
+    rmSync(managedLlamaPidFile(), { force: true });
+  } catch {
+    /* ignore */
   }
 }
 
@@ -682,6 +709,8 @@ function attachLlamaStreams(
     st.embedPort = undefined;
     st.embedHost = undefined;
     st.embedHealthHost = undefined;
+    // Drop the dead PID from the pidfile so a later startup does not try to reap it.
+    persistManagedLlamaPids();
     invalidateManagedStatusCache(modelId);
     if (st.ready) {
       try {
@@ -856,6 +885,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       env: spawnEnv,
     });
     st.chatProc = chatProc;
+    persistManagedLlamaPids();
     attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
     logLlamaLifecycle(
       'INFO',
@@ -924,6 +954,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
         env: spawnEnv,
       });
       stEmbed.embedProc = embedProc;
+      persistManagedLlamaPids();
       attachLlamaStreams(modelId, 'embed', embedProc, stEmbed.logBuf, hfToken);
       logLlamaLifecycle(
         'INFO',
@@ -1243,6 +1274,7 @@ export function stopManagedLlamaServers(modelId: string): void {
   );
   killProcessTree(st.embedProc);
   killProcessTree(st.chatProc);
+  persistManagedLlamaPids();
   // Retract the published runtime overrides so Python stops targeting a dead URL.
   // Every teardown path (manual stop, chat crash, prune, embed-fail) must sync.
   try {

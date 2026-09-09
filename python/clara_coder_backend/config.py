@@ -93,8 +93,8 @@ except ValueError:
 
 # When the model returns no visible text, inject a nudge message instead of stopping.
 MAX_AGENT_EMPTY_NUDGES = 2
-# When the model writes <tool_call> / <function=...> in plain text (common with some Qwen stacks) but sends no
-# API ``tool_calls``, re-prompt so the graph can reach the tool node. 0 = disable (same as max empty nudges).
+# When the model writes <tool_call> / <function=...> in plain text but sends no API ``tool_calls``,
+# re-prompt so the graph can reach the tool node. 0 = disable. Gemma and Qwen presets skip this.
 try:
     MAX_AGENT_PSEUDO_TOOL_NUDGES = max(0, min(int(env_clara('CLARA_MAX_AGENT_PSEUDO_TOOL_NUDGES', '2') or '2'), 20))
 except ValueError:
@@ -146,6 +146,10 @@ CLARA_EMBEDDINGS_CPU_ENABLED = _env_bool('CLARA_EMBEDDINGS_CPU_ENABLED', True)
 CLARA_FASTEMBED_MODEL = (env_clara('CLARA_FASTEMBED_MODEL', '') or 'BAAI/bge-small-en-v1.5').strip()
 # Empty = ``{CLARA_RUNTIME_DIR}/embeddings/fastembed``.
 CLARA_FASTEMBED_CACHE_DIR = (env_clara('CLARA_FASTEMBED_CACHE_DIR', '') or '').strip()
+# ONNX Runtime intra-op threads for CPU embeddings. ``0`` = auto (``min(4, cpu_count)``).
+# Lower this when a managed llama-server runs CPU layers on the same box and the
+# background indexer competes with token generation.
+CLARA_FASTEMBED_THREADS = _env_int('CLARA_FASTEMBED_THREADS', 0, 0, 64)
 
 # Seeds :attr:`~clara_coder_backend.session.state.runtime_config` before the first
 # ``POST /runtime-config``; overridden by Settings → Tools.

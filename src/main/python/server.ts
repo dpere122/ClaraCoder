@@ -22,6 +22,7 @@ import { ingestElectronLog } from '../log-ingest';
 import { getDefaultCustomModelsDir } from '../config/defaults';
 import { loadConfigSync } from '../config/load-save';
 import { unwrapSecret } from '../../shared';
+import { killProcessTree } from '../utils/kill-process-tree';
 
 export { PYTHON_URL, PYTHON_PORT };
 
@@ -156,15 +157,9 @@ async function resyncRuntimeConfigAfterSidecarRestart(): Promise<void> {
  * ``getPythonExecutable()`` (so post-install runtime venv / Kokoro is picked up).
  */
 export async function restartPythonServer(): Promise<void> {
-  const proc = mainState.pythonProcess;
-  if (proc && !proc.killed) {
+  if (mainState.pythonProcess) {
     console.log('[Python] Restarting sidecar to pick up runtime changes…');
-    try {
-      proc.kill();
-    } catch {
-      /* ignore */
-    }
-    mainState.pythonProcess = null;
+    stopPythonSidecar();
     // Brief pause so the port is released before re-bind.
     await new Promise((r) => setTimeout(r, 400));
   } else {
@@ -222,6 +217,9 @@ export function startPythonServer(): ChildProcess {
   console.log(`[Python] Spawning sidecar: ${pythonCmd}`);
   const child = spawn(pythonCmd, ['-u', scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
+    /** POSIX: new session so ``kill(-pid)`` tears down LSP / run_command children. */
+    detached: process.platform !== 'win32',
+    windowsHide: true,
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
@@ -279,6 +277,22 @@ export function startPythonServer(): ChildProcess {
   });
 
   return child;
+}
+
+/**
+ * Stop the Python sidecar and every descendant (LSP, background ``run_command``,
+ * FastEmbed/ONNX workers). ``ChildProcess.kill()`` alone leaves those on Windows
+ * and POSIX, which is why RAM stays high after closing Clara Coder.
+ */
+export function stopPythonSidecar(): void {
+  const proc = mainState.pythonProcess;
+  if (!proc) {
+    return;
+  }
+  killProcessTree(proc);
+  if (mainState.pythonProcess === proc) {
+    mainState.pythonProcess = null;
+  }
 }
 
 /** Poll `/health` until the FastAPI (or similar) stack is accepting requests. */

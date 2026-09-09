@@ -5,12 +5,17 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from clara_coder_backend.runtime.deps.download import read_ready_marker, write_ready_marker
+from clara_coder_backend.runtime.deps.download import (
+    read_ready_marker,
+    run_streaming,
+    write_ready_marker,
+)
 from clara_coder_backend.runtime.deps.paths import (
     get_runtime_python_dir,
     is_usable_venv,
@@ -25,6 +30,33 @@ logger = logging.getLogger('clara.runtime.deps.python_runtime')
 DEP_ID = 'python-runtime'
 SIZE_HINT = '~150 MB (venv + core packages)'
 REQ_HASH_MARKER = '.clara-requirements-hash'
+
+
+_REQ_NAME_END = re.compile(r'[\s\[<>=!~;@]')
+
+
+def requirement_names(text: str) -> list[str]:
+    """Distribution names from requirements.txt text (comments/options/markers stripped)."""
+
+    names: list[str] = []
+    for raw in text.splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if not line or line.startswith('-'):
+            continue
+        name = _REQ_NAME_END.split(line, 1)[0].strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def components() -> list[str]:
+    """Packages this dependency installs: venv + pip, then everything in requirements.txt."""
+
+    try:
+        text = requirements_txt().read_text(encoding='utf-8')
+    except OSError:
+        text = ''
+    return ['venv', 'pip', *requirement_names(text)]
 
 
 def _requirements_fingerprint() -> str:
@@ -60,14 +92,17 @@ def _pip_install_requirements(python_exe: Path) -> None:
     req = requirements_txt()
     if not req.is_file():
         raise RuntimeError(f'Missing requirements file: {req}')
-    pip = subprocess.run(
-        [str(python_exe), '-m', 'pip', 'install', '-r', str(req)],
-        capture_output=True,
-        text=True,
-    )
-    if pip.returncode != 0:
+    # Streamed so every "Collecting / Downloading / Installing" line pip prints
+    # lands in the Dependencies window install log.
+    try:
+        run_streaming(
+            [str(python_exe), '-m', 'pip', 'install', '-r', str(req)],
+            dep_id=DEP_ID,
+            label='pip install',
+        )
+    except RuntimeError:
         logger.error('python-runtime pip install failed')
-        raise RuntimeError(f'pip install failed:\n{pip.stderr or pip.stdout}')
+        raise
 
 
 
@@ -252,17 +287,23 @@ def install(*, force: bool = False) -> dict:
         return status()
 
     venv.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run([base, '-m', 'venv', str(venv)], capture_output=True, text=True)
-    if r.returncode != 0:
-        logger.error('python-runtime venv create failed: %s', r.stderr or r.stdout)
-        raise RuntimeError(f'Failed to create venv: {r.stderr or r.stdout}')
+    try:
+        run_streaming([base, '-m', 'venv', str(venv)], dep_id=DEP_ID, label='venv create')
+    except RuntimeError as exc:
+        logger.error('python-runtime venv create failed: %s', exc)
+        raise RuntimeError(f'Failed to create venv: {exc}') from exc
 
     py = venv_python(venv)
     if not py:
         raise RuntimeError(f'Venv created but python missing under {venv}')
 
     PROGRESS.emit(DEP_ID, 'installing', message='Bootstrapping pip…')
-    subprocess.run([str(py), '-m', 'ensurepip', '--upgrade'], check=False, capture_output=True)
+    run_streaming(
+        [str(py), '-m', 'ensurepip', '--upgrade'],
+        dep_id=DEP_ID,
+        label='ensurepip',
+        check=False,
+    )
 
     PROGRESS.emit(DEP_ID, 'installing', message='Installing core packages…')
     _pip_install_requirements(py)

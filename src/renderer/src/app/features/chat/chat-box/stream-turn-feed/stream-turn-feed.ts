@@ -14,7 +14,6 @@ import {
 import type { TurnFeedItem } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
-import { StreamBriefPillComponent } from '../stream-brief-pill/stream-brief-pill';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
@@ -41,7 +40,6 @@ import {
   imports: [
     AuxStreamToolPartComponent,
     MarkdownPipe,
-    StreamBriefPillComponent,
     StreamNudgePillComponent,
     StreamThoughtPillComponent,
     StreamToolPillComponent,
@@ -84,12 +82,6 @@ export class StreamTurnFeedComponent {
   readonly previewShowsBody = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
     return previewItemShowsBody(split.current);
-  });
-
-  /** Clara briefs stay borderless in the live preview slot instead of a boxed pane. */
-  readonly previewCompact = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return split.current?.kind === 'brief';
   });
 
   constructor() {

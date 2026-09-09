@@ -1,4 +1,17 @@
-import { Component, computed, input, model, output, signal } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  Injector,
+  input,
+  model,
+  OnDestroy,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import type {
   AppConfig,
   ComposerRunMode,
@@ -7,9 +20,8 @@ import type {
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
-import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize, outerAgentBriefEnabled, resolveActiveLlmConnection } from '@shared/index';
+import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize } from '@shared/index';
 import { ChatBox, pendingHitlArtifactsForDock, type ChatMessage } from '../chat-box/chat-box';
-import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { HitlComposerDockComponent } from '../hitl-composer-dock/hitl-composer-dock';
@@ -20,7 +32,7 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
 @Component({
   selector: 'app-chat-active-stack',
-  imports: [ChatBox, ChatContextBar, HitlComposerDockComponent, MessageBox, TalkMode],
+  imports: [ChatBox, HitlComposerDockComponent, MessageBox, TalkMode],
   templateUrl: './chat-active-stack.html',
   styleUrl: './chat-active-stack.css',
   host: {
@@ -31,9 +43,10 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
       'layout() === "expanded" && resolvedContainerSize() === "standard"',
     '[class.chat-active-stack--container-full-width]':
       'layout() === "expanded" && resolvedContainerSize() === "full-width"',
+    '[class.chat-active-stack--ready]': 'emptyStateReady()',
   },
 })
-export class ChatActiveStackComponent {
+export class ChatActiveStackComponent implements OnDestroy {
   /** Sidebar hub vs main-panel expanded overlay — reserved for layout-specific chrome. */
   readonly layout = input<ChatLayoutMode>('expanded');
 
@@ -127,19 +140,155 @@ export class ChatActiveStackComponent {
     normalizeChatContainerSize(this.appConfig()?.chatContainerSize),
   );
 
-  /** First-turn planning prose is shown as a Clara brief pill on every optimization preset. */
-  protected readonly promoteLivePrimaryToBrief = computed(() => {
-    const cfg = this.appConfig();
-    if (!cfg) {
-      return true;
-    }
-    return outerAgentBriefEnabled(resolveActiveLlmConnection(cfg)?.optimizationPreset);
-  });
-
   /** Pending HITL reviews for the slide-up composer dock (all roles including plan/question). */
   readonly pendingHitlDockArtifacts = computed((): HitlTrailArtifact[] =>
     pendingHitlArtifactsForDock(this.messages()) as HitlTrailArtifact[],
   );
+
+  // --- Empty-state composer centering (expanded layout only) ---
+  //
+  // With no messages the transcript is empty, so in the expanded main-panel layout the composer
+  // (the message box) is lifted to the vertical center of the stack. In the sidebar layout the
+  // composer always rests at the bottom edge. The first send (loading, then the user message)
+  // flips `isTranscriptEmpty()` to false, the transform resets to `translateY(0)`, and the CSS
+  // `transform` transition eases the composer down to the bottom edge. The lift distance is measured live so it tracks pane
+  // resizes. The `ready` flag is set one frame after the first measurement so the initial
+  // centering does not animate in.
+
+  /** Composer region; its height (and the host's) drives the centering lift. */
+  private readonly composerRef = viewChild<ElementRef<HTMLElement>>('composer');
+  private readonly inj = inject(Injector);
+  private readonly el = inject(ElementRef<HTMLElement>);
+  private emptyStateResizeObserver: ResizeObserver | null = null;
+  /** Guards against a pending measurement frame firing after the component is destroyed. */
+  private emptyStateDestroyed = false;
+  /** Frames spent waiting for the first usable layout before handing over to the ResizeObserver. */
+  private emptyStateMeasureAttempts = 0;
+  /** True once the frame that flips `emptyStateReady` has been requested. */
+  private emptyStateReadyArmed = false;
+
+  /**
+   * True while the transcript has nothing to show. `loading` is included because
+   * `prepareForSend` flips it on before the user message is pushed — the live-turn
+   * shell already occupies the transcript during that gap.
+   */
+  private readonly isTranscriptEmpty = computed(
+    () => this.messages().length === 0 && !this.loading(),
+  );
+
+  /**
+   * True once the first height measurement has landed. Gates the CSS transform transition so the
+   * initial centering (applied before this flips) does not animate in on load.
+   */
+  protected readonly emptyStateReady = signal(false);
+
+  /** Measured lift (px) that centers the composer in the empty stack. */
+  private readonly composerEmptyOffsetPx = signal(0);
+
+  /**
+   * Transform applied to the composer: in the expanded layout it lifts the message box to the
+   * vertical center while the transcript is empty; in the sidebar layout (and whenever messages
+   * exist) it is `translateY(0)` (rests at the bottom edge). Bound on the composer `<section>`.
+   * Both states are `translateY` values so the transition interpolates smoothly in both
+   * directions. Not gated by `emptyStateReady` on purpose — the offset is measured in
+   * `afterNextRender` (before the transition is enabled), so the load centering is a non-animated
+   * snap.
+   */
+  protected readonly composerTransform = computed(() =>
+    this.layout() === 'expanded' && this.isTranscriptEmpty()
+      ? `translateY(calc(-1 * ${this.composerEmptyOffsetPx()}px))`
+      : 'translateY(0)',
+  );
+
+  constructor() {
+    afterNextRender(
+      () => {
+        this.scheduleComposerEmptyOffset();
+        if (typeof ResizeObserver === 'undefined') {
+          return;
+        }
+        this.emptyStateResizeObserver?.disconnect();
+        const onResize = () => this.syncComposerEmptyOffset();
+        this.emptyStateResizeObserver = new ResizeObserver(onResize);
+        // Observe both the host (always present) and the composer: a ResizeObserver fires once
+        // immediately on `observe` with the element's current size, so this recovers the lift even
+        // if the layout is not settled at the first render pass, and re-measures on any resize.
+        this.emptyStateResizeObserver.observe(this.el.nativeElement);
+        const composer = this.composerRef()?.nativeElement;
+        if (composer) {
+          this.emptyStateResizeObserver.observe(composer);
+        }
+      },
+      { injector: this.inj },
+    );
+  }
+
+  /** Frames to retry the initial measurement before leaving it to the ResizeObserver. */
+  private static readonly EMPTY_STATE_MEASURE_MAX_FRAMES = 30;
+
+  /**
+   * Measure the centering lift, retrying (one frame at a time, bounded) until the stack reports
+   * a usable height. Backs up the host/composer `ResizeObserver` when the first pass lands before
+   * layout. The retry is capped so a host that stays unlaid-out (hidden ancestor) does not keep
+   * an animation-frame loop alive; the observer picks the measurement up once it gets a size.
+   */
+  private scheduleComposerEmptyOffset(): void {
+    if (this.emptyStateDestroyed) {
+      return;
+    }
+    if (this.syncComposerEmptyOffset()) {
+      return;
+    }
+    if (this.emptyStateMeasureAttempts >= ChatActiveStackComponent.EMPTY_STATE_MEASURE_MAX_FRAMES) {
+      return;
+    }
+    this.emptyStateMeasureAttempts += 1;
+    // zone.js patches `requestAnimationFrame`, so this runs inside the Angular zone.
+    requestAnimationFrame(() => this.scheduleComposerEmptyOffset());
+  }
+
+  /**
+   * Enable the transform transition one frame after the first successful measurement, so the
+   * initial centering paints in place rather than animating in on load.
+   */
+  private armEmptyStateReady(): void {
+    if (this.emptyStateReadyArmed || this.emptyStateReady()) {
+      return;
+    }
+    this.emptyStateReadyArmed = true;
+    requestAnimationFrame(() => {
+      if (!this.emptyStateDestroyed) {
+        this.emptyStateReady.set(true);
+      }
+    });
+  }
+
+  /**
+   * Recompute the centering lift. The composer sits at the bottom of the stack, so lifting it by
+   * half the gap between the host and the composer moves its center to the stack's vertical
+   * center. `offsetHeight`/`clientHeight` are unaffected by the transform.
+   *
+   * A zero lift is a successful measurement (composer fills the stack — common in the sidebar).
+   *
+   * @returns `true` once host and composer have a usable laid-out height.
+   */
+  private syncComposerEmptyOffset(): boolean {
+    const host = this.el.nativeElement;
+    const composer = this.composerRef()?.nativeElement;
+    if (!composer || host.clientHeight <= 0) {
+      return false;
+    }
+    const offset = Math.max(0, (host.clientHeight - composer.offsetHeight) / 2);
+    this.composerEmptyOffsetPx.set(offset);
+    this.armEmptyStateReady();
+    return true;
+  }
+
+  ngOnDestroy(): void {
+    this.emptyStateDestroyed = true;
+    this.emptyStateResizeObserver?.disconnect();
+    this.emptyStateResizeObserver = null;
+  }
 
   protected readonly dragActive = signal(false);
 

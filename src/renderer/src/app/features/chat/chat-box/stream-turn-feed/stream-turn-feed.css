@@ -6,7 +6,6 @@ app-stream-turn-feed {
 
 /* Custom elements default to inline; keep preview windows on their own block row. */
 app-stream-turn-feed app-stream-thought-pill,
-app-stream-turn-feed app-stream-brief-pill,
 app-stream-turn-feed app-stream-nudge-pill {
   display: block;
   flex: 1 1 100%;
@@ -75,22 +74,6 @@ app-stream-turn-feed .stream-turn-feed__preview-inner {
   border: 1px solid var(--t-border);
   border-radius: 0.85rem !important;
   background: color-mix(in srgb, var(--t-bg-surface) 88%, var(--t-panel) 12%);
-}
-
-app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-inner {
-  border: none;
-  border-radius: 0 !important;
-  background: transparent;
-}
-
-app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-header {
-  padding: 0.08rem 0 0;
-}
-
-app-stream-turn-feed .stream-turn-feed__preview--compact .stream-turn-feed__preview-body {
-  padding: 0 0 0.1rem;
-  max-height: none;
-  line-height: 1.35;
 }
 
 app-stream-turn-feed .stream-turn-feed__preview-header {

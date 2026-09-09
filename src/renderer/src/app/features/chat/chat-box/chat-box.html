@@ -121,23 +121,6 @@
       </div>
     </div>
     </div>
-  } @empty {
-    <div class="empty-state-wrap">
-      <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--input" aria-hidden="true">
-        <span class="tui-frame-bar__corner">╔</span>
-        <span class="tui-frame-bar__label">═ AWAITING INPUT ═</span>
-        <span class="tui-frame-bar__fill"></span>
-        <span class="tui-frame-bar__corner">╗</span>
-      </div>
-      <div class="tui-frame-bar__body">
-        <p class="empty-state text-center mb-0">// No messages yet. Enter a command below.</p>
-      </div>
-      <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--input" aria-hidden="true">
-        <span class="tui-frame-bar__corner">╚</span>
-        <span class="tui-frame-bar__fill"></span>
-        <span class="tui-frame-bar__corner">╝</span>
-      </div>
-    </div>
   }
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().bottomSpacer" aria-hidden="true"></div>
   @if (liveTurn(); as liveTurn) {

@@ -5,21 +5,19 @@
 import { mkdir } from 'fs/promises';
 import { app, BrowserWindow } from 'electron';
 import { registerPrivilegedSchemes } from './protocol/register-privileged';
-import { ensurePythonServer } from './python/server';
+import { ensurePythonServer, stopPythonSidecar } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { registerNemoAssetProtocol } from './protocol/nemo-asset';
 import { loadConfigSync } from './config/load-save';
 import { reconcileLostWorkspacesOnStartup } from './ipc/handlers/config-workspaces';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
-import { getLlamaManagedRuntimeOverrides } from './llama-server-manager';
+import { getLlamaManagedRuntimeOverrides, reapOrphanManagedLlamaServers, stopAllManagedLlamaServers } from './llama-server-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 import { applyResolvedUserPath } from './runtime/user-path';
 import { clearWorkspaceWatcher, refreshWorkspaceWatcherForCurrentConfig } from './workspace/watcher';
 import { createMainWindow } from './windows/main-window';
 import { registerAllIpc } from './ipc/register-ipc';
 import { killAllWorkspacePtySessions } from './ipc/handlers/workspace-pty';
-import { stopAllManagedLlamaServers } from './llama-server-manager';
-import { mainState } from './state';
 import { envClara } from './env-clara';
 import { configureAppDataDir } from './paths';
 
@@ -90,6 +88,7 @@ app
     registerNemoAssetProtocol();
     createMainWindow();
 
+    reapOrphanManagedLlamaServers();
     await userPathReady;
     try {
       await ensurePythonServer();
@@ -138,10 +137,7 @@ app.on('will-quit', () => {
     stopAllManagedLlamaServers();
     killAllWorkspacePtySessions();
     clearWorkspaceWatcher();
-    if (mainState.pythonProcess) {
-      mainState.pythonProcess.kill();
-      mainState.pythonProcess = null;
-    }
+    stopPythonSidecar();
   } catch (err) {
     console.error('[Main] will-quit cleanup failed:', err);
   }

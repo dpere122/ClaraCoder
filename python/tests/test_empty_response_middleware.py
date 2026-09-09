@@ -66,15 +66,18 @@ _PSEUDO_XML = (
     '<tool_call><function=list_workspace_directory>'
     '<parameter name="relative_path">server</parameter></function></tool_call>'
 )
+_UNPARSEABLE_PSEUDO_XML = (
+    '<tool_call><function=list_workspace_directory><parameter name="relative_path">'
+)
 
 
 async def test_pseudo_tool_markup_in_text_nudges_without_api_tool_calls() -> None:
-    """Qwen / template stacks often emit <tool_call> in content or reasoning, not in tool_calls."""
+    """Unpromotable leftover XML (truncated / unparseable) should re-prompt for API tool calls."""
     middleware = EmptyResponseNudgeMiddleware()
     result = await middleware.aafter_model(
         {
             'messages': [
-                AIMessage(content=_PSEUDO_XML),
+                AIMessage(content=_UNPARSEABLE_PSEUDO_XML),
             ],
             'empty_response_nudge_streak': 0,
         },
@@ -85,6 +88,23 @@ async def test_pseudo_tool_markup_in_text_nudges_without_api_tool_calls() -> Non
     assert result.get('pseudo_tool_markup_nudge_streak') == 1
     assert 'tool-calling' in (result.get('messages') or [{}])[0].content
     assert result.get('empty_response_nudge_streak') == 0
+
+
+async def test_parseable_pseudo_tool_markup_does_not_nudge() -> None:
+    """Recoverable XML is promoted by PseudoToolXmlMiddleware; do not re-prompt."""
+    middleware = EmptyResponseNudgeMiddleware()
+    result = await middleware.aafter_model(
+        {
+            'messages': [AIMessage(content=_PSEUDO_XML)],
+            'empty_response_nudge_streak': 0,
+        },
+        MagicMock(),
+    )
+    assert result == {
+        'empty_response_nudge_streak': 0,
+        'pseudo_tool_markup_nudge_streak': 0,
+        'staging_continuation_nudge_streak': 0,
+    }
 
 
 async def test_leftover_gemma_native_markup_nudges_without_api_tool_calls() -> None:
@@ -107,7 +127,7 @@ async def test_pseudo_tool_markup_nudge_stops_at_cap() -> None:
     middleware = EmptyResponseNudgeMiddleware()
     result = await middleware.aafter_model(
         {
-            'messages': [AIMessage(content=_PSEUDO_XML)],
+            'messages': [AIMessage(content=_UNPARSEABLE_PSEUDO_XML)],
             'pseudo_tool_markup_nudge_streak': 2,
         },
         MagicMock(),
@@ -299,13 +319,13 @@ def _conn(*, optimization_preset: str) -> RuntimeConnection:
 
 
 @patch('clara_coder_backend.session.state.get_active_connection')
-async def test_empty_response_nudge_disabled_for_gemma_preset(mock_conn: MagicMock) -> None:
+async def test_empty_response_nudge_disabled_for_gemma_and_qwen_presets(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn(optimization_preset='gemma')
     assert empty_response_nudge_enabled() is False
     mock_conn.return_value = _conn(optimization_preset='generic')
     assert empty_response_nudge_enabled() is True
     mock_conn.return_value = _conn(optimization_preset='qwen')
-    assert empty_response_nudge_enabled() is True
+    assert empty_response_nudge_enabled() is False
 
 
 @patch('clara_coder_backend.session.state.get_active_connection')
@@ -332,6 +352,66 @@ async def test_gemma_preset_skips_staging_continuation_nudge(mock_conn: MagicMoc
     mock_conn.return_value = _conn(optimization_preset='gemma')
     middleware = EmptyResponseNudgeMiddleware()
     session_id = 'empty-mw-gemma-staging'
+    token = current_session_id.set(session_id)
+    session = get_session(session_id)
+    session.worker_apply_mode = True
+    session.auto_apply_mode = False
+    session.hitl_sse_queue = asyncio.Queue()
+    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
+        temp_path='/tmp/staged.html',
+        old_text='',
+        merged_text='<p>hi</p>\n',
+        disk_encoding='utf-8',
+        disk_newline='lf',
+        edit_mode='full-file',
+        workspace_applied=False,
+    )
+    try:
+        result = await middleware.aafter_model(
+            {
+                'messages': [AIMessage(content='Done staging.')],
+                'staging_continuation_nudge_streak': 0,
+            },
+            MagicMock(),
+        )
+        assert session.hitl_sse_queue.empty()
+    finally:
+        session.pending_edit_stagings.clear()
+        session.hitl_sse_queue = None
+        current_session_id.reset(token)
+
+    assert result is None
+
+
+@patch('clara_coder_backend.session.state.get_active_connection')
+async def test_qwen_preset_skips_empty_and_pseudo_tool_nudges(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _conn(optimization_preset='qwen')
+    middleware = EmptyResponseNudgeMiddleware()
+    empty = await middleware.aafter_model(
+        {'messages': [AIMessage(content='')], 'empty_response_nudge_streak': 0},
+        MagicMock(),
+    )
+    leftover = await middleware.aafter_model(
+        {
+            'messages': [
+                AIMessage(
+                    content='<tool_call><function=list_workspace_directory><parameter name="relative_path">'
+                )
+            ],
+            'empty_response_nudge_streak': 0,
+        },
+        MagicMock(),
+    )
+    assert empty is None
+    assert leftover is None
+
+
+@patch('clara_coder_backend.session.state.get_active_connection')
+@patch('clara_coder_backend.middleware.empty_response_middleware.MAX_AGENT_STAGING_CONTINUATION_NUDGES', 2)
+async def test_qwen_preset_skips_staging_continuation_nudge(mock_conn: MagicMock) -> None:
+    mock_conn.return_value = _conn(optimization_preset='qwen')
+    middleware = EmptyResponseNudgeMiddleware()
+    session_id = 'empty-mw-qwen-staging'
     token = current_session_id.set(session_id)
     session = get_session(session_id)
     session.worker_apply_mode = True

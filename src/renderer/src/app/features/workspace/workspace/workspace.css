@@ -106,6 +106,10 @@ app-workspace .workspace-footer-model-row app-managed-llama-controls {
   min-width: 0;
 }
 
+app-workspace .workspace-footer-model-row .workspace-icon-btn {
+  border-radius: 999px;
+}
+
 app-workspace .workspace-footer-model-row .managed-llama-controls {
   padding-top: 0;
   border-top: none;

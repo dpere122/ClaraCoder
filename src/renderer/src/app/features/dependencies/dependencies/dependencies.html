@@ -1,11 +1,8 @@
 <div class='deps-shell'>
   <header class='deps-header'>
     <div class='deps-header__titles'>
-      <p class='deps-eyebrow'>Runtime</p>
       <h2>Dependencies</h2>
-      <p class='deps-copy'>
-        Download and manage Clara’s runtime pieces: Python packages, llama-server, Java LSP, Kokoro TTS, and Whisper STT.
-      </p>
+      <p class='deps-copy'>Runtime pieces Clara downloads on demand.</p>
     </div>
     <button type='button' class='deps-close-btn' (click)='closeWindow()'>Close</button>
   </header>
@@ -13,47 +10,44 @@
   @if (isInstalling() && activeDep(); as dep) {
     <!-- Focused install view: just this dependency + a live terminal log -->
     <section class='deps-focused' aria-label='Installing {{ dep.label }}'>
-      <article class='deps-card' [attr.data-state]='dep.state'>
-        <div class='deps-card__main'>
-          <div class='deps-card__head'>
+      <article class='deps-row' [attr.data-state]='dep.state'>
+        <div class='deps-row__main'>
+          <div class='deps-row__head'>
             <h3>{{ dep.label }}</h3>
             <span class='deps-badge' [attr.data-state]='dep.state'>{{ stateLabel(dep.state) }}</span>
             @if (dep.version) {
               <span class='deps-pill'>{{ dep.version }}</span>
             }
-            <span class='deps-pill'>{{ dep.sizeHint }}</span>
+            <span class='deps-pill' [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
+            @if (isLlamaServer(dep)) {
+              <span class='deps-pill'>{{ variantLabels[variantFor(dep)] }}</span>
+            }
+            @if (isWhisper(dep)) {
+              <span class='deps-pill'>{{ whisperSizeFor(dep) }}</span>
+            }
           </div>
-          <p class='deps-copy'>{{ dep.description }}</p>
+          <div class='deps-components'>
+            <span class='deps-components__label'>Installs</span>
+            @for (c of componentsFor(dep); track c) {
+              <span class='deps-chip'>{{ c }}</span>
+            }
+          </div>
           @if (dep.error) {
             <p class='deps-error'>{{ dep.error }}</p>
           }
-
-          @if (isLlamaServer(dep)) {
-            <div class='deps-variant'>
-              <span class='deps-variant__label'>Build variant: {{ variantLabels[variantFor(dep)] }}</span>
-            </div>
-          }
-          @if (isWhisper(dep)) {
-            <div class='deps-variant'>
-              <span class='deps-variant__label'>Model size: {{ whisperSizeFor(dep) }}</span>
-            </div>
-          }
-
           @if (progressFor(dep.id); as prog) {
             @if (prog.phase !== 'done') {
-              <div class='deps-progress'>
-                <progress
-                  class='deps-progress__bar'
-                  [attr.max]='installPercent(dep.id) != null ? 100 : (prog.bytesTotal && prog.bytesTotal > 0 ? prog.bytesTotal : null)'
-                  [attr.value]='
-                    installPercent(dep.id) != null
-                      ? installPercent(dep.id)
-                      : prog.bytesTotal && prog.bytesTotal > 0
-                        ? prog.bytesDone ?? null
-                        : null
-                  '
-                ></progress>
-              </div>
+              <progress
+                class='deps-progress__bar'
+                [attr.max]='installPercent(dep.id) != null ? 100 : (prog.bytesTotal && prog.bytesTotal > 0 ? prog.bytesTotal : null)'
+                [attr.value]='
+                  installPercent(dep.id) != null
+                    ? installPercent(dep.id)
+                    : prog.bytesTotal && prog.bytesTotal > 0
+                      ? prog.bytesDone ?? null
+                      : null
+                '
+              ></progress>
             }
           }
         </div>
@@ -75,7 +69,7 @@
       </div>
     </section>
   } @else {
-    <!-- Normal list view: all dependencies, no terminal -->
+    <!-- Normal list view: compact rows, no terminal -->
     <div
       class='deps-list-loading'
       [class.is-active]='listLoading()'
@@ -99,75 +93,81 @@
     @if (!listLoading()) {
       <section class='deps-list' aria-label='Dependency list'>
         @for (dep of dependencies(); track dep.id) {
-          <article class='deps-card' [attr.data-state]='dep.state'>
-            <div class='deps-card__main'>
-              <div class='deps-card__head'>
-                <h3>{{ dep.label }}</h3>
+          <article class='deps-row' [attr.data-state]='dep.state'>
+            <div class='deps-row__main'>
+              <div class='deps-row__head'>
+                <h3 [attr.title]='dep.description'>{{ dep.label }}</h3>
                 <span class='deps-badge' [attr.data-state]='dep.state'>{{ stateLabel(dep.state) }}</span>
                 @if (dep.version) {
                   <span class='deps-pill'>{{ dep.version }}</span>
                 }
-                <span class='deps-pill'>{{ dep.sizeHint }}</span>
+                <span class='deps-pill' [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
+
+                @if (isLlamaServer(dep)) {
+                  <label class='deps-inline-select' [attr.for]="'variant-' + dep.id">
+                    <span>Build</span>
+                    <select
+                      [id]="'variant-' + dep.id"
+                      [disabled]='isBusy(dep.id)'
+                      [value]='variantFor(dep)'
+                      title='Auto detects your GPU. “Compile from source (CUDA)” builds with CUDA on Linux and needs the NVIDIA CUDA toolkit.'
+                      (change)='setVariant(dep, $any($event.target).value)'
+                    >
+                      @for (v of variantOptions; track v) {
+                        <option [value]='v'>{{ variantLabels[v] }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (isWhisper(dep)) {
+                  <label class='deps-inline-select' [attr.for]="'whisper-size-' + dep.id">
+                    <span>Model</span>
+                    <select
+                      [id]="'whisper-size-' + dep.id"
+                      [disabled]='isBusy(dep.id)'
+                      [value]='whisperSizeFor(dep)'
+                      title='Pick a size to download. Use it from Settings → Audio.'
+                      (change)='setWhisperSize(dep, $any($event.target).value)'
+                    >
+                      @for (opt of whisperSizeOptions; track opt.value) {
+                        <option [value]='opt.value'>{{ opt.label }}</option>
+                      }
+                    </select>
+                  </label>
+                }
               </div>
-              <p class='deps-copy'>{{ dep.description }}</p>
+
+              <p class='deps-copy deps-row__desc'>{{ dep.description }}</p>
+
+              <div class='deps-components'>
+                <span class='deps-components__label'>Installs</span>
+                @for (c of visibleComponents(dep); track c) {
+                  <span class='deps-chip'>{{ c }}</span>
+                }
+                @if (hiddenComponentCount(dep) > 0) {
+                  <button type='button' class='deps-chip deps-chip--more' (click)='toggleComponents(dep)'>
+                    +{{ hiddenComponentCount(dep) }} more
+                  </button>
+                } @else if (isComponentsExpanded(dep)) {
+                  <button type='button' class='deps-chip deps-chip--more' (click)='toggleComponents(dep)'>less</button>
+                }
+                @if (isWhisper(dep) && dep.downloadedModels?.length) {
+                  <span class='deps-components__label deps-components__label--sep'>Downloaded</span>
+                  @for (size of dep.downloadedModels; track size) {
+                    <span class='deps-chip deps-chip--ok'>{{ size }}</span>
+                  }
+                }
+              </div>
+
               @if (dep.path) {
-                <p class='deps-path'>{{ dep.path }}</p>
+                <p class='deps-path' [attr.title]='dep.path'>{{ dep.path }}</p>
               }
               @if (dep.error) {
                 <p class='deps-error'>{{ dep.error }}</p>
               }
-
-              @if (isLlamaServer(dep)) {
-                <div class='deps-variant'>
-                  <label class='deps-variant__label' [attr.for]="'variant-' + dep.id">Build variant</label>
-                  <select
-                    class='deps-variant__select'
-                    [id]="'variant-' + dep.id"
-                    [disabled]='isBusy(dep.id)'
-                    [value]='variantFor(dep)'
-                    (change)='setVariant(dep, $any($event.target).value)'
-                  >
-                    @for (v of variantOptions; track v) {
-                      <option [value]='v'>{{ variantLabels[v] }}</option>
-                    }
-                  </select>
-                  <p class='deps-variant__hint'>
-                    Auto detects your GPU. Pick “Compile from source (CUDA)” to build with CUDA on Linux
-                    (requires the NVIDIA CUDA toolkit).
-                  </p>
-                </div>
-              }
-              @if (isWhisper(dep)) {
-                <div class='deps-variant'>
-                  <label class='deps-variant__label' [attr.for]="'whisper-size-' + dep.id">Model size</label>
-                  <select
-                    class='deps-variant__select'
-                    [id]="'whisper-size-' + dep.id"
-                    [disabled]='isBusy(dep.id)'
-                    [value]='whisperSizeFor(dep)'
-                    (change)='setWhisperSize(dep, $any($event.target).value)'
-                  >
-                    @for (opt of whisperSizeOptions; track opt.value) {
-                      <option [value]='opt.value'>{{ opt.label }}</option>
-                    }
-                  </select>
-                  @if (dep.downloadedModels?.length) {
-                    <p class='deps-variant__hint'>
-                      Downloaded:
-                      @for (size of dep.downloadedModels; track size) {
-                        <span class='deps-pill'>{{ size }}</span>
-                      }
-                    </p>
-                  } @else {
-                    <p class='deps-variant__hint'>
-                      Download a size to use it in Settings → Audio. Talk mode never fetches weights itself.
-                    </p>
-                  }
-                </div>
-              }
             </div>
 
-            <div class='deps-card__actions'>
+            <div class='deps-row__actions'>
               @if (showDownload(dep)) {
                 <span class='deps-btn-wrap' [attr.title]='downloadComingSoon(dep) ? "Coming soon" : null'>
                   <button
@@ -209,11 +209,10 @@
     }
   }
 
-  @if (statusMessage()) {
-    <p class='deps-status' role='status'>{{ statusMessage() }}</p>
-  }
-
   <footer class='deps-footer'>
+    @if (statusMessage()) {
+      <p class='deps-status' role='status'>{{ statusMessage() }}</p>
+    }
     <button type='button' class='deps-btn' [disabled]='listLoading() || isInstalling()' (click)='refreshList()'>
       Refresh
     </button>

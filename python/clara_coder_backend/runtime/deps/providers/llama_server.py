@@ -186,6 +186,18 @@ def _write_variant(variant: str) -> None:
     _variant_marker_path().write_text(variant + '\n', encoding='utf-8')
 
 
+def components() -> list[str]:
+    """What the install drops into ``runtime/bin`` (reflects the installed variant when known)."""
+
+    variant = _read_variant()
+    out = ['llama-server', 'ggml / llama shared libs']
+    if variant in ('cuda-12', 'cuda-13'):
+        out.append('cudart DLLs')
+    if variant:
+        out.append(f'variant: {variant}')
+    return out
+
+
 def _find_binary_in_tree(root: Path) -> Path | None:
     names = ('llama-server.exe', 'llama-server')
     for name in names:

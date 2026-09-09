@@ -63,11 +63,24 @@ def list_dependencies() -> list[dict[str, Any]]:
     return out
 
 
+def _components_for(provider: Any) -> list[str]:
+    """Sub-dependencies a provider installs (shown as chips in the Dependencies window)."""
+
+    fn = getattr(provider, 'components', None)
+    if not callable(fn):
+        return []
+    try:
+        return [str(c) for c in fn() if str(c).strip()]
+    except Exception as exc:  # status must never fail because of a cosmetic list
+        logger.debug('components() failed for %s: %s', getattr(provider, 'DEP_ID', provider), exc)
+        return []
+
+
 def get_dependency(dep_id: str) -> dict[str, Any]:
     provider = _providers().get(dep_id)
     if not provider:
         raise KeyError(f'Unknown dependency: {dep_id}')
-    info = provider.status()
+    info = {**provider.status(), 'components': _components_for(provider)}
     if dep_id in _updating:
         info = {**info, 'state': 'updating'}
     elif dep_id in _errors and info.get('state') != 'installed':

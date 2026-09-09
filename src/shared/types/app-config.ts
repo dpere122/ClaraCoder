@@ -780,7 +780,7 @@ export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSet
     autoClosingBrackets: 'languageDefined',
     autoClosingQuotes: 'languageDefined',
     acceptSuggestionOnEnter: 'on',
-    paddingTop: 0,
+    paddingTop: 20,
     paddingBottom: 0,
     stickyScrollEnabled: true,
     formatOnSave: false,

@@ -491,6 +491,7 @@ export type {
   LlamaServerVariant,
 } from './types/dependencies';
 export {
+  DEPENDENCY_COMPONENTS,
   DEPENDENCY_IDS,
   DEPENDENCY_LABELS,
   DEPENDENCY_DESCRIPTIONS,
@@ -498,4 +499,5 @@ export {
   LLAMA_SERVER_VARIANTS,
   LLAMA_SERVER_VARIANT_LABELS,
   defaultDependencyCatalog,
+  dependencyComponents,
 } from './types/dependencies';

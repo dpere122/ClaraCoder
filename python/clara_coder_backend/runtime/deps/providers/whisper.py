@@ -111,6 +111,10 @@ def _info(
     }
 
 
+def components() -> list[str]:
+    return ['faster-whisper', 'CTranslate2', 'Whisper model weights']
+
+
 def status() -> dict:
     py = venv_python()
     marker = _marker_path()

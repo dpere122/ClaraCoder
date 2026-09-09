@@ -16,6 +16,7 @@
 }
 
 .workspace-monaco-editor-stack {
+  position: relative; /* anchor for the floating markdown Edit | Preview pill */
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -61,9 +62,58 @@
   min-width: 0;
 }
 
-.workspace-monaco-md-toolbar {
-  flex-shrink: 0;
-  background: var(--t-panel-bg, var(--bs-body-bg, #1e1e1e));
+/* Floating markdown view-mode pill (Edit | Preview). Sits over the top-right of
+   the editor / preview pane instead of taking a toolbar row. Solid surface,
+   border and shadow keep it legible over code and rendered text alike. */
+.workspace-monaco-md-toggle {
+  position: absolute;
+  top: 0.5rem;
+  /* Shifted 100px in from the edge so the pill sits left of Monaco's minimap. */
+  right: calc(1.25rem + 100px);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--t-primary, #4ea1ff) 45%, var(--t-border, #555));
+  background: color-mix(in srgb, var(--t-panel-bg, var(--bs-body-bg, #1e1e1e)) 94%, var(--t-primary, #4ea1ff));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+}
+
+.workspace-monaco-md-toggle__btn {
+  margin: 0;
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--t-text-muted, #aaa);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.workspace-monaco-md-toggle__btn:hover:not(.is-active) {
+  color: var(--t-primary, #4ea1ff);
+  background: var(--t-hover-bg, rgba(255, 255, 255, 0.06));
+}
+
+.workspace-monaco-md-toggle__btn.is-active {
+  color: var(--t-primary, #4ea1ff);
+  border-color: color-mix(in srgb, var(--t-primary, #4ea1ff) 60%, transparent);
+  background: color-mix(in srgb, var(--t-primary, #4ea1ff) 26%, var(--t-bg-surface, #2a2a2a));
+}
+
+.workspace-monaco-md-toggle__btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--t-primary, #4ea1ff) 40%, transparent);
 }
 
 /* Document-style markdown preview (component uses ViewEncapsulation.None so

@@ -1098,6 +1098,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     monacoEditor.hoverDelay = 500;
     migrated = true;
   }
+  // 0 was the previous shipped default; the first line now sits 20px below the
+  // editor's top edge so it clears the floating markdown Edit | Preview pill.
+  if (monacoEditor?.paddingTop === 0) {
+    monacoEditor.paddingTop = 20;
+    migrated = true;
+  }
 
   const wtRaw = (newConfig as AppConfig & { workspaceTools?: WorkspaceToolsConfig }).workspaceTools;
   if (!wtRaw) {

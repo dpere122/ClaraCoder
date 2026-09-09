@@ -40,6 +40,10 @@ def _legacy_java_lsp_dir() -> Path | None:
     return None
 
 
+def components() -> list[str]:
+    return ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins']
+
+
 def _product_dir() -> Path | None:
     _ensure_cache_env()
     return get_jdtls_product_dir_if_ready()

@@ -221,6 +221,28 @@ describe('migrateConfig monaco hover delay', () => {
   });
 });
 
+describe('migrateConfig monaco top padding', () => {
+  it('bumps the previous 0px default to 20px', () => {
+    const cfg = sampleConfig();
+    cfg.monacoWorkspaceEditor = {
+      ...cfg.monacoWorkspaceEditor,
+      paddingTop: 0,
+    };
+    const migrated = migrateConfig(cfg);
+    expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(20);
+  });
+
+  it('keeps a custom top padding', () => {
+    const cfg = sampleConfig();
+    cfg.monacoWorkspaceEditor = {
+      ...cfg.monacoWorkspaceEditor,
+      paddingTop: 8,
+    };
+    const migrated = migrateConfig(cfg);
+    expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(8);
+  });
+});
+
 describe('migrateConfig parallel tool calls', () => {
   it('defaults new profiles to on', () => {
     const cfg = sampleConfig();

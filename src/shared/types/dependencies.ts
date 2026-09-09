@@ -66,6 +66,8 @@ export interface DependencyInfo {
   error?: string | null;
   /** Whisper size ids already on disk under ``{customModelsDir}/whisper`` (Hub cache). */
   downloadedModels?: string[];
+  /** Sub-dependencies this install drops on disk (packages, binaries, weights). */
+  components?: string[];
 }
 
 export interface DependencyProgressEvent {
@@ -114,6 +116,24 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
   whisper: '~80–500 MB (CTranslate2 + small model)',
 };
 
+/**
+ * Static fallback for {@link DependencyInfo.components}; the Python providers report
+ * the authoritative list (python-runtime reads it from ``requirements.txt``).
+ */
+export const DEPENDENCY_COMPONENTS: Record<DependencyId, readonly string[]> = {
+  'python-runtime': ['venv', 'pip', 'fastapi', 'uvicorn', 'langchain', 'langgraph', 'openai', 'llama-index', 'fastembed', 'onnxruntime', 'basedpyright', 'black'],
+  'llama-server': ['llama-server', 'ggml / llama shared libs', 'cudart DLLs (CUDA builds)'],
+  'java-lsp': ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins'],
+  kokoro: ['torch (CPU)', 'kokoro', 'misaki', 'spacy'],
+  whisper: ['faster-whisper', 'CTranslate2', 'Whisper model weights'],
+};
+
+/** Components to display for a row: provider-reported list, else the static catalog. */
+export function dependencyComponents(dep: Pick<DependencyInfo, 'id' | 'components'>): string[] {
+  const reported = dep.components?.filter((c) => c && c.trim()) ?? [];
+  return reported.length ? reported : [...(DEPENDENCY_COMPONENTS[dep.id] ?? [])];
+}
+
 /** Catalog rows shown when status probing fails (all marked missing). */
 export function defaultDependencyCatalog(): DependencyInfo[] {
   return DEPENDENCY_IDS.map((id) => ({
@@ -126,5 +146,6 @@ export function defaultDependencyCatalog(): DependencyInfo[] {
     sizeHint: DEPENDENCY_SIZE_HINTS[id],
     canDelete: true,
     error: null,
+    components: [...DEPENDENCY_COMPONENTS[id]],
   }));
 }

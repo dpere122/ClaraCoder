@@ -23,6 +23,7 @@ import {
   LLAMA_SERVER_VARIANTS,
   LLAMA_SERVER_VARIANT_LABELS,
   WHISPER_MODEL_OPTIONS,
+  dependencyComponents,
 } from '@shared/index';
 import { THEMES } from '../../layout/theme-selector/theme-selector';
 import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme';
@@ -35,6 +36,8 @@ interface LogEntry {
 }
 
 const LOG_MAX_LINES = 1000;
+/** Component chips shown per row before collapsing the rest behind "+N more". */
+const COMPONENT_PREVIEW = 6;
 const LLAMA_SERVER_ID = 'llama-server';
 const KOKORO_ID = 'kokoro';
 const WHISPER_ID = 'whisper';
@@ -61,6 +64,8 @@ export class Dependencies implements OnInit, OnDestroy {
   protected readonly logById = signal<Partial<Record<DependencyId, LogEntry[]>>>({});
   protected readonly variantById = signal<Partial<Record<DependencyId, LlamaServerVariant>>>({});
   protected readonly whisperSizeById = signal<Partial<Record<DependencyId, string>>>({});
+  /** Rows whose full component list is expanded (default shows a short preview). */
+  protected readonly expandedComponents = signal<Set<DependencyId>>(new Set());
 
   /**
    * When set, the window switches from the full list to a focused view showing
@@ -212,6 +217,45 @@ export class Dependencies implements OnInit, OnDestroy {
 
   protected logFor(id: DependencyId): LogEntry[] {
     return this.logById()[id] ?? [];
+  }
+
+  /** Sub-dependencies the install drops on disk (provider list, else static catalog). */
+  protected componentsFor(dep: DependencyInfo): string[] {
+    return dependencyComponents(dep);
+  }
+
+  protected visibleComponents(dep: DependencyInfo): string[] {
+    const all = this.componentsFor(dep);
+    if (this.expandedComponents().has(dep.id)) return all;
+    return all.slice(0, COMPONENT_PREVIEW);
+  }
+
+  /** How many chips are hidden behind the "+N more" toggle (0 when fully shown). */
+  protected hiddenComponentCount(dep: DependencyInfo): number {
+    if (this.expandedComponents().has(dep.id)) return 0;
+    return Math.max(0, this.componentsFor(dep).length - COMPONENT_PREVIEW);
+  }
+
+  protected isComponentsExpanded(dep: DependencyInfo): boolean {
+    return this.expandedComponents().has(dep.id);
+  }
+
+  protected toggleComponents(dep: DependencyInfo): void {
+    this.expandedComponents.update((s) => {
+      const next = new Set(s);
+      if (next.has(dep.id)) next.delete(dep.id);
+      else next.add(dep.id);
+      return next;
+    });
+  }
+
+  /**
+   * Short size label for the row pill, e.g. "~40–400 MB" from
+   * "~40–400 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
+   */
+  protected sizeShort(hint: string): string {
+    const idx = hint.indexOf(' (');
+    return (idx > 0 ? hint.slice(0, idx) : hint).trim();
   }
 
   /** Maps SGR color codes to CSS colors (basic 8 + bright 8). */

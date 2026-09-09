@@ -342,6 +342,45 @@ app-stream-nudge-pill .stream-nudge-preview__inner,
   border-radius: 0.7rem !important;
 }
 
+/* Dependencies window keeps rounded chrome (pill controls, soft row corners). */
+app-dependencies .deps-btn,
+app-dependencies .deps-close-btn,
+app-dependencies .deps-badge,
+app-dependencies .deps-pill,
+app-dependencies .deps-chip,
+app-dependencies .deps-inline-select select,
+app-dependencies .deps-status,
+app-dependencies .deps-progress__bar {
+  border-radius: 999px !important;
+}
+
+app-dependencies .deps-row,
+app-dependencies .deps-terminal {
+  border-radius: 14px !important;
+}
+
+/* Conversations sidebar toolbar buttons are pills. */
+app-chat-conversation-hub .chat-hub__expand,
+app-chat-conversation-hub .chat-hub__new-conv,
+app-chat-conversation-hub .chat-hub__conv-toggle,
+app-chat-conversation-hub .chat-hub__collapse,
+app-chat-conversation-hub .chat-hub__uncollapse {
+  border-radius: 999px !important;
+}
+
+/* Managed llama-server row in the workspace footer: Start/Stop, source select, settings. */
+app-managed-llama-controls .managed-llama-controls__btn,
+app-managed-llama-controls .managed-llama-controls__source-select,
+app-workspace .workspace-footer-model-row .workspace-icon-btn {
+  border-radius: 999px !important;
+}
+
+/* Floating markdown Edit | Preview pill over the Monaco editor. */
+app-workspace-monaco .workspace-monaco-md-toggle,
+app-workspace-monaco .workspace-monaco-md-toggle__btn {
+  border-radius: 999px !important;
+}
+
 html, body {
   height: 100%;
   margin: 0;

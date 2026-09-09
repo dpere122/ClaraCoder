@@ -20,7 +20,7 @@ import type {
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
-import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize, outerAgentBriefEnabled, resolveActiveLlmConnection } from '@shared/index';
+import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize } from '@shared/index';
 import { ChatBox, pendingHitlArtifactsForDock, type ChatMessage } from '../chat-box/chat-box';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
@@ -139,15 +139,6 @@ export class ChatActiveStackComponent implements OnDestroy {
   protected readonly resolvedContainerSize = computed(() =>
     normalizeChatContainerSize(this.appConfig()?.chatContainerSize),
   );
-
-  /** First-turn planning prose is shown as a Clara brief pill on every optimization preset. */
-  protected readonly promoteLivePrimaryToBrief = computed(() => {
-    const cfg = this.appConfig();
-    if (!cfg) {
-      return true;
-    }
-    return outerAgentBriefEnabled(resolveActiveLlmConnection(cfg)?.optimizationPreset);
-  });
 
   /** Pending HITL reviews for the slide-up composer dock (all roles including plan/question). */
   readonly pendingHitlDockArtifacts = computed((): HitlTrailArtifact[] =>

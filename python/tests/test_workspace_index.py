@@ -190,6 +190,265 @@ def test_incremental_workspace_patch(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert hits
 
 
+def test_incremental_patch_loads_existing_index_instead_of_rebuilding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Watcher batches must patch the persisted index, not re-embed the whole workspace."""
+    from clara_coder_backend.workspace_index import index_build as ib
+
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+    idx, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err == '' and idx is not None
+
+    # The file changed after the index was built -> live fingerprint != manifest fingerprint.
+    (root / 'a.py').write_text('alpha = 2\nbeta = 3\n', encoding='utf-8')
+    (root / 'b.py').write_text('gamma = 4\n', encoding='utf-8')
+
+    rebuilds: list[Path] = []
+    real_build = ib.build_fresh_workspace_index
+
+    def _counting_build(workspace_root: Path, *a: object, **kw: object):
+        rebuilds.append(workspace_root)
+        return real_build(workspace_root, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ib, 'build_fresh_workspace_index', _counting_build)
+
+    sess = SessionState()
+    sess.semantic_index_pending = [('a.py', 'updated'), ('b.py', 'created')]
+    flush_semantic_index_patches('sess-1', sess, root, 'wid', embed, embedding_model_id='test-emb')
+
+    assert rebuilds == []
+    assert sess.semantic_index_pending == []
+    man = read_manifest(workspace_index_persist_dir('wid', root))
+    assert man is not None
+    assert man.get('workspace_fingerprint') == workspace_content_fingerprint(
+        root, max_files=CLARA_LLAMA_INDEX_MAX_FILES
+    )
+
+    out, _ = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert out is not None
+    docs = out.docstore.docs
+    assert any(d.metadata.get('file_path') == 'b.py' for d in docs.values())
+    assert rebuilds == []
+
+
+def test_incremental_patch_builds_fresh_when_no_index_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+
+    sess = SessionState()
+    sess.semantic_index_pending = [('a.py', 'created')]
+    flush_semantic_index_patches('sess-1', sess, root, 'wid', embed, embedding_model_id='test-emb')
+
+    pdir = workspace_index_persist_dir('wid', root)
+    man = read_manifest(pdir)
+    assert man is not None
+    assert man.get('embedding_model') == 'test-emb'
+    assert sess.semantic_index_pending == []
+
+
+def test_stale_index_is_reconciled_not_rebuilt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ensure_corpus`` / semantic-tool path: a changed tree patches only the changed files."""
+    from clara_coder_backend.workspace_index import index_build as ib
+
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    (root / 'gone.py').write_text('bye = 1\n', encoding='utf-8')
+    stable = {f'stable{i}.py' for i in range(8)}
+    for name in stable:
+        (root / name).write_text(f'# {name}\nx = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+    idx, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err == '' and idx is not None
+    man = read_manifest(workspace_index_persist_dir('wid', root))
+    assert man is not None and set(man['files']) == {'a.py', 'gone.py'} | stable
+
+    # Tree changes while the app is closed / between conversations.
+    (root / 'a.py').write_text('alpha = 2\n', encoding='utf-8')
+    (root / 'b.py').write_text('beta = 3\n', encoding='utf-8')
+    (root / 'gone.py').unlink()
+
+    rebuilds: list[Path] = []
+    real_build = ib.build_fresh_workspace_index
+
+    def _counting_build(workspace_root: Path, *a: object, **kw: object):
+        rebuilds.append(workspace_root)
+        return real_build(workspace_root, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ib, 'build_fresh_workspace_index', _counting_build)
+
+    # Live fingerprint (override=None) no longer matches the manifest -> reconcile.
+    out, err2 = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err2 == '' and out is not None
+    assert rebuilds == []
+    paths = {d.metadata.get('file_path') for d in out.docstore.docs.values()}
+    assert 'b.py' in paths and 'gone.py' not in paths
+
+    man2 = read_manifest(workspace_index_persist_dir('wid', root))
+    assert man2 is not None
+    assert man2['workspace_fingerprint'] == workspace_content_fingerprint(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
+    assert set(man2['files']) == {'a.py', 'b.py'} | stable
+
+    # Now current: plain load, still no rebuild.
+    out2, _ = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert out2 is not None and rebuilds == []
+
+
+def test_stale_index_rebuilds_when_most_files_changed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.workspace_index import index_build as ib
+
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    for i in range(4):
+        (root / f'f{i}.py').write_text(f'v{i} = {i}\n', encoding='utf-8')
+    embed = _FakeEmb()
+    _, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err == ''
+
+    for i in range(4):
+        (root / f'f{i}.py').write_text(f'v{i} = {i + 100}\n', encoding='utf-8')
+
+    rebuilds: list[Path] = []
+    real_build = ib.build_fresh_workspace_index
+
+    def _counting_build(workspace_root: Path, *a: object, **kw: object):
+        rebuilds.append(workspace_root)
+        return real_build(workspace_root, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ib, 'build_fresh_workspace_index', _counting_build)
+    out, err2 = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err2 == '' and out is not None
+    assert len(rebuilds) == 1
+
+
+def test_previous_manifest_stays_loadable_while_build_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A build in progress must not look like "no index" to a concurrent caller."""
+    import threading
+
+    from clara_coder_backend.workspace_index import index_build as ib
+    from clara_coder_backend.workspace_index.index_build import persisted_workspace_index_fingerprint
+
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+    _, err = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+    assert err == ''
+    fp_before = persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='test-emb')
+    assert fp_before is not None
+
+    entered = threading.Event()
+    release = threading.Event()
+    real_collect = ib._collect_workspace_nodes
+
+    def _slow_collect(workspace_root: Path):
+        entered.set()
+        assert release.wait(5)
+        return real_collect(workspace_root)
+
+    monkeypatch.setattr(ib, '_collect_workspace_nodes', _slow_collect)
+    (root / 'a.py').write_text('alpha = 2\n', encoding='utf-8')
+
+    seen: dict[str, str | None] = {}
+    t = threading.Thread(
+        target=lambda: seen.update(
+            done=ib.build_fresh_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')[1]
+        )
+    )
+    t.start()
+    assert entered.wait(5)
+    # Mid-build: old manifest still on disk and loadable.
+    assert persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='test-emb') == fp_before
+    release.set()
+    t.join(10)
+    assert seen.get('done') == ''
+    fp_after = persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='test-emb')
+    assert fp_after is not None and fp_after != fp_before
+    pdir = workspace_index_persist_dir('wid', root)
+    assert not [p for p in pdir.parent.iterdir() if p.name.startswith(f'{pdir.name}.tmp-')]
+
+
+def test_concurrent_callers_build_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Background job + watcher flush + semantic tool racing on one workspace -> one build."""
+    import threading
+
+    from clara_coder_backend.workspace_index import index_build as ib
+
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    embed = _FakeEmb()
+
+    builds = 0
+    builds_lock = threading.Lock()
+    real_collect = ib._collect_workspace_nodes
+
+    def _counting_collect(workspace_root: Path):
+        nonlocal builds
+        with builds_lock:
+            builds += 1
+        time.sleep(0.2)
+        return real_collect(workspace_root)
+
+    monkeypatch.setattr(ib, '_collect_workspace_nodes', _counting_collect)
+
+    errors: list[str] = []
+
+    def _bg() -> None:
+        _, e = load_or_rebuild_workspace_index(root, 'wid', embed, embedding_model_id='test-emb')
+        errors.append(e)
+
+    def _flush() -> None:
+        sess = SessionState()
+        sess.semantic_index_pending = [('a.py', 'updated')]
+        flush_semantic_index_patches('s', sess, root, 'wid', embed, embedding_model_id='test-emb')
+
+    threads = [threading.Thread(target=_bg), threading.Thread(target=_flush), threading.Thread(target=_bg)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(15)
+
+    assert all(e == '' for e in errors)
+    assert builds == 1
+
+
+def test_persisted_workspace_index_fingerprint_requires_compatible_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from clara_coder_backend.workspace_index.index_build import persisted_workspace_index_fingerprint
+
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    root = tmp_path / 'proj'
+    root.mkdir()
+    (root / 'a.py').write_text('alpha = 1\n', encoding='utf-8')
+    assert persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='emb-a') is None
+
+    _, err = load_or_rebuild_workspace_index(root, 'wid', _FakeEmb(), embedding_model_id='emb-a')
+    assert err == ''
+    fp = workspace_content_fingerprint(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
+    assert persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='emb-a') == fp
+    # Different embedding model -> not loadable, caller must rebuild.
+    assert persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='emb-b') is None
+    # Fingerprint is returned even when the tree has since changed (that is the point).
+    (root / 'a.py').write_text('alpha = 2\n', encoding='utf-8')
+    assert persisted_workspace_index_fingerprint(root, 'wid', embedding_model_id='emb-a') == fp
+
+
 @pytest.fixture
 def _clear_fingerprint_cache():
     lc._fingerprint_cache.clear()

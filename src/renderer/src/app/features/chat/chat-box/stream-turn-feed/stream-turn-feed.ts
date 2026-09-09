@@ -11,10 +11,9 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { isActiveLiveBrief, type TurnFeedItem } from '@shared/index';
+import type { TurnFeedItem } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
-import { StreamBriefPillComponent } from '../stream-brief-pill/stream-brief-pill';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
@@ -27,7 +26,6 @@ import {
   previewCommitCount,
   previewItemText,
   previewQueueHeader,
-  previewSessionText,
   previewShowsBody as previewItemShowsBody,
   pressureInbound,
   queueableFeedIdentity,
@@ -42,7 +40,6 @@ import {
   imports: [
     AuxStreamToolPartComponent,
     MarkdownPipe,
-    StreamBriefPillComponent,
     StreamNudgePillComponent,
     StreamThoughtPillComponent,
     StreamToolPillComponent,
@@ -111,13 +108,6 @@ export class StreamTurnFeedComponent {
   }
 
   previewBodyText(item: TurnFeedItem): string {
-    if (item.kind !== 'brief') {
-      return previewItemText(item);
-    }
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    if (split.current?.kind === 'brief') {
-      return previewSessionText(split.current, split.inbound);
-    }
     return previewItemText(item);
   }
 
@@ -126,10 +116,6 @@ export class StreamTurnFeedComponent {
       return `md:${index}`;
     }
     return `${item.kind}:${item.part.streamTag}:${index}`;
-  }
-
-  briefIsGenerating(index: number): boolean {
-    return isActiveLiveBrief(this.items(), index, this.live());
   }
 
   isLastMarkdown(index: number): boolean {
@@ -175,7 +161,7 @@ export class StreamTurnFeedComponent {
     }
 
     const id = queueableFeedIdentity(split.current);
-    const textLen = previewSessionText(split.current, split.inbound).length;
+    const textLen = previewItemText(split.current).length;
     if (id !== this.currentIdentity) {
       this.currentIdentity = id;
       this.currentTextLen = textLen;

@@ -11,7 +11,7 @@ from typing import Any
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.bridge.pydantic import PrivateAttr
 
-from clara_coder_backend.config import CLARA_FASTEMBED_CACHE_DIR, CLARA_FASTEMBED_MODEL
+from clara_coder_backend.config import CLARA_FASTEMBED_CACHE_DIR, CLARA_FASTEMBED_MODEL, CLARA_FASTEMBED_THREADS
 from clara_coder_backend.runtime.deps.paths import get_runtime_dir
 
 logger = logging.getLogger('clara.workspace_index.fastembed')
@@ -26,7 +26,12 @@ DEFAULT_FASTEMBED_MODEL = 'BAAI/bge-small-en-v1.5'
 
 # ONNX Runtime's default CPU arena + one thread per core balloons RAM while embedding a
 # large workspace (multi-GB and it does not shrink). Cap threads and disable the arena.
-_ONNX_INTRA_OP_THREADS = min(4, os.cpu_count() or 1)
+# ``CLARA_FASTEMBED_THREADS`` > 0 overrides the auto cap (still bounded by cpu_count).
+_ONNX_INTRA_OP_THREADS = (
+    max(1, min(CLARA_FASTEMBED_THREADS, os.cpu_count() or 1))
+    if CLARA_FASTEMBED_THREADS > 0
+    else min(4, os.cpu_count() or 1)
+)
 _EMBED_INFER_BATCH = 16
 
 _engine_lock = threading.Lock()

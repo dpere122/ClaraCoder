@@ -19,9 +19,9 @@ export type FeedDisplayRole = 'chip' | 'preview' | 'hidden' | 'markdown';
 
 export type PreviewCommitDecision = { action: 'stay' } | { action: 'commit' } | { action: 'flush' } | { action: 'wait'; delayMs: number };
 
-/** Thought / brief / nudge / tool rows go through the live preview queue. Markdown does not. */
+/** Thought / nudge / tool rows go through the live preview queue. Markdown (reply and Clara briefs) does not. */
 export function isQueueableFeedItem(item: TurnFeedItem): boolean {
-  return item.kind === 'thought' || item.kind === 'brief' || item.kind === 'nudge' || item.kind === 'tool';
+  return item.kind === 'thought' || item.kind === 'nudge' || item.kind === 'tool';
 }
 
 /** HITL trail rows skip the preview pane (dwell 0) so they still appear in arrival order. */
@@ -55,44 +55,8 @@ export function previewItemText(item: TurnFeedItem): string {
   return item.kind === 'markdown' ? item.text : item.part.text;
 }
 
-/**
- * Leading inbound thoughts stay inside a live Clara brief preview.
- * Same rule as `isActiveLiveBrief`: later thought tokens do not close the brief.
- */
-export function absorbedBriefThoughts(
-  current: TurnFeedItem | undefined,
-  inbound: readonly TurnFeedItem[],
-): TurnFeedItem[] {
-  if (current?.kind !== 'brief') {
-    return [];
-  }
-  const out: TurnFeedItem[] = [];
-  for (const item of inbound) {
-    if (item.kind !== 'thought') {
-      break;
-    }
-    out.push(item);
-  }
-  return out;
-}
-
-/** Brief text plus absorbed live reasoning, so sidecar tokens stay in one pane. */
-export function previewSessionText(
-  current: TurnFeedItem,
-  inbound: readonly TurnFeedItem[] = [],
-): string {
-  const parts = [previewItemText(current)];
-  for (const item of absorbedBriefThoughts(current, inbound)) {
-    const text = previewItemText(item);
-    if (text) {
-      parts.push(text);
-    }
-  }
-  return parts.filter((part) => part.length > 0).join('\n');
-}
-
 export function previewShowsBody(item: TurnFeedItem | undefined): boolean {
-  return item?.kind === 'thought' || item?.kind === 'brief' || item?.kind === 'nudge';
+  return item?.kind === 'thought' || item?.kind === 'nudge';
 }
 
 /** Live preview header label (no ellipsis — dash form appends inbound events). */
@@ -100,8 +64,6 @@ export function previewItemLabel(item: TurnFeedItem): string {
   switch (item.kind) {
     case 'thought':
       return 'Thinking';
-    case 'brief':
-      return 'reasoning';
     case 'nudge':
       return 'nudge';
     case 'tool':
@@ -112,9 +74,7 @@ export function previewItemLabel(item: TurnFeedItem): string {
 }
 
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const absorbed = absorbedBriefThoughts(current, inbound).length;
-  const visibleInbound = inbound.slice(absorbed);
-  const labels = [previewItemLabel(current), ...visibleInbound.map(previewItemLabel)].filter(
+  const labels = [previewItemLabel(current), ...inbound.map(previewItemLabel)].filter(
     (label) => label.length > 0,
   );
   return labels.join(' — ');
@@ -139,6 +99,20 @@ export function displayCommittedCount(items: readonly TurnFeedItem[], committedC
   return advanceZeroDwell(items, committedCount);
 }
 
+/** True when a markdown block (brief or reply) appears after the last queueable event. */
+function markdownAfterLastQueueable(items: readonly TurnFeedItem[]): boolean {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!;
+    if (item.kind === 'markdown') {
+      return true;
+    }
+    if (isQueueableFeedItem(item)) {
+      return false;
+    }
+  }
+  return false;
+}
+
 /**
  * Starting committed count when a live feed mounts with items already present
  * (sidebar ↔ expanded remount, or joining a turn mid-stream).
@@ -149,7 +123,7 @@ export function initialLiveCommittedCount(items: readonly TurnFeedItem[]): numbe
   if (queueable.length === 0) {
     return 0;
   }
-  if (items.some((item) => item.kind === 'markdown')) {
+  if (markdownAfterLastQueueable(items)) {
     return queueable.length;
   }
   let n = queueable.length - 1;
@@ -158,26 +132,7 @@ export function initialLiveCommittedCount(items: readonly TurnFeedItem[]): numbe
     while (n > 0 && isToolBatchMember(queueable[n - 1]!)) {
       n -= 1;
     }
-  } else if (current && (current.kind === 'thought' || current.kind === 'brief')) {
-    n = reasoningSessionStartIndex(queueable, n);
-  }
-  return n;
-}
-
-/** Walk back a live brief and the thoughts that belong in its preview pane. */
-function reasoningSessionStartIndex(queueable: readonly TurnFeedItem[], end: number): number {
-  let n = end;
-  const current = queueable[n];
-  if (current?.kind === 'thought') {
-    while (n > 0 && queueable[n - 1]?.kind === 'thought') {
-      n -= 1;
-    }
-    if (n > 0 && queueable[n - 1]?.kind === 'brief') {
-      n -= 1;
-    }
-    return n;
-  }
-  if (current?.kind === 'brief') {
+  } else if (current?.kind === 'thought') {
     while (n > 0 && queueable[n - 1]?.kind === 'thought') {
       n -= 1;
     }
@@ -198,8 +153,7 @@ export function splitQueuedFeed(items: readonly TurnFeedItem[], committedCount: 
 
 /**
  * How many uncommitted items share the current live preview.
- * Tools batch together; a Clara brief commits with the thoughts absorbed into its pane.
- * Nudge / HITL always commit one at a time.
+ * Tools batch together; thought / nudge / HITL always commit one at a time.
  */
 export function previewCommitCount(items: readonly TurnFeedItem[], committedCount: number): number {
   const queueable = queueableItems(items);
@@ -207,13 +161,6 @@ export function previewCommitCount(items: readonly TurnFeedItem[], committedCoun
   const current = queueable[i];
   if (!current) {
     return 0;
-  }
-  if (current.kind === 'brief') {
-    let n = 1;
-    while (i + n < queueable.length && queueable[i + n]?.kind === 'thought') {
-      n += 1;
-    }
-    return n;
   }
   if (!isToolBatchMember(current)) {
     return 1;
@@ -232,9 +179,6 @@ export function pressureInbound(
 ): TurnFeedItem | undefined {
   if (!current) {
     return undefined;
-  }
-  if (current.kind === 'brief') {
-    return inbound.find((item) => item.kind !== 'thought');
   }
   if (!isToolBatchMember(current)) {
     return inbound[0];
@@ -277,13 +221,37 @@ export function feedItemDisplayRole(
   return 'hidden';
 }
 
-/** True when the current preview should yield (non-batch inbound or the reply markdown has started). */
+/** True when a markdown block (brief or reply) sits after the current preview item in the source feed. */
+export function markdownAfterCurrent(
+  items: readonly TurnFeedItem[],
+  current: TurnFeedItem | undefined,
+): boolean {
+  if (!current) {
+    return false;
+  }
+  const start = items.indexOf(current);
+  if (start < 0) {
+    return false;
+  }
+  for (let i = start + 1; i < items.length; i++) {
+    if (items[i]?.kind === 'markdown') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True when the current preview should yield: a non-batch inbound event, or markdown
+ * (a Clara brief or the reply) has started after it. Briefs that landed *before* the
+ * current preview do not count — they are already rendered in place.
+ */
 export function hasCommitPressure(
   items: readonly TurnFeedItem[],
   current: TurnFeedItem | undefined,
   inbound: readonly TurnFeedItem[],
 ): boolean {
-  return pressureInbound(current, inbound) != null || items.some((item) => item.kind === 'markdown');
+  return pressureInbound(current, inbound) != null || markdownAfterCurrent(items, current);
 }
 
 export function decidePreviewCommit(opts: {

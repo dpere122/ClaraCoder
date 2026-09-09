@@ -265,6 +265,7 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('--jinja');
     expect(cmd).toContain('-np 1');
     expect(cmd).toContain('--no-webui');
+    expect(cmd).toContain('--cache-ram 0');
     expect(cmd).not.toContain('--chat-template-file');
     expect(cmd).not.toContain('--ctx-checkpoints');
     expect(cmd).not.toContain('--checkpoint-every-n-tokens');
@@ -566,20 +567,25 @@ describe('flash attn / mmproj / batch / cache flags', () => {
 });
 
 describe('ensureManagedLlamaDefaultServerFlags', () => {
-  it('appends --no-webui and -np 1 when missing', () => {
+  it('appends --no-webui, -np 1 and --cache-ram 0 when missing', () => {
     expect(ensureManagedLlamaDefaultServerFlags('llama-server --port {{PORT}} -m /a.gguf')).toBe(
-      'llama-server --port {{PORT}} -m /a.gguf --no-webui -np 1',
+      'llama-server --port {{PORT}} -m /a.gguf --no-webui -np 1 --cache-ram 0',
     );
   });
 
-  it('does not duplicate flags or overwrite an existing -np', () => {
-    const cmd = 'llama-server --no-webui -np 4 --port {{PORT}}';
+  it('does not duplicate flags or overwrite an existing -np / --cache-ram', () => {
+    const cmd = 'llama-server --no-webui -np 4 --cache-ram 2048 --port {{PORT}}';
+    expect(ensureManagedLlamaDefaultServerFlags(cmd)).toBe(cmd);
+  });
+
+  it('respects the short -cram alias', () => {
+    const cmd = 'llama-server --no-webui -np 1 -cram 512 --port {{PORT}}';
     expect(ensureManagedLlamaDefaultServerFlags(cmd)).toBe(cmd);
   });
 
   it('treats --no-ui as already disabling the web UI', () => {
     expect(ensureManagedLlamaDefaultServerFlags('llama-server --no-ui --port {{PORT}}')).toBe(
-      'llama-server --no-ui --port {{PORT}} -np 1',
+      'llama-server --no-ui --port {{PORT}} -np 1 --cache-ram 0',
     );
   });
 });

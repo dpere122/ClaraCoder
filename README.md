@@ -148,7 +148,7 @@ The `llama-server` installer probes the host and picks a GPU-accelerated build w
 | Linux x64 + NVIDIA | Prebuilt **Vulkan** binary (uses the Vulkan driver shipped with the NVIDIA driver; no CUDA toolkit needed) |
 | macOS / Linux arm64 / no NVIDIA | CPU build |
 
-Detection uses `nvidia-smi` plus the NVIDIA driver library (`nvcuda.dll` / `libcuda.so.1`) to read the CUDA driver-API version. The installed variant shows in the Dependencies window as the version label, e.g. `b10375 (cuda-12.4)` or `b10375 (vulkan)`.
+Detection uses `nvidia-smi` plus the NVIDIA driver library (`nvcuda.dll` / `libcuda.so.1`) to read the CUDA driver-API version. The installed variant shows in the Dependencies window as the version label, e.g. `b10867 (cuda-12.4)` or `b10867 (vulkan)`.
 
 Force a specific build with `CLARA_LLAMA_SERVER_CUDA`:
 
@@ -163,7 +163,9 @@ Force a specific build with `CLARA_LLAMA_SERVER_CUDA`:
 
 > **Note:** ggml-org does **not** publish Linux CUDA prebuilts, so true CUDA on Linux is opt-in via `compile` and needs the CUDA toolkit. For most Linux + NVIDIA users the Vulkan default gives GPU acceleration without any extra setup.
 
-Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b10375`).
+Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b10867`).
+
+Managed chat servers are started with `--cache-ram 0` unless the run command already sets `--cache-ram`. llama-server's default is an 8 GiB host-RAM prompt cache that fills up whenever the prompt prefix changes (for example when the workspace tree in the system prompt changes mid-session), which looks like a steady RAM leak at large contexts. Add `--cache-ram <MiB>` to the run command to opt back in.
 
 ---
 
@@ -194,8 +196,9 @@ Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b1037
 | `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
 | `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet    |
 | `DEV_SERVER_URL`     | Set automatically by `npm run dev`                                |
-| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b10375`) |
+| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b10867`) |
 | `CLARA_LLAMA_SERVER_CUDA` | Force the `llama-server` build variant: `auto` (default) \| `cpu` \| `cuda-12` \| `cuda-13` \| `vulkan` \| `compile` |
+| `CLARA_FASTEMBED_THREADS` | ONNX Runtime CPU threads for the in-process workspace embedder (`0` = auto, `min(4, cores)`). Lower it if background indexing competes with a CPU-offloaded `llama-server` |
 
 
 

@@ -5,12 +5,6 @@
       @case ('chip') {
         @if (item.kind === 'thought') {
           <app-stream-thought-pill [text]="item.part.text" [live]="live()" [active]="false" />
-        } @else if (item.kind === 'brief') {
-          <app-stream-brief-pill
-            [text]="item.part.text"
-            [live]="live()"
-            [active]="briefIsGenerating($index)"
-          />
         } @else if (item.kind === 'nudge') {
           <app-stream-nudge-pill [text]="item.part.text" [live]="live()" [active]="false" />
         } @else if (item.kind === 'tool') {

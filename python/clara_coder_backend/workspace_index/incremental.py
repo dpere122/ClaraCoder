@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
 from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.workspace_index.fingerprint import workspace_content_fingerprint
+from clara_coder_backend.workspace_index.fingerprint import fingerprint_for_entries, workspace_file_entries
 from clara_coder_backend.workspace_index.index_build import (
     DOC_REF_WORKSPACE,
     manifest_embedding_model_id,
     load_or_rebuild_workspace_index,
     nodes_from_file_for_workspace,
+    persisted_workspace_index_fingerprint,
+    replace_ref_nodes,
+    workspace_index_lock,
     write_workspace_manifest,
 )
 from clara_coder_backend.workspace_index.lifecycle import invalidate_fingerprint_cache_for_root
@@ -27,22 +31,9 @@ logger = logging.getLogger('clara.workspace_index.incremental')
 # Coalesce rapid workspace-context sync batches before hitting the embeddings server.
 _BACKGROUND_INDEX_DEBOUNCE_SEC = 2.0
 
-_registry_lock = threading.Lock()
-_workspace_locks: dict[str, threading.Lock] = {}
 _background_index_lock = threading.Lock()
 _background_index_jobs: dict[str, dict[str, bool]] = {}
 _background_index_timers: dict[str, threading.Timer] = {}
-
-
-def _lock_for(store: dict[str, threading.Lock], key: str) -> threading.Lock:
-    with _registry_lock:
-        if key not in store:
-            store[key] = threading.Lock()
-        return store[key]
-
-
-def _workspace_lock_key(workspace_id: str, root: Path) -> str:
-    return f'w:{workspace_index_persist_dir(workspace_id, root)}'
 
 
 def schedule_semantic_index_background(session_id: str, *, ensure_corpus: bool = False) -> None:
@@ -144,15 +135,6 @@ def _parse_workspace_relative(raw: str, workspace_root: Path) -> str | None:
     return candidate.relative_to(root).as_posix()
 
 
-def _replace_ref_nodes(index: Any, doc_id: str, nodes: list[Any]) -> None:
-    try:
-        index.delete_ref_doc(doc_id, delete_from_docstore=True)
-    except Exception as exc:
-        logger.warning('semantic index delete_ref_doc failed doc_id=%s: %s', doc_id, exc)
-    if nodes:
-        index.insert_nodes(nodes)
-
-
 def flush_semantic_index_patches(
     session_id: str,
     sess: SessionState,
@@ -194,49 +176,84 @@ def _flush_semantic_index_patches_impl(
 ) -> None:
     root = workspace_root.resolve()
 
-    w_lock = _lock_for(_workspace_locks, _workspace_lock_key(workspace_id, root))
-
     workspace_by_rel: dict[str, str] = {}
     for raw, kind in batch:
         wr = _parse_workspace_relative(raw, root)
         if wr is not None:
             workspace_by_rel[wr] = kind
     workspace_hits = list(workspace_by_rel.items())
+    if not workspace_hits:
+        return
 
-    if workspace_hits:
-        with w_lock:
-            w_index, w_err = load_or_rebuild_workspace_index(
+    # Same re-entrant lock ``load_or_rebuild_workspace_index`` takes, so this patch
+    # loop, the ``ensure_corpus`` background job, and the semantic tool can never
+    # embed the same workspace concurrently.
+    with workspace_index_lock(workspace_id, root):
+        started = time.monotonic()
+        # The watcher only reports batches *because* files changed, so the live
+        # tree fingerprint never matches the manifest here. Passing the manifest's
+        # own fingerprint makes ``load_or_rebuild`` load the persisted index so we
+        # re-embed only the changed files. Without it every batch became a full
+        # workspace rebuild on the CPU embedder (minutes of 4-thread ONNX work
+        # while the chat model was still generating).
+        persisted_fp = persisted_workspace_index_fingerprint(
+            root,
+            workspace_id,
+            embedding_model_id=manifest_embedding_model,
+        )
+        if persisted_fp is None:
+            # No compatible index on disk: a fresh build already reflects every
+            # queued change, so skip the per-file patch loop.
+            _, w_err = load_or_rebuild_workspace_index(
                 root,
                 workspace_id,
                 embed_model,
                 fingerprint_override=None,
                 embedding_model_id=manifest_embedding_model,
             )
-            if w_err or w_index is None:
-                logger.debug('skip workspace incremental: %s', w_err or 'no index')
-            else:
-                for rel, kind in workspace_hits:
-                    doc_id = f'{DOC_REF_WORKSPACE}{rel}'
-                    abs_path = root / rel
-                    if kind == 'deleted' or not abs_path.is_file():
-                        _replace_ref_nodes(w_index, doc_id, [])
-                        continue
-                    if not is_indexable_workspace_relative_path(root, rel):
-                        _replace_ref_nodes(w_index, doc_id, [])
-                        continue
-                    nodes = nodes_from_file_for_workspace(abs_path, root)
-                    _replace_ref_nodes(w_index, doc_id, nodes)
-                pdir = workspace_index_persist_dir(workspace_id, root)
-                try:
-                    w_index.storage_context.persist(persist_dir=str(pdir))
-                except Exception as exc:
-                    logger.warning('persist workspace index failed: %s', exc)
-                fp = workspace_content_fingerprint(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
-                write_workspace_manifest(
-                    pdir,
-                    workspace_root=root,
-                    workspace_id=workspace_id,
-                    workspace_fingerprint=fp,
-                    embedding_model=manifest_embedding_model,
-                )
-                invalidate_fingerprint_cache_for_root(root)
+            if w_err:
+                logger.debug('skip workspace incremental (fresh build): %s', w_err)
+            return
+        w_index, w_err = load_or_rebuild_workspace_index(
+            root,
+            workspace_id,
+            embed_model,
+            fingerprint_override=persisted_fp,
+            embedding_model_id=manifest_embedding_model,
+        )
+        if w_err or w_index is None:
+            logger.debug('skip workspace incremental: %s', w_err or 'no index')
+            return
+
+        for rel, kind in workspace_hits:
+            doc_id = f'{DOC_REF_WORKSPACE}{rel}'
+            abs_path = root / rel
+            if kind == 'deleted' or not abs_path.is_file():
+                replace_ref_nodes(w_index, doc_id, [])
+                continue
+            if not is_indexable_workspace_relative_path(root, rel):
+                replace_ref_nodes(w_index, doc_id, [])
+                continue
+            nodes = nodes_from_file_for_workspace(abs_path, root)
+            replace_ref_nodes(w_index, doc_id, nodes)
+        pdir = workspace_index_persist_dir(workspace_id, root)
+        try:
+            w_index.storage_context.persist(persist_dir=str(pdir))
+        except Exception as exc:
+            logger.warning('persist workspace index failed: %s', exc)
+        entries = workspace_file_entries(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
+        write_workspace_manifest(
+            pdir,
+            workspace_root=root,
+            workspace_id=workspace_id,
+            workspace_fingerprint=fingerprint_for_entries(entries),
+            embedding_model=manifest_embedding_model,
+            files=entries,
+        )
+        invalidate_fingerprint_cache_for_root(root)
+        logger.info(
+            'Workspace semantic index patched (%s files) in %.1fs session=%s',
+            len(workspace_hits),
+            time.monotonic() - started,
+            session_id,
+        )

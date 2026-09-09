@@ -6,7 +6,6 @@ app-stream-turn-feed {
 
 /* Custom elements default to inline; keep preview windows on their own block row. */
 app-stream-turn-feed app-stream-thought-pill,
-app-stream-turn-feed app-stream-brief-pill,
 app-stream-turn-feed app-stream-nudge-pill {
   display: block;
   flex: 1 1 100%;

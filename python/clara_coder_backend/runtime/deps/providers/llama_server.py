@@ -45,9 +45,11 @@ from clara_coder_backend.runtime.deps.providers import gpu_detect
 logger = logging.getLogger('clara.runtime.deps.llama_server')
 
 DEP_ID = 'llama-server'
-# Pin a known release tag; override with CLARA_LLAMA_SERVER_VERSION (e.g. b10375).
+# Pin a known release tag; override with CLARA_LLAMA_SERVER_VERSION (e.g. b10867).
 # Need >= b10344 for Nemotron 3.5 Lightning MTP (nextn) GGUF tensors.
-DEFAULT_TAG = 'b10375'
+# b10867 (2026-09-08): latest ggml-org release; same asset naming as b10375
+# (win cuda-12.4 / cuda-13.3 + cudart bundles, win/ubuntu vulkan, cpu builds).
+DEFAULT_TAG = 'b10867'
 SIZE_HINT = '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)'
 
 VARIANT_MARKER = '.clara-llama-variant'
@@ -482,7 +484,7 @@ def _install_compiled_cuda(tag: str, *, force: bool) -> None:
         PROGRESS.emit(DEP_ID, 'extracting', message='Extracting source…')
         extract_archive(src_archive, src_root)
 
-        # The tarball extracts to a single top-level dir like ``llama.cpp-b10375``.
+        # The tarball extracts to a single top-level dir like ``llama.cpp-b10867``.
         nested = list(src_root.iterdir())
         actual_root = nested[0] if len(nested) == 1 and nested[0].is_dir() else src_root
 

@@ -401,7 +401,7 @@ export function parseCustomManagedContextTokens(raw: string | number): number | 
 
 /**
  * Build a managed chat ``llama-server`` command with ``{{PORT}}``, ``--jinja``,
- * ``-np 1``, ``--no-webui``, model load, and ``-c``.
+ * ``-np 1``, ``--no-webui``, ``--cache-ram 0``, model load, and ``-c``.
  * ``contextWindowTokens`` of ``0`` emits ``-c 0`` (model-native context).
  */
 export function buildManagedLlamaChatCommand(
@@ -431,7 +431,7 @@ export function buildManagedLlamaChatCommand(
     }
     argv.push('-hf', hf);
   }
-  argv.push('-c', String(ctx), '--metrics', '-np', '1', '--no-webui');
+  argv.push('-c', String(ctx), '--metrics', '-np', '1', '--no-webui', '--cache-ram', '0');
   return argvToShellCommandLine(argv, platform);
 }
 
@@ -692,6 +692,8 @@ const MMPROJ_FLAG_STRIP_RE = /\s*--mmproj(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi;
 const NO_WEBUI_TOKEN_RE = /(?:^|[\s"'])--no-(?:web)?ui(?:\s|=|$)/i;
 const PARALLEL_FLAG_RE =
   /(?:^|[\s"'])(?:--parallel|-np)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
+const CACHE_RAM_FLAG_RE =
+  /(?:^|[\s"'])(?:--cache-ram|-cram)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
 const REASONING_FORMAT_FLAG_RE = /(?:^|[\s"'])--reasoning-format(?:\s|=|$)/i;
 const BATCH_PARSE_RE =
   /(?:^|[\s"'])(?:--batch-size|-b)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
@@ -997,6 +999,11 @@ export function managedLlamaCommandHasReasoningFormat(cmd: string): boolean {
   return REASONING_FORMAT_FLAG_RE.test((cmd || '').trim());
 }
 
+/** True when the command already sets ``--cache-ram`` / ``-cram`` (any value). */
+export function managedLlamaCommandHasCacheRam(cmd: string): boolean {
+  return CACHE_RAM_FLAG_RE.test((cmd || '').trim());
+}
+
 /**
  * Gemma 4 thought lives in ``<|channel>thought`` tags. llama-server's default
  * ``--reasoning-format deepseek`` often buffers that entire block (or parks it in
@@ -1013,8 +1020,15 @@ export function ensureManagedLlamaGemmaReasoningFormat(cmd: string): string {
 }
 
 /**
- * Ensure managed chat commands always carry ``--no-webui`` and ``-np 1`` when those
- * flags are missing. Does not overwrite an existing ``-np`` / ``--parallel`` value.
+ * Ensure managed chat commands always carry ``--no-webui``, ``-np 1`` and
+ * ``--cache-ram 0`` when those flags are missing. Does not overwrite an existing
+ * ``-np`` / ``--parallel`` or ``--cache-ram`` / ``-cram`` value.
+ *
+ * ``--cache-ram 0`` disables llama-server's host-RAM prompt cache (default 8 GiB).
+ * With one slot, every prompt-prefix change (Clara's system prompt embeds the live
+ * workspace tree) copies the slot's KV / recurrent state into that cache, so RAM
+ * climbs by GBs over a long agent session at large context and looks like a leak.
+ * The slot itself still reuses the common prefix between turns without it.
  */
 export function ensureManagedLlamaDefaultServerFlags(cmd: string): string {
   const trimmed = (cmd || '').trim();
@@ -1027,6 +1041,9 @@ export function ensureManagedLlamaDefaultServerFlags(cmd: string): string {
   }
   if (!managedLlamaCommandHasParallel(out)) {
     out = `${out} -np 1`;
+  }
+  if (!managedLlamaCommandHasCacheRam(out)) {
+    out = `${out} --cache-ram 0`;
   }
   return out;
 }

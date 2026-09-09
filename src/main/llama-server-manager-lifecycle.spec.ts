@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import * as path from 'path';
 import * as os from 'os';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../shared';
 
@@ -46,6 +46,7 @@ let managedBin = '';
 vi.mock('./paths', () => ({
   getRuntimeBinDir: () => tempBinDir,
   getManagedLlamaServerPath: () => managedBin || null,
+  getAppDataDir: () => tempBinDir,
 }));
 
 vi.mock('./config/load-save', () => ({
@@ -103,6 +104,7 @@ import {
   stopAllManagedLlamaServers,
   getLlamaManagedRuntimeOverrides,
   isManagedLlamaRunningForActivePreset,
+  reapOrphanManagedLlamaServers,
 } from './llama-server-manager';
 import { ingestElectronLog } from './log-ingest';
 
@@ -372,7 +374,7 @@ describe('managed llama-server lifecycle', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('injects --no-webui and -np 1 when the saved command omits them', async () => {
+  it('injects --no-webui, -np 1 and --cache-ram 0 when the saved command omits them', async () => {
     const cfg = makeConfig();
     const startP = startManagedLlamaServers('m1', cfg);
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
@@ -381,6 +383,9 @@ describe('managed llama-server lifecycle', () => {
     const npAt = args.indexOf('-np');
     expect(npAt).toBeGreaterThanOrEqual(0);
     expect(args[npAt + 1]).toBe('1');
+    const cramAt = args.indexOf('--cache-ram');
+    expect(cramAt).toBeGreaterThanOrEqual(0);
+    expect(args[cramAt + 1]).toBe('0');
     stopManagedLlamaServers('m1');
     await startP;
   });
@@ -406,5 +411,24 @@ describe('managed llama-server lifecycle', () => {
     expect(args).not.toContain('--reasoning-format');
     stopManagedLlamaServers('m1');
     await startP;
+  });
+
+  it('reaps llama-server PIDs persisted from a previous session', () => {
+    const pidPath = path.join(tempBinDir, 'managed-llama.pids.json');
+    writeFileSync(pidPath, JSON.stringify([55501, 55502]));
+    reapOrphanManagedLlamaServers();
+    if (process.platform === 'win32') {
+      expect(spawnSyncMock).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '55501', '/t', '/f'],
+        expect.objectContaining({ windowsHide: true }),
+      );
+      expect(spawnSyncMock).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '55502', '/t', '/f'],
+        expect.objectContaining({ windowsHide: true }),
+      );
+    }
+    expect(existsSync(pidPath)).toBe(false);
   });
 });

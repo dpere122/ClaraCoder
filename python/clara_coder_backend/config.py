@@ -146,6 +146,10 @@ CLARA_EMBEDDINGS_CPU_ENABLED = _env_bool('CLARA_EMBEDDINGS_CPU_ENABLED', True)
 CLARA_FASTEMBED_MODEL = (env_clara('CLARA_FASTEMBED_MODEL', '') or 'BAAI/bge-small-en-v1.5').strip()
 # Empty = ``{CLARA_RUNTIME_DIR}/embeddings/fastembed``.
 CLARA_FASTEMBED_CACHE_DIR = (env_clara('CLARA_FASTEMBED_CACHE_DIR', '') or '').strip()
+# ONNX Runtime intra-op threads for CPU embeddings. ``0`` = auto (``min(4, cpu_count)``).
+# Lower this when a managed llama-server runs CPU layers on the same box and the
+# background indexer competes with token generation.
+CLARA_FASTEMBED_THREADS = _env_int('CLARA_FASTEMBED_THREADS', 0, 0, 64)
 
 # Seeds :attr:`~clara_coder_backend.session.state.runtime_config` before the first
 # ``POST /runtime-config``; overridden by Settings → Tools.

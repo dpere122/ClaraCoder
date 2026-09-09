@@ -14,16 +14,15 @@ import {
   isQueueableFeedItem,
   isToolBatchMember,
   isZeroDwellQueueItem,
+  markdownAfterCurrent,
   previewCommitCount,
   previewItemLabel,
   previewItemText,
   previewQueueHeader,
-  previewSessionText,
   previewShowsBody,
   pressureInbound,
   queueableFeedIdentity,
   splitQueuedFeed,
-  absorbedBriefThoughts,
 } from './stream-preview-queue';
 
 const thought: TurnFeedItem = {
@@ -42,10 +41,8 @@ const tool3: TurnFeedItem = {
   kind: 'tool',
   part: { streamTag: toolTrailStatusStreamTag('run-3'), label: 'list_workspace_directory', text: '.' },
 };
-const brief: TurnFeedItem = {
-  kind: 'brief',
-  part: { streamTag: 'clara', label: 'Clara', text: 'next I will read' },
-};
+/** Clara brief: planning prose rendered inline as markdown (never queued). */
+const brief: TurnFeedItem = { kind: 'markdown', text: 'next I will read' };
 const nudge: TurnFeedItem = {
   kind: 'nudge',
   part: { streamTag: 'nudge', label: 'Nudge', text: 'almost' },
@@ -57,13 +54,13 @@ const hitl: TurnFeedItem = {
 };
 
 describe('isQueueableFeedItem', () => {
-  it('queues thought, brief, nudge, and tool; not markdown', () => {
+  it('queues thought, nudge, and tool; not markdown (reply or Clara brief)', () => {
     expect(isQueueableFeedItem(thought)).toBe(true);
-    expect(isQueueableFeedItem(brief)).toBe(true);
     expect(isQueueableFeedItem(nudge)).toBe(true);
     expect(isQueueableFeedItem(tool)).toBe(true);
     expect(isQueueableFeedItem(hitl)).toBe(true);
     expect(isQueueableFeedItem(md)).toBe(false);
+    expect(isQueueableFeedItem(brief)).toBe(false);
   });
 });
 
@@ -103,41 +100,14 @@ describe('previewQueueHeader', () => {
       'Thinking — read_workspace_file — search_workspace',
     );
   });
-
-  it('keeps a live brief labeled reasoning while thoughts are absorbed', () => {
-    expect(previewQueueHeader(brief, [thought])).toBe('reasoning');
-    expect(previewQueueHeader(brief, [thought, tool])).toBe('reasoning — read_workspace_file');
-  });
-});
-
-describe('absorbedBriefThoughts', () => {
-  it('takes leading thoughts after a live brief and stops at any other event', () => {
-    expect(absorbedBriefThoughts(brief, [thought, tool])).toEqual([thought]);
-    expect(absorbedBriefThoughts(brief, [tool, thought])).toEqual([]);
-    expect(absorbedBriefThoughts(thought, [thought])).toEqual([]);
-  });
-});
-
-describe('previewSessionText', () => {
-  it('appends absorbed thought text into the live brief pane', () => {
-    const later: TurnFeedItem = {
-      kind: 'thought',
-      part: { streamTag: 'reasoning', label: 'R', text: 'sidecar' },
-    };
-    expect(previewSessionText(brief, [later, tool])).toBe('next I will read\nsidecar');
-  });
-
-  it('leaves a thought preview as its own text', () => {
-    expect(previewSessionText(thought, [brief])).toBe('hmm');
-  });
 });
 
 describe('previewShowsBody', () => {
-  it('is true for thought/brief/nudge and false for tools', () => {
+  it('is true for thought/nudge and false for tools and markdown', () => {
     expect(previewShowsBody(thought)).toBe(true);
-    expect(previewShowsBody(brief)).toBe(true);
     expect(previewShowsBody(nudge)).toBe(true);
     expect(previewShowsBody(tool)).toBe(false);
+    expect(previewShowsBody(brief)).toBe(false);
     expect(previewShowsBody(undefined)).toBe(false);
   });
 });
@@ -201,9 +171,9 @@ describe('previewCommitCount', () => {
     expect(previewCommitCount([tool, hitl, tool2], 0)).toBe(1);
   });
 
-  it('commits a live brief together with the thoughts absorbed into its pane', () => {
-    expect(previewCommitCount([brief, thought, tool], 0)).toBe(2);
-    expect(previewCommitCount([brief, tool], 0)).toBe(1);
+  it('ignores inline brief markdown when counting the batch', () => {
+    expect(previewCommitCount([brief, thought, tool], 0)).toBe(1);
+    expect(previewCommitCount([brief, tool, tool2], 0)).toBe(2);
   });
 });
 
@@ -215,12 +185,6 @@ describe('pressureInbound', () => {
   it('ignores sibling tools in the live batch', () => {
     expect(pressureInbound(tool, [tool2, tool3])).toBeUndefined();
     expect(pressureInbound(tool, [tool2, thought])).toEqual(thought);
-  });
-
-  it('does not let live reasoning commit a Clara brief', () => {
-    expect(pressureInbound(brief, [thought])).toBeUndefined();
-    expect(pressureInbound(brief, [thought, tool])).toEqual(tool);
-    expect(pressureInbound(brief, [nudge])).toEqual(nudge);
   });
 });
 
@@ -250,10 +214,14 @@ describe('feedItemDisplayRole', () => {
     expect(feedItemDisplayRole(items, 1, 1, true)).toBe('preview');
   });
 
-  it('keeps the brief in preview and hides absorbed live thoughts', () => {
-    const items = [brief, thought];
-    expect(feedItemDisplayRole(items, 0, 0, true)).toBe('preview');
-    expect(feedItemDisplayRole(items, 1, 0, true)).toBe('hidden');
+  it('renders a Clara brief as markdown in place, live and persisted, without a preview slot', () => {
+    expect(feedItemDisplayRole([brief], 0, 0, true)).toBe('markdown');
+    expect(feedItemDisplayRole([brief], 0, 0, false)).toBe('markdown');
+    const items = [brief, tool, brief, tool2];
+    expect(feedItemDisplayRole(items, 0, 0, true)).toBe('markdown');
+    expect(feedItemDisplayRole(items, 1, 0, true)).toBe('preview');
+    expect(feedItemDisplayRole(items, 2, 0, true)).toBe('markdown');
+    expect(feedItemDisplayRole(items, 3, 0, true)).toBe('hidden');
   });
 });
 
@@ -271,11 +239,16 @@ describe('initialLiveCommittedCount', () => {
   });
 
   it('keeps only the current event in preview when remounting mid-turn', () => {
-    expect(initialLiveCommittedCount([thought, brief, tool])).toBe(2);
+    expect(initialLiveCommittedCount([thought, brief, tool])).toBe(1);
   });
 
-  it('commits everything once markdown has started', () => {
+  it('commits everything once the reply markdown has started', () => {
     expect(initialLiveCommittedCount([thought, tool, md])).toBe(2);
+  });
+
+  it('does not treat an earlier inline brief as the reply having started', () => {
+    expect(initialLiveCommittedCount([brief, tool])).toBe(0);
+    expect(initialLiveCommittedCount([brief, tool, brief, thought])).toBe(1);
   });
 
   it('keeps a trailing tool batch in one preview', () => {
@@ -283,10 +256,9 @@ describe('initialLiveCommittedCount', () => {
     expect(initialLiveCommittedCount([tool, tool2, tool3])).toBe(0);
   });
 
-  it('keeps a live brief and its absorbed thoughts in one preview on remount', () => {
-    expect(initialLiveCommittedCount([brief, thought])).toBe(0);
-    expect(initialLiveCommittedCount([thought, brief])).toBe(0);
-    expect(initialLiveCommittedCount([brief, thought, brief, thought])).toBe(2);
+  it('keeps a run of live thoughts in one preview on remount', () => {
+    expect(initialLiveCommittedCount([thought, thought])).toBe(0);
+    expect(initialLiveCommittedCount([tool, thought, thought])).toBe(1);
   });
 });
 
@@ -309,10 +281,12 @@ describe('hasCommitPressure', () => {
     expect(hasCommitPressure([tool, tool2, md], tool, [tool2])).toBe(true);
   });
 
-  it('is false while only reasoning is inbound on a live brief', () => {
-    expect(hasCommitPressure([brief, thought], brief, [thought])).toBe(false);
-    expect(hasCommitPressure([brief, thought, tool], brief, [thought, tool])).toBe(true);
-    expect(hasCommitPressure([brief, thought, md], brief, [thought])).toBe(true);
+  it('ignores an inline brief that landed before the current preview', () => {
+    expect(markdownAfterCurrent([brief, thought], thought)).toBe(false);
+    expect(markdownAfterCurrent([brief, thought, brief], thought)).toBe(true);
+    expect(hasCommitPressure([brief, thought], thought, [])).toBe(false);
+    expect(hasCommitPressure([brief, tool, tool2], tool, [tool2])).toBe(false);
+    expect(hasCommitPressure([brief, thought, brief], thought, [])).toBe(true);
   });
 });
 
@@ -401,13 +375,13 @@ describe('decidePreviewCommit', () => {
     ).toEqual({ action: 'commit' });
   });
 
-  it('stays on a live brief when only reasoning is inbound', () => {
+  it('stays on a live thought that follows an inline brief', () => {
     expect(
       decidePreviewCommit({
         ...base,
         items: [brief, thought],
-        current: brief,
-        inbound: [thought],
+        current: thought,
+        inbound: [],
         now: 10_000,
       }),
     ).toEqual({ action: 'stay' });

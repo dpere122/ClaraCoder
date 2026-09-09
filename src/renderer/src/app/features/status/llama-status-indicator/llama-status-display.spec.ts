@@ -1,4 +1,4 @@
-import { computeStatusPollIntervalMs, healthDotState } from './llama-status-display';
+import { computeStatusPollIntervalMs, embeddingsStatusDotState, healthDotState, modelStatusDotState } from './llama-status-display';
 
 describe('computeStatusPollIntervalMs', () => {
   it('uses short interval when not ok or not running', () => {
@@ -69,9 +69,72 @@ describe('healthDotState', () => {
     expect(healthDotState('loading')).toBe('yellow');
   });
 
-  it('maps stopped, error and off to red', () => {
-    expect(healthDotState('stopped')).toBe('red');
+  it('maps stopped and off to gray', () => {
+    expect(healthDotState('stopped')).toBe('gray');
+    expect(healthDotState('off')).toBe('gray');
+  });
+
+  it('maps error to red', () => {
     expect(healthDotState('error')).toBe('red');
-    expect(healthDotState('off')).toBe('red');
+  });
+});
+
+describe('embeddingsStatusDotState', () => {
+  it('maps ready to green', () => {
+    expect(embeddingsStatusDotState('ready')).toBe('green');
+  });
+
+  it('maps loading to yellow', () => {
+    expect(embeddingsStatusDotState('loading')).toBe('yellow');
+  });
+
+  it('maps idle and disabled to gray', () => {
+    expect(embeddingsStatusDotState('idle')).toBe('gray');
+    expect(embeddingsStatusDotState('disabled')).toBe('gray');
+  });
+
+  it('maps error to red', () => {
+    expect(embeddingsStatusDotState('error')).toBe('red');
+  });
+});
+
+describe('modelStatusDotState', () => {
+  it('is yellow while the managed server is starting', () => {
+    expect(modelStatusDotState('starting', null)).toBe('yellow');
+    expect(
+      modelStatusDotState(null, {
+        ok: true,
+        running: false,
+        starting: true,
+        modelId: 'm',
+        chat: { port: 1, health: 'loading' },
+      }),
+    ).toBe('yellow');
+  });
+
+  it('is yellow while weights are downloading', () => {
+    expect(modelStatusDotState('downloading', null)).toBe('yellow');
+  });
+
+  it('is gray when stopped and not starting', () => {
+    expect(
+      modelStatusDotState(null, {
+        ok: true,
+        running: false,
+        modelId: 'm',
+        chat: { port: 0, health: 'stopped' },
+      }),
+    ).toBe('gray');
+  });
+
+  it('uses chat health once the managed server is running', () => {
+    expect(
+      modelStatusDotState(null, {
+        ok: true,
+        running: true,
+        modelId: 'm',
+        chat: { port: 1, health: 'ok' },
+      }),
+    ).toBe('green');
   });
 });

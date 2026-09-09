@@ -2,20 +2,22 @@
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
+  overflow: visible;
 }
 
 .llama-status {
   display: inline-flex;
   align-items: center;
-  gap: 0.7rem;
-  padding: 0.1rem 0.2rem;
+  gap: 0.75rem;
+  padding: 0.15rem 0.3rem;
+  overflow: visible;
   white-space: nowrap;
 }
 
 .llama-status__item {
   display: inline-flex;
   align-items: center;
-  gap: 0.32rem;
+  gap: 0.38rem;
   cursor: default;
 }
 
@@ -27,38 +29,82 @@
 
 .llama-status__dot {
   display: inline-block;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background-color: var(--dot-color, #6b7280);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dot-color, #6b7280) 55%, transparent),
-    0 0 6px color-mix(in srgb, var(--dot-color, #6b7280) 70%, transparent);
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 50% !important;
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      color-mix(in srgb, #fff 78%, var(--dot-color, #6b7280)) 0%,
+      var(--dot-color, #6b7280) 52%,
+      color-mix(in srgb, #000 32%, var(--dot-color, #6b7280)) 100%
+    );
+  box-shadow:
+    inset 0 -1px 1px color-mix(in srgb, #000 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--dot-color, #6b7280) 28%, transparent),
+    0 0 3px color-mix(in srgb, var(--dot-color, #6b7280) 42%, transparent);
+  transform-origin: center;
 }
 
 .llama-status__dot--green {
-  --dot-color: #2ecc71;
+  --dot-color: #3ee889;
+  animation: llama-status-pop 2.4s ease-in-out infinite;
 }
 
 .llama-status__dot--yellow {
-  --dot-color: #f1c40f;
-  animation: llama-status-pulse 1.2s ease-in-out infinite;
+  --dot-color: #ffd84a;
+  animation: llama-status-pulse 1.05s ease-in-out infinite;
+}
+
+.llama-status__dot--gray {
+  --dot-color: #8b919a;
+  box-shadow:
+    inset 0 -1px 1px color-mix(in srgb, #000 32%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--dot-color) 22%, transparent),
+    0 0 2px color-mix(in srgb, var(--dot-color) 28%, transparent);
 }
 
 .llama-status__dot--red {
-  --dot-color: #e74c3c;
+  --dot-color: #ff5a4a;
+  box-shadow:
+    inset 0 -1px 1px color-mix(in srgb, #000 32%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--dot-color) 28%, transparent),
+    0 0 3px color-mix(in srgb, var(--dot-color) 38%, transparent);
+}
+
+@keyframes llama-status-pop {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow:
+      inset 0 -1px 1px color-mix(in srgb, #000 28%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--dot-color) 28%, transparent),
+      0 0 3px color-mix(in srgb, var(--dot-color) 42%, transparent);
+  }
+  50% {
+    filter: brightness(1.1);
+    box-shadow:
+      inset 0 -1px 1px color-mix(in srgb, #000 24%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--dot-color) 36%, transparent),
+      0 0 5px color-mix(in srgb, var(--dot-color) 55%, transparent);
+  }
 }
 
 @keyframes llama-status-pulse {
   0%,
   100% {
-    opacity: 1;
+    transform: scale(0.92);
+    opacity: 0.72;
   }
   50% {
-    opacity: 0.45;
+    transform: scale(1.2);
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .llama-status__dot--green,
   .llama-status__dot--yellow {
     animation: none;
   }

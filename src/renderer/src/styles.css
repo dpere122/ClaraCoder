@@ -387,6 +387,11 @@ app-workspace-monaco .workspace-monaco-md-toggle__btn {
   border-radius: 999px !important;
 }
 
+/* Status-bar Model / Embeddings traffic-light orbs stay circular. */
+app-llama-status-indicator .llama-status__dot {
+  border-radius: 50% !important;
+}
+
 html, body {
   height: 100%;
   margin: 0;

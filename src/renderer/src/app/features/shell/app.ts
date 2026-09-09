@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
+import { afterNextRender, Component, computed, effect, ElementRef, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -66,6 +66,9 @@ import { conversationRestorePrompt } from '../../shared/themed-confirm-dialog/fo
 
 export { pickTtsFlushText };
 import {
+  applyFileTabStripWheelScroll,
+  fileTabStripOverlayMetrics,
+  fileTabStripScrollLeftFromTrackClick,
   chatFileTabBasename,
   chatFileTabId,
   chatFileTabModelKey,
@@ -165,6 +168,20 @@ export class App implements OnInit, OnDestroy {
   @ViewChild(WorkspaceMonacoComponent) private workspaceMonaco?: WorkspaceMonacoComponent;
   @ViewChild(WorkspaceComponent) private workspacePanel?: WorkspaceComponent;
   @ViewChild(WorkspaceTerminalDockComponent) private workspaceTerminalDock?: WorkspaceTerminalDockComponent;
+  @ViewChild('fileTabStripTabs')
+  private set fileTabStripTabsRef(ref: ElementRef<HTMLElement> | undefined) {
+    this.teardownFileTabStripOverlayObserver();
+    this.fileTabStripTabsEl = ref?.nativeElement ?? null;
+    if (!this.fileTabStripTabsEl) {
+      this.fileTabStripOverlay.set({ overflowing: false, thumbOffsetPx: 0, thumbSizePx: 0 });
+      return;
+    }
+    this.fileTabStripResizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => this.syncFileTabStripOverlay());
+    this.fileTabStripResizeObserver?.observe(this.fileTabStripTabsEl);
+    this.syncFileTabStripOverlay();
+  }
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
   private shellDestroyed = false;
@@ -256,6 +273,18 @@ export class App implements OnInit, OnDestroy {
   protected readonly currentWorkspacePath = computed(() => this.currentWorkspace()?.path?.trim() ?? '');
   /** Open file tabs (paths relative to current workspace). */
   protected readonly fileTabs = signal<ChatFileTab[]>([]);
+  /** Overlay scrollbar metrics for the file tab strip (native bar stays hidden). */
+  protected readonly fileTabStripOverlay = signal(fileTabStripOverlayMetrics(0, 0, 0, 0));
+  protected readonly fileTabStripOverlayDragging = signal(false);
+  private fileTabStripTabsEl: HTMLElement | null = null;
+  private fileTabStripResizeObserver: ResizeObserver | null = null;
+  private fileTabStripThumbDrag: {
+    pointerId: number;
+    startX: number;
+    startScrollLeft: number;
+    trackWidth: number;
+    thumbSize: number;
+  } | null = null;
   /** Files attached to the next chat turn (images sent inline; others referenced by path). */
   protected readonly chatContextFiles = signal<ChatContextFile[]>([]);
   /** Unpinned editor line-range chip (cleared on file switch). */
@@ -645,6 +674,15 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
+      this.fileTabs();
+      this.workspaceWidth();
+      this.sidebarWidth();
+      untracked(() => {
+        afterNextRender(() => this.syncFileTabStripOverlay(), { injector: this.inj });
+      });
+    });
+
+    effect(() => {
       // Track both workspace and conversation changes to sync workspace context
       // The effect will re-run when either changes, after loadConversationsForWorkspace
       // has had a chance to update activeConversationId
@@ -847,6 +885,9 @@ export class App implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.shellDestroyed = true;
+    this.teardownFileTabStripOverlayObserver();
+    this.fileTabStripThumbDrag = null;
+    this.fileTabStripOverlayDragging.set(false);
     this.clearChromeRecentCloseTimer();
     this.stopLmStudioContextPoll();
     void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
@@ -2291,6 +2332,107 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.fileTabs.update((tabs) => reorderFileTabs(tabs, event.previousIndex, event.currentIndex));
+  }
+
+  protected onFileTabStripWheel(event: WheelEvent): void {
+    const el = event.currentTarget;
+    if (el instanceof HTMLElement) {
+      applyFileTabStripWheelScroll(el, event);
+      this.syncFileTabStripOverlay();
+    }
+  }
+
+  protected onFileTabStripScroll(): void {
+    this.syncFileTabStripOverlay();
+  }
+
+  protected onFileTabStripOverlayTrackPointerDown(event: PointerEvent): void {
+    const track = event.currentTarget;
+    const tabs = this.fileTabStripTabsEl;
+    if (!(track instanceof HTMLElement) || !tabs) {
+      return;
+    }
+    if (event.target instanceof HTMLElement && event.target.classList.contains('chat-area__tab-strip-overlay-thumb')) {
+      return;
+    }
+    const rect = track.getBoundingClientRect();
+    const metrics = this.fileTabStripOverlay();
+    tabs.scrollLeft = fileTabStripScrollLeftFromTrackClick(
+      event.clientX - rect.left,
+      metrics.thumbSizePx,
+      rect.width,
+      tabs.scrollWidth,
+      tabs.clientWidth,
+    );
+    this.syncFileTabStripOverlay();
+    this.beginFileTabStripThumbDrag(event, track);
+  }
+
+  protected onFileTabStripOverlayThumbPointerDown(event: PointerEvent): void {
+    event.stopPropagation();
+    const track = event.currentTarget instanceof HTMLElement ? event.currentTarget.parentElement : null;
+    if (!(track instanceof HTMLElement)) {
+      return;
+    }
+    this.beginFileTabStripThumbDrag(event, track);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  protected onFileTabStripOverlayPointerMove(event: PointerEvent): void {
+    const drag = this.fileTabStripThumbDrag;
+    const tabs = this.fileTabStripTabsEl;
+    if (!drag || drag.pointerId !== event.pointerId || !tabs) {
+      return;
+    }
+    const overflow = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+    const maxOffset = Math.max(0, drag.trackWidth - drag.thumbSize);
+    const dx = event.clientX - drag.startX;
+    tabs.scrollLeft = drag.startScrollLeft + (maxOffset <= 0 || overflow <= 0 ? 0 : (dx / maxOffset) * overflow);
+    this.syncFileTabStripOverlay();
+  }
+
+  @HostListener('document:pointerup', ['$event'])
+  @HostListener('document:pointercancel', ['$event'])
+  protected onFileTabStripOverlayPointerUp(event: PointerEvent): void {
+    if (this.fileTabStripThumbDrag?.pointerId === event.pointerId) {
+      this.fileTabStripThumbDrag = null;
+      this.fileTabStripOverlayDragging.set(false);
+    }
+  }
+
+  private beginFileTabStripThumbDrag(event: PointerEvent, track: HTMLElement): void {
+    const tabs = this.fileTabStripTabsEl;
+    if (!tabs) {
+      return;
+    }
+    event.preventDefault();
+    this.fileTabStripThumbDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: tabs.scrollLeft,
+      trackWidth: track.getBoundingClientRect().width,
+      thumbSize: this.fileTabStripOverlay().thumbSizePx,
+    };
+    this.fileTabStripOverlayDragging.set(true);
+  }
+
+  private syncFileTabStripOverlay(): void {
+    const tabs = this.fileTabStripTabsEl;
+    if (!tabs) {
+      this.fileTabStripOverlay.set(fileTabStripOverlayMetrics(0, 0, 0, 0));
+      return;
+    }
+    const track = tabs.parentElement?.querySelector('.chat-area__tab-strip-overlay');
+    const trackWidth = track instanceof HTMLElement ? track.clientWidth : tabs.clientWidth;
+    this.fileTabStripOverlay.set(
+      fileTabStripOverlayMetrics(tabs.scrollLeft, tabs.scrollWidth, tabs.clientWidth, trackWidth),
+    );
+  }
+
+  private teardownFileTabStripOverlayObserver(): void {
+    this.fileTabStripResizeObserver?.disconnect();
+    this.fileTabStripResizeObserver = null;
+    this.fileTabStripTabsEl = null;
   }
 
   protected async closeMainFileTab(event: MouseEvent, tabId: string): Promise<void> {

@@ -203,12 +203,20 @@
       <section class='chat-area__stage'>
         <div class='chat-area__tabs' role='presentation'>
         @if (hasOpenWorkspace()) {
-        <div class='chat-area__tab-strip' role='tablist' aria-label='Open files'>
+        <div
+          class='chat-area__tab-strip'
+          role='tablist'
+          aria-label='Open files'
+          [class.is-overlay-dragging]='fileTabStripOverlayDragging()'
+        >
           <div
             class='chat-area__tab-strip-tabs'
+            #fileTabStripTabs
             cdkDropList
             cdkDropListOrientation='horizontal'
             (cdkDropListDropped)='onFileTabDrop($event)'
+            (wheel)='onFileTabStripWheel($event)'
+            (scroll)='onFileTabStripScroll()'
           >
           @for (tab of fileTabs(); track fileTabIdForTab(tab)) {
             <button
@@ -247,6 +255,19 @@
               >&times;</span>
             </button>
           }
+          </div>
+          <div
+            class='chat-area__tab-strip-overlay'
+            [class.is-overflowing]='fileTabStripOverlay().overflowing'
+            aria-hidden='true'
+            (pointerdown)='onFileTabStripOverlayTrackPointerDown($event)'
+          >
+            <div
+              class='chat-area__tab-strip-overlay-thumb'
+              [style.width.px]='fileTabStripOverlay().thumbSizePx'
+              [style.transform]='"translateX(" + fileTabStripOverlay().thumbOffsetPx + "px)"'
+              (pointerdown)='onFileTabStripOverlayThumbPointerDown($event)'
+            ></div>
           </div>
         </div>
         }

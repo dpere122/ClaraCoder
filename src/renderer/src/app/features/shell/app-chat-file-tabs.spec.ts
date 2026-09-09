@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   allFileTabIds,
+  applyFileTabStripWheelScroll,
+  fileTabStripOverlayMetrics,
+  fileTabStripScrollLeftFromOverlay,
+  fileTabStripScrollLeftFromTrackClick,
   buildPlanChatFileTab,
   chatFileTabBasename,
   chatFileTabId,
@@ -166,5 +170,40 @@ describe('app-chat-file-tabs', () => {
     expect(restored.activeTabId).toBe('file:abs:C:/tmp/out.ts');
     expect(restored.tabs[0]?.relativePath).toBe('src/foo.ts');
     expect(restored.tabs[1]?.outsideWorkspace).toBe(true);
+  });
+
+  it('maps vertical mouse wheel to horizontal tab-strip scroll', () => {
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => 400 });
+    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => 100 });
+    el.scrollLeft = 0;
+    const event = new WheelEvent('wheel', { deltaX: 0, deltaY: 40, cancelable: true });
+    expect(applyFileTabStripWheelScroll(el, event)).toBe(true);
+    expect(el.scrollLeft).toBe(40);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('ignores wheel when the tab strip does not overflow', () => {
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => 80 });
+    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => 100 });
+    el.scrollLeft = 0;
+    const event = new WheelEvent('wheel', { deltaY: 40, cancelable: true });
+    expect(applyFileTabStripWheelScroll(el, event)).toBe(false);
+    expect(el.scrollLeft).toBe(0);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('sizes the overlay thumb from the visible ratio', () => {
+    const metrics = fileTabStripOverlayMetrics(50, 400, 100, 100);
+    expect(metrics.overflowing).toBe(true);
+    expect(metrics.thumbSizePx).toBe(25);
+    expect(metrics.thumbOffsetPx).toBeCloseTo(12.5);
+    expect(fileTabStripOverlayMetrics(0, 80, 100, 100).overflowing).toBe(false);
+  });
+
+  it('maps overlay thumb and track clicks back to scrollLeft', () => {
+    expect(fileTabStripScrollLeftFromOverlay(12.5, 25, 100, 400, 100)).toBeCloseTo(50);
+    expect(fileTabStripScrollLeftFromTrackClick(25, 25, 100, 400, 100)).toBeCloseTo(50);
   });
 });

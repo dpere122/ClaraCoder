@@ -387,6 +387,30 @@ describe('App', () => {
     expect(app.activeMainTabId()).toBe('file:rel:src/bar.ts');
   });
 
+  it('renders full file tab names without truncating labels', async () => {
+    const longName = 'very-long-workspace-component-name-that-must-stay-visible.ts';
+    refs = stubElectronApi(undefined, {
+      currentWorkspaceId: 'ws-a',
+      workspaces: [{ id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' }],
+      workspaceOpenTabsByWorkspaceId: {
+        'ws-a': {
+          tabs: [
+            { relativePath: `src/${longName}`, outsideWorkspace: false },
+            { relativePath: 'src/another-quite-long-file-name.spec.ts', outsideWorkspace: false },
+          ],
+          activeTabId: `file:rel:src/${longName}`,
+        },
+      },
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const labels = [...compiled.querySelectorAll('.chat-main-tab-label')].map((el) => el.textContent?.trim());
+    expect(labels).toEqual([longName, 'another-quite-long-file-name.spec.ts']);
+    expect(compiled.querySelector('.chat-area__tab-strip-tabs')).toBeTruthy();
+  });
+
   it('keeps restored open tabs after a stale config-updated broadcast', async () => {
     const workspaces = [
       { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },

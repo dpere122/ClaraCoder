@@ -322,3 +322,89 @@ export function chatFileTabsFromPersistedState(
     activeTabId: active && seen.has(active) ? active : tabs.length > 0 ? chatFileTabId(tabs[tabs.length - 1]!) : null,
   };
 }
+
+const WHEEL_LINE_PX = 16;
+
+/** Map mouse-wheel / trackpad input onto a horizontally overflowing file-tab strip. */
+export function applyFileTabStripWheelScroll(el: HTMLElement, event: WheelEvent): boolean {
+  if (el.scrollWidth <= el.clientWidth) {
+    return false;
+  }
+  const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (raw === 0) {
+    return false;
+  }
+  const delta = event.deltaMode === 1 ? raw * WHEEL_LINE_PX : event.deltaMode === 2 ? raw * el.clientWidth : raw;
+  const max = el.scrollWidth - el.clientWidth;
+  const next = Math.min(max, Math.max(0, el.scrollLeft + delta));
+  if (next === el.scrollLeft) {
+    return false;
+  }
+  event.preventDefault();
+  el.scrollLeft = next;
+  return true;
+}
+
+export interface FileTabStripOverlayMetrics {
+  overflowing: boolean;
+  thumbOffsetPx: number;
+  thumbSizePx: number;
+}
+
+const FILE_TAB_STRIP_MIN_THUMB_PX = 24;
+
+/** Overlay thumb size/offset for a hidden native scrollbar. */
+export function fileTabStripOverlayMetrics(
+  scrollLeft: number,
+  scrollWidth: number,
+  clientWidth: number,
+  trackWidth: number,
+): FileTabStripOverlayMetrics {
+  const overflow = scrollWidth - clientWidth;
+  if (overflow <= 0 || clientWidth <= 0 || trackWidth <= 0 || scrollWidth <= 0) {
+    return { overflowing: false, thumbOffsetPx: 0, thumbSizePx: 0 };
+  }
+  const thumbSizePx = Math.min(
+    trackWidth,
+    Math.max(FILE_TAB_STRIP_MIN_THUMB_PX, (clientWidth / scrollWidth) * trackWidth),
+  );
+  const maxOffset = Math.max(0, trackWidth - thumbSizePx);
+  const ratio = Math.min(1, Math.max(0, scrollLeft / overflow));
+  return {
+    overflowing: true,
+    thumbOffsetPx: ratio * maxOffset,
+    thumbSizePx,
+  };
+}
+
+export function fileTabStripScrollLeftFromOverlay(
+  thumbOffsetPx: number,
+  thumbSizePx: number,
+  trackWidth: number,
+  scrollWidth: number,
+  clientWidth: number,
+): number {
+  const overflow = Math.max(0, scrollWidth - clientWidth);
+  const maxOffset = Math.max(0, trackWidth - thumbSizePx);
+  if (overflow <= 0 || maxOffset <= 0) {
+    return 0;
+  }
+  const ratio = Math.min(1, Math.max(0, thumbOffsetPx / maxOffset));
+  return ratio * overflow;
+}
+
+export function fileTabStripScrollLeftFromTrackClick(
+  clickX: number,
+  thumbSizePx: number,
+  trackWidth: number,
+  scrollWidth: number,
+  clientWidth: number,
+): number {
+  return fileTabStripScrollLeftFromOverlay(
+    clickX - thumbSizePx / 2,
+    thumbSizePx,
+    trackWidth,
+    scrollWidth,
+    clientWidth,
+  );
+}

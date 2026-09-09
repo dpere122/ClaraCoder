@@ -8,9 +8,50 @@
  * Coder is closed.
  */
 import { spawnSync, type ChildProcess } from 'child_process';
+import * as path from 'path';
 
 export function childHasExited(proc: ChildProcess): boolean {
   return proc.exitCode !== null || proc.signalCode !== null;
+}
+
+/**
+ * Lower-cased executable name (no directory) of the process with ``pid``, or ``null``
+ * when there is no such process or the lookup failed. Used before reaping PIDs that were
+ * persisted by an earlier session: the OS may have recycled the number for an unrelated
+ * process, and killing that tree would be destructive.
+ */
+export function processImageName(pid: number): string | null {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return null;
+  }
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('tasklist', ['/fi', `PID eq ${pid}`, '/fo', 'csv', '/nh'], {
+        windowsHide: true,
+        timeout: 8000,
+        encoding: 'utf8',
+      });
+      if (r.error || r.status !== 0) {
+        return null;
+      }
+      // Matching row: "llama-server.exe","1234","Console","1","1,234 K". No match prints an
+      // INFO sentence instead, which never starts with a quote.
+      const row = String(r.stdout ?? '')
+        .split(/\r?\n/)
+        .find((line) => line.startsWith('"'));
+      const image = row?.slice(1).split('","')[0]?.trim();
+      return image ? image.toLowerCase() : null;
+    }
+    const r = spawnSync('ps', ['-p', String(pid), '-o', 'comm='], { timeout: 8000, encoding: 'utf8' });
+    if (r.error || r.status !== 0) {
+      return null;
+    }
+    // Linux prints the bare name; macOS prints the full executable path.
+    const name = String(r.stdout ?? '').trim();
+    return name ? path.basename(name).toLowerCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Kill ``pid`` and, on Windows, every descendant (``taskkill /T``). */

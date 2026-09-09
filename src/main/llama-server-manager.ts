@@ -36,7 +36,7 @@ import { SecretValue, unwrapSecret } from '../shared/types/app-config';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import { getAppDataDir, getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
-import { childHasExited, killPidTree, killProcessTree } from './utils/kill-process-tree';
+import { childHasExited, killPidTree, killProcessTree, processImageName } from './utils/kill-process-tree';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -195,6 +195,10 @@ function persistManagedLlamaPids(): void {
  * Kill llama-server processes left over from a previous Clara session that did not
  * run ``will-quit`` (crash, Task Manager kill). Those orphans hold model weights
  * in RAM/VRAM after the UI is gone.
+ *
+ * A persisted PID is only killed when the OS still reports a ``llama-server``
+ * executable under it. The previous session may have exited long ago and the
+ * number may now belong to an unrelated process.
  */
 export function reapOrphanManagedLlamaServers(): void {
   let pids: number[] = [];
@@ -208,6 +212,15 @@ export function reapOrphanManagedLlamaServers(): void {
     return;
   }
   for (const pid of pids) {
+    const image = processImageName(pid);
+    if (!image || !image.includes('llama-server')) {
+      logLlamaLifecycle(
+        'INFO',
+        `skipped orphan llama-server reap pid=${pid} image=${image ?? 'none'} (not a llama-server process)`,
+      );
+      continue;
+    }
+    logLlamaLifecycle('INFO', `reaping orphan llama-server pid=${pid} image=${image}`);
     killPidTree(pid);
   }
   try {
@@ -696,6 +709,8 @@ function attachLlamaStreams(
     st.embedPort = undefined;
     st.embedHost = undefined;
     st.embedHealthHost = undefined;
+    // Drop the dead PID from the pidfile so a later startup does not try to reap it.
+    persistManagedLlamaPids();
     invalidateManagedStatusCache(modelId);
     if (st.ready) {
       try {

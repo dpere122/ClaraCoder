@@ -856,6 +856,14 @@ export function migrateConfig(config: AppConfig): AppConfig {
         }
       }
     }
+    if (schemaVersion < 7) {
+      // Monaco top padding default moved 0 -> 20px so the first line clears the floating
+      // markdown Edit | Preview pill. One-time: a user who sets 0 afterwards keeps it.
+      const monaco = (newConfig as AppConfig).monacoWorkspaceEditor;
+      if (monaco && monaco.paddingTop === 0) {
+        monaco.paddingTop = 20;
+      }
+    }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
@@ -1098,13 +1106,6 @@ export function migrateConfig(config: AppConfig): AppConfig {
     monacoEditor.hoverDelay = 500;
     migrated = true;
   }
-  // 0 was the previous shipped default; the first line now sits 20px below the
-  // editor's top edge so it clears the floating markdown Edit | Preview pill.
-  if (monacoEditor?.paddingTop === 0) {
-    monacoEditor.paddingTop = 20;
-    migrated = true;
-  }
-
   const wtRaw = (newConfig as AppConfig & { workspaceTools?: WorkspaceToolsConfig }).workspaceTools;
   if (!wtRaw) {
     (newConfig as AppConfig).workspaceTools = getDefaultWorkspaceTools();

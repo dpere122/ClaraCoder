@@ -162,6 +162,10 @@ export class ChatActiveStackComponent implements OnDestroy {
   private emptyStateResizeObserver: ResizeObserver | null = null;
   /** Guards against a pending measurement frame firing after the component is destroyed. */
   private emptyStateDestroyed = false;
+  /** Frames spent waiting for the first usable layout before handing over to the ResizeObserver. */
+  private emptyStateMeasureAttempts = 0;
+  /** True once the frame that flips `emptyStateReady` has been requested. */
+  private emptyStateReadyArmed = false;
 
   /**
    * True while the transcript has nothing to show. `loading` is included because
@@ -219,29 +223,44 @@ export class ChatActiveStackComponent implements OnDestroy {
     );
   }
 
+  /** Frames to retry the initial measurement before leaving it to the ResizeObserver. */
+  private static readonly EMPTY_STATE_MEASURE_MAX_FRAMES = 30;
+
   /**
-   * Measure the centering lift, retrying (one frame at a time) until the stack reports a usable
-   * height. Backs up the host/composer `ResizeObserver` when the first pass lands before layout.
+   * Measure the centering lift, retrying (one frame at a time, bounded) until the stack reports
+   * a usable height. Backs up the host/composer `ResizeObserver` when the first pass lands before
+   * layout. The retry is capped so a host that stays unlaid-out (hidden ancestor) does not keep
+   * an animation-frame loop alive; the observer picks the measurement up once it gets a size.
    */
   private scheduleComposerEmptyOffset(): void {
     if (this.emptyStateDestroyed) {
       return;
     }
-    const measured = this.syncComposerEmptyOffset();
-    if (!measured) {
-      // zone.js patches `requestAnimationFrame`, so this runs inside the Angular zone.
-      requestAnimationFrame(() => this.scheduleComposerEmptyOffset());
+    if (this.syncComposerEmptyOffset()) {
       return;
     }
-    if (!this.emptyStateReady()) {
-      // The centered transform is applied this tick; enable the transition next frame so the
-      // initial centering paints in place rather than animating in on load.
-      requestAnimationFrame(() => {
-        if (!this.emptyStateDestroyed) {
-          this.emptyStateReady.set(true);
-        }
-      });
+    if (this.emptyStateMeasureAttempts >= ChatActiveStackComponent.EMPTY_STATE_MEASURE_MAX_FRAMES) {
+      return;
     }
+    this.emptyStateMeasureAttempts += 1;
+    // zone.js patches `requestAnimationFrame`, so this runs inside the Angular zone.
+    requestAnimationFrame(() => this.scheduleComposerEmptyOffset());
+  }
+
+  /**
+   * Enable the transform transition one frame after the first successful measurement, so the
+   * initial centering paints in place rather than animating in on load.
+   */
+  private armEmptyStateReady(): void {
+    if (this.emptyStateReadyArmed || this.emptyStateReady()) {
+      return;
+    }
+    this.emptyStateReadyArmed = true;
+    requestAnimationFrame(() => {
+      if (!this.emptyStateDestroyed) {
+        this.emptyStateReady.set(true);
+      }
+    });
   }
 
   /**
@@ -261,6 +280,7 @@ export class ChatActiveStackComponent implements OnDestroy {
     }
     const offset = Math.max(0, (host.clientHeight - composer.offsetHeight) / 2);
     this.composerEmptyOffsetPx.set(offset);
+    this.armEmptyStateReady();
     return true;
   }
 

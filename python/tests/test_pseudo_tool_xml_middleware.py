@@ -93,6 +93,31 @@ def test_extract_keeps_sibling_block_when_neighbor_is_truncated() -> None:
     assert got[0]['args'] == {'command': 'echo ok'}
 
 
+def test_extract_escapes_html_entities_that_xml_does_not_define() -> None:
+    pseudo = (
+        '<tool_call><function=write_workspace_file>'
+        '<parameter name="content">a&nbsp;b &copy; 2026 &amp; done</parameter>'
+        '</function></tool_call>'
+    )
+    got = extract_pseudo_tool_calls(pseudo)
+    assert len(got) == 1
+    assert got[0]['args'] == {'content': 'a&nbsp;b &copy; 2026 & done'}
+
+
+def test_extract_keeps_html_input_tags_inside_argument_text() -> None:
+    pseudo = (
+        '<tool_call><function=write_workspace_file>'
+        '<parameter name="relative_path">form.html</parameter>'
+        '<parameter name="content"><form><input type="text" name="q"><input type="submit"></form></parameter>'
+        '</function></tool_call>'
+    )
+    got = extract_pseudo_tool_calls(pseudo)
+    assert len(got) == 1
+    assert got[0]['name'] == 'write_workspace_file'
+    assert got[0]['args']['relative_path'] == 'form.html'
+    assert got[0]['args']['content'] == '<form><input type="text" name="q"><input type="submit"></form>'
+
+
 def test_extract_parameter_equals_form_with_ampersand() -> None:
     pseudo = (
         '<function=run_command>'

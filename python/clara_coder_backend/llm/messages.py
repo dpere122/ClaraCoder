@@ -52,12 +52,17 @@ _RE_FUNCTION_BLOCK = re.compile(
     r'|<\s*function\s*(?:=|name\s*=)[^>]*>.*?</\s*function\s*>',
     re.IGNORECASE | re.DOTALL,
 )
+# Tags that stay XML when escaping text content. `<input>` only in its bare container form:
+# an HTML `<input type="text">` inside a written file is argument text, not a wrapper.
 _RE_KNOWN_PSEUDO_TAG = re.compile(
-    r'</?\s*(?:function|parameter|tool_call|arguments|args|input)\b[^>]*/?>',
+    r'</?\s*(?:function|parameter|tool_call|arguments|args)\b[^>]*/?>'
+    r'|</?\s*input\s*>',
     re.IGNORECASE,
 )
-# Bare `&` that is not already a character or named entity (`&amp;`, `&#38;`, `&#x26;`).
-_RE_BARE_AMP = re.compile(r'&(?!(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)')
+# Bare `&` that is not already a character reference (`&#38;`, `&#x26;`) or one of the five
+# entities XML predefines (`&amp;` ...). Anything else (`&nbsp;`, `&copy;`) would make
+# ElementTree raise "undefined entity", so it is escaped and round-trips as literal text.
+_RE_BARE_AMP = re.compile(r'&(?!(?:#\d+|#[xX][0-9a-fA-F]+|amp|lt|gt|quot|apos);)')
 _RE_JSON_LIKE = re.compile(r'^\s*[\[{"]')
 
 

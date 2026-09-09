@@ -413,9 +413,36 @@ describe('managed llama-server lifecycle', () => {
     await startP;
   });
 
+  /**
+   * Answer ``tasklist`` / ``ps`` image lookups from ``images`` (pid -> executable name);
+   * PIDs missing from the map look like they no longer exist.
+   */
+  function mockProcessImages(images: Record<number, string>): void {
+    spawnSyncMock.mockImplementation(((cmd: string, args: string[]) => {
+      if (cmd === 'tasklist') {
+        const pid = Number(/PID eq (\d+)/.exec(args[1] ?? '')?.[1]);
+        const image = images[pid];
+        return {
+          status: 0,
+          stdout: image
+            ? `"${image}","${pid}","Console","1","1,234 K"\r\n`
+            : 'INFO: No tasks are running which match the specified criteria.\r\n',
+        };
+      }
+      if (cmd === 'ps') {
+        const pid = Number(args[1]);
+        const image = images[pid];
+        return image ? { status: 0, stdout: `${image}\n` } : { status: 1, stdout: '' };
+      }
+      return { status: 0 };
+    }) as never);
+  }
+
   it('reaps llama-server PIDs persisted from a previous session', () => {
     const pidPath = path.join(tempBinDir, 'managed-llama.pids.json');
     writeFileSync(pidPath, JSON.stringify([55501, 55502]));
+    mockProcessImages({ 55501: 'llama-server.exe', 55502: 'llama-server' });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     reapOrphanManagedLlamaServers();
     if (process.platform === 'win32') {
       expect(spawnSyncMock).toHaveBeenCalledWith(
@@ -428,7 +455,22 @@ describe('managed llama-server lifecycle', () => {
         ['/pid', '55502', '/t', '/f'],
         expect.objectContaining({ windowsHide: true }),
       );
+    } else {
+      expect(killSpy).toHaveBeenCalledWith(-55501, 'SIGKILL');
+      expect(killSpy).toHaveBeenCalledWith(-55502, 'SIGKILL');
     }
+    expect(existsSync(pidPath)).toBe(false);
+  });
+
+  it('does not kill a recycled PID that no longer belongs to llama-server', () => {
+    const pidPath = path.join(tempBinDir, 'managed-llama.pids.json');
+    writeFileSync(pidPath, JSON.stringify([55601, 55602]));
+    // 55601 was recycled by an unrelated process; 55602 is gone entirely.
+    mockProcessImages({ 55601: process.platform === 'win32' ? 'notepad.exe' : 'bash' });
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    reapOrphanManagedLlamaServers();
+    expect(spawnSyncMock).not.toHaveBeenCalledWith('taskkill', expect.anything(), expect.anything());
+    expect(killSpy).not.toHaveBeenCalled();
     expect(existsSync(pidPath)).toBe(false);
   });
 });

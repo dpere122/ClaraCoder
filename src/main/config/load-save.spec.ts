@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { AppConfig } from '../../shared';
-import { createDefaultConfig } from './defaults';
+import { APP_CONFIG_SCHEMA_VERSION, createDefaultConfig } from './defaults';
 
 vi.mock('../paths', () => ({
   getConfigPath: () => join(process.env.CLARA_TEST_CONFIG_DIR ?? '', 'config.json'),
@@ -222,24 +222,37 @@ describe('migrateConfig monaco hover delay', () => {
 });
 
 describe('migrateConfig monaco top padding', () => {
-  it('bumps the previous 0px default to 20px', () => {
+  it('bumps the previous 0px default to 20px when migrating from schema 6', () => {
     const cfg = sampleConfig();
+    cfg.configSchemaVersion = 6;
     cfg.monacoWorkspaceEditor = {
       ...cfg.monacoWorkspaceEditor,
       paddingTop: 0,
     };
     const migrated = migrateConfig(cfg);
     expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(20);
+    expect(migrated.configSchemaVersion).toBe(APP_CONFIG_SCHEMA_VERSION);
   });
 
   it('keeps a custom top padding', () => {
     const cfg = sampleConfig();
+    cfg.configSchemaVersion = 6;
     cfg.monacoWorkspaceEditor = {
       ...cfg.monacoWorkspaceEditor,
       paddingTop: 8,
     };
     const migrated = migrateConfig(cfg);
     expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(8);
+  });
+
+  it('keeps 0px when the user chose it after the migration ran', () => {
+    const cfg = sampleConfig();
+    cfg.monacoWorkspaceEditor = {
+      ...cfg.monacoWorkspaceEditor,
+      paddingTop: 0,
+    };
+    const migrated = migrateConfig(cfg);
+    expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(0);
   });
 });
 
@@ -262,7 +275,7 @@ describe('migrateConfig parallel tool calls', () => {
       }
     }
     const migrated = migrateConfig(cfg);
-    expect(migrated.configSchemaVersion).toBe(6);
+    expect(migrated.configSchemaVersion).toBe(APP_CONFIG_SCHEMA_VERSION);
     for (const provider of migrated.llmProviders) {
       for (const model of provider.models) {
         expect(model.parallelToolCalls).toBe(true);

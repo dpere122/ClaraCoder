@@ -223,6 +223,8 @@ export class WorkspaceMonacoComponent {
   private editorSelectionDisposable: Monaco.IDisposable | null = null;
   private editorSelectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private editorContentDisposable: Monaco.IDisposable | null = null;
+  /** Editor-scoped actions (save, format) registered via `addAction`; disposed with the instance. */
+  private editorActionDisposables: Monaco.IDisposable[] = [];
   private diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
   private diffOriginalModel: Monaco.editor.ITextModel | null = null;
   private diffModifiedModel: Monaco.editor.ITextModel | null = null;
@@ -357,6 +359,7 @@ export class WorkspaceMonacoComponent {
         }
         if (isFocused) {
           this.store.setFocusedEditor(this.editor);
+          this.publishCachedDiagnosticsForActiveEditor();
           void this.refreshActiveLspDiagnostics(true);
           void this.refreshOutlineSymbols();
           this.emitEditorSelectionFromActiveEditor();
@@ -488,6 +491,10 @@ export class WorkspaceMonacoComponent {
       this.disposeEditorSelectionListener();
       this.editorContentDisposable?.dispose();
       this.editorContentDisposable = null;
+      for (const d of this.editorActionDisposables) {
+        d.dispose();
+      }
+      this.editorActionDisposables = [];
       this.store.clearFocusedEditorIf(this.editor);
       // Detach before releasing so a shared model is never disposed while still attached here.
       this.editor?.setModel(null);
@@ -718,10 +725,14 @@ export class WorkspaceMonacoComponent {
 
   @HostListener('keydown', ['$event'])
   protected onKeydown(ev: KeyboardEvent): void {
-    // Monaco's own Ctrl+S binding only fires while the (hidden) editor has focus.
-    if (this.mdPreviewActive() && (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
-      ev.preventDefault();
-      void this.saveCurrent();
+    // Ctrl/Cmd+S anywhere in this slot (markdown preview, banners, focus outside the Monaco
+    // textarea). When the editor's own save action already handled the chord it called
+    // preventDefault, so skip to avoid saving twice.
+    if (this.isSaveKey(ev)) {
+      if (!ev.defaultPrevented) {
+        ev.preventDefault();
+        void this.saveCurrent();
+      }
       return;
     }
     // Fallback when Chromium/Electron does not intercept Find (browser preview, or
@@ -783,6 +794,13 @@ export class WorkspaceMonacoComponent {
 
   private isPrimaryFindKey(ev: KeyboardEvent): boolean {
     if (ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== 'f') {
+      return false;
+    }
+    return ev.ctrlKey || ev.metaKey;
+  }
+
+  private isSaveKey(ev: KeyboardEvent): boolean {
+    if (ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== 's') {
       return false;
     }
     return ev.ctrlKey || ev.metaKey;
@@ -1022,20 +1040,32 @@ export class WorkspaceMonacoComponent {
     };
     this.editor = monacoApi.editor.create(host, editorOptions);
     await ensureMonacoHoverDelegateSafe();
-    this.editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
-      void this.saveCurrent();
-    });
-    this.editor.addAction({
-      id: 'clara-format-document',
-      label: 'Format Document',
-      keybindings: [monacoApi.KeyMod.Shift | monacoApi.KeyMod.Alt | monacoApi.KeyCode.KeyF],
-      run: (ed) => {
-        void ed.getAction('editor.action.formatDocument')?.run();
-      },
-    });
+    // `addAction` (not `addCommand`): actions are scoped to this editor via the `editorId`
+    // context key and return a disposable. `addCommand` registers a global keybinding that is
+    // never disposed, so with several grid slots the most recently created (or an already
+    // destroyed) instance would win Ctrl+S and silently save the wrong slot.
+    this.editorActionDisposables.push(
+      this.editor.addAction({
+        id: 'clara-save-file',
+        label: 'Save File',
+        keybindings: [monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS],
+        run: () => {
+          void this.saveCurrent();
+        },
+      }),
+      this.editor.addAction({
+        id: 'clara-format-document',
+        label: 'Format Document',
+        keybindings: [monacoApi.KeyMod.Shift | monacoApi.KeyMod.Alt | monacoApi.KeyCode.KeyF],
+        run: (ed) => {
+          void ed.getAction('editor.action.formatDocument')?.run();
+        },
+      }),
+    );
     this.wireEditorSelectionListener();
     this.editor.onDidScrollChange(() => this.onEditorScrollChanged());
     this.editor.onDidChangeModel(() => {
+      this.publishCachedDiagnosticsForActiveEditor();
       void this.refreshActiveLspDiagnostics(true);
       void this.refreshOutlineSymbols();
     });
@@ -1170,11 +1200,45 @@ export class WorkspaceMonacoComponent {
     this.zone.run(() => this.setActiveDiagnostics(normalizePathSlashes(rel), [...res.diagnostics]));
   }
 
-  private setActiveDiagnostics(relativePath: string | null, diagnostics: readonly LspEditorDiagnostic[]): void {
+  /**
+   * Immediately hand the Problems panel to this editor before the async LSP refresh completes.
+   * A forced emit is required when returning to a previously focused clean file: this component's
+   * local empty-state dedupe cannot know that another grid slot has since published diagnostics.
+   */
+  private publishCachedDiagnosticsForActiveEditor(): void {
+    if (this.destroyed || !this.focused()) {
+      return;
+    }
+    const rel = this.relativePath()?.trim();
+    const modelKey = this.activeModelKey()?.trim();
+    const model = this.editor?.getModel();
+    if (
+      !rel
+      || !modelKey
+      || !lspServerKindForWorkspaceRelativePath(rel)
+      || !model
+      || this.store.getModel(modelKey) !== model
+    ) {
+      this.zone.run(() => this.setActiveDiagnostics(null, [], true));
+      return;
+    }
+    const cached = this.store.diagnosticsByModelKey.get(modelKey) ?? [];
+    this.zone.run(() =>
+      this.setActiveDiagnostics(normalizePathSlashes(rel), [...cached], true),
+    );
+  }
+
+  private setActiveDiagnostics(
+    relativePath: string | null,
+    diagnostics: readonly LspEditorDiagnostic[],
+    force = false,
+  ): void {
     if (this.destroyed || !this.focused()) {
       return;
     }
     if (
+      !force
+      &&
       relativePath === this.lastEmittedDiagnosticsRelativePath
       && diagnostics.length === 0
       && this.activeDiagnostics().length === 0

@@ -107,6 +107,7 @@ import {
   reapOrphanManagedLlamaServers,
 } from './llama-server-manager';
 import { ingestElectronLog } from './log-ingest';
+import { setLlamaServerStopGraceMs } from './utils/stop-llama-server';
 
 type FakeProc = EventEmitter & {
   pid: number;
@@ -169,6 +170,7 @@ describe('managed llama-server lifecycle', () => {
   const procs: FakeProc[] = [];
 
   beforeEach(() => {
+    setLlamaServerStopGraceMs(0);
     procs.length = 0;
     sendMock.mockReset();
     spawnSyncMock.mockReset();
@@ -196,6 +198,7 @@ describe('managed llama-server lifecycle', () => {
   });
 
   afterEach(() => {
+    setLlamaServerStopGraceMs(15_000);
     stopAllManagedLlamaServers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();

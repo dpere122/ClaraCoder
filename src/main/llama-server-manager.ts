@@ -1,7 +1,7 @@
 /**
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync, promises as fs, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as net from 'net';
 import path = require('path');
@@ -36,7 +36,12 @@ import { SecretValue, unwrapSecret } from '../shared/types/app-config';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import { getAppDataDir, getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
-import { childHasExited, killPidTree, killProcessTree, processImageName } from './utils/kill-process-tree';
+import { childHasExited, processImageName } from './utils/kill-process-tree';
+import {
+  hideWindowsConsoleWindow,
+  stopLlamaServerChild,
+  stopLlamaServerPid,
+} from './utils/stop-llama-server';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -221,7 +226,8 @@ export function reapOrphanManagedLlamaServers(): void {
       continue;
     }
     logLlamaLifecycle('INFO', `reaping orphan llama-server pid=${pid} image=${image}`);
-    killPidTree(pid);
+    const stopped = stopLlamaServerPid(pid);
+    logLlamaLifecycle('INFO', `orphan llama-server stop pid=${pid} result=${stopped}`);
   }
   try {
     rmSync(managedLlamaPidFile(), { force: true });
@@ -462,6 +468,22 @@ export function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv 
     env.HUGGING_FACE_HUB_TOKEN = tok;
   }
   return env;
+}
+
+/**
+ * Spawn options for managed llama-server.
+ *
+ * The process must own a console on Windows. ``windowsHide: true`` sets
+ * CREATE_NO_WINDOW, and then stop cannot deliver CTRL_C, so CUDA memory is
+ * not released. The console window is hidden after spawn instead.
+ */
+function managedLlamaSpawnOptions(env: NodeJS.ProcessEnv): SpawnOptions {
+  return {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: false,
+    env,
+  };
 }
 
 /** Disallowed shell metacharacters (unquoted tokens; newlines are rejected on the full string). */
@@ -877,14 +899,9 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
      * If chat fails (e.g. wrong ``-hf`` / 404), we must not have started embed yet—otherwise
      * ``stopManagedLlamaServers`` would kill a long embed download that was never going to be used.
      */
-    const chatProc = spawn(chatArgv.bin, chatArgv.args, {
-      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server`` (no shell). */
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      env: spawnEnv,
-    });
+    const chatProc = spawn(chatArgv.bin, chatArgv.args, managedLlamaSpawnOptions(spawnEnv));
     st.chatProc = chatProc;
+    hideWindowsConsoleWindow(chatProc.pid);
     persistManagedLlamaPids();
     attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
     logLlamaLifecycle(
@@ -947,13 +964,9 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       stEmbed.embedPort = embedPort;
       stEmbed.embedHost = embedBuilt.host;
       stEmbed.embedHealthHost = managedLlamaHealthHost(embedBuilt.host);
-      const embedProc = spawn(embedArgv.bin, embedArgv.args, {
-        detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: spawnEnv,
-      });
+      const embedProc = spawn(embedArgv.bin, embedArgv.args, managedLlamaSpawnOptions(spawnEnv));
       stEmbed.embedProc = embedProc;
+      hideWindowsConsoleWindow(embedProc.pid);
       persistManagedLlamaPids();
       attachLlamaStreams(modelId, 'embed', embedProc, stEmbed.logBuf, hfToken);
       logLlamaLifecycle(
@@ -1272,8 +1285,12 @@ export function stopManagedLlamaServers(modelId: string): void {
     'INFO',
     `stopped managed llama-server modelId=${modelId} chatPid=${st.chatProc?.pid ?? ''} embedPid=${st.embedProc?.pid ?? ''}`,
   );
-  killProcessTree(st.embedProc);
-  killProcessTree(st.chatProc);
+  const embedStop = stopLlamaServerChild(st.embedProc);
+  const chatStop = stopLlamaServerChild(st.chatProc);
+  logLlamaLifecycle(
+    'INFO',
+    `llama-server shutdown modelId=${modelId} chat=${chatStop} embed=${embedStop}`,
+  );
   persistManagedLlamaPids();
   // Retract the published runtime overrides so Python stops targeting a dead URL.
   // Every teardown path (manual stop, chat crash, prune, embed-fail) must sync.

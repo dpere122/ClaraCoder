@@ -12,9 +12,17 @@ from __future__ import annotations
 
 import os
 
-import uvicorn
+# Must run before anything imports numpy: OpenBLAS allocates a per-thread buffer pool
+# sized to the machine's core count at import time (~490 MB committed on 16 cores).
+# The sidecar never does numpy-level BLAS work, so a single BLAS thread costs nothing.
+# Only OpenBLAS is capped — do NOT set OMP_NUM_THREADS here: Kokoro (torch) and
+# faster-whisper (CTranslate2) run in-process on CPU and rely on it for parallelism.
+# ``setdefault`` keeps an explicit override from the environment intact.
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 
-from clara_coder_backend.main import app
+import uvicorn  # noqa: E402
+
+from clara_coder_backend.main import app  # noqa: E402
 
 if __name__ == '__main__':
     port = int(os.getenv('CLARA_PYTHON_PORT', '5123'))

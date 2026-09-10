@@ -221,6 +221,12 @@ export function startPythonServer(): ChildProcess {
     detached: process.platform !== 'win32',
     windowsHide: true,
     env: {
+      // numpy's bundled OpenBLAS pre-commits a per-thread buffer pool sized to the core
+      // count at import (~490 MB committed on a 16-core box). The sidecar never does
+      // numpy-level BLAS work, so cap it at 1. Deliberately NOT setting OMP_NUM_THREADS:
+      // Kokoro (torch) and faster-whisper (CTranslate2) run in-process on CPU and use it
+      // for their own intra-op parallelism. Spread first so a user override still wins.
+      OPENBLAS_NUM_THREADS: '1',
       ...process.env,
       PYTHONUNBUFFERED: '1',
       CLARA_SIDECAR_TOKEN: sidecarToken,

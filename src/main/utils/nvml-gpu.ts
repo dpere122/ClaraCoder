@@ -33,6 +33,12 @@ const NVML_DEVICE_NAME_BUFFER = 96; // NVML_DEVICE_NAME_BUFFER_SIZE
 const NVML_MEMORY_SIZE = 24; // three uint64: total, used, free
 const NVML_UTIL_SIZE = 8; // two uint32: gpu, memory
 const NVIDIA_SMI_TIMEOUT_MS = 8_000;
+/**
+ * Out-param slots are GC-managed ``Buffer``s, not ``koffi.alloc`` — koffi.alloc is a raw
+ * ``calloc`` that is never freed, and these helpers run on every health tick.
+ */
+const UINT32_SIZE = 4;
+const POINTER_SIZE = 8;
 
 let initialized = false;
 let lib: koffi.LibraryHandle;
@@ -153,13 +159,13 @@ export function getNvidiaStats(): Map<string, NvmlGpuStats> {
   try {
     if (!initialized && !init()) return new Map();
 
-    const countSlot = koffi.alloc('uint32', 1);
+    const countSlot = Buffer.alloc(UINT32_SIZE);
     if (nvmlDeviceGetCount(countSlot) !== NVML_SUCCESS) return new Map();
     const count = koffi.decode(countSlot, 'uint32') as number;
 
     const out = new Map<string, NvmlGpuStats>();
     for (let i = 0; i < count; i++) {
-      const handleSlot = koffi.alloc('void *', 1);
+      const handleSlot = Buffer.alloc(POINTER_SIZE);
       if (nvmlDeviceGetHandleByIndex(i, handleSlot) !== NVML_SUCCESS) continue;
       const handle = koffi.decode(handleSlot, 'void *') as bigint;
       if (!handle) continue;
@@ -195,13 +201,13 @@ function listNvidiaCudaGpusFromNvml(): NvidiaCudaGpu[] {
   try {
     if (!initialized && !init()) return [];
 
-    const countSlot = koffi.alloc('uint32', 1);
+    const countSlot = Buffer.alloc(UINT32_SIZE);
     if (nvmlDeviceGetCount(countSlot) !== NVML_SUCCESS) return [];
     const count = koffi.decode(countSlot, 'uint32') as number;
 
     const out: NvidiaCudaGpu[] = [];
     for (let i = 0; i < count; i++) {
-      const handleSlot = koffi.alloc('void *', 1);
+      const handleSlot = Buffer.alloc(POINTER_SIZE);
       if (nvmlDeviceGetHandleByIndex(i, handleSlot) !== NVML_SUCCESS) continue;
       const handle = koffi.decode(handleSlot, 'void *') as bigint;
       if (!handle) continue;

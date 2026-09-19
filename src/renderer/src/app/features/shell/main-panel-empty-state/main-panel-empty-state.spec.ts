@@ -254,7 +254,7 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(events).toEqual(['models', 'deps']);
   });
 
-  it('shows only the select-file state when a workspace is open', () => {
+  it('shows the etched Clara Coder brand when a workspace is open with no file', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     fixture.componentRef.setInput('hasWorkspace', true);
     fixture.componentRef.setInput('recentWorkspaces', [
@@ -263,12 +263,15 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.textContent).toContain('Select a file');
-    expect(host.textContent).toContain('Double-click a file in the workspace tree to open it here.');
+    expect(host.querySelector('.main-panel-empty__welcome--workspace')).toBeTruthy();
+    expect(host.querySelector('.main-panel-empty__etch')).toBeTruthy();
+    expect(host.querySelector('h2')).toBeNull();
+    expect(host.textContent).not.toContain('Clara Coder');
+    expect(host.textContent).not.toContain('Select a file');
+    expect(host.textContent).not.toContain('Double-click a file');
     expect(host.querySelector('.main-panel-empty__cta')).toBeNull();
     expect(host.querySelector('.main-panel-empty__home-default')).toBeNull();
     expect(host.querySelector('.main-panel-empty__recents')).toBeNull();
     expect(host.querySelector('.main-panel-empty__model')).toBeNull();
-    expect(host.querySelector('.main-panel-empty__etch')).toBeNull();
   });
 });

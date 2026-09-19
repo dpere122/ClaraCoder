@@ -46,8 +46,8 @@
 .main-panel-empty__etch {
   position: relative;
   flex: 0 0 auto;
-  width: min(28vmin, 10.5rem);
-  height: min(28vmin, 10.5rem);
+  width: min(34vmin, 12.5rem);
+  height: min(34vmin, 12.5rem);
   pointer-events: none;
 }
 
@@ -57,6 +57,8 @@
   pointer-events: none;
   -webkit-mask-image: var(--empty-etch-icon);
   mask-image: var(--empty-etch-icon);
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
@@ -73,7 +75,7 @@
 .main-panel-empty__etch-layer--fill {
   background: color-mix(
     in srgb,
-    color-mix(in srgb, var(--t-primary) 62%, var(--t-fg)) 28%,
+    color-mix(in srgb, var(--t-primary) 70%, var(--t-fg)) 58%,
     transparent
   );
 }
@@ -144,33 +146,6 @@
 
 .main-panel-empty__home-default:hover .main-panel-empty__home-default-label {
   color: var(--t-fg);
-}
-
-.main-panel-empty__content {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  max-width: 22rem;
-  padding: 1.5rem 1.25rem;
-}
-
-.main-panel-empty__hint {
-  margin: 0 0 1.1rem;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: var(--t-text-muted, var(--t-fg));
-}
-
-.main-panel-empty__content--select-file .main-panel-empty__hint {
-  margin-bottom: 0;
-}
-
-.main-panel-empty__icon {
-  margin-bottom: 0.75rem;
-  color: color-mix(in srgb, var(--t-primary) 65%, var(--t-text-muted, #888));
 }
 
 .main-panel-empty__cta {

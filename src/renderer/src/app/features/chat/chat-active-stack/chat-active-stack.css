@@ -42,6 +42,51 @@
   font-style: italic;
 }
 
+.chat-active-stack__etch {
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  z-index: 0;
+  width: min(34vmin, 12.5rem);
+  height: min(34vmin, 12.5rem);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.chat-active-stack__etch-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-image: var(--empty-etch-icon);
+  mask-image: var(--empty-etch-icon);
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.chat-active-stack__etch-layer--shadow {
+  transform: translate(1.5px, 1.5px);
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+
+.chat-active-stack__etch-layer--fill {
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--t-primary) 70%, var(--t-fg)) 58%,
+    transparent
+  );
+}
+
+.chat-active-stack__etch-layer--highlight {
+  transform: translate(-1px, -1px);
+  background: color-mix(in srgb, var(--t-edge-light, #fff) 22%, transparent);
+}
+
 .chat-active-stack__transcript {
   flex: 1 1 auto;
   min-height: 0;
@@ -65,6 +110,28 @@
 }
 
 /**
+ * Empty expanded transcript: pull the composer out of flow so the rounded
+ * panel can fill the stack (no leftover strip under the card). It still
+ * anchors to the bottom edge, then the measured `translateY` lifts it to
+ * center. The etch sits above the panel; the composer stays above the etch.
+ */
+:host.chat-active-stack--empty .chat-active-stack__etch {
+  z-index: 1;
+}
+
+:host.chat-active-stack--empty .chat-active-stack__composer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 100%;
+  max-width: var(--chat-container-max-width, 100%);
+  margin-inline: auto;
+  background: transparent;
+}
+
+/**
  * Empty transcript: the composer's `transform` (set from the template) lifts the message box to
  * the vertical center of the stack. Once the first measurement has painted (`--ready`), enable
  * the transform transition so the composer eases down to the bottom edge when the first message
@@ -79,6 +146,13 @@
 :host-context(body.sidebar-resizing) .chat-active-stack__composer {
   filter: blur(5px);
   pointer-events: none;
+}
+
+/* Measured by the transcript (`bottomInsetElement`); must not add its own spacing. */
+.chat-active-stack__hitl-dock {
+  display: block;
+  width: 100%;
+  min-width: 0;
 }
 
 .chat-active-stack__composer-input {

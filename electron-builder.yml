@@ -11,6 +11,7 @@ files:
   - dist/**/*
   - package.json
   - build/icon.png
+  - build/icon.ico
 
 # node-pty ships Electron prebuilds; rebuilding needs a full VS toolchain (e.g. Spectre libs on Windows).
 npmRebuild: false
@@ -45,6 +46,7 @@ asarUnpack:
   - "**/node_modules/@huggingface/blake3-jit/**/*"
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:

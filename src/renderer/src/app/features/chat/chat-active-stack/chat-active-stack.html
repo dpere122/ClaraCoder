@@ -11,6 +11,18 @@
     </div>
   }
 
+  @if (showBrandEtch()) {
+    <div
+      class="chat-active-stack__etch"
+      aria-hidden="true"
+      style="--empty-etch-icon: url('app-icon-etch.png')"
+    >
+      <span class="chat-active-stack__etch-layer chat-active-stack__etch-layer--shadow"></span>
+      <span class="chat-active-stack__etch-layer chat-active-stack__etch-layer--fill"></span>
+      <span class="chat-active-stack__etch-layer chat-active-stack__etch-layer--highlight"></span>
+    </div>
+  }
+
   <app-chat-box
     class="chat-active-stack__transcript"
     [layout]="layout()"
@@ -23,6 +35,7 @@
     [streamingFinalText]="streamingFinalText()"
     [streamingPlanner]="streamingPlanner()"
     [fontSize]="fontSize()"
+    [bottomInsetElement]="hitlDock"
     (restoreConversation)="restoreConversation.emit($event)"
     (sendResponse)="sendResponse.emit($event)"
     (planConfirmFinished)="planConfirmFinished.emit($event)"
@@ -30,18 +43,21 @@
   />
 
   <section class="chat-active-stack__composer" #composer [style.transform]="composerTransform()">
-    <app-hitl-composer-dock
-      [artifacts]="pendingHitlDockArtifacts()"
-      [conversationId]="conversationId()"
-      (diffReviewFinished)="diffReviewFinished.emit($event)"
-      (deleteReviewFinished)="deleteReviewFinished.emit($event)"
-      (acceptCommandFinished)="acceptCommandFinished.emit($event)"
-      (copyReviewFinished)="copyReviewFinished.emit($event)"
-      (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-      (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
-      (planConfirmFinished)="planConfirmFinished.emit($event)"
-      (agentQuestionFinished)="agentQuestionFinished.emit($event)"
-    />
+    <!-- Wrapper is the transcript's `bottomInsetElement`: its height eats the chat's buffer zone. -->
+    <div class="chat-active-stack__hitl-dock" #hitlDock>
+      <app-hitl-composer-dock
+        [artifacts]="pendingHitlDockArtifacts()"
+        [conversationId]="conversationId()"
+        (diffReviewFinished)="diffReviewFinished.emit($event)"
+        (deleteReviewFinished)="deleteReviewFinished.emit($event)"
+        (acceptCommandFinished)="acceptCommandFinished.emit($event)"
+        (copyReviewFinished)="copyReviewFinished.emit($event)"
+        (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
+        (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
+        (planConfirmFinished)="planConfirmFinished.emit($event)"
+        (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+      />
+    </div>
     <div class="chat-active-stack__composer-input">
       <app-talk-mode
         class="composer-talk composer-talk--hidden"

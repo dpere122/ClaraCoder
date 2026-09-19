@@ -339,10 +339,38 @@ app-stream-tool-pill .stream-tool-pill,
 .composer-prompt,
 .tcd-btn,
 app-message-box .composer-prompt,
+app-message-box .composer-toggle-chips,
+app-message-box .composer-chip,
 app-message-box .btn-abort,
 .main-panel-empty__cta,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-track {
+  border-radius: 999px !important;
+}
+
+/* HITL review cards, action pills, and chips beat the global square reset. */
+.accept-command-card,
+.delete-card,
+.copy-card,
+.plan-confirm-card,
+.agent-question-card,
+.diff-card.border,
+.diff-card--in-expand,
+.staged-batch-card {
+  border-radius: 1rem !important;
+  overflow: hidden;
+}
+
+.hitl-btn,
+.accept-command-context__chip,
+.staged-batch__chip,
+.staged-batch__tab,
+.agent-question-badge,
+.accept-command-card .badge,
+.delete-card .badge,
+.copy-card .badge,
+.plan-confirm-card .badge,
+.diff-card .badge {
   border-radius: 999px !important;
 }
 

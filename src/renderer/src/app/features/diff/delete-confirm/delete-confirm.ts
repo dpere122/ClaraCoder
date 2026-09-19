@@ -1,17 +1,21 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, effect, inject, Injector, input, OnDestroy, output, signal, untracked } from '@angular/core';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { DeleteConfirmEntry, DeleteConfirmPayload, DiffReviewStatus } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { HITL_BTN_SPINNER_TYPE, newHitlBtnSpinnerName, scheduleHitlBtnSpinner } from '../../chat/hitl-btn-spinner';
 
 @Component({
   selector: 'app-delete-confirm',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgxSpinnerComponent],
   templateUrl: './delete-confirm.html',
   styleUrl: './delete-confirm.css',
 })
-export class DeleteConfirmComponent {
+export class DeleteConfirmComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
 
   readonly payload = input.required<DeleteConfirmPayload>();
   readonly conversationId = input<string | null>(null);
@@ -25,7 +29,20 @@ export class DeleteConfirmComponent {
   }>();
 
   readonly busy = signal(false);
+  readonly busySpinnerName = newHitlBtnSpinnerName('delete');
+  readonly busySpinnerType = HITL_BTN_SPINNER_TYPE;
   private continueSent = false;
+
+  constructor() {
+    effect(() => {
+      const loading = this.busy();
+      untracked(() => scheduleHitlBtnSpinner(this.ngxSpinner, this.busySpinnerName, loading, this.inj));
+    });
+  }
+
+  ngOnDestroy(): void {
+    void this.ngxSpinner.hide(this.busySpinnerName);
+  }
 
   resolvedEntries(): DeleteConfirmEntry[] {
     const p = this.payload();

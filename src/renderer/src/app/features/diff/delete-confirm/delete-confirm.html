@@ -45,9 +45,22 @@
           type="button"
           class="hitl-btn hitl-btn--danger"
           [disabled]="busy()"
+          [attr.aria-busy]="busy() ? 'true' : null"
           (click)="onConfirm()"
         >
-          Delete
+          @if (busy()) {
+            <span class="hitl-btn-spinner-host" role="status" aria-live="polite" aria-label="Loading">
+              <ngx-spinner
+                [name]="busySpinnerName"
+                [type]="busySpinnerType"
+                [fullScreen]="false"
+                bdColor="rgba(0,0,0,0)"
+                size="small"
+                color="currentColor"
+              ></ngx-spinner>
+            </span>
+          }
+          <span>Delete</span>
         </button>
         <button
           type="button"

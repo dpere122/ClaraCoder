@@ -1,7 +1,21 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, input, output, signal, ViewEncapsulation } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  Injector,
+  input,
+  OnDestroy,
+  output,
+  signal,
+  untracked,
+  ViewEncapsulation,
+} from '@angular/core';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { DiffReviewStatus, AgentQuestionPayload, QuestionAnswer } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { HITL_BTN_SPINNER_TYPE, newHitlBtnSpinnerName, scheduleHitlBtnSpinner } from '../../chat/hitl-btn-spinner';
 
 interface QuestionSelection {
   optionId?: string;
@@ -12,13 +26,15 @@ interface QuestionSelection {
 @Component({
   selector: 'app-agent-question',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgxSpinnerComponent],
   templateUrl: './agent-question.html',
   styleUrl: './agent-question.css',
   encapsulation: ViewEncapsulation.None,
 })
-export class AgentQuestionComponent {
+export class AgentQuestionComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
 
   readonly payload = input.required<AgentQuestionPayload>();
   readonly conversationId = input<string | null>(null);
@@ -32,8 +48,21 @@ export class AgentQuestionComponent {
   }>();
 
   readonly busy = signal(false);
+  readonly busySpinnerName = newHitlBtnSpinnerName('question');
+  readonly busySpinnerType = HITL_BTN_SPINNER_TYPE;
   /** Per-question id -> selection. */
   readonly selections = signal<Record<string, QuestionSelection>>({});
+
+  constructor() {
+    effect(() => {
+      const loading = this.busy();
+      untracked(() => scheduleHitlBtnSpinner(this.ngxSpinner, this.busySpinnerName, loading, this.inj));
+    });
+  }
+
+  ngOnDestroy(): void {
+    void this.ngxSpinner.hide(this.busySpinnerName);
+  }
 
   readonly canSubmit = computed(() => {
     const questions = this.payload().questions ?? [];

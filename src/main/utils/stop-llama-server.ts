@@ -9,11 +9,14 @@
  * llama-server only starts that cleanup on ``CTRL_C_EVENT`` (Windows) or
  * ``SIGTERM`` (POSIX). Force-kill is the fallback if it does not exit in time.
  */
-import { spawnSync, type ChildProcess } from 'child_process';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { childHasExited, killPidTree, processImageName } from './kill-process-tree';
 
 /** How long to wait for a clean exit before ``TerminateProcess``. */
 let stopGraceMs = 15_000;
+
+/** Upper bound for the PowerShell helper that delivers CTRL_C on Windows. */
+const WINDOWS_CTRL_C_TIMEOUT_MS = 8000;
 
 export function setLlamaServerStopGraceMs(ms: number): void {
   stopGraceMs = Math.max(0, ms);
@@ -30,11 +33,19 @@ function isLiveLlamaServer(pid: number): boolean {
   return !!image && image.includes('llama-server');
 }
 
+/**
+ * Blocking sleep. Only for the synchronous quit path: on the Electron main
+ * thread this freezes every window, so runtime stops use ``sleepMsAsync``.
+ */
 function sleepMs(ms: number): void {
   if (ms <= 0) {
     return;
   }
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function sleepMsAsync(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
 function pidExists(pid: number): boolean {
@@ -59,6 +70,45 @@ function waitUntilGone(pid: number, graceMs: number, stillRunning: (pid: number)
   }
 }
 
+async function waitUntilGoneAsync(
+  pid: number,
+  graceMs: number,
+  stillRunning: (pid: number) => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + graceMs;
+  for (;;) {
+    if (!stillRunning(pid)) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await sleepMsAsync(Math.min(250, Math.max(1, deadline - Date.now())));
+  }
+}
+
+/**
+ * Resolve ``true`` when a child we spawned reports ``exit`` within ``graceMs``.
+ * Uses the ``exit`` event instead of polling so no ``kill(pid, 0)`` probe can
+ * observe a recycled PID and mistake a stranger for our server.
+ */
+function waitForChildExit(proc: ChildProcess, graceMs: number): Promise<boolean> {
+  if (childHasExited(proc)) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const onExit = (): void => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      proc.off('exit', onExit);
+      resolve(childHasExited(proc));
+    }, Math.max(0, graceMs));
+    proc.once('exit', onExit);
+  });
+}
+
 /**
  * Deliver the one interrupt llama-server treats as a clean shutdown.
  * A second CTRL_C makes it ``exit(1)`` without freeing the backend, so this
@@ -71,6 +121,25 @@ export function signalLlamaServerShutdown(pid: number): boolean {
   if (process.platform === 'win32') {
     return signalWindowsConsoleCtrlC(pid);
   }
+  return signalPosixTerm(pid);
+}
+
+/**
+ * Same as ``signalLlamaServerShutdown`` but never blocks the caller. The
+ * Windows path compiles a small C# shim with ``Add-Type``, which takes long
+ * enough to be a visible UI hitch when done with ``spawnSync``.
+ */
+export async function signalLlamaServerShutdownAsync(pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  if (process.platform === 'win32') {
+    return await signalWindowsConsoleCtrlCAsync(pid);
+  }
+  return signalPosixTerm(pid);
+}
+
+function signalPosixTerm(pid: number): boolean {
   try {
     process.kill(-pid, 'SIGTERM');
     return true;
@@ -84,8 +153,8 @@ export function signalLlamaServerShutdown(pid: number): boolean {
   }
 }
 
-function signalWindowsConsoleCtrlC(pid: number): boolean {
-  const script = `
+function windowsConsoleCtrlCScript(pid: number): string {
+  return `
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @"
 using System;
@@ -107,12 +176,53 @@ if (-not [ClaraConsoleCtrl]::AttachConsole(${pid})) { exit 2 }
 if (-not [ClaraConsoleCtrl]::GenerateConsoleCtrlEvent(0, 0)) { exit 3 }
 exit 0
 `;
-  const r = spawnSync(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-    { windowsHide: true, timeout: 8000, encoding: 'utf8' },
-  );
+}
+
+function powershellArgs(script: string): string[] {
+  return ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script];
+}
+
+function signalWindowsConsoleCtrlC(pid: number): boolean {
+  const r = spawnSync('powershell.exe', powershellArgs(windowsConsoleCtrlCScript(pid)), {
+    windowsHide: true,
+    timeout: WINDOWS_CTRL_C_TIMEOUT_MS,
+    encoding: 'utf8',
+  });
   return !r.error && r.status === 0;
+}
+
+function signalWindowsConsoleCtrlCAsync(pid: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    let child: ChildProcess;
+    try {
+      child = spawn('powershell.exe', powershellArgs(windowsConsoleCtrlCScript(pid)), {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+    } catch {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+      finish(false);
+    }, WINDOWS_CTRL_C_TIMEOUT_MS);
+    child.once('error', () => finish(false));
+    child.once('close', (code) => finish(code === 0));
+  });
 }
 
 /**
@@ -155,6 +265,11 @@ public static class ClaraHideConsole {
   }
 }
 
+/**
+ * Blocking stop. Reserved for ``will-quit``, where Electron gives no chance to
+ * await and an unfreed CUDA context outlives the app. Everywhere else use
+ * ``stopLlamaServerPidAsync`` so the main thread keeps servicing windows.
+ */
 export function stopLlamaServerPid(pid: number, opts?: { knownOwned?: boolean }): LlamaStopResult {
   if (!Number.isInteger(pid) || pid <= 0) {
     return 'exited';
@@ -177,9 +292,46 @@ export function stopLlamaServerPid(pid: number, opts?: { knownOwned?: boolean })
   return 'forced';
 }
 
+/** Non-blocking ``stopLlamaServerPid`` for PIDs we did not spawn (orphan reaping). */
+export async function stopLlamaServerPidAsync(pid: number): Promise<LlamaStopResult> {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return 'exited';
+  }
+  if (!isLiveLlamaServer(pid)) {
+    return 'exited';
+  }
+  await signalLlamaServerShutdownAsync(pid);
+  if (await waitUntilGoneAsync(pid, stopGraceMs, isLiveLlamaServer)) {
+    return 'graceful';
+  }
+  if (!isLiveLlamaServer(pid)) {
+    return 'graceful';
+  }
+  killPidTree(pid);
+  return 'forced';
+}
+
+/** Blocking stop of a child we spawned. Quit path only; see ``stopLlamaServerPid``. */
 export function stopLlamaServerChild(proc: ChildProcess | undefined | null): LlamaStopResult {
   if (!proc?.pid || childHasExited(proc)) {
     return 'exited';
   }
   return stopLlamaServerPid(proc.pid, { knownOwned: true });
+}
+
+/**
+ * Non-blocking stop of a child we spawned. The grace wait rides the child's
+ * ``exit`` event, so the event loop stays free while llama-server unloads.
+ */
+export async function stopLlamaServerChildAsync(proc: ChildProcess | undefined | null): Promise<LlamaStopResult> {
+  if (!proc?.pid || childHasExited(proc)) {
+    return 'exited';
+  }
+  const pid = proc.pid;
+  await signalLlamaServerShutdownAsync(pid);
+  if (await waitForChildExit(proc, stopGraceMs)) {
+    return 'graceful';
+  }
+  killPidTree(pid);
+  return 'forced';
 }

@@ -88,7 +88,10 @@ app
     registerNemoAssetProtocol();
     createMainWindow();
 
-    reapOrphanManagedLlamaServers();
+    // Fire-and-forget: each orphan may take the full CTRL_C grace to unload.
+    void reapOrphanManagedLlamaServers().catch((err) => {
+      console.error('[Main] Orphan llama-server reap failed:', err);
+    });
     await userPathReady;
     try {
       await ensurePythonServer();

@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import * as path from 'path';
 import * as os from 'os';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../shared';
 
@@ -177,11 +177,19 @@ describe('managed llama-server lifecycle', () => {
     spawnSyncMock.mockReturnValue({ status: 0 });
     spawnMock.mockReset();
     vi.mocked(ingestElectronLog).mockReset();
-    spawnMock.mockImplementation(() => {
+    spawnMock.mockImplementation((cmd: string) => {
+      if (cmd === 'powershell.exe') {
+        // CTRL_C helper: report success on the next tick, do not count as a llama-server.
+        const helper = fakeProc(777);
+        setTimeout(() => helper.emit('close', 0), 0);
+        return helper;
+      }
       const p = fakeProc(2000 + procs.length);
       procs.push(p);
       return p;
     });
+    // Fake PIDs may collide with live processes; never let a stop reach the real kill().
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
 
     tempBinDir = mkdtempSync(path.join(os.tmpdir(), 'clara-llama-life-'));
     mkdirSync(tempBinDir, { recursive: true });
@@ -198,8 +206,9 @@ describe('managed llama-server lifecycle', () => {
   });
 
   afterEach(() => {
-    setLlamaServerStopGraceMs(15_000);
+    // Quit-path stop is synchronous; run it while the grace is still 0.
     stopAllManagedLlamaServers();
+    setLlamaServerStopGraceMs(15_000);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     rmSync(tempBinDir, { recursive: true, force: true });
@@ -214,7 +223,7 @@ describe('managed llama-server lifecycle', () => {
     if (!second.ok) {
       expect(second.error).toMatch(/already running/i);
     }
-    stopManagedLlamaServers('m1');
+    await stopManagedLlamaServers('m1');
     const firstResult = await first;
     expect(firstResult.ok).toBe(false);
   });
@@ -224,7 +233,19 @@ describe('managed llama-server lifecycle', () => {
     const startP = startManagedLlamaServers('m1', cfg);
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
     expect(procs[0]).toBeDefined();
-    stopManagedLlamaServers('m1');
+    const stopP = stopManagedLlamaServers('m1');
+    // State is torn down synchronously even though the kill drains off the loop.
+    expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(false);
+    await stopP;
+    if (process.platform === 'win32') {
+      expect(spawnSyncMock).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', String(procs[0].pid), '/t', '/f'],
+        expect.objectContaining({ windowsHide: true }),
+      );
+    } else {
+      expect(process.kill).toHaveBeenCalledWith(-procs[0].pid, 'SIGKILL');
+    }
     const result = await startP;
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -235,6 +256,34 @@ describe('managed llama-server lifecycle', () => {
     );
     expect(runningEmits).toHaveLength(0);
     expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(false);
+  });
+
+  it('keeps draining PIDs in the pidfile and defers a restart until the old pair is gone', async () => {
+    setLlamaServerStopGraceMs(150);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true })),
+    );
+    const cfg = makeConfig();
+    expect((await startManagedLlamaServers('m1', cfg)).ok).toBe(true);
+    const oldPid = procs[0].pid;
+    const pidPath = path.join(tempBinDir, 'managed-llama.pids.json');
+
+    const stopP = stopManagedLlamaServers('m1');
+    expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(false);
+    // Still winding down: a crash right now must let the next session reap it.
+    expect(JSON.parse(readFileSync(pidPath, 'utf8'))).toContain(oldPid);
+
+    const restartP = startManagedLlamaServers('m1', cfg);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(procs).toHaveLength(1);
+
+    await stopP;
+    expect((await restartP).ok).toBe(true);
+    expect(procs).toHaveLength(2);
+    const pids = JSON.parse(readFileSync(pidPath, 'utf8')) as number[];
+    expect(pids).toContain(procs[1].pid);
+    expect(pids).not.toContain(oldPid);
   });
 
   it('fails fast when spawn emits error', async () => {
@@ -360,7 +409,7 @@ describe('managed llama-server lifecycle', () => {
     cfg.llmProviders[0].models[0].optimizationPreset = 'gemma';
     const startP = startManagedLlamaServers('m1', cfg);
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
-    stopManagedLlamaServers('m1');
+    await stopManagedLlamaServers('m1');
     await startP;
   });
 
@@ -389,7 +438,7 @@ describe('managed llama-server lifecycle', () => {
     const cramAt = args.indexOf('--cache-ram');
     expect(cramAt).toBeGreaterThanOrEqual(0);
     expect(args[cramAt + 1]).toBe('0');
-    stopManagedLlamaServers('m1');
+    await stopManagedLlamaServers('m1');
     await startP;
   });
 
@@ -402,7 +451,7 @@ describe('managed llama-server lifecycle', () => {
     const fmtAt = args.indexOf('--reasoning-format');
     expect(fmtAt).toBeGreaterThanOrEqual(0);
     expect(args[fmtAt + 1]).toBe('none');
-    stopManagedLlamaServers('m1');
+    await stopManagedLlamaServers('m1');
     await startP;
   });
 
@@ -412,7 +461,7 @@ describe('managed llama-server lifecycle', () => {
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
     const args = spawnMock.mock.calls[0]?.[1] as string[];
     expect(args).not.toContain('--reasoning-format');
-    stopManagedLlamaServers('m1');
+    await stopManagedLlamaServers('m1');
     await startP;
   });
 
@@ -441,12 +490,12 @@ describe('managed llama-server lifecycle', () => {
     }) as never);
   }
 
-  it('reaps llama-server PIDs persisted from a previous session', () => {
+  it('reaps llama-server PIDs persisted from a previous session', async () => {
     const pidPath = path.join(tempBinDir, 'managed-llama.pids.json');
     writeFileSync(pidPath, JSON.stringify([55501, 55502]));
     mockProcessImages({ 55501: 'llama-server.exe', 55502: 'llama-server' });
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
-    reapOrphanManagedLlamaServers();
+    await reapOrphanManagedLlamaServers();
     if (process.platform === 'win32') {
       expect(spawnSyncMock).toHaveBeenCalledWith(
         'taskkill',
@@ -465,13 +514,13 @@ describe('managed llama-server lifecycle', () => {
     expect(existsSync(pidPath)).toBe(false);
   });
 
-  it('does not kill a recycled PID that no longer belongs to llama-server', () => {
+  it('does not kill a recycled PID that no longer belongs to llama-server', async () => {
     const pidPath = path.join(tempBinDir, 'managed-llama.pids.json');
     writeFileSync(pidPath, JSON.stringify([55601, 55602]));
     // 55601 was recycled by an unrelated process; 55602 is gone entirely.
     mockProcessImages({ 55601: process.platform === 'win32' ? 'notepad.exe' : 'bash' });
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
-    reapOrphanManagedLlamaServers();
+    await reapOrphanManagedLlamaServers();
     expect(spawnSyncMock).not.toHaveBeenCalledWith('taskkill', expect.anything(), expect.anything());
     expect(killSpy).not.toHaveBeenCalled();
     expect(existsSync(pidPath)).toBe(false);

@@ -359,6 +359,7 @@ export class ChatBox implements OnDestroy {
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+    action?: 'confirm' | 'confirm_session' | 'cancel';
   }>();
   /** Copy-to-workspace confirmation completed or dismissed. */
   readonly copyReviewFinished = output<{

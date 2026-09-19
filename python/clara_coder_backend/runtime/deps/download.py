@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 import zipfile
@@ -135,6 +136,25 @@ def _pid_is_alive(pid: int) -> bool:
 
     if pid <= 0:
         return False
+    if sys.platform == 'win32':
+        # ``os.kill(pid, 0)`` is NOT a probe on Windows: it calls TerminateProcess
+        # and would kill the lock holder. Query the process instead.
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        handle = kernel32.OpenProcess(process_query_limited_information, False, int(pid))
+        if not handle:
+            # ERROR_ACCESS_DENIED (5): exists but not ours; anything else: gone.
+            return ctypes.get_last_error() == 5
+        try:
+            code = wintypes.DWORD()
+            ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return not ok or int(code.value) == still_active
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

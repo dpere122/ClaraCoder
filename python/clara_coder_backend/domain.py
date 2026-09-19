@@ -102,6 +102,8 @@ class SessionHitlState:
     pending_copy_request: dict | None = None
     # Generic HITL command approval request (for example, deferred Python dependency actions).
     pending_accept_command_request: dict | None = None
+    #: True after the composer Admin chip HITL; not cleared on ``/load``.
+    admin_elevation_granted: bool = False
     # Plan-and-execute: proposed step list awaiting user approval before execution.
     pending_plan_confirm_request: dict | None = None
     #: Set by plan-confirm HITL when the user cancels; read by the plan orchestrator after pause.

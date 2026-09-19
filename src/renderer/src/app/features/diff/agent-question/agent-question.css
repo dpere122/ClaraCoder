@@ -1,5 +1,6 @@
 app-agent-question .agent-question-card {
   overflow: hidden;
+  border-radius: 1rem !important;
   background:
     linear-gradient(to right, color-mix(in srgb, var(--t-secondary) 30%, transparent) 3px, transparent 3px),
     color-mix(in srgb, var(--t-secondary) 6%, var(--t-bg-surface));
@@ -42,6 +43,7 @@ app-agent-question .agent-question-badge {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 0.15rem 0.45rem;
+  border-radius: 999px !important;
 }
 
 app-agent-question .agent-question-badge--complete {

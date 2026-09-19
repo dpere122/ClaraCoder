@@ -47,13 +47,36 @@
     }
 
     <div class="accept-command-actions">
+      @if (confirmSessionLabel()) {
+        <button
+          type="button"
+          class="hitl-btn hitl-btn--accent"
+          [disabled]="busy()"
+          (click)="onConfirmSession()"
+        >
+          {{ confirmSessionLabel() }}
+        </button>
+      }
       <button
         type="button"
         class="hitl-btn hitl-btn--primary"
         [disabled]="busy()"
+        [attr.aria-busy]="busy() ? 'true' : null"
         (click)="onConfirm()"
       >
-        {{ payload().confirmLabel }}
+        @if (busy()) {
+          <span class="hitl-btn-spinner-host" role="status" aria-live="polite" aria-label="Loading">
+            <ngx-spinner
+              [name]="busySpinnerName"
+              [type]="busySpinnerType"
+              [fullScreen]="false"
+              bdColor="rgba(0,0,0,0)"
+              size="small"
+              color="currentColor"
+            ></ngx-spinner>
+          </span>
+        }
+        <span>{{ payload().confirmLabel }}</span>
       </button>
       <button
         type="button"

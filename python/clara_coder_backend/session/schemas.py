@@ -28,6 +28,11 @@ class ChatRequest(BaseModel):
     apply_mode: bool = True
     #: When True, successful edit proposals are written to disk in the backend and no diff-review pause is used.
     auto_apply_mode: bool = False
+    #: Composer Admin chip (agent-wide elevated ``run_command`` grant).
+    admin_elevation_granted: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('admin_elevation_granted', 'adminElevationGranted'),
+    )
     #: Optional LangGraph ``checkpoint_id`` to continue or replay from (fork head / time-travel).
     checkpoint_id: str = ''
     #: Electron user-message id for this turn (conversation timeline / file journal).
@@ -86,6 +91,13 @@ class SessionAutoApplyRequest(BaseModel):
     auto_apply_mode: bool = False
 
 
+class SessionAdminElevationRequest(BaseModel):
+    """Body for POST /session/admin-elevation: grant (starts UAC helper) or revoke."""
+
+    session_id: str
+    granted: bool = False
+
+
 class AgentContinueRequest(BaseModel):
     """Resume an agent stream that is waiting after a diff or approval/confirmation step."""
 
@@ -98,7 +110,7 @@ class AgentContinueRequest(BaseModel):
     copy_action: Literal['confirm', 'cancel'] | None = None
     copy_request_id: str = ''
     #: When set with a pending generic command request, perform or cancel it before resuming.
-    accept_command_action: Literal['confirm', 'cancel'] | None = None
+    accept_command_action: Literal['confirm', 'confirm_session', 'cancel'] | None = None
     accept_command_request_id: str = ''
     #: When set with ``pending_staged_transfer_hitl``, finalize or return the deferred staged→workspace transfer.
     staged_transfer_action: Literal['confirm', 're_review'] | None = Field(

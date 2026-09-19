@@ -219,10 +219,14 @@
 /* Modern rounded chrome for the review card and its controls (beats the global radius reset). */
 .diff-card.border,
 .diff-card--in-expand {
-  border-radius: 0.9rem !important;
+  border-radius: 1rem !important;
+  overflow: hidden;
 }
 
-.diff-card .hitl-btn,
+.diff-card .hitl-btn {
+  border-radius: 999px !important;
+}
+
 .diff-card .diff-search,
 .diff-card textarea {
   border-radius: 0.6rem !important;

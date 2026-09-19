@@ -13,6 +13,7 @@ def test_outer_turn_authority_preamble_reflects_live_flags() -> None:
     text = outer_turn_authority_preamble(session, apply_mode=True)
     assert 'Editor (toolbar, this turn): **on**' in text
     assert 'Auto-apply (UI): **on**' in text
+    assert 'Admin (composer chip): **off**' in text
     assert 'Other concurrent Editor streams' in text
 
 

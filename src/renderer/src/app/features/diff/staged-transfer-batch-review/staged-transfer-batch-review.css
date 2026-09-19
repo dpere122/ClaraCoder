@@ -152,7 +152,7 @@
   color: var(--t-text-muted);
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--t-text-muted) 28%, transparent);
-  border-radius: 0.6rem !important;
+  border-radius: 999px !important;
   cursor: pointer;
   transition:
     color 0.12s ease,
@@ -246,7 +246,7 @@
 }
 
 .staged-batch-card .hitl-btn {
-  border-radius: 0.6rem !important;
+  border-radius: 999px !important;
 }
 
 /* Notes composer for “Request changes”: label, textarea, then hint + send controls. */

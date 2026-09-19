@@ -135,6 +135,7 @@ export const chatApi = {
     speechEnabled?: boolean,
     ttsProvider?: TtsProvider,
     userMessageId?: string,
+    adminElevationGranted?: boolean,
   ) =>
     ipcRenderer.send(
       'message',
@@ -148,6 +149,7 @@ export const chatApi = {
       speechEnabled ?? false,
       ttsProvider ?? 'kokoro',
       userMessageId ?? '',
+      adminElevationGranted ?? false,
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>
@@ -163,7 +165,7 @@ export const chatApi = {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
-    acceptCommandAction?: 'confirm' | 'cancel',
+    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
     stagedTransferRequestId?: string,
@@ -195,6 +197,8 @@ export const chatApi = {
     ipcRenderer.invoke('agent-question-answers', conversationId, action, requestId, answers ?? []),
   syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) =>
     ipcRenderer.invoke('sync-auto-apply-mode', conversationId, autoApplyMode),
+  syncAdminElevation: (conversationId: string, granted: boolean) =>
+    ipcRenderer.invoke('sync-admin-elevation', conversationId, granted),
   backgroundCommandTerminalClosed: (conversationId: string, commandId: string) =>
     ipcRenderer.invoke('background-command-terminal-closed', conversationId, commandId),
   startTtsStream: (text: string, voice: string, speed: number, seq: number, instructions?: string) =>

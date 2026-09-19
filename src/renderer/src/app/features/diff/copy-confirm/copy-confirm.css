@@ -1,3 +1,8 @@
+.copy-card {
+  border-radius: 1rem !important;
+  overflow: hidden;
+}
+
 .copy-card code {
   font-size: 0.85em;
 }

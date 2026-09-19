@@ -1,17 +1,21 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, effect, inject, Injector, input, OnDestroy, output, signal, untracked } from '@angular/core';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import type { CopyConfirmPayload, DiffReviewStatus } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { HITL_BTN_SPINNER_TYPE, newHitlBtnSpinnerName, scheduleHitlBtnSpinner } from '../../chat/hitl-btn-spinner';
 
 @Component({
   selector: 'app-copy-confirm',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgxSpinnerComponent],
   templateUrl: './copy-confirm.html',
   styleUrl: './copy-confirm.css',
 })
-export class CopyConfirmComponent {
+export class CopyConfirmComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
 
   readonly payload = input.required<CopyConfirmPayload>();
   readonly conversationId = input<string | null>(null);
@@ -25,7 +29,20 @@ export class CopyConfirmComponent {
   }>();
 
   readonly busy = signal(false);
+  readonly busySpinnerName = newHitlBtnSpinnerName('copy');
+  readonly busySpinnerType = HITL_BTN_SPINNER_TYPE;
   private continueSent = false;
+
+  constructor() {
+    effect(() => {
+      const loading = this.busy();
+      untracked(() => scheduleHitlBtnSpinner(this.ngxSpinner, this.busySpinnerName, loading, this.inj));
+    });
+  }
+
+  ngOnDestroy(): void {
+    void this.ngxSpinner.hide(this.busySpinnerName);
+  }
 
   copyCountLabel(): string {
     const count = this.payload().copies.length;

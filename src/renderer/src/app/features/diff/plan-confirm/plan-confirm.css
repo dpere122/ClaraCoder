@@ -1,3 +1,8 @@
+app-plan-confirm .plan-confirm-card {
+  border-radius: 1rem !important;
+  overflow: hidden;
+}
+
 app-plan-confirm .plan-confirm-steps {
   padding-left: 1.25rem;
 }

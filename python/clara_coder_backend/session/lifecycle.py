@@ -14,7 +14,11 @@ logger = logging.getLogger('clara.session.lifecycle')
 
 
 def clear_session_hitl_fields(sess: SessionState) -> None:
-    """Drop live HITL/pause fields without touching workspace or LSP attachment."""
+    """Drop live HITL/pause fields without touching workspace or LSP attachment.
+
+    Leaves ``admin_elevation_granted`` in place — that is a standing conversation
+    grant (composer Admin chip), not a pending approval card.
+    """
     hitl = sess.hitl
     hitl.pending_diff_payload = None
     hitl.pending_staged_transfer_hitl = None

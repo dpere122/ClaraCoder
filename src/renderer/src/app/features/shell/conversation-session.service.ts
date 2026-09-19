@@ -762,6 +762,10 @@ export class ConversationSessionService {
     await this.electron.setLastActiveConversation(key, conv.id);
   }
 
+  appendLocalHitlArtifact(conversationId: string, artifact: ChatMessage): void {
+    this.appendHitlArtifact(conversationId, artifact);
+  }
+
   private appendHitlArtifact(
     conversationId: string,
     artifact: ChatMessage,

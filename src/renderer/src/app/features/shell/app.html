@@ -384,6 +384,9 @@
                 [remainingTokens]='contextCapacity().remainingTokens'
                 [usedPercentage]='contextCapacity().usedPercentage'
                 [(autoApplyMode)]='autoApplyMode'
+                [(adminElevationGranted)]='adminElevationGranted'
+                [adminElevationPending]='adminElevationPending()'
+                (adminGrantRequested)='onAdminGrantRequested()'
                 (reasoningEffortChange)='onReasoningEffortChange($event)'
               />
               @if (creatingConversation()) {
@@ -494,6 +497,9 @@
         [remainingTokens]='contextCapacity().remainingTokens'
         [usedPercentage]='contextCapacity().usedPercentage'
         [(autoApplyMode)]='autoApplyMode'
+        [(adminElevationGranted)]='adminElevationGranted'
+        [adminElevationPending]='adminElevationPending()'
+        (adminGrantRequested)='onAdminGrantRequested()'
         (reasoningEffortChange)='onReasoningEffortChange($event)'
       />
     </div>

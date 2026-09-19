@@ -1,9 +1,12 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import type { HitlTrailArtifact } from '@shared/index';
 import { lucideAppProviders } from '../../../lucide-setup';
 import { ElectronService } from '../../../core/electron.service';
+import type { ChatMessage } from '../chat-box/chat-box';
+import { ConversationSessionService } from '../../shell/conversation-session.service';
 import { HitlComposerDockComponent } from './hitl-composer-dock';
 
 describe('HitlComposerDockComponent', () => {
@@ -27,6 +30,14 @@ describe('HitlComposerDockComponent', () => {
           provide: ElectronService,
           useValue: {
             notifyAgentContinue: vi.fn(async () => ({ ok: true })),
+          },
+        },
+        {
+          // app-diff-apply -> PendingDiffReviewService reads these two signals.
+          provide: ConversationSessionService,
+          useValue: {
+            activeConversationId: signal<string | null>(null),
+            messages: signal<ChatMessage[]>([]),
           },
         },
       ],

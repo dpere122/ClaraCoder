@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import type { LlmStatusPayload } from '../../../shared';
-import { pythonControlFetch, pythonSsePost } from '../../python/http-client';
+import { pythonControlFetch, pythonLongFetch, pythonSsePost } from '../../python/http-client';
 import { ensurePythonReady } from '../../python/server';
 import {
   assertTrustedAppRenderer,
@@ -85,6 +85,7 @@ export function registerChatIpc(): void {
       speechEnabled = false,
       ttsProvider = 'kokoro',
       userMessageId = '',
+      adminElevationGranted = false,
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
@@ -98,6 +99,7 @@ export function registerChatIpc(): void {
         message: msg,
         apply_mode: applyMode,
         auto_apply_mode: autoApplyMode,
+        admin_elevation_granted: !!adminElevationGranted,
         composer_mode: composerMode,
         speech_enabled: !!speechEnabled,
         tts_provider: ttsProvider === 'openai-compatible' ? 'openai-compatible' : 'kokoro',
@@ -185,7 +187,7 @@ export function registerChatIpc(): void {
       deleteRequestId?: string,
       copyAction?: 'confirm' | 'cancel',
       copyRequestId?: string,
-      acceptCommandAction?: 'confirm' | 'cancel',
+      acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
       stagedTransferRequestId?: string,
@@ -382,6 +384,38 @@ export function registerChatIpc(): void {
       return { ok: true };
     } catch (err) {
       console.error('sync-auto-apply-mode failed:', err);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('sync-admin-elevation', async (event, conversationId: string, granted: boolean) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false, error: 'Untrusted IPC sender' };
+    }
+    try {
+      await ensurePythonReady();
+      const res = await pythonLongFetch('/session/admin-elevation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: conversationId, granted: !!granted }),
+      });
+      const text = await res.text();
+      let body: { ok?: boolean; granted?: boolean; error?: string } = {};
+      if (text) {
+        try {
+          body = JSON.parse(text) as { ok?: boolean; granted?: boolean; error?: string };
+        } catch {
+          body = {};
+        }
+      }
+      if (!res.ok || body.ok === false) {
+        return { ok: false, error: body.error || text || `HTTP ${res.status}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      console.error('sync-admin-elevation failed:', err);
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });

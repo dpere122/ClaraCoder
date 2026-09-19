@@ -407,36 +407,69 @@
   border-color: #e05050;
 }
 
-.composer-auto-run {
+.composer-toggle-chips {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  flex-wrap: nowrap;
+  gap: 0.2rem;
+  padding: 0.12rem;
+  border: 1px solid var(--t-border);
+  border-radius: 999px !important;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
   margin: 0;
+  padding: 0.12rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px !important;
+  background: transparent;
+  color: var(--t-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
   cursor: pointer;
   user-select: none;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
-.composer-auto-run-checkbox {
-  width: 0.85rem;
-  height: 0.85rem;
-  margin: 0;
-  flex-shrink: 0;
-  accent-color: var(--t-primary);
-  cursor: pointer;
+.composer-chip:hover {
+  color: var(--t-fg);
 }
 
-.composer-auto-run-checkbox:focus-visible {
+.composer-chip:focus-visible {
   outline: 2px solid var(--t-primary);
   outline-offset: 1px;
 }
 
-.composer-auto-run-label {
-  color: var(--t-secondary);
-  font-size: 0.75rem;
+.composer-chip--auto.composer-chip--active {
+  color: var(--t-confirm, var(--t-primary));
+  border-color: color-mix(in srgb, var(--t-confirm, var(--t-primary)) 55%, transparent);
+  background: color-mix(in srgb, var(--t-confirm, var(--t-primary)) 16%, transparent);
 }
 
-.composer-auto-run:hover .composer-auto-run-label {
-  color: var(--t-fg);
+.composer-chip--admin.composer-chip--active {
+  color: #e07070;
+  border-color: rgba(224, 80, 80, 0.55);
+  background: rgba(224, 80, 80, 0.18);
+  box-shadow: 0 0 0 1px rgba(224, 80, 80, 0.12);
+}
+
+.composer-chip--admin.composer-chip--pending {
+  color: #e07070;
+  border-color: rgba(224, 80, 80, 0.4);
+  background: rgba(224, 80, 80, 0.1);
+  box-shadow: 0 0 0 1px rgba(224, 80, 80, 0.08);
+}
+
+.composer-chip-icon {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 :host ::ng-deep .stop-icon svg {

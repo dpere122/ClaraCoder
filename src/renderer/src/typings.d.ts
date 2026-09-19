@@ -200,6 +200,7 @@ declare global {
       speechEnabled?: boolean,
       ttsProvider?: import('@shared/index').TtsProvider,
       userMessageId?: string,
+      adminElevationGranted?: boolean,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -212,7 +213,7 @@ declare global {
       deleteRequestId?: string,
       copyAction?: 'confirm' | 'cancel',
       copyRequestId?: string,
-      acceptCommandAction?: 'confirm' | 'cancel',
+      acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
       stagedTransferRequestId?: string,
@@ -227,6 +228,7 @@ declare global {
       answers?: { questionId: string; optionId?: string; otherText?: string }[],
     ) => Promise<{ ok: boolean; error?: string }>;
     syncAutoApplyMode: (conversationId: string, autoApplyMode: boolean) => Promise<{ ok: boolean; error?: string }>;
+    syncAdminElevation: (conversationId: string, granted: boolean) => Promise<{ ok: boolean; error?: string }>;
     backgroundCommandTerminalClosed: (
       conversationId: string,
       commandId: string,

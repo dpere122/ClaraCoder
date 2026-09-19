@@ -13,7 +13,7 @@
   line-height: 1.2;
   padding: 0.2rem 0.7rem;
   border: 1px solid transparent;
-  border-radius: 0;
+  border-radius: 999px !important;
   cursor: pointer;
   text-decoration: none;
   transition:
@@ -171,9 +171,25 @@
   color: var(--t-log-level-error);
 }
 
+/* Same inline host as the managed llama-server Start button. */
 .hitl-btn-spinner-host {
   position: relative;
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 1.2rem;
+  height: 1rem;
   flex-shrink: 0;
+  pointer-events: none;
+}
+
+.hitl-btn-spinner-host ngx-spinner {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hitl-btn-spinner-host .ngx-spinner-overlay {
+  pointer-events: none;
+  z-index: 1 !important;
 }

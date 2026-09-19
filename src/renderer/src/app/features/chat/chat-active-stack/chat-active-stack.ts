@@ -82,6 +82,7 @@ export class ChatActiveStackComponent implements OnDestroy {
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+    action?: 'confirm' | 'confirm_session' | 'cancel';
   }>();
   readonly copyReviewFinished = output<{
     requestId: string;
@@ -135,6 +136,9 @@ export class ChatActiveStackComponent implements OnDestroy {
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
   readonly autoApplyMode = model(false);
+  readonly adminElevationGranted = model(false);
+  readonly adminElevationPending = input(false);
+  readonly adminGrantRequested = output<void>();
   readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
 
   protected readonly resolvedContainerSize = computed(() =>

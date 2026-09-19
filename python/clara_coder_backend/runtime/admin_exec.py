@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 _BROKERS: dict[str, 'BrokerClient'] = {}
+#: Per-session launch lock so two concurrent elevated calls cannot spawn two
+#: helpers (and two UAC / polkit prompts) for the same chat session.
+_LAUNCH_LOCKS: dict[str, asyncio.Lock] = {}
 _LAUNCH_TIMEOUT_SEC = 300.0
 
 
@@ -152,8 +155,12 @@ class BrokerClient:
             for handle in list(self.jobs.values()):
                 handle._finish(1)
             self.jobs.clear()
-            if not self.persist:
+            # A dead client is useless whether or not it was persistent: drop it
+            # so the next elevated call relaunches, and reclaim its temp files.
+            if _BROKERS.get(self.session_id) is self:
                 _BROKERS.pop(self.session_id, None)
+            _cleanup_path(self.config_path)
+            _cleanup_path(self.port_file)
 
     async def start_job(
         self,
@@ -220,7 +227,9 @@ class BrokerClient:
                 await self._reader_task
             except (asyncio.CancelledError, Exception):
                 pass
-        if self.pid and not is_currently_privileged():
+        # Best effort only: an unelevated sidecar usually cannot signal the
+        # elevated helper. The broker exits by itself once its client is gone.
+        if self.pid:
             await _kill_pid(self.pid)
         _cleanup_path(self.config_path)
         _cleanup_path(self.port_file)
@@ -324,24 +333,35 @@ def _launch_windows_runas(python_exe: str, params: str, cwd: str) -> tuple[int |
         )
 
     see_mask_nocloseprocess = 0x00000040
+    #: Required when calling from a thread that may exit before the operation
+    #: completes (we run this in ``asyncio.to_thread``).
+    see_mask_noasync = 0x00000100
     sw_hide = 0
     error_cancelled = 1223
+    shell32 = ctypes.WinDLL('shell32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    shell32.ShellExecuteExW.argtypes = (ctypes.POINTER(SHELLEXECUTEINFOW),)
+    shell32.ShellExecuteExW.restype = wintypes.BOOL
+    kernel32.GetProcessId.argtypes = (wintypes.HANDLE,)
+    kernel32.GetProcessId.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
     info = SHELLEXECUTEINFOW()
     info.cbSize = ctypes.sizeof(info)
-    info.fMask = see_mask_nocloseprocess
+    info.fMask = see_mask_nocloseprocess | see_mask_noasync
     info.lpVerb = 'runas'
     info.lpFile = python_exe
     info.lpParameters = params
     info.lpDirectory = cwd
     info.nShow = sw_hide
-    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
-        err = ctypes.GetLastError()
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        err = ctypes.get_last_error()
         if err == error_cancelled:
             return None, 'User cancelled the administrator prompt.'
         return None, f'Tool error: failed to start elevated helper (Win32 error {err}).'
-    pid = int(ctypes.windll.kernel32.GetProcessId(info.hProcess)) if info.hProcess else 0
+    pid = int(kernel32.GetProcessId(info.hProcess)) if info.hProcess else 0
     if info.hProcess:
-        ctypes.windll.kernel32.CloseHandle(info.hProcess)
+        kernel32.CloseHandle(info.hProcess)
     return (pid or None), None
 
 
@@ -380,14 +400,17 @@ async def _launch_broker_process(config_path: Path, port_file: Path) -> tuple[in
         )
     env_bin = shutil.which('env') or '/usr/bin/env'
     try:
+        # stderr is discarded on purpose: nobody drains it, and a PIPE that is
+        # never read would block pkexec / the helper once the buffer fills.
         proc = await asyncio.create_subprocess_exec(
             pkexec,
             env_bin,
             f'PYTHONPATH={root}',
             python_exe,
             *module_args,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
     except OSError as exc:
         return None, f'Tool error: failed to start pkexec: {exc}'
@@ -428,8 +451,20 @@ async def _connect_broker(session_id: str, *, persist: bool, token: str, port: i
 
 
 async def ensure_session_broker(session_id: str, *, persist: bool) -> tuple[BrokerClient | None, str | None]:
-    """Return a live broker for ``session_id``, launching one if needed."""
+    """Return a live broker for ``session_id``, launching one if needed.
 
+    Serialized per session: concurrent callers wait for the first launch
+    instead of each showing their own UAC / polkit prompt.
+    """
+
+    lock = _LAUNCH_LOCKS.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        return await _ensure_session_broker_locked(session_id, persist=persist)
+
+
+async def _ensure_session_broker_locked(
+    session_id: str, *, persist: bool
+) -> tuple[BrokerClient | None, str | None]:
     existing = _BROKERS.get(session_id)
     if existing is not None and existing._alive:
         if persist:
@@ -464,15 +499,20 @@ async def ensure_session_broker(session_id: str, *, persist: bool) -> tuple[Brok
             handle = ctypes.windll.kernel32.OpenProcess(process_query_limited, False, int(pid))
             if not handle:
                 return True
-            code = ctypes.wintypes.DWORD()
+            code = wintypes.DWORD()
             ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
             ctypes.windll.kernel32.CloseHandle(handle)
             return bool(ok) and int(code.value) != still_active
         try:
             os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            # pkexec has already become root: signalling it is denied, but it is alive.
             return False
         except OSError:
             return True
+        return False
 
     port, ready_pid, wait_err = await _wait_port_file(
         port_file,
@@ -546,6 +586,9 @@ async def shutdown_session_broker(session_id: str) -> None:
     """Stop the elevated helper for a chat session."""
 
     client = _BROKERS.pop(session_id, None)
+    lock = _LAUNCH_LOCKS.get(session_id)
+    if lock is not None and not lock.locked():
+        _LAUNCH_LOCKS.pop(session_id, None)
     if client is None:
         return
     await client.close()

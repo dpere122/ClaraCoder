@@ -176,6 +176,13 @@ async def test_list_background_commands_and_session_cleanup(command_session) -> 
         ('sudo -- apt install foo', False, 'apt install foo', True),
         ('sudo -n apt install foo', False, 'apt install foo', True),
         ('sudo -E -- id', True, 'id', True),
+        ('sudo -u root -- id', False, 'id', True),
+        # The real command is returned verbatim: quoting and inner spacing survive.
+        ('sudo echo "a   b"   c', False, 'echo "a   b"   c', True),
+        ("sudo\tsh -c 'echo  x'", False, "sh -c 'echo  x'", True),
+        ('echo "a   b"', False, 'echo "a   b"', False),
+        ('sudo', False, '', True),
+        ('sudoedit /etc/hosts', False, 'sudoedit /etc/hosts', False),
     ],
 )
 def test_normalize_run_command_elevation(

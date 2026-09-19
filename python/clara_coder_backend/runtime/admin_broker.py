@@ -76,23 +76,54 @@ async def _terminate_tree(proc: asyncio.subprocess.Process) -> None:
         pass
 
 
+#: Exit if the sidecar never authenticates (it connects within ~100ms of the port file appearing).
+_IDLE_EXIT_SEC = 60.0
+
+
 class _Broker:
+    """One elevated helper serving exactly one authenticated sidecar connection.
+
+    The unelevated sidecar cannot kill this process, so the broker must exit on
+    its own: after a ``shutdown`` op, when the authenticated client disconnects,
+    or when nobody authenticates within ``_IDLE_EXIT_SEC``.
+    """
+
     def __init__(self, token: str) -> None:
         self.token = token
         self.jobs: dict[str, asyncio.subprocess.Process] = {}
         self._closing = False
+        self._authenticated = False
+        #: Serialize writes: ``_pump`` tasks and the serve loop share one writer,
+        #: and concurrent ``drain()`` under backpressure asserts on Python < 3.12.
+        self._write_lock = asyncio.Lock()
+        self.done = asyncio.Event()
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self._authenticated
+
+    async def _send(self, writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
+        async with self._write_lock:
+            writer.write(_json_line(payload))
+            await writer.drain()
 
     async def serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        authenticated_here = False
         try:
             hello = await self._read_msg(reader)
             if hello is None:
                 return
-            if hello.get('op') != 'hello' or not tokens_match(str(hello.get('token') or ''), self.token):
-                writer.write(_json_line({'op': 'hello_err', 'error': 'invalid token'}))
-                await writer.drain()
+            if (
+                self._authenticated
+                or self._closing
+                or hello.get('op') != 'hello'
+                or not tokens_match(str(hello.get('token') or ''), self.token)
+            ):
+                await self._send(writer, {'op': 'hello_err', 'error': 'invalid token'})
                 return
-            writer.write(_json_line({'op': 'hello_ok'}))
-            await writer.drain()
+            self._authenticated = True
+            authenticated_here = True
+            await self._send(writer, {'op': 'hello_ok'})
             while not self._closing:
                 msg = await self._read_msg(reader)
                 if msg is None:
@@ -105,18 +136,24 @@ class _Broker:
                 elif op == 'shutdown':
                     self._closing = True
                     await self._kill_all()
-                    writer.write(_json_line({'op': 'bye'}))
-                    await writer.drain()
+                    await self._send(writer, {'op': 'bye'})
                     break
                 else:
-                    writer.write(_json_line({'op': 'error', 'error': f'unknown op `{op}`'}))
-                    await writer.drain()
+                    await self._send(writer, {'op': 'error', 'error': f'unknown op `{op}`'})
+        except (ConnectionError, OSError):
+            pass
         finally:
             try:
                 writer.close()
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
+            if authenticated_here:
+                # The sidecar is gone (clean shutdown or crash): nothing else may
+                # ever drive this helper, so tear down the jobs and exit.
+                self._closing = True
+                await self._kill_all()
+                self.done.set()
 
     async def _read_msg(self, reader: asyncio.StreamReader) -> dict[str, Any] | None:
         raw = await reader.readline()
@@ -137,12 +174,10 @@ class _Broker:
         if isinstance(env_raw, dict):
             env = {str(k): str(v) for k, v in env_raw.items() if v is not None}
         if not job_id or not command.strip():
-            writer.write(_json_line({'op': 'run_err', 'job_id': job_id, 'error': 'missing job_id or command'}))
-            await writer.drain()
+            await self._send(writer, {'op': 'run_err', 'job_id': job_id, 'error': 'missing job_id or command'})
             return
         if job_id in self.jobs:
-            writer.write(_json_line({'op': 'run_err', 'job_id': job_id, 'error': 'duplicate job_id'}))
-            await writer.drain()
+            await self._send(writer, {'op': 'run_err', 'job_id': job_id, 'error': 'duplicate job_id'})
             return
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -155,8 +190,7 @@ class _Broker:
                 start_new_session=True,
             )
         except OSError as exc:
-            writer.write(_json_line({'op': 'run_err', 'job_id': job_id, 'error': str(exc)}))
-            await writer.drain()
+            await self._send(writer, {'op': 'run_err', 'job_id': job_id, 'error': str(exc)})
             return
         self.jobs[job_id] = proc
         asyncio.create_task(self._pump(job_id, proc, writer))
@@ -174,8 +208,10 @@ class _Broker:
                     block = await stdout.read(_READ_BLOCK)
                     if not block:
                         break
-                    writer.write(_json_line({'op': 'data', 'job_id': job_id, 'b64': base64.b64encode(block).decode('ascii')}))
-                    await writer.drain()
+                    await self._send(
+                        writer,
+                        {'op': 'data', 'job_id': job_id, 'b64': base64.b64encode(block).decode('ascii')},
+                    )
         except (ConnectionError, OSError):
             await _terminate_tree(proc)
             return
@@ -183,8 +219,7 @@ class _Broker:
             code = await proc.wait()
             self.jobs.pop(job_id, None)
             try:
-                writer.write(_json_line({'op': 'exit', 'job_id': job_id, 'code': int(code if code is not None else 1)}))
-                await writer.drain()
+                await self._send(writer, {'op': 'exit', 'job_id': job_id, 'code': int(code if code is not None else 1)})
             except (ConnectionError, OSError):
                 pass
 
@@ -192,11 +227,10 @@ class _Broker:
         job_id = str(msg.get('job_id') or '').strip()
         proc = self.jobs.get(job_id)
         if proc is None:
-            writer.write(_json_line({'op': 'killed', 'job_id': job_id, 'ok': False}))
-        else:
-            await _terminate_tree(proc)
-            writer.write(_json_line({'op': 'killed', 'job_id': job_id, 'ok': True}))
-        await writer.drain()
+            await self._send(writer, {'op': 'killed', 'job_id': job_id, 'ok': False})
+            return
+        await _terminate_tree(proc)
+        await self._send(writer, {'op': 'killed', 'job_id': job_id, 'ok': True})
 
     async def _kill_all(self) -> None:
         for proc in list(self.jobs.values()):
@@ -204,7 +238,16 @@ class _Broker:
         self.jobs.clear()
 
 
-async def _async_main(token: str, port_file: Path) -> int:
+def _unlink_quiet(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+async def _async_main(token: str, port_file: Path, config_path: Path | None) -> int:
     broker = _Broker(token)
     server = await asyncio.start_server(broker.serve, host='127.0.0.1', port=0)
     sockets = server.sockets or []
@@ -215,8 +258,21 @@ async def _async_main(token: str, port_file: Path) -> int:
     tmp = port_file.with_suffix(port_file.suffix + '.tmp')
     tmp.write_text(payload, encoding='utf-8')
     tmp.replace(port_file)
-    async with server:
-        await server.serve_forever()
+    try:
+        async with server:
+            try:
+                await asyncio.wait_for(broker.done.wait(), timeout=_IDLE_EXIT_SEC)
+            except asyncio.TimeoutError:
+                # Idle exit unless the sidecar authenticated in time; then stay
+                # up until that connection ends (shutdown op or sidecar crash).
+                if broker.is_authenticated:
+                    await broker.done.wait()
+            await broker._kill_all()
+    finally:
+        # These live in the user's temp dir but may be owned by this elevated
+        # process (Linux sticky /tmp), so clean them up from here.
+        _unlink_quiet(port_file)
+        _unlink_quiet(config_path)
     return 0
 
 
@@ -242,8 +298,11 @@ def main(argv: list[str] | None = None) -> int:
             text = str(entry).strip()
             if text and text not in sys.path:
                 sys.path.insert(0, text)
+    # The token has been read; do not leave it on disk for other same-user
+    # processes to pick up while this elevated helper is alive.
+    _unlink_quiet(config_path)
     try:
-        return asyncio.run(_async_main(token, port_file))
+        return asyncio.run(_async_main(token, port_file, config_path))
     except KeyboardInterrupt:
         return 0
 

@@ -120,27 +120,39 @@ __all__ = [
 _LEADING_SUDO_VALUE_FLAGS = frozenset({'-u', '-g', '-C', '-D', '-p', '-r', '-t', '-U'})
 
 
+def _split_first_token(text: str) -> tuple[str, str]:
+    """``'a  b c'`` -> ``('a', 'b c')``; the remainder keeps its own internal spacing."""
+
+    parts = re.split(r'\s+', text, maxsplit=1)
+    head = parts[0] if parts else ''
+    rest = parts[1] if len(parts) > 1 else ''
+    return head, rest
+
+
 def normalize_run_command_elevation(command: str, elevate: bool = False) -> tuple[str, bool]:
-    """Strip a leading ``sudo`` (and common flags) and return ``(command, elevate)``."""
+    """Strip a leading ``sudo`` (and common flags) and return ``(command, elevate)``.
+
+    Only the ``sudo …`` prefix is consumed; the rest of the line is returned
+    verbatim so quoting and internal whitespace of the real command survive.
+    """
 
     text = (command or '').strip()
-    tokens = text.split()
-    if tokens and tokens[0].lower() == 'sudo':
-        index = 1
-        while index < len(tokens):
-            token = tokens[index]
-            if token == '--':
-                index += 1
-                break
-            if token in _LEADING_SUDO_VALUE_FLAGS:
-                index += 2
-                continue
-            if token.startswith('-'):
-                index += 1
-                continue
+    head, rest = _split_first_token(text)
+    if head.lower() != 'sudo':
+        return text, bool(elevate)
+    while rest:
+        token, remainder = _split_first_token(rest)
+        if token == '--':
+            rest = remainder
             break
-        return ' '.join(tokens[index:]), True
-    return text, bool(elevate)
+        if token in _LEADING_SUDO_VALUE_FLAGS:
+            _, rest = _split_first_token(remainder)
+            continue
+        if token.startswith('-'):
+            rest = remainder
+            continue
+        break
+    return rest, True
 
 
 @dataclass

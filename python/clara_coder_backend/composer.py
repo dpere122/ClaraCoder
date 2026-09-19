@@ -84,6 +84,11 @@ async def stream_agent_reply(
     session.pending_plan_confirm_request = None
     session.plan_execute_aborted = False
     session.auto_apply_mode = auto_apply_mode
+    if session.admin_elevation_granted and not admin_elevation_granted:
+        # The UI says Admin is off: do not leave a live elevated helper behind.
+        from clara_coder_backend.runtime.admin_exec import shutdown_session_broker
+
+        await shutdown_session_broker(session_id)
     session.admin_elevation_granted = bool(admin_elevation_granted)
     # Remember stream flags for tools/UI that read them after this generator returns.
     session.last_stream_apply_mode = apply_mode
